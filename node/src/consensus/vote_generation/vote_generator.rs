@@ -1,5 +1,5 @@
 use std::{
-    collections::VecDeque,
+    collections::{HashSet, VecDeque},
     mem::size_of,
     sync::{
         Arc, Condvar, Mutex, MutexGuard,
@@ -138,7 +138,7 @@ impl VoteGenerator {
         // under the old policy so the bounded set of cut-recovery phases is not delayed behind
         // thousands of now-ineligible candidates.
         self.vote_generation_queue.clear();
-        self.shared_state.queues.lock().unwrap().candidates.clear();
+        self.shared_state.queues.lock().unwrap().clear_candidates();
     }
 
     #[cfg(feature = "rai_protocol")]
@@ -213,6 +213,7 @@ impl VoteGenerator {
             queues: Mutex::new(Queues {
                 requests: Default::default(),
                 candidates: Default::default(),
+                candidate_index: Default::default(),
                 next_broadcast: Instant::now(),
             }),
             is_final,
@@ -445,7 +446,7 @@ struct SharedState {
     active_elections: Arc<crate::consensus::AecService>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub(super) struct VoteCandidate {
     root: Root,
     hash: BlockHash,
@@ -532,10 +533,10 @@ impl SharedState {
         let mut batch_epoch = None;
         {
             let spacing = self.spacing.lock().unwrap();
-            while let Some(candidate) = queues.candidates.pop_front() {
+            while let Some(candidate) = queues.pop_candidate() {
                 #[cfg(feature = "rai_protocol")]
                 if batch_epoch.is_some_and(|epoch| epoch != candidate.epoch) {
-                    queues.candidates.push_front(candidate);
+                    queues.push_front_candidate(candidate);
                     break;
                 }
                 #[cfg(feature = "rai_protocol")]
@@ -546,7 +547,7 @@ impl SharedState {
                 let hash = candidate.hash;
                 let can_add_root = !roots.contains(&root);
                 if !can_add_root {
-                    queues.candidates.push_front(candidate);
+                    queues.push_front_candidate(candidate);
                     break;
                 }
                 #[cfg(feature = "rai_protocol")]
@@ -641,8 +642,6 @@ impl SharedState {
     ) where
         F: Fn(Arc<Vote>, VoteOrigin),
     {
-        #[cfg(feature = "rai_protocol")]
-        let _signing = self.history.lock_signing();
         debug_assert_eq!(hashes.len(), roots.len());
         #[cfg(feature = "rai_protocol")]
         debug_assert_eq!(hashes.len(), epochs.len());
@@ -652,6 +651,11 @@ impl SharedState {
             .lock()
             .unwrap()
             .rep_priv_keys(&mut rep_keys);
+
+        // Key retrieval does not authorize a vote. Serialize all live eligibility
+        // checks, signatures and history registration after obtaining the keys.
+        #[cfg(feature = "rai_protocol")]
+        let signing = self.history.lock_signing();
 
         #[cfg(feature = "rai_protocol")]
         if std::env::var_os("NANO_RAI_VOTE_TRACE").is_some() {
@@ -811,6 +815,19 @@ impl SharedState {
             }
         }
 
+        // Publish every signed statement to history before another phase worker
+        // can sign. Delivery may block and does not need the signing lock.
+        for (vote, vote_roots) in &votes {
+            let now = self.clock.now();
+            let mut spacing = self.spacing.lock().unwrap();
+            for (root, hash) in vote_roots.iter().zip(&vote.hashes) {
+                self.history.add(root, hash, vote);
+                spacing.flag(root, hash, now);
+            }
+        }
+        #[cfg(feature = "rai_protocol")]
+        drop(signing);
+
         #[cfg(feature = "rai_protocol")]
         for vote in replay_votes {
             self.stats
@@ -823,7 +840,7 @@ impl SharedState {
             action(vote, VoteOrigin::Replay);
         }
 
-        for (vote, vote_roots) in votes {
+        for (vote, _) in votes {
             self.stats
                 .inc(self.stat_type(), DetailType::GeneratorSignedVotes);
             self.stats.add(
@@ -831,14 +848,6 @@ impl SharedState {
                 DetailType::GeneratorSignedHashes,
                 vote.hashes.len() as u64,
             );
-            {
-                let now = self.clock.now();
-                let mut spacing = self.spacing.lock().unwrap();
-                for (root, hash) in vote_roots.iter().zip(&vote.hashes) {
-                    self.history.add(root, hash, &vote);
-                    spacing.flag(root, hash, now);
-                }
-            }
             action(vote, VoteOrigin::Signed);
         }
     }
@@ -977,7 +986,7 @@ impl SharedState {
         if !verified.is_empty() {
             let should_notify = {
                 let mut queues = self.queues.lock().unwrap();
-                queues.candidates.extend(verified);
+                queues.add_candidates(verified);
                 queues.candidates.len() >= VoteGenerator::MAX_HASHES
             };
 
@@ -998,11 +1007,40 @@ impl SharedState {
 
 struct Queues {
     candidates: VecDeque<VoteCandidate>,
+    candidate_index: HashSet<VoteCandidate>,
     requests: VecDeque<VoteRequest>,
     next_broadcast: Instant,
 }
 
 impl Queues {
+    fn pop_candidate(&mut self) -> Option<VoteCandidate> {
+        let candidate = self.candidates.pop_front()?;
+        let removed = self.candidate_index.remove(&candidate);
+        debug_assert!(removed);
+        Some(candidate)
+    }
+
+    fn push_front_candidate(&mut self, candidate: VoteCandidate) {
+        let inserted = self.candidate_index.insert(candidate.clone());
+        debug_assert!(inserted);
+        self.candidates.push_front(candidate);
+    }
+
+    fn clear_candidates(&mut self) {
+        self.candidates.clear();
+        self.candidate_index.clear();
+    }
+
+    fn add_candidates(&mut self, candidates: impl IntoIterator<Item = VoteCandidate>) {
+        for candidate in candidates {
+            // Repeated scheduler/recovery passes must not queue the same work faster
+            // than it can be broadcast, starving newly admitted slots behind duplicates.
+            if self.candidate_index.insert(candidate.clone()) {
+                self.candidates.push_back(candidate);
+            }
+        }
+    }
+
     fn should_broadcast(&self) -> bool {
         if self.candidates.len() >= ConfirmAck::HASHES_MAX {
             return true;
@@ -1048,6 +1086,95 @@ mod tests {
             Arc::new(broadcaster), Arc::new(SteadyClock::new_null()), phase,
             Arc::new(VoteGate::default()), Arc::new(AecService::new_null()));
         (generator, channel, output, key)
+    }
+
+    #[test]
+    fn repeated_scheduling_keeps_each_candidate_once_without_dropping_forks_or_epochs() {
+        let mut queues = Queues {
+            candidates: Default::default(),
+            candidate_index: Default::default(),
+            requests: Default::default(),
+            next_broadcast: Instant::now(),
+        };
+        let candidate = VoteCandidate {
+            root: Root::from(1), hash: BlockHash::from(2), epoch: 1,
+            qualified_root: QualifiedRoot::new(Root::from(1), BlockHash::ZERO).with_epoch(1),
+        };
+        queues.add_candidates(std::iter::repeat_n(candidate.clone(), 1000));
+        let mut fork = candidate.clone();
+        fork.hash = BlockHash::from(3);
+        let mut next_epoch = candidate.clone();
+        next_epoch.epoch = 2;
+        next_epoch.qualified_root = next_epoch.qualified_root.with_epoch(2);
+        queues.add_candidates([fork.clone(), next_epoch.clone(), candidate.clone()]);
+        assert_eq!(queues.candidates.len(), 3);
+        assert!(queues.candidates.contains(&fork));
+        assert!(queues.candidates.contains(&next_epoch));
+        // A deferred batch head stays first and continues suppressing duplicates.
+        assert!(queues.pop_candidate().as_ref() == Some(&candidate));
+        queues.push_front_candidate(candidate.clone());
+        queues.add_candidates([candidate.clone()]);
+        assert_eq!(queues.candidates.len(), 3);
+        assert!(queues.pop_candidate().as_ref() == Some(&candidate));
+        // Once consumed, recovery may enqueue the same candidate again at the tail.
+        queues.add_candidates([candidate.clone()]);
+        assert!(queues.pop_candidate().as_ref() == Some(&fork));
+        assert!(queues.pop_candidate().as_ref() == Some(&next_epoch));
+        assert!(queues.pop_candidate().as_ref() == Some(&candidate));
+        assert!(queues.candidate_index.is_empty());
+        queues.add_candidates([candidate.clone()]);
+        queues.clear_candidates();
+        assert!(queues.candidates.is_empty());
+        assert!(queues.candidate_index.is_empty());
+        queues.add_candidates([candidate.clone()]);
+        assert!(queues.pop_candidate().as_ref() == Some(&candidate));
+    }
+
+    #[test]
+    fn delivery_releases_signing_lock_after_registering_history() {
+        for replay in [false, true] {
+            let (generator, _, _, key) = recovery_fixture_for(VoteType::First);
+            let state = &generator.shared_state;
+            let block = rsnano_ledger::test_helpers::UnsavedBlockLatticeBuilder::new()
+                .genesis().send(100, 10);
+            let root = block.qualified_root().with_epoch(2);
+            let hash = block.hash();
+            state.active_elections.insert_vote_recovery(block, 2);
+            state.vote_gate.install_cut(2, None, [root.slot()].into());
+            if replay {
+                state.history.add(&root.root, &hash, &Arc::new(Vote::new_rai(
+                    &key, 2, VoteType::First, vec![hash],
+                )));
+            }
+            let fork = rsnano_ledger::test_helpers::UnsavedBlockLatticeBuilder::new()
+                .genesis().send(101, 10);
+            let fork_hash = fork.hash();
+            state.active_elections.insert_vote_recovery(fork, 2);
+            assert!(state.active_elections.validate_candidate_branch(&state.ledger, 2, fork_hash));
+            let worker = Mutex::new(None);
+            let progressed = Mutex::new(false);
+            state.vote(&[hash], &[root.root], &[root.clone()], &[2], replay, |_, _| {
+                let state = state.clone();
+                let root = root.clone();
+                let voter = key.public_key();
+                let (tx, rx) = std::sync::mpsc::channel();
+                *worker.lock().unwrap() = Some(thread::spawn(move || {
+                    // Another phase worker must see the signed statement even while
+                    // its delivery is blocked. It can acquire the lock immediately.
+                    let registered = {
+                        let _signing = state.history.lock_signing();
+                        state.history.has_first_vote(&root.root, 2, voter)
+                    };
+                    let conflicting = Mutex::new(false);
+                    state.vote(&[fork_hash], &[root.root], &[root], &[2], false,
+                        |_, _| *conflicting.lock().unwrap() = true);
+                    let _ = tx.send(registered && !*conflicting.lock().unwrap());
+                }));
+                *progressed.lock().unwrap() = rx.recv_timeout(Duration::from_secs(2)) == Ok(true);
+            });
+            worker.into_inner().unwrap().expect("vote was delivered").join().unwrap();
+            assert!(*progressed.lock().unwrap(), "delivery held the signing lock or history was missing");
+        }
     }
 
     #[test]
