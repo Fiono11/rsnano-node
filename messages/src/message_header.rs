@@ -43,6 +43,8 @@ pub enum MessageType {
     EpochStart = 0x14,
     #[cfg(feature = "rai_protocol")]
     EpochFinalization = 0x15,
+    #[cfg(feature = "rai_protocol")]
+    EpochReportRequest = 0x16,
 }
 
 impl MessageType {
@@ -75,13 +77,15 @@ impl MessageType {
             MessageType::EpochStart => "epoch_start",
             #[cfg(feature = "rai_protocol")]
             MessageType::EpochFinalization => "epoch_finalization",
+            #[cfg(feature = "rai_protocol")]
+            MessageType::EpochReportRequest => "epoch_report_request",
         }
     }
 
     pub const fn max_id() -> usize {
         #[cfg(feature = "rai_protocol")]
         {
-            Self::EpochFinalization as usize
+            Self::EpochReportRequest as usize
         }
         #[cfg(all(not(feature = "rai_protocol"), feature = "ledger_snapshots"))]
         {
@@ -219,6 +223,8 @@ impl MessageHeader {
             MessageType::EpochStart => EpochStart::SERIALIZED_SIZE,
             #[cfg(feature = "rai_protocol")]
             MessageType::EpochFinalization => EpochFinalization::SERIALIZED_SIZE,
+            #[cfg(feature = "rai_protocol")]
+            MessageType::EpochReportRequest => EpochReportRequest::SERIALIZED_SIZE,
             MessageType::Invalid | MessageType::NotAType => {
                 debug_assert!(false);
                 0
@@ -287,7 +293,8 @@ impl From<MessageType> for DetailType {
             #[cfg(feature = "rai_protocol")]
             MessageType::EpochReportChunk
             | MessageType::EpochStart
-            | MessageType::EpochFinalization => DetailType::Generic,
+            | MessageType::EpochFinalization
+            | MessageType::EpochReportRequest => DetailType::Generic,
         }
     }
 }
@@ -295,6 +302,12 @@ impl From<MessageType> for DetailType {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn max_id_covers_every_message_type() {
+        use strum::IntoEnumIterator;
+        assert_eq!(MessageType::max_id(), MessageType::iter().map(|kind| kind as usize).max().unwrap());
+    }
 
     #[test]
     fn message_header_to_string() {

@@ -52,6 +52,8 @@ pub enum VoteType {
     First,
     #[cfg(feature = "rai_protocol")]
     Timeout,
+    #[cfg(feature = "rai_protocol")]
+    FirstTimeout,
 }
 
 impl VoteError {
@@ -114,6 +116,7 @@ impl Vote {
         assert!(epoch > 0, "RAI network epochs start at one");
         let (timestamp, duration) = match vote_type {
             VoteType::Timeout => (UnixMillisTimestamp::ZERO, 0),
+            VoteType::FirstTimeout => (UnixMillisTimestamp::ZERO, 2),
             VoteType::First => (UnixMillisTimestamp::ZERO, 1),
             VoteType::NonFinal => (UnixMillisTimestamp::now(), 9),
             VoteType::Final => (Self::TIMESTAMP_MAX, Self::DURATION_MAX),
@@ -165,12 +168,12 @@ impl Vote {
 
     #[cfg(feature = "rai_protocol")]
     pub fn is_first(&self) -> bool {
-        self.timestamp.rai_vote_type() == VoteType::First
+        matches!(self.timestamp.rai_vote_type(), VoteType::First | VoteType::FirstTimeout)
     }
 
     #[cfg(feature = "rai_protocol")]
     pub fn is_timeout(&self) -> bool {
-        self.timestamp.rai_vote_type() == VoteType::Timeout
+        matches!(self.timestamp.rai_vote_type(), VoteType::Timeout | VoteType::FirstTimeout)
     }
 
     #[cfg(feature = "rai_protocol")]
@@ -374,6 +377,20 @@ mod rai_tests {
             VoteType::NonFinal
         );
         assert_eq!(Vote::new_final(&key, vec![]).vote_type(), VoteType::Final);
+    }
+
+    #[test]
+    fn timeout_first_phase_is_serialized_and_signed_separately() {
+        let key = PrivateKey::from(7);
+        let vote = Vote::new_rai(&key, 2, VoteType::FirstTimeout, vec![BlockHash::from(9)]);
+        let mut bytes = Vec::new();
+        vote.serialize(&mut bytes).unwrap();
+        let decoded = Vote::deserialize(&bytes).unwrap();
+        assert_eq!(decoded.vote_type(), VoteType::FirstTimeout);
+        assert!(decoded.validate().is_ok());
+        let mut changed = Vote::new_rai(&key, 2, VoteType::Timeout, vote.hashes.clone());
+        changed.signature = vote.signature;
+        assert!(changed.validate().is_err());
     }
 
     #[test]

@@ -71,6 +71,10 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
                 }
             }
             AecFact::ElectionConfirmed(election) => {
+                #[cfg(feature = "rai_protocol")]
+                self.block_processor_queue.push(BlockContext::new(
+                    election.winner.clone().into(), BlockSource::Forced, ChannelId::LOOPBACK,
+                ));
                 self.confirming_set.add(election.clone());
                 // We don't rebroadcast winners during bootstrap, because it would just
                 // spam the network with blocks that the other nodes already have
@@ -126,7 +130,8 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
                 self.local_votes_remover
                     .remove_local_votes(&previous_winner, &new_winner.qualified_root());
 
-                // Roll back the previous winner and add the new winner to the ledger
+                // RAI installs forks only on finalization, not on provisional tally changes.
+                #[cfg(not(feature = "rai_protocol"))]
                 self.block_processor_queue.push(BlockContext::new(
                     new_winner.clone(),
                     BlockSource::Forced,

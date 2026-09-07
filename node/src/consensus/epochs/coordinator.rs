@@ -6,7 +6,7 @@ use crate::{
     wallets::WalletRepresentatives,
 };
 use rsnano_ledger::{AnySet, Ledger, LedgerSet};
-use rsnano_messages::{ConfirmReq, EpochFinalization, EpochReportChunk, EpochStart, Message};
+use rsnano_messages::{ConfirmReq, EpochFinalization, EpochReportChunk, EpochReportRequest, EpochStart, Message};
 use rsnano_types::{
     Blake2Hash, Blake2HashBuilder, Block, BlockHash, PrivateKey, PublicKey, SlotRoot,
 };
@@ -17,6 +17,12 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 use tracing::{error, info, warn};
+
+enum ClosureError {
+    MissingDependency,
+    Conflict,
+    FinalizedConflict(BlockHash, BlockHash),
+}
 
 enum Phase {
     Waiting,
@@ -37,6 +43,7 @@ struct PartialReport {
 #[derive(Clone)]
 struct CompleteClosure {
     finalized: HashMap<SlotRoot, BlockHash>,
+    dependency_deaths: Vec<(BlockHash, BlockHash, BlockHash)>,
     cut_winners: Vec<BlockHash>,
     cut_winners_hash: Blake2Hash,
     closure_hash: Blake2Hash,
@@ -51,6 +58,9 @@ pub struct EpochCoordinator {
     wallet_reps: Arc<Mutex<WalletRepresentatives>>,
     committee: HashSet<PublicKey>,
     reports: HashMap<PublicKey, PartialReport>,
+    next_epoch_reports: HashMap<PublicKey, PartialReport>,
+    local_report_chunks: HashMap<(u64, u16), EpochReportChunk>,
+    next_report_request_ms: u64,
     local_snapshot: HashMap<SlotRoot, BlockHash>,
     cut: HashSet<SlotRoot>,
     recovery_cut: HashSet<SlotRoot>,
@@ -70,6 +80,8 @@ pub struct EpochCoordinator {
     next_drain_log_ms: u64,
     next_finalization_broadcast_ms: u64,
     next_closure_wait_log_ms: u64,
+    last_closure_failure: Option<String>,
+    dependency_dead: HashMap<BlockHash, (BlockHash, BlockHash)>,
     next_final_vote_recovery_ms: u64,
     recovery_request_cursor: usize,
     recovery_pass_complete: bool,
@@ -143,6 +155,9 @@ impl EpochCoordinator {
             wallet_reps,
             committee,
             reports: Default::default(),
+            next_epoch_reports: Default::default(),
+            local_report_chunks: Default::default(),
+            next_report_request_ms: 0,
             local_snapshot: Default::default(),
             cut: Default::default(),
             recovery_cut: Default::default(),
@@ -162,6 +177,8 @@ impl EpochCoordinator {
             next_drain_log_ms: 0,
             next_finalization_broadcast_ms: 0,
             next_closure_wait_log_ms: 0,
+            last_closure_failure: None,
+            dependency_dead: HashMap::new(),
             next_final_vote_recovery_ms: 0,
             recovery_request_cursor: 0,
             recovery_pass_complete: false,
@@ -203,6 +220,9 @@ impl EpochCoordinator {
         self.gate.pause();
         self.aec.clear_finalized_for_epoch(start.epoch);
         self.gate.clear_finalized(start.epoch);
+        if self.closing_epoch.checked_add(1) == Some(start.epoch) {
+            self.reports = std::mem::take(&mut self.next_epoch_reports);
+        }
         self.closing_epoch = start.epoch;
         info!(
             epoch = start.epoch,
@@ -214,14 +234,20 @@ impl EpochCoordinator {
     }
 
     pub fn receive_report(&mut self, chunk: EpochReportChunk) {
-        if !matches!(self.phase, Phase::Open(_) | Phase::Collecting | Phase::Cut)
-            || !self.committee.contains(&chunk.reporter)
-            || !chunk.validate()
-            || chunk.epoch != self.closing_epoch
-        {
+        if !self.committee.contains(&chunk.reporter) || !chunk.validate() {
             return;
         }
-        let report = self.reports.entry(chunk.reporter).or_default();
+        // A peer may have collected the previous epoch's unanimous close before
+        // us. Retain its next-epoch report without changing the current cut.
+        let future = self.closing_epoch.checked_add(1) == Some(chunk.epoch);
+        let reports = if future {
+            &mut self.next_epoch_reports
+        } else if chunk.epoch == self.closing_epoch {
+            &mut self.reports
+        } else {
+            return;
+        };
+        let report = reports.entry(chunk.reporter).or_default();
         if report.chunk_count == 0 {
             report.chunk_count = chunk.chunk_count;
         }
@@ -233,6 +259,9 @@ impl EpochCoordinator {
             .chunks
             .entry(chunk.chunk_index)
             .or_insert(chunk.elections);
+        if future || !matches!(self.phase, Phase::Open(_) | Phase::Collecting | Phase::Cut) {
+            return;
+        }
         let provisional_cut: HashSet<_> = self
             .reports
             .values()
@@ -241,6 +270,49 @@ impl EpochCoordinator {
         self.reclassified_elections += self
             .aec
             .install_epoch_cut(self.closing_epoch, provisional_cut);
+    }
+
+    pub fn receive_report_request(&mut self, request: EpochReportRequest) {
+        if let Some(chunk) = self.report_response(&request) {
+            self.flooder.lock().unwrap().try_send_to_rep_once(&request.requester,
+                &Message::EpochReportChunk(chunk));
+        }
+    }
+
+    fn report_response(&self, request: &EpochReportRequest) -> Option<EpochReportChunk> {
+        if !self.committee.contains(&request.requester) || !request.validate() {
+            return None;
+        }
+        self.local_report_chunks.get(&(request.epoch, request.chunk_index)).cloned()
+    }
+
+    fn missing_report_requests(&self) -> Vec<(PublicKey, EpochReportRequest)> {
+        let Some(key) = self.committee_key() else { return Vec::new(); };
+        let mut requests = Vec::new();
+        for reporter in &self.committee {
+            if *reporter == key.public_key() { continue; }
+            let missing = match self.reports.get(reporter) {
+                None => Some(0),
+                Some(report) => (0..report.chunk_count)
+                    .find(|index| !report.chunks.contains_key(index)),
+            };
+            if let Some(index) = missing {
+                requests.push((*reporter, EpochReportRequest::new(self.closing_epoch, &key, index)));
+            }
+        }
+        requests
+    }
+
+    fn request_missing_reports(&mut self, now: u64) {
+        if !matches!(self.phase, Phase::Collecting) || now < self.next_report_request_ms {
+            return;
+        }
+        let requests = self.missing_report_requests();
+        let mut flooder = self.flooder.lock().unwrap();
+        for (reporter, request) in requests {
+            flooder.try_send_to_rep_once(&reporter, &Message::EpochReportRequest(request));
+        }
+        self.next_report_request_ms = now + 1_000;
     }
 
     pub fn receive_finalization(&mut self, report: EpochFinalization) {
@@ -318,6 +390,7 @@ impl EpochCoordinator {
         self.phase = Phase::Collecting;
         for (index, elections) in chunks.into_iter().enumerate() {
             let chunk = EpochReportChunk::new(epoch, &key, index as u16, chunk_count, elections);
+            self.local_report_chunks.entry((epoch, index as u16)).or_insert(chunk.clone());
             self.receive_report(chunk.clone());
             let sent = self
                 .flooder
@@ -518,42 +591,205 @@ impl EpochCoordinator {
     }
 
     fn dependency_closure(
+        &mut self, epoch: u64, roots: HashMap<SlotRoot, BlockHash>,
+    ) -> Option<HashMap<SlotRoot, BlockHash>> {
+        self.checked_dependency_closure(epoch, roots).ok()
+    }
+
+    fn checked_dependency_closure(
         &mut self,
         epoch: u64,
         roots: HashMap<SlotRoot, BlockHash>,
-    ) -> Option<HashMap<SlotRoot, BlockHash>> {
+    ) -> Result<HashMap<SlotRoot, BlockHash>, ClosureError> {
         let any = self.ledger.any();
-        let mut pending: Vec<_> = roots.values().copied().collect();
+        let mut pending: Vec<_> = roots.values().map(|hash| (*hash, *hash)).collect();
         let mut seen = HashSet::new();
         let mut closure = HashMap::new();
+        let mut origins = HashMap::new();
         let mut complete = true;
-        while let Some(hash) = pending.pop() {
+        while let Some((hash, origin)) = pending.pop() {
             if hash.is_zero() || hash == self.ledger.constants.genesis_block.hash() || !seen.insert(hash) {
                 continue;
             }
             let block = any.get_block(&hash).map(rsnano_types::MaybeSavedBlock::Saved)
-                .or_else(|| self.aec.candidate_block(epoch, &hash));
+                .or_else(|| self.aec.dependency_block(&hash));
             let Some(block) = block else {
                 self.missing_vote_blocks.insert((epoch, hash));
+                self.last_closure_failure = Some(format!(
+                    "missing dependency: epoch={epoch} hash={hash} origin={origin}"
+                ));
                 complete = false;
                 continue;
             };
             let slot = block.qualified_root().slot();
+            let finalized = self.aec.earliest_election(slot).and_then(|(_, hash)| hash)
+                .or_else(|| any.block_successor_by_qualified_root(&block.qualified_root())
+                    .filter(|winner| any.confirmed().block_exists(winner)));
+            if let Some(winner) = finalized.filter(|winner| *winner != hash) {
+                self.last_closure_failure = Some(format!(
+                    "conflicting finalized dependency: epoch={epoch} hash={hash} winner={winner} origin={origin}"
+                ));
+                return Err(ClosureError::FinalizedConflict(hash, winner));
+            }
             // An earlier finalized dependency keeps its epoch; a sealed assignment
             // cannot move even when an older certificate arrives later.
             if self.aec.finalization_epoch(slot, epoch) != epoch {
                 continue;
             }
-            if closure.insert(slot, hash).is_some_and(|other| other != hash) {
-                return None;
+            if let Some(other) = closure.insert(slot, hash)
+                && other != hash
+            {
+                let finalized = self.aec.finalized_for_epoch(epoch);
+                let other_origin = origins[&slot];
+                self.last_closure_failure = Some(format!(
+                    "conflicting dependencies: epoch={epoch} slot={slot:?} hash_a={other} origin_a={other_origin} origin_a_finalized={} hash_b={hash} origin_b={origin} origin_b_finalized={}",
+                    finalized.values().any(|hash| *hash == other_origin),
+                    finalized.values().any(|hash| *hash == origin),
+                ));
+                return Err(ClosureError::Conflict);
             }
+            origins.insert(slot, origin);
             let dependencies = match &block {
                 rsnano_types::MaybeSavedBlock::Saved(block) => any.block_dependencies(block),
+                rsnano_types::MaybeSavedBlock::Unsaved(Block::State(state))
+                    if !block.previous().is_zero()
+                        && !self.ledger.constants.epochs.is_epoch_link(&state.link()) =>
+                {
+                    let previous = block.previous();
+                    // A rolled-back predecessor can still be part of this closure. The
+                    // ledger-only dependency finder assumes zero when its balance is absent,
+                    // mistaking a send's recipient account for a receive's source block.
+                    let previous_balance = any.block_balance(&previous).or_else(|| {
+                        self.aec.dependency_block(&previous).and_then(|parent| {
+                            match parent {
+                                rsnano_types::MaybeSavedBlock::Saved(parent) => Some(parent.balance()),
+                                rsnano_types::MaybeSavedBlock::Unsaved(parent) => parent.balance_field(),
+                            }
+                        })
+                    });
+                    let Some(previous_balance) = previous_balance else {
+                        self.missing_vote_blocks.insert((epoch, previous));
+                        self.last_closure_failure = Some(format!(
+                            "unknown predecessor balance: epoch={epoch} hash={hash} previous={previous} origin={origin}"
+                        ));
+                        complete = false;
+                        pending.push((previous, origin));
+                        continue;
+                    };
+                    let source = if state.balance() < previous_balance {
+                        BlockHash::ZERO
+                    } else {
+                        state.link().into()
+                    };
+                    rsnano_types::DependentBlocks::new(previous, source)
+                }
                 rsnano_types::MaybeSavedBlock::Unsaved(block) => any.block_dependencies_for_unsaved(block),
             };
-            pending.extend(dependencies.iter());
+            pending.extend(dependencies.iter().map(|hash| (*hash, origin)));
         }
-        complete.then_some(closure)
+        if complete { Ok(closure) } else { Err(ClosureError::MissingDependency) }
+    }
+
+    /// Rank by account-chain height, then hash. A descendant reserves all its
+    /// dependencies before a competing ancestor is considered. Cross-account
+    /// dependencies participate in compatibility, but not in account height.
+    fn select_compatible_candidates(
+        &mut self,
+        epoch: u64,
+        mut selected: HashMap<SlotRoot, BlockHash>,
+        candidates: Vec<BlockHash>,
+    ) -> Option<HashMap<SlotRoot, BlockHash>> {
+        let mut ranked = Vec::new();
+        for hash in candidates {
+            let block = self.ledger.any().get_block(&hash)
+                .map(rsnano_types::MaybeSavedBlock::Saved)
+                .or_else(|| self.aec.dependency_block(&hash));
+            let Some(block) = block else {
+                self.missing_vote_blocks.insert((epoch, hash));
+                self.last_closure_failure = Some(format!("missing selection candidate: {hash}"));
+                return None;
+            };
+            let closure = match self.checked_dependency_closure(epoch,
+                [(block.qualified_root().slot(), hash)].into()) {
+                Ok(closure) => closure,
+                Err(ClosureError::Conflict | ClosureError::FinalizedConflict(..)) => continue,
+                Err(ClosureError::MissingDependency) => return None,
+            };
+            let mut height = 0u64;
+            let mut cursor = hash;
+            let mut seen = HashSet::new();
+            while !cursor.is_zero() && seen.insert(cursor) {
+                if let Some(saved) = self.ledger.any().get_block(&cursor) {
+                    height += saved.height();
+                    break;
+                }
+                let Some(parent) = self.aec.dependency_block(&cursor) else {
+                    self.missing_vote_blocks.insert((epoch, cursor));
+                    return None;
+                };
+                height += 1;
+                cursor = parent.previous();
+            }
+            ranked.push((height, hash, closure));
+        }
+        ranked.sort_unstable_by(|a, b| (b.0, b.1).cmp(&(a.0, a.1)));
+        for (_, _, closure) in ranked {
+            if closure.iter().any(|(slot, hash)| {
+                selected.get(slot).is_some_and(|other| other != hash)
+                    || self.aec.earliest_election(*slot).is_some_and(|(_, finalized)| {
+                        finalized.is_some_and(|other| other != *hash)
+                    })
+            }) {
+                continue;
+            }
+            selected.extend(closure);
+        }
+        Some(selected)
+    }
+
+    fn refresh_dependency_deaths(&mut self) {
+        let slots = self.cut.union(&self.recovery_cut).copied().collect();
+        let blocks = self.aec.cut_repair_blocks(self.closing_epoch, &slots);
+        let mut dead = HashMap::new();
+        for block in blocks {
+            if let Err(ClosureError::FinalizedConflict(dependency, winner)) =
+                self.checked_dependency_closure(self.closing_epoch,
+                    [(block.qualified_root().slot(), block.hash())].into())
+            {
+                if !self.dependency_dead.contains_key(&block.hash()) {
+                    info!(epoch = self.closing_epoch, candidate = %block.hash(),
+                        %dependency, finalized_competitor = %winner, "RAI candidate dependency dead");
+                }
+                dead.insert(block.hash(), (dependency, winner));
+            }
+        }
+        self.dependency_dead = dead;
+    }
+
+    fn unresolved_slots(&self, slots: &HashSet<SlotRoot>) -> HashSet<SlotRoot> {
+        let mut candidates: HashMap<SlotRoot, Vec<BlockHash>> = HashMap::new();
+        for block in self.aec.cut_repair_blocks(self.closing_epoch, slots) {
+            candidates.entry(block.qualified_root().slot()).or_default().push(block.hash());
+        }
+        let finalized = self.aec.finalized_for_epoch(self.closing_epoch);
+        slots.iter().filter(|slot| finalized.contains_key(slot) || !candidates.get(slot).is_some_and(|hashes|
+            !hashes.is_empty() && hashes.iter().all(|hash| self.dependency_dead.contains_key(hash))))
+            .copied().collect()
+    }
+
+    fn cut_is_resolved(&self) -> bool {
+        self.aec.terminated_cut_values(self.closing_epoch, &self.unresolved_slots(&self.cut)).is_some()
+    }
+
+    fn closure_commitment(&self, closure: &CompleteClosure) -> (Blake2Hash, u64, usize) {
+        let (hash, count, size) = self.local_finalization(&closure.finalized);
+        if closure.dependency_deaths.is_empty() { return (hash, count, size); }
+        let mut builder = Blake2HashBuilder::default().update(b"RAI/DEPENDENCY_DEATH_CLOSE/v1")
+            .update(hash.as_bytes()).update((closure.dependency_deaths.len() as u64).to_be_bytes());
+        for (candidate, dependency, winner) in &closure.dependency_deaths {
+            builder = builder.update(candidate.as_bytes()).update(dependency.as_bytes()).update(winner.as_bytes());
+        }
+        (builder.build(), count, size)
     }
 
     fn complete_cut_dependency_closure(&mut self) -> Option<CompleteClosure> {
@@ -561,24 +797,26 @@ impl EpochCoordinator {
     }
 
     fn epoch_dependency_closure(&mut self, require_complete: bool) -> Option<CompleteClosure> {
-        let cut_values = if require_complete {
-            self.aec.terminated_cut_values(self.closing_epoch, &self.cut)?
-        } else {
-            self.aec.observed_cut_values(self.closing_epoch, &self.cut)
-        };
-        let mut cut_winners: Vec<_> = cut_values.values().copied().collect();
+        self.last_closure_failure = None;
+        self.refresh_dependency_deaths();
+        if require_complete && !self.cut_is_resolved() { return None; }
+        let remaining = self.unresolved_slots(&self.cut);
+        let excluded = self.cut.difference(&remaining).copied().collect();
+        let mut dependency_deaths: Vec<_> = self.aec.cut_repair_blocks(self.closing_epoch, &excluded)
+            .iter().filter_map(|block| self.dependency_dead.get(&block.hash())
+                .map(|(dependency, winner)| (block.hash(), *dependency, *winner))).collect();
+        dependency_deaths.sort_unstable();
+        dependency_deaths.dedup();
+        let candidates = self.aec.observed_cut_candidates(self.closing_epoch, &self.cut);
+        // Certified finalizations and their ancestors are mandatory, before any ranking.
+        let finalized = self.aec.finalized_for_epoch(self.closing_epoch);
+        let finalized = self.dependency_closure(self.closing_epoch, finalized)?;
+        self.aec.merge_finalized_for_epoch(self.closing_epoch, finalized.clone());
+        let closure = self.select_compatible_candidates(self.closing_epoch, finalized, candidates)?;
+        let mut cut_winners: Vec<_> = closure.iter()
+            .filter(|(slot, _)| self.cut.contains(slot))
+            .map(|(_, hash)| *hash).collect();
         cut_winners.sort_unstable();
-        // Finalized winners bring their dependencies into this epoch, including
-        // dependencies already cemented before this winner's certificate arrived.
-        let mut closure = self.aec.finalized_for_epoch(self.closing_epoch);
-        closure = self.dependency_closure(self.closing_epoch, closure)?;
-        self.aec.merge_finalized_for_epoch(self.closing_epoch, closure.clone());
-        for (slot, hash) in cut_values {
-            closure.insert(slot, hash);
-        }
-        // Agreement finalizes the selected notarized cut values as well, so their
-        // dependencies must be committed in the same hash before the epoch is sealed.
-        let closure = self.dependency_closure(self.closing_epoch, closure)?;
         let fingerprint = |domain: &[u8], hashes: &[BlockHash]| {
             let mut builder = Blake2HashBuilder::default().update(domain);
             for hash in hashes {
@@ -586,12 +824,21 @@ impl EpochCoordinator {
             }
             builder.build()
         };
-        let cut_hash = fingerprint(b"RAI/CUT_WINNERS/v1", &cut_winners);
+        let mut cut_builder = Blake2HashBuilder::default().update(b"RAI/CUT_OUTCOMES/v1")
+            .update((cut_winners.len() as u64).to_be_bytes());
+        for hash in &cut_winners { cut_builder = cut_builder.update(hash.as_bytes()); }
+        cut_builder = cut_builder.update((dependency_deaths.len() as u64).to_be_bytes());
+        for (candidate, dependency, winner) in &dependency_deaths {
+            cut_builder = cut_builder.update(candidate.as_bytes())
+                .update(dependency.as_bytes()).update(winner.as_bytes());
+        }
+        let cut_hash = cut_builder.build();
         let mut closure_hashes: Vec<_> = closure.values().copied().collect();
         closure_hashes.sort_unstable();
         let closure_hash = fingerprint(b"RAI/CUT_CLOSURE/v1", &closure_hashes);
         Some(CompleteClosure {
             finalized: closure,
+            dependency_deaths,
             cut_winners,
             cut_winners_hash: cut_hash,
             closure_hash,
@@ -603,7 +850,7 @@ impl EpochCoordinator {
         // committed. The reported maximum count never caps this set.
         let live_closure = self.epoch_dependency_closure(false);
         self.live_epoch_hash = live_closure.as_ref()
-            .map(|closure| self.local_finalization(&closure.finalized).0);
+            .map(|closure| self.closure_commitment(&closure).0);
         let Some(key) = self.committee_key() else {
             error!("Cannot report RAI finalization: no local committee key");
             return;
@@ -615,7 +862,7 @@ impl EpochCoordinator {
         // Cementation only emits newly confirmed blocks. Reconstruct the complete closure here
         // so an already-cemented dependency is attributed identically by every PR.
         let closure = match live_closure.filter(|_| {
-            self.aec.terminated_cut_values(self.closing_epoch, &self.cut).is_some()
+            self.cut_is_resolved()
         }) {
             Some(closure) => closure,
             None => {
@@ -627,6 +874,7 @@ impl EpochCoordinator {
                 if now >= self.next_closure_wait_log_ms {
                     warn!(
                         epoch = self.closing_epoch,
+                        closure_failure = ?self.last_closure_failure,
                         "RAI epoch closure waiting for cut termination"
                     );
                     self.next_closure_wait_log_ms = now + 5_000;
@@ -647,7 +895,7 @@ impl EpochCoordinator {
             info!(?targets, "RAI diagnostic final recovery targets");
             self.next_closure_wait_log_ms = Self::now_ms() + 5_000;
         }
-        let (hash, non_cut_count, finalized_count) = self.local_finalization(&closure.finalized);
+        let (hash, non_cut_count, finalized_count) = self.closure_commitment(&closure);
         if self.finalization_round > 0 && non_cut_count < self.target_non_cut_count {
             return;
         }
@@ -682,6 +930,31 @@ impl EpochCoordinator {
         );
     }
 
+    fn install_finalized_branch(&mut self, epoch: u64, hash: BlockHash) {
+        if self.ledger.any().get_block(&hash).is_some() { return; }
+        let branch = self.ledger.validated_branch_blocks(hash,
+            |dependency| self.aec.dependency_block(dependency).map(Into::into),
+            |slot| self.aec.earliest_election(slot).and_then(|(_, winner)| winner));
+        match branch {
+            Ok(blocks) => {
+                for block in blocks {
+                    if self.ledger.any().get_block(&block.hash()).is_some() { continue; }
+                    self.ledger.roll_back_competitors([&block]);
+                    if let Err(error) = self.ledger.process_one(&block) {
+                        self.last_closure_failure = Some(format!("install finalized branch {hash}: {error:?}"));
+                        return;
+                    }
+                }
+            }
+            Err(rsnano_ledger::BranchError::Missing(missing)) => {
+                self.missing_vote_blocks.insert((epoch, missing));
+            }
+            Err(error) => {
+                self.last_closure_failure = Some(format!("invalid finalized branch {hash}: {error:?}"));
+            }
+        }
+    }
+
     fn rebroadcast_finalizations(&mut self) {
         let now = Self::now_ms();
         if now < self.next_finalization_broadcast_ms { return; }
@@ -709,7 +982,7 @@ impl EpochCoordinator {
                 "All PRs ready to terminate RAI run"
             );
             let Some(closure) = self.local_round_snapshot.clone() else { return; };
-            let (snapshot_hash, snapshot_non_cut, _) = self.local_finalization(&closure.finalized);
+            let (snapshot_hash, snapshot_non_cut, _) = self.closure_commitment(&closure);
             if snapshot_hash != first.finalized_hash || snapshot_non_cut != first.non_cut_count { return; }
             if let Some(observer) = &self.observer {
                 let _ = observer.send(NodeEvent::EpochComplete {
@@ -727,6 +1000,9 @@ impl EpochCoordinator {
             // Agreement fixes the closed epoch's complete finalized set. Elections still active
             // in this epoch are not part of that set and may only be discarded now.
             self.aec.seal_finalized_epoch(self.closing_epoch);
+            for (_, hash) in self.aec.finalized_for_epoch(self.closing_epoch) {
+                self.install_finalized_branch(self.closing_epoch, hash);
+            }
             self.aec.remove_epoch_elections(self.closing_epoch);
             self.aec.clear_epoch_cut(self.closing_epoch);
             self.local_round_reports.retain(|(epoch, round), _| {
@@ -736,11 +1012,15 @@ impl EpochCoordinator {
                 debug_assert_eq!(start.epoch, self.closing_epoch + 1);
                 self.closing_epoch = start.epoch;
                 self.open_epoch = None;
-                self.reports.clear();
+                self.reports = std::mem::take(&mut self.next_epoch_reports);
+                // Keep the previous epoch available to peers still collecting it.
+                self.local_report_chunks.retain(|(epoch, _), _| *epoch >= start.epoch - 1);
+                self.next_report_request_ms = 0;
                 self.local_snapshot.clear();
                 self.cut.clear();
                 self.recovery_cut.clear();
                 self.recovery_blocks.clear();
+                self.dependency_dead.clear();
                 self.reclassified_elections = 0;
                 self.finalization_round = 0;
                 self.target_non_cut_count = 0;
@@ -813,6 +1093,9 @@ impl Tickable for EpochCoordinator {
             self.next_final_vote_recovery_ms = now + 1_000;
         }
         for epoch in [Some(self.closing_epoch), self.open_epoch].into_iter().flatten() {
+            for (_, hash) in self.aec.finalized_for_epoch(epoch) {
+                self.install_finalized_branch(epoch, hash);
+            }
             let roots: HashMap<_, _> = self.aec.finalized_for_epoch(epoch).into_iter()
                 .filter(|(_, hash)| !self.expanded_finalizations.contains(&(epoch, *hash)))
                 .collect();
@@ -823,6 +1106,7 @@ impl Tickable for EpochCoordinator {
                 self.expanded_finalizations.extend(roots.values().map(|hash| (epoch, *hash)));
             }
         }
+        self.missing_vote_blocks.extend(self.aec.take_missing_dependencies());
         if now >= self.next_block_recovery_ms && !self.missing_vote_blocks.is_empty() {
             let any = self.ledger.any();
             // A body may arrive through ordinary block processing rather than a
@@ -834,8 +1118,8 @@ impl Tickable for EpochCoordinator {
                     self.aec.insert_vote_recovery(block.into(), *epoch);
                 }
             }
-            self.missing_vote_blocks.retain(|(epoch, hash)| {
-                any.get_block(hash).is_none() && self.aec.candidate_block(*epoch, hash).is_none()
+            self.missing_vote_blocks.retain(|(_, hash)| {
+                any.get_block(hash).is_none() && self.aec.dependency_block(hash).is_none()
             });
             let mut batches: HashMap<u64, Vec<_>> = HashMap::new();
             for (epoch, hash) in &self.missing_vote_blocks {
@@ -851,6 +1135,7 @@ impl Tickable for EpochCoordinator {
             }
             self.next_block_recovery_ms = now + 1_000;
         }
+        self.request_missing_reports(now);
         match &self.phase {
             Phase::Scheduled(start) if now >= start.starts_at_unix_ms => {
                 let start = start.clone();
@@ -866,11 +1151,11 @@ impl Tickable for EpochCoordinator {
                 self.install_cut(self.closing_epoch)
             }
             Phase::Cut => {
-                self.recovery_pass_complete = self.aec.cut_recovery_targets(
-                    self.closing_epoch, &self.recovery_cut, &self.committee, false,
-                ).is_empty();
                 let live = self.epoch_dependency_closure(false);
-                self.live_epoch_hash = live.as_ref().map(|closure| self.local_finalization(&closure.finalized).0);
+                self.recovery_pass_complete = self.aec.cut_recovery_targets(
+                    self.closing_epoch, &self.unresolved_slots(&self.recovery_cut), &self.committee, false,
+                ).is_empty();
+                self.live_epoch_hash = live.as_ref().map(|closure| self.closure_commitment(&closure).0);
                 let any = self.ledger.any();
                 let mut recovered_finalized = HashMap::new();
                 for slot in self
@@ -903,10 +1188,7 @@ impl Tickable for EpochCoordinator {
                     self.closing_epoch,
                     self.aec.finalized_for_epoch(self.closing_epoch),
                 );
-                let terminated = self
-                    .aec
-                    .terminated_cut_values(self.closing_epoch, &self.cut)
-                    .is_some();
+                let terminated = self.cut_is_resolved();
                 if terminated && self.recovery_pass_complete {
                     info!(cut = self.cut.len(), "RAI epoch cut terminated");
                     // Keep the draining policy installed during convergence. It blocks only the
@@ -995,6 +1277,177 @@ mod tests {
         coordinator.aec.merge_finalized_for_epoch(1,
             [(block.qualified_root().slot(), block.hash())].into());
         block
+    }
+
+    fn rolled_back_dependency_fixture(coordinator: &mut EpochCoordinator) -> (Block, Block, Block) {
+        use rsnano_ledger::test_helpers::UnsavedBlockLatticeBuilder;
+        let mut chain = UnsavedBlockLatticeBuilder::new();
+        let mut fork = chain.clone();
+        let parent = chain.genesis().send(100, 10);
+        let child = chain.genesis().send(101, 1);
+        let winner = fork.genesis().send(102, 10);
+        coordinator.ledger.process_one(&parent).unwrap();
+        coordinator.ledger.process_one(&child).unwrap();
+        coordinator.aec.insert_vote_recovery(parent.clone(), 1);
+        coordinator.aec.insert_vote_recovery(child.clone(), 2);
+        coordinator.ledger.roll_back_competitors([&winner]);
+        coordinator.ledger.process_one(&winner).unwrap();
+        assert!(coordinator.ledger.any().get_block(&parent.hash()).is_none());
+        assert!(coordinator.ledger.any().get_block(&child.hash()).is_none());
+        coordinator.closing_epoch = 2;
+        coordinator.phase = Phase::Cut;
+        coordinator.cut = [child.qualified_root().slot()].into();
+        coordinator.recovery_cut = coordinator.cut.clone();
+        (parent, child, winner)
+    }
+
+    #[test]
+    fn finalized_retained_descendant_installs_its_branch_in_dependency_order() {
+        let mut coordinator = coordinator();
+        let (parent, child, provisional) = rolled_back_dependency_fixture(&mut coordinator);
+        coordinator.aec.merge_finalized_for_epoch(2,
+            [(child.qualified_root().slot(), child.hash())].into());
+        coordinator.install_finalized_branch(2, child.hash());
+        assert!(coordinator.ledger.any().get_block(&parent.hash()).is_some());
+        assert!(coordinator.ledger.any().get_block(&child.hash()).is_some());
+        assert!(coordinator.ledger.any().get_block(&provisional.hash()).is_none());
+    }
+
+    #[test]
+    fn rolled_back_child_is_excluded_only_after_competing_parent_is_finalized() {
+        let mut a = round_coordinator(1);
+        let mut b = round_coordinator(2);
+        for coordinator in [&mut a, &mut b] {
+            let (parent, child, winner) = rolled_back_dependency_fixture(coordinator);
+            coordinator.refresh_dependency_deaths();
+            assert!(coordinator.dependency_dead.is_empty());
+            assert!(!coordinator.cut_is_resolved());
+            coordinator.ledger.confirm(winner.hash());
+            coordinator.refresh_dependency_deaths();
+            assert_eq!(coordinator.dependency_dead[&child.hash()], (parent.hash(), winner.hash()));
+            assert!(coordinator.cut_is_resolved());
+            assert!(!coordinator.aec.election_for_root(&child.qualified_root().with_epoch(2)).unwrap().is_terminated());
+            coordinator.send_local_finalization();
+            let closure = coordinator.local_round_snapshot.as_ref().unwrap();
+            assert!(closure.finalized.is_empty());
+            assert_eq!(closure.dependency_deaths, vec![(child.hash(), parent.hash(), winner.hash())]);
+            assert_ne!(coordinator.closure_commitment(closure).0,
+                coordinator.local_finalization(&closure.finalized).0);
+        }
+        a.receive_finalization(b.local_round_reports[&(2, 0)].clone());
+        b.receive_finalization(a.local_round_reports[&(2, 0)].clone());
+        a.evaluate_finalizations();
+        b.evaluate_finalizations();
+        assert!(matches!(a.phase, Phase::Complete));
+        assert!(matches!(b.phase, Phase::Complete));
+        assert_eq!(a.local_round_reports[&(2, 0)].finalized_hash, b.local_round_reports[&(2, 0)].finalized_hash);
+    }
+
+    #[test]
+    fn finalized_slot_does_not_commit_irrelevant_losing_alternatives() {
+        let mut coordinator = coordinator();
+        coordinator.closing_epoch = 1;
+        let (a, b, _) = fork_candidates(&mut coordinator);
+        coordinator.cut.insert(a.qualified_root().slot());
+        coordinator.aec.merge_finalized_for_epoch(1,
+            [(a.qualified_root().slot(), a.hash())].into());
+        let closure = coordinator.complete_cut_dependency_closure().unwrap();
+        assert!(coordinator.dependency_dead.contains_key(&b.hash()));
+        assert!(closure.dependency_deaths.is_empty());
+        assert_eq!(closure.finalized, [(a.qualified_root().slot(), a.hash())].into());
+    }
+
+    #[test]
+    fn dependency_death_propagates_but_an_unresolved_alternative_keeps_slot_open() {
+        let mut coordinator = coordinator();
+        let (parent, child, winner) = rolled_back_dependency_fixture(&mut coordinator);
+        coordinator.ledger.confirm(winner.hash());
+        let descendant = TestBlockBuilder::legacy_change().previous(child.hash()).build();
+        coordinator.aec.insert_vote_recovery(descendant.clone(), 2);
+        coordinator.cut.insert(descendant.qualified_root().slot());
+        let dead_receive = TestBlockBuilder::legacy_receive().previous(123.into()).source(parent.hash()).build();
+        let live_receive = TestBlockBuilder::legacy_receive().previous(123.into()).source(winner.hash()).build();
+        for block in [&dead_receive, &live_receive] { coordinator.aec.insert_vote_recovery(block.clone(), 2); }
+        coordinator.cut.insert(live_receive.qualified_root().slot());
+        coordinator.refresh_dependency_deaths();
+        assert!(coordinator.dependency_dead.contains_key(&descendant.hash()));
+        assert!(coordinator.dependency_dead.contains_key(&dead_receive.hash()));
+        assert!(!coordinator.dependency_dead.contains_key(&live_receive.hash()));
+        assert_eq!(coordinator.unresolved_slots(&coordinator.cut), [live_receive.qualified_root().slot()].into());
+        assert!(coordinator.missing_vote_blocks.contains(&(2, 123.into())));
+        assert!(!coordinator.cut_is_resolved());
+    }
+
+    #[test]
+    fn early_next_epoch_report_survives_previous_epoch_completion() {
+        let mut a = round_coordinator(1);
+        let mut b = round_coordinator(2);
+        a.next_start = Some(EpochStart { epoch: 2, starts_at_unix_ms: 1, closes_at_unix_ms: 2 });
+        let slot = SlotRoot { root: 77.into(), previous: 77.into() };
+        let early = EpochReportChunk::new(2, &PrivateKey::from(2), 0, 1, vec![slot]);
+        a.receive_report(early.clone());
+        a.receive_report(early);
+        assert!(a.reports.is_empty());
+        assert!(a.cut.is_empty());
+        assert_eq!(a.next_epoch_reports.len(), 1);
+        a.send_local_finalization();
+        b.send_local_finalization();
+        deliver_round(&b, &mut a, 0);
+        a.evaluate_finalizations();
+        assert_eq!(a.closing_epoch, 2);
+        assert!(a.next_epoch_reports.is_empty());
+        assert_eq!(a.reports[&PrivateKey::from(2).public_key()].chunks[&0], vec![slot]);
+        a.close(2);
+        assert!(a.all_reports_complete());
+    }
+
+    #[test]
+    fn missing_report_chunks_are_recovered_from_peer_after_it_advances() {
+        let mut a = round_coordinator(1);
+        let mut b = round_coordinator(2);
+        a.phase = Phase::Collecting;
+        a.receive_report(EpochReportChunk::new(1, &PrivateKey::from(1), 0, 1, vec![]));
+        for index in 0..2 {
+            let chunk = EpochReportChunk::new(1, &PrivateKey::from(2), index, 2,
+                vec![SlotRoot { root: (100 + index as u64).into(), previous: 0.into() }]);
+            b.local_report_chunks.insert((1, index), chunk);
+        }
+        b.closing_epoch = 2;
+        b.phase = Phase::Complete;
+        for index in 0..2 {
+            let requests = a.missing_report_requests();
+            assert_eq!(requests.len(), 1);
+            let (reporter, request) = &requests[0];
+            assert_eq!(*reporter, PrivateKey::from(2).public_key());
+            assert_eq!(request.chunk_index, index);
+            assert!(request.validate());
+            let chunk = b.report_response(request).unwrap();
+            a.receive_report(chunk.clone());
+            a.receive_report(chunk);
+        }
+        assert!(a.all_reports_complete());
+        assert!(a.missing_report_requests().is_empty());
+        assert!(b.report_response(&EpochReportRequest::new(1, &PrivateKey::from(3), 0)).is_none());
+        let mut invalid = EpochReportRequest::new(1, &PrivateKey::from(1), 0);
+        invalid.chunk_index = 1;
+        assert!(b.report_response(&invalid).is_none());
+    }
+
+    #[test]
+    fn buffered_report_authentication_and_first_commitment_are_preserved() {
+        let mut a = round_coordinator(1);
+        let key = PrivateKey::from(2);
+        let early = EpochReportChunk::new(2, &key, 0, 1, vec![]);
+        let mut invalid = early.clone();
+        invalid.epoch = 1;
+        a.receive_report(invalid);
+        a.receive_report(EpochReportChunk::new(2, &PrivateKey::from(3), 0, 1, vec![]));
+        assert!(a.reports.is_empty());
+        assert!(a.next_epoch_reports.is_empty());
+        a.receive_report(early);
+        a.receive_report(EpochReportChunk::new(2, &key, 0, 1,
+            vec![SlotRoot { root: 1.into(), previous: 1.into() }]));
+        assert!(a.next_epoch_reports[&key.public_key()].chunks[&0].is_empty());
     }
 
     #[test]
@@ -1250,6 +1703,136 @@ mod tests {
         let closure = coordinator.complete_cut_dependency_closure().unwrap();
         assert_eq!(closure.finalized, [(child_slot, child.hash())].into());
         assert_eq!(coordinator.aec.finalized_for_epoch(1), [(parent_slot, parent.hash())].into());
+    }
+
+    fn fork_candidates(coordinator: &mut EpochCoordinator) -> (Block, Block, Block) {
+        let x = TestBlockBuilder::legacy_change()
+            .previous(coordinator.ledger.constants.genesis_block.hash())
+            .representative(1.into()).build();
+        let y = TestBlockBuilder::legacy_change()
+            .previous(coordinator.ledger.constants.genesis_block.hash())
+            .representative(2.into()).build();
+        let (a, b) = if x.hash() > y.hash() { (x, y) } else { (y, x) };
+        let c = TestBlockBuilder::legacy_change().previous(b.hash()).build();
+        for block in [&a, &b, &c] {
+            coordinator.aec.insert_vote_recovery(block.clone(), 1);
+        }
+        (a, b, c)
+    }
+
+    #[test]
+    fn descendant_selects_lower_hash_ancestor_independent_of_input_order() {
+        let mut coordinator = coordinator();
+        let (a, b, c) = fork_candidates(&mut coordinator);
+        for candidates in [vec![a.hash(), b.hash(), c.hash()], vec![c.hash(), b.hash(), a.hash()]] {
+            let selected = coordinator.select_compatible_candidates(1, HashMap::new(), candidates).unwrap();
+            assert_eq!(selected, [(b.qualified_root().slot(), b.hash()),
+                (c.qualified_root().slot(), c.hash())].into());
+        }
+        let selected = coordinator.select_compatible_candidates(1, HashMap::new(),
+            vec![b.hash(), a.hash()]).unwrap();
+        assert_eq!(selected, [(a.qualified_root().slot(), a.hash())].into());
+    }
+
+    #[test]
+    fn cut_closure_uses_all_certificates_and_commits_compatible_winners() {
+        use crate::consensus::{ApplyVoteArgs, FilteredVote, ReceivedVote};
+        use crate::representatives::QuorumSnapshot;
+        use rsnano_ledger::RepWeights;
+        use rsnano_types::VoteDelivery;
+        let mut coordinator = coordinator();
+        coordinator.closing_epoch = 1;
+        let (a, b, c) = fork_candidates(&mut coordinator);
+        let quorum = QuorumSnapshot::new_test_instance();
+        let key = PrivateKey::from(1);
+        let mut weights = RepWeights::default();
+        weights.put(key.public_key(), quorum.total_weight);
+        for block in [&a, &b, &c] {
+            coordinator.cut.insert(block.qualified_root().slot());
+            let vote: FilteredVote = ReceivedVote::new(Arc::new(Vote::new_rai(&key, 1,
+                VoteType::NonFinal, vec![block.hash()])), VoteDelivery::Direct, None).into();
+            coordinator.aec.apply_vote(ApplyVoteArgs {
+                vote: &vote, rep_weights: &weights, quorum_snapshot: &quorum,
+                now: rsnano_nullable_clock::Timestamp::new_test_instance(),
+            });
+        }
+        assert_eq!(coordinator.aec.observed_cut_candidates(1, &coordinator.cut).len(), 3);
+        let closure = coordinator.complete_cut_dependency_closure().unwrap();
+        assert_eq!(closure.finalized, [(b.qualified_root().slot(), b.hash()),
+            (c.qualified_root().slot(), c.hash())].into());
+        let mut expected = vec![b.hash(), c.hash()];
+        expected.sort_unstable();
+        assert_eq!(closure.cut_winners, expected);
+        assert!(coordinator.aec.finalized_for_epoch(1).is_empty());
+    }
+
+    #[test]
+    fn descendant_cannot_replace_finalized_competing_ancestor() {
+        let mut coordinator = coordinator();
+        let (a, b, c) = fork_candidates(&mut coordinator);
+        let finalized = [(a.qualified_root().slot(), a.hash())].into();
+        coordinator.aec.merge_finalized_for_epoch(1, finalized);
+        coordinator.aec.seal_finalized_epoch(1);
+        for block in [&b, &c] { coordinator.aec.insert_vote_recovery(block.clone(), 2); }
+        let selected = coordinator.select_compatible_candidates(2, HashMap::new(),
+            vec![b.hash(), c.hash()]).unwrap();
+        assert!(selected.is_empty());
+    }
+
+    #[test]
+    fn retained_state_send_does_not_treat_recipient_as_dependency() {
+        let mut coordinator = coordinator();
+        let recipient = BlockHash::from(123);
+        let parent = TestBlockBuilder::state()
+            .previous(coordinator.ledger.constants.genesis_block.hash())
+            .balance(100)
+            .link(BlockHash::from(124))
+            .build();
+        let send = TestBlockBuilder::state()
+            .previous(parent.hash())
+            .balance(99)
+            .link(recipient)
+            .build();
+        coordinator.aec.insert_vote_recovery(parent.clone(), 2);
+        coordinator.aec.insert_vote_recovery(send.clone(), 2);
+        assert!(coordinator.ledger.any().get_block(&parent.hash()).is_none());
+        let closure = coordinator.dependency_closure(2,
+            [(send.qualified_root().slot(), send.hash())].into());
+        assert!(closure.is_some(), "{:?}", coordinator.last_closure_failure);
+        assert_eq!(closure.unwrap(), [
+            (parent.qualified_root().slot(), parent.hash()),
+            (send.qualified_root().slot(), send.hash()),
+        ].into());
+        assert!(!coordinator.missing_vote_blocks.contains(&(2, recipient.into())));
+    }
+
+    #[test]
+    fn unknown_state_predecessor_is_recovered_before_interpreting_link() {
+        let mut coordinator = coordinator();
+        let previous = BlockHash::from(123);
+        let recipient = BlockHash::from(124);
+        let send = TestBlockBuilder::state()
+            .previous(previous).balance(99).link(recipient).build();
+        coordinator.aec.insert_vote_recovery(send.clone(), 2);
+        assert!(coordinator.dependency_closure(2,
+            [(send.qualified_root().slot(), send.hash())].into()).is_none());
+        assert_eq!(coordinator.missing_vote_blocks, [(2, previous)].into());
+    }
+
+    #[test]
+    fn retained_state_receive_still_recovers_its_source() {
+        let mut coordinator = coordinator();
+        let source = BlockHash::from(123);
+        let parent = TestBlockBuilder::state()
+            .previous(coordinator.ledger.constants.genesis_block.hash())
+            .balance(100).link(BlockHash::from(124)).build();
+        let receive = TestBlockBuilder::state()
+            .previous(parent.hash()).balance(101).link(source).build();
+        coordinator.aec.insert_vote_recovery(parent, 2);
+        coordinator.aec.insert_vote_recovery(receive.clone(), 2);
+        assert!(coordinator.dependency_closure(2,
+            [(receive.qualified_root().slot(), receive.hash())].into()).is_none());
+        assert_eq!(coordinator.missing_vote_blocks, [(2, source)].into());
     }
 
     #[test]

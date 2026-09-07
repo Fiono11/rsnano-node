@@ -623,6 +623,8 @@ impl Node {
             config.active_elections.clone(),
             base_latency,
         ));
+        #[cfg(feature = "rai_protocol")]
+        active_elections.set_dependency_ledger(ledger.clone());
         active_elections.set_observer(aec_tx.clone());
 
         let vote_generators = Arc::new(VoteGenerators::new(

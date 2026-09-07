@@ -10,6 +10,8 @@ use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 pub struct LocalVoteHistory {
     data: Mutex<LocalVoteHistoryData>,
     max_cache: usize,
+    #[cfg(feature = "rai_protocol")]
+    signing: Mutex<()>,
 }
 
 #[derive(Default)]
@@ -51,7 +53,18 @@ impl LocalVoteHistory {
         Self {
             data: Mutex::new(LocalVoteHistoryData::new()),
             max_cache,
+            #[cfg(feature = "rai_protocol")]
+            signing: Mutex::new(()),
         }
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(super) fn lock_signing(&self) -> std::sync::MutexGuard<'_, ()> { self.signing.lock().unwrap() }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn has_first_vote(&self, root: &Root, epoch: u64, voter: PublicKey) -> bool {
+        self.has_vote_type(root, epoch, rsnano_types::VoteType::First, voter)
+            || self.has_vote_type(root, epoch, rsnano_types::VoteType::FirstTimeout, voter)
     }
 
     pub fn add(&self, root: &Root, hash: &BlockHash, vote: &Arc<Vote>) {
@@ -340,7 +353,7 @@ impl LocalVoteHistory {
             .any(|entry| {
                 entry.vote.voter == voter
                     && (!final_only || entry.vote.vote_type() == rsnano_types::VoteType::Final)
-                    && (entry.hash != *hash || entry.vote.vote_type() == rsnano_types::VoteType::Timeout)
+                    && (entry.hash != *hash || matches!(entry.vote.vote_type(), rsnano_types::VoteType::Timeout | rsnano_types::VoteType::FirstTimeout))
             })
     }
 

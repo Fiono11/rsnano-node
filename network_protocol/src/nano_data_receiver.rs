@@ -307,9 +307,9 @@ impl DataReceiver for NanoDataReceiver {
         ReceiveResult::Continue
     }
 
-    fn try_unpause(&self) -> ReceiveResult {
+    fn try_unpause(&mut self) -> ReceiveResult {
         let mode = self.channel.mode();
-        match mode {
+        let result = match mode {
             ChannelMode::Handshake => {
                 // Paused during handshake
 
@@ -340,6 +340,7 @@ impl DataReceiver for NanoDataReceiver {
                 match message {
                     Some(message) => {
                         if self.try_enqueue(message) {
+                            self.retry_enqueue = None;
                             ReceiveResult::Continue
                         } else {
                             ReceiveResult::Pause
@@ -348,6 +349,13 @@ impl DataReceiver for NanoDataReceiver {
                     None => ReceiveResult::Continue,
                 }
             }
+        };
+        if matches!(result, ReceiveResult::Continue) {
+            // The read that paused us may already contain more complete messages. Drain
+            // them now, rather than waiting for another read from an otherwise idle peer.
+            self.receive(&[])
+        } else {
+            result
         }
     }
 }
@@ -355,5 +363,77 @@ impl DataReceiver for NanoDataReceiver {
 impl Drop for NanoDataReceiver {
     fn drop(&mut self) {
         self.channel.close();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    #[test]
+    fn resumes_buffered_messages_after_backpressure_without_replaying_old_messages() {
+        let channel = Arc::new(Channel::new_test_instance());
+        channel.set_mode(ChannelMode::Established);
+        let accepting = Arc::new(AtomicBool::new(false));
+        let accepted = Arc::new(Mutex::new(Vec::new()));
+        let enqueue = {
+            let accepting = accepting.clone();
+            let accepted = accepted.clone();
+            Arc::new(move |message, _: Arc<Channel>| {
+                if accepting.load(Ordering::SeqCst) {
+                    accepted.lock().unwrap().push(message);
+                    true
+                } else {
+                    false
+                }
+            })
+        };
+        let protocol = ProtocolInfo::default();
+        let mut receiver = NanoDataReceiver::new(
+            channel,
+            HandshakeProcess::new(
+                1.into(),
+                rsnano_types::PrivateKey::from(1),
+                Arc::new(crate::SynCookies::new(10)),
+                Arc::new(crate::HandshakeStats::default()),
+            ),
+            MessageDeserializer::new(protocol),
+            enqueue,
+            Arc::new(Mutex::new(LatestKeepalives::default())),
+            Arc::new(Stats::default()),
+            Weak::new(),
+            protocol,
+        );
+        let message = Message::Keepalive(Keepalive::default());
+        let mut serializer = MessageSerializer::new(protocol);
+        let bytes = serializer.serialize(&message).to_vec();
+        let mut two_messages = bytes.clone();
+        two_messages.extend_from_slice(&bytes);
+        assert!(matches!(
+            receiver.receive(&two_messages),
+            ReceiveResult::Pause
+        ));
+        assert!(matches!(receiver.try_unpause(), ReceiveResult::Pause));
+        accepting.store(true, Ordering::SeqCst);
+        assert!(matches!(receiver.try_unpause(), ReceiveResult::Continue));
+        assert!(receiver.retry_enqueue.is_none());
+        assert_eq!(
+            accepted.lock().unwrap().len(),
+            2,
+            "drain the already buffered second message"
+        );
+        assert!(matches!(receiver.try_unpause(), ReceiveResult::Continue));
+        assert_eq!(
+            accepted.lock().unwrap().len(),
+            2,
+            "do not enqueue the old message again"
+        );
+
+        accepting.store(false, Ordering::SeqCst);
+        assert!(matches!(receiver.receive(&bytes), ReceiveResult::Pause));
+        accepting.store(true, Ordering::SeqCst);
+        assert!(matches!(receiver.try_unpause(), ReceiveResult::Continue));
+        assert_eq!(accepted.lock().unwrap().len(), 3);
     }
 }

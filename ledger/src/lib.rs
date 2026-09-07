@@ -68,3 +68,8 @@ pub enum BlockSource {
     Local,
     Forced,
 }
+
+#[cfg(feature = "rai_protocol")]
+mod branch_validation;
+#[cfg(feature = "rai_protocol")]
+pub use branch_validation::BranchError;

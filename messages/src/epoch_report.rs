@@ -174,6 +174,58 @@ impl MessageVariant for EpochReportChunk {
     }
 }
 
+/// Request one missing chunk of the receiving representative's retained report.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EpochReportRequest {
+    pub epoch: u64,
+    pub requester: PublicKey,
+    pub chunk_index: u16,
+    pub signature: Signature,
+}
+
+impl EpochReportRequest {
+    pub const SERIALIZED_SIZE: usize = 8 + 32 + 2 + 64;
+
+    pub fn new(epoch: u64, key: &PrivateKey, chunk_index: u16) -> Self {
+        let mut request = Self {
+            epoch, requester: key.public_key(), chunk_index, signature: Signature::default(),
+        };
+        request.signature = key.sign(request.hash().as_bytes());
+        request
+    }
+
+    fn hash(&self) -> Blake2Hash {
+        Blake2HashBuilder::default().update(b"RAI/EPOCH_REPORT_REQUEST/v1")
+            .update(self.epoch.to_be_bytes()).update(self.requester.as_bytes())
+            .update(self.chunk_index.to_be_bytes()).build()
+    }
+
+    pub fn validate(&self) -> bool {
+        self.epoch > 0 && self.requester.verify(self.hash().as_bytes(), &self.signature).is_ok()
+    }
+
+    pub fn serialize<T: Write>(&self, writer: &mut T) -> std::io::Result<()> {
+        writer.write_all(&self.epoch.to_be_bytes())?;
+        self.requester.serialize(writer)?;
+        writer.write_all(&self.chunk_index.to_be_bytes())?;
+        self.signature.serialize(writer)
+    }
+
+    pub fn deserialize(mut bytes: &[u8]) -> Result<Self, DeserializationError> {
+        if bytes.len() != Self::SERIALIZED_SIZE { return Err(DeserializationError::InvalidData); }
+        let mut epoch = [0; 8];
+        bytes.read_exact(&mut epoch)?;
+        let requester = PublicKey::deserialize(&mut bytes)?;
+        let mut index = [0; 2];
+        bytes.read_exact(&mut index)?;
+        let signature = Signature::deserialize(&mut bytes)?;
+        Ok(Self { epoch: u64::from_be_bytes(epoch), requester,
+            chunk_index: u16::from_be_bytes(index), signature })
+    }
+}
+
+impl MessageVariant for EpochReportRequest {}
+
 /// A representative's view of the finalized epoch cut at a convergence round.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EpochFinalization {
@@ -267,6 +319,16 @@ impl MessageVariant for EpochFinalization {}
 mod tests {
     use super::*;
     use crate::{Message, assert_deserializable};
+
+    #[test]
+    fn report_request_round_trip_and_authentication() {
+        let mut request = EpochReportRequest::new(2, &PrivateKey::from(42), 3);
+        assert!(request.validate());
+        assert_deserializable(&Message::EpochReportRequest(request.clone()));
+        request.chunk_index += 1;
+        assert!(!request.validate());
+        assert!(EpochReportRequest::deserialize(&[0; 5]).is_err());
+    }
 
     #[test]
     fn round_trip_and_validate() {

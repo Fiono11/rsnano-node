@@ -65,6 +65,8 @@ pub enum AecFact {
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub enum AecInsertError {
+    #[cfg(feature = "rai_protocol")]
+    DependencyUnfinalized,
     Stopped,
     Duplicate,
 

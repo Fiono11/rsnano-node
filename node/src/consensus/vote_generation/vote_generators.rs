@@ -37,6 +37,8 @@ pub struct VoteGenerators {
     first_vote_generator: VoteGenerator,
     #[cfg(feature = "rai_protocol")]
     timeout_vote_generator: VoteGenerator,
+    #[cfg(feature = "rai_protocol")]
+    first_timeout_vote_generator: VoteGenerator,
     vote_listener: OutputListenerMt<VoteGenerationEvent>,
     voting_delay: Duration,
     wallet_reps: Arc<Mutex<WalletRepresentatives>>,
@@ -47,6 +49,10 @@ impl VoteGenerators {
     #[cfg(feature = "rai_protocol")]
     pub fn reply_earliest_election(&self, slot: rsnano_types::SlotRoot, channel: &Arc<Channel>) {
         self.final_vote_generator.reply_earliest_election(slot, channel);
+        self.first_vote_generator.schedule_recovery(slot);
+        self.non_final_vote_generator.schedule_recovery(slot);
+        self.timeout_vote_generator.schedule_recovery(slot);
+        self.first_timeout_vote_generator.schedule_recovery(slot);
     }
 
     #[cfg(feature = "rai_protocol")]
@@ -77,6 +83,8 @@ impl VoteGenerators {
         self.final_vote_generator.clear_vote_spacing();
         self.first_vote_generator.clear_vote_spacing();
         self.timeout_vote_generator.clear_vote_spacing();
+        #[cfg(feature = "rai_protocol")]
+        self.first_timeout_vote_generator.clear_vote_spacing();
     }
 
     #[cfg(feature = "rai_protocol")]
@@ -160,6 +168,24 @@ impl VoteGenerators {
             active_elections.clone(),
         );
 
+        #[cfg(feature = "rai_protocol")]
+        let first_timeout_vote_generator = VoteGenerator::new(
+            ledger.clone(),
+            wallet_reps.clone(),
+            history.clone(),
+            false,
+            stats.clone(),
+            message_sender.clone(),
+            voting_delay,
+            config.vote_generator_delay,
+            vote_broadcaster.clone(),
+            clock.clone(),
+            VoteType::FirstTimeout,
+            vote_gate.clone(),
+            #[cfg(feature = "rai_protocol")]
+            active_elections.clone(),
+        );
+
         let final_vote_generator = VoteGenerator::new(
             ledger,
             wallet_reps.clone(),
@@ -190,6 +216,8 @@ impl VoteGenerators {
             first_vote_generator,
             #[cfg(feature = "rai_protocol")]
             timeout_vote_generator,
+            #[cfg(feature = "rai_protocol")]
+            first_timeout_vote_generator,
         }
     }
 
@@ -231,6 +259,8 @@ impl VoteGenerators {
         self.first_vote_generator.start();
         #[cfg(feature = "rai_protocol")]
         self.timeout_vote_generator.start();
+        #[cfg(feature = "rai_protocol")]
+        self.first_timeout_vote_generator.start();
     }
 
     pub fn stop(&self) {
@@ -240,6 +270,8 @@ impl VoteGenerators {
         self.first_vote_generator.stop();
         #[cfg(feature = "rai_protocol")]
         self.timeout_vote_generator.stop();
+        #[cfg(feature = "rai_protocol")]
+        self.first_timeout_vote_generator.stop();
     }
 
     pub fn track(&self) -> Arc<OutputTrackerMt<VoteGenerationEvent>> {
@@ -264,6 +296,8 @@ impl VoteGenerators {
                     .inc(StatType::Election, DetailType::GenerateVoteFirst);
                 self.first_vote_generator.add(root, hash)
             }
+            #[cfg(feature = "rai_protocol")]
+            VoteType::FirstTimeout => { self.first_timeout_vote_generator.add(root, hash); }
             #[cfg(feature = "rai_protocol")]
             VoteType::Timeout => {
                 self.stats
@@ -300,6 +334,7 @@ impl VoteGenerators {
                     self.final_vote_generator
                         .reply_cached_votes(blocks, channel, epoch);
                 }
+                VoteType::FirstTimeout => self.first_timeout_vote_generator.reply_cached_votes(blocks, channel, epoch),
                 VoteType::Timeout => self
                     .timeout_vote_generator
                     .reply_cached_votes(blocks, channel, epoch),
@@ -339,6 +374,8 @@ impl VoteGenerators {
             VoteType::First => self.first_vote_generator.generate(blocks, channel, epoch),
             #[cfg(feature = "rai_protocol")]
             VoteType::Timeout => self.timeout_vote_generator.generate(blocks, channel, epoch),
+            #[cfg(feature = "rai_protocol")]
+            VoteType::FirstTimeout => self.first_timeout_vote_generator.generate(blocks, channel, epoch),
         }
     }
 

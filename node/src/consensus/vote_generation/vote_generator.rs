@@ -47,6 +47,14 @@ pub(crate) struct VoteGenerator {
 
 impl VoteGenerator {
     #[cfg(feature = "rai_protocol")]
+    pub(super) fn schedule_recovery(&self, slot: rsnano_types::SlotRoot) {
+        let aec = &self.shared_state.active_elections;
+        if let Some((epoch, None)) = aec.earliest_election(slot)
+            && let Some(block) = aec.election_candidate(epoch, &slot.root)
+        { self.add(&block.qualified_root().with_epoch(epoch), &block.hash()); }
+    }
+
+    #[cfg(feature = "rai_protocol")]
     pub(super) fn reply_earliest_election(&self, slot: rsnano_types::SlotRoot, channel: &Arc<Channel>) {
         let Some((epoch, finalized)) = self.shared_state.active_elections.earliest_election(slot) else {
             return;
@@ -58,7 +66,7 @@ impl VoteGenerator {
         votes.sort_by_key(|vote| match vote.vote_type() {
             VoteType::First => 0,
             VoteType::NonFinal => 1,
-            VoteType::Timeout => 2,
+            VoteType::Timeout | VoteType::FirstTimeout => 2,
             VoteType::Final => 3,
         });
         let mut sent = std::collections::HashSet::new();
@@ -589,7 +597,7 @@ impl SharedState {
                                 VoteType::First => DetailType::GeneratorBroadcastFirst,
                                 VoteType::NonFinal => DetailType::GeneratorBroadcastNonFinal,
                                 VoteType::Final => DetailType::GeneratorBroadcastFinal,
-                                VoteType::Timeout => DetailType::GeneratorBroadcastTimeout,
+                                VoteType::Timeout | VoteType::FirstTimeout => DetailType::GeneratorBroadcastTimeout,
                             },
                         );
                         self.stats.add(
@@ -598,7 +606,7 @@ impl SharedState {
                                 VoteType::First => DetailType::GeneratorBroadcastFirstHashes,
                                 VoteType::NonFinal => DetailType::GeneratorBroadcastNonFinalHashes,
                                 VoteType::Final => DetailType::GeneratorBroadcastFinalHashes,
-                                VoteType::Timeout => DetailType::GeneratorBroadcastTimeoutHashes,
+                                VoteType::Timeout | VoteType::FirstTimeout => DetailType::GeneratorBroadcastTimeoutHashes,
                             },
                             generated_vote.hashes.len() as u64,
                         );
@@ -633,6 +641,8 @@ impl SharedState {
     ) where
         F: Fn(Arc<Vote>, VoteOrigin),
     {
+        #[cfg(feature = "rai_protocol")]
+        let _signing = self.history.lock_signing();
         debug_assert_eq!(hashes.len(), roots.len());
         #[cfg(feature = "rai_protocol")]
         debug_assert_eq!(hashes.len(), epochs.len());
@@ -643,6 +653,10 @@ impl SharedState {
             .unwrap()
             .rep_priv_keys(&mut rep_keys);
 
+        #[cfg(feature = "rai_protocol")]
+        if std::env::var_os("NANO_RAI_VOTE_TRACE").is_some() {
+            tracing::info!(target: "rsnano_node::consensus::epochs::coordinator", phase = ?self.vote_type, reps = rep_keys.len(), ?hashes, ?epochs, "RAI trace voting pass");
+        }
         let mut votes = Vec::new();
         #[cfg(feature = "rai_protocol")]
         let mut replay_votes: Vec<Arc<Vote>> = Vec::new();
@@ -698,6 +712,9 @@ impl SharedState {
                         && (self.vote_gate.allows_final_recovery(&qualified_root, hash)
                             || self.active_elections.is_finalized_in_epoch(&qualified_root, hash));
                     if permit.is_none() && !final_recovery {
+                        if std::env::var_os("NANO_RAI_VOTE_TRACE").is_some() {
+                            tracing::info!(target: "rsnano_node::consensus::epochs::coordinator", phase = ?self.vote_type, ?qualified_root, "RAI trace vote gate denied");
+                        }
                         continue;
                     }
                     vote_permits.extend(permit);
@@ -705,23 +722,29 @@ impl SharedState {
                     // recovery replies. A queued target is not permission to notarize.
                     if self.vote_type == VoteType::NonFinal
                         && (!self.active_elections.second_look_eligible(&qualified_root, hash)
-                            || !self.history.has_vote_type(
-                                root, *epoch, VoteType::First, rep_key.public_key(),
-                            ))
+                            || !self.history.has_first_vote(root, *epoch, rep_key.public_key()))
                     {
                         continue;
                     }
-                    if self.vote_type == VoteType::First
+                    if matches!(self.vote_type, VoteType::First | VoteType::FirstTimeout)
                         && (pending_roots.contains(root)
-                            || self.history.has_vote_type(
-                                root,
-                                *epoch,
-                                VoteType::First,
-                                rep_key.public_key(),
-                            ))
+                            || self.history.has_first_vote(root, *epoch, rep_key.public_key()))
                     {
                         continue;
                     }
+                    if matches!(self.vote_type, VoteType::Timeout | VoteType::FirstTimeout)
+                        && (!self.active_elections.timeout_eligible(&qualified_root, self.vote_type == VoteType::FirstTimeout)
+                            || (self.vote_type == VoteType::Timeout && !self.history.has_first_vote(root, *epoch, rep_key.public_key())))
+                    { continue; }
+                    // If proposal validation and the timer become ready together, prefer
+                    // the available proposal. Worker scheduling must not manufacture a
+                    // timeout before the First worker sees newly loaded wallet keys.
+                    if self.vote_type == VoteType::FirstTimeout
+                        && self.active_elections.validate_candidate_branch(&self.ledger, *epoch, *hash)
+                    { continue; }
+                    if !matches!(self.vote_type, VoteType::Timeout | VoteType::FirstTimeout)
+                        && !self.active_elections.validate_candidate_branch(&self.ledger, *epoch, *hash)
+                    { continue; }
                     if self.vote_type == VoteType::NonFinal
                         && self.history.non_timeout_notarization_count(
                             root,
@@ -923,23 +946,19 @@ impl SharedState {
             candidates.iter().map(|c| (c.root, c.hash)).collect(),
             self.is_final,
         );
-        // RAI permits extending a notarized selected chain and a final certificate finalizes
-        // its unfinalized selected ancestors. Nano's vote verifier requires cemented
-        // dependencies for both of its modes, so it is not the admissibility rule for any RAI
-        // phase. At this layer require the exact candidate block to be locally available; RAI
-        // phase history and conflict checks below remain the signing-safety gate.
+        // A retained body identifies a slot; only branch validation authorizes a real vote.
+        // Timeout votes need the slot identity, but do not assert validity of this body.
         #[cfg(feature = "rai_protocol")]
-        let verified: VecDeque<_> = {
+        let verified: Vec<_> = {
             let any = self.ledger.any();
-            candidates
-                .iter()
-                .filter(|candidate| {
-                    any.get_block(&candidate.hash)
-                        .is_some_and(|block| block.root() == candidate.root)
-                })
-                .map(|candidate| (candidate.root, candidate.hash))
-                .collect()
+            candidates.iter().filter(|candidate| {
+                any.get_block(&candidate.hash).map(MaybeSavedBlock::Saved)
+                    .or_else(|| self.active_elections.candidate_block(candidate.epoch, &candidate.hash))
+                    .is_some_and(|block| block.root() == candidate.root
+                        && block.qualified_root().with_epoch(candidate.epoch) == candidate.qualified_root)
+            }).cloned().collect()
         };
+        #[cfg(not(feature = "rai_protocol"))]
         let verified = verified
             .into_iter()
             .filter_map(|(root, hash)| {
@@ -950,6 +969,10 @@ impl SharedState {
             })
             .collect::<Vec<_>>();
 
+        #[cfg(feature = "rai_protocol")]
+        if std::env::var_os("NANO_RAI_VOTE_TRACE").is_some() {
+            tracing::info!(target: "rsnano_node::consensus::epochs::coordinator", phase = ?self.vote_type, candidates = candidates.len(), verified = verified.len(), "RAI trace voting admission");
+        }
         // Submit verified candidates to the main processing thread
         if !verified.is_empty() {
             let should_notify = {
@@ -994,6 +1017,10 @@ mod tests {
     use super::*;
 
     fn recovery_fixture() -> (VoteGenerator, Arc<Channel>, Arc<rsnano_output_tracker::OutputTrackerMt<crate::transport::SendEvent>>, rsnano_types::PrivateKey) {
+        recovery_fixture_for(VoteType::Final)
+    }
+
+    fn recovery_fixture_for(phase: VoteType) -> (VoteGenerator, Arc<Channel>, Arc<rsnano_output_tracker::OutputTrackerMt<crate::transport::SendEvent>>, rsnano_types::PrivateKey) {
         use crate::{consensus::{AecService, VoteProcessorConfig}, representatives::RepresentativeTracker,
             transport::MessageFlooder};
         use rsnano_types::{Amount, NetworkType, PrivateKey, WalletId};
@@ -1017,10 +1044,279 @@ mod tests {
             VoteProcessorConfig::new(1), stats.clone())), flooder, stats.clone());
         let generator = VoteGenerator::new(Arc::new(Ledger::new_null()),
             Arc::new(Mutex::new(reps)), Arc::new(LocalVoteHistory::new(NetworkType::NanoDevNetwork)),
-            true, stats, MessageSender::new_null(), Duration::ZERO, Duration::ZERO,
-            Arc::new(broadcaster), Arc::new(SteadyClock::new_null()), VoteType::Final,
+            phase == VoteType::Final, stats, MessageSender::new_null(), Duration::ZERO, Duration::ZERO,
+            Arc::new(broadcaster), Arc::new(SteadyClock::new_null()), phase,
             Arc::new(VoteGate::default()), Arc::new(AecService::new_null()));
         (generator, channel, output, key)
+    }
+
+    #[test]
+    fn rolled_back_child_requires_finalized_not_just_notarized_ancestry() {
+        use rsnano_ledger::test_helpers::UnsavedBlockLatticeBuilder;
+        use crate::consensus::{ApplyVoteArgs, FilteredVote, ReceivedVote};
+        use crate::representatives::QuorumSnapshot;
+        use rsnano_ledger::RepWeights;
+        use rsnano_types::VoteDelivery;
+        let (generator, _, _, key) = recovery_fixture_for(VoteType::First);
+        let state = &generator.shared_state;
+        let mut chain = UnsavedBlockLatticeBuilder::new();
+        let mut fork = chain.clone();
+        let b = chain.genesis().send(100, 10);
+        let c = chain.genesis().send(101, 1);
+        let a = fork.genesis().send(102, 10);
+        state.ledger.process_one(&b).unwrap();
+        state.ledger.process_one(&c).unwrap();
+        state.ledger.roll_back_competitors([&a]);
+        state.ledger.process_one(&a).unwrap();
+        state.active_elections.insert_vote_recovery(c.clone(), 2);
+        let root = c.qualified_root().with_epoch(2);
+        state.vote_gate.install_cut(2, None, [root.slot()].into());
+        let emitted = Mutex::new(Vec::new());
+        let sign = || state.vote(&[c.hash()], &[root.root], &[root.clone()], &[2], false,
+            |v, _| emitted.lock().unwrap().push(v));
+        sign();
+        assert!(emitted.lock().unwrap().is_empty());
+        assert!(state.active_elections.take_missing_dependencies().iter().any(|(_, hash)| *hash == b.hash()));
+        state.active_elections.insert_vote_recovery(b.clone(), 1);
+        sign();
+        assert!(emitted.lock().unwrap().is_empty(), "available ancestry still needs notarization");
+        let quorum = QuorumSnapshot::new_test_instance();
+        let mut weights = RepWeights::default();
+        weights.put(key.public_key(), quorum.total_weight);
+        let vote: FilteredVote = ReceivedVote::new(Arc::new(Vote::new_rai(&key, 1, VoteType::NonFinal, vec![b.hash()])), VoteDelivery::Direct, None).into();
+        state.active_elections.apply_vote(ApplyVoteArgs { vote: &vote, rep_weights: &weights,
+            quorum_snapshot: &quorum, now: state.clock.now() });
+        sign();
+        assert!(emitted.lock().unwrap().is_empty(), "notarization must not admit a descendant");
+        state.active_elections.merge_finalized_for_epoch(1, [(b.qualified_root().slot(), b.hash())].into());
+        sign();
+        assert_eq!(emitted.lock().unwrap().len(), 1);
+        assert_eq!(emitted.lock().unwrap()[0].vote_type(), VoteType::First);
+        sign();
+        assert_eq!(emitted.lock().unwrap().len(), 1, "first vote must remain unique");
+        assert!(state.ledger.any().get_block(&c.hash()).is_none());
+        assert!(state.active_elections.validate_candidate_branch(&state.ledger, 2, c.hash()));
+    }
+
+    #[test]
+    fn expired_timer_does_not_beat_an_available_valid_first_choice() {
+        let (generator, _, _, _) = recovery_fixture_for(VoteType::FirstTimeout);
+        let state = &generator.shared_state;
+        let block = rsnano_ledger::test_helpers::UnsavedBlockLatticeBuilder::new().genesis().send(100, 10);
+        let root = block.qualified_root().with_epoch(2);
+        let hash = block.hash();
+        state.active_elections.insert_vote_recovery(block, 2);
+        state.vote_gate.install_cut(2, None, [root.slot()].into());
+        state.active_elections.advance_test_clock(Duration::from_secs(10));
+        state.vote(&[hash], &[root.root], &[root], &[2], false, |_, _| panic!("valid proposal must precede timeout"));
+    }
+
+    #[test]
+    fn first_timeout_requires_timer_and_cannot_follow_a_real_first_vote() {
+        for already_first in [false, true] {
+            let (generator, _, _, key) = recovery_fixture_for(VoteType::FirstTimeout);
+            let state = &generator.shared_state;
+            let block = rsnano_types::TestBlockBuilder::legacy_change().build();
+            let root = block.qualified_root().with_epoch(2);
+            let hash = block.hash();
+            state.active_elections.insert_vote_recovery(block, 2);
+            state.vote_gate.install_cut(2, None, [root.slot()].into());
+            if already_first { state.history.add(&root.root, &hash,
+                &Arc::new(Vote::new_rai(&key, 2, VoteType::First, vec![hash]))); }
+            let emitted = Mutex::new(Vec::new());
+            let sign = || state.vote(&[hash], &[root.root], &[root.clone()], &[2], false,
+                |v, _| emitted.lock().unwrap().push(v));
+            sign();
+            assert!(emitted.lock().unwrap().is_empty());
+            state.active_elections.advance_test_clock(Duration::from_secs(10));
+            sign();
+            assert_eq!(emitted.lock().unwrap().len(), usize::from(!already_first));
+            assert!(state.history.has_first_vote(&root.root, 2, key.public_key()));
+            sign();
+            assert_eq!(emitted.lock().unwrap().len(), usize::from(!already_first));
+        }
+    }
+
+    // Characterizes the observed cut stall; this does not relax admission rules.
+    #[test]
+    fn missing_ancestry_does_not_authorize_first_or_second_look() {
+        use crate::consensus::{ApplyVoteArgs, FilteredVote, ReceivedVote};
+        use crate::representatives::QuorumSnapshot;
+        use rsnano_ledger::RepWeights;
+        use rsnano_types::{PrivateKey, TestBlockBuilder, VoteDelivery};
+        for phase in [VoteType::First, VoteType::NonFinal] {
+            let (generator, channel, output, key) = recovery_fixture_for(phase);
+            let state = &generator.shared_state;
+            let block = TestBlockBuilder::legacy_change().build();
+            let hash = block.hash();
+            let root = block.qualified_root().with_epoch(2);
+            state.active_elections.insert_vote_recovery(block, 2);
+            state.vote_gate.install_cut(2, None, [root.slot()].into());
+            let quorum = QuorumSnapshot::new_test_instance();
+            let mut weights = RepWeights::default();
+            for id in [2, 3] {
+                let voter = PrivateKey::from(id);
+                weights.put(voter.public_key(), quorum.total_weight / 6);
+            }
+            for id in [2, 3] {
+                let vote: FilteredVote = ReceivedVote::new(Arc::new(Vote::new_rai(
+                    &PrivateKey::from(id), 2, VoteType::First, vec![hash])),
+                    VoteDelivery::Direct, None).into();
+                state.active_elections.apply_vote(ApplyVoteArgs {
+                    vote: &vote, rep_weights: &weights, quorum_snapshot: &quorum,
+                    now: rsnano_nullable_clock::Timestamp::new_test_instance(),
+                });
+            }
+            let election = state.active_elections.election_for_root(&root).unwrap();
+            assert!(!election.is_terminated());
+            assert!(!election.should_vote_timeout());
+            assert!(!state.active_elections.second_look_eligible(&root, &hash));
+            assert!(state.vote_gate.allows_cut_recovery(&root));
+            assert!(state.ledger.any().get_block(&hash).is_none());
+            state.process_batch([VoteCandidate {
+                root: root.root, hash, epoch: 2, qualified_root: root.clone(),
+            }].into());
+            let queued = state.queues.lock().unwrap().candidates.len();
+            assert_eq!(queued, 1);
+            drop(state.broadcast(state.queues.lock().unwrap()));
+            generator.reply_earliest_election(root.slot(), &channel);
+            assert!(state.queues.lock().unwrap().requests.is_empty());
+            assert!(output.output().is_empty());
+            assert!(state.history.vote_for_epoch(&root.root, 2, &hash, phase, key.public_key()).is_none());
+            println!("{phase:?}: cut=true retained=true ledger=false queued={queued} signed=0 recovery_replies=0 terminated=false");
+        }
+    }
+
+    #[test]
+    fn split_election_generates_recovery_votes_without_a_ledger_candidate() {
+        use crate::consensus::{ApplyVoteArgs, FilteredVote, ReceivedVote};
+        use crate::representatives::QuorumSnapshot;
+        use rsnano_ledger::RepWeights;
+        use rsnano_types::{PrivateKey, TestBlockBuilder, VoteDelivery};
+
+        for phase in [VoteType::NonFinal, VoteType::Timeout] {
+            let (generator, _, _, key) = recovery_fixture_for(phase);
+            let state = &generator.shared_state;
+            let mut chain = rsnano_ledger::test_helpers::UnsavedBlockLatticeBuilder::new();
+            let block = chain.genesis().send(100, 10);
+            let hash = block.hash();
+            let root = block.qualified_root().with_epoch(2);
+            state
+                .active_elections
+                .insert_vote_recovery(block.clone(), 2);
+            let fork = TestBlockBuilder::legacy_change()
+                .previous(block.previous())
+                .representative(PrivateKey::from(99).public_key())
+                .build();
+            state.active_elections.insert_vote_recovery(fork.clone(), 2);
+            assert!(state.ledger.any().get_block(&hash).is_none());
+
+            let quorum = QuorumSnapshot::new_test_instance();
+            let other = PrivateKey::from(2);
+            let mut weights = RepWeights::default();
+            let majority = quorum.total_weight / 100 * 51;
+            weights.put(key.public_key(), majority);
+            weights.put(other.public_key(), quorum.total_weight - majority);
+            for (voter, target) in [(&key, hash), (&other, fork.hash())] {
+                let first = Arc::new(Vote::new_rai(voter, 2, VoteType::First, vec![target]));
+                if voter.public_key() == key.public_key() {
+                    state.history.add(&root.root, &target, &first);
+                }
+                let vote: FilteredVote =
+                    ReceivedVote::new(first, VoteDelivery::Direct, None).into();
+                state.active_elections.apply_vote(ApplyVoteArgs {
+                    vote: &vote,
+                    rep_weights: &weights,
+                    quorum_snapshot: &quorum,
+                    now: rsnano_nullable_clock::Timestamp::new_test_instance(),
+                });
+            }
+            assert!(state.active_elections.second_look_eligible(&root, &hash));
+            state.vote_gate.install_cut(2, None, [root.slot()].into());
+            state.process_batch(
+                [VoteCandidate {
+                    root: root.root,
+                    hash,
+                    epoch: 2,
+                    qualified_root: root.clone(),
+                }]
+                .into(),
+            );
+            drop(state.broadcast(state.queues.lock().unwrap()));
+            let signed =
+                state
+                    .history
+                    .vote_for_epoch(&root.root, 2, &hash, phase, key.public_key());
+            assert!(
+                signed.is_some(),
+                "{phase:?} must be generated for the retained election candidate"
+            );
+            assert!(signed.unwrap().validate().is_ok());
+        }
+    }
+
+    #[test]
+    fn retained_vote_candidates_must_match_hash_slot_and_epoch() {
+        let (generator, _, _, _) = recovery_fixture_for(VoteType::NonFinal);
+        let state = &generator.shared_state;
+        let block = rsnano_types::TestBlockBuilder::legacy_change().build();
+        let root = block.qualified_root().with_epoch(2);
+        let hash = block.hash();
+        state.active_elections.insert_vote_recovery(block, 2);
+        let valid = VoteCandidate {
+            root: root.root,
+            hash,
+            epoch: 2,
+            qualified_root: root.clone(),
+        };
+        let wrong_epoch = VoteCandidate {
+            epoch: 3,
+            qualified_root: root.clone().with_epoch(3),
+            ..valid.clone()
+        };
+        let wrong_slot = VoteCandidate {
+            qualified_root: rsnano_types::SlotRoot {
+                root: root.root,
+                previous: 999.into(),
+            }
+            .with_epoch(2),
+            ..valid.clone()
+        };
+        let missing_hash = VoteCandidate {
+            hash: 999.into(),
+            ..valid.clone()
+        };
+        // Put another epoch first to ensure filtering preserves the exact queued instance.
+        state.process_batch([wrong_epoch, wrong_slot, missing_hash, valid].into());
+        let queues = state.queues.lock().unwrap();
+        assert_eq!(queues.candidates.len(), 1);
+        let candidate = &queues.candidates[0];
+        assert_eq!(candidate.hash, hash);
+        assert_eq!(candidate.epoch, 2);
+        assert_eq!(candidate.qualified_root, root);
+    }
+
+    #[test]
+    fn retained_candidate_does_not_bypass_first_or_final_vote_admission() {
+        for phase in [VoteType::First, VoteType::Final] {
+            let (generator, _, _, _) = recovery_fixture_for(phase);
+            let state = &generator.shared_state;
+            let block = rsnano_types::TestBlockBuilder::legacy_change().build();
+            let root = block.qualified_root().with_epoch(2);
+            let hash = block.hash();
+            state.active_elections.insert_vote_recovery(block, 2);
+            state.process_batch(
+                [VoteCandidate {
+                    root: root.root,
+                    hash,
+                    epoch: 2,
+                    qualified_root: root.clone(),
+                }]
+                .into(),
+            );
+            drop(state.broadcast(state.queues.lock().unwrap()));
+            assert!(!state.history.exists(&root.root));
+        }
     }
 
     #[test]
@@ -1078,7 +1374,7 @@ mod tests {
     #[test]
     fn sealed_fast_finalization_can_generate_missing_final_reply() {
         let (generator, channel, output, _) = recovery_fixture();
-        let block = rsnano_types::TestBlockBuilder::legacy_change().build();
+        let block = rsnano_ledger::test_helpers::UnsavedBlockLatticeBuilder::new().genesis().send(100, 10);
         let slot = block.qualified_root().slot();
         let aec = &generator.shared_state.active_elections;
         aec.insert_vote_recovery(block.clone(), 2);
@@ -1103,7 +1399,7 @@ mod tests {
         use crate::{consensus::{AecService, ApplyVoteArgs, FilteredVote, ReceivedVote},
             representatives::{QuorumSnapshot, RepresentativeTracker}};
         use rsnano_ledger::{RepWeightCache, RepWeights};
-        use rsnano_types::{Amount, NetworkType, PrivateKey, TestBlockBuilder, VoteDelivery, WalletId};
+        use rsnano_types::{Amount, NetworkType, PrivateKey, VoteDelivery, WalletId};
         use rsnano_wallet::Wallets;
 
         let rep = PrivateKey::from(1);
@@ -1116,7 +1412,7 @@ mod tests {
             wallets, Arc::new(RepresentativeTracker::new_null()));
         reps.compute_reps();
         let aec = Arc::new(AecService::new_null());
-        let block = TestBlockBuilder::legacy_change().build();
+        let block = rsnano_ledger::test_helpers::UnsavedBlockLatticeBuilder::new().genesis().send(100, 10);
         let hash = block.hash();
         let root = block.qualified_root().with_epoch(1);
         aec.insert_vote_recovery(block, 1);

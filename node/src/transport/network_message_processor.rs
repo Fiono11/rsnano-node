@@ -101,6 +101,10 @@ impl NetworkMessageProcessor {
                 self.epoch_coordinator.lock().unwrap().receive_report(chunk)
             }
             #[cfg(feature = "rai_protocol")]
+            Message::EpochReportRequest(request) => {
+                self.epoch_coordinator.lock().unwrap().receive_report_request(request)
+            }
+            #[cfg(feature = "rai_protocol")]
             Message::EpochFinalization(report) => self
                 .epoch_coordinator
                 .lock()

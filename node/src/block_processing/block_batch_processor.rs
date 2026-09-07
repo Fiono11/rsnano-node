@@ -74,6 +74,12 @@ impl BlockBatchProcessor {
 
             let hash = block_ctx.block.hash();
             let block = &block_ctx.block;
+            if std::env::var_os("NANO_RAI_BLOCK_TRACE").is_some() {
+                tracing::info!(target: "rsnano_node::consensus::epochs::coordinator",
+                    %hash, previous = %block.previous(), source = %block.source_or_link(),
+                    status = ?status.as_ref().map_err(|e| e.as_str()),
+                    "RAI trace block processing");
+            }
 
             match status {
                 Ok(()) => {

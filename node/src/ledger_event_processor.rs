@@ -134,6 +134,10 @@ impl BackpressureEventProcessor<LedgerPipelineEvent> for LedgerEventProcessor {
                     {
                         for result in rolled_back.iter() {
                             for block in &result.rolled_back {
+                                #[cfg(feature = "rai_protocol")]
+                                self.active_elections.retain_dependency(block.clone().into());
+                                // RAI obligations and signing history survive ledger rollback.
+                                #[cfg(not(feature = "rai_protocol"))]
                                 // Stop all rolled back elections except initial
                                 if block.qualified_root() != result.target_root {
                                     self.active_elections.erase(&block.qualified_root());
@@ -142,6 +146,7 @@ impl BackpressureEventProcessor<LedgerPipelineEvent> for LedgerEventProcessor {
                         }
                     }
 
+                    #[cfg(not(feature = "rai_protocol"))]
                     self.vote_history.erase_batch(rolled_back.roots());
                 }
             },
@@ -299,5 +304,32 @@ impl StatsSource for LedgerEventProcessorStats {
             "dur_activate_backlog",
             self.dur_activate_backlog.load(Ordering::Relaxed),
         );
+    }
+}
+
+#[cfg(all(test, feature = "rai_protocol"))]
+mod rai_rollback_tests {
+    use super::*;
+    use rsnano_ledger::{RollbackResult, RollbackResults};
+    use rsnano_types::{PrivateKey, SavedBlock, Vote, VoteType};
+
+    #[test]
+    fn rollback_retains_candidate_and_first_vote_obligation() {
+        let mut processor = LedgerEventProcessor::new_null();
+        let block = SavedBlock::new_test_instance();
+        let root = block.qualified_root().with_epoch(2);
+        let hash = block.hash();
+        let key = PrivateKey::from(1);
+        processor.active_elections.insert_vote_recovery(block.clone().into(), 2);
+        processor.vote_history.add(&root.root, &hash,
+            &Arc::new(Vote::new_rai(&key, 2, VoteType::First, vec![hash])));
+        let mut results = RollbackResults::new();
+        results.push(RollbackResult { target_hash: 99.into(),
+            target_root: rsnano_types::QualifiedRoot::new_test_instance(),
+            rolled_back: vec![block], error: None });
+        processor.process(LedgerPipelineEvent::Ledger(LedgerEvent::BlocksRolledBack(results)));
+        assert!(processor.vote_history.has_first_vote(&root.root, 2, key.public_key()));
+        assert!(processor.active_elections.election_for_root(&root).is_some());
+        assert!(processor.active_elections.dependency_block(&hash).is_some());
     }
 }

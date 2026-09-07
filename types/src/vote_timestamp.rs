@@ -53,6 +53,7 @@ impl VoteTimestamp {
         match self.0 {
             0 => crate::VoteType::Timeout,
             1 => crate::VoteType::First,
+            2 => crate::VoteType::FirstTimeout,
             u64::MAX => crate::VoteType::Final,
             _ => crate::VoteType::NonFinal,
         }

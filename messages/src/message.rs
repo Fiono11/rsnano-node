@@ -30,6 +30,8 @@ pub enum Message {
     EpochStart(EpochStart),
     #[cfg(feature = "rai_protocol")]
     EpochFinalization(EpochFinalization),
+    #[cfg(feature = "rai_protocol")]
+    EpochReportRequest(EpochReportRequest),
 }
 
 pub trait MessageVariant {
@@ -113,7 +115,8 @@ impl From<&ParseMessageError> for DetailType {
                 Self::InvalidMessageType
             }
             #[cfg(feature = "rai_protocol")]
-            ParseMessageError::InvalidMessage(MessageType::EpochFinalization) => {
+            ParseMessageError::InvalidMessage(MessageType::EpochFinalization)
+            | ParseMessageError::InvalidMessage(MessageType::EpochReportRequest) => {
                 Self::InvalidMessageType
             }
             ParseMessageError::InvalidMessage(MessageType::Invalid)
@@ -169,6 +172,8 @@ impl Message {
             Message::EpochStart(_) => MessageType::EpochStart,
             #[cfg(feature = "rai_protocol")]
             Message::EpochFinalization(_) => MessageType::EpochFinalization,
+            #[cfg(feature = "rai_protocol")]
+            Message::EpochReportRequest(_) => MessageType::EpochReportRequest,
         }
     }
 
@@ -197,6 +202,8 @@ impl Message {
             Message::EpochStart(x) => Some(x),
             #[cfg(feature = "rai_protocol")]
             Message::EpochFinalization(x) => Some(x),
+            #[cfg(feature = "rai_protocol")]
+            Message::EpochReportRequest(x) => Some(x),
             _ => None,
         }
     }
@@ -237,6 +244,8 @@ impl Message {
             Message::EpochStart(m) => m.serialize(writer),
             #[cfg(feature = "rai_protocol")]
             Message::EpochFinalization(m) => m.serialize(writer),
+            #[cfg(feature = "rai_protocol")]
+            Message::EpochReportRequest(m) => m.serialize(writer),
         }
     }
 
@@ -294,6 +303,10 @@ impl Message {
             #[cfg(feature = "rai_protocol")]
             MessageType::EpochFinalization => {
                 Message::EpochFinalization(EpochFinalization::deserialize(payload)?)
+            }
+            #[cfg(feature = "rai_protocol")]
+            MessageType::EpochReportRequest => {
+                Message::EpochReportRequest(EpochReportRequest::deserialize(payload)?)
             }
             MessageType::Invalid | MessageType::NotAType => {
                 return Err(DeserializationError::InvalidData);

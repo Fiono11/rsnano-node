@@ -60,6 +60,8 @@ pub(crate) fn vote_targets(e: &Election, cut_recovery: bool) -> Vec<VoteTarget> 
             vote_type: VoteType::Final,
         });
     }
+    // Signing rechecks the timer and the representative's first-vote history.
+    targets.push(VoteTarget { root: e.qualified_root().clone(), winner: e.winner().hash(), vote_type: VoteType::FirstTimeout });
     if e.should_vote_timeout() {
         targets.push(VoteTarget {
             root: e.qualified_root().clone(),
@@ -113,7 +115,7 @@ impl VotingScheduler {
             #[cfg(feature = "rai_protocol")]
             VoteType::First => record.last_first,
             #[cfg(feature = "rai_protocol")]
-            VoteType::Timeout => record.last_timeout,
+            VoteType::Timeout | VoteType::FirstTimeout => record.last_timeout,
         };
 
         match last {
@@ -145,7 +147,7 @@ impl VotingScheduler {
             #[cfg(feature = "rai_protocol")]
             VoteType::First => record.last_first = Some(now),
             #[cfg(feature = "rai_protocol")]
-            VoteType::Timeout => record.last_timeout = Some(now),
+            VoteType::Timeout | VoteType::FirstTimeout => record.last_timeout = Some(now),
         }
         record.last_voted_winner = target.winner;
         record.last_voted = now;

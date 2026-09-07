@@ -320,6 +320,11 @@ impl Election {
         self.notarized_values.iter().max().copied()
     }
 
+    #[cfg(feature = "rai_protocol")]
+    pub fn notarized_values(&self) -> impl Iterator<Item = BlockHash> + '_ {
+        self.notarized_values.iter().copied()
+    }
+
     /// Returns true if final votes should be generated
     pub fn is_final(&self) -> bool {
         self.is_confirmed() || self.has_quorum()
@@ -366,6 +371,7 @@ impl Election {
             .values()
             .filter(|vote| !vote.second_look.is_empty())
             .count();
+        let timeout_votes = self.votes.values().filter(|vote| vote.timeout).count();
         let first_max = self
             .first_tallies
             .winner()
@@ -377,7 +383,7 @@ impl Election {
             .map(|(_, weight)| *weight)
             .unwrap_or_default();
         format!(
-            "slot={:?} winner={} blocks={} votes={} first_votes={} second_votes={} first_sum={:?} first_max={:?} notarized_max={:?} second_targets={}",
+            "slot={:?} winner={} blocks={} votes={} first_votes={} second_votes={} first_sum={:?} first_max={:?} notarized_max={:?} second_targets={} timeout_votes={} timeout_eligible={}",
             self.qualified_root.slot(),
             self.winner.hash(),
             self.block_count(),
@@ -387,8 +393,15 @@ impl Election {
             self.first_tallies.sum(),
             first_max,
             notarized_max,
-            self.second_look.len()
+            self.second_look.len(),
+            timeout_votes,
+            self.should_vote_timeout()
         )
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn first_timeout_due(&self, now: Timestamp) -> bool {
+        self.start.elapsed(now) >= (self.base_latency * 5).max(Duration::from_secs(5))
     }
 
     #[cfg(feature = "rai_protocol")]
@@ -543,7 +556,7 @@ impl Election {
         self.tallies.clear();
         self.final_tallies.clear();
         for vote in self.votes.values() {
-            if let Some(hash) = vote.first {
+            if let Some(hash) = vote.first.filter(|h| !h.is_zero()) {
                 self.first_tallies.add(hash, vote.weight);
             }
             for hash in &vote.notarized {
@@ -779,7 +792,7 @@ impl VoteSummary {
         received: Timestamp,
     ) -> Result<(), VoteError> {
         let existing = match vote_type {
-            VoteType::First => self.first,
+            VoteType::First | VoteType::FirstTimeout => self.first,
             VoteType::NonFinal if self.second_look.contains(&hash) => Some(hash),
             VoteType::NonFinal => None,
             VoteType::Final => self.final_vote,
@@ -787,7 +800,7 @@ impl VoteSummary {
             VoteType::Timeout => None,
         };
         if let Some(existing) = existing {
-            return if existing == hash {
+            return if existing == (if vote_type == VoteType::FirstTimeout { BlockHash::ZERO } else { hash }) {
                 Err(VoteError::Replay)
             } else {
                 Err(VoteError::Invalid)
@@ -811,6 +824,7 @@ impl VoteSummary {
                 self.final_vote = Some(hash);
             }
             VoteType::Timeout => self.timeout = true,
+            VoteType::FirstTimeout => { self.first = Some(BlockHash::ZERO); self.timeout = true; },
         }
         self.latest_type = Some(vote_type);
         self.hash = hash;
@@ -1144,6 +1158,29 @@ mod rai_voting_tests {
         election.update_rai_tallies(&weights, &quorum);
         assert!(election.is_confirmed());
         assert_eq!(election.winner().hash(), low_hash);
+    }
+
+    #[test]
+    fn timeout_first_votes_complete_a_stalled_two_first_vote_election() {
+        let block = SavedBlock::new_test_instance();
+        let hash = block.hash();
+        let mut election = Election::new_test_instance_with(block);
+        let quorum = QuorumSnapshot::new_test_instance();
+        let mut weights = RepWeights::default();
+        for id in 1..=6 { weights.put(PrivateKey::from(id).public_key(), quorum.total_weight / 6); }
+        for id in 1..=6 {
+            let phase = if id <= 2 { VoteType::First } else { VoteType::FirstTimeout };
+            election.apply_rai_vote(&Vote::new_rai(&PrivateKey::from(id), 1, phase, vec![hash]), hash, election.start()).unwrap();
+            election.update_rai_tallies(&weights, &quorum);
+            if id == 2 { assert!(!election.is_terminated()); assert!(!election.should_vote_timeout()); }
+        }
+        assert!(election.is_terminated());
+        assert!(election.terminated_by_timeout());
+        assert!(!election.is_confirmed());
+        assert!(election.notarized_value().is_none());
+        assert!(election.should_vote_timeout());
+        assert_eq!(election.apply_rai_vote(&Vote::new_rai(&PrivateKey::from(3), 1, VoteType::First, vec![hash]), hash, election.start()), Err(VoteError::Invalid));
+        assert_eq!(election.apply_rai_vote(&Vote::new_rai(&PrivateKey::from(1), 1, VoteType::FirstTimeout, vec![hash]), hash, election.start()), Err(VoteError::Invalid));
     }
 
     #[test]

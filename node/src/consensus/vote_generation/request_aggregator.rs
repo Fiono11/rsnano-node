@@ -316,7 +316,13 @@ impl RequestAggregatorLoop {
             && request.roots_hashes.iter().all(|(_, root)| root.is_zero())
         {
             for (hash, _) in &request.roots_hashes {
-                if let Some(block) = self.aec.candidate_block(request.epoch, hash)
+                if std::env::var_os("NANO_RAI_BLOCK_TRACE").is_some() {
+                    tracing::info!(target: "rsnano_node::consensus::epochs::coordinator",
+                        %hash, epoch = request.epoch,
+                        retained = self.aec.candidate_block(request.epoch, hash).is_some(),
+                        ledger = any.get_block(hash).is_some(), "RAI trace body request");
+                }
+                if let Some(block) = self.aec.dependency_block(hash)
                     .or_else(|| any.get_block(hash).map(rsnano_types::MaybeSavedBlock::Saved)) {
                     self.vote_generators.reply_block(&block, &request.channel);
                 }

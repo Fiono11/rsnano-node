@@ -631,7 +631,15 @@ impl Ledger {
         block: &BlockHash,
     ) -> (Vec<SavedBlock>, Option<RollbackError>) {
         let mut performer = BlockRollbackPerformer::new(self, txn);
-        match performer.roll_back(block) {
+        let result = performer.roll_back(block);
+        if std::env::var_os("NANO_RAI_BLOCK_TRACE").is_some() {
+            for removed in &performer.rolled_back {
+                tracing::info!(target: "rsnano_node::consensus::epochs::coordinator",
+                    requested = %block, hash = %removed.hash(), previous = %removed.previous(),
+                    "RAI trace rollback");
+            }
+        }
+        match result {
             Ok(()) => (performer.rolled_back, None),
             Err(e) => (performer.rolled_back, Some(e)),
         }
@@ -765,6 +773,10 @@ impl Ledger {
         {
             // Replace our block with the winner and roll back any dependent blocks
             debug!("Rolling back: {} and replacing with: {}", successor, hash);
+            if std::env::var_os("NANO_RAI_BLOCK_TRACE").is_some() {
+                tracing::info!(target: "rsnano_node::consensus::epochs::coordinator",
+                    removed = %successor, replacement = %hash, "RAI trace competitor replacement");
+            }
             let (list, error) = self.roll_back_with_txn(tx, &successor);
             rollback_list = list;
             match error {

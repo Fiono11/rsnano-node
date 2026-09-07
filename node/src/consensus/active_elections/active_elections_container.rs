@@ -542,6 +542,8 @@ impl ActiveElectionsContainer {
                         self.stats.activate_failed_duplicate += 1;
                     }
                     Err(AecInsertError::Stopped) => {}
+                    #[cfg(feature = "rai_protocol")]
+                    Err(AecInsertError::DependencyUnfinalized) => {}
                 }
             }
         }

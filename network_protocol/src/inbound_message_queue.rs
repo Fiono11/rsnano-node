@@ -185,6 +185,20 @@ mod tests {
     use super::*;
     use rsnano_messages::Message;
 
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn report_request_is_counted_when_queued_and_when_dropped() {
+        let queue = InboundMessageQueue::new(1);
+        let channel = Arc::new(Channel::new_test_instance());
+        let request = Message::EpochReportRequest(rsnano_messages::EpochReportRequest::new(
+            2, &rsnano_types::PrivateKey::from(1), 0));
+        assert!(queue.put(request.clone(), channel.clone()));
+        assert!(!queue.put(request.clone(), channel));
+        assert_eq!(queue.next_batch(1).pop_front().unwrap().1.0, request);
+        assert_eq!(queue.stats.processed_type[MessageType::EpochReportRequest as usize].load(Ordering::Relaxed), 1);
+        assert_eq!(queue.stats.overfill_type[MessageType::EpochReportRequest as usize].load(Ordering::Relaxed), 1);
+    }
+
     #[test]
     fn put_and_get_one_message() {
         let manager = InboundMessageQueue::new(1);

@@ -24,6 +24,12 @@ pub struct AecService {
     aec: RwLock<ActiveElectionsContainer>,
     clock: SteadyClock,
     #[cfg(feature = "rai_protocol")]
+    dependency_ledger: RwLock<Option<std::sync::Arc<rsnano_ledger::Ledger>>>,
+    #[cfg(feature = "rai_protocol")]
+    dependency_pending: RwLock<HashMap<BlockHash, (Block, Option<u64>)>>,
+    #[cfg(feature = "rai_protocol")]
+    missing_dependencies: RwLock<std::collections::HashSet<(u64, BlockHash)>>,
+    #[cfg(feature = "rai_protocol")]
     recovery_candidates: RwLock<HashMap<(u64, BlockHash), Block>>,
 }
 
@@ -67,6 +73,28 @@ impl AecService {
                     .and_then(|election| election.notarized_value())
             }).map(|hash| (*slot, hash))
         }).collect()
+    }
+
+    /// All certified alternatives remain available for dependency-aware selection.
+    #[cfg(feature = "rai_protocol")]
+    pub fn observed_cut_candidates(
+        &self, epoch: u64, slots: &std::collections::HashSet<rsnano_types::SlotRoot>,
+    ) -> Vec<BlockHash> {
+        let guard = self.aec.read().unwrap();
+        let finalized = guard.finalized_for_epoch(epoch);
+        let mut candidates = Vec::new();
+        for slot in slots {
+            if let Some(hash) = finalized.get(slot) {
+                candidates.push(*hash);
+            } else if let Some(election) = guard.election_for_root(&slot.with_epoch(epoch)) {
+                if election.is_terminated() {
+                    candidates.extend(election.notarized_values());
+                }
+            }
+        }
+        candidates.sort_unstable();
+        candidates.dedup();
+        candidates
     }
 
     /// Prefer the earliest finalization; otherwise recover the earliest active instance.
@@ -172,8 +200,119 @@ impl AecService {
             })
     }
 
+    /// Dependency bodies are content addressed and remain useful across epoch boundaries.
+    #[cfg(feature = "rai_protocol")]
+    pub fn dependency_block(&self, hash: &BlockHash) -> Option<MaybeSavedBlock> {
+        self.aec.read().unwrap().iter_round_robin()
+            .find_map(|e| e.candidate_blocks().get(hash).cloned())
+            .or_else(|| self.recovery_candidates.read().unwrap().iter()
+                .find_map(|((_, candidate), block)| (candidate == hash)
+                    .then(|| MaybeSavedBlock::Unsaved(block.clone()))))
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn retain_dependency(&self, block: Block) {
+        self.recovery_candidates.write().unwrap().entry((0, block.hash())).or_insert(block);
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn take_missing_dependencies(&self) -> Vec<(u64, BlockHash)> {
+        self.missing_dependencies.write().unwrap().drain().collect()
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn set_dependency_ledger(&self, ledger: std::sync::Arc<rsnano_ledger::Ledger>) {
+        *self.dependency_ledger.write().unwrap() = Some(ledger);
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn dependencies_finalized(&self, ledger: &rsnano_ledger::Ledger, block: &Block) -> bool {
+        use rsnano_ledger::{AnySet, LedgerSet};
+        if block.hash() == ledger.genesis().hash() { return true; }
+        let any = ledger.any();
+        let previous = block.previous();
+        let previous_block = if previous.is_zero() { None } else {
+            any.get_block(&previous).map(MaybeSavedBlock::Saved).or_else(|| self.dependency_block(&previous))
+        };
+        if !previous.is_zero() && previous_block.is_none() {
+            self.missing_dependencies.write().unwrap().insert((self.current_epoch(), previous));
+            return false;
+        }
+        if matches!(block, Block::State(_)) && !previous.is_zero()
+            && matches!(&previous_block, Some(MaybeSavedBlock::Unsaved(b)) if b.balance_field().is_none()) { return false; }
+        let finalized = |hash: BlockHash| {
+            if hash.is_zero() || any.confirmed().block_exists(&hash) { return true; }
+            let body = any.get_block(&hash).map(MaybeSavedBlock::Saved).or_else(|| self.dependency_block(&hash));
+            if body.is_none() { self.missing_dependencies.write().unwrap().insert((self.current_epoch(), hash)); }
+            body.is_some_and(|body| self.earliest_election(body.qualified_root().slot())
+                .is_some_and(|(_, winner)| winner == Some(hash)))
+        };
+        if !finalized(previous) { return false; }
+        let source = match block {
+            Block::LegacyOpen(_) | Block::LegacyReceive(_) => block.source_or_link(),
+            Block::State(_) if !ledger.constants.epochs.is_epoch_link(&block.link_field().unwrap_or_default())
+                && block.balance_field().unwrap() > previous_block.as_ref().and_then(|b| match b { MaybeSavedBlock::Saved(b) => Some(b.balance()), MaybeSavedBlock::Unsaved(b) => b.balance_field() }).unwrap_or_default() => block.source_or_link(),
+            _ => BlockHash::ZERO,
+        };
+        finalized(source)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    fn defer_dependency(&self, block: &Block, epoch: Option<u64>) -> bool {
+        let ledger = self.dependency_ledger.read().unwrap().clone();
+        if ledger.as_ref().is_none_or(|ledger| self.dependencies_finalized(ledger, block)) { return false; }
+        self.retain_dependency(block.clone());
+        self.dependency_pending.write().unwrap().entry(block.hash()).or_insert((block.clone(), epoch));
+        true
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    fn promote_dependencies(&self) {
+        let pending = std::mem::take(&mut *self.dependency_pending.write().unwrap());
+        for (_, (block, epoch)) in pending {
+            if self.defer_dependency(&block, epoch) { continue; }
+            // An unstarted candidate acquires its epoch only when its dependencies finalize.
+            let epoch = epoch.unwrap_or_else(|| self.aec.read().unwrap().current_epoch());
+            self.insert_vote_recovery(block, epoch);
+        }
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn validate_candidate_branch(&self, ledger: &rsnano_ledger::Ledger, epoch: u64, hash: BlockHash) -> bool {
+        use rsnano_ledger::AnySet;
+        let saved = ledger.any().get_block(&hash);
+        let block = saved.clone().map(Block::from).or_else(|| self.dependency_block(&hash).map(Block::from));
+        let Some(block) = block else {
+            self.missing_dependencies.write().unwrap().insert((epoch, hash));
+            return false;
+        };
+        if self.earliest_election(block.qualified_root().slot()).is_some_and(|(_, winner)| winner.is_some_and(|winner| winner != hash)) { return false; }
+        if !self.dependencies_finalized(ledger, &block) { return false; }
+        // Ledger admission already checked this body. Its finalized dependencies cannot
+        // change, so normal voting does not replay the entire history from genesis.
+        if saved.is_some() { return true; }
+        let result = ledger.validate_branch(hash,
+            |dependency| self.dependency_block(dependency).map(Into::into),
+            |slot| self.earliest_election(slot).and_then(|(_, winner)| winner));
+        if let Err(rsnano_ledger::BranchError::Missing(missing)) = result {
+            self.missing_dependencies.write().unwrap().insert((epoch, missing));
+        }
+        result.is_ok()
+    }
+
+    #[cfg(all(test, feature = "rai_protocol"))]
+    pub(crate) fn advance_test_clock(&self, duration: Duration) { self.clock.advance(duration); }
+
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn timeout_eligible(&self, root: &QualifiedRoot, first: bool) -> bool {
+        self.aec.read().unwrap().election_for_root(root).is_some_and(|e|
+            !e.is_confirmed() && if first { !e.is_terminated() && e.first_timeout_due(self.clock.now()) } else { e.should_vote_timeout() })
+    }
+
     #[cfg(feature = "rai_protocol")]
     pub fn insert_vote_recovery(&self, block: Block, epoch: u64) -> bool {
+        if self.defer_dependency(&block, Some(epoch)) { return false; }
         let inserted = self.aec.write().unwrap().insert_vote_recovery(
             block.clone(), epoch, self.clock.now(),
         );
@@ -183,6 +322,7 @@ impl AecService {
 
     #[cfg(feature = "rai_protocol")]
     pub fn insert_cut_recovery(&self, block: Block) -> bool {
+        if self.defer_dependency(&block, None) { return false; }
         let hash = block.hash();
         let mut guard = self.aec.write().unwrap();
         let inserted = guard.insert_cut_recovery(block.clone(), self.clock.now());
@@ -191,6 +331,11 @@ impl AecService {
             .map(|election| election.qualified_root().epoch)
             .unwrap_or_else(|| guard.current_epoch());
         drop(guard);
+        if std::env::var_os("NANO_RAI_BLOCK_TRACE").is_some() {
+            tracing::info!(target: "rsnano_node::consensus::epochs::coordinator",
+                %hash, previous = %block.previous(), source = %block.source_or_link(), epoch, inserted,
+                "RAI trace retained publish");
+        }
         self.recovery_candidates
             .write()
             .unwrap()
@@ -237,6 +382,12 @@ impl AecService {
             clock: SteadyClock::default(),
             #[cfg(feature = "rai_protocol")]
             recovery_candidates: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            missing_dependencies: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            dependency_ledger: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            dependency_pending: Default::default(),
         }
     }
 
@@ -246,6 +397,12 @@ impl AecService {
             clock: SteadyClock::new_null(),
             #[cfg(feature = "rai_protocol")]
             recovery_candidates: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            missing_dependencies: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            dependency_ledger: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            dependency_pending: Default::default(),
         }
     }
 
@@ -322,15 +479,19 @@ impl AecService {
     }
 
     pub fn insert(&self, request: AecInsertRequest, now: Timestamp) -> Result<(), AecInsertError> {
+        #[cfg(feature = "rai_protocol")]
+        if self.defer_dependency(&request.block.clone().into(), request.epoch) { return Err(AecInsertError::DependencyUnfinalized); }
         self.aec.write().unwrap().insert(request, now)
     }
 
     #[cfg(feature = "rai_protocol")]
     pub fn insert_now(&self, request: AecInsertRequest) -> Result<(), AecInsertError> {
-        self.aec.write().unwrap().insert(request, self.clock.now())
+        self.insert(request, self.clock.now())
     }
 
     pub fn try_add_fork(&self, fork: &Block, fork_tally: Amount) -> bool {
+        #[cfg(feature = "rai_protocol")]
+        if self.defer_dependency(fork, None) { return false; }
         self.aec.write().unwrap().try_add_fork(fork, fork_tally)
     }
 
@@ -342,6 +503,8 @@ impl AecService {
     }
 
     pub fn transition_time(&self, now: Timestamp) {
+        #[cfg(feature = "rai_protocol")]
+        self.promote_dependencies();
         self.aec.write().unwrap().transition_time(now)
     }
 
@@ -585,22 +748,19 @@ impl AecService {
         let finalized = guard.finalized_for_epoch(epoch);
         let mut values = HashMap::new();
         for slot in slots {
+            // A certified finalization is authoritative even if a stale active
+            // election for a competing candidate has not independently terminated.
+            if let Some(hash) = finalized.get(slot) {
+                values.insert(*slot, *hash);
+                continue;
+            }
             if let Some(election) = guard.election_for_root(&slot.with_epoch(epoch)) {
                 if !election.is_terminated() {
                     return None;
                 }
-                // A finalized value is authoritative. Before finalization, selection advances
-                // monotonically to the greatest hash with a notarization certificate. A
-                // timeout-only termination contributes no value.
-                if let Some(hash) = finalized.get(slot) {
-                    values.insert(*slot, *hash);
-                } else if let Some(hash) = election.notarized_value() {
+                if let Some(hash) = election.notarized_value() {
                     values.insert(*slot, hash);
                 }
-            } else if let Some(hash) = finalized.get(slot) {
-                // Confirmed elections may already have left the active container. Such a slot
-                // has a finalized (and therefore notarized) value rather than a timeout result.
-                values.insert(*slot, *hash);
             } else {
                 return None;
             }
@@ -687,7 +847,7 @@ impl AecService {
             let phase = match vote_type {
                 VoteType::First => 0,
                 VoteType::NonFinal => 1,
-                VoteType::Timeout => 2,
+                VoteType::Timeout | VoteType::FirstTimeout => 2,
                 VoteType::Final => 3,
             };
             (*voter, phase, *hash, *root)
@@ -775,4 +935,67 @@ pub struct ElectionSnapshot {
     pub candidate_blocks: Vec<BlockHash>,
     pub is_final: bool,
     pub elapsed: Duration,
+}
+
+#[cfg(all(test, feature = "rai_protocol"))]
+mod finalized_dependency_tests {
+    use super::*;
+    use rsnano_ledger::{Ledger, test_helpers::UnsavedBlockLatticeBuilder};
+    use rsnano_types::PrivateKey;
+    use std::sync::Arc;
+
+    #[test]
+    fn waiting_descendant_is_not_a_cut_obligation_and_enters_the_epoch_when_ready() {
+        let ledger = Arc::new(Ledger::new_null());
+        let aec = AecService::new_null();
+        aec.set_dependency_ledger(ledger.clone());
+        let mut chain = UnsavedBlockLatticeBuilder::new();
+        let parent = chain.genesis().send(100, 10);
+        let child = chain.genesis().send(101, 1);
+        ledger.process_one(&parent).unwrap();
+        ledger.process_one(&child).unwrap();
+        assert!(!aec.insert_cut_recovery(child.clone()));
+        assert!(aec.pending_for_epoch(1).is_empty());
+        assert!(aec.candidate_blocks_for_epoch(1).is_empty());
+        assert!(aec.dependency_block(&child.hash()).is_some());
+        assert_eq!(aec.dependency_pending.read().unwrap().len(), 1);
+        aec.advance_epoch();
+        aec.transition_time(aec.clock.now());
+        assert!(aec.pending_for_epoch(2).is_empty());
+        ledger.confirm(parent.hash());
+        aec.transition_time(aec.clock.now());
+        assert!(aec.is_active_hash_in_epoch(2, &child.hash()));
+        assert!(aec.dependency_pending.read().unwrap().is_empty());
+    }
+
+    #[test]
+    fn receive_waits_for_its_exact_source_to_finalize() {
+        let ledger = Arc::new(Ledger::new_null());
+        let aec = AecService::new_null();
+        aec.set_dependency_ledger(ledger.clone());
+        let key = PrivateKey::from(9);
+        let mut chain = UnsavedBlockLatticeBuilder::new();
+        let source = chain.genesis().send(key.account(), 10);
+        let receive = chain.account(&key).receive(&source);
+        ledger.process_one(&source).unwrap();
+        assert!(!aec.insert_cut_recovery(receive.clone()));
+        assert!(!aec.validate_candidate_branch(&ledger, 1, receive.hash()));
+        aec.merge_finalized_for_epoch(1, [(source.qualified_root().slot(), source.hash())].into());
+        aec.transition_time(aec.clock.now());
+        assert!(aec.is_active_hash_in_epoch(1, &receive.hash()));
+        assert!(aec.validate_candidate_branch(&ledger, 1, receive.hash()));
+    }
+
+    #[test]
+    fn installed_loser_cannot_vote_after_competing_candidate_finalizes() {
+        let ledger = Ledger::new_null();
+        let aec = AecService::new_null();
+        let mut chain = UnsavedBlockLatticeBuilder::new();
+        let mut fork = chain.clone();
+        let a = chain.genesis().send(100, 10);
+        let b = fork.genesis().send(101, 10);
+        ledger.process_one(&a).unwrap();
+        aec.merge_finalized_for_epoch(1, [(b.qualified_root().slot(), b.hash())].into());
+        assert!(!aec.validate_candidate_branch(&ledger, 1, a.hash()));
+    }
 }
