@@ -153,10 +153,11 @@ impl SpamLogic {
         let Some(primary) = self.delayed.primary_hash(hash) else {
             return false;
         };
-        if !self.record_termination(primary, now) {
-            return false;
-        }
+        let first_termination = self.record_termination(primary, now);
         if timeout {
+            if !first_termination {
+                return false;
+            }
             // A timeout certificate only terminates the election. A later notarization
             // certificate can still include its value, so defer rollback until epoch close.
             self.pending_timeout_rollbacks.insert(primary);
@@ -639,4 +640,30 @@ pub(crate) struct SpamStats {
     pub(crate) target_bps: usize,
     pub(crate) current_cps: i32,
     pub(crate) average_conf_time: Duration,
+}
+
+#[cfg(all(test, feature = "rai_protocol"))]
+mod diagnostic_timeout_then_notarization {
+    use super::*;
+    use rsnano_types::{PrivateKey, StateBlockArgs};
+    #[test]
+    fn later_notarization_should_release_account_after_timeout() {
+        let key = PrivateKey::from(123);
+        let previous = BlockHash::from(456);
+        let block: Block = StateBlockArgs { key: &key, previous, representative: key.public_key(), balance: Amount::nano(1), link: Default::default(), work: Default::default() }.into();
+        let hash = block.hash();
+        for timeout_first in [false, true] {
+            let mut map = AccountMap::default();
+            map.add_unopened(key.clone());
+            map.set_account_state(key.account(), Amount::nano(1), previous);
+            map.process_change(key.account(), hash);
+            let mut logic = SpamLogic::new(map, SpamSpec { spam_strategy: SpamStrategy::Change, max_blocks: 600, rate: RateSpec::new(30), fork_probability: 0.0, track_confirmations: true, expected_epochs: 2 });
+            let now = Timestamp::new_test_instance();
+            logic.delayed.insert_fork(block.clone(), None);
+            logic.published(&hash, now);
+            if timeout_first { assert!(logic.terminated(&hash, true, now)); }
+            logic.terminated(&hash, false, now);
+            assert!(matches!(logic.block_factory.create_next(false), Some(BlockResult::Block(_))), "notarization must release account; timeout_first={timeout_first}");
+        }
+    }
 }

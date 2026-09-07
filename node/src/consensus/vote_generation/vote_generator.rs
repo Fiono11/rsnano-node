@@ -1178,7 +1178,7 @@ mod tests {
     }
 
     #[test]
-    fn rolled_back_child_requires_finalized_not_just_notarized_ancestry() {
+    fn rolled_back_child_can_vote_over_notarized_ancestry() {
         use rsnano_ledger::test_helpers::UnsavedBlockLatticeBuilder;
         use crate::consensus::{ApplyVoteArgs, FilteredVote, ReceivedVote};
         use crate::representatives::QuorumSnapshot;
@@ -1213,9 +1213,6 @@ mod tests {
         let vote: FilteredVote = ReceivedVote::new(Arc::new(Vote::new_rai(&key, 1, VoteType::NonFinal, vec![b.hash()])), VoteDelivery::Direct, None).into();
         state.active_elections.apply_vote(ApplyVoteArgs { vote: &vote, rep_weights: &weights,
             quorum_snapshot: &quorum, now: state.clock.now() });
-        sign();
-        assert!(emitted.lock().unwrap().is_empty(), "notarization must not admit a descendant");
-        state.active_elections.merge_finalized_for_epoch(1, [(b.qualified_root().slot(), b.hash())].into());
         sign();
         assert_eq!(emitted.lock().unwrap().len(), 1);
         assert_eq!(emitted.lock().unwrap()[0].vote_type(), VoteType::First);

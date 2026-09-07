@@ -566,9 +566,7 @@ async fn publish_blocks(
     #[cfg(feature = "rai_protocol")]
     let mut next_epoch_to_close = 1usize;
     #[cfg(feature = "rai_protocol")]
-    let mut published_candidates = 0usize;
-    #[cfg(feature = "rai_protocol")]
-    let mut published_forks = 0usize;
+    let mut published_forks = HashSet::new();
     let mut writer_index = 0;
     loop {
         let forks = select! {
@@ -595,9 +593,8 @@ async fn publish_blocks(
             fork_buffer = Some(fork_serializer.serialize(&publish_fork));
         }
         #[cfg(feature = "rai_protocol")]
-        {
-            published_candidates += 1;
-            published_forks += usize::from(fork_buffer.is_some());
+        if fork_buffer.is_some() {
+            published_forks.insert(hash);
         }
 
         // Register before the first socket write. A fast local election can terminate while the
@@ -655,7 +652,7 @@ async fn publish_blocks(
         #[cfg(feature = "rai_protocol")]
         if blocks_per_epoch > 0
             && next_epoch_to_close <= epochs
-            && published_candidates >= next_epoch_to_close * blocks_per_epoch
+            && published_blocks >= next_epoch_to_close * blocks_per_epoch
         {
             // Stop at the block boundary until every PR has received the non-fork portion of the
             // batch. Fork losers are not necessarily represented by either block_count field, so
@@ -663,7 +660,7 @@ async fn publish_blocks(
             loop {
                 let mut all_received = true;
                 let expected_growth = published_blocks
-                    .saturating_sub(published_forks)
+                    .saturating_sub(published_forks.len())
                     .saturating_sub(logic.lock().unwrap().rolled_back_elections());
                 for (client, initial_count) in rpc_clients.iter().zip(initial_received_counts) {
                     match client.block_count().await {
@@ -682,6 +679,8 @@ async fn publish_blocks(
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
             let epoch = next_epoch_to_close as u64;
+            info!(epoch, published_blocks, fork_elections = published_forks.len(),
+                "Closing RAI epoch at publication boundary");
             let now_ms = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
@@ -1034,14 +1033,15 @@ async fn log_status(
     {
         let now = clock.now();
 
-        let stats = {
+        let (stats, published, terminated) = {
             let mut l = logic.lock().unwrap();
             let stats = l.stats(now);
             l.reset_cps_counter(now);
-            stats
+            (stats, l.publication_stats().0, l.terminated_total)
         };
 
         info!(
+            published, terminated,
             "Confirmed {} blocks | {} bps | {} cps | avg conf time: {} ms",
             stats.total_confirmed.to_formatted_string(&Locale::en),
             stats.target_bps.to_formatted_string(&Locale::en),

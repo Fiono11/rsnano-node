@@ -1088,6 +1088,11 @@ impl Tickable for EpochCoordinator {
         self.rebroadcast_finalizations();
         let now = Self::now_ms();
         if now >= self.next_final_vote_recovery_ms {
+            if std::env::var_os("NANO_RAI_RECOVERY_DIAGNOSTICS").is_some() {
+                for detail in self.aec.epoch_recovery_diagnostics(self.closing_epoch) {
+                    info!(%detail, "RAI diagnostic live election");
+                }
+            }
             let slots = self.vote_recovery_slots();
             self.request_election_votes(&slots);
             self.next_final_vote_recovery_ms = now + 1_000;
@@ -1237,6 +1242,54 @@ impl Tickable for EpochCoordinator {
 mod tests {
     use super::*;
     use rsnano_types::{TestBlockBuilder, Vote, VoteType};
+
+    #[test]
+    fn retained_dead_cut_slot_resolves_with_same_commitment_as_active_election() {
+        use rsnano_ledger::test_helpers::UnsavedBlockLatticeBuilder;
+        let mut commitments = Vec::new();
+        for active_before_conflict in [false, true] {
+            let mut c = coordinator();
+            let key = PrivateKey::from(9);
+            let mut chain = UnsavedBlockLatticeBuilder::new();
+            let mut fork = chain.clone();
+            let source = chain.genesis().send(key.account(), 10);
+            let receive = chain.account(&key).receive(&source);
+            let winner = fork.genesis().send(key.account(), 11);
+            c.aec.retain_dependency(source.clone());
+            if active_before_conflict {
+                assert!(c.aec.insert_vote_recovery(receive.clone(), 2));
+            }
+            c.ledger.process_one(&winner).unwrap();
+            c.ledger.confirm(winner.hash());
+            c.aec.set_dependency_ledger(c.ledger.clone());
+            c.closing_epoch = 2;
+            c.phase = Phase::Cut;
+            c.cut = [receive.qualified_root().slot()].into();
+            c.recovery_cut = c.cut.clone();
+            c.receive_recovery_block(receive.clone());
+            assert!(c.aec.dependency_block(&receive.hash()).is_some());
+            assert!(matches!(c.checked_dependency_closure(2,
+                [(receive.qualified_root().slot(), receive.hash())].into()),
+                Err(ClosureError::FinalizedConflict(dependency, competitor))
+                if dependency == source.hash() && competitor == winner.hash()));
+            c.refresh_dependency_deaths();
+            assert!(c.dependency_dead.contains_key(&receive.hash()));
+            assert!(c.cut_is_resolved());
+            let closure = c.complete_cut_dependency_closure().unwrap();
+            assert_eq!(closure.dependency_deaths,
+                vec![(receive.hash(), source.hash(), winner.hash())]);
+            commitments.push(c.closure_commitment(&closure));
+
+            // Retaining a viable alternative must prevent excluding the entire slot.
+            let live_receive = fork.account(&key).receive(&winner);
+            assert_eq!(live_receive.qualified_root().slot(), receive.qualified_root().slot());
+            c.aec.retain_dependency(live_receive.clone());
+            c.refresh_dependency_deaths();
+            assert!(!c.dependency_dead.contains_key(&live_receive.hash()));
+            assert!(!c.cut_is_resolved());
+        }
+        assert_eq!(commitments[0], commitments[1]);
+    }
 
     fn coordinator() -> EpochCoordinator {
         EpochCoordinator::new(

@@ -126,8 +126,9 @@ impl Ledger {
                 source_block_exists: !source.is_zero() && blocks.contains_key(&source),
                 now: UnixMillisTimestamp::now(),
             };
+            let saved = any.get_block(&hash);
             let instructions = validator
-                .validate()
+                .validate_with_saved_block(saved.as_ref())
                 .map_err(|e| BranchError::Invalid(hash, e))?;
             accounts.insert(account, instructions.set_account_info);
             if let Some(key) = instructions.delete_pending {
@@ -189,6 +190,22 @@ mod tests {
             ledger.validate_branch(c.hash(), |h| (*h == c.hash()).then(|| c.clone()), |_| None),
             Err(BranchError::Missing(b.hash()))
         );
+    }
+
+    #[test]
+    fn installed_hash_does_not_authorize_a_different_signature() {
+        let ledger = Ledger::new_null();
+        let mut chain = UnsavedBlockLatticeBuilder::new();
+        let valid = chain.genesis().send(100, 10);
+        ledger.process_one(&valid).unwrap();
+        assert_eq!(ledger.validate_branch(valid.hash(), |_| None, |_| None), Ok(()));
+        let mut bad = valid.clone();
+        bad.set_signature(Signature::new());
+        assert_eq!(bad.hash(), valid.hash());
+        assert!(matches!(
+            ledger.validate_branch(bad.hash(), |h| (*h == bad.hash()).then(|| bad.clone()), |_| None),
+            Err(BranchError::Invalid(_, BlockError::BadSignature))
+        ));
     }
 
     #[test]

@@ -148,12 +148,13 @@ impl AecService {
     pub fn epoch_recovery_diagnostics(&self, epoch: u64) -> Vec<String> {
         let guard = self.aec.read().unwrap();
         guard.iter_round_robin().map(|e| format!(
-            "root={} epoch={} state={:?} terminated={} confirmed={} first={} final={} candidates={:?} phases={:?}",
+            "root={} epoch={} state={:?} terminated={} confirmed={} first={} final={} candidates={:?} phases={:?} notarized={:?} votes={:?}",
             e.winner().root(), e.qualified_root().epoch, e.state(), e.is_terminated(), e.is_confirmed(),
             e.votes().values().filter(|v| v.first.is_some()).count(),
             e.votes().values().filter(|v| v.final_vote.is_some()).count(),
             e.candidate_blocks().keys().collect::<Vec<_>>(),
-            e.votes().iter().map(|(voter, vote)| (voter, vote.first, vote.final_vote)).collect::<Vec<_>>()
+            e.votes().iter().map(|(voter, vote)| (voter, vote.first, vote.final_vote)).collect::<Vec<_>>(),
+            e.notarized_values().collect::<Vec<_>>(), e.votes()
         )).chain((0..=guard.current_epoch().max(epoch)).flat_map(|record_epoch| {
             guard.finalized_for_epoch(record_epoch).into_iter()
                 .map(move |(slot, hash)| format!("recorded root={} hash={} epoch={}", slot.root, hash, record_epoch))
@@ -226,7 +227,7 @@ impl AecService {
     }
 
     #[cfg(feature = "rai_protocol")]
-    pub fn dependencies_finalized(&self, ledger: &rsnano_ledger::Ledger, block: &Block) -> bool {
+    pub fn dependencies_certified(&self, ledger: &rsnano_ledger::Ledger, block: &Block) -> bool {
         use rsnano_ledger::{AnySet, LedgerSet};
         if block.hash() == ledger.genesis().hash() { return true; }
         let any = ledger.any();
@@ -240,27 +241,33 @@ impl AecService {
         }
         if matches!(block, Block::State(_)) && !previous.is_zero()
             && matches!(&previous_block, Some(MaybeSavedBlock::Unsaved(b)) if b.balance_field().is_none()) { return false; }
-        let finalized = |hash: BlockHash| {
+        let certified = |hash: BlockHash| {
             if hash.is_zero() || any.confirmed().block_exists(&hash) { return true; }
             let body = any.get_block(&hash).map(MaybeSavedBlock::Saved).or_else(|| self.dependency_block(&hash));
             if body.is_none() { self.missing_dependencies.write().unwrap().insert((self.current_epoch(), hash)); }
-            body.is_some_and(|body| self.earliest_election(body.qualified_root().slot())
-                .is_some_and(|(_, winner)| winner == Some(hash)))
+            body.is_some_and(|body| {
+                let guard = self.aec.read().unwrap();
+                if let Some((_, winner)) = guard.earliest_finalization(body.qualified_root().slot()) {
+                    return winner == hash;
+                }
+                guard.iter_round_robin().any(|e| e.is_terminated()
+                    && e.notarized_values().any(|candidate| candidate == hash))
+            })
         };
-        if !finalized(previous) { return false; }
+        if !certified(previous) { return false; }
         let source = match block {
             Block::LegacyOpen(_) | Block::LegacyReceive(_) => block.source_or_link(),
             Block::State(_) if !ledger.constants.epochs.is_epoch_link(&block.link_field().unwrap_or_default())
                 && block.balance_field().unwrap() > previous_block.as_ref().and_then(|b| match b { MaybeSavedBlock::Saved(b) => Some(b.balance()), MaybeSavedBlock::Unsaved(b) => b.balance_field() }).unwrap_or_default() => block.source_or_link(),
             _ => BlockHash::ZERO,
         };
-        finalized(source)
+        certified(source)
     }
 
     #[cfg(feature = "rai_protocol")]
     fn defer_dependency(&self, block: &Block, epoch: Option<u64>) -> bool {
         let ledger = self.dependency_ledger.read().unwrap().clone();
-        if ledger.as_ref().is_none_or(|ledger| self.dependencies_finalized(ledger, block)) { return false; }
+        if ledger.as_ref().is_none_or(|ledger| self.dependencies_certified(ledger, block)) { return false; }
         self.retain_dependency(block.clone());
         self.dependency_pending.write().unwrap().entry(block.hash()).or_insert((block.clone(), epoch));
         true
@@ -271,7 +278,7 @@ impl AecService {
         let pending = std::mem::take(&mut *self.dependency_pending.write().unwrap());
         for (_, (block, epoch)) in pending {
             if self.defer_dependency(&block, epoch) { continue; }
-            // An unstarted candidate acquires its epoch only when its dependencies finalize.
+            // An unstarted candidate acquires its epoch only when its dependencies become certified.
             let epoch = epoch.unwrap_or_else(|| self.aec.read().unwrap().current_epoch());
             self.insert_vote_recovery(block, epoch);
         }
@@ -279,7 +286,7 @@ impl AecService {
 
     #[cfg(feature = "rai_protocol")]
     pub fn validate_candidate_branch(&self, ledger: &rsnano_ledger::Ledger, epoch: u64, hash: BlockHash) -> bool {
-        use rsnano_ledger::AnySet;
+        use rsnano_ledger::{AnySet, LedgerSet};
         let saved = ledger.any().get_block(&hash);
         let block = saved.clone().map(Block::from).or_else(|| self.dependency_block(&hash).map(Block::from));
         let Some(block) = block else {
@@ -287,10 +294,29 @@ impl AecService {
             return false;
         };
         if self.earliest_election(block.qualified_root().slot()).is_some_and(|(_, winner)| winner.is_some_and(|winner| winner != hash)) { return false; }
-        if !self.dependencies_finalized(ledger, &block) { return false; }
-        // Ledger admission already checked this body. Its finalized dependencies cannot
-        // change, so normal voting does not replay the entire history from genesis.
-        if saved.is_some() { return true; }
+        if !self.dependencies_certified(ledger, &block) { return false; }
+        // Installed bodies have already passed ledger validation. Walk their mutable
+        // ancestry for newly finalized competitors, stopping at immutable cemented blocks.
+        // This preserves transitive conflict checks without replaying genesis on every vote.
+        if let Some(saved) = saved {
+            let any = ledger.any();
+            let guard = self.aec.read().unwrap();
+            let mut pending = vec![saved];
+            let mut visited = std::collections::HashSet::new();
+            while let Some(block) = pending.pop() {
+                if !visited.insert(block.hash()) { continue; }
+                if guard.earliest_finalization(block.qualified_root().slot())
+                    .is_some_and(|(_, winner)| winner != block.hash()) { return false; }
+                if any.confirmed().block_exists(&block.hash()) { continue; }
+                for dependency in any.block_dependencies(&block).iter() {
+                    let Some(body) = any.get_block(dependency) else { return false; };
+                    pending.push(body);
+                }
+            }
+            return true;
+        }
+        // Notarized dependencies can still lose to a finalized competitor. Revalidate
+        // the entire branch, including transitive conflicts, even for installed bodies.
         let result = ledger.validate_branch(hash,
             |dependency| self.dependency_block(dependency).map(Into::into),
             |slot| self.earliest_election(slot).and_then(|(_, winner)| winner));
@@ -877,6 +903,16 @@ impl AecService {
                     .map(rsnano_types::Block::from)
             })
             .collect();
+        drop(guard);
+        // A reported slot can outlive its local election, or never acquire one when
+        // its dependency loses. Retained bodies still provide the evidence needed
+        // to discharge that cut obligation. Receipt epoch does not change a body's
+        // content or slot; restrict by the caller's agreed slots instead.
+        targets.extend(
+            self.recovery_candidates.read().unwrap().values()
+                .filter(|block| slots.contains(&block.qualified_root().slot()))
+                .cloned(),
+        );
         targets.sort_unstable_by_key(|block| block.hash());
         targets.dedup_by_key(|block| block.hash());
         targets
@@ -969,6 +1005,34 @@ mod finalized_dependency_tests {
     }
 
     #[test]
+    fn notarized_dependency_admits_descendant_but_timeout_only_does_not() {
+        use crate::consensus::{FilteredVote, ReceivedVote};
+        use crate::representatives::QuorumSnapshot;
+        use rsnano_ledger::RepWeights;
+        use rsnano_types::{Vote, VoteDelivery};
+        for phase in [VoteType::NonFinal, VoteType::Timeout] {
+            let ledger = Arc::new(Ledger::new_null());
+            let aec = AecService::new_null();
+            aec.set_dependency_ledger(ledger.clone());
+            let mut chain = UnsavedBlockLatticeBuilder::new();
+            let parent = chain.genesis().send(100, 10);
+            let child = chain.genesis().send(101, 1);
+            assert!(aec.insert_vote_recovery(parent.clone(), 1));
+            assert!(!aec.insert_cut_recovery(child.clone()));
+            let rep = PrivateKey::from(1);
+            let quorum = QuorumSnapshot::new_test_instance();
+            let mut weights = RepWeights::default();
+            weights.put(rep.public_key(), quorum.total_weight);
+            let vote: FilteredVote = ReceivedVote::new(Arc::new(Vote::new_rai(&rep, 1, phase, vec![parent.hash()])), VoteDelivery::Direct, None).into();
+            aec.apply_vote(ApplyVoteArgs { vote: &vote, rep_weights: &weights, quorum_snapshot: &quorum, now: aec.clock.now() });
+            assert!(aec.election_for_block(&parent.hash()).unwrap().is_terminated());
+            aec.transition_time(aec.clock.now());
+            assert_eq!(aec.is_active_hash_in_epoch(1, &child.hash()), phase == VoteType::NonFinal);
+            assert_eq!(aec.validate_candidate_branch(&ledger, 1, child.hash()), phase == VoteType::NonFinal);
+        }
+    }
+
+    #[test]
     fn receive_waits_for_its_exact_source_to_finalize() {
         let ledger = Arc::new(Ledger::new_null());
         let aec = AecService::new_null();
@@ -984,6 +1048,25 @@ mod finalized_dependency_tests {
         aec.transition_time(aec.clock.now());
         assert!(aec.is_active_hash_in_epoch(1, &receive.hash()));
         assert!(aec.validate_candidate_branch(&ledger, 1, receive.hash()));
+    }
+
+    #[test]
+    fn installed_descendant_rechecks_transitive_finalized_conflicts() {
+        let ledger = Ledger::new_null();
+        let aec = AecService::new_null();
+        let mut chain = UnsavedBlockLatticeBuilder::new();
+        let mut fork = chain.clone();
+        let parent = chain.genesis().send(100, 10);
+        let child = chain.genesis().send(101, 10);
+        let grandchild = chain.genesis().send(102, 10);
+        let competitor = fork.genesis().send(103, 10);
+        for block in [&parent, &child, &grandchild] {
+            ledger.process_one(block).unwrap();
+        }
+        aec.merge_finalized_for_epoch(1, [(child.qualified_root().slot(), child.hash())].into());
+        assert!(aec.validate_candidate_branch(&ledger, 1, grandchild.hash()));
+        aec.merge_finalized_for_epoch(1, [(parent.qualified_root().slot(), competitor.hash())].into());
+        assert!(!aec.validate_candidate_branch(&ledger, 1, grandchild.hash()));
     }
 
     #[test]

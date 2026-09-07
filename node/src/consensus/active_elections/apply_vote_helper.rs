@@ -158,6 +158,8 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
         let old_winner = self.election.winner().hash();
         #[cfg(feature = "rai_protocol")]
         let was_terminated = self.election.is_terminated();
+        #[cfg(feature = "rai_protocol")]
+        let had_notarization = self.election.notarized_value().is_some();
 
         #[cfg(not(feature = "rai_protocol"))]
         self.election.update_tallies(
@@ -171,16 +173,17 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
         self.notify_winner_changed(old_winner);
 
         #[cfg(feature = "rai_protocol")]
-        if !was_terminated && self.election.is_terminated() {
-            let hashes = if self.election.terminated_by_timeout() {
-                self.election.candidate_blocks().keys().copied().collect()
-            } else {
-                vec![self.election.winner().hash()]
-            };
-            self.notify(AecFact::ElectionTerminated(
-                hashes,
-                self.election.terminated_by_timeout(),
-            ));
+        if (!was_terminated && self.election.is_terminated())
+            || (!had_notarization && self.election.notarized_value().is_some())
+        {
+            // A timeout terminates the slot without choosing a value. Observers must also
+            // learn when a later notarization makes a dependency usable.
+            let notarized = self.election.notarized_value();
+            let hashes = notarized.map_or_else(
+                || self.election.candidate_blocks().keys().copied().collect(),
+                |hash| vec![hash],
+            );
+            self.notify(AecFact::ElectionTerminated(hashes, notarized.is_none()));
         }
 
         if self.election.is_final() && self.election.is_confirmed() {
@@ -240,6 +243,26 @@ mod tests {
     };
     use rsnano_utils::sync::backpressure_channel::channel;
     use std::time::Duration;
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn reports_notarization_after_timeout_termination() {
+        use crate::consensus::election::VoteType;
+        let mut fixture = FixtureForElection::default();
+        let quorum = QuorumSnapshot::new_test_instance();
+        fixture.rep_weights.put(fixture.rep1_key.public_key(), quorum.total_weight);
+        let hash = fixture.block.hash();
+        for phase in [VoteType::Timeout, VoteType::NonFinal] {
+            let vote = Vote::new_rai(&fixture.rep1_key, 1, phase, vec![hash]);
+            fixture.apply_vote(ReceivedVote::new(vote.into(), VoteDelivery::Direct, None)).unwrap();
+        }
+        let terminations: Vec<_> = fixture.events.iter().filter_map(|event| {
+            if let AecFact::ElectionTerminated(hashes, timeout) = event {
+                Some((hashes.clone(), *timeout))
+            } else { None }
+        }).collect();
+        assert_eq!(terminations, vec![(vec![hash], true), (vec![hash], false)]);
+    }
 
     #[test]
     fn ignore_duplicate_block_hashes_in_vote() {

@@ -33,10 +33,24 @@ pub(crate) struct BlockValidator<'a> {
 
 impl<'a> BlockValidator<'a> {
     pub(crate) fn validate(&self) -> Result<BlockInsertInstructions, BlockError> {
+        self.validate_with_saved_block(None)
+    }
+
+    /// Replaying an identical installed body can reuse its signature verification.
+    /// All branch-dependent account, pending, balance and work rules still run.
+    pub(crate) fn validate_with_saved_block(
+        &self,
+        saved: Option<&SavedBlock>,
+    ) -> Result<BlockInsertInstructions, BlockError> {
+        let signature_verified = saved.is_some_and(|saved| {
+            saved.account() == self.account && &**saved == self.block
+        });
         self.epoch_block_pre_checks()?;
         self.ensure_block_does_not_exist_yet()?;
         self.ensure_valid_predecessor()?;
-        self.ensure_valid_signature()?;
+        if !signature_verified {
+            self.ensure_valid_signature()?;
+        }
         self.ensure_block_is_not_for_burn_account()?;
         self.ensure_account_exists_for_none_open_block()?;
         self.ensure_no_double_account_open()?;
