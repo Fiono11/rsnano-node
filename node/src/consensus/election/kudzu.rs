@@ -118,7 +118,12 @@ impl KudzuVotes {
 
     pub fn needs_vote(&self, rep: &PublicKey, hash: BlockHash, quorum: bool) -> bool {
         !self.notar.contains_key(&(*rep, hash))
-            || (quorum && self.final_hashes.get(rep) != Some(&hash))
+            || (quorum
+                && self.final_hashes.get(rep) != Some(&hash)
+                && !self
+                    .notar
+                    .keys()
+                    .any(|(voter, other)| voter == rep && *other != hash))
     }
 
     pub fn has_certificate(&self, hash: BlockHash, kind: VoteKind) -> bool {

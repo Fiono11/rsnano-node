@@ -308,6 +308,9 @@ impl Election {
             _ => {}
         }
 
+        // RAI must retain unfinished elections and their authenticated evidence.
+        // A local timer is not a notarization or an implicit/explicit finalization.
+        #[cfg(not(feature = "rai_protocol"))]
         if !self.state.has_ended() && self.behavior.time_to_live() < duration {
             self.state = ElectionState::ExpiredUnconfirmed;
         }

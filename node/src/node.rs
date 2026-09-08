@@ -782,6 +782,7 @@ impl Node {
             stats.clone(),
             vote_generators.clone(),
             ledger.clone(),
+            message_sender.clone(),
         ));
 
         let backlog_scan = Arc::new(BacklogScan::new(global_config.into(), ledger.clone()));
@@ -839,6 +840,7 @@ impl Node {
         let mut aec_ticker = AecTicker::new(active_elections.clone(), steady_clock.clone());
 
         aec_ticker.add_plugin(ConfirmationSolicitorPlugin {
+            broadcast_cursor: 0,
             message_flooder: message_flooder.clone(),
             rep_tracker: rep_tracker.clone(),
             winner_block_broadcaster: winner_block_broadcaster.clone(),

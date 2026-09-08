@@ -77,6 +77,21 @@ impl AecService {
             .collect()
     }
 
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn kudzu_candidates(&self, hashes: &[BlockHash]) -> Vec<Option<Block>> {
+        let aec = self.aec.read().unwrap();
+        hashes
+            .iter()
+            .map(|hash| {
+                aec.election_for_block(hash)?
+                    .candidate_blocks()
+                    .get(hash)
+                    .cloned()
+                    .map(Into::into)
+            })
+            .collect()
+    }
+
     pub fn election_for_root(&self, root: &QualifiedRoot) -> Option<Election> {
         self.aec.read().unwrap().election_for_root(root).cloned()
     }

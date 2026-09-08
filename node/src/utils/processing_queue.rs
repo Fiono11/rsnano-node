@@ -86,6 +86,11 @@ impl<T: Send + 'static> ProcessingQueue<T> {
 
     /// Queues item for batch processing
     pub fn add(&self, item: T) {
+        self.try_add(item);
+    }
+
+    /// Returns false when capacity prevents enqueueing the item.
+    pub fn try_add(&self, item: T) -> bool {
         let mut queue = self.shared_state.queue.lock().unwrap();
         if queue.len() < self.max_queue_size {
             queue.push_back(item);
@@ -93,9 +98,11 @@ impl<T: Send + 'static> ProcessingQueue<T> {
             self.shared_state.condition.notify_one();
             self.stats
                 .inc_dir(self.stat_type, DetailType::Queue, Direction::In);
+            true
         } else {
             self.stats
                 .inc_dir(self.stat_type, DetailType::Overfill, Direction::In);
+            false
         }
     }
 

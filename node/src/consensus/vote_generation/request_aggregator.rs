@@ -17,7 +17,7 @@ use super::{
     VoteGenerators,
     request_aggregator_impl::{AggregateResult, RequestAggregatorImpl},
 };
-use crate::consensus::election::VoteType;
+use crate::{consensus::election::VoteType, transport::MessageSender};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct RequestAggregatorConfig {
@@ -48,6 +48,7 @@ pub struct RequestAggregator {
     stats: Arc<Stats>,
     vote_generators: Arc<VoteGenerators>,
     ledger: Arc<Ledger>,
+    message_sender: Arc<Mutex<MessageSender>>,
     state: Arc<Mutex<RequestAggregatorState>>,
     condition: Arc<Condvar>,
     threads: Mutex<Vec<JoinHandle<()>>>,
@@ -59,12 +60,14 @@ impl RequestAggregator {
         stats: Arc<Stats>,
         vote_generators: Arc<VoteGenerators>,
         ledger: Arc<Ledger>,
+        message_sender: MessageSender,
     ) -> Self {
         let max_queue = config.max_queue;
         Self {
             stats,
             vote_generators,
             ledger,
+            message_sender: Arc::new(Mutex::new(message_sender)),
             config,
             condition: Arc::new(Condvar::new()),
             state: Arc::new(Mutex::new(RequestAggregatorState {
@@ -81,6 +84,7 @@ impl RequestAggregator {
             Stats::default().into(),
             VoteGenerators::new_null().into(),
             Ledger::new_null().into(),
+            MessageSender::new_null(),
         )
     }
 
@@ -93,6 +97,7 @@ impl RequestAggregator {
                 stats: self.stats.clone(),
                 config: self.config.clone(),
                 ledger: self.ledger.clone(),
+                message_sender: self.message_sender.clone(),
                 vote_generators: self.vote_generators.clone(),
             };
 
@@ -216,6 +221,7 @@ struct RequestAggregatorLoop {
     stats: Arc<Stats>,
     config: RequestAggregatorConfig,
     ledger: Arc<Ledger>,
+    message_sender: Arc<Mutex<MessageSender>>,
     vote_generators: Arc<VoteGenerators>,
 }
 
@@ -266,6 +272,16 @@ impl RequestAggregatorLoop {
 
     fn process(&self, any: &dyn AnySet, request: &AggregatorRequest) {
         let remaining = self.aggregate(any, request);
+        #[cfg(feature = "rai_protocol")]
+        for block in &remaining.blocks_to_publish {
+            self.message_sender.lock().unwrap().try_send(
+                &request.channel,
+                &rsnano_messages::Message::Publish(rsnano_messages::Publish::new_forward(
+                    block.clone().into(),
+                )),
+                TrafficType::BlockBroadcast,
+            );
+        }
 
         if !remaining.remaining_normal.is_empty() {
             self.stats

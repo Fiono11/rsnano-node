@@ -107,7 +107,10 @@ impl Timestamp {
     }
 
     pub fn elapsed(&self, now: Timestamp) -> Duration {
-        Duration::from_nanos(now.0.checked_sub(self.0).unwrap_or_default() as u64)
+        // A timestamp sampled before acquiring a lock can precede an insertion
+        // performed while that caller waited. Such a duration is zero, not a
+        // negative signed value cast to a centuries-long unsigned duration.
+        Duration::from_nanos(now.0.checked_sub(self.0).unwrap_or_default().max(0) as u64)
     }
 
     pub fn checked_sub(&self, rhs: Duration) -> Option<Self> {
@@ -230,5 +233,23 @@ mod tests {
 
             clock.advance(Duration::from_secs(1));
         }
+    }
+}
+
+#[cfg(test)]
+mod stale_elapsed_regression {
+    use super::*;
+    #[test]
+    fn elapsed_clamps_stale_samples_and_preserves_forward_time() {
+        let start = Timestamp::new_test_instance();
+        assert_eq!(
+            start.elapsed(start - Duration::from_nanos(1)),
+            Duration::ZERO
+        );
+        assert_eq!(start.elapsed(start), Duration::ZERO);
+        assert_eq!(
+            start.elapsed(start + Duration::from_secs(61)),
+            Duration::from_secs(61)
+        );
     }
 }

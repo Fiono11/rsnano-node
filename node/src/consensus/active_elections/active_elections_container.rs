@@ -266,7 +266,7 @@ impl ActiveElectionsContainer {
         if self.cooldown.is_cooling_down() {
             return 0;
         }
-        let current_size = self.roots.len() as i64;
+        let current_size = self.roots.scheduling_len() as i64;
         self.max_elections as i64 - current_size
     }
 
@@ -342,12 +342,16 @@ impl ActiveElectionsContainer {
             any_inserted = false;
             for bucket_index in (0..self.roots.bucket_count()).rev() {
                 let bucket = &self.roots.bucket_infos()[bucket_index];
-                let bucket_vacancy = if self.len() >= self.max_elections {
+                let bucket_vacancy = if self.roots.scheduling_len() >= self.max_elections {
                     0
                 } else {
                     self.max_elections_per_bucket as isize - bucket.election_count as isize
                 };
 
+                #[cfg(feature = "rai_protocol")]
+                if bucket_vacancy <= 0 {
+                    continue;
+                }
                 let Some(candidate) = source.next_candidate(
                     bucket_index,
                     bucket_vacancy,
@@ -363,6 +367,7 @@ impl ActiveElectionsContainer {
                     continue;
                 }
 
+                #[cfg(not(feature = "rai_protocol"))]
                 if self.bucket_len(candidate.bucket_id) >= self.max_elections_per_bucket {
                     self.erase_lowest_prio_election(candidate.bucket_id);
                     self.stats.replaced += 1;
@@ -425,6 +430,14 @@ impl ActiveElectionsContainer {
     }
 
     pub fn erase(&mut self, root: &QualifiedRoot) -> bool {
+        #[cfg(feature = "rai_protocol")]
+        if self
+            .roots
+            .election_for_root(root)
+            .is_some_and(|e| !e.is_confirmed())
+        {
+            return false;
+        }
         let Some(entry) = self.roots.erase(root) else {
             return false;
         };
@@ -433,6 +446,12 @@ impl ActiveElectionsContainer {
     }
 
     pub fn erase_lowest_prio_election(&mut self, bucket_id: usize) {
+        #[cfg(feature = "rai_protocol")]
+        {
+            let _ = bucket_id;
+            return;
+        }
+        #[cfg(not(feature = "rai_protocol"))]
         if let Some(entry) = self.roots.erase_lowest(bucket_id) {
             self.cleanup_election(entry);
         }
@@ -471,11 +490,6 @@ impl ActiveElectionsContainer {
                 .iter_mut()
                 .filter(|e| e.election.qualified_root() == &confirmed_block.qualified_root())
             {
-                if entry.election.epoch != confirmed_election.epoch
-                    && entry.election.winner().hash() == confirmed_block.hash()
-                {
-                    continue;
-                }
                 if entry.election.winner().hash() == confirmed_block.hash() {
                     entry.election.force_confirm();
                 } else {
@@ -588,7 +602,7 @@ impl ActiveElectionsContainer {
         args: ApplyVoteArgs<'a>,
     ) -> HashMap<BlockHash, Result<(), VoteError>> {
         #[cfg(feature = "rai_protocol")]
-        if self.len() < self.max_elections {
+        if self.roots.scheduling_len() < self.max_elections {
             for hash in args.vote.filtered_blocks() {
                 // Late same/later-epoch votes cannot open an earlier election.
                 // Avoid ledger lookups under the AEC lock for this common case.
@@ -599,7 +613,7 @@ impl ActiveElectionsContainer {
                 {
                     continue;
                 }
-                if self.len() >= self.max_elections {
+                if self.roots.scheduling_len() >= self.max_elections {
                     break;
                 }
                 if self
@@ -1039,5 +1053,129 @@ mod earlier_vote_tests {
             .unwrap();
         assert_eq!(earlier.vote_count(), 1);
         assert!(!earlier.is_confirmed());
+    }
+}
+
+#[cfg(all(test, feature = "rai_protocol"))]
+mod notarized_admission_tests {
+    use super::*;
+    use crate::consensus::ReceivedVote;
+    use rsnano_types::{PrivateKey, StateBlockArgs, Vote, VoteDelivery, VoteKind};
+
+    fn apply(aec: &mut ActiveElectionsContainer, rep: u64, hash: BlockHash, kind: VoteKind) {
+        let mut weights = RepWeights::default();
+        for rep in 1..=6 {
+            weights.put(PrivateKey::from(rep).public_key(), Amount::raw(100));
+        }
+        let mut quorum = QuorumSnapshot::new_test_instance();
+        quorum.online_weight = Amount::raw(600);
+        quorum.trended_or_min_weight = Amount::raw(600);
+        let vote: FilteredVote = ReceivedVote::new(
+            std::sync::Arc::new(Vote::new_with_kind(
+                &PrivateKey::from(rep),
+                vec![hash],
+                0,
+                kind,
+            )),
+            VoteDelivery::Direct,
+            None,
+        )
+        .into();
+        assert_eq!(
+            aec.apply_vote(ApplyVoteArgs {
+                vote: &vote,
+                rep_weights: &weights,
+                quorum_snapshot: &quorum,
+                now: Timestamp::new_test_instance()
+            })[&hash],
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn unfinished_election_survives_expiration_and_eviction() {
+        let mut aec = ActiveElectionsContainer::default();
+        let block = SavedBlock::new_test_instance();
+        let now = Timestamp::new_test_instance();
+        aec.insert(
+            AecInsertRequest::new_priority(block.clone(), Default::default()),
+            now,
+        )
+        .unwrap();
+        for rep in 1..=3 {
+            apply(&mut aec, rep, block.hash(), VoteKind::First);
+        }
+        aec.transition_time(now + Duration::from_secs(600));
+        aec.erase_lowest_prio_election(aec.find_bucket(&block.qualified_root()).unwrap());
+        assert!(!aec.erase(&block.qualified_root()));
+        assert_eq!(aec.len(), 1);
+        assert!(!aec.election_for_block(&block.hash()).unwrap().has_quorum());
+        apply(&mut aec, 4, block.hash(), VoteKind::First);
+        assert!(aec.election_for_block(&block.hash()).unwrap().has_quorum());
+    }
+
+    #[test]
+    fn notarized_election_releases_slot_and_can_still_finalize() {
+        let mut aec = ActiveElectionsContainer::default();
+        let capacity = aec.vacancy();
+        let block = SavedBlock::new_test_instance();
+        aec.insert(
+            AecInsertRequest::new_priority(block.clone(), Default::default()),
+            Timestamp::new_test_instance(),
+        )
+        .unwrap();
+        assert_eq!(aec.vacancy(), capacity - 1);
+        for rep in 1..=4 {
+            apply(&mut aec, rep, block.hash(), VoteKind::First);
+        }
+        assert_eq!(aec.vacancy(), capacity);
+        assert_eq!(aec.len(), 1);
+        assert_eq!(
+            aec.bucket_len(aec.find_bucket(&block.qualified_root()).unwrap()),
+            0
+        );
+        assert_eq!(aec.iter_round_robin().count(), 1);
+        for rep in 1..=4 {
+            apply(&mut aec, rep, block.hash(), VoteKind::Final);
+        }
+        assert!(aec.is_empty());
+        assert_eq!(aec.vacancy(), capacity);
+    }
+
+    #[test]
+    fn notarized_election_keeps_collecting_other_certificates_without_consuming_slot() {
+        let mut aec = ActiveElectionsContainer::default();
+        let capacity = aec.vacancy();
+        let args = StateBlockArgs::new_test_instance();
+        let block = SavedBlock::new_test_instance_with(args.clone().into());
+        let fork: Block = StateBlockArgs {
+            representative: 999.into(),
+            ..args
+        }
+        .into();
+        aec.insert(
+            AecInsertRequest::new_priority(block.clone(), Default::default()),
+            Timestamp::new_test_instance(),
+        )
+        .unwrap();
+        assert!(aec.try_add_fork(&fork, Amount::ZERO));
+        for rep in 1..=6 {
+            apply(
+                &mut aec,
+                rep,
+                if rep <= 3 { block.hash() } else { fork.hash() },
+                VoteKind::First,
+            );
+        }
+        apply(&mut aec, 4, block.hash(), VoteKind::Notarize);
+        assert_eq!(aec.vacancy(), capacity);
+        apply(&mut aec, 1, fork.hash(), VoteKind::Notarize);
+        assert_eq!(aec.vacancy(), capacity);
+        let election = aec.election_for_block(&block.hash()).unwrap();
+        assert!(election.has_kudzu_certificate(block.hash(), VoteKind::Notarize));
+        assert!(election.has_kudzu_certificate(fork.hash(), VoteKind::Notarize));
+        assert!(!election.is_confirmed());
+        aec.transition_time(Timestamp::new_test_instance() + Duration::from_secs(600));
+        assert_eq!(aec.len(), 1);
     }
 }

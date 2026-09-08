@@ -66,24 +66,25 @@ impl WinnerBlockBroadcaster {
         self.broadcast_listener.track()
     }
 
+    /// Returns false when the shared broadcast budget is exhausted.
     pub fn try_broadcast_winner(
         &mut self,
         winner_block: &Block,
         votes: &HashMap<PublicKey, VoteSummary>,
-    ) {
+    ) -> bool {
         let now = self.clock.now();
         let winner_hash = winner_block.hash();
         self.broadcast_listener.emit(winner_hash);
 
         if !self.broadcast_tracker.should_broadcast(now, &winner_hash) {
-            return;
+            return true;
         }
 
         // Maximum amount of directed broadcasts to be sent per election
         let max_election_broadcasts = max(self.network.read().unwrap().fanout(1.0) / 2, 1);
 
         if !self.rebroadcast_limiter.try_consume(1) {
-            return;
+            return false;
         }
 
         let winner_msg = Message::Publish(Publish::new_forward(winner_block.clone()));
@@ -118,6 +119,7 @@ impl WinnerBlockBroadcaster {
             .flood(&winner_msg, TrafficType::BlockBroadcast, 0.5);
 
         self.broadcast_tracker.insert(now, winner_hash);
+        true
     }
 }
 

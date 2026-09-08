@@ -10,6 +10,8 @@ pub(super) struct RequestAggregatorImpl<'a> {
     stats: &'a Stats,
     any: &'a dyn AnySet,
 
+    #[cfg(feature = "rai_protocol")]
+    pub blocks_to_publish: Vec<SavedBlock>,
     pub to_generate: Vec<SavedBlock>,
     pub to_generate_final: Vec<SavedBlock>,
 }
@@ -19,6 +21,8 @@ impl<'a> RequestAggregatorImpl<'a> {
         Self {
             stats,
             any,
+            #[cfg(feature = "rai_protocol")]
+            blocks_to_publish: Vec::new(),
             to_generate: Vec::new(),
             to_generate_final: Vec::new(),
         }
@@ -62,6 +66,18 @@ impl<'a> RequestAggregatorImpl<'a> {
             };
 
             if let Some(block) = block {
+                #[cfg(feature = "rai_protocol")]
+                if block.hash() != *hash
+                    && block.root() == *root
+                    && !self
+                        .blocks_to_publish
+                        .iter()
+                        .any(|b| b.hash() == block.hash())
+                {
+                    // A vote naming a different hash is unusable until the requester
+                    // has that candidate. Repair the root disagreement in this reply.
+                    self.blocks_to_publish.push(block.clone());
+                }
                 // Recover first/notarization statements even when a final vote exists.
                 // The generators enforce the actual phase eligibility for this epoch.
                 #[cfg(feature = "rai_protocol")]
@@ -93,6 +109,8 @@ impl<'a> RequestAggregatorImpl<'a> {
 
     pub fn get_result(self) -> AggregateResult {
         AggregateResult {
+            #[cfg(feature = "rai_protocol")]
+            blocks_to_publish: self.blocks_to_publish,
             remaining_normal: self.to_generate,
             remaining_final: self.to_generate_final,
         }
@@ -100,6 +118,8 @@ impl<'a> RequestAggregatorImpl<'a> {
 }
 
 pub(super) struct AggregateResult {
+    #[cfg(feature = "rai_protocol")]
+    pub blocks_to_publish: Vec<SavedBlock>,
     pub remaining_normal: Vec<SavedBlock>,
     pub remaining_final: Vec<SavedBlock>,
 }
@@ -155,6 +175,23 @@ mod tests {
 
         assert_eq!(result.remaining_final.len(), 1);
         assert_eq!(result.remaining_final[0].hash(), fork_a.hash());
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn different_candidate_reply_includes_the_block_once() {
+        let ledger = Ledger::new_null();
+        let a = UnsavedBlockLatticeBuilder::new().genesis().send(100, 1);
+        let b = UnsavedBlockLatticeBuilder::new().genesis().send(200, 1);
+        ledger.process_one(&a).unwrap();
+        let result = run_aggregator(&ledger, &[(b.hash(), b.root()), (b.hash(), b.root())]);
+        assert_eq!(result.blocks_to_publish.len(), 1);
+        assert_eq!(result.blocks_to_publish[0].hash(), a.hash());
+        assert!(
+            run_aggregator(&ledger, &[(a.hash(), a.root())])
+                .blocks_to_publish
+                .is_empty()
+        );
     }
 
     /*

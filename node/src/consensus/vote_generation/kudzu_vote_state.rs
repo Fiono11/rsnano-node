@@ -25,6 +25,10 @@ impl KudzuVoteState {
             .is_some_and(|s| s.first.is_some_and(|h| h != hash))
     }
 
+    pub fn first_value(&self, root: &QualifiedRoot, rep: PublicKey) -> Option<BlockHash> {
+        self.roots.get(&(root.clone(), rep))?.first
+    }
+
     pub fn has_first(
         &self,
         root: &QualifiedRoot,

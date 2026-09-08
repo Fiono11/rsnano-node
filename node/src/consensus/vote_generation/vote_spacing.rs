@@ -6,13 +6,13 @@ use std::{
 };
 
 #[cfg(feature = "rai_protocol")]
-type SpacingRoot = (Root, u64);
+type SpacingRoot = (Root, BlockHash, u64);
 #[cfg(not(feature = "rai_protocol"))]
 type SpacingRoot = Root;
-fn spacing_root(root: Root, _epoch: u64) -> SpacingRoot {
+fn spacing_root(root: Root, _hash: BlockHash, _epoch: u64) -> SpacingRoot {
     #[cfg(feature = "rai_protocol")]
     {
-        (root, _epoch)
+        (root, _hash, _epoch)
     }
     #[cfg(not(feature = "rai_protocol"))]
     {
@@ -20,7 +20,9 @@ fn spacing_root(root: Root, _epoch: u64) -> SpacingRoot {
     }
 }
 
-/// Makes sure that there is a minimum time gap between votes if the winner changed
+/// Legacy voting spaces winner changes. Kudzu tracks each value independently:
+/// repeatedly voting for one value must not starve an authorized second-look vote.
+/// KudzuVoteState enforces the signing restrictions across all these values.
 pub struct VoteSpacing {
     delay: Duration,
     recent: EntryContainer,
@@ -45,7 +47,7 @@ impl VoteSpacing {
         epoch: u64,
     ) -> bool {
         self.recent
-            .by_root(&spacing_root(*root, epoch))
+            .by_root(&spacing_root(*root, *hash, epoch))
             .all(|item| *hash == item.hash || item.timestamp.elapsed(now) >= self.delay)
     }
 
@@ -53,7 +55,7 @@ impl VoteSpacing {
         self.flag_in_epoch(root, hash, now, 0);
     }
     pub fn flag_in_epoch(&mut self, root: &Root, hash: &BlockHash, now: Timestamp, epoch: u64) {
-        let root = spacing_root(*root, epoch);
+        let root = spacing_root(*root, *hash, epoch);
         self.trim(now);
         if !self.recent.change_time_for_root(&root, now) {
             self.recent.insert(Entry {
@@ -234,7 +236,10 @@ mod tests {
         spacing.flag(&root1, &hash1, now);
         assert_eq!(spacing.len(), 1);
         assert!(spacing.votable(&root1, &hash1, now));
-        assert!(!spacing.votable(&root1, &hash2, now));
+        assert_eq!(
+            spacing.votable(&root1, &hash2, now),
+            cfg!(feature = "rai_protocol")
+        );
 
         spacing.flag(&root2, &hash3, now);
         assert_eq!(spacing.len(), 2);
@@ -252,6 +257,23 @@ mod tests {
         assert_eq!(spacing.len(), 1);
     }
 
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn repeated_first_votes_do_not_starve_second_look_values() {
+        let mut spacing = VoteSpacing::new(Duration::from_secs(1));
+        let root = Root::from(1);
+        let a = BlockHash::from(2);
+        let b = BlockHash::from(3);
+        let start = Timestamp::new_test_instance();
+        for i in 0..20 {
+            let now = start + Duration::from_millis(i * 100);
+            spacing.flag_in_epoch(&root, &a, now, 0);
+            assert!(spacing.votable_in_epoch(&root, &b, now, 0));
+            spacing.flag_in_epoch(&root, &b, now, 0);
+            assert!(spacing.votable_in_epoch(&root, &a, now, 0));
+        }
+    }
+
     mod entry_container_tests {
         use super::*;
 
@@ -260,7 +282,7 @@ mod tests {
             let mut container = EntryContainer::new();
             let now = Timestamp::new_test_instance();
             container.insert(Entry {
-                root: spacing_root(Root::from(1), 0),
+                root: spacing_root(Root::from(1), BlockHash::from(2), 0),
                 hash: BlockHash::from(2),
                 timestamp: now,
             });

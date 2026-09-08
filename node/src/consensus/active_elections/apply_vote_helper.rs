@@ -49,8 +49,13 @@ impl<'a> ApplyVoteHelper<'a> {
                     result.per_block.insert(*block_hash, vote_result);
                 }
 
-                if election.is_confirmed() {
-                    let root = election.id();
+                let root = election.id();
+                let confirmed = election.is_confirmed();
+                #[cfg(feature = "rai_protocol")]
+                if election.has_quorum() {
+                    self.roots.mark_notarized(&root);
+                }
+                if confirmed {
                     if let Some(entry) = self.roots.erase_id(&root) {
                         result.confirmed.push(entry);
                     }

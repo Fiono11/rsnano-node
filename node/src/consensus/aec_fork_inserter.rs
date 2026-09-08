@@ -28,6 +28,9 @@ impl AecForkInserter {
     pub fn handle_forks(&self, batch: &[ProcessResult]) {
         for result in batch {
             if result.status == Err(BlockError::Fork) {
+                // Publish to the cache before checking the AEC. An election starting
+                // concurrently must find the fork either here or in its startup scan.
+                self.fork_cache.write().unwrap().add(result.block.clone());
                 self.handle_fork(&result.block);
             }
         }
@@ -66,5 +69,55 @@ impl EventHandlerMut<LedgerPipelineEvent> for ForkInserterPlugin {
             // Notify elections about alternative (forked) blocks
             self.fork_processor.handle_forks(results);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::consensus::AecInsertRequest;
+    use rsnano_nullable_clock::Timestamp;
+    use rsnano_types::{SavedBlock, StateBlockArgs};
+
+    #[test]
+    fn fork_is_cached_before_an_election_can_start_after_delivery() {
+        let inserter = AecForkInserter::new_test_instance();
+        let args = StateBlockArgs::new_test_instance();
+        let block = SavedBlock::new_test_instance_with(args.clone().into());
+        let fork: Block = StateBlockArgs {
+            representative: 999.into(),
+            ..args
+        }
+        .into();
+        // The ledger event processor can pause after this plugin's delivery and
+        // before its remaining event handlers. An election may start in that gap.
+        inserter.handle_forks(&[ProcessResult {
+            block: fork.clone(),
+            status: Err(BlockError::Fork),
+            source: rsnano_ledger::BlockSource::Live,
+            saved_block: None,
+            priority: Default::default(),
+        }]);
+        inserter
+            .active_elections
+            .insert(
+                AecInsertRequest::new_manual(block.clone(), Default::default()),
+                Timestamp::new_test_instance(),
+            )
+            .unwrap();
+        inserter.try_add_cached_forks(&block.qualified_root());
+        assert!(
+            inserter
+                .active_elections
+                .election_for_block(&fork.hash())
+                .is_some()
+        );
+        assert!(
+            inserter
+                .fork_cache
+                .read()
+                .unwrap()
+                .contains(&block.qualified_root())
+        );
     }
 }
