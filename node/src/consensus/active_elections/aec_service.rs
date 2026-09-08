@@ -39,6 +39,10 @@ impl AecService {
         }
     }
 
+    pub fn set_epoch_source(&self, ledger: std::sync::Arc<rsnano_ledger::Ledger>) {
+        self.aec.write().unwrap().epoch_source = Some(ledger);
+    }
+
     // --- Read forwarding ---
 
     pub fn check_vacancy<T>(&self, source: &T) -> bool
@@ -46,6 +50,10 @@ impl AecService {
         T: ElectionCandidateSource,
     {
         self.aec.read().unwrap().check_vacancy(source)
+    }
+
+    pub fn election_for_id(&self, id: &rsnano_types::ElectionId) -> Option<Election> {
+        self.aec.read().unwrap().election_for_id(id).cloned()
     }
 
     pub fn election_for_root(&self, root: &QualifiedRoot) -> Option<Election> {
@@ -149,6 +157,17 @@ impl AecService {
         self.aec.write().unwrap().remove_votes(root, voters)
     }
 
+    pub fn remove_votes_in_epoch<'a>(
+        &self,
+        root: &QualifiedRoot,
+        epoch: u64,
+        voters: impl IntoIterator<Item = &'a PublicKey>,
+    ) {
+        self.aec
+            .write()
+            .unwrap()
+            .remove_votes_in_epoch(root, epoch, voters);
+    }
     pub fn erase(&self, root: &QualifiedRoot) -> bool {
         self.aec.write().unwrap().erase(root)
     }
@@ -229,6 +248,7 @@ pub struct BucketSnapshot {
 }
 
 pub struct ElectionSnapshot {
+    pub epoch: u64,
     pub winner_hash: BlockHash,
     pub non_final_tally: Amount,
     pub final_tally: Amount,

@@ -5,7 +5,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::anyhow;
 use num_format::{Locale, ToFormattedString};
 use rand::{RngExt, rng};
 use tokio::{
@@ -70,9 +69,13 @@ impl NanoSpamApp {
         let protocol = ProtocolInfo::default_for(NetworkType::NanoTestNetwork);
         let genesis_hash = get_genesis_hash();
 
-        let mut data_dir = dirs::home_dir().ok_or_else(|| anyhow!("No home dir found"))?;
-        data_dir.push("NanoSpam");
+        let data_dir = self.args.data_dir.clone().unwrap_or_else(|| {
+            dirs::home_dir()
+                .expect("No home dir found")
+                .join("NanoSpam")
+        });
 
+        std::fs::create_dir_all(&data_dir)?;
         let mut account_map = create_account_map(&data_dir, self.args.accounts);
 
         if self.args.set_up_new_nodes() {
@@ -200,11 +203,58 @@ impl NanoSpamApp {
         let duration_secs = started.elapsed().as_secs_f64();
         let logic = logic.lock().unwrap();
         let created_blocks = logic.block_factory.created();
-        let cps = (created_blocks as f64 / duration_secs) as i32;
+        let confirmed_blocks = logic.confirmed_total;
+        let cps = confirmed_blocks as f64 / duration_secs;
         info!("Confirming {created_blocks} blocks took {duration_secs:.2}s");
         info!("Confirmation rate: {cps} cps");
-        let conf_time = logic.sum_conf_time_total.as_millis() / created_blocks as u128;
+        let conf_time = if confirmed_blocks == 0 {
+            0.0
+        } else {
+            logic.sum_conf_time_total.as_secs_f64() * 1000.0 / confirmed_blocks as f64
+        };
         info!("Average conf time: {conf_time} ms");
+        let summary = serde_json::json!({ "rai_protocol": cfg!(feature = "rai_protocol"), "epoch_length": self.args.epoch_length, "prs": self.args.prs, "accounts": self.args.accounts, "created_blocks": created_blocks, "confirmed_blocks": confirmed_blocks, "duration_seconds": duration_secs, "confirmation_rate_cps": cps, "average_confirmation_ms": conf_time });
+        drop(logic);
+        info!("BENCHMARK_RESULT {summary}");
+        #[cfg(feature = "rai_protocol")]
+        {
+            let reconciliation_started = Instant::now();
+            let mut stable = 0;
+            let mut previous = None;
+            loop {
+                let mut sets = Vec::new();
+                let mut all_cemented = true;
+                for client in &self.rpc_clients {
+                    let count = client.block_count().await?;
+                    all_cemented &= count.count == count.cemented;
+                    sets.push(count.confirmation_epochs);
+                }
+                let equal = all_cemented && sets.iter().all(|s| s.is_some() && *s == sets[0]);
+                if equal && previous.as_ref() == sets.first() {
+                    stable += 1;
+                } else {
+                    stable = 0;
+                }
+                previous = sets.into_iter().next();
+                // Passive observation only: this check does not initiate protocol work.
+                if stable >= 3 {
+                    break;
+                }
+                if reconciliation_started.elapsed() > Duration::from_secs(180) {
+                    anyhow::bail!("Canonical epoch sets failed to converge within 180 seconds");
+                }
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+            info!(
+                "EPOCH_SET_AGREEMENT_SECONDS {}",
+                reconciliation_started.elapsed().as_secs_f64()
+            );
+        }
+        for (index, client) in self.rpc_clients.iter().enumerate() {
+            if let Ok(count) = client.block_count().await {
+                info!("PR{index} ledger: {}", serde_json::to_string(&count)?);
+            }
+        }
 
         Ok(())
     }

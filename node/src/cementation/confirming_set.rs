@@ -25,6 +25,7 @@ use crate::{
 /// A block that is currently cementing
 #[derive(Clone)]
 pub struct CementingEntry {
+    pub epoch: u64,
     pub confirmation_root: BlockHash,
     pub timestamp: Instant,
 }
@@ -230,6 +231,10 @@ impl ConfirmingSetThread {
     }
 
     fn add(&self, hash: BlockHash, election: Option<ConfirmedElection>) {
+        let epoch = election
+            .as_ref()
+            .map(|e| e.epoch)
+            .unwrap_or_else(|| self.ledger.current_epoch());
         let added;
         let mut near_full_warning = false;
         {
@@ -238,6 +243,7 @@ impl ConfirmingSetThread {
                 guard.election_cache.insert(e);
             }
             added = guard.set.push_back(CementingEntry {
+                epoch,
                 confirmation_root: hash,
                 timestamp: Instant::now(),
             });
@@ -325,8 +331,12 @@ impl ConfirmingSetThread {
 
     fn run_batch(&self, batch: VecDeque<CementingEntry>) {
         let mut notifier = CementedNotifier::new(self);
-        self.ledger.confirm_batch(
-            batch.iter().map(|i| &i.confirmation_root),
+        notifier.epochs = batch
+            .iter()
+            .map(|e| (e.confirmation_root, e.epoch))
+            .collect();
+        self.ledger.confirm_batch_in_epochs(
+            batch.iter().map(|i| (&i.confirmation_root, i.epoch)),
             &self.stopped,
             self.config.max_blocks,
             &mut notifier,
@@ -406,6 +416,7 @@ pub struct ConfirmationContext {
 }
 
 struct CementedNotifier<'a> {
+    epochs: std::collections::HashMap<BlockHash, u64>,
     confirming_set: &'a ConfirmingSetThread,
     already_confirmed: VecDeque<BlockHash>,
 }
@@ -414,6 +425,7 @@ impl<'a> CementedNotifier<'a> {
     fn new(confirming_set: &'a ConfirmingSetThread) -> Self {
         Self {
             confirming_set,
+            epochs: Default::default(),
             already_confirmed: Default::default(),
         }
     }
@@ -431,6 +443,7 @@ impl<'a> CementingObserver for CementedNotifier<'a> {
             .unwrap()
             .deferred
             .push_back(CementingEntry {
+                epoch: self.epochs.get(hash).copied().unwrap_or(0),
                 confirmation_root: *hash,
                 timestamp: Instant::now(),
             });

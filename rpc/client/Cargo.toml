@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
+rai_protocol = ["rsnano_types/rai_protocol", "rsnano_rpc_messages/rai_protocol"]
+
 banano = [
 	"rsnano_types/banano",
 	"rsnano_rpc_messages/banano",

@@ -51,7 +51,7 @@ pub enum AecFact {
     BlockDiscarded(Block),
     BlockConfirmed(SavedBlock, ConfirmedElection),
     /// old winner + new winner block
-    WinnerChanged(BlockHash, Block),
+    WinnerChanged(BlockHash, Block, u64),
 
     VoteProcessed(
         ReceivedVote,

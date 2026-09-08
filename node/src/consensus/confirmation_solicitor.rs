@@ -12,7 +12,7 @@ pub struct ConfirmationSolicitor {
     /// Maximum amount of requests to be sent per election, bypassed if an existing vote is for a different hash
     max_election_requests: usize,
     representatives: Vec<PeeredRepInfo>,
-    requests: HashMap<ChannelId, (Arc<Channel>, Vec<(BlockHash, Root)>)>,
+    requests: HashMap<(ChannelId, u64), (Arc<Channel>, Vec<(BlockHash, Root)>)>,
     prepared: bool,
     message_flooder: MessageFlooder,
 }
@@ -66,7 +66,7 @@ impl ConfirmationSolicitor {
                     if !should_drop {
                         let (_, request_queue) = self
                             .requests
-                            .entry(rep_channel.channel_id())
+                            .entry((rep_channel.channel_id(), election.epoch))
                             .or_insert_with(|| (rep_channel, Vec::new()));
 
                         request_queue.push((winner.hash(), winner.root()));
@@ -96,19 +96,19 @@ impl ConfirmationSolicitor {
     /// Dispatch bundled requests to each channel
     pub fn flush(&mut self) {
         debug_assert!(self.prepared);
-        for (channel, requests) in self.requests.values() {
+        for ((_, epoch), (channel, requests)) in &self.requests {
             let mut roots_hashes = Vec::new();
             for root_hash in requests {
                 roots_hashes.push(*root_hash);
                 if roots_hashes.len() == ConfirmReq::HASHES_MAX {
-                    let req = Message::ConfirmReq(ConfirmReq::new(roots_hashes));
+                    let req = Message::ConfirmReq(ConfirmReq::new(roots_hashes).with_epoch(*epoch));
                     self.message_flooder
                         .try_send(channel, &req, TrafficType::ConfirmationRequests);
                     roots_hashes = Vec::new();
                 }
             }
             if !roots_hashes.is_empty() {
-                let req = Message::ConfirmReq(ConfirmReq::new(roots_hashes));
+                let req = Message::ConfirmReq(ConfirmReq::new(roots_hashes).with_epoch(*epoch));
                 self.message_flooder
                     .try_send(channel, &req, TrafficType::ConfirmationRequests);
             }

@@ -61,6 +61,9 @@ impl LocalVoteHistory {
         if let Some(ids) = data.history_by_root.get_mut(root) {
             for &i in ids.iter() {
                 let current = &data.history[&i];
+                if current.vote.epoch != vote.epoch {
+                    continue;
+                }
                 if &current.hash != hash
                     || (vote.voter == current.vote.voter
                         && current.vote.timestamp() <= vote.timestamp())
@@ -118,6 +121,26 @@ impl LocalVoteHistory {
         }
     }
 
+    pub fn erase_in_epoch(&self, root: &Root, epoch: u64) {
+        let mut data = self.data.lock().unwrap();
+        let ids: Vec<_> = data
+            .history_by_root
+            .get(root)
+            .into_iter()
+            .flatten()
+            .copied()
+            .filter(|id| data.history[id].vote.epoch == epoch)
+            .collect();
+        for id in ids {
+            data.history.remove(&id);
+            if let Some(entries) = data.history_by_root.get_mut(root) {
+                entries.remove(&id);
+                if entries.is_empty() {
+                    data.history_by_root.remove(root);
+                }
+            }
+        }
+    }
     pub fn erase(&self, root: &Root) {
         let mut data_lk = self.data.lock().unwrap();
         if let Some(removed) = data_lk.history_by_root.remove(root) {

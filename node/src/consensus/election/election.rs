@@ -25,6 +25,7 @@ pub enum VoteType {
 #[derive(Clone)]
 pub struct Election {
     qualified_root: QualifiedRoot,
+    pub epoch: u64,
     winner: MaybeSavedBlock,
     state: ElectionState,
     // TODO: there can't be more than 10 blocks, so an array might be a lot faster
@@ -58,6 +59,7 @@ impl Election {
     ) -> Self {
         Self {
             qualified_root: block.qualified_root(),
+            epoch: 0,
             votes: HashMap::new(),
             candidate_blocks: HashMap::from([(
                 block.hash(),
@@ -84,6 +86,10 @@ impl Election {
             Duration::from_millis(1000),
             Timestamp::new_test_instance(),
         )
+    }
+
+    pub fn id(&self) -> rsnano_types::ElectionId {
+        rsnano_types::ElectionId::new(self.qualified_root.clone(), self.epoch)
     }
 
     pub fn qualified_root(&self) -> &QualifiedRoot {
@@ -418,6 +424,7 @@ impl Election {
         let votes = self.votes().clone();
 
         ConfirmedElection {
+            epoch: self.epoch,
             winner: self.winner().clone(),
             tally: self.winner_tally(),
             final_tally: self.winner_final_tally(),

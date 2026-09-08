@@ -35,6 +35,14 @@ use super::{
 };
 
 pub(crate) struct ActiveElectionsContainer {
+    pub epoch_source: Option<std::sync::Arc<rsnano_ledger::Ledger>>,
+    insertion_epoch: Option<u64>,
+    #[cfg(feature = "rai_protocol")]
+    completed_ids:
+        crate::consensus::bounded_hash_map::BoundedHashMap<rsnano_types::ElectionId, BlockHash>,
+    #[cfg(feature = "rai_protocol")]
+    confirmed_epochs:
+        crate::consensus::bounded_hash_map::BoundedHashMap<QualifiedRoot, (BlockHash, u64)>,
     roots: RootContainer,
     observer: Option<Sender<AecFact>>,
     stopped: bool,
@@ -50,6 +58,16 @@ pub(crate) struct ActiveElectionsContainer {
 impl ActiveElectionsContainer {
     pub fn new(config: ActiveElectionsConfig, base_latency: Duration) -> Self {
         Self {
+            epoch_source: None,
+            insertion_epoch: None,
+            #[cfg(feature = "rai_protocol")]
+            completed_ids: crate::consensus::bounded_hash_map::BoundedHashMap::new(
+                config.confirmation_cache,
+            ),
+            #[cfg(feature = "rai_protocol")]
+            confirmed_epochs: crate::consensus::bounded_hash_map::BoundedHashMap::new(
+                config.confirmation_cache,
+            ),
             roots: RootContainer::new(config.max_elections),
             observer: None,
             stopped: false,
@@ -133,7 +151,33 @@ impl ActiveElectionsContainer {
         request: &AecInsertRequest,
     ) -> Result<(), AecInsertError> {
         let root = request.block.qualified_root();
-
+        #[cfg(feature = "rai_protocol")]
+        {
+            let epoch = self.insertion_epoch.unwrap_or_else(|| self.current_epoch());
+            if self
+                .completed_ids
+                .contains_key(&rsnano_types::ElectionId::new(root.clone(), epoch))
+            {
+                return Err(AecInsertError::RecentlyConfirmed);
+            }
+            let mut minimum = self
+                .epoch_source
+                .as_ref()
+                .and_then(|ledger| ledger.confirmation_epoch(&request.block.hash()));
+            if let Some((winner, canonical)) = self.confirmed_epochs.get(&root) {
+                if *winner != request.block.hash() {
+                    return Err(AecInsertError::RecentlyConfirmed);
+                }
+                minimum = Some(minimum.map(|m| m.min(*canonical)).unwrap_or(*canonical));
+            }
+            if let Some(minimum) = minimum {
+                return if epoch < minimum {
+                    Ok(())
+                } else {
+                    Err(AecInsertError::RecentlyConfirmed)
+                };
+            }
+        }
         if self.recently_confirmed.root_exists(&root) {
             return Err(AecInsertError::RecentlyConfirmed);
         }
@@ -144,7 +188,9 @@ impl ActiveElectionsContainer {
         &mut self,
         request: &AecInsertRequest,
     ) -> Result<bool, AecInsertError> {
-        let (upgraded, previous_behavior) = self.roots.try_upgrade_to_priority_election(request);
+        let epoch = self.insertion_epoch.unwrap_or_else(|| self.current_epoch());
+        let (upgraded, previous_behavior) =
+            self.roots.try_upgrade_to_priority_election(request, epoch);
 
         if upgraded {
             *self.count_by_behavior_mut(previous_behavior.unwrap()) -= 1;
@@ -160,7 +206,8 @@ impl ActiveElectionsContainer {
     fn insert_new_election(&mut self, request: AecInsertRequest, now: Timestamp) {
         let root = request.block.qualified_root();
         let hash = request.block.hash();
-        let election = Election::new(request.block, request.behavior, self.base_latency, now);
+        let mut election = Election::new(request.block, request.behavior, self.base_latency, now);
+        election.epoch = self.insertion_epoch.unwrap_or_else(|| self.current_epoch());
 
         self.roots.insert(Entry {
             root: root.clone(),
@@ -174,36 +221,36 @@ impl ActiveElectionsContainer {
     }
 
     pub fn try_add_fork(&mut self, fork: &Block, fork_tally: Amount) -> bool {
-        let Some(entry) = self.roots.get_mut(&fork.qualified_root()) else {
-            return false;
-        };
-
-        let result = entry.election.try_add_fork(fork, fork_tally);
-        let added = match result {
-            AddForkResult::Added => {
-                self.notify(AecFact::BlockAddedToElection(fork.hash()));
-                true
-            }
-            AddForkResult::Replaced(removed) => {
-                self.roots.vote_router.disconnect(&removed.hash());
-                self.notify(AecFact::BlockDiscarded(removed.into()));
-                self.notify(AecFact::BlockAddedToElection(fork.hash()));
-                true
-            }
-            AddForkResult::TallyTooLow => {
-                self.notify(AecFact::BlockDiscarded(fork.clone()));
-                false
-            }
-            AddForkResult::Duplicate | AddForkResult::ElectionEnded => false,
-        };
-
-        if added {
-            self.roots
-                .vote_router
-                .connect(fork.hash(), fork.qualified_root());
-            self.stats.conflicts += 1;
+        let mut results = Vec::new();
+        for entry in self
+            .roots
+            .iter_mut()
+            .filter(|e| e.election.qualified_root() == &fork.qualified_root())
+        {
+            results.push((
+                entry.election.id(),
+                entry.election.try_add_fork(fork, fork_tally),
+            ));
         }
-
+        let mut added = false;
+        for (id, result) in results {
+            match result {
+                AddForkResult::Added | AddForkResult::Replaced(_) => {
+                    if let AddForkResult::Replaced(removed) = result {
+                        self.roots
+                            .vote_router
+                            .disconnect_epoch(&removed.hash(), id.epoch);
+                        self.notify(AecFact::BlockDiscarded(removed.into()));
+                    }
+                    self.roots.vote_router.connect_epoch(fork.hash(), id);
+                    self.notify(AecFact::BlockAddedToElection(fork.hash()));
+                    self.stats.conflicts += 1;
+                    added = true;
+                }
+                AddForkResult::TallyTooLow => self.notify(AecFact::BlockDiscarded(fork.clone())),
+                _ => {}
+            }
+        }
         added
     }
 
@@ -254,6 +301,10 @@ impl ActiveElectionsContainer {
             entry.election.transition_time(now);
         }
         self.erase_ended_elections();
+    }
+
+    pub fn election_for_id(&self, id: &rsnano_types::ElectionId) -> Option<&Election> {
+        self.roots.get_id(id).map(|e| &e.election)
     }
 
     pub fn election_for_root(&self, root: &QualifiedRoot) -> Option<&Election> {
@@ -344,6 +395,21 @@ impl ActiveElectionsContainer {
         }
     }
 
+    pub fn remove_votes_in_epoch<'a>(
+        &mut self,
+        root: &QualifiedRoot,
+        epoch: u64,
+        voters: impl IntoIterator<Item = &'a PublicKey>,
+    ) {
+        if let Some(e) = self
+            .roots
+            .get_id_mut(&rsnano_types::ElectionId::new(root.clone(), epoch))
+        {
+            for voter in voters {
+                e.election.remove_vote(voter);
+            }
+        }
+    }
     pub fn erase_ended_elections(&mut self) {
         let removed = self.roots.drain_filter(|i| i.election.state().has_ended());
 
@@ -361,10 +427,9 @@ impl ActiveElectionsContainer {
     }
 
     pub fn erase_lowest_prio_election(&mut self, bucket_id: usize) {
-        let Some((root, _)) = self.lowest_priority(bucket_id) else {
-            return;
-        };
-        self.erase(&root);
+        if let Some(entry) = self.roots.erase_lowest(bucket_id) {
+            self.cleanup_election(entry);
+        }
     }
 
     fn cleanup_election(&mut self, entry: Entry) {
@@ -384,9 +449,33 @@ impl ActiveElectionsContainer {
         now: Timestamp,
     ) {
         for (confirmed_block, source_election) in confirmed {
-            let confirmed_election =
+            let mut confirmed_election =
                 self.confirm_dependent_election(&confirmed_block, source_election, now);
+            #[cfg(feature = "rai_protocol")]
+            if let Some(epoch) = self
+                .epoch_source
+                .as_ref()
+                .and_then(|l| l.confirmation_epoch(&confirmed_block.hash()))
+            {
+                confirmed_election.epoch = epoch;
+            }
 
+            for entry in self
+                .roots
+                .iter_mut()
+                .filter(|e| e.election.qualified_root() == &confirmed_block.qualified_root())
+            {
+                if entry.election.epoch != confirmed_election.epoch
+                    && entry.election.winner().hash() == confirmed_block.hash()
+                {
+                    continue;
+                }
+                if entry.election.winner().hash() == confirmed_block.hash() {
+                    entry.election.force_confirm();
+                } else {
+                    entry.election.cancel();
+                }
+            }
             self.block_confirmed(confirmed_block, confirmed_election);
         }
     }
@@ -414,6 +503,25 @@ impl ActiveElectionsContainer {
             );
         };
 
+        #[cfg(feature = "rai_protocol")]
+        if self
+            .epoch_source
+            .as_ref()
+            .and_then(|l| l.confirmation_epoch(&confirmed_block.hash()))
+            .is_some_and(|canonical| corresponding.election.epoch != canonical)
+        {
+            let mut confirmed = ConfirmedElection::new(
+                confirmed_block.clone(),
+                ConfirmationType::InactiveConfirmationHeight,
+            );
+            confirmed.epoch = self
+                .epoch_source
+                .as_ref()
+                .unwrap()
+                .confirmation_epoch(&confirmed_block.hash())
+                .unwrap();
+            return confirmed;
+        }
         if corresponding.election.winner().hash() == confirmed_block.hash() {
             corresponding.election.force_confirm();
             corresponding
@@ -437,10 +545,83 @@ impl ActiveElectionsContainer {
         self.recently_confirmed.erase(block_hash);
     }
 
+    pub fn current_epoch(&self) -> u64 {
+        self.epoch_source
+            .as_ref()
+            .map(|l| l.current_epoch())
+            .unwrap_or(0)
+    }
+
+    pub fn insert_in_epoch(
+        &mut self,
+        request: AecInsertRequest,
+        now: Timestamp,
+        epoch: u64,
+    ) -> Result<(), AecInsertError> {
+        self.insertion_epoch = Some(epoch);
+        let result = self.insert(request, now);
+        self.insertion_epoch = None;
+        result
+    }
+
     pub fn apply_vote<'a>(
         &mut self,
         args: ApplyVoteArgs<'a>,
     ) -> HashMap<BlockHash, Result<(), VoteError>> {
+        #[cfg(feature = "rai_protocol")]
+        if self.len() < self.max_elections {
+            for hash in args.vote.filtered_blocks() {
+                if self.len() >= self.max_elections {
+                    break;
+                }
+                if self
+                    .roots
+                    .election_for_epoch_mut(hash, args.vote.epoch)
+                    .is_none()
+                {
+                    let block = self
+                        .epoch_source
+                        .as_ref()
+                        .and_then(|l| {
+                            use rsnano_ledger::AnySet;
+                            l.any().get_block(hash)
+                        })
+                        .or_else(|| {
+                            self.roots.election_for_block(hash).and_then(|e| {
+                                match e.candidate_blocks().get(hash)? {
+                                    rsnano_types::MaybeSavedBlock::Saved(block) => {
+                                        Some(block.clone())
+                                    }
+                                    _ => None,
+                                }
+                            })
+                        });
+                    if let Some(block) = block {
+                        let root = block.qualified_root();
+                        let minimum = [
+                            self.roots.election_for_root(&root).map(|e| e.epoch),
+                            self.epoch_source
+                                .as_ref()
+                                .and_then(|l| l.confirmation_epoch(hash)),
+                            self.confirmed_epochs.get(&root).map(|(_, epoch)| *epoch),
+                        ]
+                        .into_iter()
+                        .flatten()
+                        .min();
+                        if minimum.is_some_and(|epoch| args.vote.epoch >= epoch)
+                            || (minimum.is_none() && args.vote.epoch > self.current_epoch())
+                        {
+                            continue;
+                        }
+                        let _ = self.insert_in_epoch(
+                            AecInsertRequest::new_manual(block, Default::default()),
+                            args.now,
+                            args.vote.epoch,
+                        );
+                    }
+                }
+            }
+        }
         let mut apply_helper = ApplyVoteHelper {
             args: &args,
             recently_confirmed: &mut self.recently_confirmed,
@@ -450,6 +631,20 @@ impl ActiveElectionsContainer {
         };
         let result = apply_helper.apply_vote();
         for entry in result.confirmed {
+            #[cfg(feature = "rai_protocol")]
+            {
+                self.completed_ids
+                    .insert(entry.election.id(), entry.election.winner().hash());
+                let root = entry.election.qualified_root().clone();
+                let epoch = entry.election.epoch;
+                let minimum = self
+                    .confirmed_epochs
+                    .get(&root)
+                    .map(|(_, e)| (*e).min(epoch))
+                    .unwrap_or(epoch);
+                self.confirmed_epochs
+                    .insert(root, (entry.election.winner().hash(), minimum));
+            }
             self.cleanup_election(entry);
         }
         result.per_block
@@ -696,5 +891,111 @@ mod tests {
             .collect();
         let expected: Vec<_> = expected.iter().map(|i| i.hash()).collect();
         assert_eq!(result, expected);
+    }
+}
+
+#[cfg(all(test, feature = "rai_protocol"))]
+mod rai_tests {
+    use super::*;
+    use crate::consensus::ReceivedVote;
+    use rsnano_types::{BlockPriority, PrivateKey, Vote, VoteDelivery};
+    #[test]
+    fn rai_same_root_has_independent_elections_and_tallies() {
+        let mut aec = ActiveElectionsContainer::default();
+        let block = SavedBlock::new_test_instance();
+        let now = Timestamp::new_test_instance();
+        for epoch in [0, 1] {
+            aec.insert_in_epoch(
+                AecInsertRequest::new_manual(block.clone(), BlockPriority::default()),
+                now,
+                epoch,
+            )
+            .unwrap();
+        }
+        assert_eq!(aec.len(), 2);
+        let key = PrivateKey::from(1);
+        let mut weights = RepWeights::default();
+        weights.put(key.public_key(), Amount::MAX);
+        let quorum = QuorumSnapshot::new_test_instance();
+        let vote: FilteredVote = ReceivedVote::new(
+            std::sync::Arc::new(Vote::new_in_epoch(
+                &key,
+                Vote::TIMESTAMP_MAX,
+                Vote::DURATION_MAX,
+                vec![block.hash()],
+                1,
+            )),
+            VoteDelivery::Direct,
+            None,
+        )
+        .into();
+        assert_eq!(
+            aec.apply_vote(ApplyVoteArgs {
+                vote: &vote,
+                rep_weights: &weights,
+                quorum_snapshot: &quorum,
+                now
+            })
+            .get(&block.hash()),
+            Some(&Ok(()))
+        );
+        assert_eq!(aec.len(), 1);
+        let other = aec.election_for_block(&block.hash()).unwrap();
+        assert_eq!(other.epoch, 0);
+        assert_eq!(other.vote_count(), 0);
+        assert!(!other.is_confirmed());
+    }
+}
+
+#[cfg(all(test, feature = "rai_protocol"))]
+mod earlier_vote_tests {
+    use super::*;
+    use crate::consensus::ReceivedVote;
+    use rsnano_types::{PrivateKey, Vote, VoteDelivery};
+    #[test]
+    fn rai_only_earlier_votes_create_another_slot_election() {
+        let mut aec = ActiveElectionsContainer::default();
+        let block = SavedBlock::new_test_instance();
+        let now = Timestamp::new_test_instance();
+        aec.insert_in_epoch(
+            AecInsertRequest::new_manual(block.clone(), Default::default()),
+            now,
+            2,
+        )
+        .unwrap();
+        let key = PrivateKey::from(1);
+        let mut weights = RepWeights::default();
+        weights.put(key.public_key(), Amount::raw(1));
+        let quorum = QuorumSnapshot::new_test_instance();
+        for (epoch, expected_len) in [(3, 1), (1, 2), (0, 3)] {
+            let vote: FilteredVote = ReceivedVote::new(
+                std::sync::Arc::new(Vote::new_in_epoch(
+                    &key,
+                    Vote::TIMESTAMP_MAX,
+                    Vote::DURATION_MAX,
+                    vec![block.hash()],
+                    epoch,
+                )),
+                VoteDelivery::Direct,
+                None,
+            )
+            .into();
+            aec.apply_vote(ApplyVoteArgs {
+                vote: &vote,
+                rep_weights: &weights,
+                quorum_snapshot: &quorum,
+                now,
+            });
+            assert_eq!(aec.len(), expected_len);
+        }
+        let original = aec
+            .election_for_id(&rsnano_types::ElectionId::new(block.qualified_root(), 2))
+            .unwrap();
+        assert_eq!(original.vote_count(), 0);
+        let earlier = aec
+            .election_for_id(&rsnano_types::ElectionId::new(block.qualified_root(), 1))
+            .unwrap();
+        assert_eq!(earlier.vote_count(), 1);
+        assert!(!earlier.is_confirmed());
     }
 }

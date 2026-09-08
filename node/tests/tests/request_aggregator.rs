@@ -45,6 +45,7 @@ fn one() {
 
     let channel = make_fake_channel(&node);
     let request = AggregatorRequest {
+        epoch: 0,
         channel: channel.clone(),
         roots_hashes: vec![(send1.hash(), send1.root())],
     };
@@ -195,6 +196,7 @@ fn one_update() {
     let dummy_channel = make_fake_channel(&node);
 
     let request1 = AggregatorRequest {
+        epoch: 0,
         channel: dummy_channel.clone(),
         roots_hashes: vec![(send2.hash(), send2.root())],
     };
@@ -202,6 +204,7 @@ fn one_update() {
 
     // Update the pool of requests with another hash
     let request2 = AggregatorRequest {
+        epoch: 0,
         channel: dummy_channel.clone(),
         roots_hashes: vec![(receive1.hash(), receive1.root())],
     };
@@ -308,6 +311,7 @@ fn two() {
 
     let dummy_channel = make_fake_channel(&node);
     let request = AggregatorRequest {
+        epoch: 0,
         channel: dummy_channel.clone(),
         roots_hashes: vec![
             (send2.hash(), send2.root()),
@@ -429,6 +433,7 @@ fn split() {
 
     let dummy_channel = make_fake_channel(&node);
     let request = AggregatorRequest {
+        epoch: 0,
         channel: dummy_channel.clone(),
         roots_hashes,
     };
@@ -513,6 +518,7 @@ fn channel_max_queue() {
 
     let channel = make_fake_channel(&node);
     let request = AggregatorRequest {
+        epoch: 0,
         channel: channel.clone(),
         roots_hashes: vec![(send1.hash(), send1.root())],
     };
@@ -549,6 +555,7 @@ fn cannot_vote() {
     let dummy_channel = make_fake_channel(&node);
     // correct + incorrect
     let request = AggregatorRequest {
+        epoch: 0,
         channel: dummy_channel.clone(),
         roots_hashes: vec![(send2.hash(), send2.root()), (1.into(), send2.root())],
     };
@@ -707,6 +714,7 @@ fn forked_open() {
 
     // Request vote for the wrong fork
     let request = AggregatorRequest {
+        epoch: 0,
         channel: channel.clone(),
         roots_hashes: vec![(open1.hash(), open1.root())],
     };
@@ -760,6 +768,7 @@ fn epoch_conflict() {
 
     // Request vote for conflicting epoch block
     let request = AggregatorRequest {
+        epoch: 0,
         channel: channel.clone(),
         roots_hashes: vec![(epoch_open.hash(), epoch_open.root())],
     };
@@ -815,6 +824,7 @@ fn cemented_no_spacing() {
 
     // Request votes for blocks at different positions in the chain
     let request = AggregatorRequest {
+        epoch: 0,
         channel: channel.clone(),
         roots_hashes: vec![
             (send1.hash(), send1.root()),

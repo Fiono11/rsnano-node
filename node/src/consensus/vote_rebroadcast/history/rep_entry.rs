@@ -4,12 +4,26 @@ use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{Amount, BlockHash, PublicKey, UnixMillisTimestamp, Vote};
 
 use super::{BoundedHashMap, RebroadcastError};
+#[cfg(feature = "rai_protocol")]
+type RebroadcastKey = (BlockHash, u64);
+#[cfg(not(feature = "rai_protocol"))]
+type RebroadcastKey = BlockHash;
+pub(super) fn block_key(hash: BlockHash, _epoch: u64) -> RebroadcastKey {
+    #[cfg(feature = "rai_protocol")]
+    {
+        (hash, _epoch)
+    }
+    #[cfg(not(feature = "rai_protocol"))]
+    {
+        hash
+    }
+}
 
 pub(crate) struct RepresentativeEntry {
     pub representative: PublicKey,
     pub weight: Amount,
     min_gap: Duration,
-    pub history: BoundedHashMap<BlockHash, RebroadcastEntry>,
+    pub history: BoundedHashMap<RebroadcastKey, RebroadcastEntry>,
 
     /// for quickly filtering out duplicates
     pub vote_hashes: BoundedHashMap<BlockHash, ()>,
@@ -72,7 +86,7 @@ impl RepresentativeEntry {
     }
 
     fn should_rebroadcast_hash(&self, hash: &BlockHash, vote: &Vote, now: Timestamp) -> bool {
-        let Some(last_rebroadcast) = self.history.get(hash) else {
+        let Some(last_rebroadcast) = self.history.get(&block_key(*hash, vote.epoch)) else {
             // Block hash not seen before, rebroadcast
             return true;
         };
@@ -83,7 +97,7 @@ impl RepresentativeEntry {
     fn insert_block_hashes(&mut self, vote: &Vote, now: Timestamp) {
         for hash in &vote.hashes {
             self.history.insert(
-                *hash,
+                block_key(*hash, vote.epoch),
                 RebroadcastEntry {
                     block_hash: *hash,
                     vote_timestamp: vote.timestamp(),

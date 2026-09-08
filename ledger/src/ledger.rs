@@ -96,6 +96,7 @@ impl BlockError {
 }
 
 pub struct Ledger {
+    pub epoch_length: std::sync::atomic::AtomicU64,
     pub store: LmdbStore,
     pub rep_weights_updater: RepWeightsUpdater,
     pub rep_weights: Arc<RepWeightCache>,
@@ -297,6 +298,7 @@ impl Ledger {
             rollback_listener: Default::default(),
             store_version: 0,
             publish: RwLock::new(None),
+            epoch_length: Default::default(),
             can_roll_back: RwLock::new(Box::new(|_| true)),
         };
 
@@ -426,6 +428,8 @@ impl Ledger {
             &ConfirmationHeightInfo::new(1, genesis_hash),
         );
 
+        #[cfg(feature = "rai_protocol")]
+        self.store.consensus_epochs.put(txn, &genesis_hash, 0);
         self.store.account.put(
             txn,
             &genesis_account,
@@ -771,9 +775,54 @@ impl Ledger {
         }
     }
 
+    #[cfg(feature = "rai_protocol")]
+    pub fn confirmation_epoch_sets(&self) -> std::collections::BTreeMap<u64, (u64, BlockHash)> {
+        let tx = self.store.begin_read();
+        let mut groups =
+            std::collections::BTreeMap::<u64, (u64, rsnano_types::Blake2HashBuilder)>::new();
+        for (hash, epoch) in self.store.consensus_epochs.iter(&tx) {
+            let (count, builder) = groups
+                .remove(&epoch)
+                .unwrap_or((0, rsnano_types::Blake2HashBuilder::new()));
+            groups.insert(epoch, (count + 1, builder.update(hash.as_bytes())));
+        }
+        groups
+            .into_iter()
+            .map(|(epoch, (count, builder))| (epoch, (count, builder.build())))
+            .collect()
+    }
+    #[cfg(feature = "rai_protocol")]
+    pub fn configure_epoch_length(&self, length: u64) -> anyhow::Result<()> {
+        let mut tx = self.store.begin_write();
+        self.store
+            .consensus_epochs
+            .configure_length(&mut tx, length)?;
+        tx.commit();
+        self.epoch_length.store(length, Ordering::Relaxed);
+        Ok(())
+    }
+    pub fn current_epoch(&self) -> u64 {
+        #[cfg(feature = "rai_protocol")]
+        {
+            let length = self.epoch_length.load(Ordering::Relaxed);
+            if length > 0 {
+                return self.store.consensus_epochs.count(&self.store.begin_read()) / length;
+            }
+        }
+        0
+    }
+    #[cfg(feature = "rai_protocol")]
+    pub fn confirmation_epoch(&self, hash: &BlockHash) -> Option<u64> {
+        let tx = self.store.begin_read();
+        self.store.consensus_epochs.get(&tx, hash).or_else(|| {
+            BorrowingConfirmedSet::new(&self.store, &tx)
+                .block_exists(hash)
+                .then_some(0)
+        })
+    }
     pub fn confirm(&self, hash: BlockHash) -> Vec<SavedBlock> {
         let txn = self.store.begin_write();
-        let (txn, blocks) = self.confirm_max(txn, hash, 1024 * 128);
+        let (txn, blocks) = self.confirm_max(txn, hash, 1024 * 128, self.current_epoch());
         txn.commit();
         blocks
     }
@@ -785,11 +834,13 @@ impl Ledger {
         txn: WriteTransaction,
         target_hash: BlockHash,
         max_blocks: usize,
+        epoch: u64,
     ) -> (WriteTransaction, Vec<SavedBlock>) {
         BlockCementer::new(&self.store, &self.constants, &self.stats).confirm(
             txn,
             target_hash,
             max_blocks,
+            epoch,
         )
     }
 
@@ -802,12 +853,27 @@ impl Ledger {
     ) where
         O: CementingObserver,
     {
+        self.confirm_batch_in_epochs(
+            batch.into_iter().map(|h| (h, self.current_epoch())),
+            stopped,
+            max_blocks,
+            cementing_observer,
+        )
+    }
+
+    pub fn confirm_batch_in_epochs<'a, O: CementingObserver>(
+        &self,
+        batch: impl IntoIterator<Item = (&'a BlockHash, u64)>,
+        stopped: &AtomicBool,
+        max_blocks: usize,
+        cementing_observer: &mut O,
+    ) {
         let mut confirmed = Vec::new();
         let mut blocks_confirmed = 0;
         {
             let mut txn = self.store.begin_write();
 
-            for confirmation_root in batch.into_iter() {
+            for (confirmation_root, epoch) in batch.into_iter() {
                 let mut success = false;
                 loop {
                     if txn.is_refresh_needed() {
@@ -841,7 +907,7 @@ impl Ledger {
                         break;
                     }
 
-                    let (t, added) = self.confirm_max(txn, *confirmation_root, max_blocks);
+                    let (t, added) = self.confirm_max(txn, *confirmation_root, max_blocks, epoch);
                     txn = t;
 
                     if !added.is_empty() {
@@ -868,7 +934,20 @@ impl Ledger {
                             if let Some(conf_info) =
                                 self.store.confirmation_height.get(&txn, &block.account())
                             {
-                                block.height() <= conf_info.height
+                                block.height() <= conf_info.height && {
+                                    #[cfg(feature = "rai_protocol")]
+                                    {
+                                        self.store
+                                            .consensus_epochs
+                                            .get(&txn, confirmation_root)
+                                            .unwrap_or(0)
+                                            <= epoch
+                                    }
+                                    #[cfg(not(feature = "rai_protocol"))]
+                                    {
+                                        true
+                                    }
+                                }
                             } else {
                                 false
                             }
@@ -1127,5 +1206,103 @@ mod tests {
             .finish();
 
         assert_eq!(ledger.bootstrap_weights_max_blocks(), 123);
+    }
+}
+
+#[cfg(all(test, feature = "rai_protocol"))]
+mod rai_tests {
+    use super::*;
+    use crate::{LedgerBuilder, test_helpers::UnsavedBlockLatticeBuilder};
+    #[test]
+    fn rai_cementation_epoch_survives_restart_and_counts_dependencies_once() {
+        let path = std::env::temp_dir().join(format!(
+            "rsnano-rai-{}-{}",
+            std::process::id(),
+            UnixTimestamp::now().as_u64()
+        ));
+        std::fs::create_dir_all(&path).unwrap();
+        let open = || {
+            LedgerBuilder::new(path.join("data.ldb"))
+                .constants(LedgerConstants::dev())
+                .init_thread_count(1)
+                .finish()
+                .unwrap()
+        };
+        let mut lattice = UnsavedBlockLatticeBuilder::new();
+        let a = lattice.genesis().send(100, 1);
+        let b = lattice.genesis().send(101, 1);
+        {
+            let ledger = open();
+            ledger.epoch_length.store(1, Ordering::Relaxed);
+            assert_eq!(ledger.current_epoch(), 0);
+            assert_eq!(
+                ledger.confirmation_epoch(&ledger.constants.genesis_block.hash()),
+                Some(0)
+            );
+            ledger.process_one(&a).unwrap();
+            ledger.process_one(&b).unwrap();
+            assert_eq!(ledger.confirmation_epoch(&a.hash()), None);
+            ledger.confirm(b.hash());
+            assert_eq!(ledger.current_epoch(), 2);
+            assert_eq!(ledger.confirmation_epoch(&a.hash()), Some(0));
+            assert_eq!(ledger.confirmation_epoch(&b.hash()), Some(0));
+            ledger.confirm(b.hash());
+            assert_eq!(ledger.current_epoch(), 2);
+        }
+        {
+            let ledger = open();
+            ledger.epoch_length.store(1, Ordering::Relaxed);
+            assert_eq!(ledger.current_epoch(), 2);
+            assert_eq!(ledger.confirmation_epoch(&b.hash()), Some(0));
+        }
+        std::fs::remove_dir_all(path).unwrap();
+    }
+}
+
+#[cfg(all(test, feature = "rai_protocol"))]
+mod canonical_epoch_tests {
+    use super::*;
+    use crate::{LedgerBuilder, test_helpers::UnsavedBlockLatticeBuilder};
+    #[test]
+    fn rai_earlier_confirmation_lowers_canonical_epoch_and_dependencies_without_recounting() {
+        let path = std::env::temp_dir().join(format!("rsnano-canonical-{}", std::process::id()));
+        std::fs::create_dir_all(&path).unwrap();
+        let open = || {
+            LedgerBuilder::new(path.join("data.ldb"))
+                .constants(LedgerConstants::dev())
+                .init_thread_count(1)
+                .finish()
+                .unwrap()
+        };
+        let mut lattice = UnsavedBlockLatticeBuilder::new();
+        let a = lattice.genesis().send(100, 1);
+        let b = lattice.genesis().send(101, 1);
+        {
+            let ledger = open();
+            ledger.configure_epoch_length(1).unwrap();
+            ledger.process_one(&a).unwrap();
+            ledger.process_one(&b).unwrap();
+            let (tx, added) = ledger.confirm_max(ledger.store.begin_write(), b.hash(), 100, 2);
+            tx.commit();
+            assert_eq!(added.len(), 2);
+            assert_eq!(ledger.confirmation_epoch(&b.hash()), Some(2));
+            let (tx, added) = ledger.confirm_max(ledger.store.begin_write(), b.hash(), 100, 1);
+            tx.commit();
+            assert!(added.is_empty());
+            assert_eq!(ledger.confirmation_epoch(&a.hash()), Some(1));
+            assert_eq!(ledger.confirmation_epoch(&b.hash()), Some(1));
+            assert_eq!(ledger.current_epoch(), 2);
+            assert_eq!(ledger.confirmed_count(), 3);
+            let (tx, _) = ledger.confirm_max(ledger.store.begin_write(), b.hash(), 100, 3);
+            tx.commit();
+            assert_eq!(ledger.confirmation_epoch(&b.hash()), Some(1));
+        }
+        {
+            let ledger = open();
+            ledger.configure_epoch_length(1).unwrap();
+            assert_eq!(ledger.confirmation_epoch(&b.hash()), Some(1));
+            assert_eq!(ledger.current_epoch(), 2);
+        }
+        std::fs::remove_dir_all(path).unwrap();
     }
 }

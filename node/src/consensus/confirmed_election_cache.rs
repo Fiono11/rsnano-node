@@ -36,10 +36,13 @@ impl ConfirmedElectionsCache {
 
     pub fn insert(&mut self, election: ConfirmedElection) {
         let winner_hash = election.winner.hash();
-        let old = self.elections.insert(winner_hash, election);
-        if old.is_some() {
+        if let Some(existing) = self.elections.get_mut(&winner_hash) {
+            if election.epoch < existing.epoch {
+                *existing = election;
+            }
             return;
         }
+        self.elections.insert(winner_hash, election);
         self.sequential.push_back(winner_hash);
         if self.sequential.len() > self.max_len {
             let winner = self.sequential.pop_front().unwrap();

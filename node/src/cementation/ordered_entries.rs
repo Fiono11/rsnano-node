@@ -16,7 +16,8 @@ impl OrderedEntries {
 
         self.by_hash
             .entry(hash)
-            .and_modify(|_| {
+            .and_modify(|existing| {
+                existing.epoch = existing.epoch.min(entry.epoch);
                 inserted = false;
             })
             .or_insert(entry);

@@ -6,6 +6,14 @@ const DEFAULT_RATE: &str = "1+50@3s";
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 pub(crate) struct CliArgs {
+    /// Newly cemented blocks per local consensus epoch; zero disables advancement
+    #[arg(long, default_value_t = 0)]
+    pub epoch_length: u64,
+
+    /// Isolated working directory for ledgers and generated accounts
+    #[arg(long)]
+    pub data_dir: Option<std::path::PathBuf>,
+
     /// Number of principal representatives
     #[arg(long, default_value_t = 1)]
     pub prs: usize,

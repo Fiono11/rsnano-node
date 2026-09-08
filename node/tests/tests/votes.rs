@@ -433,3 +433,33 @@ fn vote_spacing_rapid() {
         2,
     );
 }
+
+#[cfg(feature = "rai_protocol")]
+#[test]
+fn rai_nodes_with_different_local_epochs_keep_confirming() {
+    let mut system = System::new();
+    let mut config = System::default_config();
+    config.epoch_length = 1;
+    let representative = system.build_node().config(config).finish();
+    let observer = system.make_node(); // advancement disabled, remains in epoch 0
+    let wallet_id = WalletId::random();
+    representative.wallets.create(wallet_id);
+    representative
+        .wallets
+        .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), true)
+        .unwrap();
+    let mut lattice = UnsavedBlockLatticeBuilder::new();
+    for i in 0..4 {
+        let block = lattice.genesis().send(100 + i, 1);
+        representative.process_active(block.clone());
+        observer.process_active(block.clone());
+        assert_timely(Duration::from_secs(15), || {
+            representative.block_confirmed(&block.hash()) && observer.block_confirmed(&block.hash())
+        });
+    }
+    assert_eq!(representative.ledger.current_epoch(), 4);
+    assert_eq!(observer.ledger.current_epoch(), 0);
+    assert_timely(Duration::from_secs(15), || {
+        representative.ledger.confirmation_epoch_sets() == observer.ledger.confirmation_epoch_sets()
+    });
+}

@@ -12,3 +12,6 @@ num-derive = "0"
 num-traits = "0"
 strum = "0.28.0"
 strum_macros = "0.28.0"
+
+[features]
+rai_protocol = ["rsnano_types/rai_protocol", "rsnano_work/rai_protocol"]

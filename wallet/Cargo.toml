@@ -17,3 +17,6 @@ serde_json = "1"
 serde_derive = "1"
 rand = { version = "0.10.1" }
 tracing = "0"
+
+[features]
+rai_protocol = ["rsnano_types/rai_protocol", "rsnano_work/rai_protocol", "rsnano_store_lmdb/rai_protocol", "rsnano_ledger/rai_protocol"]

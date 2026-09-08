@@ -14,6 +14,8 @@ path = "src/main_banano.rs"
 required-features = ["banano"]
 
 [features]
+rai_protocol = ["rsnano_types/rai_protocol", "rsnano_messages/rai_protocol", "rsnano_store_lmdb/rai_protocol", "rsnano_node/rai_protocol", "rsnano_ledger/rai_protocol", "rsnano_rpc_server/rai_protocol", "rsnano_daemon/rai_protocol"]
+
 ledger_snapshots = ["rsnano_node/ledger_snapshots", "rsnano_rpc_server/ledger_snapshots"]
 banano = [
 	"rsnano_types/banano",

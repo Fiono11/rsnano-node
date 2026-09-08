@@ -27,13 +27,14 @@ use crate::{
 
 /// Vote requested by a given channel
 pub struct VoteRequest {
+    pub epoch: u64,
     pub candidates: Vec<(Root, BlockHash)>,
     pub channel: Arc<Channel>,
 }
 
 pub(crate) struct VoteGenerator {
     ledger: Arc<Ledger>,
-    vote_generation_queue: ProcessingQueue<(Root, BlockHash)>,
+    vote_generation_queue: ProcessingQueue<(Root, BlockHash, u64)>,
     shared_state: Arc<SharedState>,
     thread: Mutex<Option<JoinHandle<()>>>,
     stats: Arc<Stats>,
@@ -128,12 +129,17 @@ impl VoteGenerator {
     }
 
     /// Queue items for vote generation, or broadcast votes already in cache
-    pub(crate) fn add(&self, root: &Root, hash: &BlockHash) {
-        self.vote_generation_queue.add((*root, *hash));
+    pub(crate) fn add_in_epoch(&self, root: &Root, hash: &BlockHash, epoch: u64) {
+        self.vote_generation_queue.add((*root, *hash, epoch));
     }
 
     /// Queue blocks for vote generation, returning the number of successful candidates.
-    pub(crate) fn generate(&self, blocks: &[SavedBlock], channel: &Arc<Channel>) -> usize {
+    pub(crate) fn generate_in_epoch(
+        &self,
+        blocks: &[SavedBlock],
+        channel: &Arc<Channel>,
+        epoch: u64,
+    ) -> usize {
         let req_candidates = {
             let any = self.ledger.any();
 
@@ -167,9 +173,14 @@ impl VoteGenerator {
                 .collect::<Vec<_>>()
         };
 
+        let req_candidates: Vec<_> = self
+            .ledger
+            .verify_votes(req_candidates.into(), self.shared_state.is_final)
+            .into();
         let result = req_candidates.len();
         let mut guard = self.shared_state.queues.lock().unwrap();
         let vote_req = VoteRequest {
+            epoch,
             candidates: req_candidates,
             channel: channel.clone(),
         };
@@ -265,13 +276,18 @@ impl SharedState {
     }
 
     fn broadcast<'a>(&'a self, mut queues: MutexGuard<'a, Queues>) -> MutexGuard<'a, Queues> {
+        let epoch = queues.candidates.front().map(|c| c.2).unwrap_or(0);
         let mut hashes = Vec::with_capacity(VoteGenerator::MAX_HASHES);
         let mut roots = Vec::with_capacity(VoteGenerator::MAX_HASHES);
         {
             let spacing = self.spacing.lock().unwrap();
-            while let Some((root, hash)) = queues.candidates.pop_front() {
+            while let Some((root, hash, candidate_epoch)) = queues.candidates.pop_front() {
+                if candidate_epoch != epoch {
+                    queues.candidates.push_front((root, hash, candidate_epoch));
+                    break;
+                }
                 if !roots.contains(&root) {
-                    if spacing.votable(&root, &hash, self.clock.now()) {
+                    if spacing.votable_in_epoch(&root, &hash, self.clock.now(), epoch) {
                         roots.push(root);
                         hashes.push(hash);
                     } else {
@@ -287,7 +303,7 @@ impl SharedState {
 
         if !hashes.is_empty() {
             drop(queues);
-            self.vote(&hashes, &roots, |generated_vote| {
+            self.vote(&hashes, &roots, epoch, |generated_vote| {
                 self.stats
                     .inc(self.stat_type(), DetailType::GeneratorBroadcasts);
                 let sample = if self.is_final {
@@ -308,7 +324,7 @@ impl SharedState {
         queues
     }
 
-    fn vote<F>(&self, hashes: &[BlockHash], roots: &[Root], action: F)
+    fn vote<F>(&self, hashes: &[BlockHash], roots: &[Root], epoch: u64, action: F)
     where
         F: Fn(Arc<Vote>),
     {
@@ -332,11 +348,12 @@ impl SharedState {
             } else {
                 0x9 /*8192ms*/
             };
-            votes.push(Arc::new(Vote::new(
+            votes.push(Arc::new(Vote::new_in_epoch(
                 &rep_key,
                 timestamp,
                 duration,
                 hashes.to_vec(),
+                epoch,
             )));
         }
 
@@ -346,7 +363,7 @@ impl SharedState {
                 let mut spacing = self.spacing.lock().unwrap();
                 for i in 0..hashes.len() {
                     self.history.add(&roots[i], &hashes[i], &vote);
-                    spacing.flag(&roots[i], &hashes[i], now);
+                    spacing.flag_in_epoch(&roots[i], &hashes[i], now, epoch);
                 }
             }
             action(vote);
@@ -365,7 +382,7 @@ impl SharedState {
                         break;
                     };
                     if !roots.contains(root) {
-                        if spacing.votable(root, hash, self.clock.now()) {
+                        if spacing.votable_in_epoch(root, hash, self.clock.now(), request.epoch) {
                             roots.push(*root);
                             hashes.push(*hash);
                         } else {
@@ -382,7 +399,7 @@ impl SharedState {
                     Direction::In,
                     hashes.len() as u64,
                 );
-                self.vote(&hashes, &roots, |vote| {
+                self.vote(&hashes, &roots, request.epoch, |vote| {
                     let confirm =
                         Message::ConfirmAck(ConfirmAck::new_with_own_vote((*vote).clone()));
                     self.message_sender.lock().unwrap().try_send(
@@ -402,8 +419,20 @@ impl SharedState {
             .inc(self.stat_type(), DetailType::GeneratorReplies);
     }
 
-    fn process_batch(&self, batch: VecDeque<(Root, BlockHash)>) {
-        let verified = self.ledger.verify_votes(batch, self.is_final);
+    fn process_batch(&self, batch: VecDeque<(Root, BlockHash, u64)>) {
+        let mut grouped = std::collections::BTreeMap::<u64, VecDeque<(Root, BlockHash)>>::new();
+        for (root, hash, epoch) in batch {
+            grouped.entry(epoch).or_default().push_back((root, hash));
+        }
+        let mut verified = VecDeque::new();
+        for (epoch, candidates) in grouped {
+            verified.extend(
+                self.ledger
+                    .verify_votes(candidates, self.is_final)
+                    .into_iter()
+                    .map(|(r, h)| (r, h, epoch)),
+            );
+        }
 
         // Submit verified candidates to the main processing thread
         if !verified.is_empty() {
@@ -429,7 +458,7 @@ impl SharedState {
 }
 
 struct Queues {
-    candidates: VecDeque<(Root, BlockHash)>,
+    candidates: VecDeque<(Root, BlockHash, u64)>,
     requests: VecDeque<VoteRequest>,
     next_broadcast: Instant,
 }

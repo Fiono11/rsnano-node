@@ -5,28 +5,28 @@ use std::{
 };
 
 use rsnano_nullable_clock::Timestamp;
-use rsnano_types::{BlockHash, QualifiedRoot};
+use rsnano_types::{BlockHash, ElectionId};
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
 use crate::consensus::election::{Election, VoteType};
 
 pub(crate) struct VoteTarget {
-    pub root: QualifiedRoot,
+    pub root: ElectionId,
     pub winner: BlockHash,
     pub vote_type: VoteType,
 }
 
 pub(crate) fn vote_target(e: &Election) -> VoteTarget {
     VoteTarget {
-        root: e.qualified_root().clone(),
+        root: e.id(),
         winner: e.winner().hash(),
         vote_type: e.vote_type(),
     }
 }
 
 pub(crate) struct VotingScheduler {
-    records: HashMap<QualifiedRoot, VoteRecord>,
-    expiry_queue: VecDeque<(Timestamp, QualifiedRoot)>,
+    records: HashMap<ElectionId, VoteRecord>,
+    expiry_queue: VecDeque<(Timestamp, ElectionId)>,
     interval: Duration,
 }
 
@@ -116,7 +116,7 @@ impl ContainerInfoProvider for VotingScheduler {
             (
                 "expiry_queue",
                 self.expiry_queue.len(),
-                size_of::<(Timestamp, QualifiedRoot)>(),
+                size_of::<(Timestamp, ElectionId)>(),
             ),
         ]
         .into()
@@ -127,7 +127,7 @@ impl ContainerInfoProvider for VotingScheduler {
 mod tests {
     use super::*;
     use rsnano_nullable_clock::Timestamp;
-    use rsnano_types::QualifiedRoot;
+    use rsnano_types::ElectionId;
     use std::time::Duration;
 
     #[test]
@@ -193,7 +193,7 @@ mod tests {
 
     fn target(vote_type: VoteType) -> VoteTarget {
         VoteTarget {
-            root: QualifiedRoot::new_test_instance(),
+            root: ElectionId::new(rsnano_types::QualifiedRoot::new_test_instance(), 0),
             winner: BlockHash::from(1),
             vote_type,
         }
@@ -201,7 +201,7 @@ mod tests {
 
     fn other_winner_target(vote_type: VoteType) -> VoteTarget {
         VoteTarget {
-            root: QualifiedRoot::new_test_instance(),
+            root: ElectionId::new(rsnano_types::QualifiedRoot::new_test_instance(), 0),
             winner: BlockHash::from(2),
             vote_type,
         }

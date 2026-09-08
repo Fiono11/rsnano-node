@@ -111,10 +111,13 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
             AecFact::BlockDiscarded(block) => {
                 self.clear_network_filter(&block);
             }
-            AecFact::WinnerChanged(previous_winner, new_winner) => {
+            AecFact::WinnerChanged(previous_winner, new_winner, epoch) => {
                 debug!(from = ?previous_winner, to = ?new_winner.hash(), "Winning fork changed");
-                self.local_votes_remover
-                    .remove_local_votes(&previous_winner, &new_winner.qualified_root());
+                self.local_votes_remover.remove_local_votes_in_epoch(
+                    &previous_winner,
+                    &new_winner.qualified_root(),
+                    epoch,
+                );
 
                 // Roll back the previous winner and add the new winner to the ledger
                 self.block_processor_queue.push(BlockContext::new(

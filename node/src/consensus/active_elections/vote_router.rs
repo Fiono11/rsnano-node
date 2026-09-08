@@ -1,51 +1,46 @@
-use std::{collections::HashMap, mem::size_of};
-
-use rsnano_types::{BlockHash, QualifiedRoot};
-use rsnano_utils::container_info::ContainerInfo;
-
 use crate::consensus::election::Election;
-
-/// This class routes votes to their associated election
+use rsnano_types::{BlockHash, ElectionId};
+use rsnano_utils::container_info::ContainerInfo;
+use std::collections::HashMap;
 #[derive(Default)]
 pub(crate) struct VoteRouter {
-    // Mapping of block hashes to elections.
-    // Election already contains the associated block
-    elections: HashMap<BlockHash, QualifiedRoot>,
+    elections: HashMap<BlockHash, std::collections::BTreeMap<u64, ElectionId>>,
 }
-
 impl VoteRouter {
-    /// Add a route for 'hash' to an election by its qualified root
-    /// Existing routes will be replaced
-    pub fn connect(&mut self, hash: BlockHash, root: QualifiedRoot) {
-        self.elections.insert(hash, root);
+    pub fn connect_epoch(&mut self, hash: BlockHash, id: ElectionId) {
+        self.elections.entry(hash).or_default().insert(id.epoch, id);
     }
-
-    /// Remove all routes to this election
-    pub fn disconnect_election(&mut self, election: &Election) {
-        for hash in election.candidate_blocks().keys() {
-            self.elections.remove(hash);
+    pub fn disconnect_election(&mut self, e: &Election) {
+        for hash in e.candidate_blocks().keys() {
+            if let Some(epochs) = self.elections.get_mut(hash) {
+                epochs.remove(&e.epoch);
+                if epochs.is_empty() {
+                    self.elections.remove(hash);
+                }
+            }
         }
     }
-
-    /// Remove route to this block
-    pub fn disconnect(&mut self, hash: &BlockHash) {
-        self.elections.remove(hash);
+    pub fn disconnect_epoch(&mut self, hash: &BlockHash, epoch: u64) {
+        if let Some(epochs) = self.elections.get_mut(hash) {
+            epochs.remove(&epoch);
+            if epochs.is_empty() {
+                self.elections.remove(hash);
+            }
+        }
     }
-
-    pub fn qualified_root(&self, hash: &BlockHash) -> Option<&QualifiedRoot> {
-        self.elections.get(hash)
+    pub fn id(&self, hash: &BlockHash) -> Option<&ElectionId> {
+        self.elections
+            .get(hash)?
+            .first_key_value()
+            .map(|(_, id)| id)
     }
-
+    pub fn id_in_epoch(&self, hash: &BlockHash, epoch: u64) -> Option<&ElectionId> {
+        self.elections.get(hash)?.get(&epoch)
+    }
     pub fn is_active(&self, hash: &BlockHash) -> bool {
-        self.elections.contains_key(hash)
+        self.id(hash).is_some()
     }
-
     pub fn container_info(&self) -> ContainerInfo {
-        [(
-            "elections",
-            self.elections.len(),
-            size_of::<BlockHash>() + size_of::<QualifiedRoot>(),
-        )]
-        .into()
+        [("elections", self.elections.len(), size_of::<ElectionId>())].into()
     }
 }

@@ -53,7 +53,10 @@ impl RebroadcastHistory {
     pub fn contains_block(&self, representative: &PublicKey, block_hash: &BlockHash) -> bool {
         self.representatives
             .get(representative)
-            .map(|i| i.history.contains_key(block_hash))
+            .map(|i| {
+                i.history
+                    .contains_key(&rep_entry::block_key(*block_hash, 0))
+            })
             .unwrap_or(false)
     }
 
@@ -441,4 +444,26 @@ mod tests {
 
     const TEST_WEIGHT: Amount = Amount::nano(100_000);
     const NOW: Timestamp = Timestamp::new_test_instance();
+}
+
+#[cfg(all(test, feature = "rai_protocol"))]
+mod rai_tests {
+    use super::*;
+    use rsnano_types::PrivateKey;
+    #[test]
+    fn rai_final_vote_in_another_epoch_is_rebroadcast() {
+        let key = PrivateKey::from(1);
+        let mut history = RebroadcastHistory::default();
+        let now = Timestamp::new_test_instance();
+        for epoch in [0, 1] {
+            let vote = Vote::new_in_epoch(
+                &key,
+                Vote::TIMESTAMP_MAX,
+                Vote::DURATION_MAX,
+                vec![BlockHash::from(1)],
+                epoch,
+            );
+            assert_eq!(history.check_and_record(&vote, Amount::raw(5), now), Ok(()));
+        }
+    }
 }

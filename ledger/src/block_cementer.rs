@@ -32,8 +32,10 @@ impl<'a> BlockCementer<'a> {
         mut txn: WriteTransaction,
         target_hash: BlockHash,
         max_blocks: usize,
+        _epoch: u64,
     ) -> (WriteTransaction, Vec<SavedBlock>) {
         let mut result = Vec::new();
+        let mut processed = 0;
 
         let mut stack = VecDeque::new();
         stack.push_back(target_hash);
@@ -43,7 +45,7 @@ impl<'a> BlockCementer<'a> {
             let dependents =
                 block.dependent_blocks(&self.constants.epochs, &self.constants.genesis_account);
             for dependent in dependents.iter() {
-                if !dependent.is_zero() && !self.is_confirmed(&txn, dependent) {
+                if !dependent.is_zero() && self.needs_confirmation(&txn, dependent, _epoch) {
                     self.stats.inc(
                         StatType::ConfirmationHeight,
                         DetailType::DependentUnconfirmed,
@@ -61,10 +63,22 @@ impl<'a> BlockCementer<'a> {
 
             if stack.back() == Some(&hash) {
                 stack.pop_back();
+                processed += 1;
+                #[cfg(feature = "rai_protocol")]
+                if self.is_confirmed(&txn, &hash) {
+                    if self.store.consensus_epochs.get(&txn, &hash).is_some() {
+                        self.store.consensus_epochs.record(&mut txn, &hash, _epoch);
+                    } else {
+                        self.store.consensus_epochs.put(&mut txn, &hash, 0);
+                    }
+                }
                 if !self.is_confirmed(&txn, &hash) {
                     // We must only confirm blocks that have their dependencies confirmed
 
                     let conf_height = ConfirmationHeightInfo::new(block.height(), block.hash());
+
+                    #[cfg(feature = "rai_protocol")]
+                    self.store.consensus_epochs.record(&mut txn, &hash, _epoch);
 
                     // Update store
                     self.store
@@ -99,13 +113,24 @@ impl<'a> BlockCementer<'a> {
             }
 
             // Early return might leave parts of the dependency tree unconfirmed
-            if result.len() >= max_blocks {
+            if processed >= max_blocks {
                 break;
             }
         }
         (txn, result)
     }
 
+    fn needs_confirmation(&self, tx: &WriteTransaction, hash: &BlockHash, _epoch: u64) -> bool {
+        if !self.is_confirmed(tx, hash) {
+            return true;
+        }
+        #[cfg(feature = "rai_protocol")]
+        {
+            return self.store.consensus_epochs.get(tx, hash).unwrap_or(0) > _epoch;
+        }
+        #[cfg(not(feature = "rai_protocol"))]
+        false
+    }
     fn is_confirmed(&self, tx: &WriteTransaction, hash: &BlockHash) -> bool {
         let Some(block) = self.store.block.get(tx, hash) else {
             return false;

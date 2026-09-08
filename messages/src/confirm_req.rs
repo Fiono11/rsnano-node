@@ -24,6 +24,7 @@ use std::fmt::{Debug, Display, Write};
  */
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct ConfirmReq {
+    pub epoch: u64,
     pub roots_hashes: Vec<(BlockHash, Root)>,
 }
 
@@ -45,7 +46,15 @@ impl ConfirmReq {
         if roots_hashes.len() > u8::MAX as usize {
             panic!("roots_hashes too big");
         }
-        Self { roots_hashes }
+        Self {
+            roots_hashes,
+            epoch: 0,
+        }
+    }
+
+    pub fn with_epoch(mut self, epoch: u64) -> Self {
+        self.epoch = epoch;
+        self
     }
 
     pub fn new_test_instance() -> Self {
@@ -132,7 +141,8 @@ impl ConfirmReq {
             Err(_) => {
                 let count = Self::count(extensions);
                 if block_type_id == BlockTypeId::NotABlock {
-                    count as usize * (BlockHash::SERIALIZED_SIZE + Root::SERIALIZED_SIZE)
+                    (if cfg!(feature = "rai_protocol") { 8 } else { 0 })
+                        + count as usize * (BlockHash::SERIALIZED_SIZE + Root::SERIALIZED_SIZE)
                 } else {
                     0
                 }
@@ -144,6 +154,8 @@ impl ConfirmReq {
     where
         T: std::io::Write,
     {
+        #[cfg(feature = "rai_protocol")]
+        writer.write_all(&self.epoch.to_le_bytes())?;
         for (hash, root) in &self.roots_hashes {
             writer.write_all(hash.as_bytes())?;
             writer.write_all(root.as_bytes())?;
@@ -155,8 +167,19 @@ impl ConfirmReq {
         bytes: &[u8],
         extensions: BitArray<u16>,
     ) -> Result<Self, DeserializationError> {
+        let (epoch, bytes) = if cfg!(feature = "rai_protocol") {
+            if bytes.len() < 8 {
+                return Err(DeserializationError::InvalidData);
+            }
+            (
+                u64::from_le_bytes(bytes[..8].try_into().unwrap()),
+                &bytes[8..],
+            )
+        } else {
+            (0, bytes)
+        };
         let roots = Self::deserialize_roots(bytes, extensions)?;
-        Ok(Self::new(roots))
+        Ok(Self::new(roots).with_epoch(epoch))
     }
 
     fn deserialize_roots(
@@ -344,5 +367,20 @@ mod tests {
     #[should_panic]
     fn panics_when_roots_hashes_are_too_big() {
         ConfirmReq::new(vec![(BlockHash::from(1), Root::from(2)); 256]);
+    }
+}
+
+#[cfg(all(test, feature = "rai_protocol"))]
+mod rai_tests {
+    use super::*;
+    #[test]
+    fn rai_request_epoch_roundtrip() {
+        let req = ConfirmReq::new_test_instance().with_epoch(9);
+        let mut bytes = Vec::new();
+        req.serialize(&mut bytes).unwrap();
+        let extensions = req.header_extensions(0);
+        assert_eq!(bytes.len(), ConfirmReq::serialized_size(extensions));
+        assert_eq!(req, ConfirmReq::deserialize(&bytes, extensions).unwrap());
+        assert!(ConfirmReq::deserialize(&bytes[..7], extensions).is_err());
     }
 }

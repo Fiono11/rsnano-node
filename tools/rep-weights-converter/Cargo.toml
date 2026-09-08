@@ -6,3 +6,6 @@ edition = "2024"
 [dependencies]
 rsnano_ledger = { path = "../../ledger" }
 rsnano_types = { path = "../../types" }
+
+[features]
+rai_protocol = ["rsnano_ledger/rai_protocol", "rsnano_types/rai_protocol"]

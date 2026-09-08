@@ -136,25 +136,36 @@ impl VoteGenerators {
     }
 
     pub fn generate_vote(&self, root: &Root, hash: &BlockHash, vote_type: VoteType) {
+        self.generate_vote_in_epoch(root, hash, vote_type, 0)
+    }
+    pub fn generate_vote_in_epoch(
+        &self,
+        root: &Root,
+        hash: &BlockHash,
+        vote_type: VoteType,
+        epoch: u64,
+    ) {
         match vote_type {
             VoteType::NonFinal => {
                 self.stats
                     .inc(StatType::Election, DetailType::GenerateVoteNormal);
-                self.non_final_vote_generator.add(root, hash);
+                self.non_final_vote_generator
+                    .add_in_epoch(root, hash, epoch);
             }
             VoteType::Final => {
                 self.stats
                     .inc(StatType::Election, DetailType::GenerateVoteFinal);
-                self.final_vote_generator.add(root, hash);
+                self.final_vote_generator.add_in_epoch(root, hash, epoch);
             }
         }
     }
 
-    pub(crate) fn generate_votes(
+    pub(crate) fn generate_votes_in_epoch(
         &self,
         blocks: &[SavedBlock],
         channel: &Arc<Channel>,
         vote_type: VoteType,
+        epoch: u64,
     ) -> usize {
         if self.vote_listener.is_tracked() {
             self.vote_listener.emit(VoteGenerationEvent {
@@ -165,8 +176,12 @@ impl VoteGenerators {
         }
 
         match vote_type {
-            VoteType::NonFinal => self.non_final_vote_generator.generate(blocks, channel),
-            VoteType::Final => self.final_vote_generator.generate(blocks, channel),
+            VoteType::NonFinal => self
+                .non_final_vote_generator
+                .generate_in_epoch(blocks, channel, epoch),
+            VoteType::Final => self
+                .final_vote_generator
+                .generate_in_epoch(blocks, channel, epoch),
         }
     }
 

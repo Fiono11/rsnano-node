@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
+rai_protocol = ["rsnano_types/rai_protocol"]
+
 ledger_snapshots = []
 
 [dev-dependencies]

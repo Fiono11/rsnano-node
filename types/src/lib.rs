@@ -667,3 +667,6 @@ mod tests {
         assert_eq!(serialized, "\"000000000000007B\"");
     }
 }
+
+mod election_id;
+pub use election_id::*;

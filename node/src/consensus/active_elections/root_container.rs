@@ -1,5 +1,6 @@
 use std::{cmp::Ordering, collections::BTreeSet};
 
+use rsnano_types::ElectionId;
 use rsnano_types::{BlockHash, BlockPriority, QualifiedRoot, TimePriority};
 use rustc_hash::FxHashMap;
 
@@ -29,7 +30,7 @@ impl Entry {
 /// => So highest priority entries are first!
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 struct BucketEntry {
-    root: QualifiedRoot,
+    root: ElectionId,
     priority: BlockPriority,
 }
 
@@ -53,7 +54,8 @@ impl PartialOrd for BucketEntry {
 
 /// Contains elections and their qualified roots
 pub(crate) struct RootContainer {
-    by_root: FxHashMap<QualifiedRoot, Entry>,
+    by_root: FxHashMap<ElectionId, Entry>,
+    epochs_by_root: FxHashMap<QualifiedRoot, BTreeSet<u64>>,
     buckets: Vec<BTreeSet<BucketEntry>>,
     bucket_infos: Vec<BucketInfo>,
     pub vote_router: VoteRouter,
@@ -74,6 +76,7 @@ impl RootContainer {
         let max_elections_per_bucket = max_elections / bucket_count;
         Self {
             by_root: Default::default(),
+            epochs_by_root: Default::default(),
             vote_router: Default::default(),
             buckets: vec![BTreeSet::new(); bucket_count],
             bucket_infos: vec![BucketInfo::new(max_elections_per_bucket); bucket_count],
@@ -82,10 +85,10 @@ impl RootContainer {
     }
 
     pub fn insert(&mut self, entry: Entry) {
-        let root = entry.root.clone();
+        let root = entry.election.id();
         let hash = entry.election.winner().hash();
         let bucket_entry = BucketEntry {
-            root: entry.root.clone(),
+            root: entry.election.id(),
             priority: entry.priority,
         };
 
@@ -96,16 +99,26 @@ impl RootContainer {
         infos.election_count = bucket.len();
         infos.lowest_priority = bucket.last().map(|i| i.priority).unwrap_or_default();
 
+        self.epochs_by_root
+            .entry(entry.root.clone())
+            .or_default()
+            .insert(root.epoch);
         self.by_root.insert(root.clone(), entry);
-        self.vote_router.connect(hash, root.clone());
+        self.vote_router.connect_epoch(hash, root);
     }
 
     pub fn get(&self, root: &QualifiedRoot) -> Option<&Entry> {
-        self.by_root.get(root)
+        self.by_root.get(&ElectionId::new(
+            root.clone(),
+            *self.epochs_by_root.get(root)?.first()?,
+        ))
     }
 
     pub fn get_mut(&mut self, root: &QualifiedRoot) -> Option<&mut Entry> {
-        self.by_root.get_mut(root)
+        self.by_root.get_mut(&ElectionId::new(
+            root.clone(),
+            *self.epochs_by_root.get(root)?.first()?,
+        ))
     }
 
     pub fn election_for_root(&self, root: &QualifiedRoot) -> Option<&Election> {
@@ -117,13 +130,13 @@ impl RootContainer {
     }
 
     pub fn election_for_block(&self, block_hash: &BlockHash) -> Option<&Election> {
-        let root = self.vote_router.qualified_root(block_hash)?;
-        self.election_for_root(root)
+        let id = self.vote_router.id(block_hash)?;
+        self.by_root.get(id).map(|e| &e.election)
     }
 
     pub fn election_for_block_mut(&mut self, block_hash: &BlockHash) -> Option<&mut Election> {
-        let root = self.vote_router.qualified_root(block_hash)?.clone();
-        self.get_mut(&root).map(|i| &mut i.election)
+        let id = self.vote_router.id(block_hash)?.clone();
+        self.by_root.get_mut(&id).map(|i| &mut i.election)
     }
 
     pub fn bucket_infos(&self) -> &[BucketInfo] {
@@ -133,10 +146,11 @@ impl RootContainer {
     pub fn try_upgrade_to_priority_election(
         &mut self,
         request: &AecInsertRequest,
+        epoch: u64,
     ) -> (bool, Option<ElectionBehavior>) {
-        let root = request.block.qualified_root();
+        let root = ElectionId::new(request.block.qualified_root(), epoch);
 
-        let Some(entry) = self.get_mut(&root) else {
+        let Some(entry) = self.by_root.get_mut(&root) else {
             return (false, None);
         };
 
@@ -181,7 +195,7 @@ impl RootContainer {
             .values()
             .filter_map(|i| {
                 if predicate(i) {
-                    Some(i.root.clone())
+                    Some(i.election.id())
                 } else {
                     None
                 }
@@ -190,7 +204,7 @@ impl RootContainer {
 
         let mut removed = Vec::new();
         for root in to_remove {
-            if let Some(entry) = self.erase(&root) {
+            if let Some(entry) = self.erase_id(&root) {
                 removed.push(entry);
             }
         }
@@ -199,12 +213,42 @@ impl RootContainer {
     }
 
     pub fn erase(&mut self, root: &QualifiedRoot) -> Option<Entry> {
+        let id = self.get(root)?.election.id();
+        self.erase_id(&id)
+    }
+
+    pub fn get_id(&self, id: &ElectionId) -> Option<&Entry> {
+        self.by_root.get(id)
+    }
+
+    pub fn get_id_mut(&mut self, id: &ElectionId) -> Option<&mut Entry> {
+        self.by_root.get_mut(id)
+    }
+    pub fn erase_lowest(&mut self, bucket_id: usize) -> Option<Entry> {
+        let id = self.buckets[bucket_id].last()?.root.clone();
+        self.erase_id(&id)
+    }
+    pub fn election_for_epoch_mut(
+        &mut self,
+        hash: &BlockHash,
+        epoch: u64,
+    ) -> Option<&mut Election> {
+        let id = self.vote_router.id_in_epoch(hash, epoch)?.clone();
+        self.by_root.get_mut(&id).map(|e| &mut e.election)
+    }
+    pub fn erase_id(&mut self, root: &ElectionId) -> Option<Entry> {
         let erased = self.by_root.remove(root);
+        if let Some(epochs) = self.epochs_by_root.get_mut(&root.root) {
+            epochs.remove(&root.epoch);
+            if epochs.is_empty() {
+                self.epochs_by_root.remove(&root.root);
+            }
+        }
         if let Some(entry) = &erased {
             self.vote_router.disconnect_election(&entry.election);
             let bucket = &mut self.buckets[entry.bucket()];
             bucket.remove(&BucketEntry {
-                root: entry.root.clone(),
+                root: entry.election.id(),
                 priority: entry.priority,
             });
 
@@ -217,6 +261,8 @@ impl RootContainer {
 
     pub fn clear(&mut self) {
         self.by_root.clear();
+        self.epochs_by_root.clear();
+        self.vote_router = Default::default();
         for bucket in self.buckets.iter_mut() {
             bucket.clear();
         }
@@ -248,11 +294,16 @@ impl RootContainer {
     pub fn lowest_priority(&self, bucket_id: usize) -> Option<(QualifiedRoot, TimePriority)> {
         self.buckets[bucket_id]
             .last()
-            .map(|i| (i.root.clone(), i.priority.time))
+            .map(|i| (i.root.root.clone(), i.priority.time))
     }
 
     pub fn find_bucket(&self, root: &QualifiedRoot) -> Option<usize> {
-        self.by_root.get(root).map(|i| i.bucket())
+        self.by_root
+            .get(&ElectionId::new(
+                root.clone(),
+                *self.epochs_by_root.get(root)?.first()?,
+            ))
+            .map(|i| i.bucket())
     }
 
     pub fn bucket_count(&self) -> usize {
@@ -274,6 +325,7 @@ impl RootContainer {
                         .map(|entry| {
                             let election = &self.by_root.get(&entry.root).unwrap().election;
                             ElectionSnapshot {
+                                epoch: election.epoch,
                                 account: election.account(),
                                 winner_hash: election.winner().hash(),
                                 non_final_tally: election.winner_tally(),

@@ -200,6 +200,7 @@ impl EventHandler<ChannelEvent> for RequestAggregator {
 
 #[derive(Clone)]
 pub struct AggregatorRequest {
+    pub epoch: u64,
     pub channel: Arc<Channel>,
     pub roots_hashes: Vec<(BlockHash, Root)>,
 }
@@ -271,10 +272,11 @@ impl RequestAggregatorLoop {
                 .inc(StatType::RequestAggregatorReplies, DetailType::NormalVote);
 
             // Generate votes for the remaining hashes
-            let generated = self.vote_generators.generate_votes(
+            let generated = self.vote_generators.generate_votes_in_epoch(
                 &remaining.remaining_normal,
                 &request.channel,
                 VoteType::NonFinal,
+                request.epoch,
             );
             self.stats.add_dir(
                 StatType::Requests,
@@ -289,10 +291,11 @@ impl RequestAggregatorLoop {
                 .inc(StatType::RequestAggregatorReplies, DetailType::FinalVote);
 
             // Generate final votes for the remaining hashes
-            let generated = self.vote_generators.generate_votes(
+            let generated = self.vote_generators.generate_votes_in_epoch(
                 &remaining.remaining_final,
                 &request.channel,
                 VoteType::Final,
+                request.epoch,
             );
             self.stats.add_dir(
                 StatType::Requests,

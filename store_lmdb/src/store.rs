@@ -32,6 +32,8 @@ impl LedgerCache {
 }
 
 pub struct LmdbStore {
+    #[cfg(feature = "rai_protocol")]
+    pub consensus_epochs: crate::consensus_epoch_store::ConsensusEpochStore,
     pub env: LmdbEnvironment,
     pub cache: Arc<LedgerCache>,
     pub block: LmdbBlockStore,
@@ -56,6 +58,8 @@ impl LmdbStore {
 
     pub fn new(env: LmdbEnvironment) -> anyhow::Result<Self> {
         Ok(Self {
+            #[cfg(feature = "rai_protocol")]
+            consensus_epochs: crate::consensus_epoch_store::ConsensusEpochStore::new(&env)?,
             cache: Arc::new(LedgerCache::new()),
             block: LmdbBlockStore::new(&env)?,
             account: LmdbAccountStore::new(&env)?,

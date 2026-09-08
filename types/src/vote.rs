@@ -59,6 +59,7 @@ impl VoteError {
 
 #[derive(Clone, Debug)]
 pub struct Vote {
+    pub epoch: crate::ConsensusEpoch,
     timestamp: VoteTimestamp,
 
     // Account that's voting
@@ -77,6 +78,7 @@ impl Vote {
     pub const MAX_HASHES: usize = 255;
     pub fn null() -> Self {
         Self {
+            epoch: 0,
             timestamp: 0.into(),
             voter: PublicKey::ZERO,
             signature: Signature::new(),
@@ -95,8 +97,20 @@ impl Vote {
         duration: u8,
         hashes: Vec<BlockHash>,
     ) -> Self {
+        Self::new_in_epoch(priv_key, timestamp, duration, hashes, 0)
+    }
+
+    pub fn new_in_epoch(
+        priv_key: &PrivateKey,
+        timestamp: UnixMillisTimestamp,
+        duration: u8,
+        hashes: Vec<BlockHash>,
+        epoch: crate::ConsensusEpoch,
+    ) -> Self {
+        assert!(cfg!(feature = "rai_protocol") || epoch == 0);
         assert!(hashes.len() <= Self::MAX_HASHES);
         let mut result = Self {
+            epoch,
             voter: priv_key.public_key(),
             timestamp: VoteTimestamp::new(timestamp, duration),
             signature: Signature::new(),
@@ -137,6 +151,12 @@ impl Vote {
     pub fn hash(&self) -> BlockHash {
         let mut builder = Blake2HashBuilder::new().update(HASH_PREFIX);
 
+        #[cfg(feature = "rai_protocol")]
+        {
+            builder = builder
+                .update(b"rai-vote-v1")
+                .update(self.epoch.to_le_bytes());
+        }
         for hash in &self.hashes {
             builder = builder.update(hash.as_bytes())
         }
@@ -145,6 +165,13 @@ impl Vote {
     }
 
     pub fn deserialize(mut bytes: &[u8]) -> Result<Self, DeserializationError> {
+        let epoch = if cfg!(feature = "rai_protocol") {
+            let mut buffer = [0; 8];
+            bytes.read_exact(&mut buffer)?;
+            u64::from_le_bytes(buffer)
+        } else {
+            0
+        };
         let voter = PublicKey::deserialize(&mut bytes)?;
         let signature = Signature::deserialize(&mut bytes)?;
         let mut buffer = [0; 8];
@@ -155,6 +182,7 @@ impl Vote {
             hashes.push(BlockHash::deserialize(&mut bytes)?);
         }
         Ok(Self {
+            epoch,
             timestamp,
             voter,
             signature,
@@ -167,7 +195,7 @@ impl Vote {
     }
 
     pub const fn serialized_size(count: usize) -> usize {
-        Account::SERIALIZED_SIZE
+        (if cfg!(feature = "rai_protocol") { 8 } else { 0 }) + Account::SERIALIZED_SIZE
         + Signature::SERIALIZED_SIZE
         + std::mem::size_of::<u64>() // timestamp
         + (BlockHash::SERIALIZED_SIZE * count)
@@ -177,6 +205,8 @@ impl Vote {
     where
         T: std::io::Write,
     {
+        #[cfg(feature = "rai_protocol")]
+        writer.write_all(&self.epoch.to_le_bytes())?;
         self.voter.serialize(writer)?;
         self.signature.serialize(writer)?;
         writer.write_all(&self.timestamp.to_le_bytes())?;
@@ -189,7 +219,8 @@ impl Vote {
 
 impl PartialEq for Vote {
     fn eq(&self, other: &Self) -> bool {
-        self.timestamp == other.timestamp
+        self.epoch == other.epoch
+            && self.timestamp == other.timestamp
             && self.voter == other.voter
             && self.signature == other.signature
             && self.hashes == other.hashes
@@ -243,5 +274,29 @@ impl TestVoteBuilder {
         } else {
             Vote::new(&self.key, self.timestamp, self.duration, self.hashes)
         }
+    }
+}
+
+#[cfg(all(test, feature = "rai_protocol"))]
+mod rai_tests {
+    use super::*;
+    #[test]
+    fn rai_epoch_is_signed_and_roundtrips() {
+        let key = PrivateKey::from(42);
+        let vote = Vote::new_in_epoch(
+            &key,
+            Vote::TIMESTAMP_MAX,
+            Vote::DURATION_MAX,
+            vec![BlockHash::from(1)],
+            7,
+        );
+        let mut bytes = Vec::new();
+        vote.serialize(&mut bytes).unwrap();
+        assert_eq!(bytes.len(), Vote::serialized_size(1));
+        assert_eq!(vote, Vote::deserialize(&bytes).unwrap());
+        assert!(vote.validate().is_ok());
+        let mut changed = vote.clone();
+        changed.epoch = 8;
+        assert!(changed.validate().is_err());
     }
 }

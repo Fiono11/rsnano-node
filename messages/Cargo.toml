@@ -5,6 +5,8 @@ authors = ["Gustav Schauwecker <service@simpago.com>"]
 edition = "2024"
 
 [features]
+rai_protocol = ["rsnano_types/rai_protocol", "rsnano_work/rai_protocol"]
+
 ledger_snapshots = ["rsnano_utils/ledger_snapshots"]
 banano = [
 	"rsnano_types/banano",

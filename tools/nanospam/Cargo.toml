@@ -32,3 +32,6 @@ num-format = "0.4.4"
 
 [dev-dependencies]
 ntest = "0.9.5"
+
+[features]
+rai_protocol = ["rsnano_types/rai_protocol", "rsnano_messages/rai_protocol", "rsnano_network/rai_protocol", "rsnano_network_protocol/rai_protocol", "rsnano_websocket_messages/rai_protocol", "rsnano_websocket_client/rai_protocol", "rsnano_rpc_client/rai_protocol", "rsnano_rpc_messages/rai_protocol"]

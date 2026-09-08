@@ -68,6 +68,7 @@ pub struct NodeToml {
     pub vote_rebroadcaster: Option<VoteRebroadcasterToml>,
     pub peering_port: Option<u16>,
     pub cps_limit: Option<u32>,
+    pub epoch_length: Option<u64>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -483,6 +484,9 @@ impl NodeConfig {
             self.network.listening_port = port;
         }
 
+        if let Some(length) = toml.epoch_length {
+            self.epoch_length = length;
+        }
         if let Some(limit) = toml.cps_limit {
             self.cps_limit = limit;
         }
@@ -631,6 +635,7 @@ impl From<&NodeConfig> for NodeToml {
             vote_rebroadcaster: Some(config.into()),
             peering_port: Some(config.network.listening_port),
             cps_limit: Some(config.cps_limit),
+            epoch_length: Some(config.epoch_length),
         }
     }
 }

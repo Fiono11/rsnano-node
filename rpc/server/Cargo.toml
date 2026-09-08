@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
+rai_protocol = ["rsnano_types/rai_protocol", "rsnano_messages/rai_protocol", "rsnano_network/rai_protocol", "rsnano_node/rai_protocol", "rsnano_ledger/rai_protocol", "rsnano_wallet/rai_protocol", "rsnano_rpc_client/rai_protocol", "rsnano_rpc_messages/rai_protocol", "rsnano_store_lmdb/rai_protocol"]
+
 ledger_snapshots = ["rsnano_rpc_messages/ledger_snapshots"]
 
 [dependencies]

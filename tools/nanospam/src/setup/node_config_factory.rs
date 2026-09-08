@@ -27,6 +27,7 @@ pub(crate) const NODE_CONFIG: &str = r#"
     preconfigured_representatives = ["nano_3e3j5tkog48pnny9dmfzj1r16pg8t1e76dz5tmac6iq689wyjfpiij4txtdo"]
     database_backend = "DB_BACKEND"
     cps_limit = CPS_LIMIT
+    epoch_length = EPOCH_LENGTH
 
 [node.lmdb]
     sync = "nosync_unsafe"
@@ -101,7 +102,8 @@ pub(crate) fn configure_nodes(args: &CliArgs, data_dir: &Path) {
                 .replace("WS_PORT", &websocket_port(i).to_string())
                 .replace("PRECONF_PEERS", &preconfigured_peers(args.prs, i))
                 .replace("DB_BACKEND", if args.rocksdb { "rocksdb" } else { "lmdb" })
-                .replace("CPS_LIMIT", &args.cps_limit.to_string());
+                .replace("CPS_LIMIT", &args.cps_limit.to_string())
+                .replace("EPOCH_LENGTH", &args.epoch_length.to_string());
             std::fs::write(node_config_path, node_config).unwrap();
         }
 

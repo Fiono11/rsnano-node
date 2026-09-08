@@ -30,8 +30,8 @@ pub(crate) struct VotedBlock {
     non_final_tally: Amount,
     final_tally: Amount,
     max_voters: usize,
-    by_representative: FxHashMap<PublicKey, CachedVote>,
-    by_weight: BTreeMap<Amount, Vec<PublicKey>>,
+    by_representative: FxHashMap<(PublicKey, u64), CachedVote>,
+    by_weight: BTreeMap<Amount, Vec<(PublicKey, u64)>>,
 }
 
 impl VotedBlock {
@@ -86,7 +86,7 @@ impl VotedBlock {
     /// Returns true if the vote was accepted (new representative, or a newer vote from an
     /// already known one), false if it was rejected as a duplicate/older vote or due to capacity
     pub fn add_vote(&mut self, vote: Arc<Vote>, rep_weight: Amount, now: Timestamp) -> bool {
-        let rep_key = vote.voter;
+        let rep_key = (vote.voter, vote.epoch);
         let new_weight = rep_weight;
         let vote = CachedVote::new(vote, rep_weight);
 
@@ -133,24 +133,33 @@ impl VotedBlock {
     }
 
     fn calculate_tallies(&mut self) {
-        self.non_final_tally = Amount::ZERO;
-        self.final_tally = Amount::ZERO;
+        let mut tallies = BTreeMap::<u64, (Amount, Amount)>::new();
         for vote in self.by_representative.values() {
-            self.non_final_tally = self.non_final_tally.wrapping_add(vote.weight);
+            let tally = tallies
+                .entry(vote.vote.epoch)
+                .or_insert((Amount::ZERO, Amount::ZERO));
+            tally.0 = tally.0.wrapping_add(vote.weight);
             if vote.vote.is_final() {
-                self.final_tally = self.final_tally.wrapping_add(vote.weight);
+                tally.1 = tally.1.wrapping_add(vote.weight);
             }
         }
+        let strongest = tallies
+            .values()
+            .max_by_key(|(normal, final_)| (*final_, *normal))
+            .copied()
+            .unwrap_or((Amount::ZERO, Amount::ZERO));
+        self.non_final_tally = strongest.0;
+        self.final_tally = strongest.1;
     }
 
-    fn add_by_weight(&mut self, weight: Amount, representative: PublicKey) {
+    fn add_by_weight(&mut self, weight: Amount, representative: (PublicKey, u64)) {
         self.by_weight
             .entry(weight)
             .or_default()
             .push(representative);
     }
 
-    fn remove_by_weight(&mut self, weight: &Amount, representative: &PublicKey) {
+    fn remove_by_weight(&mut self, weight: &Amount, representative: &(PublicKey, u64)) {
         if let Some(mut accounts) = self.by_weight.remove(weight)
             && accounts.len() > 1
         {
@@ -561,5 +570,31 @@ mod tests {
             );
         }
         (block, reps)
+    }
+}
+
+#[cfg(all(test, feature = "rai_protocol"))]
+mod rai_tests {
+    use super::*;
+    use rsnano_types::PrivateKey;
+    #[test]
+    fn rai_cache_keeps_same_representative_in_two_epochs_without_combining_tallies() {
+        let key = PrivateKey::from(1);
+        let hash = BlockHash::from(1);
+        let vote = |epoch| {
+            Arc::new(Vote::new_in_epoch(
+                &key,
+                Vote::TIMESTAMP_MAX,
+                Vote::DURATION_MAX,
+                vec![hash],
+                epoch,
+            ))
+        };
+        let now = Timestamp::new_test_instance();
+        let mut block = VotedBlock::new(1, hash, 64, vote(0), Amount::raw(5), now);
+        assert!(block.add_vote(vote(1), Amount::raw(5), now));
+        assert_eq!(block.vote_count(), 2);
+        assert_eq!(block.final_tally(), Amount::raw(5));
+        assert!(!block.add_vote(vote(1), Amount::raw(5), now));
     }
 }

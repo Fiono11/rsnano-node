@@ -9,3 +9,6 @@ rsnano_ledger = { path = "../../ledger" }
 rsnano_store_lmdb = { path = "../../store_lmdb" }
 rsnano_nullable_lmdb = { path = "../../nullables/lmdb" }
 ed25519-dalek-blake2b = "1.0.2"
+
+[features]
+rai_protocol = ["rsnano_types/rai_protocol", "rsnano_ledger/rai_protocol", "rsnano_store_lmdb/rai_protocol"]

@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
-use rsnano_types::QualifiedRoot;
+use rsnano_types::ElectionId;
 use rsnano_utils::stats::{DetailType, StatType, Stats};
 
 use super::{
@@ -12,7 +12,7 @@ use super::{
 
 pub(crate) struct ConfirmReqSender {
     stats: Arc<Stats>,
-    last_requests: BoundedHashMap<QualifiedRoot, Timestamp>,
+    last_requests: BoundedHashMap<ElectionId, Timestamp>,
     clock: Arc<SteadyClock>,
 }
 
@@ -34,15 +34,14 @@ impl ConfirmReqSender {
 
     pub fn send_confirm_req(&mut self, solicitor: &mut ConfirmationSolicitor, election: &Election) {
         if self.should_send_confirm_req(election) && solicitor.add(election) {
-            self.last_requests
-                .insert(election.qualified_root().clone(), self.clock.now());
+            self.last_requests.insert(election.id(), self.clock.now());
             self.stats
                 .inc(StatType::Election, DetailType::ConfirmationRequest);
         }
     }
 
     fn should_send_confirm_req(&self, election: &Election) -> bool {
-        if let Some(last_req) = self.last_requests.get(election.qualified_root()) {
+        if let Some(last_req) = self.last_requests.get(&election.id()) {
             last_req.elapsed(self.clock.now()) >= Self::confirm_req_interval(election)
         } else {
             true

@@ -16,3 +16,6 @@ serde_json = "1"
 strum = "0.28.0"
 strum_macros = "0.28.0"
 thiserror = "2.0.18"
+
+[features]
+rai_protocol = ["rsnano_types/rai_protocol", "rsnano_websocket_messages/rai_protocol"]

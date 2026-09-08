@@ -31,3 +31,6 @@ tracing = "0"
 test_helpers = { path = "../../tools/test_helpers" }
 rsnano_nullable_tcp = { path = "../../nullables/tcp" }
 rsnano_websocket_client = { path = "../client" }
+
+[features]
+rai_protocol = ["rsnano_types/rai_protocol", "rsnano_messages/rai_protocol", "rsnano_ledger/rai_protocol", "rsnano_wallet/rai_protocol", "rsnano_node/rai_protocol", "rsnano_websocket_messages/rai_protocol"]

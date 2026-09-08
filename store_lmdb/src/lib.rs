@@ -134,3 +134,6 @@ mod test {
         assert_eq!(clear_tracker.output(), vec![database])
     }
 }
+
+#[cfg(feature = "rai_protocol")]
+pub mod consensus_epoch_store;

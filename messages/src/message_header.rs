@@ -138,7 +138,15 @@ impl MessageHeader {
     where
         T: std::io::Write,
     {
-        writer.write_all(&(self.protocol.network as u16).to_be_bytes())?;
+        writer.write_all(
+            &((self.protocol.network as u16)
+                ^ if cfg!(feature = "rai_protocol") {
+                    0x100
+                } else {
+                    0
+                })
+            .to_be_bytes(),
+        )?;
         writer.write_all(&[
             self.protocol.version_max,
             self.protocol.version_using,
@@ -156,8 +164,15 @@ impl MessageHeader {
         let mut buffer = [0; 2];
 
         reader.read_exact(&mut buffer)?;
-        header.protocol.network = NetworkType::from_u16(u16::from_be_bytes(buffer))
-            .ok_or(DeserializationError::InvalidData)?;
+        header.protocol.network = NetworkType::from_u16(
+            u16::from_be_bytes(buffer)
+                ^ if cfg!(feature = "rai_protocol") {
+                    0x100
+                } else {
+                    0
+                },
+        )
+        .ok_or(DeserializationError::InvalidData)?;
 
         header.protocol.version_max = read_u8(reader)?;
         header.protocol.version_using = read_u8(reader)?;
@@ -312,7 +327,14 @@ mod tests {
         header.serialize(&mut buffer).unwrap();
 
         assert_eq!(buffer.len(), 8);
-        assert_eq!(buffer[0], 0x52);
+        assert_eq!(
+            buffer[0],
+            if cfg!(feature = "rai_protocol") {
+                0x53
+            } else {
+                0x52
+            }
+        );
         assert_eq!(buffer[1], 0x41);
         assert_eq!(buffer[2], protocol_info.version_using);
         assert_eq!(buffer[3], protocol_info.version_max);
@@ -320,5 +342,18 @@ mod tests {
         assert_eq!(buffer[5], 0x03); // publish
         assert_eq!(buffer[6], 0xCD); // extensions
         assert_eq!(buffer[7], 0xAB); // extensions
+    }
+}
+
+#[cfg(test)]
+mod rai_compatibility_tests {
+    use super::*;
+    #[test]
+    fn rejects_other_protocol_mode_header() {
+        let header = MessageHeader::new(MessageType::Keepalive, ProtocolInfo::default());
+        let mut bytes = Vec::new();
+        header.serialize(&mut bytes).unwrap();
+        bytes[0] ^= 1;
+        assert!(MessageHeader::deserialize(&mut bytes.as_slice()).is_err());
     }
 }

@@ -5,6 +5,21 @@ use std::{
     time::Duration,
 };
 
+#[cfg(feature = "rai_protocol")]
+type SpacingRoot = (Root, u64);
+#[cfg(not(feature = "rai_protocol"))]
+type SpacingRoot = Root;
+fn spacing_root(root: Root, _epoch: u64) -> SpacingRoot {
+    #[cfg(feature = "rai_protocol")]
+    {
+        (root, _epoch)
+    }
+    #[cfg(not(feature = "rai_protocol"))]
+    {
+        root
+    }
+}
+
 /// Makes sure that there is a minimum time gap between votes if the winner changed
 pub struct VoteSpacing {
     delay: Duration,
@@ -20,16 +35,29 @@ impl VoteSpacing {
     }
 
     pub fn votable(&self, root: &Root, hash: &BlockHash, now: Timestamp) -> bool {
+        self.votable_in_epoch(root, hash, now, 0)
+    }
+    pub fn votable_in_epoch(
+        &self,
+        root: &Root,
+        hash: &BlockHash,
+        now: Timestamp,
+        epoch: u64,
+    ) -> bool {
         self.recent
-            .by_root(root)
+            .by_root(&spacing_root(*root, epoch))
             .all(|item| *hash == item.hash || item.timestamp.elapsed(now) >= self.delay)
     }
 
     pub fn flag(&mut self, root: &Root, hash: &BlockHash, now: Timestamp) {
+        self.flag_in_epoch(root, hash, now, 0);
+    }
+    pub fn flag_in_epoch(&mut self, root: &Root, hash: &BlockHash, now: Timestamp, epoch: u64) {
+        let root = spacing_root(*root, epoch);
         self.trim(now);
-        if !self.recent.change_time_for_root(root, now) {
+        if !self.recent.change_time_for_root(&root, now) {
             self.recent.insert(Entry {
-                root: *root,
+                root,
                 hash: *hash,
                 timestamp: now,
             });
@@ -50,7 +78,7 @@ impl VoteSpacing {
 }
 
 struct Entry {
-    root: Root,
+    root: SpacingRoot,
     hash: BlockHash,
     timestamp: Timestamp,
 }
@@ -58,7 +86,7 @@ struct Entry {
 #[derive(Default)]
 struct EntryContainer {
     entries: HashMap<usize, Entry>,
-    by_root: HashMap<Root, HashSet<usize>>,
+    by_root: HashMap<SpacingRoot, HashSet<usize>>,
     by_time: BTreeMap<Timestamp, Vec<usize>>,
     next_id: usize,
     empty_id_set: HashSet<usize>,
@@ -87,7 +115,7 @@ impl EntryContainer {
         id
     }
 
-    pub fn by_root(&self, root: &Root) -> impl Iterator<Item = &Entry> + '_ + use<'_> {
+    pub fn by_root(&self, root: &SpacingRoot) -> impl Iterator<Item = &Entry> + '_ + use<'_> {
         match self.by_root.get(root) {
             Some(ids) => self.iter_entries(ids),
             None => self.iter_entries(&self.empty_id_set),
@@ -123,7 +151,7 @@ impl EntryContainer {
         }
     }
 
-    fn change_time_for_root(&mut self, root: &Root, time: Timestamp) -> bool {
+    fn change_time_for_root(&mut self, root: &SpacingRoot, time: Timestamp) -> bool {
         match self.by_root.get(root) {
             Some(ids) => {
                 change_time_for_entries(ids, time, &mut self.entries, &mut self.by_time);
@@ -232,7 +260,7 @@ mod tests {
             let mut container = EntryContainer::new();
             let now = Timestamp::new_test_instance();
             container.insert(Entry {
-                root: Root::from(1),
+                root: spacing_root(Root::from(1), 0),
                 hash: BlockHash::from(2),
                 timestamp: now,
             });

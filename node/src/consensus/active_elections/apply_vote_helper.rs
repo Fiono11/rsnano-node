@@ -28,7 +28,10 @@ impl<'a> ApplyVoteHelper<'a> {
                 continue;
             }
 
-            if let Some(election) = self.roots.election_for_block_mut(block_hash) {
+            if let Some(election) = self
+                .roots
+                .election_for_epoch_mut(block_hash, self.args.vote.epoch)
+            {
                 {
                     let mut apply_to_election = ApplyVoteToElectionHelper {
                         args: self.args,
@@ -43,8 +46,8 @@ impl<'a> ApplyVoteHelper<'a> {
                 }
 
                 if election.is_confirmed() {
-                    let root = election.qualified_root().clone();
-                    if let Some(entry) = self.roots.erase(&root) {
+                    let root = election.id();
+                    if let Some(entry) = self.roots.erase_id(&root) {
                         result.confirmed.push(entry);
                     }
                 }
@@ -142,6 +145,7 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
             self.notify(AecFact::WinnerChanged(
                 old_winner,
                 self.election.winner().deref().clone(),
+                self.election.epoch,
             ));
         }
     }
@@ -312,7 +316,7 @@ mod tests {
 
         assert_eq!(fixture.election.winner().hash(), fork.hash());
         assert_eq!(fixture.events.len(), 1);
-        let AecFact::WinnerChanged(old_winner, new_winner) = &fixture.events[0] else {
+        let AecFact::WinnerChanged(old_winner, new_winner, _) = &fixture.events[0] else {
             panic!("not a winner changed event");
         };
         assert_eq!(old_winner, &block.hash());

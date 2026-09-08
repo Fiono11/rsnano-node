@@ -146,6 +146,7 @@ impl NetworkMessageProcessor {
                 // TODO: This check should be cached somewhere
                 if self.wallet_reps.lock().unwrap().voting_enabled() {
                     let aggregator_req = AggregatorRequest {
+                        epoch: req.epoch,
                         channel: channel.clone(),
                         roots_hashes: req.roots_hashes,
                     };

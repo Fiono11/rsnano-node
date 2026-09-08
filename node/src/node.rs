@@ -627,6 +627,11 @@ impl Node {
             base_latency,
         ));
         active_elections.set_observer(aec_tx.clone());
+        active_elections.set_epoch_source(ledger.clone());
+        #[cfg(feature = "rai_protocol")]
+        ledger
+            .configure_epoch_length(config.epoch_length)
+            .expect("Invalid RAI epoch configuration");
 
         let block_rate_calculator = BlockRateCalculator::new(steady_clock.clone(), ledger.clone());
         let block_rates = block_rate_calculator.rates().clone();
