@@ -1,5 +1,9 @@
-use rsnano_ledger::{AnySet, LedgerSet};
-use rsnano_types::{Account, Block, BlockHash, Root, SavedBlock};
+use rsnano_ledger::AnySet;
+#[cfg(not(feature = "rai_protocol"))]
+use rsnano_ledger::LedgerSet;
+#[cfg(not(feature = "rai_protocol"))]
+use rsnano_types::Block;
+use rsnano_types::{Account, BlockHash, Root, SavedBlock};
 use rsnano_utils::stats::{DetailType, StatType, Stats};
 
 pub(super) struct RequestAggregatorImpl<'a> {
@@ -46,6 +50,7 @@ impl<'a> RequestAggregatorImpl<'a> {
         for (hash, root) in requests {
             let block = self.search_for_block(hash, root);
 
+            #[cfg(not(feature = "rai_protocol"))]
             let should_generate_final_vote = |block: &Block| {
                 // Check if final vote is set for this block
                 if let Some(final_hash) = self.any.get_final_vote(&block.qualified_root()) {
@@ -57,15 +62,27 @@ impl<'a> RequestAggregatorImpl<'a> {
             };
 
             if let Some(block) = block {
-                if should_generate_final_vote(&block) {
+                // Recover first/notarization statements even when a final vote exists.
+                // The generators enforce the actual phase eligibility for this epoch.
+                #[cfg(feature = "rai_protocol")]
+                {
+                    // First recovery must not wait for final-vote ledger writes.
+                    self.to_generate.push(block.clone());
                     self.to_generate_final.push(block);
-                    self.stats
-                        .inc(StatType::Requests, DetailType::RequestsFinal);
-                } else {
-                    #[cfg(feature = "rai_protocol")]
-                    self.to_generate.push(block);
-                    self.stats
-                        .inc(StatType::Requests, DetailType::RequestsNonFinal);
+                    continue;
+                }
+                #[cfg(not(feature = "rai_protocol"))]
+                {
+                    if should_generate_final_vote(&block) {
+                        self.to_generate_final.push(block);
+                        self.stats
+                            .inc(StatType::Requests, DetailType::RequestsFinal);
+                    } else {
+                        #[cfg(feature = "rai_protocol")]
+                        self.to_generate.push(block);
+                        self.stats
+                            .inc(StatType::Requests, DetailType::RequestsNonFinal);
+                    }
                 }
             } else {
                 self.stats

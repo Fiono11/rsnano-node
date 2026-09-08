@@ -4,6 +4,10 @@ Build both the node and its protocol clients with `--features rai_protocol`.
 This experimental mode adds local consensus epochs; it does not implement epoch
 transition consensus. Nano account-upgrade `Epoch` values are unrelated.
 
+Election voting now uses the [weighted RAI voting rules](rai-voting.md), including
+in-memory first-vote restrictions across epochs. The epoch metadata behavior below
+is unchanged.
+
 ```
 cargo build --release -p rsnano_cli -p nanospam --features rai_protocol
 PATH="$PWD/target/release:$PATH" target/release/nanospam \

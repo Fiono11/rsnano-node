@@ -14,3 +14,6 @@ pub use local_vote_history::*;
 pub use request_aggregator::*;
 pub use vote_generators::*;
 pub use vote_spacing::VoteSpacing;
+
+#[cfg(feature = "rai_protocol")]
+mod kudzu_vote_state;

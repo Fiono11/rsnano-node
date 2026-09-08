@@ -56,6 +56,27 @@ impl AecService {
         self.aec.read().unwrap().election_for_id(id).cloned()
     }
 
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn kudzu_eligibilities(
+        &self,
+        candidates: impl IntoIterator<Item = (rsnano_types::ElectionId, BlockHash)>,
+    ) -> Vec<(bool, bool)> {
+        let aec = self.aec.read().unwrap();
+        candidates
+            .into_iter()
+            .map(|(id, hash)| {
+                aec.election_for_id(&id)
+                    .map(|e| {
+                        (
+                            e.can_notarize(&hash),
+                            e.has_kudzu_certificate(hash, rsnano_types::VoteKind::Notarize),
+                        )
+                    })
+                    .unwrap_or_default()
+            })
+            .collect()
+    }
+
     pub fn election_for_root(&self, root: &QualifiedRoot) -> Option<Election> {
         self.aec.read().unwrap().election_for_root(root).cloned()
     }
@@ -86,6 +107,13 @@ impl AecService {
 
     pub fn is_active_hash(&self, block_hash: &BlockHash) -> bool {
         self.aec.read().unwrap().is_active_hash(block_hash)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn any_active_hash<'a>(&self, hashes: impl Iterator<Item = &'a BlockHash>) -> bool {
+        let aec = self.aec.read().unwrap();
+        let mut hashes = hashes;
+        hashes.any(|hash| aec.is_active_hash(hash))
     }
 
     pub fn was_recently_confirmed(&self, block_hash: &BlockHash) -> bool {

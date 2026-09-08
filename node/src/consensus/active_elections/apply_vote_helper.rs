@@ -1,6 +1,8 @@
 use std::{collections::HashMap, ops::Deref};
 
-use rsnano_types::{Amount, BlockHash, VoteDelivery, VoteError};
+#[cfg(any(test, not(feature = "rai_protocol")))]
+use rsnano_types::{Amount, VoteDelivery};
+use rsnano_types::{BlockHash, VoteError};
 use rsnano_utils::sync::backpressure_channel::Sender;
 
 use super::{
@@ -9,7 +11,9 @@ use super::{
     root_container::{Entry, RootContainer},
     stats::VoteCounter,
 };
-use crate::consensus::election::{ConfirmationType, Election, VoteSummary};
+#[cfg(not(feature = "rai_protocol"))]
+use crate::consensus::election::VoteSummary;
+use crate::consensus::election::{ConfirmationType, Election};
 
 pub(super) struct ApplyVoteHelper<'a> {
     pub args: &'a ApplyVoteArgs<'a>,
@@ -85,8 +89,21 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
             return Err(VoteError::Late);
         }
 
+        #[cfg(feature = "rai_protocol")]
+        {
+            self.election.add_kudzu_vote(
+                self.args.vote.vote.vote.clone(),
+                *self.block_hash,
+                self.args.now,
+            )?;
+            self.vote_counter.count(self.args.vote.delivery);
+            self.confirm_if_quorum();
+            return Ok(());
+        }
+        #[cfg(not(feature = "rai_protocol"))]
         let rep_weight = self.args.rep_weights.weight(&self.args.vote.voter);
 
+        #[cfg(not(feature = "rai_protocol"))]
         if let Some(last_vote) = self.election.votes().get(&self.args.vote.voter) {
             last_vote.ensure_no_replay(self.args.vote, self.block_hash)?;
 
@@ -95,10 +112,14 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
             }
         }
 
-        self.add_vote();
-        Ok(())
+        #[cfg(not(feature = "rai_protocol"))]
+        {
+            self.add_vote();
+            Ok(())
+        }
     }
 
+    #[cfg(not(feature = "rai_protocol"))]
     fn should_cool_down(&self, last_vote: &VoteSummary, rep_weight: Amount) -> bool {
         if self.args.vote.delivery == VoteDelivery::Replayed {
             // Only cooldown live votes
@@ -113,6 +134,7 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
         last_vote.vote_received.elapsed(self.args.now) < cooldown
     }
 
+    #[cfg(not(feature = "rai_protocol"))]
     fn add_vote(&mut self) {
         self.election.add_vote(
             self.args.vote.voter,
@@ -127,14 +149,29 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
     pub fn confirm_if_quorum(&mut self) {
         let old_winner = self.election.winner().hash();
 
+        #[cfg(not(feature = "rai_protocol"))]
         self.election.update_tallies(
             self.args.rep_weights,
             self.args.quorum_snapshot.quorum_delta,
         );
 
+        #[cfg(feature = "rai_protocol")]
+        self.election.update_kudzu_tallies(
+            self.args.rep_weights,
+            self.args
+                .quorum_snapshot
+                .online_weight
+                .max(self.args.quorum_snapshot.trended_or_min_weight),
+        );
         self.notify_winner_changed(old_winner);
 
         if self.election.is_final() && self.election.is_confirmed() {
+            #[cfg(feature = "rai_protocol")]
+            self.vote_counter
+                .count_kudzu_confirmation(self.election.has_kudzu_certificate(
+                    self.election.winner().hash(),
+                    rsnano_types::VoteKind::First,
+                ));
             self.election_got_confirmed();
         }
     }
@@ -238,6 +275,7 @@ mod tests {
         assert_eq!(result, Err(VoteError::Replay));
     }
 
+    #[cfg(not(feature = "rai_protocol"))]
     #[test]
     fn cool_down_live_vote() {
         let mut fixture = FixtureForElection::default();
@@ -248,6 +286,7 @@ mod tests {
         assert_eq!(result, Err(VoteError::Ignored));
     }
 
+    #[cfg(not(feature = "rai_protocol"))]
     #[test]
     fn dont_cool_down_when_enough_space_between_votes() {
         let mut fixture = FixtureForElection::default();
@@ -258,6 +297,7 @@ mod tests {
         assert_eq!(result, Ok(()));
     }
 
+    #[cfg(not(feature = "rai_protocol"))]
     #[test]
     fn dont_cool_down_when_vote_comes_from_cache() {
         let mut fixture = FixtureForElection::default();
@@ -315,7 +355,10 @@ mod tests {
         fixture.apply_vote(vote).unwrap();
 
         assert_eq!(fixture.election.winner().hash(), fork.hash());
-        assert_eq!(fixture.events.len(), 1);
+        assert_eq!(
+            fixture.events.len(),
+            if cfg!(feature = "rai_protocol") { 2 } else { 1 }
+        );
         let AecFact::WinnerChanged(old_winner, new_winner, _) = &fixture.events[0] else {
             panic!("not a winner changed event");
         };
@@ -330,6 +373,8 @@ mod tests {
             .rep_weights
             .put(fixture.rep1_key.public_key(), Amount::MAX);
 
+        #[cfg(feature = "rai_protocol")]
+        fixture.add_processed_vote(UnixMillisTimestamp::new(1000), Duration::ZERO);
         fixture.apply_final_vote_from(VoteDelivery::Direct).unwrap();
 
         assert_eq!(fixture.events.len(), 1);
@@ -432,6 +477,20 @@ mod tests {
 
     impl FixtureForElection {
         fn add_processed_vote(&mut self, created: UnixMillisTimestamp, received_ago: Duration) {
+            #[cfg(feature = "rai_protocol")]
+            self.election
+                .add_kudzu_vote(
+                    std::sync::Arc::new(Vote::new(
+                        &self.rep1_key,
+                        created,
+                        0,
+                        vec![self.block.hash()],
+                    )),
+                    self.block.hash(),
+                    self.now - received_ago,
+                )
+                .unwrap();
+            #[cfg(not(feature = "rai_protocol"))]
             self.election.add_vote(
                 self.rep1_key.public_key(),
                 self.block.hash(),

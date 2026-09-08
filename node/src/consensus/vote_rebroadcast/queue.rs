@@ -91,7 +91,8 @@ impl VoteRebroadcastQueue {
     ) {
         let should_rebroadcast = results.iter().any(|(_, res)| match res {
             Ok(()) => true,
-            Err(VoteError::Late) => vote.is_final(),
+            // Every RAI phase can be needed by a peer after local confirmation.
+            Err(VoteError::Late) => cfg!(feature = "rai_protocol") || vote.is_final(),
             _ => false,
         });
 

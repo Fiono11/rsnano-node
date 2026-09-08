@@ -1,8 +1,8 @@
-use std::{
-    collections::{HashMap, VecDeque},
-    mem::size_of,
-    time::Duration,
-};
+#[cfg(feature = "rai_protocol")]
+use rustc_hash::FxHashMap as HashMap;
+#[cfg(not(feature = "rai_protocol"))]
+use std::collections::HashMap;
+use std::{collections::VecDeque, mem::size_of, time::Duration};
 
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{BlockHash, ElectionId};
@@ -40,7 +40,7 @@ struct VoteRecord {
 impl VotingScheduler {
     pub fn new(interval: Duration) -> Self {
         Self {
-            records: HashMap::new(),
+            records: HashMap::default(),
             expiry_queue: VecDeque::new(),
             interval,
         }

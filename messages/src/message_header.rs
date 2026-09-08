@@ -141,7 +141,7 @@ impl MessageHeader {
         writer.write_all(
             &((self.protocol.network as u16)
                 ^ if cfg!(feature = "rai_protocol") {
-                    0x100
+                    0x200
                 } else {
                     0
                 })
@@ -167,7 +167,7 @@ impl MessageHeader {
         header.protocol.network = NetworkType::from_u16(
             u16::from_be_bytes(buffer)
                 ^ if cfg!(feature = "rai_protocol") {
-                    0x100
+                    0x200
                 } else {
                     0
                 },
@@ -330,7 +330,7 @@ mod tests {
         assert_eq!(
             buffer[0],
             if cfg!(feature = "rai_protocol") {
-                0x53
+                0x50
             } else {
                 0x52
             }

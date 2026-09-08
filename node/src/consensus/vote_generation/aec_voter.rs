@@ -74,6 +74,7 @@ impl Tickable for AecVoter {
 
         // Collect all vote targets in a single lock acquisition, iterating all
         // elections in round-robin order across buckets
+        #[cfg(not(feature = "rai_protocol"))]
         let targets: Vec<VoteTarget> = self.aec.round_robin(|iter| {
             iter.filter_map(|e| {
                 let target = vote_target(e);
@@ -84,6 +85,33 @@ impl Tickable for AecVoter {
                 }
             })
             .collect()
+        });
+        #[cfg(feature = "rai_protocol")]
+        let targets: Vec<VoteTarget> = self.aec.round_robin(|iter| {
+            let mut targets = Vec::new();
+            for e in iter {
+                let primary = vote_target(e);
+                let primary_hash = primary.winner;
+                let primary_type = primary.vote_type;
+                if scheduler.can_vote(&primary, now) {
+                    targets.push(primary);
+                }
+                for hash in e.candidate_blocks().keys() {
+                    if (*hash != primary_hash || primary_type != VoteType::NonFinal)
+                        && e.can_notarize(hash)
+                    {
+                        let target = VoteTarget {
+                            root: e.id(),
+                            winner: *hash,
+                            vote_type: VoteType::NonFinal,
+                        };
+                        if scheduler.can_vote(&target, now) {
+                            targets.push(target);
+                        }
+                    }
+                }
+            }
+            targets
         });
 
         let mut vote_queue = Vec::new();

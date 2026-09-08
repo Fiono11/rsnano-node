@@ -5,17 +5,28 @@ use rsnano_types::{Amount, BlockHash, PublicKey, UnixMillisTimestamp, Vote};
 
 use super::{BoundedHashMap, RebroadcastError};
 #[cfg(feature = "rai_protocol")]
-type RebroadcastKey = (BlockHash, u64);
+type RebroadcastKey = (BlockHash, u64, rsnano_types::VoteKind);
 #[cfg(not(feature = "rai_protocol"))]
 type RebroadcastKey = BlockHash;
 pub(super) fn block_key(hash: BlockHash, _epoch: u64) -> RebroadcastKey {
     #[cfg(feature = "rai_protocol")]
     {
-        (hash, _epoch)
+        (hash, _epoch, rsnano_types::VoteKind::First)
     }
     #[cfg(not(feature = "rai_protocol"))]
     {
         hash
+    }
+}
+
+fn statement_key(hash: BlockHash, vote: &Vote) -> RebroadcastKey {
+    #[cfg(feature = "rai_protocol")]
+    {
+        (hash, vote.epoch, vote.kind())
+    }
+    #[cfg(not(feature = "rai_protocol"))]
+    {
+        block_key(hash, vote.epoch)
     }
 }
 
@@ -86,7 +97,7 @@ impl RepresentativeEntry {
     }
 
     fn should_rebroadcast_hash(&self, hash: &BlockHash, vote: &Vote, now: Timestamp) -> bool {
-        let Some(last_rebroadcast) = self.history.get(&block_key(*hash, vote.epoch)) else {
+        let Some(last_rebroadcast) = self.history.get(&statement_key(*hash, vote)) else {
             // Block hash not seen before, rebroadcast
             return true;
         };
@@ -97,7 +108,7 @@ impl RepresentativeEntry {
     fn insert_block_hashes(&mut self, vote: &Vote, now: Timestamp) {
         for hash in &vote.hashes {
             self.history.insert(
-                block_key(*hash, vote.epoch),
+                statement_key(*hash, vote),
                 RebroadcastEntry {
                     block_hash: *hash,
                     vote_timestamp: vote.timestamp(),

@@ -13,7 +13,9 @@ use rsnano_ledger::{AnySet, Ledger};
 use rsnano_messages::{ConfirmAck, Message};
 use rsnano_network::{Channel, ChannelId, TrafficType};
 use rsnano_nullable_clock::SteadyClock;
-use rsnano_types::{BlockHash, Root, SavedBlock, UnixMillisTimestamp, Vote};
+#[cfg(not(feature = "rai_protocol"))]
+use rsnano_types::UnixMillisTimestamp;
+use rsnano_types::{BlockHash, Root, SavedBlock, Vote};
 use rsnano_utils::{
     container_info::ContainerInfo,
     stats::{DetailType, Direction, Sample, StatType, Stats},
@@ -55,8 +57,18 @@ impl VoteGenerator {
         vote_generator_delay: Duration,
         vote_broadcaster: Arc<VoteBroadcaster>,
         clock: Arc<SteadyClock>,
+        #[cfg(feature = "rai_protocol")] elections: Arc<
+            std::sync::RwLock<std::sync::Weak<crate::consensus::AecService>>,
+        >,
+        #[cfg(feature = "rai_protocol")] vote_state: Arc<
+            Mutex<super::kudzu_vote_state::KudzuVoteState>,
+        >,
     ) -> Self {
         let shared_state = Arc::new(SharedState {
+            #[cfg(feature = "rai_protocol")]
+            elections,
+            #[cfg(feature = "rai_protocol")]
+            vote_state,
             ledger: Arc::clone(&ledger),
             message_sender: Mutex::new(message_sender),
             history,
@@ -175,7 +187,10 @@ impl VoteGenerator {
 
         let req_candidates: Vec<_> = self
             .ledger
-            .verify_votes(req_candidates.into(), self.shared_state.is_final)
+            .verify_votes(
+                req_candidates.into(),
+                self.shared_state.is_final && !cfg!(feature = "rai_protocol"),
+            )
             .into();
         let result = req_candidates.len();
         let mut guard = self.shared_state.queues.lock().unwrap();
@@ -229,6 +244,10 @@ impl Drop for VoteGenerator {
 }
 
 struct SharedState {
+    #[cfg(feature = "rai_protocol")]
+    vote_state: Arc<Mutex<super::kudzu_vote_state::KudzuVoteState>>,
+    #[cfg(feature = "rai_protocol")]
+    elections: Arc<std::sync::RwLock<std::sync::Weak<crate::consensus::AecService>>>,
     ledger: Arc<Ledger>,
     wallet_reps: Arc<Mutex<WalletRepresentatives>>,
     history: Arc<LocalVoteHistory>,
@@ -281,10 +300,24 @@ impl SharedState {
         let mut roots = Vec::with_capacity(VoteGenerator::MAX_HASHES);
         {
             let spacing = self.spacing.lock().unwrap();
-            while let Some((root, hash, candidate_epoch)) = queues.candidates.pop_front() {
-                if candidate_epoch != epoch {
-                    queues.candidates.push_front((root, hash, candidate_epoch));
+            // Inspect each queued item at most once. Interleaved epochs must not
+            // turn a full batch into single-hash packets at an epoch boundary.
+            let queued = queues.candidates.len();
+            for _ in 0..queued {
+                let Some((root, hash, candidate_epoch)) = queues.candidates.pop_front() else {
                     break;
+                };
+                if candidate_epoch != epoch {
+                    #[cfg(feature = "rai_protocol")]
+                    {
+                        queues.candidates.push_back((root, hash, candidate_epoch));
+                        continue;
+                    }
+                    #[cfg(not(feature = "rai_protocol"))]
+                    {
+                        queues.candidates.push_front((root, hash, candidate_epoch));
+                        break;
+                    }
                 }
                 if !roots.contains(&root) {
                     if spacing.votable_in_epoch(&root, &hash, self.clock.now(), epoch) {
@@ -336,7 +369,14 @@ impl SharedState {
             .unwrap()
             .rep_priv_keys(&mut rep_keys);
 
+        #[cfg(feature = "rai_protocol")]
+        {
+            self.kudzu_vote(hashes, roots, epoch, rep_keys, action);
+            return;
+        }
+        #[cfg(not(feature = "rai_protocol"))]
         let mut votes = Vec::new();
+        #[cfg(not(feature = "rai_protocol"))]
         for rep_key in rep_keys.drain(..) {
             let timestamp = if self.is_final {
                 Vote::TIMESTAMP_MAX
@@ -357,6 +397,7 @@ impl SharedState {
             )));
         }
 
+        #[cfg(not(feature = "rai_protocol"))]
         for vote in votes {
             {
                 let now = self.clock.now();
@@ -367,6 +408,163 @@ impl SharedState {
                 }
             }
             action(vote);
+        }
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    fn kudzu_vote<F>(
+        &self,
+        hashes: &[BlockHash],
+        roots: &[Root],
+        epoch: u64,
+        rep_keys: Vec<rsnano_types::PrivateKey>,
+        action: F,
+    ) where
+        F: Fn(Arc<Vote>),
+    {
+        use rsnano_types::{ElectionId, VoteKind};
+        // Never hold the election lock while entering a database write transaction.
+        let aec = self.elections.read().unwrap().upgrade();
+        let mut candidates: Vec<_> = {
+            let any = self.ledger.any();
+            hashes
+                .iter()
+                .zip(roots)
+                .filter_map(|(hash, root)| {
+                    let block = any.get_block(hash)?;
+                    if block.root() != *root || !any.dependencies_confirmed(&block) {
+                        return None;
+                    }
+                    let qualified = block.qualified_root();
+                    Some((*hash, *root, qualified, false, false))
+                })
+                .collect()
+        };
+        let needs_evidence = self.is_final || {
+            let state = self.vote_state.lock().unwrap();
+            candidates.iter().any(|(hash, _, root, _, _)| {
+                rep_keys
+                    .iter()
+                    .any(|key| state.needs_second_look(root, key.public_key(), *hash))
+            })
+        };
+        if needs_evidence {
+            if let Some(aec) = aec {
+                let eligibility =
+                    aec.kudzu_eligibilities(candidates.iter().map(|(hash, _, root, _, _)| {
+                        (ElectionId::new(root.clone(), epoch), *hash)
+                    }));
+                for (candidate, (second, notar)) in candidates.iter_mut().zip(eligibility) {
+                    candidate.3 = second;
+                    candidate.4 = notar;
+                }
+            }
+        }
+        for key in rep_keys {
+            let mut groups =
+                std::collections::BTreeMap::<VoteKind, (Vec<BlockHash>, Vec<Root>)>::new();
+            let mut authorized = Vec::new();
+            {
+                // Serialize signing decisions across normal/final/request generators.
+                let mut state = self.vote_state.lock().unwrap();
+                if self.is_final {
+                    let tx = self.ledger.store.begin_read();
+                    for (hash, root, qualified, second, notar) in &candidates {
+                        let lock = self.ledger.store.final_vote.get(&tx, qualified);
+                        // Preserve First recovery after election removal, but do
+                        // not duplicate an active election's already-issued First.
+                        let needs_first =
+                            !*notar || !state.has_first(qualified, key.public_key(), *hash, epoch);
+                        if needs_first {
+                            if let Some(kind) = state.authorize(
+                                qualified,
+                                key.public_key(),
+                                *hash,
+                                epoch,
+                                false,
+                                *second,
+                                *notar,
+                                lock,
+                            ) {
+                                let group = groups.entry(kind).or_default();
+                                group.0.push(*hash);
+                                group.1.push(*root);
+                            }
+                        }
+                        if let Some(kind) = state.authorize(
+                            qualified,
+                            key.public_key(),
+                            *hash,
+                            epoch,
+                            true,
+                            *second,
+                            *notar,
+                            lock,
+                        ) {
+                            if lock == Some(*hash) {
+                                let group = groups.entry(kind).or_default();
+                                group.0.push(*hash);
+                                group.1.push(*root);
+                            } else {
+                                authorized.push((*hash, *root, qualified, kind));
+                            }
+                        }
+                    }
+                    drop(tx);
+                } else {
+                    let tx = self.ledger.store.begin_read();
+                    for (hash, root, qualified, second, notar) in &candidates {
+                        let lock = self.ledger.store.final_vote.get(&tx, qualified);
+                        if let Some(kind) = state.authorize(
+                            qualified,
+                            key.public_key(),
+                            *hash,
+                            epoch,
+                            false,
+                            *second,
+                            *notar,
+                            lock,
+                        ) {
+                            let group = groups.entry(kind).or_default();
+                            group.0.push(*hash);
+                            group.1.push(*root);
+                        }
+                    }
+                }
+            }
+            let emit = |kind, hashes: Vec<BlockHash>, roots: Vec<Root>| {
+                let vote = Arc::new(Vote::new_with_kind(&key, hashes.clone(), epoch, kind));
+                {
+                    let mut spacing = self.spacing.lock().unwrap();
+                    for (hash, root) in hashes.iter().zip(&roots) {
+                        self.history.add(root, hash, &vote);
+                        spacing.flag_in_epoch(root, hash, self.clock.now(), epoch);
+                    }
+                }
+                action(vote);
+            };
+            // First/notarization recovery is independent of final-lock I/O.
+            for kind in [VoteKind::First, VoteKind::Notarize] {
+                if let Some((hashes, roots)) = groups.remove(&kind) {
+                    emit(kind, hashes, roots);
+                }
+            }
+            // The in-memory final reservation prevents conflicting signatures
+            // while the legacy final lock is persisted. Never block First signing
+            // for unrelated roots behind the ledger's writer lock.
+            if !authorized.is_empty() {
+                let mut tx = self.ledger.store.begin_write();
+                for (hash, root, qualified, kind) in authorized {
+                    assert!(self.ledger.store.final_vote.put(&mut tx, qualified, &hash));
+                    let group = groups.entry(kind).or_default();
+                    group.0.push(hash);
+                    group.1.push(root);
+                }
+                tx.commit();
+            }
+            for (kind, (hashes, roots)) in groups {
+                emit(kind, hashes, roots);
+            }
         }
     }
 
@@ -428,7 +626,7 @@ impl SharedState {
         for (epoch, candidates) in grouped {
             verified.extend(
                 self.ledger
-                    .verify_votes(candidates, self.is_final)
+                    .verify_votes(candidates, self.is_final && !cfg!(feature = "rai_protocol"))
                     .into_iter()
                     .map(|(r, h)| (r, h, epoch)),
             );

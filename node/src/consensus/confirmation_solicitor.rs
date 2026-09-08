@@ -49,6 +49,7 @@ impl ConfirmationSolicitor {
             }
             let mut full_queue = false;
             let existing_vote = election.votes().get(&rep.rep_key);
+            #[cfg(not(feature = "rai_protocol"))]
             let is_final = if let Some(vote) = existing_vote {
                 !election.has_quorum() || vote.is_final_vote()
             } else {
@@ -59,7 +60,11 @@ impl ConfirmationSolicitor {
             } else {
                 false
             };
-            if existing_vote.is_none() || !is_final || different_hash {
+            #[cfg(not(feature = "rai_protocol"))]
+            let needs_vote = existing_vote.is_none() || !is_final || different_hash;
+            #[cfg(feature = "rai_protocol")]
+            let needs_vote = election.needs_kudzu_vote(&rep.rep_key);
+            if needs_vote {
                 if let Some(rep_channel) = self.message_flooder.channel(rep.channel_id) {
                     let should_drop = rep_channel.should_drop(TrafficType::ConfirmationRequests);
 

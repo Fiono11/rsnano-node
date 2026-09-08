@@ -29,6 +29,8 @@ pub struct VoteGenerationEvent {
 }
 
 pub struct VoteGenerators {
+    #[cfg(feature = "rai_protocol")]
+    elections: Arc<std::sync::RwLock<std::sync::Weak<crate::consensus::AecService>>>,
     non_final_vote_generator: VoteGenerator,
     final_vote_generator: VoteGenerator,
     vote_listener: OutputListenerMt<VoteGenerationEvent>,
@@ -58,6 +60,13 @@ impl VoteGenerators {
     ) -> Self {
         let voting_delay = Self::voting_delay_for(network_params.network.current_network);
 
+        #[cfg(feature = "rai_protocol")]
+        let elections = Arc::new(std::sync::RwLock::new(std::sync::Weak::new()));
+        #[cfg(feature = "rai_protocol")]
+        let vote_state = Arc::new(Mutex::new(
+            super::kudzu_vote_state::KudzuVoteState::default(),
+        ));
+
         let non_final_vote_generator = VoteGenerator::new(
             ledger.clone(),
             wallet_reps.clone(),
@@ -69,6 +78,10 @@ impl VoteGenerators {
             config.vote_generator_delay,
             vote_broadcaster.clone(),
             clock.clone(),
+            #[cfg(feature = "rai_protocol")]
+            elections.clone(),
+            #[cfg(feature = "rai_protocol")]
+            vote_state.clone(),
         );
 
         let final_vote_generator = VoteGenerator::new(
@@ -82,9 +95,15 @@ impl VoteGenerators {
             config.vote_generator_delay,
             vote_broadcaster,
             clock,
+            #[cfg(feature = "rai_protocol")]
+            elections.clone(),
+            #[cfg(feature = "rai_protocol")]
+            vote_state.clone(),
         );
 
         Self {
+            #[cfg(feature = "rai_protocol")]
+            elections,
             non_final_vote_generator,
             final_vote_generator,
             vote_listener: OutputListenerMt::new(),
@@ -92,6 +111,11 @@ impl VoteGenerators {
             wallet_reps,
             stats,
         }
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn set_elections(&self, elections: &Arc<crate::consensus::AecService>) {
+        *self.elections.write().unwrap() = Arc::downgrade(elections);
     }
 
     pub fn new_null() -> Self {

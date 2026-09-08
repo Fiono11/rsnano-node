@@ -63,9 +63,15 @@ impl VoteApplier {
                 .collect();
         }
 
+        #[cfg(not(feature = "rai_protocol"))]
         let has_election = vote
             .filtered_blocks()
             .any(|hash| self.active_elections.is_active_hash(hash));
+
+        #[cfg(feature = "rai_protocol")]
+        let has_election = self
+            .active_elections
+            .any_active_hash(vote.filtered_blocks());
 
         if has_election {
             // Representative is defined as online if replying to live votes or rep_crawler queries.

@@ -43,6 +43,8 @@ pub(crate) struct ActiveElectionsContainer {
     #[cfg(feature = "rai_protocol")]
     confirmed_epochs:
         crate::consensus::bounded_hash_map::BoundedHashMap<QualifiedRoot, (BlockHash, u64)>,
+    #[cfg(feature = "rai_protocol")]
+    confirmed_epoch_by_hash: crate::consensus::bounded_hash_map::BoundedHashMap<BlockHash, u64>,
     roots: RootContainer,
     observer: Option<Sender<AecFact>>,
     stopped: bool,
@@ -66,6 +68,10 @@ impl ActiveElectionsContainer {
             ),
             #[cfg(feature = "rai_protocol")]
             confirmed_epochs: crate::consensus::bounded_hash_map::BoundedHashMap::new(
+                config.confirmation_cache,
+            ),
+            #[cfg(feature = "rai_protocol")]
+            confirmed_epoch_by_hash: crate::consensus::bounded_hash_map::BoundedHashMap::new(
                 config.confirmation_cache,
             ),
             roots: RootContainer::new(config.max_elections),
@@ -536,7 +542,20 @@ impl ActiveElectionsContainer {
         }
     }
 
+    #[cfg(feature = "rai_protocol")]
+    fn cache_confirmed_epoch(&mut self, hash: BlockHash, epoch: u64) {
+        if self
+            .confirmed_epoch_by_hash
+            .get(&hash)
+            .is_none_or(|e| epoch < *e)
+        {
+            self.confirmed_epoch_by_hash.insert(hash, epoch);
+        }
+    }
+
     fn block_confirmed(&mut self, block: SavedBlock, election: ConfirmedElection) {
+        #[cfg(feature = "rai_protocol")]
+        self.cache_confirmed_epoch(block.hash(), election.epoch);
         self.stats.block_confirmations[election.confirmation_type as usize] += 1;
         self.notify(AecFact::BlockConfirmed(block, election));
     }
@@ -571,6 +590,15 @@ impl ActiveElectionsContainer {
         #[cfg(feature = "rai_protocol")]
         if self.len() < self.max_elections {
             for hash in args.vote.filtered_blocks() {
+                // Late same/later-epoch votes cannot open an earlier election.
+                // Avoid ledger lookups under the AEC lock for this common case.
+                if self
+                    .confirmed_epoch_by_hash
+                    .get(hash)
+                    .is_some_and(|epoch| args.vote.epoch >= *epoch)
+                {
+                    continue;
+                }
                 if self.len() >= self.max_elections {
                     break;
                 }
@@ -633,6 +661,7 @@ impl ActiveElectionsContainer {
         for entry in result.confirmed {
             #[cfg(feature = "rai_protocol")]
             {
+                self.cache_confirmed_epoch(entry.election.winner().hash(), entry.election.epoch);
                 self.completed_ids
                     .insert(entry.election.id(), entry.election.winner().hash());
                 let root = entry.election.qualified_root().clone();
@@ -808,7 +837,19 @@ mod tests {
         container.insert(request, now).unwrap();
 
         let rep_key = PrivateKey::from(1);
+        #[cfg(not(feature = "rai_protocol"))]
         let received_vote = test_final_vote(&rep_key, block_hash);
+        #[cfg(feature = "rai_protocol")]
+        let received_vote = ReceivedVote::new(
+            Arc::new(Vote::new_with_kind(
+                &rep_key,
+                vec![block_hash],
+                0,
+                rsnano_types::VoteKind::First,
+            )),
+            VoteDelivery::Direct,
+            None,
+        );
 
         let mut rep_weights = RepWeights::default();
         rep_weights.put(rep_key.public_key(), Amount::MAX);
@@ -869,6 +910,7 @@ mod tests {
         assert_eq!(container.info(start + Duration::from_secs(60)).stale, 1);
     }
 
+    #[cfg(not(feature = "rai_protocol"))]
     fn test_final_vote(rep_key: &PrivateKey, block_hash: BlockHash) -> ReceivedVote {
         let vote = Arc::new(Vote::new_final(rep_key, vec![block_hash]));
         ReceivedVote::new(vote, VoteDelivery::Direct, None)
@@ -920,8 +962,8 @@ mod rai_tests {
         let vote: FilteredVote = ReceivedVote::new(
             std::sync::Arc::new(Vote::new_in_epoch(
                 &key,
-                Vote::TIMESTAMP_MAX,
-                Vote::DURATION_MAX,
+                Vote::TIMESTAMP_MIN,
+                0,
                 vec![block.hash()],
                 1,
             )),

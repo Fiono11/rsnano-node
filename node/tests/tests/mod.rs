@@ -22,3 +22,6 @@ mod vote_processor;
 mod votes;
 mod wallet;
 mod wallets;
+
+#[cfg(feature = "rai_protocol")]
+mod kudzu;

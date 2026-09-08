@@ -314,7 +314,10 @@ mod tests {
         );
 
         // Both vote should be kept in recent hashes index
-        assert_eq!(history.total_history(), 1);
+        assert_eq!(
+            history.total_history(),
+            if cfg!(feature = "rai_protocol") { 2 } else { 1 }
+        );
         assert_eq!(history.total_vote_hashes(), 2);
         assert!(history.contains_block(&vote.voter, &vote.hashes[0]));
         assert!(history.contains_vote(&vote.hash()));

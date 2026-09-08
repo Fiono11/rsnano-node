@@ -24,6 +24,8 @@ pub enum VoteType {
 
 #[derive(Clone)]
 pub struct Election {
+    #[cfg(feature = "rai_protocol")]
+    pub(super) kudzu: super::kudzu::KudzuVotes,
     qualified_root: QualifiedRoot,
     pub epoch: u64,
     winner: MaybeSavedBlock,
@@ -58,6 +60,8 @@ impl Election {
         now: Timestamp,
     ) -> Self {
         Self {
+            #[cfg(feature = "rai_protocol")]
+            kudzu: Default::default(),
             qualified_root: block.qualified_root(),
             epoch: 0,
             votes: HashMap::new(),
@@ -168,6 +172,113 @@ impl Election {
             voter,
             VoteSummary::new(voter, hash, vote_created, vote_received),
         );
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn add_kudzu_vote(
+        &mut self,
+        vote: std::sync::Arc<Vote>,
+        hash: BlockHash,
+        now: Timestamp,
+    ) -> Result<(), VoteError> {
+        if vote.epoch != self.epoch || !self.contains_block(&hash) || !vote.hashes.contains(&hash) {
+            return Err(VoteError::Invalid);
+        }
+        self.kudzu.insert(vote.clone(), hash)?;
+        // Phase delivery can be reordered. Keep a final summary for this value.
+        if !self
+            .votes()
+            .get(&vote.voter)
+            .is_some_and(|v| v.hash == hash && v.is_final_vote())
+        {
+            self.add_vote(vote.voter, hash, vote.timestamp(), now);
+        }
+        Ok(())
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn needs_kudzu_vote(&self, rep: &PublicKey) -> bool {
+        self.kudzu
+            .needs_vote(rep, self.winner.hash(), self.has_quorum())
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn has_kudzu_certificate(&self, hash: BlockHash, kind: rsnano_types::VoteKind) -> bool {
+        self.kudzu.has_certificate(hash, kind)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn can_notarize(&self, hash: &BlockHash) -> bool {
+        self.contains_block(hash) && self.kudzu.second_look(hash)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn kudzu_certificate(
+        &self,
+        hash: BlockHash,
+        kind: rsnano_types::VoteKind,
+    ) -> Option<super::KudzuCertificate> {
+        self.kudzu.certificate(hash, kind)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn update_kudzu_tallies(&mut self, weights: &FxHashMap<PublicKey, Amount>, total: Amount) {
+        use rsnano_types::VoteKind;
+        if self.state.has_ended() {
+            return;
+        }
+        self.kudzu.tally(weights, total);
+        self.update_vote_weights(weights);
+        // Stable tie breaking avoids dependence on HashMap iteration order.
+        let best = self.candidate_blocks.keys().copied().max_by_key(|hash| {
+            let fast = self.kudzu.has_certificate(*hash, VoteKind::First);
+            let notar = self.kudzu.has_certificate(*hash, VoteKind::Notarize);
+            let final_ = notar && self.kudzu.has_certificate(*hash, VoteKind::Final);
+            (
+                fast || final_,
+                notar,
+                self.kudzu
+                    .first_tallies
+                    .get(hash)
+                    .copied()
+                    .unwrap_or_default(),
+                *hash,
+            )
+        });
+        if let Some(hash) = best {
+            if self.kudzu.second_look(&hash) || self.kudzu.has_certificate(hash, VoteKind::Notarize)
+            {
+                self.change_winner_to(&hash);
+            }
+        }
+        self.tallies = BlockTallies::new();
+        self.final_tallies = BlockTallies::new();
+        for hash in self.candidate_blocks.keys() {
+            self.tallies.insert(
+                *hash,
+                self.kudzu
+                    .notar_tallies
+                    .get(hash)
+                    .copied()
+                    .unwrap_or_default(),
+            );
+            self.final_tallies.insert(
+                *hash,
+                self.kudzu
+                    .final_tallies
+                    .get(hash)
+                    .copied()
+                    .unwrap_or_default(),
+            );
+        }
+        self.update_winner_tally();
+        let hash = self.winner.hash();
+        self.has_quorum = self.kudzu.has_certificate(hash, VoteKind::Notarize);
+        if self.kudzu.has_certificate(hash, VoteKind::First)
+            || (self.has_quorum && self.kudzu.has_certificate(hash, VoteKind::Final))
+        {
+            self.state = ElectionState::Confirmed;
+        }
     }
 
     pub fn winner_tally(&self) -> Amount {

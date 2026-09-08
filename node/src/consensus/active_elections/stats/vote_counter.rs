@@ -6,10 +6,23 @@ use rsnano_types::VoteDelivery;
 #[derive(Default)]
 pub(crate) struct VoteCounter {
     votes: u64,
+    #[cfg(feature = "rai_protocol")]
+    fast_confirmed: u64,
+    #[cfg(feature = "rai_protocol")]
+    slow_confirmed: u64,
     by_source: [u64; VoteDelivery::COUNT],
 }
 
 impl VoteCounter {
+    #[cfg(feature = "rai_protocol")]
+    pub fn count_kudzu_confirmation(&mut self, fast: bool) {
+        if fast {
+            self.fast_confirmed += 1;
+        } else {
+            self.slow_confirmed += 1;
+        }
+    }
+
     #[allow(dead_code)]
     pub fn votes(&self) -> u64 {
         self.votes
@@ -29,6 +42,11 @@ impl VoteCounter {
 impl StatsSource for VoteCounter {
     fn collect_stats(&self, result: &mut StatsCollection) {
         result.insert("election", "vote", self.votes);
+        #[cfg(feature = "rai_protocol")]
+        {
+            result.insert("election", "kudzu_fast_confirmed", self.fast_confirmed);
+            result.insert("election", "kudzu_slow_confirmed", self.slow_confirmed);
+        }
         for source in VoteDelivery::iter() {
             result.insert(
                 "election_vote",

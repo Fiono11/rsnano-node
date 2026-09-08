@@ -5,6 +5,11 @@ use rsnano_types::{Amount, BlockHash, PublicKey, Vote};
 use rsnano_nullable_clock::Timestamp;
 use rustc_hash::FxHashMap;
 
+#[cfg(feature = "rai_protocol")]
+type VoterKey = (PublicKey, u64, rsnano_types::VoteKind);
+#[cfg(not(feature = "rai_protocol"))]
+type VoterKey = (PublicKey, u64);
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CachedVote {
     pub vote: Arc<Vote>,
@@ -30,8 +35,8 @@ pub(crate) struct VotedBlock {
     non_final_tally: Amount,
     final_tally: Amount,
     max_voters: usize,
-    by_representative: FxHashMap<(PublicKey, u64), CachedVote>,
-    by_weight: BTreeMap<Amount, Vec<(PublicKey, u64)>>,
+    by_representative: FxHashMap<VoterKey, CachedVote>,
+    by_weight: BTreeMap<Amount, Vec<VoterKey>>,
 }
 
 impl VotedBlock {
@@ -86,6 +91,9 @@ impl VotedBlock {
     /// Returns true if the vote was accepted (new representative, or a newer vote from an
     /// already known one), false if it was rejected as a duplicate/older vote or due to capacity
     pub fn add_vote(&mut self, vote: Arc<Vote>, rep_weight: Amount, now: Timestamp) -> bool {
+        #[cfg(feature = "rai_protocol")]
+        let rep_key = (vote.voter, vote.epoch, vote.kind());
+        #[cfg(not(feature = "rai_protocol"))]
         let rep_key = (vote.voter, vote.epoch);
         let new_weight = rep_weight;
         let vote = CachedVote::new(vote, rep_weight);
@@ -134,11 +142,20 @@ impl VotedBlock {
 
     fn calculate_tallies(&mut self) {
         let mut tallies = BTreeMap::<u64, (Amount, Amount)>::new();
+        #[cfg(feature = "rai_protocol")]
+        let mut seen = std::collections::HashSet::new();
         for vote in self.by_representative.values() {
             let tally = tallies
                 .entry(vote.vote.epoch)
                 .or_insert((Amount::ZERO, Amount::ZERO));
-            tally.0 = tally.0.wrapping_add(vote.weight);
+            #[cfg(not(feature = "rai_protocol"))]
+            {
+                tally.0 = tally.0.wrapping_add(vote.weight);
+            }
+            #[cfg(feature = "rai_protocol")]
+            if seen.insert((vote.vote.voter, vote.vote.epoch)) {
+                tally.0 = tally.0.wrapping_add(vote.weight);
+            }
             if vote.vote.is_final() {
                 tally.1 = tally.1.wrapping_add(vote.weight);
             }
@@ -152,14 +169,14 @@ impl VotedBlock {
         self.final_tally = strongest.1;
     }
 
-    fn add_by_weight(&mut self, weight: Amount, representative: (PublicKey, u64)) {
+    fn add_by_weight(&mut self, weight: Amount, representative: VoterKey) {
         self.by_weight
             .entry(weight)
             .or_default()
             .push(representative);
     }
 
-    fn remove_by_weight(&mut self, weight: &Amount, representative: &(PublicKey, u64)) {
+    fn remove_by_weight(&mut self, weight: &Amount, representative: &VoterKey) {
         if let Some(mut accounts) = self.by_weight.remove(weight)
             && accounts.len() > 1
         {
@@ -186,6 +203,28 @@ impl VotedBlock {
 mod tests {
     use super::*;
     use rsnano_types::{PrivateKey, UnixMillisTimestamp};
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn kudzu_cache_preserves_phases_without_double_counting_weight() {
+        use rsnano_types::VoteKind;
+        let key = PrivateKey::from(1);
+        let hash = BlockHash::from(10);
+        let first = Arc::new(Vote::new_with_kind(&key, vec![hash], 2, VoteKind::First));
+        let final_vote = Arc::new(Vote::new_with_kind(&key, vec![hash], 2, VoteKind::Final));
+        let mut block = VotedBlock::new(
+            0,
+            hash,
+            64,
+            final_vote.clone(),
+            Amount::raw(40),
+            Timestamp::new(1),
+        );
+        assert!(block.add_vote(first, Amount::raw(40), Timestamp::new(2)));
+        assert_eq!(block.iter_votes().count(), 2);
+        assert_eq!(block.non_final_tally(), Amount::raw(40));
+        assert_eq!(block.final_tally(), Amount::raw(40));
+    }
 
     #[test]
     fn new_stores_first_vote_and_initializes_tally() {
@@ -314,7 +353,13 @@ mod tests {
         let changed = block.add_vote(newer_vote.clone(), Amount::raw(5), Timestamp::new(2));
 
         assert!(changed);
+        #[cfg(not(feature = "rai_protocol"))]
         assert_eq!(block.iter_votes().collect::<Vec<_>>(), vec![&newer_vote]);
+        #[cfg(feature = "rai_protocol")]
+        {
+            assert_eq!(block.iter_votes().count(), 2);
+            assert!(block.iter_votes().any(|v| *v == newer_vote));
+        }
         assert_eq!(block.final_tally(), Amount::raw(5));
         assert_eq!(block.last_modified(), Timestamp::new(2));
     }

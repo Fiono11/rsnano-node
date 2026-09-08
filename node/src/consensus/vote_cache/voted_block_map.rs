@@ -405,8 +405,11 @@ mod tests {
 
         let mut votes = Vec::new();
         cache.collect_votes(&mut votes, &hash);
-        assert_eq!(votes.len(), 1);
-        assert!(votes[0].is_final());
+        assert_eq!(
+            votes.len(),
+            if cfg!(feature = "rai_protocol") { 2 } else { 1 }
+        );
+        assert!(votes.iter().any(|v| v.is_final()));
     }
 
     /*

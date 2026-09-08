@@ -57,8 +57,19 @@ impl VoteError {
     }
 }
 
+/// RAI election statements. First votes also notarize their candidate.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(u8)]
+pub enum VoteKind {
+    First = 0,
+    Notarize = 1,
+    Final = 2,
+}
+
 #[derive(Clone, Debug)]
 pub struct Vote {
+    #[cfg(feature = "rai_protocol")]
+    pub kind: VoteKind,
     pub epoch: crate::ConsensusEpoch,
     timestamp: VoteTimestamp,
 
@@ -79,6 +90,8 @@ impl Vote {
     pub fn null() -> Self {
         Self {
             epoch: 0,
+            #[cfg(feature = "rai_protocol")]
+            kind: VoteKind::First,
             timestamp: 0.into(),
             voter: PublicKey::ZERO,
             signature: Signature::new(),
@@ -110,6 +123,12 @@ impl Vote {
         assert!(cfg!(feature = "rai_protocol") || epoch == 0);
         assert!(hashes.len() <= Self::MAX_HASHES);
         let mut result = Self {
+            #[cfg(feature = "rai_protocol")]
+            kind: if VoteTimestamp::new(timestamp, duration).is_final() {
+                VoteKind::Final
+            } else {
+                VoteKind::First
+            },
             epoch,
             voter: priv_key.public_key(),
             timestamp: VoteTimestamp::new(timestamp, duration),
@@ -118,6 +137,48 @@ impl Vote {
         };
         result.signature = priv_key.sign(result.hash().as_bytes());
         result
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn new_with_kind(
+        key: &PrivateKey,
+        hashes: Vec<BlockHash>,
+        epoch: u64,
+        kind: VoteKind,
+    ) -> Self {
+        let (timestamp, duration) = if kind == VoteKind::Final {
+            (Self::TIMESTAMP_MAX, Self::DURATION_MAX)
+        } else {
+            // These statements are immutable within an epoch. Stable timestamps
+            // allow ordinary duplicate filtering to recognize retransmissions.
+            (UnixMillisTimestamp::new(0), 9)
+        };
+        assert!(hashes.len() <= Self::MAX_HASHES);
+        let mut vote = Self {
+            kind,
+            epoch,
+            voter: key.public_key(),
+            timestamp: VoteTimestamp::new(timestamp, duration),
+            signature: Signature::new(),
+            hashes,
+        };
+        vote.signature = key.sign(vote.hash().as_bytes());
+        vote
+    }
+
+    pub fn kind(&self) -> VoteKind {
+        #[cfg(feature = "rai_protocol")]
+        {
+            self.kind
+        }
+        #[cfg(not(feature = "rai_protocol"))]
+        {
+            if self.is_final() {
+                VoteKind::Final
+            } else {
+                VoteKind::First
+            }
+        }
     }
 
     pub fn new_test_instance() -> Self {
@@ -137,7 +198,14 @@ impl Vote {
     }
 
     pub fn is_final(&self) -> bool {
-        self.timestamp.is_final()
+        #[cfg(feature = "rai_protocol")]
+        {
+            self.kind == VoteKind::Final
+        }
+        #[cfg(not(feature = "rai_protocol"))]
+        {
+            self.timestamp.is_final()
+        }
     }
 
     pub fn duration_bits(&self) -> u8 {
@@ -154,8 +222,9 @@ impl Vote {
         #[cfg(feature = "rai_protocol")]
         {
             builder = builder
-                .update(b"rai-vote-v1")
-                .update(self.epoch.to_le_bytes());
+                .update(b"rai-kudzu-vote-v2")
+                .update(self.epoch.to_le_bytes())
+                .update([self.kind as u8]);
         }
         for hash in &self.hashes {
             builder = builder.update(hash.as_bytes())
@@ -172,16 +241,33 @@ impl Vote {
         } else {
             0
         };
+        #[cfg(feature = "rai_protocol")]
+        let kind = {
+            let mut tag = [0];
+            bytes.read_exact(&mut tag)?;
+            match tag[0] {
+                0 => VoteKind::First,
+                1 => VoteKind::Notarize,
+                2 => VoteKind::Final,
+                _ => return Err(DeserializationError::InvalidData),
+            }
+        };
         let voter = PublicKey::deserialize(&mut bytes)?;
         let signature = Signature::deserialize(&mut bytes)?;
         let mut buffer = [0; 8];
         bytes.read_exact(&mut buffer)?;
         let timestamp = VoteTimestamp::from_le_bytes(buffer);
+        #[cfg(feature = "rai_protocol")]
+        if (kind == VoteKind::Final) != timestamp.is_final() {
+            return Err(DeserializationError::InvalidData);
+        }
         let mut hashes = Vec::new();
         while !bytes.is_empty() && hashes.len() < Self::MAX_HASHES {
             hashes.push(BlockHash::deserialize(&mut bytes)?);
         }
         Ok(Self {
+            #[cfg(feature = "rai_protocol")]
+            kind,
             epoch,
             timestamp,
             voter,
@@ -191,11 +277,15 @@ impl Vote {
     }
 
     pub fn validate(&self) -> Result<(), SignatureError> {
+        #[cfg(feature = "rai_protocol")]
+        if self.is_final() != self.timestamp.is_final() {
+            return Err(SignatureError {});
+        }
         self.voter.verify(self.hash().as_bytes(), &self.signature)
     }
 
     pub const fn serialized_size(count: usize) -> usize {
-        (if cfg!(feature = "rai_protocol") { 8 } else { 0 }) + Account::SERIALIZED_SIZE
+        (if cfg!(feature = "rai_protocol") { 9 } else { 0 }) + Account::SERIALIZED_SIZE
         + Signature::SERIALIZED_SIZE
         + std::mem::size_of::<u64>() // timestamp
         + (BlockHash::SERIALIZED_SIZE * count)
@@ -207,6 +297,8 @@ impl Vote {
     {
         #[cfg(feature = "rai_protocol")]
         writer.write_all(&self.epoch.to_le_bytes())?;
+        #[cfg(feature = "rai_protocol")]
+        writer.write_all(&[self.kind as u8])?;
         self.voter.serialize(writer)?;
         self.signature.serialize(writer)?;
         writer.write_all(&self.timestamp.to_le_bytes())?;
@@ -219,7 +311,8 @@ impl Vote {
 
 impl PartialEq for Vote {
     fn eq(&self, other: &Self) -> bool {
-        self.epoch == other.epoch
+        self.kind() == other.kind()
+            && self.epoch == other.epoch
             && self.timestamp == other.timestamp
             && self.voter == other.voter
             && self.signature == other.signature
@@ -280,6 +373,35 @@ impl TestVoteBuilder {
 #[cfg(all(test, feature = "rai_protocol"))]
 mod rai_tests {
     use super::*;
+    #[test]
+    fn kudzu_vote_kinds_are_signed_and_roundtrip() {
+        let key = PrivateKey::from(42);
+        for kind in [VoteKind::First, VoteKind::Notarize, VoteKind::Final] {
+            let vote = Vote::new_with_kind(&key, vec![BlockHash::from(1)], 7, kind);
+            let mut bytes = Vec::new();
+            vote.serialize(&mut bytes).unwrap();
+            assert_eq!(bytes.len(), Vote::serialized_size(1));
+            assert_eq!(Vote::deserialize(&bytes).unwrap(), vote);
+            assert!(vote.validate().is_ok());
+            assert_eq!(vote.is_final(), kind == VoteKind::Final);
+            if kind != VoteKind::Final {
+                // Immutable phase statements must not look fresh on each retry.
+                assert_eq!(vote.timestamp().as_u64(), 0);
+            }
+            let replay = Vote::new_with_kind(&key, vec![BlockHash::from(1)], 7, kind);
+            assert_eq!(replay, vote);
+            let mut changed = vote.clone();
+            changed.kind = if kind == VoteKind::First {
+                VoteKind::Notarize
+            } else {
+                VoteKind::First
+            };
+            assert!(changed.validate().is_err());
+            bytes[8] = 255;
+            assert!(Vote::deserialize(&bytes).is_err());
+        }
+    }
+
     #[test]
     fn rai_epoch_is_signed_and_roundtrips() {
         let key = PrivateKey::from(42);

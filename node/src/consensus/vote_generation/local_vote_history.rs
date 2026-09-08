@@ -61,7 +61,10 @@ impl LocalVoteHistory {
         if let Some(ids) = data.history_by_root.get_mut(root) {
             for &i in ids.iter() {
                 let current = &data.history[&i];
-                if current.vote.epoch != vote.epoch {
+                if current.vote.epoch != vote.epoch
+                    || (cfg!(feature = "rai_protocol")
+                        && (current.vote.kind() != vote.kind() || current.hash != *hash))
+                {
                     continue;
                 }
                 if &current.hash != hash
@@ -295,7 +298,10 @@ mod tests {
         history.add(&root, &hash, &vote1b);
         history.add(&root, &hash, &vote2);
         history.add(&root, &BlockHash::from(3), &vote3);
-        assert_eq!(history.size(), 1);
+        assert_eq!(
+            history.size(),
+            if cfg!(feature = "rai_protocol") { 3 } else { 1 }
+        );
         let votes = history.votes(&root, &BlockHash::from(3), false);
         assert_eq!(votes.len(), 1);
         assert!(Arc::ptr_eq(&votes[0], &vote3));

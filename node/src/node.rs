@@ -626,6 +626,9 @@ impl Node {
             config.active_elections.clone(),
             base_latency,
         ));
+        #[cfg(feature = "rai_protocol")]
+        vote_generators.set_elections(&active_elections);
+
         active_elections.set_observer(aec_tx.clone());
         active_elections.set_epoch_source(ledger.clone());
         #[cfg(feature = "rai_protocol")]

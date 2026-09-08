@@ -1,0 +1,30 @@
+warning: method `lowest_priority` is never used
+   --> node/src/consensus/active_elections/active_elections_container.rs:114:12
+    |
+ 60 | impl ActiveElectionsContainer {
+    | ----------------------------- method in this implementation
+...
+114 |     pub fn lowest_priority(&self, bucket_id: usize) -> Option<(QualifiedRoot, TimePriority)> {
+    |            ^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `lowest_priority` is never used
+   --> node/src/consensus/active_elections/root_container.rs:294:12
+    |
+ 71 | impl RootContainer {
+    | ------------------ method in this implementation
+...
+294 |     pub fn lowest_priority(&self, bucket_id: usize) -> Option<(QualifiedRoot, TimePriority)> {
+    |            ^^^^^^^^^^^^^^^
+
+warning: `rsnano_node` (lib) generated 2 warnings
+   Compiling rsnano_node v4.0.0-dev (/Users/ruimorais/rsnano-node/node)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.95s
+     Running tests/kudzu_recovery.rs (target/debug/deps/kudzu_recovery-0d1b68814df1295e)
+
+running 2 tests
+test final_before_first_requests_missing_vote_and_preserves_final_summary ... ok
+test queued_final_after_fast_confirmation_recovers_first ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
