@@ -73,6 +73,10 @@ impl Tickable for AecVoter {
         for (id, hash) in self.aec.take_notarization_notifications() {
             self.vote_generators.notify_notarization(id, hash);
         }
+        #[cfg(feature = "rai_protocol")]
+        for vote in self.aec.take_certificate_votes() {
+            self.vote_generators.relay_certificate_vote(vote);
+        }
         let now = self.clock.now();
         let scheduler = &self.scheduler;
 
@@ -94,6 +98,9 @@ impl Tickable for AecVoter {
         let mut targets: Vec<VoteTarget> = self.aec.round_robin(|iter| {
             let mut targets = Vec::new();
             for e in iter {
+                if e.is_confirmed() || e.is_timed_out() {
+                    continue;
+                }
                 let primary = vote_target(e);
                 let primary_hash = primary.winner;
                 let primary_type = primary.vote_type;

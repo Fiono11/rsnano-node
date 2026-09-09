@@ -49,6 +49,8 @@ pub struct RequestAggregator {
     vote_generators: Arc<VoteGenerators>,
     ledger: Arc<Ledger>,
     message_sender: Arc<Mutex<MessageSender>>,
+    #[cfg(feature = "rai_protocol")]
+    proof_replies: Arc<Mutex<ProofReplyCache>>,
     state: Arc<Mutex<RequestAggregatorState>>,
     condition: Arc<Condvar>,
     threads: Mutex<Vec<JoinHandle<()>>>,
@@ -68,6 +70,8 @@ impl RequestAggregator {
             vote_generators,
             ledger,
             message_sender: Arc::new(Mutex::new(message_sender)),
+            #[cfg(feature = "rai_protocol")]
+            proof_replies: Arc::new(Mutex::new(ProofReplyCache::default())),
             config,
             condition: Arc::new(Condvar::new()),
             state: Arc::new(Mutex::new(RequestAggregatorState {
@@ -98,6 +102,8 @@ impl RequestAggregator {
                 config: self.config.clone(),
                 ledger: self.ledger.clone(),
                 message_sender: self.message_sender.clone(),
+                #[cfg(feature = "rai_protocol")]
+                proof_replies: self.proof_replies.clone(),
                 vote_generators: self.vote_generators.clone(),
             };
 
@@ -222,6 +228,8 @@ struct RequestAggregatorLoop {
     config: RequestAggregatorConfig,
     ledger: Arc<Ledger>,
     message_sender: Arc<Mutex<MessageSender>>,
+    #[cfg(feature = "rai_protocol")]
+    proof_replies: Arc<Mutex<ProofReplyCache>>,
     vote_generators: Arc<VoteGenerators>,
 }
 
@@ -271,6 +279,47 @@ impl RequestAggregatorLoop {
     }
 
     fn process(&self, any: &dyn AnySet, request: &AggregatorRequest) {
+        #[cfg(feature = "rai_protocol")]
+        {
+            use rsnano_messages::{ConfirmAck, Message, Publish};
+            let (blocks, votes) = self
+                .vote_generators
+                .recovery_evidence(&request.roots_hashes, request.epoch);
+            let mut sender = self.message_sender.lock().unwrap();
+            let mut replies = self.proof_replies.lock().unwrap();
+            let now = std::time::Instant::now();
+            for block in blocks {
+                let key = (request.channel.channel_id(), ProofId::Block(block.hash()));
+                if !replies.should_send(&key, now) {
+                    continue;
+                }
+                let sent = sender.try_send(
+                    &request.channel,
+                    &Message::Publish(Publish::new_forward(block)),
+                    TrafficType::BlockBroadcast,
+                );
+                if sent {
+                    replies.sent.insert(key, now);
+                }
+            }
+            for vote in votes {
+                let key = (
+                    request.channel.channel_id(),
+                    ProofId::Vote(vote.signature.clone()),
+                );
+                if !replies.should_send(&key, now) {
+                    continue;
+                }
+                let sent = sender.try_send(
+                    &request.channel,
+                    &Message::ConfirmAck(ConfirmAck::new_with_rebroadcasted_vote((*vote).clone())),
+                    TrafficType::VoteReply,
+                );
+                if sent {
+                    replies.sent.insert(key, now);
+                }
+            }
+        }
         let remaining = self.aggregate(any, request);
         #[cfg(feature = "rai_protocol")]
         for block in &remaining.blocks_to_publish {
@@ -329,4 +378,54 @@ impl RequestAggregatorLoop {
         aggregator.add_votes(&requests.roots_hashes);
         aggregator.get_result()
     }
+}
+
+#[cfg(feature = "rai_protocol")]
+#[derive(Clone, PartialEq, Eq, Hash)]
+enum ProofId {
+    Block(BlockHash),
+    Vote(rsnano_types::Signature),
+}
+
+/// Original signed batches may support many roots. Bound their retransmission
+/// across request batches and workers, while leaving ordinary vote replies intact.
+#[cfg(feature = "rai_protocol")]
+#[derive(Default)]
+struct ProofReplyCache {
+    sent: std::collections::HashMap<(ChannelId, ProofId), std::time::Instant>,
+    last_prune: Option<std::time::Instant>,
+}
+
+#[cfg(feature = "rai_protocol")]
+impl ProofReplyCache {
+    fn should_send(&mut self, key: &(ChannelId, ProofId), now: std::time::Instant) -> bool {
+        let interval = std::time::Duration::from_secs(5);
+        if self
+            .last_prune
+            .is_none_or(|t| now.duration_since(t) >= std::time::Duration::from_secs(1))
+        {
+            self.sent.retain(|_, t| now.duration_since(*t) < interval);
+            self.last_prune = Some(now);
+        }
+        self.sent.len() < 65536
+            && self
+                .sent
+                .get(key)
+                .is_none_or(|t| now.duration_since(*t) >= interval)
+    }
+}
+
+#[cfg(all(test, feature = "rai_protocol"))]
+#[test]
+fn proof_reply_retries_after_interval_and_does_not_suppress_other_peers() {
+    let mut cache = ProofReplyCache::default();
+    let now = std::time::Instant::now();
+    let key = (ChannelId::from(1), ProofId::Block(BlockHash::from(1)));
+    assert!(cache.should_send(&key, now));
+    // A failed send is not recorded, so it can be retried immediately.
+    assert!(cache.should_send(&key, now));
+    cache.sent.insert(key.clone(), now);
+    assert!(!cache.should_send(&key, now));
+    assert!(cache.should_send(&(ChannelId::from(2), key.1.clone()), now));
+    assert!(cache.should_send(&key, now + std::time::Duration::from_secs(5)));
 }

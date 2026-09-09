@@ -63,6 +63,8 @@ impl<const N: usize> From<[(PublicKey, Amount); N]> for RepWeights {
 pub struct BootstrapWeights {
     pub weights: RepWeights,
     pub max_blocks: u64,
+    /// Use immutable committee weights without treating the ledger as bootstrapping.
+    pub fixed: bool,
 }
 
 /// Returns the cached vote weight for the given representative.
@@ -74,6 +76,7 @@ pub struct RepWeightCache {
     max_blocks: u64,
     pub ledger_cache: Arc<LedgerCache>,
     check_bootstrap_weights: AtomicBool,
+    fixed_weights: bool,
 }
 
 impl RepWeightCache {
@@ -84,6 +87,7 @@ impl RepWeightCache {
             max_blocks: 0,
             ledger_cache: Arc::new(LedgerCache::new()),
             check_bootstrap_weights: AtomicBool::new(false),
+            fixed_weights: false,
         }
     }
 
@@ -98,6 +102,7 @@ impl RepWeightCache {
             max_blocks: bootstrap_weights.max_blocks,
             ledger_cache,
             check_bootstrap_weights: AtomicBool::new(true),
+            fixed_weights: bootstrap_weights.fixed,
         }
     }
 
@@ -109,7 +114,14 @@ impl RepWeightCache {
         }
     }
 
+    pub fn has_fixed_weights(&self) -> bool {
+        self.fixed_weights
+    }
+
     pub fn use_bootstrap_weights(&self) -> bool {
+        if self.fixed_weights {
+            return true;
+        }
         if self.check_bootstrap_weights.load(Ordering::SeqCst) {
             if self.ledger_cache.block_count.load(Ordering::SeqCst) < self.max_blocks {
                 return true;
@@ -181,6 +193,7 @@ impl From<RepWeights> for RepWeightCache {
             max_blocks: 0,
             ledger_cache: Arc::new(LedgerCache::new()),
             check_bootstrap_weights: AtomicBool::new(false),
+            fixed_weights: false,
         }
     }
 }

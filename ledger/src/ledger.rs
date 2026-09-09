@@ -244,6 +244,7 @@ impl NullLedgerBuilder {
         let weights = BootstrapWeights {
             weights: Default::default(),
             max_blocks: self.bootstrap_weights_max_blocks,
+            fixed: false,
         };
         let rep_weights_cache =
             RepWeightCache::with_bootstrap_weights(weights, ledger_cache, self.min_rep_weight);

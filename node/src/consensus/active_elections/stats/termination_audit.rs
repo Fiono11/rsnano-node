@@ -39,7 +39,7 @@ impl TerminationAudit {
         }
     }
     pub fn page(&self, offset: usize) -> serde_json::Value {
-        serde_json::json!({"enabled":self.enabled,"overflow":self.overflow,"total":self.events.len(),"events":self.events.iter().skip(offset).take(1000).collect::<Vec<_>>()})
+        serde_json::json!({"enabled":self.enabled,"overflow":self.overflow,"total":self.events.len(),"events":self.events.iter().skip(offset).take(10000).collect::<Vec<_>>()})
     }
 }
 

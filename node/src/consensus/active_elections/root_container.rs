@@ -60,8 +60,8 @@ pub(crate) struct RootContainer {
     bucket_infos: Vec<BucketInfo>,
     pub vote_router: VoteRouter,
     max_elections_per_bucket: usize,
-    notarized_ids: std::collections::HashSet<ElectionId>,
-    notarized_by_bucket: Vec<usize>,
+    capacity_released_ids: std::collections::HashSet<ElectionId>,
+    released_by_bucket: Vec<usize>,
 }
 
 impl Default for RootContainer {
@@ -83,8 +83,8 @@ impl RootContainer {
             buckets: vec![BTreeSet::new(); bucket_count],
             bucket_infos: vec![BucketInfo::new(max_elections_per_bucket); bucket_count],
             max_elections_per_bucket,
-            notarized_ids: Default::default(),
-            notarized_by_bucket: vec![0; bucket_count],
+            capacity_released_ids: Default::default(),
+            released_by_bucket: vec![0; bucket_count],
         }
     }
 
@@ -100,7 +100,7 @@ impl RootContainer {
         bucket.insert(bucket_entry);
 
         let infos = &mut self.bucket_infos[entry.bucket()];
-        infos.election_count = bucket.len() - self.notarized_by_bucket[entry.bucket()];
+        infos.election_count = bucket.len() - self.released_by_bucket[entry.bucket()];
         infos.lowest_priority = bucket.last().map(|i| i.priority).unwrap_or_default();
 
         self.epochs_by_root
@@ -108,26 +108,71 @@ impl RootContainer {
             .or_default()
             .insert(root.epoch);
         self.by_root.insert(root.clone(), entry);
-        self.vote_router.connect_epoch(hash, root);
+        self.vote_router.connect_epoch(hash, root.clone());
+        #[cfg(feature = "rai_protocol")]
+        if self.ids_for_root(&root.root).len() > 1 {
+            // Admission is per root; epoch recovery shares its existing slot.
+            self.release_capacity(&root);
+        }
     }
 
     /// Release admission capacity without removing the election or its vote routes.
     /// It remains in round-robin processing for additional certificates/final votes.
     #[cfg(feature = "rai_protocol")]
     pub fn mark_notarized(&mut self, id: &ElectionId) {
-        let Some(entry) = self.by_root.get(id) else {
-            return;
-        };
-        if self.notarized_ids.insert(id.clone()) {
-            let bucket = entry.bucket();
-            self.notarized_by_bucket[bucket] += 1;
-            self.bucket_infos[bucket].election_count =
-                self.buckets[bucket].len() - self.notarized_by_bucket[bucket];
+        // A root with an outcome must not consume fresh admission slots merely
+        // because peers are collecting evidence in another epoch.
+        for related in self.ids_for_root(&id.root) {
+            self.release_capacity(&related);
         }
     }
 
+    #[cfg(feature = "rai_protocol")]
+    fn release_capacity(&mut self, id: &ElectionId) {
+        let Some(entry) = self.by_root.get(id) else {
+            return;
+        };
+        if self.capacity_released_ids.insert(id.clone()) {
+            let bucket = entry.bucket();
+            self.released_by_bucket[bucket] += 1;
+            self.bucket_infos[bucket].election_count =
+                self.buckets[bucket].len() - self.released_by_bucket[bucket];
+        }
+    }
+
+    /// Keep completed evidence addressable, but remove it from live scheduler scans.
+    #[cfg(feature = "rai_protocol")]
+    pub fn retire_finalized(&mut self, id: &ElectionId) {
+        self.mark_notarized(id);
+        let Some(entry) = self.by_root.get(id) else {
+            return;
+        };
+        let bucket = entry.bucket();
+        if self.buckets[bucket].remove(&BucketEntry {
+            root: id.clone(),
+            priority: entry.priority,
+        }) {
+            self.released_by_bucket[bucket] -= 1;
+            self.bucket_infos[bucket].election_count =
+                self.buckets[bucket].len() - self.released_by_bucket[bucket];
+            self.bucket_infos[bucket].lowest_priority = self.buckets[bucket]
+                .last()
+                .map(|e| e.priority)
+                .unwrap_or_default();
+        }
+    }
+
+    pub fn ids_for_root(&self, root: &QualifiedRoot) -> Vec<ElectionId> {
+        self.epochs_by_root
+            .get(root)
+            .into_iter()
+            .flatten()
+            .map(|epoch| ElectionId::new(root.clone(), *epoch))
+            .collect()
+    }
+
     pub fn scheduling_len(&self) -> usize {
-        self.by_root.len() - self.notarized_ids.len()
+        self.by_root.len() - self.capacity_released_ids.len()
     }
 
     pub fn get(&self, root: &QualifiedRoot) -> Option<&Entry> {
@@ -190,9 +235,9 @@ impl RootContainer {
 
         let old_bucket_index = bucket_index(previous_behavior, priority.balance);
         let new_bucket_index = bucket_index(ElectionBehavior::Priority, priority.balance);
-        if self.notarized_ids.contains(&root) {
-            self.notarized_by_bucket[old_bucket_index] -= 1;
-            self.notarized_by_bucket[new_bucket_index] += 1;
+        if self.capacity_released_ids.contains(&root) {
+            self.released_by_bucket[old_bucket_index] -= 1;
+            self.released_by_bucket[new_bucket_index] += 1;
         }
         let old_bucket = &mut self.buckets[old_bucket_index];
         old_bucket.remove(&BucketEntry {
@@ -200,7 +245,7 @@ impl RootContainer {
             priority,
         });
         let old_infos = &mut self.bucket_infos[old_bucket_index];
-        old_infos.election_count = old_bucket.len() - self.notarized_by_bucket[old_bucket_index];
+        old_infos.election_count = old_bucket.len() - self.released_by_bucket[old_bucket_index];
         old_infos.lowest_priority = old_bucket.last().map(|i| i.priority).unwrap_or_default();
 
         let new_bucket = &mut self.buckets[new_bucket_index];
@@ -210,7 +255,7 @@ impl RootContainer {
         });
 
         let new_infos = &mut self.bucket_infos[new_bucket_index];
-        new_infos.election_count = new_bucket.len() - self.notarized_by_bucket[new_bucket_index];
+        new_infos.election_count = new_bucket.len() - self.released_by_bucket[new_bucket_index];
         new_infos.lowest_priority = new_bucket.last().map(|i| i.priority).unwrap_or_default();
 
         (true, Some(previous_behavior))
@@ -272,18 +317,19 @@ impl RootContainer {
             }
         }
         if let Some(entry) = &erased {
-            if self.notarized_ids.remove(root) {
-                self.notarized_by_bucket[entry.bucket()] -= 1;
-            }
+            let released = self.capacity_released_ids.remove(root);
             self.vote_router.disconnect_election(&entry.election);
             let bucket = &mut self.buckets[entry.bucket()];
-            bucket.remove(&BucketEntry {
+            let was_live = bucket.remove(&BucketEntry {
                 root: entry.election.id(),
                 priority: entry.priority,
             });
+            if released && was_live {
+                self.released_by_bucket[entry.bucket()] -= 1;
+            }
 
             let bucket_info = &mut self.bucket_infos[entry.bucket()];
-            bucket_info.election_count = bucket.len() - self.notarized_by_bucket[entry.bucket()];
+            bucket_info.election_count = bucket.len() - self.released_by_bucket[entry.bucket()];
             bucket_info.lowest_priority = bucket.last().map(|i| i.priority).unwrap_or_default();
         }
         erased
@@ -291,8 +337,8 @@ impl RootContainer {
 
     pub fn clear(&mut self) {
         self.by_root.clear();
-        self.notarized_ids.clear();
-        self.notarized_by_bucket.fill(0);
+        self.capacity_released_ids.clear();
+        self.released_by_bucket.fill(0);
         self.epochs_by_root.clear();
         self.vote_router = Default::default();
         for bucket in self.buckets.iter_mut() {
@@ -320,7 +366,7 @@ impl RootContainer {
     }
 
     pub fn bucket_len(&self, bucket_id: usize) -> usize {
-        self.buckets[bucket_id].len() - self.notarized_by_bucket[bucket_id]
+        self.buckets[bucket_id].len() - self.released_by_bucket[bucket_id]
     }
 
     pub fn lowest_priority(&self, bucket_id: usize) -> Option<(QualifiedRoot, TimePriority)> {

@@ -292,6 +292,24 @@ impl Node {
             Default::default()
         };
 
+        #[cfg(feature = "rai_protocol")]
+        let bootstrap_weights =
+            if let Some(committee) = crate::consensus::nanospam_committee(current_network) {
+                config.online_weight_minimum = committee
+                    .weights
+                    .values()
+                    .copied()
+                    .fold(Amount::ZERO, |a, b| a + b);
+                info!(
+                    "Fixed nanospam committee: {} equal PRs, total weight {}",
+                    committee.weights.len(),
+                    config.online_weight_minimum.to_string_dec()
+                );
+                committee
+            } else {
+                bootstrap_weights
+            };
+
         let fs = if is_nulled {
             NullableFilesystem::new_null()
         } else {

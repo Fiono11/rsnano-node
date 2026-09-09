@@ -41,6 +41,17 @@ impl VoteBroadcaster {
         Self::new(queue, flooder, stats)
     }
 
+    /// Relay authenticated evidence without claiming the original signer lives
+    /// on this connection or feeding an already-applied vote back as a local vote.
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn relay(&self, vote: Arc<Vote>) {
+        let ack = Message::ConfirmAck(ConfirmAck::new_with_rebroadcasted_vote((*vote).clone()));
+        self.message_flooder
+            .lock()
+            .unwrap()
+            .flood_prs_and_some_non_prs(&ack, TrafficType::VoteRebroadcast, 2.0);
+    }
+
     /// Broadcast vote to PRs and some non-PRs
     pub fn broadcast(&self, vote: Arc<Vote>) {
         let ack = Message::ConfirmAck(ConfirmAck::new_with_own_vote(vote.deref().clone()));
@@ -68,4 +79,19 @@ impl VoteBroadcaster {
             count.non_principal_reps as u64,
         );
     }
+}
+
+#[cfg(all(test, feature = "rai_protocol"))]
+#[test]
+fn relayed_certificate_vote_does_not_claim_the_signers_channel() {
+    let broadcaster = VoteBroadcaster::new_null();
+    let floods = broadcaster.message_flooder.lock().unwrap().track_floods();
+    broadcaster.relay(Arc::new(Vote::new_test_instance()));
+    let output = floods.output();
+    let Message::ConfirmAck(ack) = &output[0].message else {
+        panic!("Expected a vote")
+    };
+    assert!(ack.is_rebroadcasted());
+    assert_eq!(output[0].traffic_type, TrafficType::VoteRebroadcast);
+    assert!(broadcaster.vote_processor_queue.is_empty());
 }

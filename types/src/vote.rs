@@ -64,6 +64,10 @@ pub enum VoteKind {
     First = 0,
     Notarize = 1,
     Final = 2,
+    /// First-vote abstention; hashes identify elections, not supported candidates.
+    FirstTimeout = 3,
+    /// Timeout notarization after a FIRST vote; does not occupy the FIRST position.
+    Timeout = 4,
 }
 
 #[derive(Clone, Debug)]
@@ -222,7 +226,7 @@ impl Vote {
         #[cfg(feature = "rai_protocol")]
         {
             builder = builder
-                .update(b"rai-kudzu-vote-v2")
+                .update(b"rai-kudzu-vote-v3")
                 .update(self.epoch.to_le_bytes())
                 .update([self.kind as u8]);
         }
@@ -249,6 +253,8 @@ impl Vote {
                 0 => VoteKind::First,
                 1 => VoteKind::Notarize,
                 2 => VoteKind::Final,
+                3 => VoteKind::FirstTimeout,
+                4 => VoteKind::Timeout,
                 _ => return Err(DeserializationError::InvalidData),
             }
         };
@@ -376,7 +382,13 @@ mod rai_tests {
     #[test]
     fn kudzu_vote_kinds_are_signed_and_roundtrip() {
         let key = PrivateKey::from(42);
-        for kind in [VoteKind::First, VoteKind::Notarize, VoteKind::Final] {
+        for kind in [
+            VoteKind::First,
+            VoteKind::Notarize,
+            VoteKind::Final,
+            VoteKind::FirstTimeout,
+            VoteKind::Timeout,
+        ] {
             let vote = Vote::new_with_kind(&key, vec![BlockHash::from(1)], 7, kind);
             let mut bytes = Vec::new();
             vote.serialize(&mut bytes).unwrap();

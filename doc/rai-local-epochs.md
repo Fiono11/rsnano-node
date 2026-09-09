@@ -12,8 +12,16 @@ is unchanged.
 cargo build --release -p rsnano_cli -p nanospam --features rai_protocol
 PATH="$PWD/target/release:$PATH" target/release/nanospam \
   --data-dir /tmp/rai-nanospam --prs 6 --no-prio \
-  --accounts 50000 --blocks 50000 --rate 2000 --epoch-length 25000
+  --accounts 50000 --blocks 50000 --rate 2000 --epoch-length 25000 --fork-percentage 5
 ```
+
+RAI nanospam fixes the voting committee before setup using
+`NANOSPAM_RAI_COMMITTEE` on the test network. Every PR has the same immutable
+weight, `floor(Amount::MAX / prs)`, independently of ledger transfers, online
+sampling, and block height. All representative keys are installed before funding.
+For six PRs the certificate quorum requires four PRs and fast finalization requires
+five. `RAI_QUORUM_SNAPSHOT` verifies the fixed weight base and discovered committee
+weights at startup, workload start, and the end of observation.
 
 `node.epoch_length` configures newly cemented blocks per local epoch. Zero disables
 advancement. Genesis is epoch 0 and excluded from the counter; representative
@@ -27,8 +35,8 @@ qualified root and consensus epoch. Existing elections keep their epoch across
 advancement. Votes bind their epoch into their signature; votes and confirm
 requests contain one epoch for the entire batch. Queues and solicitation batch
 only entries with the same epoch. A valid vote for an earlier epoch of a known
-slot creates a separate election with its own tally. A vote in a newer epoch does
-not create another election. Existing matching elections continue accepting their
+slot creates a separate election with its own tally. For a known active root, votes in a newer epoch can also create a separate
+election so that later finalization can supersede earlier notarization. Existing matching elections continue accepting their
 own votes. Admission is bounded by AEC capacity; peer messages never advance the
 local epoch counter. Ordinary confirm requests recover votes for elections.
 
@@ -36,9 +44,9 @@ Tallies, replay checks, voting schedules, and request schedules are separate per
 election. The vote cache retains statements separately by representative and
 epoch and uses the strongest single epoch for scheduling hints. Final-vote locks
 remain durable and keyed by qualified root across all epochs: a representative
-cannot final-vote different forks by changing the epoch. Cementation ends
-same-root dependency elections in the confirming epoch; elections in other
-epochs retain their own state and can establish an earlier canonical assignment.
+cannot final-vote different forks by changing the epoch. Cementation records implicit finalization without discarding the independently
+collected evidence of same-root elections. Earlier epochs can still establish an
+earlier canonical assignment.
 
 The ledger stores `block hash -> confirmation epoch` in the `consensus_epochs`
 LMDB database, atomically with confirmation height and the counter. Block bodies,
@@ -74,12 +82,27 @@ same build mode. The feature-disabled build retains ordinary vote/request wire
 formats and uses epoch 0.
 
 Nanospam prints a `BENCHMARK_RESULT` JSON record with created/confirmed block
-counts, elapsed workload time, average confirmation latency, and confirmed blocks
-per elapsed second. It also logs every PR's final ledger counts. Latency is the
-existing nanospam publication-to-WebSocket-confirmation measurement on PR0;
-throughput includes workload injection and final draining, but excludes node and
-wallet setup. RAI then passively checks for matching per-epoch block-set digests
-on every PR for three stable polls, and prints `EPOCH_SET_AGREEMENT_SECONDS`.
-This check does not initiate protocol work; its additional observation time is
-excluded from the first-confirmation throughput measurement. Runs with a fixed publication target measure achieved throughput
-at that target, rather than maximum node capacity.
+counts, elapsed workload time, average confirmation latency (overall, fork and
+non-fork), and confirmed blocks per elapsed second. Latency measures publication
+to the first winning-candidate WebSocket confirmation on PR0, counting each
+workload root once. The workload observation window is at least 60 seconds and continues until all
+requested blocks have been published, with a five-minute hard limit. Reported
+throughput uses the actual full window and excludes node/wallet setup.
+
+After the performance window, RAI allows up to 120 seconds of passive recovery
+observation, using a common timestamp cutoff and incremental audits. The nodes
+continue using ordinary votes and confirm requests. `CANONICAL_AGREEMENT_RESULT`
+reports the additional observation interval separately from performance metrics.
+This does not close epochs or prove that no future evidence can change the outcome.
+
+`TERMINATION_RESULT` checks canonical termination/finalization outcomes as
+specified in [RAI voting](rai-voting.md#nanospam-canonical-state-agreement).
+Roots pending on every PR are reported separately and make the run fail. Every
+requested root must have a canonical block or timeout certificate on every PR.
+`ELECTION_RESULT` reports workload election counts per PR and epoch identity,
+including `timeout_notarized`, fast, non-fast explicit, and implicit finalization.
+These count `(qualified_root, epoch)` identities, so one workload root may appear
+in several epochs. A certified timeout terminates an epoch without cementing a
+block or advancing the local epoch counter. The optional audit output preserves
+complete events for analysis. Active diagnostics default to 256 unfinished
+elections; opt-in `NANOSPAM_DIAGNOSTIC_LIMIT` can raise the limit up to 10,000.

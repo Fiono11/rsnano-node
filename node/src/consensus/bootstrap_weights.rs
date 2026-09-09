@@ -7,6 +7,70 @@ pub(crate) fn get_bootstrap_weights(network: NetworkType) -> BootstrapWeights {
     deserialize_bootstrap_weights(buffer)
 }
 
+/// Explicit nanospam test committee. Reuse the existing immutable bootstrap
+/// weight overlay so ledger transfers and online discovery cannot change votes.
+#[cfg(feature = "rai_protocol")]
+pub(crate) fn nanospam_committee(network: NetworkType) -> Option<BootstrapWeights> {
+    if network != NetworkType::NanoTestNetwork {
+        return None;
+    }
+    let text = std::env::var("NANOSPAM_RAI_COMMITTEE").ok()?;
+    let reps: Vec<rsnano_types::PublicKey> =
+        serde_json::from_str(&text).expect("Invalid nanospam committee");
+    Some(equal_committee(&reps))
+}
+
+#[cfg(feature = "rai_protocol")]
+fn equal_committee(reps: &[rsnano_types::PublicKey]) -> BootstrapWeights {
+    assert!(!reps.is_empty(), "Empty nanospam committee");
+    let mut weights = RepWeights::default();
+    let weight = Amount::MAX / reps.len() as u128;
+    for rep in reps {
+        assert!(
+            weights.weight(rep).is_zero(),
+            "Duplicate committee representative"
+        );
+        weights.put(*rep, weight);
+    }
+    BootstrapWeights {
+        weights,
+        max_blocks: 0,
+        fixed: true,
+    }
+}
+
+#[cfg(all(test, feature = "rai_protocol"))]
+#[test]
+fn fixed_committee_ignores_ledger_weight_changes_and_counts_all_six_prs() {
+    use crate::consensus::election::KudzuThresholds;
+    use rsnano_types::PublicKey;
+    let reps: Vec<_> = (1..=6).map(PublicKey::from).collect();
+    let weights = equal_committee(&reps);
+    let single = Amount::MAX / 6;
+    let total = single * 6;
+    let thresholds = KudzuThresholds::new(total);
+    assert!(single * 3 < thresholds.certificate && single * 4 >= thresholds.certificate);
+    assert!(single * 4 < thresholds.fast && single * 5 >= thresholds.fast);
+    let cache = RepWeightCache::with_bootstrap_weights(weights, Default::default(), Amount::ZERO);
+    assert!(cache.has_fixed_weights());
+    cache
+        .ledger_cache
+        .block_count
+        .store(1_000_000, std::sync::atomic::Ordering::SeqCst);
+    for rep in &reps {
+        cache.put(*rep, Amount::raw(1));
+        assert_eq!(cache.weight(rep), single);
+    }
+    assert_eq!(
+        cache
+            .read()
+            .values()
+            .copied()
+            .fold(Amount::ZERO, |a, b| a + b),
+        total
+    );
+}
+
 fn get_bootstrap_weights_text(network: NetworkType) -> &'static str {
     if network == NetworkType::NanoLiveNetwork {
         #[cfg(not(feature = "banano"))]
@@ -49,6 +113,7 @@ fn deserialize_bootstrap_weights(buffer: &str) -> BootstrapWeights {
     BootstrapWeights {
         max_blocks,
         weights,
+        fixed: false,
     }
 }
 

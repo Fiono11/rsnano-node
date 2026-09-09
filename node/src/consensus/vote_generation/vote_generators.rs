@@ -33,6 +33,8 @@ pub struct VoteGenerators {
     vote_state: Arc<Mutex<super::kudzu_vote_state::KudzuVoteState>>,
     #[cfg(feature = "rai_protocol")]
     elections: Arc<std::sync::RwLock<std::sync::Weak<crate::consensus::AecService>>>,
+    #[cfg(feature = "rai_protocol")]
+    certificate_broadcaster: Arc<VoteBroadcaster>,
     non_final_vote_generator: VoteGenerator,
     final_vote_generator: VoteGenerator,
     vote_listener: OutputListenerMt<VoteGenerationEvent>,
@@ -43,6 +45,11 @@ pub struct VoteGenerators {
 
 impl VoteGenerators {
     #[cfg(feature = "rai_protocol")]
+    pub(crate) fn relay_certificate_vote(&self, vote: Arc<rsnano_types::Vote>) {
+        self.certificate_broadcaster.relay(vote);
+    }
+
+    #[cfg(feature = "rai_protocol")]
     pub(crate) fn notify_notarization(&self, id: rsnano_types::ElectionId, hash: BlockHash) {
         let mut keys = Vec::new();
         self.wallet_reps.lock().unwrap().rep_priv_keys(&mut keys);
@@ -51,7 +58,7 @@ impl VoteGenerators {
             // Mixed local committees use periodic recovery: never accelerate a First replay.
             !keys.is_empty()
                 && keys.iter().all(|key| {
-                    state.needs_second_look(&id.root, key.public_key(), hash)
+                    state.needs_second_look(&id.root, key.public_key(), hash, id.epoch)
                         && !state.has_notarization(&id.root, key.public_key(), hash, id.epoch)
                 })
         };
@@ -130,7 +137,7 @@ impl VoteGenerators {
             message_sender.clone(),
             voting_delay,
             config.vote_generator_delay,
-            vote_broadcaster,
+            vote_broadcaster.clone(),
             clock,
             #[cfg(feature = "rai_protocol")]
             elections.clone(),
@@ -139,6 +146,8 @@ impl VoteGenerators {
         );
 
         Self {
+            #[cfg(feature = "rai_protocol")]
+            certificate_broadcaster: vote_broadcaster,
             #[cfg(feature = "rai_protocol")]
             vote_state,
             #[cfg(feature = "rai_protocol")]
@@ -155,6 +164,20 @@ impl VoteGenerators {
     #[cfg(feature = "rai_protocol")]
     pub fn set_elections(&self, elections: &Arc<crate::consensus::AecService>) {
         *self.elections.write().unwrap() = Arc::downgrade(elections);
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn recovery_evidence(
+        &self,
+        requests: &[(BlockHash, rsnano_types::Root)],
+        epoch: u64,
+    ) -> (Vec<rsnano_types::Block>, Vec<Arc<rsnano_types::Vote>>) {
+        self.elections
+            .read()
+            .unwrap()
+            .upgrade()
+            .map(|e| e.recovery_evidence(requests, epoch))
+            .unwrap_or_default()
     }
 
     pub fn new_null() -> Self {

@@ -10,6 +10,7 @@ use serde::Serialize;
 use serde_json::Value;
 use std::time::Duration;
 
+#[derive(Clone)]
 pub struct NanoRpcClient {
     url: Url,
     client: Client,

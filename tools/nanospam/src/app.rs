@@ -97,6 +97,9 @@ impl NanoSpamApp {
             }
         }
 
+        #[cfg(feature = "rai_protocol")]
+        verify_fixed_committee(&self.rpc_clients, "startup").await?;
+
         let genesis_wallet_id = if self.args.set_up_new_nodes() {
             create_wallets(&self.rpc_clients, genesis_rpc, &mut account_map).await
         } else {
@@ -125,6 +128,9 @@ impl NanoSpamApp {
         if self.args.sync {
             high_prio_check.sync_accounts().await?;
         }
+
+        #[cfg(feature = "rai_protocol")]
+        verify_fixed_committee(&self.rpc_clients, "workload_start").await?;
 
         let mut tcp_writers = Vec::new();
         let mut tcp_readers = Vec::new();
@@ -160,11 +166,6 @@ impl NanoSpamApp {
         info!("Starting with {} BPS", logic.lock().unwrap().current_bps);
 
         let started = Instant::now();
-        let cutoff = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos() as u64
-            + 60_000_000_000;
         logic.lock().unwrap().deadline = Some(started + Duration::from_secs(60));
         std::thread::scope(|s| {
             s.spawn(|| {
@@ -206,6 +207,10 @@ impl NanoSpamApp {
                 }
             });
         });
+        let cutoff = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos() as u64;
         let duration_secs = started.elapsed().as_secs_f64();
         let logic = logic.lock().unwrap();
         let created_blocks = logic.block_factory.created();
@@ -219,58 +224,96 @@ impl NanoSpamApp {
             logic.sum_conf_time_total.as_secs_f64() * 1000.0 / confirmed_blocks as f64
         };
         info!("Average conf time: {conf_time} ms");
-        let summary = serde_json::json!({ "rai_protocol": cfg!(feature = "rai_protocol"), "epoch_length": self.args.epoch_length, "prs": self.args.prs, "accounts": self.args.accounts, "created_blocks": created_blocks, "confirmed_blocks": confirmed_blocks, "duration_seconds": duration_secs, "confirmation_rate_cps": cps, "average_confirmation_ms": conf_time });
+        let confirmed_nonforks = confirmed_blocks - logic.confirmed_forks;
+        let mean_ms = |duration: Duration, count: usize| {
+            (count > 0).then(|| duration.as_secs_f64() * 1000.0 / count as f64)
+        };
+        let summary = serde_json::json!({ "confirmed_forks":logic.confirmed_forks,"confirmed_nonforks":confirmed_nonforks,"average_fork_confirmation_ms":mean_ms(logic.sum_fork_time, logic.confirmed_forks),"average_nonfork_confirmation_ms":mean_ms(logic.sum_nonfork_time, confirmed_nonforks), "rai_protocol": cfg!(feature = "rai_protocol"), "epoch_length": self.args.epoch_length, "prs": self.args.prs, "accounts": self.args.accounts, "created_blocks": created_blocks, "published_blocks": logic.published_blocks, "confirmed_blocks": confirmed_blocks, "duration_seconds": duration_secs, "confirmation_rate_cps": cps, "average_confirmation_ms": conf_time });
         let workload_records = logic.workload_records.clone();
         let published_hashes = logic.published_hashes.clone();
+        let published_workload_blocks = logic.published_blocks;
         let workload_roots = logic.workload_roots.clone();
         drop(logic);
         info!("BENCHMARK_RESULT {summary}");
-        let mut observations = Vec::new();
-        let mut diagnostics = Vec::new();
-        for client in &self.rpc_clients {
-            let mut events = Vec::new();
-            let mut offset = 0;
-            loop {
-                let response = client.termination_audit(offset).await?;
-                let page = response
-                    .termination_audit
-                    .ok_or_else(|| anyhow::anyhow!("Node has no termination audit support"))?;
-                anyhow::ensure!(
-                    page["enabled"] == true && page["overflow"] == false,
-                    "Termination audit disabled or overflowed"
-                );
-                if offset == 0 {
-                    diagnostics.push(page.get("active").cloned().unwrap_or_default());
-                }
-                let batch: Vec<crate::termination_check::Event> =
-                    serde_json::from_value(page["events"].clone())?;
-                let count = batch.len();
-                events.extend(batch);
-                offset += count as u64;
-                if offset >= page["total"].as_u64().unwrap() {
-                    break;
-                }
-                anyhow::ensure!(count > 0, "Incomplete audit page");
-            }
-            observations.push(events);
-        }
-        let agreement = crate::termination_check::check(
+        let performance_cutoff = cutoff;
+        let mut cutoff = cutoff;
+        let mut observations = vec![Vec::new(); self.rpc_clients.len()];
+        let mut diagnostics = vec![serde_json::Value::Null; self.rpc_clients.len()];
+        collect_audits(&self.rpc_clients, &mut observations, &mut diagnostics).await?;
+        let mut agreement = crate::termination_check::check(
             &workload_roots,
             &observations,
             cutoff,
             cfg!(feature = "rai_protocol"),
         );
+        info!("PERFORMANCE_WINDOW_TERMINATION_RESULT {agreement}");
+        let mut stable = if agreement["success"] == true { 3 } else { 0 };
+        let observation_started = Instant::now();
+        // Passive observation only: the nodes' existing vote/request mechanisms
+        // remain responsible for recovery. Compare a common cutoff across PRs.
+        while cfg!(feature = "rai_protocol")
+            && stable < 3
+            && observation_started.elapsed() < Duration::from_secs(120)
+            && self.args.blocks == Some(workload_roots.len())
+        {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            cutoff = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos() as u64;
+            collect_audits(&self.rpc_clients, &mut observations, &mut diagnostics).await?;
+            agreement =
+                crate::termination_check::check(&workload_roots, &observations, cutoff, true);
+            stable = if agreement["success"] == true {
+                stable + 1
+            } else {
+                0
+            };
+            info!(
+                "Canonical recovery: {} unmatched roots, {} pending everywhere",
+                agreement["failed_roots"], agreement["pending_roots"]
+            );
+        }
+        info!(
+            "CANONICAL_AGREEMENT_RESULT {}",
+            serde_json::json!({
+                "success":agreement["success"], "additional_observation_seconds":(cutoff - performance_cutoff) as f64 / 1e9,
+                "performance_cutoff":performance_cutoff, "agreement_cutoff":cutoff
+            })
+        );
+        #[cfg(feature = "rai_protocol")]
+        verify_fixed_committee(&self.rpc_clients, "end").await?;
+
         if let Some(path) = &self.args.audit_output {
             std::fs::write(
                 path,
                 serde_json::to_vec(
-                    &serde_json::json!({"cutoff":cutoff,"workload":workload_records,"published_hashes":published_hashes,"observations":observations,"diagnostics":diagnostics} ),
+                    &serde_json::json!({"performance_cutoff":performance_cutoff,"cutoff":cutoff,"workload":workload_records,"published_hashes":published_hashes,"observations":observations,"diagnostics":diagnostics} ),
                 )?,
             )?;
         }
         info!("TERMINATION_RESULT {agreement}");
+        for (pr, events) in observations.iter().enumerate() {
+            let ids = |kinds: &[u8]| {
+                events
+                    .iter()
+                    .filter(|e| {
+                        e.4 <= cutoff && workload_roots.contains(&e.1) && kinds.contains(&e.0)
+                    })
+                    .map(|e| (e.1.clone(), e.3))
+                    .collect::<std::collections::HashSet<_>>()
+            };
+            let notarized = ids(&[1]);
+            let finalized = ids(&[2, 4]);
+            info!(
+                "ELECTION_RESULT {}",
+                serde_json::json!({"pr":pr,"terminated":ids(&[1,2,4,7]).len(),"timeout_notarized":ids(&[7]).len(),"notarized":notarized.len(),"notarized_not_finalized":notarized.difference(&finalized).count(),"finalized":finalized.len(),"fast":ids(&[5]).len(),"nonfast_explicit":ids(&[6]).len(),"implicit":ids(&[4]).len()})
+            );
+        }
         anyhow::ensure!(
-            self.args.blocks.is_some_and(|n| workload_roots.len() == n),
+            self.args
+                .blocks
+                .is_some_and(|n| workload_roots.len() == n && published_workload_blocks == n),
             "Requested workload was not completely generated"
         );
         anyhow::ensure!(
@@ -285,6 +328,90 @@ impl NanoSpamApp {
 
         Ok(())
     }
+}
+
+#[cfg(feature = "rai_protocol")]
+async fn verify_fixed_committee(clients: &[NanoRpcClient], phase: &str) -> anyhow::Result<()> {
+    use rsnano_types::Amount;
+    let weight = Amount::MAX / clients.len() as u128;
+    let total = weight * clients.len() as u128;
+    let members: std::collections::HashSet<_> = (0..clients.len())
+        .map(|i| crate::setup::pr_key(i).account())
+        .collect();
+    for (pr, client) in clients.iter().enumerate() {
+        let q = client.confirmation_quorum_with_details().await?;
+        anyhow::ensure!(
+            q.online_weight_minimum == total
+                && q.trended_stake_total == total
+                && q.online_stake_total <= total,
+            "PR{pr} does not use the fixed committee quorum base; rebuild the rsnano executable with rai_protocol"
+        );
+        anyhow::ensure!(
+            q.peers.as_ref().is_some_and(|peers| peers
+                .iter()
+                .all(|p| p.weight == weight && members.contains(&p.account))),
+            "PR{pr} has a peer outside the fixed equal-weight committee"
+        );
+        info!(
+            "RAI_QUORUM_SNAPSHOT {}",
+            serde_json::json!({"phase":phase,"pr":pr,"quorum":q})
+        );
+    }
+    Ok(())
+}
+
+async fn collect_audits(
+    clients: &[NanoRpcClient],
+    observations: &mut [Vec<crate::termination_check::Event>],
+    diagnostics: &mut [serde_json::Value],
+) -> anyhow::Result<()> {
+    let mut downloads = JoinSet::new();
+    for (pr, client) in clients.iter().enumerate() {
+        let client = client.clone();
+        let mut events = std::mem::take(&mut observations[pr]);
+        let mut diagnostic = std::mem::take(&mut diagnostics[pr]);
+        downloads.spawn(async move {
+            collect_audit(&client, &mut events, &mut diagnostic).await?;
+            Ok::<_, anyhow::Error>((pr, events, diagnostic))
+        });
+    }
+    while let Some(result) = downloads.join_next().await {
+        let (pr, events, diagnostic) = result??;
+        observations[pr] = events;
+        diagnostics[pr] = diagnostic;
+    }
+    Ok(())
+}
+
+async fn collect_audit(
+    client: &NanoRpcClient,
+    events: &mut Vec<crate::termination_check::Event>,
+    diagnostic: &mut serde_json::Value,
+) -> anyhow::Result<()> {
+    let mut offset = events.len() as u64;
+    loop {
+        let response = client.termination_audit(offset).await?;
+        let page = response
+            .termination_audit
+            .ok_or_else(|| anyhow::anyhow!("Node has no termination audit support"))?;
+        anyhow::ensure!(
+            page["enabled"] == true && page["overflow"] == false,
+            "Termination audit disabled or overflowed"
+        );
+        if offset == 0 {
+            *diagnostic = page.get("active").cloned().unwrap_or_default();
+        }
+        let batch: Vec<crate::termination_check::Event> =
+            serde_json::from_value(page["events"].clone())?;
+        let count = batch.len();
+        events.extend(batch);
+        offset += count as u64;
+        if offset >= page["total"].as_u64().unwrap() {
+            break;
+        }
+        anyhow::ensure!(count > 0, "Incomplete audit page");
+    }
+    Ok(())
 }
 
 fn enqueue_blocks(logic: &Mutex<SpamLogic>, tx_blocks: mpsc::Sender<Forks>, clock: &SteadyClock) {

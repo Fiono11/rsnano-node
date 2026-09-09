@@ -37,6 +37,27 @@ impl<'a> ApplyVoteHelper<'a> {
                 .election_for_epoch_mut(block_hash, self.args.vote.epoch)
             {
                 #[cfg(feature = "rai_protocol")]
+                let was_confirmed = election.is_confirmed();
+                #[cfg(feature = "rai_protocol")]
+                let previous_certificates: Vec<_> = election
+                    .candidate_blocks()
+                    .keys()
+                    .flat_map(|hash| {
+                        [
+                            rsnano_types::VoteKind::Notarize,
+                            rsnano_types::VoteKind::First,
+                            rsnano_types::VoteKind::Final,
+                            rsnano_types::VoteKind::Timeout,
+                        ]
+                        .into_iter()
+                        .filter_map(|kind| {
+                            election
+                                .has_kudzu_certificate(*hash, kind)
+                                .then_some((*hash, kind))
+                        })
+                    })
+                    .collect();
+                #[cfg(feature = "rai_protocol")]
                 let was_ready = election.can_notarize(block_hash);
                 {
                     let mut apply_to_election = ApplyVoteToElectionHelper {
@@ -51,7 +72,31 @@ impl<'a> ApplyVoteHelper<'a> {
                     result.per_block.insert(*block_hash, vote_result);
                 }
 
+                #[cfg(feature = "rai_protocol")]
+                for hash in election.candidate_blocks().keys() {
+                    for kind in [
+                        rsnano_types::VoteKind::Notarize,
+                        rsnano_types::VoteKind::First,
+                        rsnano_types::VoteKind::Final,
+                        rsnano_types::VoteKind::Timeout,
+                    ] {
+                        if !previous_certificates.contains(&(*hash, kind)) {
+                            if let Some(cert) = election.kudzu_certificate(*hash, kind) {
+                                result.certificate_votes.extend(cert.votes);
+                            }
+                        }
+                    }
+                }
                 if self.vote_counter.audit.enabled() {
+                    #[cfg(feature = "rai_protocol")]
+                    if election.is_timed_out() {
+                        self.vote_counter.audit.record(
+                            7,
+                            election.qualified_root().clone(),
+                            BlockHash::ZERO,
+                            election.epoch,
+                        );
+                    }
                     #[cfg(feature = "rai_protocol")]
                     for hash in election.candidate_blocks().keys() {
                         if election.has_kudzu_certificate(*hash, rsnano_types::VoteKind::Notarize) {
@@ -80,9 +125,22 @@ impl<'a> ApplyVoteHelper<'a> {
                 let root = election.id();
                 let confirmed = election.is_confirmed();
                 #[cfg(feature = "rai_protocol")]
-                if election.has_quorum() {
+                if election.has_quorum() || election.is_timed_out() {
                     self.roots.mark_notarized(&root);
                 }
+                #[cfg(feature = "rai_protocol")]
+                if confirmed && !was_confirmed {
+                    self.roots.retire_finalized(&root);
+                    // Keep authenticated evidence and routes, but perform the legacy
+                    // completion notifications/admission accounting exactly once.
+                    let entry = self.roots.get_id(&root).unwrap();
+                    result.confirmed.push(Entry {
+                        root: entry.root.clone(),
+                        election: entry.election.clone(),
+                        priority: entry.priority,
+                    });
+                }
+                #[cfg(not(feature = "rai_protocol"))]
                 if confirmed {
                     if let Some(entry) = self.roots.erase_id(&root) {
                         result.confirmed.push(entry);
@@ -103,6 +161,8 @@ impl<'a> ApplyVoteHelper<'a> {
 
 #[derive(Default)]
 pub(crate) struct ApplyVoteResult {
+    #[cfg(feature = "rai_protocol")]
+    pub certificate_votes: Vec<std::sync::Arc<rsnano_types::Vote>>,
     pub per_block: HashMap<BlockHash, Result<(), VoteError>>,
     pub confirmed: Vec<Entry>,
     #[cfg(feature = "rai_protocol")]
@@ -120,6 +180,7 @@ struct ApplyVoteToElectionHelper<'a> {
 
 impl<'a> ApplyVoteToElectionHelper<'a> {
     pub fn apply_vote(&mut self) -> Result<(), VoteError> {
+        #[cfg(not(feature = "rai_protocol"))]
         if self.election.is_confirmed() {
             return Err(VoteError::Late);
         }
@@ -183,6 +244,7 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
 
     pub fn confirm_if_quorum(&mut self) {
         let old_winner = self.election.winner().hash();
+        let was_confirmed = self.election.is_confirmed();
 
         #[cfg(not(feature = "rai_protocol"))]
         self.election.update_tallies(
@@ -200,13 +262,27 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
         );
         self.notify_winner_changed(old_winner);
 
-        if self.election.is_final() && self.election.is_confirmed() {
+        if !was_confirmed && self.election.is_final() && self.election.is_confirmed() {
             #[cfg(feature = "rai_protocol")]
             self.vote_counter
                 .count_kudzu_confirmation(self.election.has_kudzu_certificate(
                     self.election.winner().hash(),
                     rsnano_types::VoteKind::First,
                 ));
+            #[cfg(feature = "rai_protocol")]
+            self.vote_counter.audit.record(
+                if self.election.has_kudzu_certificate(
+                    self.election.winner().hash(),
+                    rsnano_types::VoteKind::First,
+                ) {
+                    5
+                } else {
+                    6
+                },
+                self.election.qualified_root().clone(),
+                self.election.winner().hash(),
+                self.election.epoch,
+            );
             self.election_got_confirmed();
         }
     }
@@ -361,7 +437,10 @@ mod tests {
 
         let result = fixture.apply_final_vote_from(VoteDelivery::Direct);
 
+        #[cfg(not(feature = "rai_protocol"))]
         assert_eq!(result, Err(VoteError::Late));
+        #[cfg(feature = "rai_protocol")]
+        assert_eq!(result, Ok(()));
     }
 
     #[test]

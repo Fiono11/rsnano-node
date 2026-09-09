@@ -68,6 +68,16 @@ port = RPC_PORT
 "#;
 
 pub(crate) fn configure_nodes(args: &CliArgs, data_dir: &Path) {
+    #[cfg(feature = "rai_protocol")]
+    info!(
+        "RAI_COMMITTEE {}",
+        serde_json::json!({
+            "fixed": true,
+            "representatives": (0..args.prs).map(|i| pr_key(i).public_key()).collect::<Vec<_>>(),
+            "weight_per_pr": (rsnano_types::Amount::MAX / args.prs as u128).to_string_dec(),
+            "total_weight": ((rsnano_types::Amount::MAX / args.prs as u128) * args.prs as u128).to_string_dec()
+        })
+    );
     for i in 0..100 {
         let mut pr_dir = data_dir.to_path_buf();
         pr_dir.push(format!("pr{i}"));

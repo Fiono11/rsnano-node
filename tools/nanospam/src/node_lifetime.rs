@@ -14,7 +14,8 @@ impl NodeLifetime {
 impl Drop for NodeLifetime {
     fn drop(&mut self) {
         for mut child in self.node_handles.drain(..) {
-            child.kill().unwrap();
+            let _ = child.kill();
+            let _ = child.wait();
         }
     }
 }

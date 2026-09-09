@@ -209,7 +209,21 @@ impl Election {
 
     #[cfg(feature = "rai_protocol")]
     pub(crate) fn termination_diagnostic(&self) -> serde_json::Value {
-        serde_json::json!({"root":self.qualified_root(),"epoch":self.epoch,"winner":self.winner().hash(),"candidates":self.candidate_blocks().keys().collect::<Vec<_>>(),"first":self.kudzu.first_tallies,"notarization":self.kudzu.notar_tallies,"final":self.kudzu.final_tallies})
+        serde_json::json!({"root":self.qualified_root(),"epoch":self.epoch,"winner":self.winner().hash(),"candidates":self.candidate_blocks().keys().collect::<Vec<_>>(),"first":self.kudzu.first_tallies,"notarization":self.kudzu.notar_tallies,"final":self.kudzu.final_tallies,"participation":self.kudzu.participation_diagnostic(),"timeout_certificate":self.is_timed_out(),"timeout_eligible":self.should_timeout()})
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn is_timed_out(&self) -> bool {
+        self.kudzu
+            .has_certificate(self.winner.hash(), rsnano_types::VoteKind::Timeout)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn should_timeout(&self) -> bool {
+        !self.is_confirmed()
+            && !self.has_quorum
+            && !self.is_timed_out()
+            && self.kudzu.should_timeout()
     }
 
     #[cfg(feature = "rai_protocol")]
@@ -229,10 +243,11 @@ impl Election {
     #[cfg(feature = "rai_protocol")]
     pub fn update_kudzu_tallies(&mut self, weights: &FxHashMap<PublicKey, Amount>, total: Amount) {
         use rsnano_types::VoteKind;
-        if self.state.has_ended() {
+        self.kudzu.tally(weights, total);
+        // Finalized elections retain evidence, without changing their decided value.
+        if self.is_confirmed() || self.state.has_ended() {
             return;
         }
-        self.kudzu.tally(weights, total);
         self.update_vote_weights(weights);
         // Stable tie breaking avoids dependence on HashMap iteration order.
         let best = self.candidate_blocks.keys().copied().max_by_key(|hash| {
@@ -359,6 +374,10 @@ impl Election {
     }
 
     pub fn maybe_upgrade_to(&mut self, new_behavior: ElectionBehavior) -> bool {
+        #[cfg(feature = "rai_protocol")]
+        if self.is_confirmed() {
+            return false;
+        }
         if new_behavior != ElectionBehavior::Priority {
             // Only upgrades to priority elections are allowed to enable immediate vote broadcasting!
             return false;

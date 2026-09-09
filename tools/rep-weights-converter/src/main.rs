@@ -34,5 +34,6 @@ fn deserialize_bootstrap_weights(mut buffer: &[u8]) -> BootstrapWeights {
     BootstrapWeights {
         max_blocks,
         weights,
+        fixed: false,
     }
 }

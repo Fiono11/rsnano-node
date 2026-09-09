@@ -1,0 +1,38 @@
+{
+  "basis": "PR0 local election insertion to first termination or finalization in the root canonical epoch; before performance cutoff. Termination includes block or timeout notarization.",
+  "counts": {
+    "nonforked": 14243,
+    "nonforked_finalized": 14142,
+    "forked": 757,
+    "forked_block_notarized_only": 741,
+    "forked_finalized": 5,
+    "nonforked_block_notarized_only": 101,
+    "forked_timeout_only": 11
+  },
+  "averages": {
+    "nonforked/termination": {
+      "samples": 14243,
+      "mean_ms": 978.2638331110019
+    },
+    "nonforked/finalization": {
+      "samples": 14142,
+      "mean_ms": 1219.3966726064207
+    },
+    "nonforked/canonical_outcome": {
+      "samples": 14243,
+      "mean_ms": 1225.3622128062907
+    },
+    "forked/termination": {
+      "samples": 757,
+      "mean_ms": 1824.5858665785997
+    },
+    "forked/canonical_outcome": {
+      "samples": 757,
+      "mean_ms": 1834.6480990752973
+    },
+    "forked/finalization": {
+      "samples": 5,
+      "mean_ms": 4511.0448
+    }
+  }
+}

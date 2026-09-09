@@ -501,25 +501,26 @@ impl SharedState {
         let mut candidates: Vec<_> = self
             .kudzu_candidates(hashes, roots)
             .into_iter()
-            .map(|(hash, root, qualified)| (hash, root, qualified, false, false))
+            .map(|(hash, root, qualified)| (hash, root, qualified, false, false, false))
             .collect();
-        let needs_evidence = self.is_final || {
-            let state = self.vote_state.lock().unwrap();
-            candidates.iter().any(|(hash, _, root, _, _)| {
-                rep_keys
+        if let Some(aec) = aec {
+            let eligibility = aec.kudzu_eligibilities(
+                candidates
                     .iter()
-                    .any(|key| state.needs_second_look(root, key.public_key(), *hash))
-            })
-        };
-        if needs_evidence {
-            if let Some(aec) = aec {
-                let eligibility =
-                    aec.kudzu_eligibilities(candidates.iter().map(|(hash, _, root, _, _)| {
-                        (ElectionId::new(root.clone(), epoch), *hash)
-                    }));
-                for (candidate, (second, notar)) in candidates.iter_mut().zip(eligibility) {
-                    candidate.3 = second;
-                    candidate.4 = notar;
+                    .map(|(hash, _, root, _, _, _)| (ElectionId::new(root.clone(), epoch), *hash)),
+            );
+            for (candidate, (second, notar, timeout)) in candidates.iter_mut().zip(eligibility) {
+                candidate.3 = second;
+                candidate.4 = notar;
+                candidate.5 = timeout;
+            }
+        }
+        // Cementation is also a finalization justification (including implicit
+        // finalization). Recover final replies only in its recorded epoch.
+        if self.is_final {
+            for (hash, _, _, _, notar, _) in &mut candidates {
+                if !*notar && self.ledger.confirmation_epoch(hash) == Some(epoch) {
+                    *notar = true;
                 }
             }
         }
@@ -532,8 +533,20 @@ impl SharedState {
                 let mut state = self.vote_state.lock().unwrap();
                 if self.is_final {
                     let tx = self.ledger.store.begin_read();
-                    for (hash, root, qualified, second, notar) in &candidates {
+                    for (hash, root, qualified, second, notar, timeout) in &candidates {
                         let lock = self.ledger.store.final_vote.get(&tx, qualified);
+                        if let Some(kind) = state.authorize_timeout(
+                            qualified,
+                            key.public_key(),
+                            *hash,
+                            epoch,
+                            *timeout,
+                            lock,
+                        ) {
+                            let group = groups.entry(kind).or_default();
+                            group.0.push(*hash);
+                            group.1.push(*root);
+                        }
                         if *second {
                             if let Some(first) = state.first_value(qualified, key.public_key()) {
                                 if first != *hash
@@ -598,8 +611,20 @@ impl SharedState {
                     drop(tx);
                 } else {
                     let tx = self.ledger.store.begin_read();
-                    for (hash, root, qualified, second, notar) in &candidates {
+                    for (hash, root, qualified, second, notar, timeout) in &candidates {
                         let lock = self.ledger.store.final_vote.get(&tx, qualified);
+                        if let Some(kind) = state.authorize_timeout(
+                            qualified,
+                            key.public_key(),
+                            *hash,
+                            epoch,
+                            *timeout,
+                            lock,
+                        ) {
+                            let group = groups.entry(kind).or_default();
+                            group.0.push(*hash);
+                            group.1.push(*root);
+                        }
                         if *second {
                             if let Some(first) = state.first_value(qualified, key.public_key()) {
                                 if first != *hash
@@ -656,7 +681,12 @@ impl SharedState {
                 }
             };
             // First/notarization recovery is independent of final-lock I/O.
-            for kind in [VoteKind::First, VoteKind::Notarize] {
+            for kind in [
+                VoteKind::FirstTimeout,
+                VoteKind::First,
+                VoteKind::Notarize,
+                VoteKind::Timeout,
+            ] {
                 if let Some((hashes, roots)) = groups.remove(&kind) {
                     emit(kind, hashes, roots);
                 }
@@ -907,7 +937,7 @@ mod fork_recovery_tests {
         assert_eq!(votes.len(), 2);
         assert_eq!(
             (votes[0].kind(), votes[0].hashes.clone()),
-            (VoteKind::First, vec![a.hash()])
+            (VoteKind::FirstTimeout, vec![a.hash()])
         );
         assert_eq!(
             (votes[1].kind(), votes[1].hashes.clone()),

@@ -63,7 +63,8 @@ impl ConfirmationSolicitor {
             #[cfg(not(feature = "rai_protocol"))]
             let needs_vote = existing_vote.is_none() || !is_final || different_hash;
             #[cfg(feature = "rai_protocol")]
-            let needs_vote = election.needs_kudzu_vote(&rep.rep_key);
+            // A terminated election still needs peers' other notarization certificates.
+            let needs_vote = election.has_quorum() || election.needs_kudzu_vote(&rep.rep_key);
             if needs_vote {
                 if let Some(rep_channel) = self.message_flooder.channel(rep.channel_id) {
                     let should_drop = rep_channel.should_drop(TrafficType::ConfirmationRequests);

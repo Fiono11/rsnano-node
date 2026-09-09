@@ -36,6 +36,20 @@ impl AecService {
         self.aec.write().unwrap().take_notarization_notifications()
     }
 
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn take_certificate_votes(&self) -> Vec<std::sync::Arc<rsnano_types::Vote>> {
+        self.aec.write().unwrap().take_certificate_votes()
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn recovery_evidence(
+        &self,
+        requests: &[(BlockHash, rsnano_types::Root)],
+        epoch: u64,
+    ) -> (Vec<Block>, Vec<std::sync::Arc<rsnano_types::Vote>>) {
+        self.aec.read().unwrap().recovery_evidence(requests, epoch)
+    }
+
     pub fn new(config: ActiveElectionsConfig, base_latency: Duration) -> Self {
         Self {
             aec: RwLock::new(ActiveElectionsContainer::new(config, base_latency)),
@@ -71,7 +85,7 @@ impl AecService {
     pub(crate) fn kudzu_eligibilities(
         &self,
         candidates: impl IntoIterator<Item = (rsnano_types::ElectionId, BlockHash)>,
-    ) -> Vec<(bool, bool)> {
+    ) -> Vec<(bool, bool, bool)> {
         let aec = self.aec.read().unwrap();
         candidates
             .into_iter()
@@ -81,6 +95,7 @@ impl AecService {
                         (
                             e.can_notarize(&hash),
                             e.has_kudzu_certificate(hash, rsnano_types::VoteKind::Notarize),
+                            e.should_timeout(),
                         )
                     })
                     .unwrap_or_default()

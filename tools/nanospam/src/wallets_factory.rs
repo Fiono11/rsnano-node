@@ -22,6 +22,7 @@ pub(crate) async fn create_wallets(
     let mut genesis_wallet = WalletId::ZERO;
     let genesis_key = genesis_key();
     let pr_count = rpc_clients.len();
+    let mut wallets = Vec::new();
     for (i, rpc_client) in rpc_clients.iter().enumerate() {
         info!("Creating wallet...");
         let resp = rpc_client.wallet_create(None).await.unwrap();
@@ -48,49 +49,51 @@ pub(crate) async fn create_wallets(
             .await
             .unwrap();
 
-        // the first rpc client is the genesis client
-        if i > 0 {
-            let pr_balance = (Amount::MAX - INITIAL_AMOUNT) / pr_count as u128;
-            info!(
-                "Sending Ӿ{} to PR{i} wallet {} ...",
-                pr_balance.format_balance(0),
-                pr_key.account().encode_account()
-            );
-            let send_hash = genesis_rpc
-                .send(SendArgs {
-                    wallet: genesis_wallet,
-                    source: genesis_key.account(),
-                    destination: pr_key.account(),
-                    amount: pr_balance,
-                    work: Some(WorkNonce::new(0)),
-                    id: None,
-                })
-                .await
-                .unwrap()
-                .block;
-            wait_until_confirmed(rpc_client, send_hash).await;
+        wallets.push(resp.wallet);
+    }
 
-            info!("Receiving...");
-            // trigger wallet receive to speed things up
-            let _ = rpc_client
-                .receive(ReceiveArgs {
-                    wallet: resp.wallet,
-                    account: pr_key.account(),
-                    block: send_hash,
-                    work: Some(WorkNonce::new(0)),
-                })
-                .await;
-            let recv_hash = rpc_client
-                .account_info(pr_key.account())
-                .await
-                .unwrap()
-                .frontier;
-            wait_until_confirmed(rpc_client, recv_hash).await;
-            info!("DONE");
-            info!(
-                "********************************************************************************"
-            );
-        }
+    // Install every committee key before funding: the fixed quorum also applies
+    // to setup elections, so all representatives must already be able to vote.
+    for (i, rpc_client) in rpc_clients.iter().enumerate().skip(1) {
+        let pr_key = pr_key(i);
+        let pr_balance = (Amount::MAX - INITIAL_AMOUNT) / pr_count as u128;
+        info!(
+            "Sending Ӿ{} to PR{i} wallet {} ...",
+            pr_balance.format_balance(0),
+            pr_key.account().encode_account()
+        );
+        let send_hash = genesis_rpc
+            .send(SendArgs {
+                wallet: genesis_wallet,
+                source: genesis_key.account(),
+                destination: pr_key.account(),
+                amount: pr_balance,
+                work: Some(WorkNonce::new(0)),
+                id: None,
+            })
+            .await
+            .unwrap()
+            .block;
+        wait_until_confirmed(rpc_client, send_hash).await;
+
+        info!("Receiving...");
+        // trigger wallet receive to speed things up
+        let _ = rpc_client
+            .receive(ReceiveArgs {
+                wallet: wallets[i],
+                account: pr_key.account(),
+                block: send_hash,
+                work: Some(WorkNonce::new(0)),
+            })
+            .await;
+        let recv_hash = rpc_client
+            .account_info(pr_key.account())
+            .await
+            .unwrap()
+            .frontier;
+        wait_until_confirmed(rpc_client, recv_hash).await;
+        info!("DONE");
+        info!("********************************************************************************");
     }
 
     info!("Sending initial spam amount...");

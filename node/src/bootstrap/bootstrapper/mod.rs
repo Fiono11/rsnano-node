@@ -419,6 +419,7 @@ impl Bootstrapper {
 
     pub fn is_bootstrapping(&self) -> bool {
         self.ledger.rep_weights.use_bootstrap_weights()
+            && !self.ledger.rep_weights.has_fixed_weights()
     }
 }
 
