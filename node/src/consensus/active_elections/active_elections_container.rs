@@ -50,9 +50,7 @@ pub(crate) struct ActiveElectionsContainer {
     #[cfg(feature = "rai_protocol")]
     notarization_notifications: super::notarization_notifications::NotarizationNotifications,
     #[cfg(feature = "rai_protocol")]
-    certificate_votes: std::collections::VecDeque<std::sync::Arc<rsnano_types::Vote>>,
-    #[cfg(feature = "rai_protocol")]
-    relayed_certificates: std::collections::HashSet<rsnano_types::Signature>,
+    pub block_tree: crate::consensus::RaiBlockTree,
     roots: RootContainer,
     observer: Option<Sender<AecFact>>,
     stopped: bool,
@@ -114,12 +112,6 @@ impl ActiveElectionsContainer {
         self.notarization_notifications.take()
     }
 
-    #[cfg(feature = "rai_protocol")]
-    pub fn take_certificate_votes(&mut self) -> Vec<std::sync::Arc<rsnano_types::Vote>> {
-        let count = self.certificate_votes.len().min(1024);
-        self.certificate_votes.drain(..count).collect()
-    }
-
     pub fn new(config: ActiveElectionsConfig, base_latency: Duration) -> Self {
         Self {
             #[cfg(feature = "rai_protocol")]
@@ -139,9 +131,7 @@ impl ActiveElectionsContainer {
                 config.confirmation_cache,
             ),
             #[cfg(feature = "rai_protocol")]
-            certificate_votes: Default::default(),
-            #[cfg(feature = "rai_protocol")]
-            relayed_certificates: Default::default(),
+            block_tree: Default::default(),
             roots: RootContainer::new(config.max_elections),
             observer: None,
             stopped: false,
@@ -580,6 +570,17 @@ impl ActiveElectionsContainer {
                 confirmed_block.hash(),
                 confirmed_election.epoch,
             );
+            #[cfg(feature = "rai_protocol")]
+            {
+                let mut entry = rsnano_types::RaiBlockTreeEntry::notarized(
+                    confirmed_block.clone().into(),
+                    confirmed_election.epoch,
+                );
+                entry.finalized = true;
+                self.block_tree
+                    .insert(entry)
+                    .expect("conflicting cemented outcome");
+            }
             self.block_confirmed(confirmed_block, confirmed_election);
         }
     }
@@ -683,76 +684,48 @@ impl ActiveElectionsContainer {
 
     /// Repair using ordinary publish/confirm_ack messages. Signed votes retain their epoch.
     #[cfg(feature = "rai_protocol")]
-    pub(crate) fn recovery_evidence(
+    pub(crate) fn recovery_entries(
         &self,
         requests: &[(BlockHash, rsnano_types::Root)],
         epoch: u64,
-    ) -> (Vec<Block>, Vec<std::sync::Arc<rsnano_types::Vote>>) {
-        use rsnano_types::VoteKind;
-        let mut blocks = HashMap::new();
-        let mut votes = HashMap::new();
+    ) -> Vec<rsnano_types::RaiBlockTreeEntry> {
+        let mut result = std::collections::BTreeMap::new();
         for (hash, root) in requests {
             let qualified = self
                 .roots
                 .election_for_block(hash)
                 .filter(|e| e.winner().root() == *root)
                 .map(|e| e.qualified_root().clone())
-                .or_else(|| {
-                    self.roots
-                        .election_for_root(&QualifiedRoot::new(*root, BlockHash::ZERO))
-                        .map(|e| e.qualified_root().clone())
-                })
                 .unwrap_or_else(|| QualifiedRoot::new(*root, (*root).into()));
-            let ids = self.roots.ids_for_root(&qualified);
-            let canonical = ids
+            let mut entries = self.block_tree.for_root(&qualified);
+            if entries.is_empty() {
+                entries = self
+                    .block_tree
+                    .for_root(&QualifiedRoot::new(*root, BlockHash::ZERO));
+            }
+            let canonical = entries
                 .iter()
-                .filter_map(|id| {
-                    let e = &self.roots.get_id(id)?.election;
-                    if e.is_confirmed() {
-                        Some((0, id.epoch))
-                    } else if e
-                        .candidate_blocks()
-                        .keys()
-                        .any(|h| e.has_kudzu_certificate(*h, VoteKind::Notarize))
-                    {
-                        Some((1, id.epoch))
-                    } else if e.is_timed_out() {
-                        Some((2, id.epoch))
-                    } else {
-                        None
-                    }
+                .map(|e| {
+                    (
+                        if e.finalized {
+                            0
+                        } else if e.block.is_some() {
+                            1
+                        } else {
+                            2
+                        },
+                        e.epoch,
+                    )
                 })
                 .min()
-                .map(|(_, epoch)| epoch);
-            for id in ids {
-                if id.epoch != epoch && Some(id.epoch) != canonical {
-                    continue;
-                }
-                let e = &self.roots.get_id(&id).unwrap().election;
-                for (hash, block) in e.candidate_blocks() {
-                    if e.is_confirmed() && *hash != e.winner().hash() {
-                        continue;
-                    }
-                    let kinds = if e.is_confirmed() {
-                        &[VoteKind::First, VoteKind::Final][..]
-                    } else {
-                        &[VoteKind::Notarize, VoteKind::Timeout][..]
-                    };
-                    for kind in kinds {
-                        if let Some(cert) = e.kudzu_certificate(*hash, *kind) {
-                            blocks.insert(*hash, block.clone().into());
-                            for vote in cert.votes {
-                                votes.insert(vote.signature.clone(), vote);
-                            }
-                        }
-                    }
+                .map(|(_, e)| e);
+            for entry in entries {
+                if entry.epoch == epoch || Some(entry.epoch) == canonical {
+                    result.insert((entry.root.clone(), entry.epoch, entry.hash()), entry);
                 }
             }
         }
-        (
-            blocks.into_values().collect(),
-            votes.into_values().collect(),
-        )
+        result.into_values().collect()
     }
 
     pub fn apply_vote<'a>(
@@ -844,12 +817,10 @@ impl ActiveElectionsContainer {
         };
         let result = apply_helper.apply_vote();
         #[cfg(feature = "rai_protocol")]
-        for vote in result.certificate_votes {
-            // One signed batch may certify many elections. Relay the batch once,
-            // rather than once per candidate/certificate that it supports.
-            if self.relayed_certificates.insert(vote.signature.clone()) {
-                self.certificate_votes.push_back(vote);
-            }
+        for entry in result.tree_entries {
+            self.block_tree
+                .insert(entry)
+                .expect("Conflicting locally established outcomes");
         }
         #[cfg(feature = "rai_protocol")]
         for item in result.notarization_ready {
@@ -1365,29 +1336,11 @@ mod notarized_admission_tests {
         assert!(e.is_timed_out());
         assert!(!e.is_confirmed());
         assert_eq!(aec.vacancy(), capacity);
-        let (blocks, votes) = aec.recovery_evidence(&[(block.hash(), block.root())], 1);
-        assert_eq!(blocks.len(), 1);
-        assert_eq!(votes.len(), 4);
-        assert!(votes.iter().all(
-            |v| v.epoch == 0 && matches!(v.kind(), VoteKind::Timeout | VoteKind::FirstTimeout)
-        ));
-        let mut recovered = Election::new_test_instance_with(block.clone());
-        let weights = (1..=6)
-            .map(|rep| {
-                (
-                    rsnano_types::PrivateKey::from(rep).public_key(),
-                    Amount::raw(100),
-                )
-            })
-            .collect();
-        for vote in votes {
-            recovered
-                .add_kudzu_vote(vote, block.hash(), Timestamp::new_test_instance())
-                .unwrap();
-        }
-        recovered.update_kudzu_tallies(&weights, Amount::raw(600));
-        assert!(recovered.is_timed_out());
-        assert!(!recovered.is_confirmed());
+        let entries = aec.recovery_entries(&[(block.hash(), block.root())], 1);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].epoch, 0);
+        assert!(entries[0].block.is_none());
+        assert!(!entries[0].finalized);
     }
 
     #[test]
@@ -1514,15 +1467,14 @@ mod notarized_admission_tests {
         assert!(election.has_kudzu_certificate(block.hash(), VoteKind::Notarize));
         assert!(election.has_kudzu_certificate(fork.hash(), VoteKind::Notarize));
         assert!(!election.is_confirmed());
-        let (blocks, votes) = aec.recovery_evidence(&[(block.hash(), block.root())], 1);
-        assert_eq!(
-            blocks.len(),
-            2,
-            "Later requests recover the canonical older certificates"
+        let entries = aec.recovery_entries(&[(block.hash(), block.root())], 1);
+        assert_eq!(entries.len(), 2, "Recover both canonical notarized forks");
+        assert!(entries.iter().any(|entry| entry.hash() == fork.hash()));
+        assert!(
+            entries
+                .iter()
+                .all(|entry| entry.epoch == 0 && !entry.finalized)
         );
-        assert!(blocks.iter().any(|b| b.hash() == fork.hash()));
-        assert!(votes.iter().all(|v| v.epoch == 0));
-        assert!(votes.iter().any(|v| v.hashes.contains(&fork.hash())));
         aec.transition_time(Timestamp::new_test_instance() + Duration::from_secs(600));
         assert_eq!(aec.len(), 1);
     }

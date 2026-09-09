@@ -10,4 +10,4 @@ pub use election_state::*;
 #[cfg(feature = "rai_protocol")]
 mod kudzu;
 #[cfg(feature = "rai_protocol")]
-pub use kudzu::{KudzuCertificate, KudzuThresholds};
+pub use kudzu::KudzuThresholds;

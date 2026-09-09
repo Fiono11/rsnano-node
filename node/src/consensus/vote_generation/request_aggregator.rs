@@ -50,7 +50,7 @@ pub struct RequestAggregator {
     ledger: Arc<Ledger>,
     message_sender: Arc<Mutex<MessageSender>>,
     #[cfg(feature = "rai_protocol")]
-    proof_replies: Arc<Mutex<ProofReplyCache>>,
+    recovery_replies: Arc<Mutex<RecoveryReplyCache>>,
     state: Arc<Mutex<RequestAggregatorState>>,
     condition: Arc<Condvar>,
     threads: Mutex<Vec<JoinHandle<()>>>,
@@ -71,7 +71,7 @@ impl RequestAggregator {
             ledger,
             message_sender: Arc::new(Mutex::new(message_sender)),
             #[cfg(feature = "rai_protocol")]
-            proof_replies: Arc::new(Mutex::new(ProofReplyCache::default())),
+            recovery_replies: Arc::new(Mutex::new(RecoveryReplyCache::default())),
             config,
             condition: Arc::new(Condvar::new()),
             state: Arc::new(Mutex::new(RequestAggregatorState {
@@ -103,7 +103,7 @@ impl RequestAggregator {
                 ledger: self.ledger.clone(),
                 message_sender: self.message_sender.clone(),
                 #[cfg(feature = "rai_protocol")]
-                proof_replies: self.proof_replies.clone(),
+                recovery_replies: self.recovery_replies.clone(),
                 vote_generators: self.vote_generators.clone(),
             };
 
@@ -229,7 +229,7 @@ struct RequestAggregatorLoop {
     ledger: Arc<Ledger>,
     message_sender: Arc<Mutex<MessageSender>>,
     #[cfg(feature = "rai_protocol")]
-    proof_replies: Arc<Mutex<ProofReplyCache>>,
+    recovery_replies: Arc<Mutex<RecoveryReplyCache>>,
     vote_generators: Arc<VoteGenerators>,
 }
 
@@ -284,12 +284,15 @@ impl RequestAggregatorLoop {
             use rsnano_messages::{ConfirmAck, Message, Publish};
             let (blocks, votes) = self
                 .vote_generators
-                .recovery_evidence(&request.roots_hashes, request.epoch);
+                .recovery_reply(&request.roots_hashes, request.epoch);
             let mut sender = self.message_sender.lock().unwrap();
-            let mut replies = self.proof_replies.lock().unwrap();
+            let mut replies = self.recovery_replies.lock().unwrap();
             let now = std::time::Instant::now();
             for block in blocks {
-                let key = (request.channel.channel_id(), ProofId::Block(block.hash()));
+                let key = (
+                    request.channel.channel_id(),
+                    RecoveryReplyId::Block(block.hash()),
+                );
                 if !replies.should_send(&key, now) {
                     continue;
                 }
@@ -305,14 +308,14 @@ impl RequestAggregatorLoop {
             for vote in votes {
                 let key = (
                     request.channel.channel_id(),
-                    ProofId::Vote(vote.signature.clone()),
+                    RecoveryReplyId::Vote(vote.signature.clone()),
                 );
                 if !replies.should_send(&key, now) {
                     continue;
                 }
                 let sent = sender.try_send(
                     &request.channel,
-                    &Message::ConfirmAck(ConfirmAck::new_with_rebroadcasted_vote((*vote).clone())),
+                    &Message::ConfirmAck(ConfirmAck::new_with_own_vote((*vote).clone())),
                     TrafficType::VoteReply,
                 );
                 if sent {
@@ -382,7 +385,7 @@ impl RequestAggregatorLoop {
 
 #[cfg(feature = "rai_protocol")]
 #[derive(Clone, PartialEq, Eq, Hash)]
-enum ProofId {
+enum RecoveryReplyId {
     Block(BlockHash),
     Vote(rsnano_types::Signature),
 }
@@ -391,14 +394,14 @@ enum ProofId {
 /// across request batches and workers, while leaving ordinary vote replies intact.
 #[cfg(feature = "rai_protocol")]
 #[derive(Default)]
-struct ProofReplyCache {
-    sent: std::collections::HashMap<(ChannelId, ProofId), std::time::Instant>,
+struct RecoveryReplyCache {
+    sent: std::collections::HashMap<(ChannelId, RecoveryReplyId), std::time::Instant>,
     last_prune: Option<std::time::Instant>,
 }
 
 #[cfg(feature = "rai_protocol")]
-impl ProofReplyCache {
-    fn should_send(&mut self, key: &(ChannelId, ProofId), now: std::time::Instant) -> bool {
+impl RecoveryReplyCache {
+    fn should_send(&mut self, key: &(ChannelId, RecoveryReplyId), now: std::time::Instant) -> bool {
         let interval = std::time::Duration::from_secs(5);
         if self
             .last_prune
@@ -418,9 +421,12 @@ impl ProofReplyCache {
 #[cfg(all(test, feature = "rai_protocol"))]
 #[test]
 fn proof_reply_retries_after_interval_and_does_not_suppress_other_peers() {
-    let mut cache = ProofReplyCache::default();
+    let mut cache = RecoveryReplyCache::default();
     let now = std::time::Instant::now();
-    let key = (ChannelId::from(1), ProofId::Block(BlockHash::from(1)));
+    let key = (
+        ChannelId::from(1),
+        RecoveryReplyId::Block(BlockHash::from(1)),
+    );
     assert!(cache.should_send(&key, now));
     // A failed send is not recorded, so it can be retried immediately.
     assert!(cache.should_send(&key, now));

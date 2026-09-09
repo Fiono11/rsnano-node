@@ -1,0 +1,118 @@
+{
+  "returncode": 0,
+  "watchdog_timeout": false,
+  "elapsed": 77.55704420799884,
+  "BENCHMARK_RESULT": {
+    "confirmed_forks": 0,
+    "confirmed_nonforks": 4756,
+    "average_fork_confirmation_ms": null,
+    "average_nonfork_confirmation_ms": 88.55848808074012,
+    "rai_protocol": true,
+    "epoch_length": 2500,
+    "prs": 6,
+    "accounts": 5000,
+    "created_blocks": 5000,
+    "published_blocks": 5000,
+    "confirmed_blocks": 4756,
+    "duration_seconds": 60.022216041,
+    "confirmation_rate_cps": 79.23732767132873,
+    "average_confirmation_ms": 88.55848808074012
+  },
+  "PERFORMANCE_WINDOW_TERMINATION_RESULT": {
+    "success": true,
+    "workload_roots": 5000,
+    "pending_roots": 0,
+    "timeout_roots": 0,
+    "all_workload_terminated": true,
+    "failed_roots": 0,
+    "conflicting_finalization_roots": 0,
+    "conflicting_timeout_finalization_roots": 0,
+    "examples": []
+  },
+  "TERMINATION_RESULT": {
+    "success": true,
+    "workload_roots": 5000,
+    "pending_roots": 0,
+    "timeout_roots": 0,
+    "all_workload_terminated": true,
+    "failed_roots": 0,
+    "conflicting_finalization_roots": 0,
+    "conflicting_timeout_finalization_roots": 0,
+    "examples": []
+  },
+  "CANONICAL_AGREEMENT_RESULT": {
+    "success": true,
+    "additional_observation_seconds": 0.0,
+    "performance_cutoff": 1788986175465064000,
+    "agreement_cutoff": 1788986175465064000
+  },
+  "ELECTION_RESULT": [
+    {
+      "pr": 0,
+      "terminated": 5120,
+      "timeout_notarized": 132,
+      "notarized": 5000,
+      "notarized_not_finalized": 244,
+      "finalized": 4756,
+      "fast": 4737,
+      "nonfast_explicit": 19,
+      "implicit": 0
+    },
+    {
+      "pr": 1,
+      "terminated": 5120,
+      "timeout_notarized": 133,
+      "notarized": 5000,
+      "notarized_not_finalized": 244,
+      "finalized": 4756,
+      "fast": 4740,
+      "nonfast_explicit": 16,
+      "implicit": 0
+    },
+    {
+      "pr": 2,
+      "terminated": 5120,
+      "timeout_notarized": 134,
+      "notarized": 5000,
+      "notarized_not_finalized": 244,
+      "finalized": 4756,
+      "fast": 4740,
+      "nonfast_explicit": 16,
+      "implicit": 0
+    },
+    {
+      "pr": 3,
+      "terminated": 5120,
+      "timeout_notarized": 128,
+      "notarized": 5000,
+      "notarized_not_finalized": 244,
+      "finalized": 4756,
+      "fast": 4744,
+      "nonfast_explicit": 12,
+      "implicit": 0
+    },
+    {
+      "pr": 4,
+      "terminated": 5120,
+      "timeout_notarized": 132,
+      "notarized": 5000,
+      "notarized_not_finalized": 244,
+      "finalized": 4756,
+      "fast": 4748,
+      "nonfast_explicit": 8,
+      "implicit": 0
+    },
+    {
+      "pr": 5,
+      "terminated": 5120,
+      "timeout_notarized": 132,
+      "notarized": 5000,
+      "notarized_not_finalized": 244,
+      "finalized": 4756,
+      "fast": 4748,
+      "nonfast_explicit": 8,
+      "implicit": 0
+    }
+  ],
+  "strict_pass": true
+}

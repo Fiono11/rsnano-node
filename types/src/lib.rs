@@ -670,3 +670,8 @@ mod tests {
 
 mod election_id;
 pub use election_id::*;
+
+#[cfg(feature = "rai_protocol")]
+mod rai_block_tree;
+#[cfg(feature = "rai_protocol")]
+pub use rai_block_tree::*;

@@ -239,14 +239,21 @@ impl NanoSpamApp {
         let mut cutoff = cutoff;
         let mut observations = vec![Vec::new(); self.rpc_clients.len()];
         let mut diagnostics = vec![serde_json::Value::Null; self.rpc_clients.len()];
-        collect_audits(&self.rpc_clients, &mut observations, &mut diagnostics).await?;
+        if !cfg!(feature = "rai_protocol") || self.args.audit_output.is_some() {
+            collect_audits(&self.rpc_clients, &mut observations, &mut diagnostics).await?;
+        }
         let mut agreement = crate::termination_check::check(
             &workload_roots,
             &observations,
             cutoff,
             cfg!(feature = "rai_protocol"),
         );
-        info!("PERFORMANCE_WINDOW_TERMINATION_RESULT {agreement}");
+        if !cfg!(feature = "rai_protocol") || self.args.audit_output.is_some() {
+            info!("PERFORMANCE_WINDOW_TERMINATION_RESULT {agreement}");
+        }
+        if cfg!(feature = "rai_protocol") {
+            agreement = check_block_trees(&self.rpc_clients, &workload_roots).await?;
+        }
         let mut stable = if agreement["success"] == true { 3 } else { 0 };
         let observation_started = Instant::now();
         // Passive observation only: the nodes' existing vote/request mechanisms
@@ -261,9 +268,10 @@ impl NanoSpamApp {
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_nanos() as u64;
-            collect_audits(&self.rpc_clients, &mut observations, &mut diagnostics).await?;
-            agreement =
-                crate::termination_check::check(&workload_roots, &observations, cutoff, true);
+            if !cfg!(feature = "rai_protocol") || self.args.audit_output.is_some() {
+                collect_audits(&self.rpc_clients, &mut observations, &mut diagnostics).await?;
+            }
+            agreement = check_block_trees(&self.rpc_clients, &workload_roots).await?;
             stable = if agreement["success"] == true {
                 stable + 1
             } else {
@@ -293,7 +301,11 @@ impl NanoSpamApp {
             )?;
         }
         info!("TERMINATION_RESULT {agreement}");
-        for (pr, events) in observations.iter().enumerate() {
+        for (pr, events) in observations
+            .iter()
+            .enumerate()
+            .filter(|(_, events)| !events.is_empty())
+        {
             let ids = |kinds: &[u8]| {
                 events
                     .iter()
@@ -358,6 +370,46 @@ async fn verify_fixed_committee(clients: &[NanoRpcClient], phase: &str) -> anyho
         );
     }
     Ok(())
+}
+
+async fn check_block_trees(
+    clients: &[NanoRpcClient],
+    roots: &std::collections::HashSet<rsnano_types::QualifiedRoot>,
+) -> anyhow::Result<serde_json::Value> {
+    let mut downloads = JoinSet::new();
+    for client in clients {
+        let client = client.clone();
+        downloads.spawn(async move {
+            let response = client.block_tree().await?;
+            let events: Vec<crate::termination_check::Event> = serde_json::from_value(
+                response
+                    .block_tree
+                    .ok_or_else(|| anyhow::anyhow!("Missing block tree"))?,
+            )?;
+            let ledger = client.block_count().await?;
+            Ok::<_, anyhow::Error>((events, ledger))
+        });
+    }
+    let mut trees = Vec::new();
+    let mut ledgers = Vec::new();
+    while let Some(result) = downloads.join_next().await {
+        let (tree, ledger) = result??;
+        trees.push(tree);
+        ledgers.push(ledger);
+    }
+    let equal = ledgers.first().is_some_and(|first| {
+        first.confirmation_epochs.is_some()
+            && ledgers.iter().all(|ledger| {
+                ledger.cemented == first.cemented
+                    && ledger.confirmation_epochs == first.confirmation_epochs
+            })
+    });
+    let mut result = crate::termination_check::check(roots, &trees, u64::MAX, true);
+    result["finalized_ledgers_equal"] = equal.into();
+    if !equal {
+        result["success"] = false.into();
+    }
+    Ok(result)
 }
 
 async fn collect_audits(

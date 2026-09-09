@@ -56,11 +56,7 @@ fn final_before_first_supplies_notarization_and_preserves_final_summary() {
         )
         .unwrap();
     assert!(!election.has_quorum());
-    assert!(
-        election
-            .kudzu_certificate(hash, VoteKind::Notarize)
-            .is_none()
-    );
+    assert!(!election.has_kudzu_certificate(hash, VoteKind::Notarize));
     assert!(
         !solicitor.add(&election),
         "Final supplies this representative's notarization"
@@ -116,7 +112,7 @@ fn finalized_election_recovers_first_and_final_votes() {
 }
 
 #[test]
-fn request_recovers_all_notarized_forks_using_existing_messages() {
+fn nonvoting_peer_supplies_fork_blocks_without_relaying_other_representatives_votes() {
     use rsnano_ledger::RepWeights;
     use rsnano_node::{
         consensus::{
@@ -183,11 +179,11 @@ fn request_recovers_all_notarized_forks_using_existing_messages() {
         receiver
             .aec
             .election_for_block(&block.hash())
-            .is_some_and(|e| {
-                !e.is_confirmed()
-                    && [block.hash(), fork.hash()]
-                        .into_iter()
-                        .all(|h| e.has_kudzu_certificate(h, VoteKind::Notarize))
-            })
+            .is_some_and(|e| e.candidate_blocks().contains_key(&fork.hash()))
     });
+    let recovered = receiver.aec.election_for_block(&block.hash()).unwrap();
+    assert!(!recovered.is_confirmed());
+    for hash in [block.hash(), fork.hash()] {
+        assert!(!recovered.has_kudzu_certificate(hash, VoteKind::Notarize));
+    }
 }

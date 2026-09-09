@@ -39,25 +39,6 @@ impl<'a> ApplyVoteHelper<'a> {
                 #[cfg(feature = "rai_protocol")]
                 let was_confirmed = election.is_confirmed();
                 #[cfg(feature = "rai_protocol")]
-                let previous_certificates: Vec<_> = election
-                    .candidate_blocks()
-                    .keys()
-                    .flat_map(|hash| {
-                        [
-                            rsnano_types::VoteKind::Notarize,
-                            rsnano_types::VoteKind::First,
-                            rsnano_types::VoteKind::Final,
-                            rsnano_types::VoteKind::Timeout,
-                        ]
-                        .into_iter()
-                        .filter_map(|kind| {
-                            election
-                                .has_kudzu_certificate(*hash, kind)
-                                .then_some((*hash, kind))
-                        })
-                    })
-                    .collect();
-                #[cfg(feature = "rai_protocol")]
                 let was_ready = election.can_notarize(block_hash);
                 {
                     let mut apply_to_election = ApplyVoteToElectionHelper {
@@ -79,18 +60,26 @@ impl<'a> ApplyVoteHelper<'a> {
                 }
 
                 #[cfg(feature = "rai_protocol")]
-                for hash in election.candidate_blocks().keys() {
-                    for kind in [
-                        rsnano_types::VoteKind::Notarize,
-                        rsnano_types::VoteKind::First,
-                        rsnano_types::VoteKind::Final,
-                        rsnano_types::VoteKind::Timeout,
-                    ] {
-                        if !previous_certificates.contains(&(*hash, kind)) {
-                            if let Some(cert) = election.kudzu_certificate(*hash, kind) {
-                                result.certificate_votes.extend(cert.votes);
-                            }
+                {
+                    for (hash, block) in election.candidate_blocks() {
+                        if election.has_kudzu_certificate(*hash, rsnano_types::VoteKind::Notarize) {
+                            let mut entry = rsnano_types::RaiBlockTreeEntry::notarized(
+                                block.clone().into(),
+                                election.epoch,
+                            );
+                            entry.finalized =
+                                election.is_confirmed() && *hash == election.winner().hash();
+                            result.tree_entries.push(entry);
                         }
+                    }
+                    if election.is_timed_out() {
+                        result
+                            .tree_entries
+                            .push(rsnano_types::RaiBlockTreeEntry::timeout(
+                                election.qualified_root().clone(),
+                                election.epoch,
+                                election.winner().hash(),
+                            ));
                     }
                 }
                 if self.vote_counter.audit.enabled() {
@@ -189,7 +178,7 @@ impl<'a> ApplyVoteHelper<'a> {
 #[derive(Default)]
 pub(crate) struct ApplyVoteResult {
     #[cfg(feature = "rai_protocol")]
-    pub certificate_votes: Vec<std::sync::Arc<rsnano_types::Vote>>,
+    pub tree_entries: Vec<rsnano_types::RaiBlockTreeEntry>,
     pub per_block: HashMap<BlockHash, Result<(), VoteError>>,
     pub confirmed: Vec<Entry>,
     #[cfg(feature = "rai_protocol")]

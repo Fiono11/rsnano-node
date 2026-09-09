@@ -30,11 +30,11 @@ pub struct VoteGenerationEvent {
 
 pub struct VoteGenerators {
     #[cfg(feature = "rai_protocol")]
+    ledger: Arc<Ledger>,
+    #[cfg(feature = "rai_protocol")]
     vote_state: Arc<Mutex<super::kudzu_vote_state::KudzuVoteState>>,
     #[cfg(feature = "rai_protocol")]
     elections: Arc<std::sync::RwLock<std::sync::Weak<crate::consensus::AecService>>>,
-    #[cfg(feature = "rai_protocol")]
-    certificate_broadcaster: Arc<VoteBroadcaster>,
     non_final_vote_generator: VoteGenerator,
     final_vote_generator: VoteGenerator,
     vote_listener: OutputListenerMt<VoteGenerationEvent>,
@@ -44,11 +44,6 @@ pub struct VoteGenerators {
 }
 
 impl VoteGenerators {
-    #[cfg(feature = "rai_protocol")]
-    pub(crate) fn relay_certificate_vote(&self, vote: Arc<rsnano_types::Vote>) {
-        self.certificate_broadcaster.relay(vote);
-    }
-
     #[cfg(feature = "rai_protocol")]
     pub(crate) fn notify_notarizations(
         &self,
@@ -147,7 +142,7 @@ impl VoteGenerators {
         );
 
         let final_vote_generator = VoteGenerator::new(
-            ledger,
+            ledger.clone(),
             wallet_reps.clone(),
             history,
             true, //final
@@ -165,7 +160,7 @@ impl VoteGenerators {
 
         Self {
             #[cfg(feature = "rai_protocol")]
-            certificate_broadcaster: vote_broadcaster,
+            ledger,
             #[cfg(feature = "rai_protocol")]
             vote_state,
             #[cfg(feature = "rai_protocol")]
@@ -185,17 +180,107 @@ impl VoteGenerators {
     }
 
     #[cfg(feature = "rai_protocol")]
-    pub(crate) fn recovery_evidence(
+    pub(crate) fn recovery_entries(
         &self,
         requests: &[(BlockHash, rsnano_types::Root)],
         epoch: u64,
-    ) -> (Vec<rsnano_types::Block>, Vec<Arc<rsnano_types::Vote>>) {
+    ) -> Vec<rsnano_types::RaiBlockTreeEntry> {
         self.elections
             .read()
             .unwrap()
             .upgrade()
-            .map(|e| e.recovery_evidence(requests, epoch))
+            .map(|e| e.recovery_entries(requests, epoch))
             .unwrap_or_default()
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn recovery_reply(
+        &self,
+        requests: &[(BlockHash, Root)],
+        epoch: u64,
+    ) -> (Vec<rsnano_types::Block>, Vec<Arc<rsnano_types::Vote>>) {
+        let entries = self.recovery_entries(requests, epoch);
+        let mut keys = Vec::new();
+        self.wallet_reps.lock().unwrap().rep_priv_keys(&mut keys);
+        let tx = self.ledger.store.begin_read();
+        let mut state = self.vote_state.lock().unwrap();
+        let mut final_locks = Vec::new();
+        let mut blocks = Vec::new();
+        let mut groups = std::collections::BTreeMap::<_, Vec<BlockHash>>::new();
+        for entry in entries {
+            let final_lock = self.ledger.store.final_vote.get(&tx, &entry.root);
+            for (key_index, key) in keys.iter().enumerate() {
+                let statement = if entry.block.is_some() {
+                    state
+                        .authorize(
+                            &entry.root,
+                            key.public_key(),
+                            entry.hash(),
+                            entry.epoch,
+                            entry.finalized,
+                            true,
+                            true,
+                            final_lock,
+                        )
+                        .map(|kind| (kind, entry.hash()))
+                } else {
+                    state.timeout_statement(&entry.root, key.public_key(), entry.epoch)
+                };
+                if let Some((kind, hash)) = statement {
+                    if kind == rsnano_types::VoteKind::Final && final_lock.is_none() {
+                        final_locks.push((entry.root.clone(), hash));
+                    }
+                    groups
+                        .entry((key_index, entry.epoch, kind))
+                        .or_default()
+                        .push(hash);
+                }
+            }
+            if let Some(block) = entry.block {
+                blocks.push(block);
+            }
+        }
+        drop(state);
+        drop(tx);
+        if !final_locks.is_empty() {
+            let mut tx = self.ledger.store.begin_write();
+            for (root, hash) in final_locks {
+                assert!(self.ledger.store.final_vote.put(&mut tx, &root, &hash));
+            }
+            tx.commit();
+        }
+        // Existing vote messages route through a candidate hash. Supply those
+        // payloads for timeout replies too, without marking them notarized.
+        let timeout_hashes: Vec<_> = groups
+            .iter()
+            .filter(|((_, _, kind), _)| {
+                matches!(
+                    kind,
+                    rsnano_types::VoteKind::Timeout | rsnano_types::VoteKind::FirstTimeout
+                )
+            })
+            .flat_map(|(_, hashes)| hashes.iter().copied())
+            .collect();
+        if !timeout_hashes.is_empty() {
+            if let Some(aec) = self.elections.read().unwrap().upgrade() {
+                blocks.extend(aec.kudzu_candidates(&timeout_hashes).into_iter().flatten());
+            }
+        }
+        // Sign batched replies after releasing the shared signing reservation.
+        let mut votes = Vec::new();
+        for ((key_index, epoch, kind), mut hashes) in groups {
+            hashes.sort_unstable();
+            hashes.dedup();
+            for hashes in hashes.chunks(rsnano_messages::ConfirmAck::HASHES_MAX) {
+                votes.push(Arc::new(rsnano_types::Vote::new_with_kind(
+                    &keys[key_index],
+                    hashes.to_vec(),
+                    epoch,
+                    kind,
+                )));
+            }
+        }
+        (blocks, votes)
     }
 
     pub fn new_null() -> Self {

@@ -25,6 +25,38 @@ pub struct AecService {
 }
 
 impl AecService {
+    pub fn block_tree(&self) -> serde_json::Value {
+        #[cfg(feature = "rai_protocol")]
+        {
+            let aec = self.aec.read().unwrap();
+            // Compact outcomes, without block payloads or retained vote proofs.
+            serde_json::json!(
+                aec.block_tree
+                    .entries()
+                    .map(|e| (
+                        if e.block.is_none() {
+                            7u8
+                        } else if e.finalized {
+                            2
+                        } else {
+                            1
+                        },
+                        e.root.clone(),
+                        if e.block.is_some() {
+                            e.hash()
+                        } else {
+                            BlockHash::ZERO
+                        },
+                        e.epoch,
+                        0u64,
+                    ))
+                    .collect::<Vec<_>>()
+            )
+        }
+        #[cfg(not(feature = "rai_protocol"))]
+        serde_json::Value::Null
+    }
+
     pub fn termination_audit(&self, offset: usize) -> serde_json::Value {
         self.aec.read().unwrap().termination_audit(offset)
     }
@@ -37,17 +69,12 @@ impl AecService {
     }
 
     #[cfg(feature = "rai_protocol")]
-    pub(crate) fn take_certificate_votes(&self) -> Vec<std::sync::Arc<rsnano_types::Vote>> {
-        self.aec.write().unwrap().take_certificate_votes()
-    }
-
-    #[cfg(feature = "rai_protocol")]
-    pub(crate) fn recovery_evidence(
+    pub(crate) fn recovery_entries(
         &self,
         requests: &[(BlockHash, rsnano_types::Root)],
         epoch: u64,
-    ) -> (Vec<Block>, Vec<std::sync::Arc<rsnano_types::Vote>>) {
-        self.aec.read().unwrap().recovery_evidence(requests, epoch)
+    ) -> Vec<rsnano_types::RaiBlockTreeEntry> {
+        self.aec.read().unwrap().recovery_entries(requests, epoch)
     }
 
     pub fn new(config: ActiveElectionsConfig, base_latency: Duration) -> Self {

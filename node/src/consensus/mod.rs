@@ -49,3 +49,8 @@ pub use vote_processor::*;
 pub use vote_processor_queue::*;
 pub(crate) use vote_rebroadcast::*;
 pub(crate) use winner_block_broadcaster::*;
+
+#[cfg(feature = "rai_protocol")]
+mod block_tree;
+#[cfg(feature = "rai_protocol")]
+pub use block_tree::RaiBlockTree;

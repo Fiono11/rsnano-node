@@ -72,10 +72,6 @@ impl Tickable for AecVoter {
         #[cfg(feature = "rai_protocol")]
         self.vote_generators
             .notify_notarizations(self.aec.take_notarization_notifications());
-        #[cfg(feature = "rai_protocol")]
-        for vote in self.aec.take_certificate_votes() {
-            self.vote_generators.relay_certificate_vote(vote);
-        }
         let now = self.clock.now();
         let scheduler = &self.scheduler;
 

@@ -21,6 +21,24 @@ struct RootVotes {
 }
 
 impl KudzuVoteState {
+    /// Recreate only this representative's previous timeout statement. A routing
+    /// hash can differ between representatives; it carries no block weight.
+    pub fn timeout_statement(
+        &self,
+        root: &QualifiedRoot,
+        rep: PublicKey,
+        epoch: u64,
+    ) -> Option<(VoteKind, BlockHash)> {
+        self.roots
+            .get(&(root.clone(), rep))?
+            .statements
+            .iter()
+            .find(|(e, kind, _)| {
+                *e == epoch && matches!(kind, VoteKind::Timeout | VoteKind::FirstTimeout)
+            })
+            .map(|(_, kind, hash)| (*kind, *hash))
+    }
+
     /// A later timeout notarizes only the timeout outcome; it never changes FIRST.
     pub fn authorize_timeout(
         &mut self,
@@ -480,6 +498,43 @@ mod tests {
         assert_eq!(
             state.authorize(&root, rep, b, 1, false, false, false, Some(a)),
             None
+        );
+    }
+}
+
+#[cfg(test)]
+mod timeout_recovery_tests {
+    use super::*;
+
+    #[test]
+    fn recovery_preserves_timeout_kind_epoch_and_representative() {
+        let root = rsnano_types::SavedBlock::new_test_instance().qualified_root();
+        let rep = PublicKey::from(1);
+        let hash = BlockHash::from(2);
+        let mut state = KudzuVoteState::default();
+        assert_eq!(state.timeout_statement(&root, rep, 0), None);
+        assert_eq!(
+            state.authorize(&root, rep, hash, 0, false, false, false, None),
+            Some(VoteKind::First)
+        );
+        assert_eq!(state.timeout_statement(&root, rep, 0), None);
+        assert_eq!(
+            state.authorize_timeout(&root, rep, hash, 0, true, None),
+            Some(VoteKind::Timeout)
+        );
+        assert_eq!(
+            state.timeout_statement(&root, rep, 0),
+            Some((VoteKind::Timeout, hash))
+        );
+        assert_eq!(state.timeout_statement(&root, PublicKey::from(3), 0), None);
+        assert_eq!(state.timeout_statement(&root, rep, 1), None);
+        assert_eq!(
+            state.authorize(&root, rep, hash, 1, false, false, false, None),
+            Some(VoteKind::FirstTimeout)
+        );
+        assert_eq!(
+            state.timeout_statement(&root, rep, 1),
+            Some((VoteKind::FirstTimeout, hash))
         );
     }
 }

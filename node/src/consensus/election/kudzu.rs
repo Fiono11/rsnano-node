@@ -33,22 +33,12 @@ impl KudzuThresholds {
     }
 }
 
-/// A local certificate consists of distinct representatives' authenticated statements.
-/// These are collected from ordinary vote gossip, not a new certificate wire message.
-#[derive(Clone, Debug)]
-pub struct KudzuCertificate {
-    pub hash: BlockHash,
-    pub kind: VoteKind,
-    pub total_weight: Amount,
-    pub votes: Vec<Arc<Vote>>,
-}
-
 #[derive(Clone, Default)]
 pub(super) struct KudzuVotes {
-    first: HashMap<PublicKey, Arc<Vote>>,
-    notar: HashMap<(PublicKey, BlockHash), Arc<Vote>>,
-    final_votes: HashMap<PublicKey, Arc<Vote>>,
-    timeout_votes: HashMap<PublicKey, Arc<Vote>>,
+    first: HashMap<PublicKey, VoteKind>,
+    notar: HashMap<(PublicKey, BlockHash), VoteKind>,
+    final_votes: HashMap<PublicKey, VoteKind>,
+    timeout_votes: HashMap<PublicKey, VoteKind>,
     all_first_weight: Amount,
     timeout_weight: Amount,
     pub thresholds: Option<KudzuThresholds>,
@@ -69,7 +59,7 @@ impl KudzuVotes {
                 .map(|(rep, vote)| {
                     serde_json::json!({
                         "representative": rep,
-                        "kind": format!("{:?}", vote.kind()),
+                        "kind": format!("{:?}", vote),
                         "hash": self.first_hashes.get(rep),
                     })
                 })
@@ -84,8 +74,8 @@ impl KudzuVotes {
                 if self.first.contains_key(&rep) {
                     return Err(VoteError::Replay);
                 }
-                self.first.insert(rep, vote.clone());
-                self.timeout_votes.entry(rep).or_insert(vote);
+                self.first.insert(rep, vote.kind());
+                self.timeout_votes.entry(rep).or_insert(vote.kind());
             }
             VoteKind::Timeout => {
                 if self.timeout_votes.contains_key(&rep) {
@@ -93,7 +83,7 @@ impl KudzuVotes {
                 }
                 // May arrive before the signer's FIRST vote. Never overwrite it
                 // or manufacture FIRST participation from a later timeout.
-                self.timeout_votes.insert(rep, vote);
+                self.timeout_votes.insert(rep, vote.kind());
             }
             VoteKind::First => {
                 if self.first.contains_key(&rep) {
@@ -105,8 +95,8 @@ impl KudzuVotes {
                     return Err(VoteError::Ignored);
                 }
                 self.first_hashes.insert(rep, hash);
-                self.first.insert(rep, vote.clone());
-                self.notar.insert((rep, hash), vote);
+                self.first.insert(rep, vote.kind());
+                self.notar.insert((rep, hash), vote.kind());
             }
             VoteKind::Notarize => {
                 if self.notar.contains_key(&(rep, hash)) {
@@ -115,18 +105,16 @@ impl KudzuVotes {
                 if self.notar.keys().filter(|(r, _)| *r == rep).count() >= 3 {
                     return Err(VoteError::Ignored);
                 }
-                self.notar.insert((rep, hash), vote);
+                self.notar.insert((rep, hash), vote.kind());
             }
             VoteKind::Final => {
                 if self.final_votes.contains_key(&rep) {
                     return Err(VoteError::Replay);
                 }
                 // A final statement also supplies notarization weight, once per representative.
-                self.notar
-                    .entry((rep, hash))
-                    .or_insert_with(|| vote.clone());
+                self.notar.entry((rep, hash)).or_insert_with(|| vote.kind());
                 self.final_hashes.insert(rep, hash);
-                self.final_votes.insert(rep, vote);
+                self.final_votes.insert(rep, vote.kind());
             }
         }
         Ok(())
@@ -137,7 +125,7 @@ impl KudzuVotes {
         self.first_tallies.clear();
         self.notar_tallies.clear();
         self.final_tallies.clear();
-        let sum_weight = |votes: &HashMap<PublicKey, Arc<Vote>>| {
+        let sum_weight = |votes: &HashMap<PublicKey, VoteKind>| {
             Amount::raw(votes.keys().fold(0u128, |sum, rep| {
                 sum.saturating_add(weights.get(rep).copied().unwrap_or_default().number())
             }))
@@ -185,41 +173,6 @@ impl KudzuVotes {
             VoteKind::Timeout => return self.timeout_weight >= t.certificate,
         };
         tally.copied().unwrap_or_default() >= required
-    }
-
-    pub fn certificate(&self, hash: BlockHash, kind: VoteKind) -> Option<KudzuCertificate> {
-        if !self.has_certificate(hash, kind) {
-            return None;
-        }
-        let t = self.thresholds?;
-        let votes = match kind {
-            VoteKind::FirstTimeout => return None,
-            VoteKind::Timeout => self.timeout_votes.values().cloned().collect(),
-            VoteKind::First => self
-                .first
-                .iter()
-                .filter(|(r, _)| self.first_hashes.get(r) == Some(&hash))
-                .map(|(_, v)| v.clone())
-                .collect(),
-            VoteKind::Notarize => self
-                .notar
-                .iter()
-                .filter(|((_, h), _)| *h == hash)
-                .map(|(_, v)| v.clone())
-                .collect(),
-            VoteKind::Final => self
-                .final_votes
-                .iter()
-                .filter(|(r, _)| self.final_hashes[r] == hash)
-                .map(|(_, v)| v.clone())
-                .collect(),
-        };
-        Some(KudzuCertificate {
-            hash,
-            kind,
-            total_weight: t.total,
-            votes,
-        })
     }
 
     pub fn second_look(&self, hash: &BlockHash) -> bool {
@@ -315,8 +268,7 @@ mod tests {
         vote(&mut e, 4, a, VoteKind::FirstTimeout).unwrap();
         e.update_kudzu_tallies(&weights, Amount::raw(600));
         assert!(e.is_timed_out());
-        let cert = e.kudzu_certificate(a, VoteKind::Timeout).unwrap();
-        assert_eq!(cert.votes.len(), 4);
+        assert!(e.has_kudzu_certificate(a, VoteKind::Timeout));
         assert!(!e.has_quorum());
         assert!(!e.is_confirmed());
     }
@@ -381,10 +333,7 @@ mod tests {
         vote(&mut e, 2, a, VoteKind::First).unwrap();
         e.update_kudzu_tallies(&weights, Amount::raw(100));
         assert!(e.is_confirmed());
-        assert_eq!(
-            e.kudzu_certificate(a, VoteKind::First).unwrap().votes.len(),
-            2
-        );
+        assert_eq!(e.kudzu.first.len(), 2);
     }
 
     #[test]
@@ -396,7 +345,7 @@ mod tests {
         e.update_kudzu_tallies(&weights, Amount::raw(100));
         assert!(e.is_confirmed());
         assert!(e.has_quorum());
-        assert!(e.kudzu_certificate(a, VoteKind::First).is_none());
+        assert!(!e.has_kudzu_certificate(a, VoteKind::First));
         // Reordered first votes must still be accepted after final votes.
         vote(&mut e, 1, a, VoteKind::First).unwrap();
         e.update_kudzu_tallies(&weights, Amount::raw(100));
@@ -404,7 +353,7 @@ mod tests {
         vote(&mut e, 2, a, VoteKind::First).unwrap();
         e.update_kudzu_tallies(&weights, Amount::raw(100));
         assert!(e.is_confirmed());
-        assert!(e.kudzu_certificate(a, VoteKind::First).is_none());
+        assert!(!e.has_kudzu_certificate(a, VoteKind::First));
     }
 
     #[test]

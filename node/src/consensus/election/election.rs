@@ -232,15 +232,6 @@ impl Election {
     }
 
     #[cfg(feature = "rai_protocol")]
-    pub fn kudzu_certificate(
-        &self,
-        hash: BlockHash,
-        kind: rsnano_types::VoteKind,
-    ) -> Option<super::KudzuCertificate> {
-        self.kudzu.certificate(hash, kind)
-    }
-
-    #[cfg(feature = "rai_protocol")]
     pub fn update_kudzu_tallies(&mut self, weights: &FxHashMap<PublicKey, Amount>, total: Amount) {
         use rsnano_types::VoteKind;
         self.kudzu.tally(weights, total);
