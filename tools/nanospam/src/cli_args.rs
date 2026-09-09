@@ -14,6 +14,10 @@ pub(crate) struct CliArgs {
     #[arg(long, default_value_t = 0)]
     pub epoch_length: u64,
 
+    /// Override node vote batching delay in milliseconds for latency experiments
+    #[arg(long)]
+    pub vote_generator_delay_ms: Option<u64>,
+
     /// Isolated working directory for ledgers and generated accounts
     #[arg(long)]
     pub data_dir: Option<std::path::PathBuf>,

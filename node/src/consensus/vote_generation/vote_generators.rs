@@ -50,19 +50,37 @@ impl VoteGenerators {
     }
 
     #[cfg(feature = "rai_protocol")]
-    pub(crate) fn notify_notarization(&self, id: rsnano_types::ElectionId, hash: BlockHash) {
+    pub(crate) fn notify_notarizations(
+        &self,
+        notifications: Vec<(rsnano_types::ElectionId, BlockHash)>,
+    ) {
+        if notifications.is_empty() {
+            return;
+        }
+        // Loading wallet keys decrypts them and derives their public keys. Do it
+        // once per notification batch, not once for every election reaching the second-look threshold.
         let mut keys = Vec::new();
         self.wallet_reps.lock().unwrap().rep_priv_keys(&mut keys);
-        let needed = {
+        let needed: Vec<_> = {
             let state = self.vote_state.lock().unwrap();
             // Mixed local committees use periodic recovery: never accelerate a First replay.
-            !keys.is_empty()
-                && keys.iter().all(|key| {
-                    state.needs_second_look(&id.root, key.public_key(), hash, id.epoch)
-                        && !state.has_notarization(&id.root, key.public_key(), hash, id.epoch)
+            notifications
+                .into_iter()
+                .filter(|(id, hash)| {
+                    !keys.is_empty()
+                        && keys.iter().all(|key| {
+                            state.needs_second_look(&id.root, key.public_key(), *hash, id.epoch)
+                                && !state.has_notarization(
+                                    &id.root,
+                                    key.public_key(),
+                                    *hash,
+                                    id.epoch,
+                                )
+                        })
                 })
+                .collect()
         };
-        if needed {
+        for (id, hash) in needed {
             self.non_final_vote_generator
                 .add_in_epoch(&id.root.root, &hash, id.epoch);
         }

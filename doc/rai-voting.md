@@ -171,3 +171,33 @@ never count as termination.
 The check is an observed-run invariant, not an epoch-close protocol. Earlier evidence or a later finalization arriving after the cutoff may still
 change the canonical outcome. The experiment assumes continuous operation and retains election evidence
 in memory; it does not provide crash recovery or bounded long-term archival.
+
+### Latency profiling
+
+The opt-in nanospam termination audit also records the first accepted FIRST or
+FIRST-timeout vote (kind 8), second-look eligibility (9), timeout eligibility
+(10), and first accepted final, timeout, and notarization votes (11, 12, 13).
+These are diagnostic events, not certificates. Existing termination event kinds
+and the strict all-root, all-PR checker are unchanged. Events are deduplicated
+per kind, root, candidate, and epoch; the audit retains its existing size bound.
+
+For latency optimization, measure nonfork roots to finalization and fork roots
+to their first verified block or timeout notarization. Start at the earliest
+local election insertion across epochs, and report missing finalizations as
+censored roots alongside the distributions. A timeout alone does not count as
+nonfork finalization. Publication-to-WebSocket confirmation includes additional
+transport, admission, cementation, and notification time.
+
+The voting scheduler gives a newly eligible timeout its own retry record, so it
+does not wait for the FIRST retry interval. Repeated timeout votes remain rate
+limited. Second-look notifications load representative keys once per batch,
+then apply the existing signing restrictions to each candidate. Vote replays
+skip certificate and audit processing because they cannot change the tallies.
+
+Nanospam accepts `--vote-generator-delay-ms <milliseconds>` to override the
+node's batching delay in a controlled run; omitting it uses the node default.
+`workload-results/rai-latency/run.py` runs the six-PR workload with fresh data and
+cleanup, and `analyze.py` writes per-PR and per-epoch latency distributions from
+the saved audit. The runner accepts blocks, rate, output label, and an optional
+batching delay, in that order. Keep performance-cutoff agreement and later
+recovery results separate when comparing settings.

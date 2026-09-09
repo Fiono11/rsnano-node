@@ -1,0 +1,118 @@
+{
+  "returncode": 0,
+  "watchdog_timeout": false,
+  "elapsed": 80.8464192499996,
+  "BENCHMARK_RESULT": {
+    "confirmed_forks": 10,
+    "confirmed_nonforks": 14180,
+    "average_fork_confirmation_ms": 3078.5890332000004,
+    "average_nonfork_confirmation_ms": 1329.8937361917488,
+    "rai_protocol": true,
+    "epoch_length": 7500,
+    "prs": 6,
+    "accounts": 15000,
+    "created_blocks": 15000,
+    "published_blocks": 15000,
+    "confirmed_blocks": 14190,
+    "duration_seconds": 60.00492675,
+    "confirmation_rate_cps": 236.48058198821147,
+    "average_confirmation_ms": 1331.1260796004933
+  },
+  "PERFORMANCE_WINDOW_TERMINATION_RESULT": {
+    "success": true,
+    "workload_roots": 15000,
+    "pending_roots": 0,
+    "timeout_roots": 18,
+    "all_workload_terminated": true,
+    "failed_roots": 0,
+    "conflicting_finalization_roots": 0,
+    "conflicting_timeout_finalization_roots": 0,
+    "examples": []
+  },
+  "TERMINATION_RESULT": {
+    "success": true,
+    "workload_roots": 15000,
+    "pending_roots": 0,
+    "timeout_roots": 18,
+    "all_workload_terminated": true,
+    "failed_roots": 0,
+    "conflicting_finalization_roots": 0,
+    "conflicting_timeout_finalization_roots": 0,
+    "examples": []
+  },
+  "CANONICAL_AGREEMENT_RESULT": {
+    "success": true,
+    "additional_observation_seconds": 0.0,
+    "performance_cutoff": 1788964445189574000,
+    "agreement_cutoff": 1788964445189574000
+  },
+  "ELECTION_RESULT": [
+    {
+      "pr": 0,
+      "terminated": 16234,
+      "timeout_notarized": 1377,
+      "notarized": 15074,
+      "notarized_not_finalized": 884,
+      "finalized": 14190,
+      "fast": 13499,
+      "nonfast_explicit": 691,
+      "implicit": 0
+    },
+    {
+      "pr": 1,
+      "terminated": 16267,
+      "timeout_notarized": 1410,
+      "notarized": 15074,
+      "notarized_not_finalized": 884,
+      "finalized": 14190,
+      "fast": 13566,
+      "nonfast_explicit": 624,
+      "implicit": 0
+    },
+    {
+      "pr": 2,
+      "terminated": 16041,
+      "timeout_notarized": 1184,
+      "notarized": 15074,
+      "notarized_not_finalized": 884,
+      "finalized": 14190,
+      "fast": 13481,
+      "nonfast_explicit": 709,
+      "implicit": 0
+    },
+    {
+      "pr": 3,
+      "terminated": 16547,
+      "timeout_notarized": 1690,
+      "notarized": 15074,
+      "notarized_not_finalized": 884,
+      "finalized": 14190,
+      "fast": 13107,
+      "nonfast_explicit": 1083,
+      "implicit": 0
+    },
+    {
+      "pr": 4,
+      "terminated": 16445,
+      "timeout_notarized": 1588,
+      "notarized": 15074,
+      "notarized_not_finalized": 884,
+      "finalized": 14190,
+      "fast": 13829,
+      "nonfast_explicit": 361,
+      "implicit": 0
+    },
+    {
+      "pr": 5,
+      "terminated": 16226,
+      "timeout_notarized": 1369,
+      "notarized": 15074,
+      "notarized_not_finalized": 884,
+      "finalized": 14190,
+      "fast": 12964,
+      "nonfast_explicit": 1226,
+      "implicit": 0
+    }
+  ],
+  "strict_pass": true
+}

@@ -14,6 +14,8 @@ pub(crate) struct VoteTarget {
     pub root: ElectionId,
     pub winner: BlockHash,
     pub vote_type: VoteType,
+    #[cfg(feature = "rai_protocol")]
+    pub timeout: bool,
 }
 
 pub(crate) fn vote_target(e: &Election) -> VoteTarget {
@@ -21,18 +23,21 @@ pub(crate) fn vote_target(e: &Election) -> VoteTarget {
         root: e.id(),
         winner: e.winner().hash(),
         vote_type: e.vote_type(),
+        #[cfg(feature = "rai_protocol")]
+        timeout: e.should_timeout(),
     }
 }
 
 #[cfg(feature = "rai_protocol")]
-type ScheduleKey = (ElectionId, BlockHash);
+type ScheduleKey = (ElectionId, BlockHash, bool);
 #[cfg(not(feature = "rai_protocol"))]
 type ScheduleKey = ElectionId;
 
 fn schedule_key(target: &VoteTarget) -> ScheduleKey {
     #[cfg(feature = "rai_protocol")]
     {
-        (target.root.clone(), target.winner)
+        // A newly eligible timeout is protocol progress, not a FIRST retry.
+        (target.root.clone(), target.winner, target.timeout)
     }
     #[cfg(not(feature = "rai_protocol"))]
     {
@@ -215,6 +220,23 @@ mod tests {
         assert!(s.can_vote(&b, t(15)));
     }
 
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn timeout_progress_does_not_wait_for_first_retry_or_disable_rate_limiting() {
+        let mut s = scheduler();
+        let first = target(VoteType::NonFinal);
+        s.mark_voted(&first, t(0));
+        let mut timeout = target(VoteType::NonFinal);
+        timeout.timeout = true;
+        assert!(s.can_vote(&timeout, t(1)));
+        s.mark_voted(&timeout, t(1));
+        assert!(!s.can_vote(&timeout, t(2)));
+        assert!(!s.can_vote(&first, t(2)));
+        s.cleanup(t(15));
+        assert!(!s.can_vote(&timeout, t(15)));
+        assert!(s.can_vote(&timeout, t(16)));
+    }
+
     /*
      * Test helpers
      */
@@ -230,6 +252,8 @@ mod tests {
             root: ElectionId::new(rsnano_types::QualifiedRoot::new_test_instance(), 0),
             winner: BlockHash::from(1),
             vote_type,
+            #[cfg(feature = "rai_protocol")]
+            timeout: false,
         }
     }
 
@@ -238,6 +262,8 @@ mod tests {
             root: ElectionId::new(rsnano_types::QualifiedRoot::new_test_instance(), 0),
             winner: BlockHash::from(2),
             vote_type,
+            #[cfg(feature = "rai_protocol")]
+            timeout: false,
         }
     }
 

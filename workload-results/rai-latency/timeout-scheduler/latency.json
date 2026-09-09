@@ -1,0 +1,1223 @@
+{
+  "basis": "Local earliest election insertion to first local outcome across epochs, before performance cutoff. Missing outcomes are censored, not zero latency. Per-PR samples are correlated.",
+  "prs": [
+    {
+      "pr": 0,
+      "counts": {
+        "nonfork/roots": 14240,
+        "fork/roots": 760,
+        "fork/finalization_missing": 749,
+        "nonfork/finalization_missing": 98
+      },
+      "latencies": {
+        "epoch0/fork/finalization": {
+          "samples": 8,
+          "mean_ms": 4528.5689999999995,
+          "p50_ms": 4227.989,
+          "p95_ms": 6601.574,
+          "p99_ms": 6601.574,
+          "max_ms": 6601.574
+        },
+        "epoch0/fork/termination": {
+          "samples": 484,
+          "mean_ms": 1271.9952438016528,
+          "p50_ms": 897.152,
+          "p95_ms": 3340.462,
+          "p99_ms": 3828.337,
+          "max_ms": 4429.714
+        },
+        "epoch0/nonfork/finalization": {
+          "samples": 9297,
+          "mean_ms": 846.765522749274,
+          "p50_ms": 600.307,
+          "p95_ms": 2344.291,
+          "p99_ms": 5535.31,
+          "max_ms": 6828.504
+        },
+        "epoch0/nonfork/termination": {
+          "samples": 9385,
+          "mean_ms": 643.290484389984,
+          "p50_ms": 494.828,
+          "p95_ms": 1893.418,
+          "p99_ms": 2742.572,
+          "max_ms": 4932.729
+        },
+        "epoch1/fork/finalization": {
+          "samples": 3,
+          "mean_ms": 6762.226,
+          "p50_ms": 6771.956,
+          "p95_ms": 6784.037,
+          "p99_ms": 6784.037,
+          "max_ms": 6784.037
+        },
+        "epoch1/fork/termination": {
+          "samples": 276,
+          "mean_ms": 3591.1280760869568,
+          "p50_ms": 3584.951,
+          "p95_ms": 4973.602,
+          "p99_ms": 5933.128,
+          "max_ms": 7265.308
+        },
+        "epoch1/nonfork/finalization": {
+          "samples": 4845,
+          "mean_ms": 2804.9247876160994,
+          "p50_ms": 2709.838,
+          "p95_ms": 4756.46,
+          "p99_ms": 5925.55,
+          "max_ms": 7917.563
+        },
+        "epoch1/nonfork/termination": {
+          "samples": 4855,
+          "mean_ms": 2168.22480638517,
+          "p50_ms": 2083.963,
+          "p95_ms": 3549.971,
+          "p99_ms": 3875.507,
+          "max_ms": 6098.519
+        },
+        "fork/finalization": {
+          "samples": 11,
+          "mean_ms": 5137.748181818182,
+          "p50_ms": 6249.753,
+          "p95_ms": 6784.037,
+          "p99_ms": 6784.037,
+          "max_ms": 6784.037
+        },
+        "fork/first_applied_to_finalization": {
+          "samples": 11,
+          "mean_ms": 4542.1755454545455,
+          "p50_ms": 5165.008,
+          "p95_ms": 6141.419,
+          "p99_ms": 6141.419,
+          "max_ms": 6141.419
+        },
+        "fork/insertion_to_first_applied": {
+          "samples": 760,
+          "mean_ms": 552.3720999999999,
+          "p50_ms": 276.818,
+          "p95_ms": 1729.388,
+          "p99_ms": 2811.253,
+          "max_ms": 3293.983
+        },
+        "fork/notarization_to_finalization": {
+          "samples": 11,
+          "mean_ms": 2642.568272727273,
+          "p50_ms": 3018.638,
+          "p95_ms": 3769.425,
+          "p99_ms": 3769.425,
+          "max_ms": 3769.425
+        },
+        "fork/second_look_ready_to_notarize_applied": {
+          "samples": 688,
+          "mean_ms": 783.7175436046513,
+          "p50_ms": 554.318,
+          "p95_ms": 2148.459,
+          "p99_ms": 2775.769,
+          "max_ms": 5732.779
+        },
+        "fork/termination": {
+          "samples": 760,
+          "mean_ms": 2114.2066407894736,
+          "p50_ms": 1981.981,
+          "p95_ms": 4487.009,
+          "p99_ms": 5391.784,
+          "max_ms": 7265.308
+        },
+        "fork/timeout_ready_to_certificate": {
+          "samples": 668,
+          "mean_ms": 934.4381961077844,
+          "p50_ms": 453.456,
+          "p95_ms": 3408.76,
+          "p99_ms": 4119.696,
+          "max_ms": 5466.912
+        },
+        "fork/timeout_ready_to_timeout_applied": {
+          "samples": 468,
+          "mean_ms": 745.758623931624,
+          "p50_ms": 463.652,
+          "p95_ms": 2569.614,
+          "p99_ms": 3265.343,
+          "max_ms": 4678.78
+        },
+        "nonfork/finalization": {
+          "samples": 14142,
+          "mean_ms": 1517.624074459058,
+          "p50_ms": 1149.626,
+          "p95_ms": 3901.681,
+          "p99_ms": 5874.199,
+          "max_ms": 7917.563
+        },
+        "nonfork/first_applied_to_finalization": {
+          "samples": 14142,
+          "mean_ms": 1018.8134785037477,
+          "p50_ms": 679.466,
+          "p95_ms": 2870.146,
+          "p99_ms": 5294.9,
+          "max_ms": 7454.177
+        },
+        "nonfork/insertion_to_first_applied": {
+          "samples": 14240,
+          "mean_ms": 499.2697776685393,
+          "p50_ms": 215.015,
+          "p95_ms": 1725.819,
+          "p99_ms": 2725.995,
+          "max_ms": 3597.082
+        },
+        "nonfork/notarization_to_finalization": {
+          "samples": 14142,
+          "mean_ms": 366.7640257389337,
+          "p50_ms": 135.084,
+          "p95_ms": 1466.693,
+          "p99_ms": 3450.797,
+          "max_ms": 5703.322
+        },
+        "nonfork/second_look_ready_to_notarize_applied": {
+          "samples": 1016,
+          "mean_ms": 1683.1283868110238,
+          "p50_ms": 1383.658,
+          "p95_ms": 3401.683,
+          "p99_ms": 6274.66,
+          "max_ms": 10066.181
+        },
+        "nonfork/termination": {
+          "samples": 14240,
+          "mean_ms": 1163.2031341994382,
+          "p50_ms": 885.084,
+          "p95_ms": 3187.712,
+          "p99_ms": 3671.656,
+          "max_ms": 6098.519
+        },
+        "nonfork/timeout_ready_to_certificate": {
+          "samples": 1086,
+          "mean_ms": 751.2570285451197,
+          "p50_ms": 390.653,
+          "p95_ms": 2583.344,
+          "p99_ms": 5893.818,
+          "max_ms": 6080.086
+        },
+        "nonfork/timeout_ready_to_timeout_applied": {
+          "samples": 661,
+          "mean_ms": 2367.5162254160364,
+          "p50_ms": 1967.166,
+          "p95_ms": 4116.416,
+          "p99_ms": 8013.941,
+          "max_ms": 8014.015
+        }
+      }
+    },
+    {
+      "pr": 1,
+      "counts": {
+        "nonfork/roots": 14240,
+        "fork/roots": 760,
+        "fork/finalization_missing": 749,
+        "nonfork/finalization_missing": 98
+      },
+      "latencies": {
+        "epoch0/fork/finalization": {
+          "samples": 8,
+          "mean_ms": 4595.418125,
+          "p50_ms": 4212.508,
+          "p95_ms": 6215.273,
+          "p99_ms": 6215.273,
+          "max_ms": 6215.273
+        },
+        "epoch0/fork/termination": {
+          "samples": 487,
+          "mean_ms": 1372.2207412731007,
+          "p50_ms": 1044.753,
+          "p95_ms": 3654.956,
+          "p99_ms": 4106.039,
+          "max_ms": 4570.39
+        },
+        "epoch0/nonfork/finalization": {
+          "samples": 9297,
+          "mean_ms": 907.3523381736043,
+          "p50_ms": 653.074,
+          "p95_ms": 2428.816,
+          "p99_ms": 5051.822,
+          "max_ms": 7774.469
+        },
+        "epoch0/nonfork/termination": {
+          "samples": 9393,
+          "mean_ms": 690.6448288086874,
+          "p50_ms": 534.186,
+          "p95_ms": 1933.602,
+          "p99_ms": 2815.736,
+          "max_ms": 4488.651
+        },
+        "epoch1/fork/finalization": {
+          "samples": 3,
+          "mean_ms": 6197.610000000001,
+          "p50_ms": 6373.367,
+          "p95_ms": 6375.738,
+          "p99_ms": 6375.738,
+          "max_ms": 6375.738
+        },
+        "epoch1/fork/termination": {
+          "samples": 273,
+          "mean_ms": 3326.255058608059,
+          "p50_ms": 3251.166,
+          "p95_ms": 4453.503,
+          "p99_ms": 4946.725,
+          "max_ms": 5603.074
+        },
+        "epoch1/nonfork/finalization": {
+          "samples": 4845,
+          "mean_ms": 2464.502968214654,
+          "p50_ms": 2345.244,
+          "p95_ms": 3516.083,
+          "p99_ms": 6615.328,
+          "max_ms": 7740.243
+        },
+        "epoch1/nonfork/termination": {
+          "samples": 4847,
+          "mean_ms": 1970.5423701258512,
+          "p50_ms": 2001.831,
+          "p95_ms": 2646.381,
+          "p99_ms": 3076.454,
+          "max_ms": 5078.479
+        },
+        "fork/finalization": {
+          "samples": 11,
+          "mean_ms": 5032.379545454546,
+          "p50_ms": 5954.858,
+          "p95_ms": 6375.738,
+          "p99_ms": 6375.738,
+          "max_ms": 6375.738
+        },
+        "fork/first_applied_to_finalization": {
+          "samples": 11,
+          "mean_ms": 4624.253909090909,
+          "p50_ms": 5500.069,
+          "p95_ms": 6214.822,
+          "p99_ms": 6214.822,
+          "max_ms": 6214.822
+        },
+        "fork/insertion_to_first_applied": {
+          "samples": 760,
+          "mean_ms": 603.0347236842106,
+          "p50_ms": 495.491,
+          "p95_ms": 1682.981,
+          "p99_ms": 1841.491,
+          "max_ms": 2731.546
+        },
+        "fork/notarization_to_finalization": {
+          "samples": 11,
+          "mean_ms": 2406.2683636363636,
+          "p50_ms": 2438.346,
+          "p95_ms": 3712.06,
+          "p99_ms": 3712.06,
+          "max_ms": 3712.06
+        },
+        "fork/second_look_ready_to_notarize_applied": {
+          "samples": 662,
+          "mean_ms": 793.3553308157101,
+          "p50_ms": 588.993,
+          "p95_ms": 2254.349,
+          "p99_ms": 2694.253,
+          "max_ms": 5930.358
+        },
+        "fork/termination": {
+          "samples": 760,
+          "mean_ms": 2074.130436842105,
+          "p50_ms": 2081.886,
+          "p95_ms": 4107.702,
+          "p99_ms": 4656.831,
+          "max_ms": 5603.074
+        },
+        "fork/timeout_ready_to_certificate": {
+          "samples": 662,
+          "mean_ms": 767.8783519637462,
+          "p50_ms": 515.96,
+          "p95_ms": 2489.393,
+          "p99_ms": 3448.252,
+          "max_ms": 3982.535
+        },
+        "fork/timeout_ready_to_timeout_applied": {
+          "samples": 408,
+          "mean_ms": 827.0101200980392,
+          "p50_ms": 688.834,
+          "p95_ms": 2182.681,
+          "p99_ms": 3715.626,
+          "max_ms": 5703.539
+        },
+        "nonfork/finalization": {
+          "samples": 14142,
+          "mean_ms": 1440.826726700608,
+          "p50_ms": 1293.497,
+          "p95_ms": 3151.111,
+          "p99_ms": 5155.206,
+          "max_ms": 7774.469
+        },
+        "nonfork/first_applied_to_finalization": {
+          "samples": 14142,
+          "mean_ms": 930.4372358930844,
+          "p50_ms": 740.145,
+          "p95_ms": 2359.926,
+          "p99_ms": 4619.856,
+          "max_ms": 6807.241
+        },
+        "nonfork/insertion_to_first_applied": {
+          "samples": 14240,
+          "mean_ms": 510.299473244382,
+          "p50_ms": 267.769,
+          "p95_ms": 1711.107,
+          "p99_ms": 1931.018,
+          "max_ms": 2772.43
+        },
+        "nonfork/notarization_to_finalization": {
+          "samples": 14142,
+          "mean_ms": 327.7382122754915,
+          "p50_ms": 144.849,
+          "p95_ms": 1139.767,
+          "p99_ms": 3140.213,
+          "max_ms": 5087.848
+        },
+        "nonfork/second_look_ready_to_notarize_applied": {
+          "samples": 1023,
+          "mean_ms": 1985.2993362658844,
+          "p50_ms": 1756.791,
+          "p95_ms": 3666.096,
+          "p99_ms": 6343.605,
+          "max_ms": 9164.35
+        },
+        "nonfork/termination": {
+          "samples": 14240,
+          "mean_ms": 1126.295347261236,
+          "p50_ms": 1014.548,
+          "p95_ms": 2454.972,
+          "p99_ms": 2985.61,
+          "max_ms": 5078.479
+        },
+        "nonfork/timeout_ready_to_certificate": {
+          "samples": 1125,
+          "mean_ms": 891.3809635555556,
+          "p50_ms": 479.406,
+          "p95_ms": 3796.531,
+          "p99_ms": 4179.61,
+          "max_ms": 5738.559
+        },
+        "nonfork/timeout_ready_to_timeout_applied": {
+          "samples": 611,
+          "mean_ms": 1793.5293813420624,
+          "p50_ms": 1799.094,
+          "p95_ms": 3491.635,
+          "p99_ms": 7514.422,
+          "max_ms": 7514.656
+        }
+      }
+    },
+    {
+      "pr": 2,
+      "counts": {
+        "nonfork/roots": 14240,
+        "fork/roots": 760,
+        "fork/finalization_missing": 749,
+        "nonfork/finalization_missing": 98
+      },
+      "latencies": {
+        "epoch0/fork/finalization": {
+          "samples": 8,
+          "mean_ms": 4298.975625,
+          "p50_ms": 4643.605,
+          "p95_ms": 5807.944,
+          "p99_ms": 5807.944,
+          "max_ms": 5807.944
+        },
+        "epoch0/fork/termination": {
+          "samples": 486,
+          "mean_ms": 1234.5654423868314,
+          "p50_ms": 1064.233,
+          "p95_ms": 2826.819,
+          "p99_ms": 3905.904,
+          "max_ms": 8792.593
+        },
+        "epoch0/nonfork/finalization": {
+          "samples": 9297,
+          "mean_ms": 871.8065471657524,
+          "p50_ms": 570.165,
+          "p95_ms": 2190.999,
+          "p99_ms": 4396.94,
+          "max_ms": 5971.758
+        },
+        "epoch0/nonfork/termination": {
+          "samples": 9422,
+          "mean_ms": 658.4114847166206,
+          "p50_ms": 489.326,
+          "p95_ms": 1905.535,
+          "p99_ms": 2499.287,
+          "max_ms": 4420.789
+        },
+        "epoch1/fork/finalization": {
+          "samples": 3,
+          "mean_ms": 6340.9856666666665,
+          "p50_ms": 6243.347,
+          "p95_ms": 6536.94,
+          "p99_ms": 6536.94,
+          "max_ms": 6536.94
+        },
+        "epoch1/fork/termination": {
+          "samples": 274,
+          "mean_ms": 3269.698102189781,
+          "p50_ms": 3235.78,
+          "p95_ms": 4346.208,
+          "p99_ms": 4696.138,
+          "max_ms": 6485.988
+        },
+        "epoch1/nonfork/finalization": {
+          "samples": 4845,
+          "mean_ms": 2122.3883682146543,
+          "p50_ms": 2016.371,
+          "p95_ms": 3299.966,
+          "p99_ms": 5182.755,
+          "max_ms": 5501.118
+        },
+        "epoch1/nonfork/termination": {
+          "samples": 4818,
+          "mean_ms": 1750.395612079701,
+          "p50_ms": 1773.46,
+          "p95_ms": 2491.514,
+          "p99_ms": 2824.993,
+          "max_ms": 5499.101
+        },
+        "fork/finalization": {
+          "samples": 11,
+          "mean_ms": 4855.887454545455,
+          "p50_ms": 5233.298,
+          "p95_ms": 6536.94,
+          "p99_ms": 6536.94,
+          "max_ms": 6536.94
+        },
+        "fork/first_applied_to_finalization": {
+          "samples": 11,
+          "mean_ms": 4304.671818181818,
+          "p50_ms": 4989.071,
+          "p95_ms": 5296.319,
+          "p99_ms": 5296.319,
+          "max_ms": 5296.319
+        },
+        "fork/insertion_to_first_applied": {
+          "samples": 760,
+          "mean_ms": 510.58964342105264,
+          "p50_ms": 367.103,
+          "p95_ms": 1411.879,
+          "p99_ms": 1839.54,
+          "max_ms": 2492.384
+        },
+        "fork/notarization_to_finalization": {
+          "samples": 11,
+          "mean_ms": 2529.311181818182,
+          "p50_ms": 2677.689,
+          "p95_ms": 3458.653,
+          "p99_ms": 3458.653,
+          "max_ms": 3458.653
+        },
+        "fork/second_look_ready_to_notarize_applied": {
+          "samples": 682,
+          "mean_ms": 819.3026627565982,
+          "p50_ms": 569.066,
+          "p95_ms": 2227.813,
+          "p99_ms": 2754.33,
+          "max_ms": 8163.642
+        },
+        "fork/termination": {
+          "samples": 760,
+          "mean_ms": 1968.284322368421,
+          "p50_ms": 1886.335,
+          "p95_ms": 3959.474,
+          "p99_ms": 4546.208,
+          "max_ms": 8792.593
+        },
+        "fork/timeout_ready_to_certificate": {
+          "samples": 661,
+          "mean_ms": 716.6294372163389,
+          "p50_ms": 429.754,
+          "p95_ms": 2528.13,
+          "p99_ms": 3324.467,
+          "max_ms": 5048.696
+        },
+        "fork/timeout_ready_to_timeout_applied": {
+          "samples": 385,
+          "mean_ms": 848.5116077922078,
+          "p50_ms": 768.568,
+          "p95_ms": 2134.57,
+          "p99_ms": 2648.269,
+          "max_ms": 2891.902
+        },
+        "nonfork/finalization": {
+          "samples": 14142,
+          "mean_ms": 1300.2515282845427,
+          "p50_ms": 1216.962,
+          "p95_ms": 2747.682,
+          "p99_ms": 5105.221,
+          "max_ms": 5971.758
+        },
+        "nonfork/first_applied_to_finalization": {
+          "samples": 14142,
+          "mean_ms": 862.5996046528072,
+          "p50_ms": 664.738,
+          "p95_ms": 1997.988,
+          "p99_ms": 4677.718,
+          "max_ms": 5459.952
+        },
+        "nonfork/insertion_to_first_applied": {
+          "samples": 14240,
+          "mean_ms": 438.186450491573,
+          "p50_ms": 265.347,
+          "p95_ms": 1400.843,
+          "p99_ms": 1839.413,
+          "max_ms": 2441.529
+        },
+        "nonfork/notarization_to_finalization": {
+          "samples": 14142,
+          "mean_ms": 288.09458244944136,
+          "p50_ms": 107.918,
+          "p95_ms": 1079.817,
+          "p99_ms": 2852.472,
+          "max_ms": 3607.925
+        },
+        "nonfork/second_look_ready_to_notarize_applied": {
+          "samples": 1025,
+          "mean_ms": 1970.140924878049,
+          "p50_ms": 2011.351,
+          "p95_ms": 3171.492,
+          "p99_ms": 5391.999,
+          "max_ms": 10105.896
+        },
+        "nonfork/termination": {
+          "samples": 14240,
+          "mean_ms": 1027.8763390449437,
+          "p50_ms": 930.517,
+          "p95_ms": 2242.43,
+          "p99_ms": 2678.027,
+          "max_ms": 5499.101
+        },
+        "nonfork/timeout_ready_to_certificate": {
+          "samples": 1274,
+          "mean_ms": 906.7637551020408,
+          "p50_ms": 462.318,
+          "p95_ms": 6078.739,
+          "p99_ms": 6966.232,
+          "max_ms": 7201.977
+        },
+        "nonfork/timeout_ready_to_timeout_applied": {
+          "samples": 683,
+          "mean_ms": 1932.6007481698389,
+          "p50_ms": 1713.386,
+          "p95_ms": 3395.797,
+          "p99_ms": 8780.142,
+          "max_ms": 8781.312
+        }
+      }
+    },
+    {
+      "pr": 3,
+      "counts": {
+        "nonfork/roots": 14240,
+        "fork/roots": 760,
+        "fork/finalization_missing": 749,
+        "nonfork/finalization_missing": 98
+      },
+      "latencies": {
+        "epoch0/fork/finalization": {
+          "samples": 8,
+          "mean_ms": 4187.164375,
+          "p50_ms": 4416.505,
+          "p95_ms": 6343.407,
+          "p99_ms": 6343.407,
+          "max_ms": 6343.407
+        },
+        "epoch0/fork/termination": {
+          "samples": 495,
+          "mean_ms": 1365.347684848485,
+          "p50_ms": 1022.62,
+          "p95_ms": 3833.834,
+          "p99_ms": 5042.458,
+          "max_ms": 6114.242
+        },
+        "epoch0/nonfork/finalization": {
+          "samples": 9297,
+          "mean_ms": 875.7709313757126,
+          "p50_ms": 605.523,
+          "p95_ms": 2311.487,
+          "p99_ms": 5135.933,
+          "max_ms": 6797.277
+        },
+        "epoch0/nonfork/termination": {
+          "samples": 9384,
+          "mean_ms": 636.2094595055413,
+          "p50_ms": 446.039,
+          "p95_ms": 1670.922,
+          "p99_ms": 2388.558,
+          "max_ms": 4977.766
+        },
+        "epoch1/fork/finalization": {
+          "samples": 3,
+          "mean_ms": 5935.783666666667,
+          "p50_ms": 6070.246,
+          "p95_ms": 6070.279,
+          "p99_ms": 6070.279,
+          "max_ms": 6070.279
+        },
+        "epoch1/fork/termination": {
+          "samples": 265,
+          "mean_ms": 3344.045150943396,
+          "p50_ms": 3305.123,
+          "p95_ms": 4467.968,
+          "p99_ms": 5101.731,
+          "max_ms": 5265.006
+        },
+        "epoch1/nonfork/finalization": {
+          "samples": 4845,
+          "mean_ms": 2433.704939112487,
+          "p50_ms": 2227.463,
+          "p95_ms": 3678.919,
+          "p99_ms": 5648.977,
+          "max_ms": 6595.031
+        },
+        "epoch1/nonfork/termination": {
+          "samples": 4856,
+          "mean_ms": 1950.9392077841844,
+          "p50_ms": 1951.041,
+          "p95_ms": 2908.647,
+          "p99_ms": 3142.467,
+          "max_ms": 5815.917
+        },
+        "fork/finalization": {
+          "samples": 11,
+          "mean_ms": 4664.060545454545,
+          "p50_ms": 5666.826,
+          "p95_ms": 6343.407,
+          "p99_ms": 6343.407,
+          "max_ms": 6343.407
+        },
+        "fork/first_applied_to_finalization": {
+          "samples": 11,
+          "mean_ms": 4138.993272727273,
+          "p50_ms": 5091.051,
+          "p95_ms": 5711.404,
+          "p99_ms": 5711.404,
+          "max_ms": 5711.404
+        },
+        "fork/insertion_to_first_applied": {
+          "samples": 760,
+          "mean_ms": 565.3837578947368,
+          "p50_ms": 439.579,
+          "p95_ms": 1463.672,
+          "p99_ms": 1903.17,
+          "max_ms": 2063.902
+        },
+        "fork/notarization_to_finalization": {
+          "samples": 11,
+          "mean_ms": 2009.5142727272726,
+          "p50_ms": 2117.971,
+          "p95_ms": 2688.472,
+          "p99_ms": 2688.472,
+          "max_ms": 2688.472
+        },
+        "fork/second_look_ready_to_notarize_applied": {
+          "samples": 698,
+          "mean_ms": 775.5203739255014,
+          "p50_ms": 534.927,
+          "p95_ms": 2149.742,
+          "p99_ms": 2634.857,
+          "max_ms": 5805.677
+        },
+        "fork/termination": {
+          "samples": 760,
+          "mean_ms": 2055.2882486842104,
+          "p50_ms": 1859.143,
+          "p95_ms": 4197.79,
+          "p99_ms": 5042.458,
+          "max_ms": 6114.242
+        },
+        "fork/timeout_ready_to_certificate": {
+          "samples": 683,
+          "mean_ms": 854.0426793557833,
+          "p50_ms": 416.121,
+          "p95_ms": 2853.122,
+          "p99_ms": 3480.409,
+          "max_ms": 3840.997
+        },
+        "fork/timeout_ready_to_timeout_applied": {
+          "samples": 436,
+          "mean_ms": 883.0729403669725,
+          "p50_ms": 667.317,
+          "p95_ms": 2265.956,
+          "p99_ms": 2832.742,
+          "max_ms": 3805.371
+        },
+        "nonfork/finalization": {
+          "samples": 14142,
+          "mean_ms": 1409.5137023759014,
+          "p50_ms": 1295.268,
+          "p95_ms": 3226.301,
+          "p99_ms": 5196.347,
+          "max_ms": 6797.277
+        },
+        "nonfork/first_applied_to_finalization": {
+          "samples": 14142,
+          "mean_ms": 945.9036885164758,
+          "p50_ms": 790.107,
+          "p95_ms": 2385.506,
+          "p99_ms": 4567.506,
+          "max_ms": 5953.432
+        },
+        "nonfork/insertion_to_first_applied": {
+          "samples": 14240,
+          "mean_ms": 465.12795280898877,
+          "p50_ms": 227.391,
+          "p95_ms": 1370.265,
+          "p99_ms": 1899.196,
+          "max_ms": 2686.554
+        },
+        "nonfork/notarization_to_finalization": {
+          "samples": 14142,
+          "mean_ms": 338.04041755055863,
+          "p50_ms": 161.634,
+          "p95_ms": 1239.078,
+          "p99_ms": 3107.274,
+          "max_ms": 4225.426
+        },
+        "nonfork/second_look_ready_to_notarize_applied": {
+          "samples": 1021,
+          "mean_ms": 1665.1432497551418,
+          "p50_ms": 1780.449,
+          "p95_ms": 3401.03,
+          "p99_ms": 5105.913,
+          "max_ms": 8591.147
+        },
+        "nonfork/termination": {
+          "samples": 14240,
+          "mean_ms": 1084.5470759129214,
+          "p50_ms": 836.294,
+          "p95_ms": 2581.145,
+          "p99_ms": 3028.041,
+          "max_ms": 5815.917
+        },
+        "nonfork/timeout_ready_to_certificate": {
+          "samples": 1298,
+          "mean_ms": 1082.5500878274268,
+          "p50_ms": 536.178,
+          "p95_ms": 4897.358,
+          "p99_ms": 5758.209,
+          "max_ms": 5790.147
+        },
+        "nonfork/timeout_ready_to_timeout_applied": {
+          "samples": 669,
+          "mean_ms": 2182.1119446935727,
+          "p50_ms": 2249.424,
+          "p95_ms": 3737.156,
+          "p99_ms": 5524.301,
+          "max_ms": 8883.924
+        }
+      }
+    },
+    {
+      "pr": 4,
+      "counts": {
+        "nonfork/roots": 14240,
+        "fork/roots": 760,
+        "fork/finalization_missing": 749,
+        "nonfork/finalization_missing": 98
+      },
+      "latencies": {
+        "epoch0/fork/finalization": {
+          "samples": 8,
+          "mean_ms": 4098.658125,
+          "p50_ms": 3977.933,
+          "p95_ms": 5783.177,
+          "p99_ms": 5783.177,
+          "max_ms": 5783.177
+        },
+        "epoch0/fork/termination": {
+          "samples": 481,
+          "mean_ms": 1355.4489334719335,
+          "p50_ms": 1051.11,
+          "p95_ms": 3493.481,
+          "p99_ms": 4057.197,
+          "max_ms": 5264.878
+        },
+        "epoch0/nonfork/finalization": {
+          "samples": 9297,
+          "mean_ms": 958.8546761320857,
+          "p50_ms": 734.556,
+          "p95_ms": 2433.969,
+          "p99_ms": 4660.66,
+          "max_ms": 6543.089
+        },
+        "epoch0/nonfork/termination": {
+          "samples": 9368,
+          "mean_ms": 721.9631735695987,
+          "p50_ms": 556.722,
+          "p95_ms": 1892.177,
+          "p99_ms": 2792.097,
+          "max_ms": 4010.791
+        },
+        "epoch1/fork/finalization": {
+          "samples": 3,
+          "mean_ms": 6028.925,
+          "p50_ms": 6157.761,
+          "p95_ms": 6158.324,
+          "p99_ms": 6158.324,
+          "max_ms": 6158.324
+        },
+        "epoch1/fork/termination": {
+          "samples": 279,
+          "mean_ms": 3260.155318996416,
+          "p50_ms": 3255.135,
+          "p95_ms": 4669.227,
+          "p99_ms": 5106.073,
+          "max_ms": 5520.18
+        },
+        "epoch1/nonfork/finalization": {
+          "samples": 4845,
+          "mean_ms": 2195.3016191950464,
+          "p50_ms": 2108.597,
+          "p95_ms": 3469.356,
+          "p99_ms": 5374.543,
+          "max_ms": 5629.982
+        },
+        "epoch1/nonfork/termination": {
+          "samples": 4872,
+          "mean_ms": 1709.8833731527093,
+          "p50_ms": 1696.517,
+          "p95_ms": 2799.738,
+          "p99_ms": 3232.614,
+          "max_ms": 4798.471
+        },
+        "fork/finalization": {
+          "samples": 11,
+          "mean_ms": 4625.094545454545,
+          "p50_ms": 5438.552,
+          "p95_ms": 6158.324,
+          "p99_ms": 6158.324,
+          "max_ms": 6158.324
+        },
+        "fork/first_applied_to_finalization": {
+          "samples": 11,
+          "mean_ms": 4337.846909090909,
+          "p50_ms": 4496.862,
+          "p95_ms": 6157.293,
+          "p99_ms": 6157.293,
+          "max_ms": 6157.293
+        },
+        "fork/insertion_to_first_applied": {
+          "samples": 760,
+          "mean_ms": 556.4364486842105,
+          "p50_ms": 383.731,
+          "p95_ms": 1587.254,
+          "p99_ms": 1915.779,
+          "max_ms": 2859.743
+        },
+        "fork/notarization_to_finalization": {
+          "samples": 11,
+          "mean_ms": 2251.3675454545455,
+          "p50_ms": 2055.176,
+          "p95_ms": 3784.985,
+          "p99_ms": 3784.985,
+          "max_ms": 3784.985
+        },
+        "fork/second_look_ready_to_notarize_applied": {
+          "samples": 646,
+          "mean_ms": 825.9805789473685,
+          "p50_ms": 563.776,
+          "p95_ms": 2124.887,
+          "p99_ms": 3436.457,
+          "max_ms": 7143.448
+        },
+        "fork/termination": {
+          "samples": 760,
+          "mean_ms": 2054.676672368421,
+          "p50_ms": 2156.189,
+          "p95_ms": 4038.883,
+          "p99_ms": 4798.493,
+          "max_ms": 5520.18
+        },
+        "fork/timeout_ready_to_certificate": {
+          "samples": 669,
+          "mean_ms": 836.4971434977579,
+          "p50_ms": 418.919,
+          "p95_ms": 2622.462,
+          "p99_ms": 3658.973,
+          "max_ms": 4740.608
+        },
+        "fork/timeout_ready_to_timeout_applied": {
+          "samples": 392,
+          "mean_ms": 754.3303443877551,
+          "p50_ms": 463.019,
+          "p95_ms": 2450.529,
+          "p99_ms": 3241.223,
+          "max_ms": 5169.019
+        },
+        "nonfork/finalization": {
+          "samples": 14142,
+          "mean_ms": 1382.457097228115,
+          "p50_ms": 1232.698,
+          "p95_ms": 3186.227,
+          "p99_ms": 4939.78,
+          "max_ms": 6543.089
+        },
+        "nonfork/first_applied_to_finalization": {
+          "samples": 14142,
+          "mean_ms": 902.9634015697922,
+          "p50_ms": 776.688,
+          "p95_ms": 2290.68,
+          "p99_ms": 4227.36,
+          "max_ms": 6522.593
+        },
+        "nonfork/insertion_to_first_applied": {
+          "samples": 14240,
+          "mean_ms": 481.4312693117978,
+          "p50_ms": 291.427,
+          "p95_ms": 1474.861,
+          "p99_ms": 1930.047,
+          "max_ms": 3110.657
+        },
+        "nonfork/notarization_to_finalization": {
+          "samples": 14142,
+          "mean_ms": 339.1235624381276,
+          "p50_ms": 150.791,
+          "p95_ms": 1278.461,
+          "p99_ms": 2827.877,
+          "max_ms": 3956.928
+        },
+        "nonfork/second_look_ready_to_notarize_applied": {
+          "samples": 929,
+          "mean_ms": 1910.1658277717977,
+          "p50_ms": 1547.165,
+          "p95_ms": 3950.699,
+          "p99_ms": 6308.103,
+          "max_ms": 7053.577
+        },
+        "nonfork/termination": {
+          "samples": 14240,
+          "mean_ms": 1059.9650845505619,
+          "p50_ms": 955.521,
+          "p95_ms": 2426.245,
+          "p99_ms": 3039.744,
+          "max_ms": 4798.471
+        },
+        "nonfork/timeout_ready_to_certificate": {
+          "samples": 1373,
+          "mean_ms": 1033.7255957756738,
+          "p50_ms": 617.705,
+          "p95_ms": 2452.306,
+          "p99_ms": 4824.41,
+          "max_ms": 6856.251
+        },
+        "nonfork/timeout_ready_to_timeout_applied": {
+          "samples": 657,
+          "mean_ms": 2638.8516514459666,
+          "p50_ms": 2660.165,
+          "p95_ms": 3039.341,
+          "p99_ms": 7312.251,
+          "max_ms": 7312.351
+        }
+      }
+    },
+    {
+      "pr": 5,
+      "counts": {
+        "nonfork/roots": 14240,
+        "fork/roots": 760,
+        "fork/finalization_missing": 749,
+        "nonfork/finalization_missing": 98
+      },
+      "latencies": {
+        "epoch0/fork/finalization": {
+          "samples": 8,
+          "mean_ms": 4014.08825,
+          "p50_ms": 4692.096,
+          "p95_ms": 5488.248,
+          "p99_ms": 5488.248,
+          "max_ms": 5488.248
+        },
+        "epoch0/fork/termination": {
+          "samples": 482,
+          "mean_ms": 1330.4542987551865,
+          "p50_ms": 1001.299,
+          "p95_ms": 3695.384,
+          "p99_ms": 4798.918,
+          "max_ms": 11268.193
+        },
+        "epoch0/nonfork/finalization": {
+          "samples": 9297,
+          "mean_ms": 853.6839172851458,
+          "p50_ms": 546.794,
+          "p95_ms": 2172.537,
+          "p99_ms": 5107.168,
+          "max_ms": 6769.843
+        },
+        "epoch0/nonfork/termination": {
+          "samples": 9418,
+          "mean_ms": 657.5048531535358,
+          "p50_ms": 442.874,
+          "p95_ms": 1796.297,
+          "p99_ms": 2999.116,
+          "max_ms": 4821.897
+        },
+        "epoch1/fork/finalization": {
+          "samples": 3,
+          "mean_ms": 6434.776333333332,
+          "p50_ms": 6481.165,
+          "p95_ms": 6724.133,
+          "p99_ms": 6724.133,
+          "max_ms": 6724.133
+        },
+        "epoch1/fork/termination": {
+          "samples": 278,
+          "mean_ms": 3400.7188597122304,
+          "p50_ms": 3302.365,
+          "p95_ms": 4733.4,
+          "p99_ms": 5310.075,
+          "max_ms": 12679.996
+        },
+        "epoch1/nonfork/finalization": {
+          "samples": 4845,
+          "mean_ms": 2359.392576883385,
+          "p50_ms": 2302.89,
+          "p95_ms": 3961.817,
+          "p99_ms": 5880.992,
+          "max_ms": 6811.89
+        },
+        "epoch1/nonfork/termination": {
+          "samples": 4822,
+          "mean_ms": 1874.4481300290336,
+          "p50_ms": 1895.8,
+          "p95_ms": 2658.703,
+          "p99_ms": 2999.77,
+          "max_ms": 5273.692
+        },
+        "fork/finalization": {
+          "samples": 11,
+          "mean_ms": 4674.2759090909085,
+          "p50_ms": 5198.736,
+          "p95_ms": 6724.133,
+          "p99_ms": 6724.133,
+          "max_ms": 6724.133
+        },
+        "fork/first_applied_to_finalization": {
+          "samples": 11,
+          "mean_ms": 4202.707636363636,
+          "p50_ms": 4633.075,
+          "p95_ms": 6138.598,
+          "p99_ms": 6138.598,
+          "max_ms": 6138.598
+        },
+        "fork/insertion_to_first_applied": {
+          "samples": 760,
+          "mean_ms": 538.4313407894737,
+          "p50_ms": 418.639,
+          "p95_ms": 1449.882,
+          "p99_ms": 1954.489,
+          "max_ms": 2364.599
+        },
+        "fork/notarization_to_finalization": {
+          "samples": 11,
+          "mean_ms": 1995.3756363636362,
+          "p50_ms": 1998.667,
+          "p95_ms": 3078.093,
+          "p99_ms": 3078.093,
+          "max_ms": 3078.093
+        },
+        "fork/second_look_ready_to_notarize_applied": {
+          "samples": 693,
+          "mean_ms": 876.6024314574314,
+          "p50_ms": 556.012,
+          "p95_ms": 2369.308,
+          "p99_ms": 2920.474,
+          "max_ms": 12489.384
+        },
+        "fork/termination": {
+          "samples": 760,
+          "mean_ms": 2087.735282894737,
+          "p50_ms": 2026.15,
+          "p95_ms": 4138.898,
+          "p99_ms": 5278.121,
+          "max_ms": 12679.996
+        },
+        "fork/timeout_ready_to_certificate": {
+          "samples": 667,
+          "mean_ms": 890.3910764617691,
+          "p50_ms": 494.949,
+          "p95_ms": 2513.442,
+          "p99_ms": 3073.601,
+          "max_ms": 4370.505
+        },
+        "fork/timeout_ready_to_timeout_applied": {
+          "samples": 373,
+          "mean_ms": 810.486292225201,
+          "p50_ms": 695.46,
+          "p95_ms": 2162.139,
+          "p99_ms": 2774.065,
+          "max_ms": 3247.069
+        },
+        "nonfork/finalization": {
+          "samples": 14142,
+          "mean_ms": 1369.5344657049923,
+          "p50_ms": 1143.605,
+          "p95_ms": 3104.902,
+          "p99_ms": 5724.189,
+          "max_ms": 6811.89
+        },
+        "nonfork/first_applied_to_finalization": {
+          "samples": 14142,
+          "mean_ms": 920.01451668788,
+          "p50_ms": 729.729,
+          "p95_ms": 2360.115,
+          "p99_ms": 4978.995,
+          "max_ms": 6765.532
+        },
+        "nonfork/insertion_to_first_applied": {
+          "samples": 14240,
+          "mean_ms": 452.08132085674157,
+          "p50_ms": 262.631,
+          "p95_ms": 1412.738,
+          "p99_ms": 1724.841,
+          "max_ms": 1996.885
+        },
+        "nonfork/notarization_to_finalization": {
+          "samples": 14142,
+          "mean_ms": 316.33524756045824,
+          "p50_ms": 139.916,
+          "p95_ms": 1148.483,
+          "p99_ms": 3060.906,
+          "max_ms": 3803.656
+        },
+        "nonfork/second_look_ready_to_notarize_applied": {
+          "samples": 1025,
+          "mean_ms": 1803.7771551219512,
+          "p50_ms": 1680.791,
+          "p95_ms": 3074.243,
+          "p99_ms": 4853.068,
+          "max_ms": 9974.72
+        },
+        "nonfork/termination": {
+          "samples": 14240,
+          "mean_ms": 1069.5905610955056,
+          "p50_ms": 897.229,
+          "p95_ms": 2508.573,
+          "p99_ms": 2999.144,
+          "max_ms": 5273.692
+        },
+        "nonfork/timeout_ready_to_certificate": {
+          "samples": 1460,
+          "mean_ms": 1171.2550705479453,
+          "p50_ms": 659.341,
+          "p95_ms": 5406.635,
+          "p99_ms": 6629.408,
+          "max_ms": 6758.286
+        },
+        "nonfork/timeout_ready_to_timeout_applied": {
+          "samples": 611,
+          "mean_ms": 1763.891684124386,
+          "p50_ms": 1739.014,
+          "p95_ms": 4352.164,
+          "p99_ms": 8646.495,
+          "max_ms": 8647.834
+        }
+      }
+    }
+  ]
+}

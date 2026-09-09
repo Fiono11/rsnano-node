@@ -70,9 +70,8 @@ impl ContainerInfoProvider for AecVoter {
 impl Tickable for AecVoter {
     fn tick(&mut self, cancel_token: &CancellationToken) {
         #[cfg(feature = "rai_protocol")]
-        for (id, hash) in self.aec.take_notarization_notifications() {
-            self.vote_generators.notify_notarization(id, hash);
-        }
+        self.vote_generators
+            .notify_notarizations(self.aec.take_notarization_notifications());
         #[cfg(feature = "rai_protocol")]
         for vote in self.aec.take_certificate_votes() {
             self.vote_generators.relay_certificate_vote(vote);
@@ -115,6 +114,7 @@ impl Tickable for AecVoter {
                             root: e.id(),
                             winner: *hash,
                             vote_type: VoteType::NonFinal,
+                            timeout: e.should_timeout(),
                         };
                         if scheduler.can_vote(&target, now) {
                             targets.push(target);

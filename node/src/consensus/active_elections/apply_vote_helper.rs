@@ -70,6 +70,12 @@ impl<'a> ApplyVoteHelper<'a> {
                     };
                     let vote_result = apply_to_election.apply_vote();
                     result.per_block.insert(*block_hash, vote_result);
+                    #[cfg(feature = "rai_protocol")]
+                    if vote_result.is_err() {
+                        // Replays cannot change a tally or produce new evidence.
+                        // Avoid repeated certificate/audit work under the AEC write lock.
+                        continue;
+                    }
                 }
 
                 #[cfg(feature = "rai_protocol")]
@@ -88,6 +94,27 @@ impl<'a> ApplyVoteHelper<'a> {
                     }
                 }
                 if self.vote_counter.audit.enabled() {
+                    #[cfg(feature = "rai_protocol")]
+                    {
+                        for hash in election.candidate_blocks().keys() {
+                            if election.can_notarize(hash) {
+                                self.vote_counter.audit.record(
+                                    9,
+                                    election.qualified_root().clone(),
+                                    *hash,
+                                    election.epoch,
+                                );
+                            }
+                        }
+                        if election.should_timeout() {
+                            self.vote_counter.audit.record(
+                                10,
+                                election.qualified_root().clone(),
+                                BlockHash::ZERO,
+                                election.epoch,
+                            );
+                        }
+                    }
                     #[cfg(feature = "rai_protocol")]
                     if election.is_timed_out() {
                         self.vote_counter.audit.record(
@@ -193,6 +220,21 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
                 self.args.now,
             )?;
             self.vote_counter.count(self.args.vote.delivery);
+            if self.vote_counter.audit.enabled() {
+                use rsnano_types::VoteKind;
+                let kind = match self.args.vote.kind {
+                    VoteKind::First | VoteKind::FirstTimeout => 8,
+                    VoteKind::Notarize => 13,
+                    VoteKind::Final => 11,
+                    VoteKind::Timeout => 12,
+                };
+                self.vote_counter.audit.record(
+                    kind,
+                    self.election.qualified_root().clone(),
+                    *self.block_hash,
+                    self.election.epoch,
+                );
+            }
             self.confirm_if_quorum();
             return Ok(());
         }
