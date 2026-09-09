@@ -22,6 +22,9 @@ impl RpcCommandHandler {
 
         let unconfirmed = elections.len() as u64;
         ConfirmationActiveResponse {
+            termination_audit: _args
+                .termination_audit_offset
+                .map(|n| self.node.aec.termination_audit(u64::from(n) as usize)),
             confirmations: elections,
             unconfirmed: unconfirmed.into(),
             confirmed: confirmed.into(),

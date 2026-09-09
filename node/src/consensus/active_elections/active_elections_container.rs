@@ -2,6 +2,8 @@ use std::{cmp::max, collections::HashMap, time::Duration};
 
 use strum::EnumCount;
 
+#[cfg(feature = "rai_protocol")]
+use rsnano_ledger::AnySet;
 use rsnano_ledger::RepWeights;
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{
@@ -45,6 +47,8 @@ pub(crate) struct ActiveElectionsContainer {
         crate::consensus::bounded_hash_map::BoundedHashMap<QualifiedRoot, (BlockHash, u64)>,
     #[cfg(feature = "rai_protocol")]
     confirmed_epoch_by_hash: crate::consensus::bounded_hash_map::BoundedHashMap<BlockHash, u64>,
+    #[cfg(feature = "rai_protocol")]
+    notarization_notifications: super::notarization_notifications::NotarizationNotifications,
     roots: RootContainer,
     observer: Option<Sender<AecFact>>,
     stopped: bool,
@@ -58,8 +62,50 @@ pub(crate) struct ActiveElectionsContainer {
 }
 
 impl ActiveElectionsContainer {
+    pub fn termination_audit(&self, offset: usize) -> serde_json::Value {
+        let mut page = self.stats.vote_counter.audit.page(offset);
+        #[cfg(feature = "rai_protocol")]
+        if offset == 0 && self.stats.vote_counter.audit.enabled() {
+            page["active"] = serde_json::json!(
+                self.roots
+                    .round_robin()
+                    .map(|entry| {
+                        let e = &entry.election;
+                        let mut value = e.termination_diagnostic();
+                        if let Some(ledger) = &self.epoch_source {
+                            let any = ledger.any();
+                            value["dependencies_confirmed"] = serde_json::json!(
+                                e.candidate_blocks()
+                                    .iter()
+                                    .map(|(hash, block)| (
+                                        *hash,
+                                        any.dependencies_confirmed_for_unsaved_block(
+                                            &block.clone().into()
+                                        )
+                                    ))
+                                    .collect::<Vec<_>>()
+                            );
+                        }
+                        value
+                    })
+                    .collect::<Vec<_>>()
+            );
+            page["scheduling_len"] = serde_json::json!(self.roots.scheduling_len());
+        }
+        page
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn take_notarization_notifications(
+        &mut self,
+    ) -> Vec<(rsnano_types::ElectionId, BlockHash)> {
+        self.notarization_notifications.take()
+    }
+
     pub fn new(config: ActiveElectionsConfig, base_latency: Duration) -> Self {
         Self {
+            #[cfg(feature = "rai_protocol")]
+            notarization_notifications: Default::default(),
             epoch_source: None,
             insertion_epoch: None,
             #[cfg(feature = "rai_protocol")]
@@ -215,6 +261,10 @@ impl ActiveElectionsContainer {
         let mut election = Election::new(request.block, request.behavior, self.base_latency, now);
         election.epoch = self.insertion_epoch.unwrap_or_else(|| self.current_epoch());
 
+        self.stats
+            .vote_counter
+            .audit
+            .record(0, root.clone(), hash, election.epoch);
         self.roots.insert(Entry {
             root: root.clone(),
             election,
@@ -474,6 +524,9 @@ impl ActiveElectionsContainer {
         now: Timestamp,
     ) {
         for (confirmed_block, source_election) in confirmed {
+            let implicit = source_election
+                .as_ref()
+                .is_none_or(|e| e.winner.hash() != confirmed_block.hash());
             let mut confirmed_election =
                 self.confirm_dependent_election(&confirmed_block, source_election, now);
             #[cfg(feature = "rai_protocol")]
@@ -496,6 +549,12 @@ impl ActiveElectionsContainer {
                     entry.election.cancel();
                 }
             }
+            self.stats.vote_counter.audit.record(
+                if implicit { 4 } else { 2 },
+                confirmed_block.qualified_root(),
+                confirmed_block.hash(),
+                confirmed_election.epoch,
+            );
             self.block_confirmed(confirmed_block, confirmed_election);
         }
     }
@@ -672,6 +731,10 @@ impl ActiveElectionsContainer {
             roots: &mut self.roots,
         };
         let result = apply_helper.apply_vote();
+        #[cfg(feature = "rai_protocol")]
+        for item in result.notarization_ready {
+            self.notarization_notifications.push(item);
+        }
         for entry in result.confirmed {
             #[cfg(feature = "rai_protocol")]
             {

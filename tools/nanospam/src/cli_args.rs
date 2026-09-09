@@ -6,6 +6,10 @@ const DEFAULT_RATE: &str = "1+50@3s";
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 pub(crate) struct CliArgs {
+    /// Write complete post-cutoff termination evidence for debugging
+    #[arg(long)]
+    pub audit_output: Option<std::path::PathBuf>,
+
     /// Newly cemented blocks per local consensus epoch; zero disables advancement
     #[arg(long, default_value_t = 0)]
     pub epoch_length: u64,

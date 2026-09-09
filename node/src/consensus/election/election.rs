@@ -208,6 +208,11 @@ impl Election {
     }
 
     #[cfg(feature = "rai_protocol")]
+    pub(crate) fn termination_diagnostic(&self) -> serde_json::Value {
+        serde_json::json!({"root":self.qualified_root(),"epoch":self.epoch,"winner":self.winner().hash(),"candidates":self.candidate_blocks().keys().collect::<Vec<_>>(),"first":self.kudzu.first_tallies,"notarization":self.kudzu.notar_tallies,"final":self.kudzu.final_tallies})
+    }
+
+    #[cfg(feature = "rai_protocol")]
     pub fn can_notarize(&self, hash: &BlockHash) -> bool {
         self.contains_block(hash) && self.kudzu.second_look(hash)
     }

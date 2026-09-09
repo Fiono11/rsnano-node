@@ -69,6 +69,10 @@ impl ContainerInfoProvider for AecVoter {
 
 impl Tickable for AecVoter {
     fn tick(&mut self, cancel_token: &CancellationToken) {
+        #[cfg(feature = "rai_protocol")]
+        for (id, hash) in self.aec.take_notarization_notifications() {
+            self.vote_generators.notify_notarization(id, hash);
+        }
         let now = self.clock.now();
         let scheduler = &self.scheduler;
 
@@ -87,7 +91,7 @@ impl Tickable for AecVoter {
             .collect()
         });
         #[cfg(feature = "rai_protocol")]
-        let targets: Vec<VoteTarget> = self.aec.round_robin(|iter| {
+        let mut targets: Vec<VoteTarget> = self.aec.round_robin(|iter| {
             let mut targets = Vec::new();
             for e in iter {
                 let primary = vote_target(e);
@@ -113,6 +117,9 @@ impl Tickable for AecVoter {
             }
             targets
         });
+
+        #[cfg(feature = "rai_protocol")]
+        self.vote_generators.retain_signable_targets(&mut targets);
 
         let mut vote_queue = Vec::new();
         let mut skip_non_final = false;

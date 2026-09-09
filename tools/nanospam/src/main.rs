@@ -18,3 +18,5 @@ async fn main() -> anyhow::Result<()> {
     let args = CliArgs::parse();
     NanoSpamApp::new(args).run().await
 }
+
+mod termination_check;

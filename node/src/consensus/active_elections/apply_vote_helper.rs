@@ -36,6 +36,8 @@ impl<'a> ApplyVoteHelper<'a> {
                 .roots
                 .election_for_epoch_mut(block_hash, self.args.vote.epoch)
             {
+                #[cfg(feature = "rai_protocol")]
+                let was_ready = election.can_notarize(block_hash);
                 {
                     let mut apply_to_election = ApplyVoteToElectionHelper {
                         args: self.args,
@@ -49,6 +51,32 @@ impl<'a> ApplyVoteHelper<'a> {
                     result.per_block.insert(*block_hash, vote_result);
                 }
 
+                if self.vote_counter.audit.enabled() {
+                    #[cfg(feature = "rai_protocol")]
+                    for hash in election.candidate_blocks().keys() {
+                        if election.has_kudzu_certificate(*hash, rsnano_types::VoteKind::Notarize) {
+                            self.vote_counter.audit.record(
+                                1,
+                                election.qualified_root().clone(),
+                                *hash,
+                                election.epoch,
+                            );
+                        }
+                    }
+                    if election.is_confirmed() {
+                        self.vote_counter.audit.record(
+                            2,
+                            election.qualified_root().clone(),
+                            election.winner().hash(),
+                            election.epoch,
+                        );
+                    }
+                }
+
+                #[cfg(feature = "rai_protocol")]
+                if !was_ready && election.can_notarize(block_hash) && !election.is_confirmed() {
+                    result.notarization_ready.push((election.id(), *block_hash));
+                }
                 let root = election.id();
                 let confirmed = election.is_confirmed();
                 #[cfg(feature = "rai_protocol")]
@@ -77,6 +105,8 @@ impl<'a> ApplyVoteHelper<'a> {
 pub(crate) struct ApplyVoteResult {
     pub per_block: HashMap<BlockHash, Result<(), VoteError>>,
     pub confirmed: Vec<Entry>,
+    #[cfg(feature = "rai_protocol")]
+    pub notarization_ready: Vec<(rsnano_types::ElectionId, BlockHash)>,
 }
 
 struct ApplyVoteToElectionHelper<'a> {

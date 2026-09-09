@@ -41,7 +41,11 @@ impl Default for ProcessQueueConfig {
             priority_bootstrap: 8,
             priority_local: 16,
             priority_system: 32,
-            batch_size: 256,
+            batch_size: if cfg!(feature = "rai_protocol") {
+                64
+            } else {
+                256
+            },
         }
     }
 }

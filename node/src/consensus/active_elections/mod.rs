@@ -165,3 +165,6 @@ pub struct ElectionCandidate {
     pub block: SavedBlock,
     pub priority: BlockPriority,
 }
+
+#[cfg(feature = "rai_protocol")]
+mod notarization_notifications;

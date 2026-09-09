@@ -25,6 +25,17 @@ pub struct AecService {
 }
 
 impl AecService {
+    pub fn termination_audit(&self, offset: usize) -> serde_json::Value {
+        self.aec.read().unwrap().termination_audit(offset)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn take_notarization_notifications(
+        &self,
+    ) -> Vec<(rsnano_types::ElectionId, BlockHash)> {
+        self.aec.write().unwrap().take_notarization_notifications()
+    }
+
     pub fn new(config: ActiveElectionsConfig, base_latency: Duration) -> Self {
         Self {
             aec: RwLock::new(ActiveElectionsContainer::new(config, base_latency)),

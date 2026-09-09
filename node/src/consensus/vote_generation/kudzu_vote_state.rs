@@ -19,6 +19,28 @@ struct RootVotes {
 }
 
 impl KudzuVoteState {
+    pub fn has_notarization(
+        &self,
+        root: &QualifiedRoot,
+        rep: PublicKey,
+        hash: BlockHash,
+        epoch: u64,
+    ) -> bool {
+        self.roots
+            .get(&(root.clone(), rep))
+            .is_some_and(|s| s.statements.contains(&(epoch, VoteKind::Notarize, hash)))
+    }
+
+    /// A cross-notarization permanently rules out final voting for this root.
+    /// Unknown roots remain eligible; certificate and ledger-lock checks still run
+    /// in the generator before signing.
+    pub fn can_finalize(&self, root: &QualifiedRoot, rep: PublicKey, hash: BlockHash) -> bool {
+        self.roots.get(&(root.clone(), rep)).is_none_or(|state| {
+            !state.final_hash.is_some_and(|h| h != hash)
+                && !state.notarized.iter().any(|h| *h != hash)
+        })
+    }
+
     pub fn needs_second_look(&self, root: &QualifiedRoot, rep: PublicKey, hash: BlockHash) -> bool {
         self.roots
             .get(&(root.clone(), rep))
@@ -149,6 +171,30 @@ mod tests {
         );
         assert_eq!(
             state.authorize(&root, rep, b, 1, false, true, false, None),
+            Some(VoteKind::Notarize)
+        );
+    }
+
+    #[test]
+    fn cross_notarization_disables_final_work_but_preserves_notarization_recovery() {
+        let mut state = KudzuVoteState::default();
+        let root = QualifiedRoot::new_test_instance();
+        let rep = PublicKey::from(1);
+        let a = BlockHash::from(10);
+        let b = BlockHash::from(11);
+        assert!(state.can_finalize(&root, rep, a));
+        state
+            .authorize(&root, rep, a, 0, false, false, false, None)
+            .unwrap();
+        assert!(state.can_finalize(&root, rep, a));
+        assert!(!state.can_finalize(&root, rep, b));
+        state
+            .authorize(&root, rep, b, 0, false, true, false, None)
+            .unwrap();
+        assert!(!state.can_finalize(&root, rep, a));
+        assert!(!state.can_finalize(&root, rep, b));
+        assert_eq!(
+            state.authorize(&root, rep, b, 0, false, false, false, None),
             Some(VoteKind::Notarize)
         );
     }

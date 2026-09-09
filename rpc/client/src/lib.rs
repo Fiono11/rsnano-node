@@ -606,6 +606,14 @@ impl NanoRpcClient {
         self.request(&RpcCommand::Chain(args)).await
     }
 
+    pub async fn termination_audit(&self, offset: u64) -> Result<ConfirmationActiveResponse> {
+        self.request(&RpcCommand::ConfirmationActive(ConfirmationActiveArgs {
+            announcements: None,
+            termination_audit_offset: Some(offset.into()),
+        }))
+        .await
+    }
+
     pub async fn confirmation_active(
         &self,
         announcements: Option<u64>,

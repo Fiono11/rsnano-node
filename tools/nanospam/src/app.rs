@@ -160,6 +160,12 @@ impl NanoSpamApp {
         info!("Starting with {} BPS", logic.lock().unwrap().current_bps);
 
         let started = Instant::now();
+        let cutoff = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos() as u64
+            + 60_000_000_000;
+        logic.lock().unwrap().deadline = Some(started + Duration::from_secs(60));
         std::thread::scope(|s| {
             s.spawn(|| {
                 enqueue_blocks(&logic, tx_blocks, &self.clock);
@@ -214,42 +220,63 @@ impl NanoSpamApp {
         };
         info!("Average conf time: {conf_time} ms");
         let summary = serde_json::json!({ "rai_protocol": cfg!(feature = "rai_protocol"), "epoch_length": self.args.epoch_length, "prs": self.args.prs, "accounts": self.args.accounts, "created_blocks": created_blocks, "confirmed_blocks": confirmed_blocks, "duration_seconds": duration_secs, "confirmation_rate_cps": cps, "average_confirmation_ms": conf_time });
+        let workload_records = logic.workload_records.clone();
+        let published_hashes = logic.published_hashes.clone();
+        let workload_roots = logic.workload_roots.clone();
         drop(logic);
         info!("BENCHMARK_RESULT {summary}");
-        #[cfg(feature = "rai_protocol")]
-        {
-            let reconciliation_started = Instant::now();
-            let mut stable = 0;
-            let mut previous = None;
+        let mut observations = Vec::new();
+        let mut diagnostics = Vec::new();
+        for client in &self.rpc_clients {
+            let mut events = Vec::new();
+            let mut offset = 0;
             loop {
-                let mut sets = Vec::new();
-                let mut all_cemented = true;
-                for client in &self.rpc_clients {
-                    let count = client.block_count().await?;
-                    all_cemented &= count.count == count.cemented;
-                    sets.push(count.confirmation_epochs);
+                let response = client.termination_audit(offset).await?;
+                let page = response
+                    .termination_audit
+                    .ok_or_else(|| anyhow::anyhow!("Node has no termination audit support"))?;
+                anyhow::ensure!(
+                    page["enabled"] == true && page["overflow"] == false,
+                    "Termination audit disabled or overflowed"
+                );
+                if offset == 0 {
+                    diagnostics.push(page.get("active").cloned().unwrap_or_default());
                 }
-                let equal = all_cemented && sets.iter().all(|s| s.is_some() && *s == sets[0]);
-                if equal && previous.as_ref() == sets.first() {
-                    stable += 1;
-                } else {
-                    stable = 0;
-                }
-                previous = sets.into_iter().next();
-                // Passive observation only: this check does not initiate protocol work.
-                if stable >= 3 {
+                let batch: Vec<crate::termination_check::Event> =
+                    serde_json::from_value(page["events"].clone())?;
+                let count = batch.len();
+                events.extend(batch);
+                offset += count as u64;
+                if offset >= page["total"].as_u64().unwrap() {
                     break;
                 }
-                if reconciliation_started.elapsed() > Duration::from_secs(180) {
-                    anyhow::bail!("Canonical epoch sets failed to converge within 180 seconds");
-                }
-                tokio::time::sleep(Duration::from_secs(1)).await;
+                anyhow::ensure!(count > 0, "Incomplete audit page");
             }
-            info!(
-                "EPOCH_SET_AGREEMENT_SECONDS {}",
-                reconciliation_started.elapsed().as_secs_f64()
-            );
+            observations.push(events);
         }
+        let agreement = crate::termination_check::check(
+            &workload_roots,
+            &observations,
+            cutoff,
+            cfg!(feature = "rai_protocol"),
+        );
+        if let Some(path) = &self.args.audit_output {
+            std::fs::write(
+                path,
+                serde_json::to_vec(
+                    &serde_json::json!({"cutoff":cutoff,"workload":workload_records,"published_hashes":published_hashes,"observations":observations,"diagnostics":diagnostics} ),
+                )?,
+            )?;
+        }
+        info!("TERMINATION_RESULT {agreement}");
+        anyhow::ensure!(
+            self.args.blocks.is_some_and(|n| workload_roots.len() == n),
+            "Requested workload was not completely generated"
+        );
+        anyhow::ensure!(
+            agreement["success"] == true,
+            "Termination/certificate agreement failed: {agreement}"
+        );
         for (index, client) in self.rpc_clients.iter().enumerate() {
             if let Ok(count) = client.block_count().await {
                 info!("PR{index} ledger: {}", serde_json::to_string(&count)?);
@@ -272,7 +299,9 @@ fn enqueue_blocks(logic: &Mutex<SpamLogic>, tx_blocks: mpsc::Sender<Forks>, cloc
 
         match result {
             Some(BlockResult::Block(forks)) => {
-                tx_blocks.blocking_send(forks).unwrap();
+                if tx_blocks.blocking_send(forks).is_err() {
+                    break;
+                }
             }
             Some(BlockResult::Waiting) => {
                 yield_now();
@@ -372,7 +401,9 @@ async fn republish_delayed_blocks(
             }
             l.next_delayed(now)
         } {
-            tx_forks.send(Forks::new(block)).await.unwrap();
+            if tx_forks.send(Forks::new(block)).await.is_err() {
+                return;
+            }
         }
 
         tokio::time::sleep(Duration::from_millis(100)).await;

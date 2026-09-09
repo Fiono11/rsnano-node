@@ -24,9 +24,25 @@ pub(crate) fn vote_target(e: &Election) -> VoteTarget {
     }
 }
 
+#[cfg(feature = "rai_protocol")]
+type ScheduleKey = (ElectionId, BlockHash);
+#[cfg(not(feature = "rai_protocol"))]
+type ScheduleKey = ElectionId;
+
+fn schedule_key(target: &VoteTarget) -> ScheduleKey {
+    #[cfg(feature = "rai_protocol")]
+    {
+        (target.root.clone(), target.winner)
+    }
+    #[cfg(not(feature = "rai_protocol"))]
+    {
+        target.root.clone()
+    }
+}
+
 pub(crate) struct VotingScheduler {
-    records: HashMap<ElectionId, VoteRecord>,
-    expiry_queue: VecDeque<(Timestamp, ElectionId)>,
+    records: HashMap<ScheduleKey, VoteRecord>,
+    expiry_queue: VecDeque<(Timestamp, ScheduleKey)>,
     interval: Duration,
 }
 
@@ -49,7 +65,7 @@ impl VotingScheduler {
     /// Returns true if enough time has passed since the last vote for this election,
     /// or if the winner has changed since the last vote.
     pub fn can_vote(&self, target: &VoteTarget, now: Timestamp) -> bool {
-        let Some(record) = self.records.get(&target.root) else {
+        let Some(record) = self.records.get(&schedule_key(target)) else {
             return true;
         };
 
@@ -71,7 +87,7 @@ impl VotingScheduler {
     pub fn mark_voted(&mut self, target: &VoteTarget, now: Timestamp) {
         let record = self
             .records
-            .entry(target.root.clone())
+            .entry(schedule_key(target))
             .or_insert(VoteRecord {
                 last_non_final: None,
                 last_final: None,
@@ -88,7 +104,7 @@ impl VotingScheduler {
         record.last_voted_winner = target.winner;
         record.last_voted = now;
 
-        self.expiry_queue.push_back((now, target.root.clone()));
+        self.expiry_queue.push_back((now, schedule_key(target)));
     }
 
     /// Remove entries whose most recent vote is older than the interval.
@@ -116,7 +132,7 @@ impl ContainerInfoProvider for VotingScheduler {
             (
                 "expiry_queue",
                 self.expiry_queue.len(),
-                size_of::<(Timestamp, ElectionId)>(),
+                size_of::<(Timestamp, ScheduleKey)>(),
             ),
         ]
         .into()
@@ -179,6 +195,24 @@ mod tests {
         s.mark_voted(&target(VoteType::NonFinal), t(0));
         s.cleanup(t(5));
         assert!(!s.can_vote(&target(VoteType::NonFinal), t(5)));
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn alternating_candidates_do_not_bypass_the_retry_interval() {
+        let mut s = scheduler();
+        let a = target(VoteType::NonFinal);
+        let b = other_winner_target(VoteType::NonFinal);
+        s.mark_voted(&a, t(0));
+        assert!(s.can_vote(&b, t(0)));
+        s.mark_voted(&b, t(0));
+        assert!(!s.can_vote(&a, t(1)));
+        assert!(!s.can_vote(&b, t(1)));
+        // Final-phase progress does not wait for the non-final retry interval.
+        assert!(s.can_vote(&target(VoteType::Final), t(1)));
+        s.cleanup(t(15));
+        assert!(s.can_vote(&a, t(15)));
+        assert!(s.can_vote(&b, t(15)));
     }
 
     /*

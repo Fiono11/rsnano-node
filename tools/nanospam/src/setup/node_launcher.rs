@@ -40,6 +40,7 @@ pub(crate) async fn start_nodes(
             cmd
         } else {
             let mut cmd = Command::new("rsnano");
+            cmd.env("NANOSPAM_TERMINATION_AUDIT", "1");
             cmd.env("NANO_TEST_GENESIS_BLOCK", GENESIS_BLOCK)
                 .env("NANO_TEST_GENESIS_PRV ", GENESIS_PRV)
                 .arg("--network")

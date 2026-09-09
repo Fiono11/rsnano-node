@@ -5,6 +5,7 @@ use rsnano_types::VoteDelivery;
 
 #[derive(Default)]
 pub(crate) struct VoteCounter {
+    pub audit: super::termination_audit::TerminationAudit,
     votes: u64,
     #[cfg(feature = "rai_protocol")]
     fast_confirmed: u64,

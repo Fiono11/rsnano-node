@@ -16,6 +16,11 @@ pub(crate) struct SpamSpec {
 }
 
 pub(crate) struct SpamLogic {
+    pub workload_records: Vec<(rsnano_types::QualifiedRoot, BlockHash, Option<BlockHash>)>,
+    pub published_hashes: std::collections::HashSet<BlockHash>,
+
+    pub deadline: Option<std::time::Instant>,
+    pub workload_roots: std::collections::HashSet<rsnano_types::QualifiedRoot>,
     pub(crate) delayed: DelayedBlocks,
     pub(crate) high_prio_tracker: HighPrioTracker,
     pub(crate) block_factory: BlockFactory,
@@ -34,6 +39,10 @@ pub(crate) struct SpamLogic {
 impl SpamLogic {
     pub(crate) fn new(account_map: AccountMap, spec: SpamSpec) -> Self {
         Self {
+            workload_records: Vec::new(),
+            published_hashes: Default::default(),
+            deadline: None,
+            workload_roots: Default::default(),
             delayed: Default::default(),
             high_prio_tracker: Default::default(),
             block_factory: BlockFactory::new(account_map, spec.max_blocks, spec.spam_strategy),
@@ -51,6 +60,9 @@ impl SpamLogic {
     }
 
     pub(crate) fn is_finished(&self) -> bool {
+        if let Some(deadline) = self.deadline {
+            return std::time::Instant::now() >= deadline;
+        }
         self.block_factory.max_blocks() > 0
             && self.confirmed_total >= self.block_factory.max_blocks()
     }
@@ -60,6 +72,12 @@ impl SpamLogic {
     }
 
     pub(crate) fn next_block(&mut self, is_fork: bool, now: Timestamp) -> Option<BlockResult> {
+        if self
+            .deadline
+            .is_some_and(|d| std::time::Instant::now() >= d)
+        {
+            return None;
+        }
         if self.bps_start.is_none() {
             self.bps_start = Some(now);
         }
@@ -83,6 +101,12 @@ impl SpamLogic {
         }
 
         let next = self.next_block.take().unwrap();
+        self.workload_records.push((
+            next.block.qualified_root(),
+            next.block.hash(),
+            next.fork.as_ref().map(|b| b.hash()),
+        ));
+        self.workload_roots.insert(next.block.qualified_root());
         self.delayed.insert(next.block.clone()); // TODO: handle forks!
 
         if self.bps_start.unwrap().elapsed(now) >= self.spec.rate.interval {
@@ -99,6 +123,7 @@ impl SpamLogic {
     }
 
     pub(crate) fn published(&mut self, hash: &BlockHash, now: Timestamp) -> bool {
+        self.published_hashes.insert(*hash);
         self.delayed.published(hash, now);
 
         if !self.spec.track_confirmations {

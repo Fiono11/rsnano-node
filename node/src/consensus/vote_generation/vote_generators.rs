@@ -30,6 +30,8 @@ pub struct VoteGenerationEvent {
 
 pub struct VoteGenerators {
     #[cfg(feature = "rai_protocol")]
+    vote_state: Arc<Mutex<super::kudzu_vote_state::KudzuVoteState>>,
+    #[cfg(feature = "rai_protocol")]
     elections: Arc<std::sync::RwLock<std::sync::Weak<crate::consensus::AecService>>>,
     non_final_vote_generator: VoteGenerator,
     final_vote_generator: VoteGenerator,
@@ -40,6 +42,41 @@ pub struct VoteGenerators {
 }
 
 impl VoteGenerators {
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn notify_notarization(&self, id: rsnano_types::ElectionId, hash: BlockHash) {
+        let mut keys = Vec::new();
+        self.wallet_reps.lock().unwrap().rep_priv_keys(&mut keys);
+        let needed = {
+            let state = self.vote_state.lock().unwrap();
+            // Mixed local committees use periodic recovery: never accelerate a First replay.
+            !keys.is_empty()
+                && keys.iter().all(|key| {
+                    state.needs_second_look(&id.root, key.public_key(), hash)
+                        && !state.has_notarization(&id.root, key.public_key(), hash, id.epoch)
+                })
+        };
+        if needed {
+            self.non_final_vote_generator
+                .add_in_epoch(&id.root.root, &hash, id.epoch);
+        }
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn retain_signable_targets(
+        &self,
+        targets: &mut Vec<super::voting_scheduler::VoteTarget>,
+    ) {
+        let mut keys = Vec::new();
+        self.wallet_reps.lock().unwrap().rep_priv_keys(&mut keys);
+        let state = self.vote_state.lock().unwrap();
+        targets.retain(|target| {
+            target.vote_type != VoteType::Final
+                || keys.iter().any(|key| {
+                    state.can_finalize(&target.root.root, key.public_key(), target.winner)
+                })
+        });
+    }
+
     fn voting_delay_for(network: NetworkType) -> Duration {
         match network {
             NetworkType::NanoDevNetwork => Duration::from_secs(1),
@@ -102,6 +139,8 @@ impl VoteGenerators {
         );
 
         Self {
+            #[cfg(feature = "rai_protocol")]
+            vote_state,
             #[cfg(feature = "rai_protocol")]
             elections,
             non_final_vote_generator,
