@@ -79,6 +79,28 @@ impl MessageSender {
         self.message_serializer.clone()
     }
 
+    /// Send a shared encoding while preserving per-destination observations.
+    pub(crate) fn try_send_encoded(
+        &self,
+        channel: &Channel,
+        message: &Message,
+        buffer: &[u8],
+        traffic_type: TrafficType,
+    ) -> bool {
+        if self.send_listener.is_tracked() {
+            self.send_listener.emit(SendEvent {
+                channel_id: channel.channel_id(),
+                message: message.clone(),
+                traffic_type,
+            });
+        }
+        let sent = try_send_serialized_message(channel, &self.stats, buffer, message, traffic_type);
+        if let Some(callback) = &self.published_callback {
+            callback(channel.channel_id(), message);
+        }
+        sent
+    }
+
     pub fn track(&self) -> Arc<OutputTrackerMt<SendEvent>> {
         self.send_listener.track()
     }

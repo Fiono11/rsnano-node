@@ -165,7 +165,10 @@ impl KudzuVotes {
     }
 
     pub fn needs_vote(&self, rep: &PublicKey, hash: BlockHash, quorum: bool) -> bool {
+        // FIRST already contributes notarization weight, but a later TIMEOUT
+        // from that same voter can still be needed to terminate a split election.
         !self.notar.contains_key(&(*rep, hash))
+            || (!quorum && self.should_timeout() && !self.timeout_votes.contains_key(rep))
             || (quorum
                 && self.final_hashes.get(rep) != Some(&hash)
                 && !self
@@ -255,6 +258,28 @@ mod tests {
             .iter()
             .map(|(r, w)| (PrivateKey::from(*r).public_key(), Amount::raw(*w)))
             .collect()
+    }
+
+    #[test]
+    fn timeout_recovery_requests_upgrade_from_existing_first_voter() {
+        let (mut e, a, _) = election();
+        let weights = weights(&[(1, 100), (2, 100), (3, 100), (4, 100), (5, 100), (6, 100)]);
+        for rep in 1..=2 {
+            vote(&mut e, rep, a, VoteKind::First).unwrap();
+        }
+        for rep in 3..=5 {
+            vote(&mut e, rep, a, VoteKind::FirstTimeout).unwrap();
+        }
+        e.update_kudzu_tallies(&weights, Amount::raw(600));
+        assert!(!e.has_kudzu_certificate(a, VoteKind::Timeout));
+        assert!(
+            e.needs_kudzu_vote(&PrivateKey::from(1).public_key()),
+            "an existing FIRST must not suppress recovery of its later TIMEOUT"
+        );
+        vote(&mut e, 1, a, VoteKind::Timeout).unwrap();
+        e.update_kudzu_tallies(&weights, Amount::raw(600));
+        assert!(e.has_kudzu_certificate(a, VoteKind::Timeout));
+        assert!(!e.needs_kudzu_vote(&PrivateKey::from(1).public_key()));
     }
 
     #[test]

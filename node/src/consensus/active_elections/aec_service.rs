@@ -76,7 +76,7 @@ impl AecService {
             LAST_DIAGNOSTIC.store(now, std::sync::atomic::Ordering::Relaxed);
             eprintln!(
                 "EPOCH_DRAIN_WAIT {}",
-                serde_json::json!({"pending":pending.len(),"examples":pending.iter().take(8).map(|id| {
+                serde_json::json!({"pid":std::process::id(),"epoch":epoch,"pending":pending.len(),"examples":pending.iter().take(8).map(|id| {
                 aec.election_for_id(id).map(|e| e.termination_diagnostic()).unwrap_or_else(|| serde_json::json!({"missing_election":true,"root":id.root,"epoch":id.epoch}))
             }).collect::<Vec<_>>()})
             );

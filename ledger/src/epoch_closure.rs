@@ -167,6 +167,55 @@ impl Ledger {
         })
     }
 
+    /// Opt-in diagnostics for a complete snapshot rejected by this node.
+    pub fn epoch_close_candidate_diagnostic(
+        &self,
+        epoch: u64,
+        hashes: &[BlockHash],
+    ) -> serde_json::Value {
+        let selected: BTreeSet<_> = hashes.iter().copied().collect();
+        let blocks = self.epoch_blocks.read().unwrap();
+        let tx = self.store.begin_read();
+        if let Some(hash) = self
+            .store
+            .consensus_epochs
+            .canonical_hashes(&tx)
+            .find(|h| !selected.contains(h))
+        {
+            return serde_json::json!({"reason":"missing_prior_member","hash":hash});
+        }
+        let any = self.any();
+        for hash in hashes {
+            if self.store.consensus_epochs.canonical(&tx, hash).is_some() {
+                continue;
+            }
+            if let Some((e, _, dependencies)) = blocks.get(hash) {
+                if *e > epoch {
+                    return serde_json::json!({"reason":"later_notarization","hash":hash,"local_epoch":e});
+                }
+                if let Some(missing) = dependencies.iter().find(|h| !selected.contains(h)) {
+                    return serde_json::json!({"reason":"missing_dependency","hash":hash,"dependency":missing});
+                }
+            } else {
+                let metadata = self.store.consensus_epochs.get(&tx, hash);
+                if metadata.is_none_or(|e| e > epoch) {
+                    return serde_json::json!({"reason":"no_eligible_local_membership","hash":hash,"cemented_epoch":metadata,"in_account_ledger":any.get_block(hash).is_some()});
+                }
+                let Some(block) = any.get_block(hash) else {
+                    return serde_json::json!({"reason":"missing_cemented_payload","hash":hash});
+                };
+                if let Some(missing) = block
+                    .dependent_blocks(&self.constants.epochs, &self.constants.genesis_account)
+                    .iter()
+                    .find(|h| !h.is_zero() && !selected.contains(h))
+                {
+                    return serde_json::json!({"reason":"missing_cemented_dependency","hash":hash,"dependency":missing});
+                }
+            }
+        }
+        serde_json::json!({"reason":"ledger_valid_check_parent_or_round"})
+    }
+
     pub fn close_epoch(&self, epoch: u64, hashes: &[BlockHash]) -> anyhow::Result<()> {
         anyhow::ensure!(
             self.epoch_close_candidate_valid(epoch, hashes),

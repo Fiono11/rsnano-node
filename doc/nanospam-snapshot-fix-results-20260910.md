@@ -1,5 +1,7 @@
 # Nanospam snapshot fix ramp
 
+Resumed ramp: 51,260 blocks at 1,026 blocks/s now passes after digest-only delta recovery, candidate admission, archive retention, and timeout-request corrections. See [corrections and measured results](epoch-close-delta-recovery-20260910.md) and [historical failure diagnostics](nanospam-ramp-failure-20260910.md). No higher load was started. The user deleted the historical `/private/tmp/nanospam-*` artifacts to free disk space; new results are under `target/nanospam-debug-20260910/`.
+
 Six PRs, 5% forks, no priority probes, accounts = requested blocks. Each successful run verifies exactly two epochs. Times: first publication to PR0 WebSocket receipt. Counts: election roots per epoch, not unique roots across epochs. Full tracing and audit disabled. Successful node data deleted; failed data preserved.
 
 ## 4,500 blocks at 90 blocks/s: PASS

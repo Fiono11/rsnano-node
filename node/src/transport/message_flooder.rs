@@ -79,11 +79,10 @@ impl MessageFlooder {
 
         let mut flood_count = FloodCount::default();
         let peered_prs = self.rep_tracker.peered_principal_reps();
-        for rep in peered_prs {
-            if self.try_send_channel_id(rep.channel_id, message, traffic_type) {
-                flood_count.principal_reps += 1;
-            }
-        }
+        let principal_channels: Vec<_> = peered_prs
+            .iter()
+            .filter_map(|rep| self.channel(rep.channel_id))
+            .collect();
 
         let mut channels;
         let fanout;
@@ -94,8 +93,22 @@ impl MessageFlooder {
         }
 
         self.remove_principal_reps(&mut channels, fanout);
+        // Snapshot pages contain hundreds of hashes. Encode each page once,
+        // rather than repeating JSON and hash formatting for every peer.
+        let buffer = self.message_serializer.serialize(message);
+        for peer in principal_channels {
+            if self
+                .sender
+                .try_send_encoded(&peer, message, buffer, traffic_type)
+            {
+                flood_count.principal_reps += 1;
+            }
+        }
         for peer in channels {
-            if self.sender.try_send(&peer, message, traffic_type) {
+            if self
+                .sender
+                .try_send_encoded(&peer, message, buffer, traffic_type)
+            {
                 flood_count.non_principal_reps += 1;
             }
         }
@@ -217,6 +230,63 @@ pub struct FloodCount {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "rai_protocol")]
+    #[tokio::test]
+    async fn shared_snapshot_encoding_preserves_bytes_and_destination_observers() {
+        use rsnano_messages::EpochClose;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let mut flooder = MessageFlooder::new_null();
+        let mut endpoint = TEST_ENDPOINT_2;
+        endpoint.set_port(endpoint.port() + 1);
+        let (second, _) = flooder
+            .network
+            .write()
+            .unwrap()
+            .add(
+                TEST_ENDPOINT_1,
+                endpoint,
+                ChannelDirection::Outbound,
+                Timestamp::new_test_instance(),
+            )
+            .unwrap();
+        second.set_mode(rsnano_network::ChannelMode::Established);
+        let peers = flooder
+            .network
+            .read()
+            .unwrap()
+            .shuffled_channels(TrafficType::VoteReply);
+        assert_eq!(peers.len(), 2);
+        let callbacks = Arc::new(AtomicUsize::new(0));
+        let observed = callbacks.clone();
+        flooder.sender.set_published_callback(Arc::new(move |_, _| {
+            observed.fetch_add(1, Ordering::Relaxed);
+        }));
+        let sends = flooder.sender.track();
+        let message = Message::EpochClose(EpochClose {
+            epoch: 1,
+            round: 0,
+            parent: 0.into(),
+            state: 1.into(),
+            kind: 5,
+            voter: 0.into(),
+            signature: Default::default(),
+            page: 0,
+            pages: 1,
+            hashes: (1..=512).map(Into::into).collect(),
+            base: 1.into(),
+            removed: vec![],
+        });
+        let expected = MessageSerializer::default().serialize(&message).to_vec();
+        let count = flooder.flood_prs_and_some_non_prs(&message, TrafficType::VoteReply, 100.0);
+        assert_eq!(count.non_principal_reps, 2);
+        assert_eq!(callbacks.load(Ordering::Relaxed), 2);
+        assert_eq!(sends.output().len(), 2);
+        for peer in &peers {
+            assert_eq!(*peer.pop().await.unwrap().buffer, expected);
+        }
+    }
 
     #[test]
     fn can_track_floods() {

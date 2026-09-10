@@ -46,12 +46,7 @@ macro_rules! u256_struct {
             }
 
             pub fn encode_hex(&self) -> String {
-                use std::fmt::Write;
-                let mut result = String::with_capacity(64);
-                for &byte in self.as_bytes() {
-                    write!(&mut result, "{:02X}", byte).unwrap();
-                }
-                result
+                hex::encode_upper(self.as_bytes())
             }
 
             pub fn decode_hex(s: impl AsRef<str>) -> Option<Self> {

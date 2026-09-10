@@ -5,8 +5,9 @@ use rsnano_types::{
 };
 use serde::{Deserialize, Serialize};
 
-/// A close-round statement, or a bounded page of its immutable snapshot.
-/// Vote kinds 0..=4 have the same meaning as VoteKind; 5 transports snapshot data; 6 acknowledges a persisted close.
+/// A digest-only close statement or a bounded delta against a reconstructed base.
+/// Vote kinds 0..=4 carry only a digest; 5 answers a delta recovery request,
+/// 6 acknowledges a persisted close, and 7 requests one page on a mismatch.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EpochClose {
     pub epoch: u64,
@@ -18,7 +19,12 @@ pub struct EpochClose {
     pub signature: Signature,
     pub page: u16,
     pub pages: u16,
+    /// Empty for votes; base digests in requests; additions in delta responses.
     pub hashes: Vec<BlockHash>,
+    #[serde(default, skip_serializing_if = "BlockHash::is_zero")]
+    pub base: BlockHash,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub removed: Vec<BlockHash>,
 }
 impl EpochClose {
     pub const PAGE_SIZE: usize = 512;
@@ -33,11 +39,19 @@ impl EpochClose {
             .build()
     }
     pub fn signing_hash(&self) -> BlockHash {
-        Blake2HashBuilder::new()
+        let builder = Blake2HashBuilder::new()
             .update(b"rai-close-vote-v1")
             .update(self.candidate_id().as_bytes())
-            .update([self.kind])
-            .build()
+            .update([self.kind]);
+        if self.kind == 7 {
+            let mut builder = builder.update(self.page.to_le_bytes());
+            for base in &self.hashes {
+                builder = builder.update(base.as_bytes());
+            }
+            builder.build()
+        } else {
+            builder.build()
+        }
     }
     pub fn sign(&mut self, key: &PrivateKey) {
         self.voter = key.public_key();
@@ -46,6 +60,8 @@ impl EpochClose {
     pub fn valid_vote(&self) -> bool {
         self.kind <= 4
             && self.hashes.is_empty()
+            && self.base.is_zero()
+            && self.removed.is_empty()
             && self.pages == 0
             && self.page == 0
             && (!matches!(self.kind, 3 | 4) || (self.parent.is_zero() && self.state.is_zero()))
@@ -57,11 +73,27 @@ impl EpochClose {
     /// Receipt only: never usable as a consensus vote or certificate.
     pub fn valid_receipt(&self) -> bool {
         self.kind == 6
+            && self.base.is_zero()
+            && self.removed.is_empty()
             && self.round == 0
             && self.parent.is_zero()
             && self.hashes.is_empty()
             && self.pages == 0
             && self.page == 0
+            && self
+                .voter
+                .verify(self.signing_hash().as_bytes(), &self.signature)
+                .is_ok()
+    }
+
+    pub fn valid_recovery_request(&self) -> bool {
+        self.kind == 7
+            && !self.hashes.is_empty()
+            && self.hashes.len() <= Self::PAGE_SIZE
+            && self.base.is_zero()
+            && self.removed.is_empty()
+            && self.pages == 0
+            && self.page < Self::MAX_PAGES
             && self
                 .voter
                 .verify(self.signing_hash().as_bytes(), &self.signature)
@@ -74,7 +106,10 @@ impl EpochClose {
     pub fn deserialize(payload: &[u8]) -> Result<Self, DeserializationError> {
         let value: Self =
             serde_json::from_slice(payload).map_err(|_| DeserializationError::InvalidData)?;
-        if value.kind > 6 || value.hashes.len() > Self::PAGE_SIZE || value.pages > Self::MAX_PAGES {
+        if value.kind > 7
+            || value.hashes.len() + value.removed.len() > Self::PAGE_SIZE
+            || value.pages > Self::MAX_PAGES
+        {
             return Err(DeserializationError::InvalidData);
         }
         Ok(value)
@@ -90,6 +125,39 @@ impl MessageVariant for EpochClose {
 mod tests {
     use super::*;
     #[test]
+    fn recovery_request_signature_binds_bases_and_page() {
+        let mut request = EpochClose {
+            epoch: 0,
+            round: 1,
+            parent: 2.into(),
+            state: 3.into(),
+            kind: 7,
+            voter: 0.into(),
+            signature: Signature::new(),
+            page: 0,
+            pages: 0,
+            hashes: vec![4.into(), 5.into()],
+            base: BlockHash::ZERO,
+            removed: vec![],
+        };
+        request.sign(&PrivateKey::from(1));
+        assert!(request.valid_recovery_request());
+        assert!(!request.valid_vote());
+        crate::assert_deserializable(&crate::Message::EpochClose(request.clone()));
+        let mut changed = request.clone();
+        changed.page = 1;
+        assert!(!changed.valid_recovery_request());
+        changed = request.clone();
+        changed.hashes[0] = 6.into();
+        assert!(!changed.valid_recovery_request());
+        request.hashes.clear();
+        request.sign(&PrivateKey::from(1));
+        assert!(
+            !request.valid_recovery_request(),
+            "an empty-base request cannot request a full list"
+        );
+    }
+    #[test]
     fn close_receipt_cannot_be_used_as_a_vote() {
         let mut receipt = EpochClose {
             epoch: 1,
@@ -102,6 +170,8 @@ mod tests {
             page: 0,
             pages: 0,
             hashes: vec![],
+            base: BlockHash::ZERO,
+            removed: vec![],
         };
         receipt.sign(&PrivateKey::from(1));
         assert!(receipt.valid_receipt());
@@ -124,6 +194,8 @@ mod tests {
             page: 0,
             pages: 0,
             hashes: vec![],
+            base: BlockHash::ZERO,
+            removed: vec![],
         };
         v.sign(&PrivateKey::from(1));
         assert!(v.valid_vote());

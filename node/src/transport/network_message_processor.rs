@@ -92,7 +92,7 @@ impl NetworkMessageProcessor {
             #[cfg(feature = "rai_protocol")]
             Message::EpochClose(packet) => {
                 if let Some(closer) = &self.epoch_closer {
-                    closer.receive(packet);
+                    closer.receive(packet, channel.channel_id());
                 }
             }
             Message::Keepalive(keepalive) => {

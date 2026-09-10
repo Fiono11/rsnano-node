@@ -6,7 +6,7 @@ use crate::{
 };
 use rsnano_ledger::{Ledger, RepWeights};
 use rsnano_messages::{EpochClose, Message};
-use rsnano_network::TrafficType;
+use rsnano_network::{ChannelId, TrafficType};
 use rsnano_types::{Amount, BlockHash, PrivateKey, PublicKey, Signature, Vote, VoteKind};
 use rsnano_utils::{CancellationToken, ticker::Tickable};
 use std::{
@@ -44,6 +44,7 @@ pub(crate) fn debug_trace(event: impl FnOnce() -> serde_json::Value) {
 
 const ROUND_TIMEOUT: Duration = Duration::from_secs(3);
 const RETRANSMIT: Duration = Duration::from_secs(2);
+static DROPPED_CLOSE_PACKETS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 fn round_timeout(round: u64) -> Duration {
     ROUND_TIMEOUT * (1u32 << round.min(6))
@@ -78,7 +79,7 @@ impl Default for Round {
     }
 }
 impl Round {
-    fn receive(&mut self, packet: EpochClose, weights: &RepWeights, total: Amount) {
+    fn receive(&mut self, packet: EpochClose, weights: &RepWeights, total: Amount) -> bool {
         let id = packet.candidate_id();
         let mut vote = Vote::null();
         vote.kind = kind(packet.kind);
@@ -88,6 +89,9 @@ impl Round {
         if self.tally.insert(Arc::new(vote), id).is_ok() {
             self.votes.insert((packet.voter, packet.kind, id), packet);
             self.tally.tally(weights, total);
+            true
+        } else {
+            false
         }
     }
     fn certificate(&self, id: BlockHash, kind: VoteKind) -> bool {
@@ -107,6 +111,9 @@ struct Candidate {
     validated: Cell<bool>,
     header: EpochClose,
     pages: BTreeMap<u16, Vec<BlockHash>>,
+    removed_pages: BTreeMap<u16, Vec<BlockHash>>,
+    recovery_base: Option<Arc<Vec<BlockHash>>>,
+    last_delta_page: Option<Instant>,
     hashes: Option<Vec<BlockHash>>,
 }
 struct State {
@@ -122,6 +129,40 @@ struct State {
     archive: Vec<EpochClose>,
     receipts: BTreeMap<(u64, PublicKey), BlockHash>,
     local_receipts: Vec<EpochClose>,
+    local_snapshots: VecDeque<(BlockHash, Vec<BlockHash>)>,
+    archive_snapshots: BTreeMap<BlockHash, Vec<BlockHash>>,
+    closed_base: Option<(BlockHash, Vec<BlockHash>)>,
+    deltas: VecDeque<((BlockHash, BlockHash), SnapshotDelta)>,
+}
+struct SnapshotDelta {
+    added: Vec<BlockHash>,
+    removed: Vec<BlockHash>,
+}
+impl SnapshotDelta {
+    fn between(base: &[BlockHash], target: &[BlockHash]) -> Self {
+        let mut added = Vec::new();
+        let mut removed = Vec::new();
+        let (mut b, mut t) = (0, 0);
+        while b < base.len() && t < target.len() {
+            match base[b].cmp(&target[t]) {
+                std::cmp::Ordering::Less => {
+                    removed.push(base[b]);
+                    b += 1;
+                }
+                std::cmp::Ordering::Greater => {
+                    added.push(target[t]);
+                    t += 1;
+                }
+                std::cmp::Ordering::Equal => {
+                    b += 1;
+                    t += 1;
+                }
+            }
+        }
+        removed.extend_from_slice(&base[b..]);
+        added.extend_from_slice(&target[t..]);
+        Self { added, removed }
+    }
 }
 impl State {
     fn new(epoch: u64, weights: RepWeights, archive: Vec<EpochClose>) -> Self {
@@ -143,8 +184,34 @@ impl State {
             archive,
             receipts: BTreeMap::new(),
             local_receipts: Vec::new(),
+            local_snapshots: Default::default(),
+            archive_snapshots: Default::default(),
+            closed_base: None,
+            deltas: Default::default(),
         }
     }
+    fn advance(&mut self, hashes: Vec<BlockHash>, weights: RepWeights) {
+        let mut archive = std::mem::take(&mut self.archive);
+        archive.extend(self.packets());
+        let mut archive_snapshots = std::mem::take(&mut self.archive_snapshots);
+        archive_snapshots.extend(
+            self.candidates
+                .values()
+                .filter_map(|c| c.hashes.as_ref().map(|h| (c.header.state, h.clone())))
+                .chain(self.local_snapshots.iter().cloned()),
+        );
+        if let Some((digest, hashes)) = &self.closed_base {
+            archive_snapshots.insert(*digest, hashes.clone());
+        }
+        let receipts = std::mem::take(&mut self.receipts);
+        let local_receipts = std::mem::take(&mut self.local_receipts);
+        *self = State::new(self.epoch + 1, weights, archive);
+        self.archive_snapshots = archive_snapshots;
+        self.closed_base = Some((Ledger::epoch_state_hash(&hashes), hashes));
+        self.receipts = receipts;
+        self.local_receipts = local_receipts;
+    }
+
     fn archive_acknowledged(&self, epoch: u64, digest: BlockHash) -> bool {
         self.weights
             .iter()
@@ -164,12 +231,15 @@ impl State {
             page: 0,
             pages: 0,
             hashes: vec![],
+            base: BlockHash::ZERO,
+            removed: vec![],
         }
     }
     fn receive(&mut self, p: EpochClose) {
         if p.kind == 6 {
             if p.epoch <= self.epoch
-                && p.epoch >= self.epoch.saturating_sub(1)
+                && (p.epoch >= self.epoch.saturating_sub(1)
+                    || self.local_receipts.iter().any(|r| r.epoch == p.epoch))
                 && !self.weights.weight(&p.voter).is_zero()
                 && p.valid_receipt()
             {
@@ -185,35 +255,97 @@ impl State {
             if self.weights.weight(&p.voter).is_zero() || !p.valid_vote() {
                 return;
             }
-            self.rounds
-                .entry(p.round)
-                .or_default()
-                .receive(p, &self.weights, self.total);
-        } else if p.pages > 0 && p.page < p.pages && !p.hashes.is_empty() {
+            let accepted = self.rounds.entry(p.round).or_default().receive(
+                p.clone(),
+                &self.weights,
+                self.total,
+            );
+            if accepted && p.kind <= 2 && !p.state.is_zero() {
+                self.candidates
+                    .entry(p.candidate_id())
+                    .or_insert_with(|| Candidate {
+                        validated: Cell::new(false),
+                        header: p.clone(),
+                        pages: Default::default(),
+                        removed_pages: Default::default(),
+                        recovery_base: None,
+                        last_delta_page: None,
+                        hashes: None,
+                    });
+            }
+        } else if p.kind == 5 && p.pages > 0 && p.page < p.pages && !p.base.is_zero() {
+            // A delta is usable only against an immutable snapshot we already
+            // reconstructed. There is deliberately no full-list fallback.
+            let Some(base) = self
+                .candidates
+                .get(&p.candidate_id())
+                .filter(|c| c.header.base == p.base)
+                .and_then(|c| c.recovery_base.clone())
+                .or_else(|| self.snapshot(&p.base).cloned().map(Arc::new))
+            else {
+                return;
+            };
             let id = p.candidate_id();
-            if !self.candidates.contains_key(&id) && self.candidates.len() >= 64 {
+            // Bound simultaneous payload assemblies, not authenticated decision metadata.
+            if self
+                .candidates
+                .get(&id)
+                .is_some_and(|c| c.header.pages == 0)
+                && self
+                    .candidates
+                    .values()
+                    .filter(|c| c.hashes.is_none() && c.recovery_base.is_some())
+                    .count()
+                    >= 64
+            {
                 return;
             }
-            let entry = self.candidates.entry(id).or_insert_with(|| Candidate {
-                validated: Cell::new(false),
-                header: p.clone(),
-                pages: Default::default(),
-                hashes: None,
-            });
-            if entry.header.pages != p.pages || entry.hashes.is_some() {
+            let Some(entry) = self.candidates.get_mut(&id) else {
                 return;
+            };
+            if entry.hashes.is_some() {
+                return;
+            }
+            if entry.header.pages == 0 {
+                entry.header.pages = p.pages;
+                entry.header.base = p.base;
+                entry.recovery_base = Some(base.clone());
+            }
+            if entry.header.pages != p.pages || entry.header.base != p.base {
+                return;
+            }
+            if !entry.pages.contains_key(&p.page) {
+                entry.last_delta_page = Some(Instant::now());
             }
             entry.pages.entry(p.page).or_insert(p.hashes);
+            entry.removed_pages.entry(p.page).or_insert(p.removed);
             if entry.pages.len() == p.pages as usize {
-                let hashes: Vec<_> = entry.pages.values().flatten().copied().collect();
-                if hashes.windows(2).all(|w| w[0] < w[1])
-                    && Ledger::epoch_state_hash(&hashes) == p.state
-                {
-                    entry.hashes = Some(hashes);
+                let added: Vec<_> = entry.pages.values().flatten().copied().collect();
+                let removed: Vec<_> = entry.removed_pages.values().flatten().copied().collect();
+                let valid = added.windows(2).all(|w| w[0] < w[1])
+                    && removed.windows(2).all(|w| w[0] < w[1])
+                    && added.iter().all(|h| base.binary_search(h).is_err())
+                    && removed.iter().all(|h| base.binary_search(h).is_ok());
+                let mut reconstructed: std::collections::BTreeSet<_> =
+                    base.iter().copied().collect();
+                for hash in removed {
+                    reconstructed.remove(&hash);
                 }
+                reconstructed.extend(added);
+                let hashes: Vec<_> = reconstructed.into_iter().collect();
+                if valid && Ledger::epoch_state_hash(&hashes) == p.state {
+                    entry.hashes = Some(hashes);
+                } else {
+                    entry.header.pages = 0;
+                    entry.header.base = BlockHash::ZERO;
+                }
+                entry.recovery_base = None;
+                entry.pages.clear();
+                entry.removed_pages.clear();
             }
         }
     }
+
     fn certified(&self, id: BlockHash, k: VoteKind) -> bool {
         self.candidates.get(&id).is_some_and(|c| {
             self.rounds
@@ -267,6 +399,8 @@ impl State {
         p.pages = 0;
         p.page = 0;
         p.hashes.clear();
+        p.base = BlockHash::ZERO;
+        p.removed.clear();
         if matches!(k, 3 | 4) {
             p.parent = BlockHash::ZERO;
             p.state = BlockHash::ZERO;
@@ -278,24 +412,107 @@ impl State {
         self.receive(p.clone());
         out.push(p);
     }
+    /// Proposals and votes never include snapshot members or deltas.
     fn packets(&self) -> Vec<EpochClose> {
-        let mut packets = Vec::new();
-        for r in self.rounds.values() {
-            packets.extend(r.votes.values().cloned());
+        self.rounds
+            .values()
+            .flat_map(|r| r.votes.values().cloned())
+            .collect()
+    }
+
+    fn snapshot(&self, digest: &BlockHash) -> Option<&Vec<BlockHash>> {
+        self.local_snapshots
+            .iter()
+            .find(|(h, _)| h == digest)
+            .map(|(_, v)| v)
+            .or_else(|| {
+                self.candidates
+                    .values()
+                    .find(|c| c.header.state == *digest && c.hashes.is_some())
+                    .and_then(|c| c.hashes.as_ref())
+            })
+            .or_else(|| self.archive_snapshots.get(digest))
+            .or_else(|| {
+                self.closed_base
+                    .as_ref()
+                    .filter(|(h, _)| h == digest)
+                    .map(|(_, v)| v)
+            })
+    }
+
+    fn bases(&self) -> Vec<BlockHash> {
+        let mut bases: std::collections::BTreeSet<_> = self
+            .local_snapshots
+            .iter()
+            .filter(|(_, hashes)| !hashes.is_empty())
+            .map(|(h, _)| *h)
+            .collect();
+        bases.extend(
+            self.candidates
+                .values()
+                .filter(|c| c.hashes.as_ref().is_some_and(|v| !v.is_empty()))
+                .map(|c| c.header.state),
+        );
+        bases.extend(
+            self.archive_snapshots
+                .iter()
+                .filter(|(_, v)| !v.is_empty())
+                .map(|(h, _)| *h),
+        );
+        if let Some((digest, _)) = &self.closed_base {
+            bases.insert(*digest);
         }
-        for c in self.candidates.values() {
-            if let Some(hashes) = &c.hashes {
-                for (page, chunk) in hashes.chunks(EpochClose::PAGE_SIZE).enumerate() {
-                    let mut p = c.header.clone();
-                    p.kind = 5;
-                    p.page = page as u16;
-                    p.pages = hashes.len().div_ceil(EpochClose::PAGE_SIZE) as u16;
-                    p.hashes = chunk.to_vec();
-                    packets.push(p);
-                }
+        bases.into_iter().take(EpochClose::PAGE_SIZE).collect()
+    }
+
+    fn recovery_page(&mut self, request: &EpochClose) -> Option<EpochClose> {
+        if !request.valid_recovery_request() || self.weights.weight(&request.voter).is_zero() {
+            return None;
+        }
+        let cached = self
+            .deltas
+            .iter()
+            .find(|((target, base), _)| *target == request.state && request.hashes.contains(base))
+            .map(|(key, _)| *key);
+        // Prefer the largest shared base. A retry after the first delta page
+        // advertises only the selected base, keeping the transfer immutable.
+        let cache_key = if let Some(key) = cached {
+            key
+        } else {
+            let target = self.snapshot(&request.state)?;
+            let base = request
+                .hashes
+                .iter()
+                .filter_map(|h| self.snapshot(h).map(|v| (*h, v)))
+                .filter(|(_, v)| !v.is_empty())
+                .max_by_key(|(_, v)| v.len());
+            let (base_hash, base) = base?;
+            let cache_key = (request.state, base_hash);
+            let delta = SnapshotDelta::between(base, target);
+            if self.deltas.len() == 16 {
+                self.deltas.pop_front();
             }
+            self.deltas.push_back((cache_key, delta));
+            cache_key
+        };
+        let delta = &self.deltas.iter().find(|(key, _)| *key == cache_key)?.1;
+        let count = delta.added.len() + delta.removed.len();
+        let pages = count.div_ceil(EpochClose::PAGE_SIZE).max(1);
+        if pages > EpochClose::MAX_PAGES as usize || request.page as usize >= pages {
+            return None;
         }
-        packets
+        let start = request.page as usize * EpochClose::PAGE_SIZE;
+        let end = (start + EpochClose::PAGE_SIZE).min(count);
+        let mut page = request.clone();
+        page.kind = 5;
+        page.base = cache_key.1;
+        page.pages = pages as u16;
+        page.hashes =
+            delta.added[start.min(delta.added.len())..end.min(delta.added.len())].to_vec();
+        page.removed = delta.removed
+            [start.saturating_sub(delta.added.len())..end.saturating_sub(delta.added.len())]
+            .to_vec();
+        Some(page)
     }
     fn drive(
         &mut self,
@@ -303,6 +520,54 @@ impl State {
         keys: &[PrivateKey],
     ) -> (Vec<EpochClose>, Option<Vec<BlockHash>>) {
         let mut out = Vec::new();
+        for candidate in self.candidates.values_mut().filter(|c| c.hashes.is_none()) {
+            if candidate
+                .last_delta_page
+                .is_some_and(|t| t.elapsed() >= RETRANSMIT * 5)
+            {
+                // The serving peer may have evicted its bounded base/delta cache.
+                // Retry with current bases instead of pinning an unavailable base forever.
+                candidate.header.base = BlockHash::ZERO;
+                candidate.header.pages = 0;
+                candidate.pages.clear();
+                candidate.removed_pages.clear();
+                candidate.recovery_base = None;
+                candidate.last_delta_page = None;
+            }
+        }
+        // A compact vote is sufficient when its digest is already reconstructible
+        // locally. Only a mismatch needs separate snapshot recovery.
+        let local = (self.ready || self.candidates.values().any(|c| c.hashes.is_none()))
+            .then(|| ledger.epoch_close_candidate(self.epoch));
+        if let Some(hashes) = &local {
+            let digest = Ledger::epoch_state_hash(hashes);
+            if !self.local_snapshots.iter().any(|(h, _)| *h == digest) {
+                if self.local_snapshots.len() == 8 {
+                    self.local_snapshots.pop_front();
+                }
+                self.local_snapshots.push_back((digest, hashes.clone()));
+            }
+            let missing: Vec<_> = self
+                .candidates
+                .iter()
+                .filter(|(_, c)| c.hashes.is_none())
+                .map(|(id, c)| (*id, c.header.state))
+                .collect();
+            for (id, state) in missing {
+                let matching = if state == digest {
+                    Some(hashes.clone())
+                } else {
+                    self.snapshot(&state).cloned()
+                };
+                if let Some(hashes) = matching {
+                    let candidate = self.candidates.get_mut(&id).unwrap();
+                    candidate.hashes = Some(hashes);
+                    candidate.pages.clear();
+                    candidate.removed_pages.clear();
+                    candidate.recovery_base = None;
+                }
+            }
+        }
         // A later certified block finalizes its ancestors. The first block in that
         // committed chain is the unique Close(e); later snapshots are successors,
         // never alternative decisions that replace an already closed epoch.
@@ -346,13 +611,16 @@ impl State {
             self.parent = *id;
         }
         // Every representative proposes its current monotonic epoch snapshot.
-        // Updated snapshots are advertised within the round, but FIRST remains
-        // immutable. A subsequent round starts with the latest ledger snapshot.
-        if keys
-            .iter()
-            .any(|key| !self.weights.weight(&key.public_key()).is_zero())
-        {
-            let hashes = ledger.epoch_close_candidate(self.epoch);
+        // Keep recent bases for recovery, but create only signed proposals.
+        // FIRST remains immutable; the next round uses the latest snapshot.
+        if keys.iter().any(|key| {
+            !self.weights.weight(&key.public_key()).is_zero()
+                && self.rounds[&self.round]
+                    .signers
+                    .get(&key.public_key())
+                    .is_none_or(|s| s.first.is_none())
+        }) {
+            let hashes = local.unwrap();
             if hashes.len() <= EpochClose::PAGE_SIZE * EpochClose::MAX_PAGES as usize {
                 let proposal =
                     self.template(self.round, self.parent, Ledger::epoch_state_hash(&hashes));
@@ -361,6 +629,9 @@ impl State {
                     validated: Cell::new(false),
                     header: proposal.clone(),
                     pages: Default::default(),
+                    removed_pages: Default::default(),
+                    recovery_base: None,
+                    last_delta_page: None,
                     hashes: Some(hashes),
                 });
                 if self.valid(id, ledger) {
@@ -461,13 +732,76 @@ impl State {
     }
 }
 
+#[derive(Default)]
+struct Recovery {
+    sources: HashMap<BlockHash, Vec<ChannelId>>,
+    requested: HashMap<(BlockHash, u16), Instant>,
+    replies: VecDeque<(ChannelId, EpochClose)>,
+    next_source: usize,
+}
+
+impl Recovery {
+    fn requests(&mut self, state: &State, key: &PrivateKey) -> Vec<(ChannelId, EpochClose)> {
+        self.sources
+            .retain(|id, _| state.candidates.contains_key(id));
+        self.requested
+            .retain(|(id, _), _| state.candidates.get(id).is_some_and(|c| c.hashes.is_none()));
+        let bases = state.bases();
+        let mut result = Vec::new();
+        let now = Instant::now();
+        for (id, candidate) in &state.candidates {
+            if candidate.hashes.is_some() {
+                continue;
+            }
+            let Some(sources) = self.sources.get(id).filter(|v| !v.is_empty()) else {
+                continue;
+            };
+            let bases = if candidate.header.base.is_zero() {
+                bases.clone()
+            } else {
+                vec![candidate.header.base]
+            };
+            if bases.is_empty() {
+                continue;
+            }
+            for page in 0..candidate.header.pages.max(1) {
+                if candidate.pages.contains_key(&page)
+                    || self
+                        .requested
+                        .get(&(*id, page))
+                        .is_some_and(|t| now.duration_since(*t) < RETRANSMIT)
+                {
+                    continue;
+                }
+                let mut request = candidate.header.clone();
+                request.kind = 7;
+                request.page = page;
+                request.pages = 0;
+                request.base = BlockHash::ZERO;
+                request.hashes = bases.clone();
+                request.removed.clear();
+                request.sign(key);
+                let channel = sources[self.next_source % sources.len()];
+                self.next_source = self.next_source.wrapping_add(1);
+                self.requested.insert((*id, page), now);
+                result.push((channel, request));
+                if result.len() == 32 {
+                    return result;
+                }
+            }
+        }
+        result
+    }
+}
+
 pub(crate) struct EpochCloser {
     ledger: Arc<Ledger>,
     generators: Arc<VoteGenerators>,
     aec: Arc<AecService>,
     reps: Arc<Mutex<WalletRepresentatives>>,
     flooder: Mutex<MessageFlooder>,
-    incoming: Mutex<VecDeque<EpochClose>>,
+    incoming: Mutex<VecDeque<(EpochClose, ChannelId)>>,
+    recovery: Mutex<Recovery>,
     state: Mutex<State>,
     epoch_start: Mutex<Option<Instant>>,
     epoch_start_file: Option<std::path::PathBuf>,
@@ -496,13 +830,16 @@ impl EpochCloser {
             reps,
             flooder: Mutex::new(flooder),
             incoming: Default::default(),
+            recovery: Default::default(),
             state: Mutex::new(state),
         }
     }
-    pub fn receive(&self, message: EpochClose) {
+    pub fn receive(&self, message: EpochClose, channel: ChannelId) {
         let mut q = self.incoming.lock().unwrap();
         if q.len() < 4096 {
-            q.push_back(message);
+            q.push_back((message, channel));
+        } else {
+            DROPPED_CLOSE_PACKETS.fetch_add(1, Ordering::Relaxed);
         }
     }
     fn epoch_deadline_reached(&self, epoch: u64) -> bool {
@@ -537,10 +874,32 @@ impl EpochCloser {
         if self.ledger.epoch_length.load(Ordering::Relaxed) == 0 {
             return;
         }
+        let tick_started = Instant::now();
         let mut state = self.state.lock().unwrap();
+        let mut recovery = self.recovery.lock().unwrap();
         let incoming = std::mem::take(&mut *self.incoming.lock().unwrap());
-        for p in incoming {
-            state.receive(p);
+        let incoming_count = incoming.len();
+        let report_transport = state.last_send.elapsed() >= RETRANSMIT
+            && std::env::var_os("RAI_CLOSE_VALIDATION_DIAGNOSTICS").is_some();
+        for (p, channel) in incoming {
+            if p.kind == 7 {
+                if recovery.replies.len() < 128 {
+                    if let Some(page) = state.recovery_page(&p) {
+                        recovery.replies.push_back((channel, page));
+                    }
+                }
+            } else {
+                let id = p.candidate_id();
+                let source =
+                    p.kind <= 2 && p.valid_vote() && !state.weights.weight(&p.voter).is_zero();
+                state.receive(p);
+                if source && state.candidates.contains_key(&id) {
+                    let sources = recovery.sources.entry(id).or_default();
+                    if !sources.contains(&channel) && sources.len() < 16 {
+                        sources.push(channel);
+                    }
+                }
+            }
         }
         if self.epoch_deadline_reached(state.epoch)
             && self.ledger.begin_epoch_drain() == Some(state.epoch)
@@ -563,6 +922,21 @@ impl EpochCloser {
         self.reps.lock().unwrap().rep_priv_keys(&mut keys);
         let (mut outgoing, closed) = state.drive(&self.ledger, &keys);
         if state.ready && state.last_send.elapsed() >= RETRANSMIT {
+            if std::env::var_os("RAI_CLOSE_VALIDATION_DIAGNOSTICS").is_some() {
+                for (id, candidate) in &state.candidates {
+                    if !state.valid(*id, &self.ledger) {
+                        if let Some(hashes) = &candidate.hashes {
+                            eprintln!(
+                                "EPOCH_CLOSE_INVALID {}",
+                                serde_json::json!({
+                                    "pid":std::process::id(), "epoch":state.epoch,"candidate":id,
+                                    "diagnostic":self.ledger.epoch_close_candidate_diagnostic(state.epoch, hashes)
+                                })
+                            );
+                        }
+                    }
+                }
+            }
             eprintln!(
                 "EPOCH_CLOSE_PROGRESS {}",
                 serde_json::json!({
@@ -575,17 +949,13 @@ impl EpochCloser {
 
         if let Some(hashes) = closed {
             if let Ok(discarded) = self.aec.close_epoch(&self.ledger, state.epoch, &hashes) {
-                let archive = state.packets();
                 eprintln!(
                     "EPOCH_CLOSED {}",
                     serde_json::json!({"epoch":state.epoch,"hash":Ledger::epoch_state_hash(&hashes),"blocks":hashes.len(),"round":state.round,"discarded":discarded})
                 );
                 let epoch = state.epoch;
                 let digest = Ledger::epoch_state_hash(&hashes);
-                let mut receipts = std::mem::take(&mut state.receipts);
-                receipts.retain(|(e, _), _| *e >= epoch);
-                *state = State::new(epoch + 1, self.ledger.rep_weights.read().clone(), archive);
-                state.receipts = receipts;
+                state.advance(hashes.clone(), self.ledger.rep_weights.read().clone());
                 for key in &keys {
                     let mut receipt = state.template(0, BlockHash::ZERO, digest);
                     receipt.epoch = epoch;
@@ -597,28 +967,69 @@ impl EpochCloser {
             }
         }
         if let Some(receipt) = state.local_receipts.first() {
-            if state.archive_acknowledged(receipt.epoch, receipt.state) && !state.archive.is_empty()
+            if state
+                .local_receipts
+                .iter()
+                .all(|r| state.archive_acknowledged(r.epoch, r.state))
+                && !state.archive.is_empty()
             {
                 debug_trace(
                     || serde_json::json!({"type":"archive_acknowledged","epoch":receipt.epoch,"state":receipt.state,"packets":state.archive.len()}),
                 );
                 state.archive.clear();
+                state.archive_snapshots.clear();
             }
         }
-        // Votes are sent immediately; full manifests are paced independently.
+        // Only compact votes and receipts are flooded. Delta pages are requested
+        // from one peer on a digest mismatch and never broadcast.
         if state.last_send.elapsed() >= RETRANSMIT {
             outgoing.extend(state.local_receipts.iter().cloned());
             outgoing.extend(state.archive.iter().cloned());
             outgoing.extend(state.packets());
             state.last_send = Instant::now();
         }
+        let mut targeted = if let Some(key) = keys
+            .iter()
+            .find(|k| !state.weights.weight(&k.public_key()).is_zero())
+        {
+            recovery.requests(&state, key)
+        } else {
+            Vec::new()
+        };
+        for _ in 0..32 {
+            if let Some(reply) = recovery.replies.pop_front() {
+                targeted.push(reply);
+            } else {
+                break;
+            }
+        }
+        drop(recovery);
         drop(state);
+        let outgoing_count = outgoing.len();
+        let processing_ms = tick_started.elapsed().as_millis();
         let mut flooder = self.flooder.lock().unwrap();
         for packet in outgoing {
             flooder.flood_prs_and_some_non_prs(
                 &Message::EpochClose(packet),
                 TrafficType::VoteReply,
                 1.0,
+            );
+        }
+        for (channel, packet) in targeted {
+            flooder.try_send_channel_id(
+                channel,
+                &Message::EpochClose(packet),
+                TrafficType::VoteReply,
+            );
+        }
+        if report_transport {
+            eprintln!(
+                "EPOCH_CLOSE_TRANSPORT {}",
+                serde_json::json!({
+                    "pid":std::process::id(),"incoming":incoming_count,"outgoing":outgoing_count,
+                    "processing_ms":processing_ms,"total_ms":tick_started.elapsed().as_millis(),
+                    "dropped":DROPPED_CLOSE_PACKETS.load(Ordering::Relaxed)
+                })
             );
         }
     }
@@ -633,6 +1044,62 @@ impl Tickable for EpochCloseTicker {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn epoch_close_recovery_limit_does_not_drop_authenticated_decision_headers() {
+        let mut replica = state();
+        replica.round = 64;
+        for round in 0..64 {
+            let mut vote = replica.template(round, BlockHash::ZERO, 1.into());
+            vote.sign(&PrivateKey::from(1));
+            let id = vote.candidate_id();
+            replica.receive(vote);
+            replica.candidates.get_mut(&id).unwrap().hashes = Some(vec![1.into()]);
+        }
+        let mut next = replica.template(65, BlockHash::ZERO, 1.into());
+        next.sign(&PrivateKey::from(2));
+        let id = next.candidate_id();
+        replica.receive(next);
+        assert!(
+            replica.candidates.contains_key(&id),
+            "retained snapshots must not suppress the next authenticated decision header"
+        );
+    }
+    #[test]
+    fn epoch_close_equivocation_does_not_allocate_candidate_headers() {
+        let mut s = state();
+        for value in 1..=100 {
+            let mut p = s.template(0, BlockHash::ZERO, value.into());
+            p.sign(&PrivateKey::from(1));
+            s.receive(p);
+        }
+        assert_eq!(s.candidates.len(), 1);
+    }
+
+    #[test]
+    fn epoch_close_archive_survives_two_advances_with_lagging_peer() {
+        let mut s = state();
+        let hashes = vec![1.into()];
+        let digest = Ledger::epoch_state_hash(&hashes);
+        let mut p = s.template(0, BlockHash::ZERO, digest);
+        p.sign(&PrivateKey::from(1));
+        s.receive(p.clone());
+        s.candidates.get_mut(&p.candidate_id()).unwrap().hashes = Some(hashes.clone());
+        s.advance(hashes.clone(), s.weights.clone());
+        let mut receipt = s.template(0, BlockHash::ZERO, digest);
+        receipt.epoch = 0;
+        receipt.kind = 6;
+        receipt.sign(&PrivateKey::from(1));
+        s.local_receipts.push(receipt.clone());
+        s.advance(vec![1.into(), 2.into()], s.weights.clone());
+        assert!(s.archive.iter().any(|v| v == &p));
+        assert_eq!(s.snapshot(&digest), Some(&hashes));
+        for i in 1..=6 {
+            receipt.sign(&PrivateKey::from(i));
+            s.receive(receipt.clone());
+        }
+        assert!(s.archive_acknowledged(0, digest));
+    }
+
     fn state() -> State {
         let weights: Vec<_> = (1..=6)
             .map(|i| (PrivateKey::from(i).public_key(), Amount::raw(100)))
@@ -726,6 +1193,9 @@ mod tests {
                         validated: Cell::new(false),
                         header: p.clone(),
                         pages: Default::default(),
+                        removed_pages: Default::default(),
+                        recovery_base: None,
+                        last_delta_page: None,
                         hashes: Some(hashes.clone()),
                     });
                 }
@@ -817,6 +1287,9 @@ mod tests {
                         validated: Cell::new(false),
                         header: p.clone(),
                         pages: Default::default(),
+                        removed_pages: Default::default(),
+                        recovery_base: None,
+                        last_delta_page: None,
                         hashes: Some(hashes.clone()),
                     });
                 }
@@ -909,10 +1382,15 @@ mod tests {
                     s.rounds[&0].signers[&key.public_key()].first,
                     Some(firsts[i])
                 );
-                let latest_id = s
-                    .template(0, BlockHash::ZERO, Ledger::epoch_state_hash(&latest))
-                    .candidate_id();
-                assert_eq!(s.candidates[&latest_id].hashes.as_ref(), Some(&latest));
+                assert_eq!(
+                    s.snapshot(&Ledger::epoch_state_hash(&latest)),
+                    Some(&latest)
+                );
+                assert_eq!(
+                    s.candidates.len(),
+                    1,
+                    "refreshing a recovery base must not create unsigned proposals"
+                );
                 packets.extend(s.packets());
             }
             for s in &mut replicas {
@@ -970,20 +1448,133 @@ mod tests {
         assert!(s.rounds[&0].certificate(id, VoteKind::First));
     }
     #[test]
-    fn epoch_close_pages_must_match_immutable_digest() {
-        let mut s = state();
-        let hashes = vec![BlockHash::from(1), BlockHash::from(2)];
-        let mut p = s.template(0, BlockHash::ZERO, Ledger::epoch_state_hash(&hashes));
-        let id = p.candidate_id();
-        p.kind = 5;
-        p.pages = 2;
-        p.hashes = vec![hashes[0]];
-        s.receive(p.clone());
-        assert!(s.candidates[&id].hashes.is_none());
-        p.page = 1;
-        p.hashes = vec![hashes[1]];
-        s.receive(p);
-        assert_eq!(s.candidates[&id].hashes.as_ref(), Some(&hashes));
+    fn epoch_close_delta_requires_shared_base_and_matches_immutable_target() {
+        let base = vec![BlockHash::from(1), BlockHash::from(2)];
+        let target = vec![BlockHash::from(1), BlockHash::from(3)];
+        let base_hash = Ledger::epoch_state_hash(&base);
+        let target_hash = Ledger::epoch_state_hash(&target);
+        let mut source = state();
+        source.local_snapshots.push_back((base_hash, base.clone()));
+        source
+            .local_snapshots
+            .push_back((target_hash, target.clone()));
+        let mut receiver = state();
+        receiver
+            .local_snapshots
+            .push_back((base_hash, base.clone()));
+        let mut proposal = source.template(0, BlockHash::ZERO, target_hash);
+        proposal.sign(&PrivateKey::from(1));
+        let id = proposal.candidate_id();
+        receiver.receive(proposal.clone());
+        assert!(receiver.candidates[&id].hashes.is_none());
+        let mut request = proposal;
+        request.kind = 7;
+        request.hashes = vec![99.into()];
+        request.sign(&PrivateKey::from(2));
+        assert!(
+            source.recovery_page(&request).is_none(),
+            "no shared base must never fall back to a full list"
+        );
+        request.hashes = vec![base_hash];
+        request.sign(&PrivateKey::from(2));
+        let page = source.recovery_page(&request).unwrap();
+        assert_eq!(page.base, base_hash);
+        assert_eq!(page.hashes, vec![BlockHash::from(3)]);
+        assert_eq!(page.removed, vec![BlockHash::from(2)]);
+        let mut forged = page.clone();
+        forged.hashes = vec![4.into()];
+        receiver.receive(forged);
+        assert!(receiver.candidates[&id].hashes.is_none());
+        let mut full = page.clone();
+        full.base = BlockHash::ZERO;
+        full.hashes = target.clone();
+        full.removed.clear();
+        receiver.receive(full);
+        assert!(
+            receiver.candidates[&id].hashes.is_none(),
+            "full lists are not a recovery mode"
+        );
+        receiver.receive(page);
+        assert_eq!(receiver.candidates[&id].hashes.as_ref(), Some(&target));
+        assert_eq!(
+            receiver.snapshot(&base_hash),
+            Some(&base),
+            "recovery must not mutate its base"
+        );
+        assert!(
+            receiver
+                .packets()
+                .iter()
+                .all(|p| p.hashes.is_empty() && p.removed.is_empty() && p.base.is_zero())
+        );
+    }
+
+    #[test]
+    fn epoch_close_digest_only_votes_bind_to_local_snapshot() {
+        use rsnano_ledger::{LedgerBuilder, LedgerConstants};
+        let path = std::env::temp_dir().join(format!("rai-close-digest-{}", std::process::id()));
+        std::fs::create_dir_all(&path).unwrap();
+        {
+            let ledger = LedgerBuilder::new(path.join("data.ldb"))
+                .constants(LedgerConstants::dev())
+                .init_thread_count(1)
+                .finish()
+                .unwrap();
+            ledger.configure_epoch_length(40).unwrap();
+            let snapshot = ledger.epoch_close_candidate(0);
+            let digest = Ledger::epoch_state_hash(&snapshot);
+            let mut replica = state();
+            for i in 1..=6 {
+                let mut vote = replica.template(0, BlockHash::ZERO, digest);
+                vote.sign(&PrivateKey::from(i));
+                replica.receive(vote);
+            }
+            let (out, decision) = replica.drive(&ledger, &[]);
+            assert!(out.is_empty());
+            assert_eq!(
+                decision.as_ref(),
+                Some(&snapshot),
+                "matching digest needs no delta or full hash list"
+            );
+        }
+        std::fs::remove_dir_all(path).unwrap();
+    }
+    #[test]
+    fn epoch_close_delta_pages_survive_reordering_and_base_eviction() {
+        let base: Vec<BlockHash> = (1..=600).map(Into::into).collect();
+        let target: Vec<BlockHash> = (301..=900).map(Into::into).collect();
+        let base_hash = Ledger::epoch_state_hash(&base);
+        let target_hash = Ledger::epoch_state_hash(&target);
+        let mut source = state();
+        source.local_snapshots.push_back((base_hash, base.clone()));
+        source
+            .local_snapshots
+            .push_back((target_hash, target.clone()));
+        let mut receiver = state();
+        receiver.local_snapshots.push_back((base_hash, base));
+        let mut proposal = source.template(0, BlockHash::ZERO, target_hash);
+        proposal.sign(&PrivateKey::from(1));
+        let id = proposal.candidate_id();
+        receiver.receive(proposal.clone());
+        let mut request = proposal;
+        request.kind = 7;
+        request.hashes = vec![base_hash];
+        request.page = 1;
+        request.sign(&PrivateKey::from(2));
+        let last = source.recovery_page(&request).unwrap();
+        assert_eq!(last.pages, 2);
+        receiver.receive(last.clone());
+        assert!(receiver.candidates[&id].hashes.is_none());
+        source.local_snapshots.clear();
+        receiver.local_snapshots.clear();
+        request.page = 0;
+        request.sign(&PrivateKey::from(2));
+        let first = source
+            .recovery_page(&request)
+            .expect("cached delta retains its immutable meaning");
+        receiver.receive(last);
+        receiver.receive(first);
+        assert_eq!(receiver.candidates[&id].hashes.as_ref(), Some(&target));
     }
     #[test]
     fn epoch_close_rejects_forged_votes_and_unjustified_future_rounds() {
