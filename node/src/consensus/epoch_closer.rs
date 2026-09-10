@@ -329,67 +329,61 @@ impl State {
             return (out, None);
         }
         self.rounds.entry(self.round).or_default();
-        // FIRST votes follow the rotating leader's authenticated proposal.
-        let mut committee: Vec<_> = self.weights.keys().copied().collect();
-        committee.sort();
-        if committee.is_empty() {
-            return (out, None);
+        // A certificate can arrive after we entered this round. Re-evaluate the
+        // parent before proposing so that certificate arrival order does not
+        // permanently split otherwise identical snapshots into separate chains.
+        // Prefer the newest certified round, then the smallest candidate ID.
+        if let Some((id, _)) = self
+            .candidates
+            .iter()
+            .filter(|(id, c)| {
+                c.header.round < self.round
+                    && self.certified(**id, VoteKind::Notarize)
+                    && self.valid(**id, ledger)
+            })
+            .min_by_key(|(id, c)| (std::cmp::Reverse(c.header.round), **id))
+        {
+            self.parent = *id;
         }
-        let leader = committee[self.round as usize % committee.len()];
-        if let Some(key) = keys.iter().find(|key| key.public_key() == leader) {
-            if self.rounds[&self.round]
-                .signers
-                .get(&leader)
-                .is_none_or(|s| s.first.is_none())
-            {
-                let hashes = ledger.epoch_close_candidate(self.epoch);
-                if hashes.len() <= EpochClose::PAGE_SIZE * EpochClose::MAX_PAGES as usize {
-                    let proposal =
-                        self.template(self.round, self.parent, Ledger::epoch_state_hash(&hashes));
-                    let id = proposal.candidate_id();
-                    debug_trace(
-                        || serde_json::json!({"type":"proposal","epoch":self.epoch,"round":self.round,"id":id,"parent":proposal.parent,"state":proposal.state,"hashes":hashes,"rep":leader}),
-                    );
-                    self.candidates.entry(id).or_insert_with(|| Candidate {
-                        validated: Cell::new(false),
-                        header: proposal.clone(),
-                        pages: Default::default(),
-                        hashes: Some(hashes),
-                    });
-                    if self.valid(id, ledger) {
+        // Every representative proposes its current monotonic epoch snapshot.
+        // Updated snapshots are advertised within the round, but FIRST remains
+        // immutable. A subsequent round starts with the latest ledger snapshot.
+        if keys
+            .iter()
+            .any(|key| !self.weights.weight(&key.public_key()).is_zero())
+        {
+            let hashes = ledger.epoch_close_candidate(self.epoch);
+            if hashes.len() <= EpochClose::PAGE_SIZE * EpochClose::MAX_PAGES as usize {
+                let proposal =
+                    self.template(self.round, self.parent, Ledger::epoch_state_hash(&hashes));
+                let id = proposal.candidate_id();
+                self.candidates.entry(id).or_insert_with(|| Candidate {
+                    validated: Cell::new(false),
+                    header: proposal.clone(),
+                    pages: Default::default(),
+                    hashes: Some(hashes),
+                });
+                if self.valid(id, ledger) {
+                    for key in keys {
+                        if self.weights.weight(&key.public_key()).is_zero() {
+                            continue;
+                        }
                         let signer = self
                             .rounds
                             .get_mut(&self.round)
                             .unwrap()
                             .signers
-                            .entry(leader)
+                            .entry(key.public_key())
                             .or_default();
-                        signer.first = Some(id);
-                        signer.notarized.insert(id);
-                        self.sign(proposal, key, 0, &mut out);
+                        if signer.first.is_none() {
+                            signer.first = Some(id);
+                            signer.notarized.insert(id);
+                            debug_trace(
+                                || serde_json::json!({"type":"proposal","epoch":self.epoch,"round":self.round,"id":id,"parent":proposal.parent,"state":proposal.state,"hashes":self.candidates[&id].hashes,"rep":key.public_key()}),
+                            );
+                            self.sign(proposal.clone(), key, 0, &mut out);
+                        }
                     }
-                }
-            }
-        }
-        let proposal = self.rounds[&self.round]
-            .votes
-            .values()
-            .find(|p| p.voter == leader && p.kind == 0 && self.valid(p.candidate_id(), ledger))
-            .cloned();
-        if let Some(proposal) = proposal {
-            let id = proposal.candidate_id();
-            for key in keys {
-                let signer = self
-                    .rounds
-                    .get_mut(&self.round)
-                    .unwrap()
-                    .signers
-                    .entry(key.public_key())
-                    .or_default();
-                if signer.first.is_none() {
-                    signer.first = Some(id);
-                    signer.notarized.insert(id);
-                    self.sign(proposal.clone(), key, 0, &mut out);
                 }
             }
         }
@@ -771,6 +765,89 @@ mod tests {
             assert!(decisions.iter().all(Option::is_some));
             assert!(decisions.iter().all(|d| d == &decisions[0]));
             assert!(replicas.iter().all(|s| s.round > 0));
+        }
+        std::fs::remove_dir_all(path).unwrap();
+    }
+
+    #[test]
+    fn epoch_close_leaderless_snapshots_refresh_without_replacing_first() {
+        use rsnano_ledger::{
+            LedgerBuilder, LedgerConstants, test_helpers::UnsavedBlockLatticeBuilder,
+        };
+        let path =
+            std::env::temp_dir().join(format!("rai-close-leaderless-{}", std::process::id()));
+        std::fs::create_dir_all(&path).unwrap();
+        {
+            let ledger = LedgerBuilder::new(path.join("data.ldb"))
+                .constants(LedgerConstants::dev())
+                .init_thread_count(1)
+                .finish()
+                .unwrap();
+            ledger.configure_epoch_length(1).unwrap();
+            let mut lattice = UnsavedBlockLatticeBuilder::new();
+            let mut replicas: Vec<_> = (0..6).map(|_| state()).collect();
+            let mut firsts = Vec::new();
+            // Each PR sees a different prefix of the monotonically growing set.
+            // Every PR must propose independently, without a leader's message.
+            for (i, s) in replicas.iter_mut().enumerate() {
+                let key = PrivateKey::from(i as u64 + 1);
+                assert!(s.drive(&ledger, &[key.clone()]).0.is_empty());
+                let block = lattice.genesis().send(100 + i as u64, 1);
+                ledger.process_one(&block).unwrap();
+                ledger.confirm(block.hash());
+                s.ready = true;
+                let (out, decision) = s.drive(&ledger, &[key]);
+                assert!(decision.is_none());
+                assert_eq!(out.len(), 1);
+                assert_eq!(out[0].kind, 0);
+                firsts.push(out[0].candidate_id());
+            }
+            assert_eq!(firsts.iter().collect::<HashSet<_>>().len(), 6);
+            let latest = ledger.epoch_close_candidate(0);
+            let mut packets = Vec::new();
+            for (i, s) in replicas.iter_mut().enumerate() {
+                let key = PrivateKey::from(i as u64 + 1);
+                let (out, _) = s.drive(&ledger, &[key.clone()]);
+                assert!(out.is_empty(), "ledger growth must not replace FIRST");
+                assert_eq!(
+                    s.rounds[&0].signers[&key.public_key()].first,
+                    Some(firsts[i])
+                );
+                let latest_id = s
+                    .template(0, BlockHash::ZERO, Ledger::epoch_state_hash(&latest))
+                    .candidate_id();
+                assert_eq!(s.candidates[&latest_id].hashes.as_ref(), Some(&latest));
+                packets.extend(s.packets());
+            }
+            for s in &mut replicas {
+                for p in &packets {
+                    s.receive(p.clone());
+                }
+            }
+            // Six distinct FIRST values force a timeout certificate. All PRs
+            // retry with the now-identical snapshot and close the same value.
+            let mut decisions = vec![None; 6];
+            for _ in 0..30 {
+                let mut packets = Vec::new();
+                for (i, s) in replicas.iter_mut().enumerate() {
+                    let (out, decision) = s.drive(&ledger, &[PrivateKey::from(i as u64 + 1)]);
+                    if decision.is_some() {
+                        decisions[i] = decision;
+                    }
+                    packets.extend(out);
+                    packets.extend(s.packets());
+                }
+                for s in &mut replicas {
+                    for p in &packets {
+                        s.receive(p.clone());
+                    }
+                }
+                if decisions.iter().all(Option::is_some) {
+                    break;
+                }
+            }
+            assert!(decisions.iter().all(|d| d.as_ref() == Some(&latest)));
+            assert!(replicas.iter().all(|s| s.round == 1));
         }
         std::fs::remove_dir_all(path).unwrap();
     }

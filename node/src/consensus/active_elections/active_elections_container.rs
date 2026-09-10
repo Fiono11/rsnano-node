@@ -446,7 +446,6 @@ impl ActiveElectionsContainer {
         });
         let count = removed.len();
         for entry in removed {
-            *self.count_by_behavior_mut(entry.election.behavior()) -= 1;
             self.cleanup_election(entry);
         }
         count
@@ -1239,6 +1238,7 @@ mod rai_tests {
             .unwrap();
         }
         assert_eq!(aec.discard_closed_epoch(0, &[]), 1);
+        assert_eq!(aec.count_by_behavior(ElectionBehavior::Manual), 1);
         assert!(
             aec.election_for_id(&rsnano_types::ElectionId::new(block.qualified_root(), 0))
                 .is_none()
@@ -1248,6 +1248,9 @@ mod rai_tests {
                 .is_some()
         );
         assert_eq!(aec.discard_closed_epoch(1, &[block.hash()]), 0);
+        assert_eq!(aec.count_by_behavior(ElectionBehavior::Manual), 1);
+        assert_eq!(aec.discard_closed_epoch(1, &[]), 1);
+        assert_eq!(aec.count_by_behavior(ElectionBehavior::Manual), 0);
     }
 
     #[test]
