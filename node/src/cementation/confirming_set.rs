@@ -298,7 +298,27 @@ impl ConfirmingSetThread {
             }
 
             if !guard.set.is_empty() {
-                let batch = guard.next_batch(self.config.batch_size);
+                let mut batch = guard.next_batch(self.config.batch_size);
+                #[cfg(feature = "rai_protocol")]
+                {
+                    let mut ready = VecDeque::new();
+                    for entry in batch {
+                        if self.ledger.epoch_application_allowed(entry.epoch) {
+                            ready.push_back(entry);
+                        } else {
+                            guard.set.push_back(entry);
+                        }
+                    }
+                    batch = ready;
+                    if batch.is_empty() {
+                        guard = self
+                            .condition
+                            .wait_timeout(guard, Duration::from_millis(100))
+                            .unwrap()
+                            .0;
+                        continue;
+                    }
+                }
 
                 // Keep track of the blocks we're currently cementing, so that the .contains (...) check is accurate
                 debug_assert!(guard.current.is_empty());

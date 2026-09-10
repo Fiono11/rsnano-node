@@ -10,7 +10,7 @@ pub(crate) struct CliArgs {
     #[arg(long)]
     pub audit_output: Option<std::path::PathBuf>,
 
-    /// Newly cemented blocks per local consensus epoch; zero disables advancement
+    /// Consensus epoch duration in seconds; zero disables advancement
     #[arg(long, default_value_t = 0)]
     pub epoch_length: u64,
 

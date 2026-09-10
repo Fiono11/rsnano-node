@@ -15,6 +15,8 @@ use super::*;
 /// types are added, removed and reordered in the enum.
 #[derive(FromPrimitive, Clone, Copy, PartialEq, Eq, Hash, EnumCount, EnumIter)]
 pub enum MessageType {
+    #[cfg(feature = "rai_protocol")]
+    EpochClose = 0x13,
     Invalid = 0x0,
     NotAType = 0x1,
     Keepalive = 0x2,
@@ -42,6 +44,8 @@ pub enum MessageType {
 impl MessageType {
     pub fn as_str(&self) -> &'static str {
         match self {
+            #[cfg(feature = "rai_protocol")]
+            MessageType::EpochClose => "epoch_close",
             MessageType::Invalid => "invalid",
             MessageType::NotAType => "not_a_type",
             MessageType::Keepalive => "keepalive",
@@ -67,11 +71,15 @@ impl MessageType {
     }
 
     pub const fn max_id() -> usize {
-        #[cfg(feature = "ledger_snapshots")]
+        #[cfg(feature = "rai_protocol")]
+        {
+            Self::EpochClose as usize
+        }
+        #[cfg(all(not(feature = "rai_protocol"), feature = "ledger_snapshots"))]
         {
             Self::ProposalVote as usize
         }
-        #[cfg(not(feature = "ledger_snapshots"))]
+        #[cfg(not(any(feature = "rai_protocol", feature = "ledger_snapshots")))]
         {
             Self::AscPullAck as usize
         }
@@ -141,7 +149,7 @@ impl MessageHeader {
         writer.write_all(
             &((self.protocol.network as u16)
                 ^ if cfg!(feature = "rai_protocol") {
-                    0x200
+                    0x300
                 } else {
                     0
                 })
@@ -167,7 +175,7 @@ impl MessageHeader {
         header.protocol.network = NetworkType::from_u16(
             u16::from_be_bytes(buffer)
                 ^ if cfg!(feature = "rai_protocol") {
-                    0x200
+                    0x300
                 } else {
                     0
                 },
@@ -194,6 +202,8 @@ impl MessageHeader {
 
     pub fn payload_length(&self) -> usize {
         match self.message_type {
+            #[cfg(feature = "rai_protocol")]
+            MessageType::EpochClose => self.extensions.data as usize,
             MessageType::Keepalive => Keepalive::SERIALIZED_SIZE,
             MessageType::Publish => Publish::serialized_size(self.extensions),
             MessageType::ConfirmReq => ConfirmReq::serialized_size(self.extensions),
@@ -256,6 +266,8 @@ impl Debug for MessageHeader {
 impl From<MessageType> for DetailType {
     fn from(msg: MessageType) -> Self {
         match msg {
+            #[cfg(feature = "rai_protocol")]
+            MessageType::EpochClose => DetailType::All,
             MessageType::Invalid => DetailType::Invalid,
             MessageType::NotAType => DetailType::NotAType,
             MessageType::Keepalive => DetailType::Keepalive,
@@ -330,7 +342,7 @@ mod tests {
         assert_eq!(
             buffer[0],
             if cfg!(feature = "rai_protocol") {
-                0x50
+                0x51
             } else {
                 0x52
             }

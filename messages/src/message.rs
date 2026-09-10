@@ -5,6 +5,8 @@ use rsnano_utils::stats::DetailType;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Message {
+    #[cfg(feature = "rai_protocol")]
+    EpochClose(EpochClose),
     Keepalive(Keepalive),
     Publish(Publish),
     AscPullAck(AscPullAck),
@@ -58,6 +60,8 @@ impl From<&ParseMessageError> for DetailType {
             ParseMessageError::Other(_) | ParseMessageError::Stopped => Self::All,
             ParseMessageError::InvalidHeader => Self::InvalidHeader,
             ParseMessageError::InvalidMessageType => Self::InvalidMessageType,
+            #[cfg(feature = "rai_protocol")]
+            ParseMessageError::InvalidMessage(MessageType::EpochClose) => Self::InvalidMessageType,
             ParseMessageError::InvalidMessage(MessageType::Keepalive) => {
                 Self::InvalidKeepaliveMessage
             }
@@ -129,6 +133,8 @@ impl Message {
 
     pub fn message_type(&self) -> MessageType {
         match &self {
+            #[cfg(feature = "rai_protocol")]
+            Message::EpochClose(_) => MessageType::EpochClose,
             Message::Keepalive(_) => MessageType::Keepalive,
             Message::Publish(_) => MessageType::Publish,
             Message::AscPullAck(_) => MessageType::AscPullAck,
@@ -153,6 +159,8 @@ impl Message {
 
     pub fn as_message_variant(&self) -> Option<&dyn MessageVariant> {
         match &self {
+            #[cfg(feature = "rai_protocol")]
+            Message::EpochClose(x) => Some(x),
             Message::Keepalive(x) => Some(x),
             Message::Publish(x) => Some(x),
             Message::AscPullAck(x) => Some(x),
@@ -186,6 +194,8 @@ impl Message {
         T: std::io::Write,
     {
         match self {
+            #[cfg(feature = "rai_protocol")]
+            Message::EpochClose(m) => m.serialize(writer),
             Message::Keepalive(m) => m.serialize(writer),
             Message::Publish(m) => m.serialize(writer),
             Message::AscPullAck(m) => m.serialize(writer),
@@ -213,6 +223,8 @@ impl Message {
         digest: u128,
     ) -> Result<Self, DeserializationError> {
         let msg = match header.message_type {
+            #[cfg(feature = "rai_protocol")]
+            MessageType::EpochClose => Message::EpochClose(EpochClose::deserialize(payload)?),
             MessageType::Keepalive => Message::Keepalive(Keepalive::deserialize(payload)?),
             MessageType::Publish => {
                 Message::Publish(Publish::deserialize(payload, header.extensions, digest)?)

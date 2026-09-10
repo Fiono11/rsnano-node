@@ -115,6 +115,7 @@ pub struct NodeConfig {
     pub vote_rebroadcaster_max_queue: usize,
     pub rebroadcast_history: RebroadcastHistoryConfig,
     pub cps_limit: u32,
+    /// Consensus epoch duration in seconds; zero disables epoch advancement.
     pub epoch_length: u64,
 }
 

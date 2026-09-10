@@ -68,7 +68,9 @@ impl BlockFactory {
 
         let block_result = match self.strategy {
             SpamStrategy::SendReceive => {
-                create_send_or_receive_block(&mut self.account_map, is_fork)
+                // Keep the initial funding send and receive free of forks so the
+                // workload can establish its first funded destination.
+                create_send_or_receive_block(&mut self.account_map, is_fork && self.created >= 2)
             }
             SpamStrategy::Change => {
                 // TODO: use is_fork flag
@@ -225,6 +227,23 @@ mod tests {
                 .get_receivable(&destination)
                 .is_some()
         );
+    }
+
+    #[test]
+    fn initial_funding_is_fork_free_but_later_workload_can_fork() {
+        let mut factory =
+            BlockFactory::new(test_account_map(), MAX_BLOCKS, SpamStrategy::SendReceive);
+        for _ in 0..2 {
+            let Some(BlockResult::Block(block)) = factory.create_next(true) else {
+                panic!("funding block missing")
+            };
+            assert!(block.fork.is_none());
+            factory.confirm(&block.block.hash());
+        }
+        let Some(BlockResult::Block(block)) = factory.create_next(true) else {
+            panic!("workload block missing")
+        };
+        assert!(block.fork.is_some());
     }
 
     #[test]

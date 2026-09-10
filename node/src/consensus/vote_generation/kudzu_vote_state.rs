@@ -8,6 +8,7 @@ use rsnano_types::{BlockHash, PublicKey, QualifiedRoot, VoteKind};
 #[derive(Default)]
 pub(super) struct KudzuVoteState {
     roots: HashMap<(QualifiedRoot, PublicKey), RootVotes>,
+    draining: Option<u64>,
 }
 
 #[derive(Default)]
@@ -21,6 +22,21 @@ struct RootVotes {
 }
 
 impl KudzuVoteState {
+    pub fn drain_through(&mut self, epoch: u64) {
+        self.draining = Some(self.draining.map_or(epoch, |old| old.max(epoch)));
+    }
+    pub fn first_elections(&self, epoch: u64) -> Vec<rsnano_types::ElectionId> {
+        self.roots
+            .iter()
+            .filter(|(_, votes)| {
+                votes
+                    .statements
+                    .iter()
+                    .any(|(e, k, _)| *e == epoch && *k == VoteKind::First)
+            })
+            .map(|((root, _), _)| rsnano_types::ElectionId::new(root.clone(), epoch))
+            .collect()
+    }
     /// Recreate only this representative's previous timeout statement. A routing
     /// hash can differ between representatives; it carries no block weight.
     pub fn timeout_statement(
@@ -95,7 +111,9 @@ impl KudzuVoteState {
         epoch: u64,
     ) -> bool {
         self.roots.get(&(root.clone(), rep)).is_some_and(|s| {
-            s.first.is_some_and(|h| h != hash) || s.participation_epoch.is_some_and(|e| e != epoch)
+            s.timeout_epochs.contains(&epoch)
+                || s.first.is_some_and(|h| h != hash)
+                || s.participation_epoch.is_some_and(|e| e != epoch)
         })
     }
 
@@ -134,7 +152,17 @@ impl KudzuVoteState {
             return None;
         }
         let other_epoch = state.participation_epoch.is_some_and(|e| e != epoch);
-        if other_epoch && !final_requested {
+        let timeout_first = other_epoch
+            || state
+                .statements
+                .iter()
+                .any(|(e, k, _)| *e == epoch && *k == VoteKind::FirstTimeout)
+            || (self.draining.is_some_and(|e| epoch <= e)
+                && !state
+                    .statements
+                    .iter()
+                    .any(|(e, k, _)| *e == epoch && *k == VoteKind::First));
+        if timeout_first && !final_requested {
             if state
                 .statements
                 .contains(&(epoch, VoteKind::Notarize, hash))
@@ -155,7 +183,7 @@ impl KudzuVoteState {
             state.statements.insert((epoch, VoteKind::Notarize, hash));
             return Some(VoteKind::Notarize);
         }
-        if final_requested && (other_epoch || state.timeout_epochs.contains(&epoch)) {
+        if final_requested && (timeout_first || state.timeout_epochs.contains(&epoch)) {
             return None;
         }
         let kind = if final_requested {
@@ -197,6 +225,77 @@ impl KudzuVoteState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn epoch_drain_allows_second_look_and_replay_but_never_final() {
+        let mut state = KudzuVoteState::default();
+        let rep = PublicKey::from(1);
+        let root = QualifiedRoot::new(1.into(), 2.into());
+        state.drain_through(0);
+        // A recovery request for FINAL must not bypass the required FIRST-timeout.
+        assert_eq!(
+            state.authorize(&root, rep, 1.into(), 0, true, true, true, None),
+            None
+        );
+        assert_eq!(
+            state.authorize(&root, rep, 1.into(), 0, false, true, false, None),
+            Some(VoteKind::FirstTimeout)
+        );
+        assert!(state.needs_second_look(&root, rep, 1.into(), 0));
+        assert_eq!(
+            state.authorize(&root, rep, 1.into(), 0, false, true, false, None),
+            Some(VoteKind::Notarize)
+        );
+        assert_eq!(
+            state.authorize(&root, rep, 1.into(), 0, false, false, false, None),
+            Some(VoteKind::Notarize)
+        );
+        assert_eq!(
+            state.authorize(&root, rep, 1.into(), 0, true, true, true, None),
+            None
+        );
+        assert!(state.first_elections(0).is_empty());
+        for h in [2, 3] {
+            assert_eq!(
+                state.authorize(&root, rep, h.into(), 0, false, true, false, None),
+                Some(VoteKind::Notarize)
+            );
+        }
+        assert_eq!(
+            state.authorize(&root, rep, 4.into(), 0, false, true, false, None),
+            None
+        );
+    }
+
+    #[test]
+    fn epoch_drain_keeps_participating_without_growing_block_first_set() {
+        let mut state = KudzuVoteState::default();
+        let rep = PublicKey::from(1);
+        let first_root = QualifiedRoot::new(1.into(), 2.into());
+        let new_root = QualifiedRoot::new(3.into(), 4.into());
+        assert_eq!(
+            state.authorize(&first_root, rep, 1.into(), 0, false, false, false, None),
+            Some(VoteKind::First)
+        );
+        state.drain_through(0);
+        assert_eq!(
+            state.authorize(&new_root, rep, 2.into(), 0, false, false, false, None),
+            Some(VoteKind::FirstTimeout)
+        );
+        assert_eq!(state.first_elections(0).len(), 1);
+        assert_eq!(
+            state.authorize(&first_root, rep, 1.into(), 0, false, false, false, None),
+            Some(VoteKind::First)
+        );
+        assert_eq!(
+            state.authorize(&first_root, rep, 1.into(), 0, true, false, true, None),
+            Some(VoteKind::Final)
+        );
+        assert_eq!(
+            state.authorize(&new_root, rep, 2.into(), 0, true, false, true, None),
+            None
+        );
+    }
 
     #[test]
     fn split_epoch_first_votes_terminate_with_timeout_certificates() {

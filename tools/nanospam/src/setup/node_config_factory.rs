@@ -69,6 +69,7 @@ port = RPC_PORT
 "#;
 
 pub(crate) fn configure_nodes(args: &CliArgs, data_dir: &Path) {
+    let _ = std::fs::remove_file(data_dir.join("epoch-start-ms"));
     #[cfg(feature = "rai_protocol")]
     info!(
         "RAI_COMMITTEE {}",

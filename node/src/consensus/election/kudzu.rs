@@ -34,7 +34,7 @@ impl KudzuThresholds {
 }
 
 #[derive(Clone, Default)]
-pub(super) struct KudzuVotes {
+pub(crate) struct KudzuVotes {
     first: HashMap<PublicKey, VoteKind>,
     notar: HashMap<(PublicKey, BlockHash), VoteKind>,
     final_votes: HashMap<PublicKey, VoteKind>,
@@ -148,6 +148,22 @@ impl KudzuVotes {
         }
     }
 
+    pub fn has_f_plus_one_first_votes(&self) -> bool {
+        let Some(t) = self.thresholds else {
+            return false;
+        };
+        let total = t.total.number();
+        let faulty = (total / 100) * KudzuThresholds::F_PERCENT
+            + ((total % 100) * KudzuThresholds::F_PERCENT) / 100;
+        // FIRST is unique per representative, even across competing candidates.
+        // FIRST-timeout and subsequent notarization/final votes do not add weight.
+        let first = self
+            .first_tallies
+            .values()
+            .fold(0u128, |sum, w| sum.saturating_add(w.number()));
+        total != 0 && first > faulty
+    }
+
     pub fn needs_vote(&self, rep: &PublicKey, hash: BlockHash, quorum: bool) -> bool {
         !self.notar.contains_key(&(*rep, hash))
             || (quorum
@@ -239,6 +255,21 @@ mod tests {
             .iter()
             .map(|(r, w)| (PrivateKey::from(*r).public_key(), Amount::raw(*w)))
             .collect()
+    }
+
+    #[test]
+    fn epoch_drain_f_plus_one_counts_distinct_non_timeout_first_weight() {
+        let (mut e, a, b) = election();
+        let weights = weights(&[(1, 19), (2, 1), (3, 40)]);
+        vote(&mut e, 1, a, VoteKind::First).unwrap();
+        vote(&mut e, 3, a, VoteKind::FirstTimeout).unwrap();
+        vote(&mut e, 3, a, VoteKind::Notarize).unwrap();
+        e.update_kudzu_tallies(&weights, Amount::raw(100));
+        assert!(!e.has_f_plus_one_first_votes()); // Exactly f; timeout/notar do not count.
+        vote(&mut e, 2, b, VoteKind::First).unwrap();
+        e.update_kudzu_tallies(&weights, Amount::raw(100));
+        assert!(e.has_f_plus_one_first_votes()); // f+1, split across candidates.
+        assert_eq!(vote(&mut e, 2, a, VoteKind::First), Err(VoteError::Replay));
     }
 
     #[test]

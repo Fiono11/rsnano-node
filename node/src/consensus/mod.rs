@@ -54,3 +54,8 @@ pub(crate) use winner_block_broadcaster::*;
 mod block_tree;
 #[cfg(feature = "rai_protocol")]
 pub use block_tree::RaiBlockTree;
+
+#[cfg(feature = "rai_protocol")]
+mod epoch_closer;
+#[cfg(feature = "rai_protocol")]
+pub(crate) use epoch_closer::{EpochCloseTicker, EpochCloser};

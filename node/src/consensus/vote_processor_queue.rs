@@ -1,5 +1,5 @@
 use std::{
-    collections::VecDeque,
+    collections::{HashSet, VecDeque},
     mem::size_of,
     sync::{Arc, Condvar, Mutex},
 };
@@ -7,7 +7,7 @@ use std::{
 use strum::IntoEnumIterator;
 
 use rsnano_network::{Channel, ChannelEvent, ChannelId};
-use rsnano_types::{BlockHash, Vote, VoteDelivery};
+use rsnano_types::{BlockHash, Signature, Vote, VoteDelivery};
 use rsnano_utils::{
     EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -30,6 +30,9 @@ impl VoteProcessorQueue {
         Self {
             data: Mutex::new(VoteProcessorQueueData {
                 stopped: false,
+                local: VecDeque::new(),
+                local_seen: HashSet::new(),
+                local_history: VecDeque::new(),
                 rep_tiers: Default::default(),
                 queue: FairQueue::new(
                     move |(tier, channel)| {
@@ -63,11 +66,39 @@ impl VoteProcessorQueue {
     }
 
     pub fn len(&self) -> usize {
-        self.data.lock().unwrap().queue.len()
+        let data = self.data.lock().unwrap();
+        data.queue.len() + data.local.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.data.lock().unwrap().queue.is_empty()
+        let data = self.data.lock().unwrap();
+        data.queue.is_empty() && data.local.is_empty()
+    }
+
+    /// Locally signed votes have a separate bounded queue. Backpressure the
+    /// generator rather than dropping a statement already broadcast to peers.
+    pub(crate) fn enqueue_local(&self, vote: Arc<Vote>) -> bool {
+        let mut data = self.data.lock().unwrap();
+        while !data.stopped
+            && !data.local_seen.contains(&vote.signature)
+            && data.local.len() >= self.config.max_pr_queue.max(1)
+        {
+            data = self.condition.wait(data).unwrap();
+        }
+        if data.stopped {
+            return false;
+        }
+        if !data.local_seen.insert(vote.signature.clone()) {
+            return true;
+        }
+        data.local_history.push_back(vote.signature.clone());
+        if data.local_history.len() > 16_384.max(self.config.max_pr_queue) {
+            let oldest = data.local_history.pop_front().unwrap();
+            data.local_seen.remove(&oldest);
+        }
+        data.local.push_back(vote);
+        self.condition.notify_all();
+        true
     }
 
     /// Queue vote for processing. @returns true if the vote was queued
@@ -123,8 +154,28 @@ impl VoteProcessorQueue {
                 return VecDeque::new();
             }
 
-            if !guard.queue.is_empty() {
-                return guard.queue.next_batch(max_batch_size);
+            if !guard.queue.is_empty() || !guard.local.is_empty() {
+                let local_limit = if guard.queue.is_empty() {
+                    max_batch_size
+                } else {
+                    max_batch_size.div_ceil(2)
+                };
+                let mut batch = VecDeque::new();
+                for _ in 0..local_limit {
+                    let Some(vote) = guard.local.pop_front() else {
+                        break;
+                    };
+                    let tier = guard.rep_tiers.tier(&vote.voter);
+                    batch.push_back((
+                        (tier, ChannelId::LOOPBACK),
+                        (vote, VoteDelivery::Direct, None, None),
+                    ));
+                }
+                if batch.len() < max_batch_size {
+                    batch.extend(guard.queue.next_batch(max_batch_size - batch.len()));
+                }
+                self.condition.notify_all();
+                return batch;
             } else {
                 guard = self.condition.wait(guard).unwrap();
             }
@@ -135,6 +186,9 @@ impl VoteProcessorQueue {
         {
             let mut guard = self.data.lock().unwrap();
             guard.queue.clear();
+            guard.local.clear();
+            guard.local_seen.clear();
+            guard.local_history.clear();
         }
         self.condition.notify_all();
     }
@@ -166,7 +220,7 @@ impl ContainerInfoProvider for VoteProcessorQueue {
         ContainerInfo::builder()
             .leaf(
                 "votes",
-                guard.queue.len(),
+                guard.queue.len() + guard.local.len(),
                 size_of::<(Arc<Vote>, VoteDelivery)>(),
             )
             .node("queue", guard.queue.container_info())
@@ -193,6 +247,9 @@ impl EventHandler<ChannelEvent> for VoteProcessorQueue {
 
 struct VoteProcessorQueueData {
     stopped: bool,
+    local: VecDeque<Arc<Vote>>,
+    local_seen: HashSet<Signature>,
+    local_history: VecDeque<Signature>,
     queue: FairQueue<
         (RepTier, ChannelId),
         (
@@ -203,4 +260,47 @@ struct VoteProcessorQueueData {
         ),
     >,
     rep_tiers: RepTiers,
+}
+
+#[cfg(test)]
+mod local_vote_tests {
+    use super::*;
+    #[test]
+    fn local_vote_survives_full_remote_queue() {
+        let queue = VoteProcessorQueue::new_null();
+        let remote = Arc::new(Vote::null());
+        while queue.enqueue(remote.clone(), None, VoteDelivery::Direct, None) {}
+        let local = Arc::new(Vote::null());
+        assert!(queue.enqueue_local(local.clone()));
+        let batch = queue.wait_for_votes(2);
+        assert!(Arc::ptr_eq(&batch[0].1.0, &local));
+        assert_eq!(batch.len(), 2);
+        queue.stop();
+        assert!(!queue.enqueue_local(local));
+    }
+    #[test]
+    fn local_recovery_replay_is_deduplicated_after_processing() {
+        let queue = VoteProcessorQueue::new_null();
+        let vote = Arc::new(Vote::null());
+        assert!(queue.enqueue_local(vote.clone()));
+        assert_eq!(queue.wait_for_votes(1).len(), 1);
+        assert!(queue.enqueue_local(vote));
+        assert!(queue.is_empty());
+    }
+
+    #[test]
+    fn stop_releases_blocked_local_producer() {
+        let mut config = VoteProcessorConfig::new(1);
+        config.max_pr_queue = 1;
+        let queue = Arc::new(VoteProcessorQueue::new(config, Stats::default().into()));
+        assert!(queue.enqueue_local(Arc::new(Vote::null())));
+        let producer = queue.clone();
+        let thread = std::thread::spawn(move || {
+            let mut vote = Vote::null();
+            vote.signature = Signature::from_bytes([1; 64]);
+            producer.enqueue_local(Arc::new(vote))
+        });
+        queue.stop();
+        assert!(!thread.join().unwrap());
+    }
 }

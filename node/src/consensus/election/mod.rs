@@ -8,6 +8,6 @@ pub use election::*;
 pub use election_state::*;
 
 #[cfg(feature = "rai_protocol")]
-mod kudzu;
+pub(crate) mod kudzu;
 #[cfg(feature = "rai_protocol")]
 pub use kudzu::KudzuThresholds;

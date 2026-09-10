@@ -152,6 +152,8 @@ pub struct Node {
     vote_rebroadcaster: VoteRebroadcaster,
     tokio_runner: TokioRunner,
     pub aec_ticker: TimerThread<AecTicker>,
+    #[cfg(feature = "rai_protocol")]
+    epoch_close_ticker: TimerThread<crate::consensus::EpochCloseTicker>,
     pub recently_cemented: Arc<Mutex<BoundedVecDeque<ConfirmedElection>>>,
     pub stats_collector: StatsCollector,
     container_info_factory: ContainerInfoFactory,
@@ -962,7 +964,15 @@ impl Node {
             ))
         };
 
-        let network_message_processor = Arc::new(NetworkMessageProcessor::new(
+        #[cfg(feature = "rai_protocol")]
+        let epoch_closer = Arc::new(crate::consensus::EpochCloser::new(
+            ledger.clone(),
+            vote_generators.clone(),
+            active_elections.clone(),
+            wallet_reps.clone(),
+            message_flooder.clone(),
+        ));
+        let mut network_message_processor = NetworkMessageProcessor::new(
             stats.clone(),
             network.clone(),
             network_filter.clone(),
@@ -976,7 +986,12 @@ impl Node {
             network_params.work.clone(),
             #[cfg(feature = "ledger_snapshots")]
             ledger_snapshots.clone(),
-        ));
+        );
+        #[cfg(feature = "rai_protocol")]
+        {
+            network_message_processor.epoch_closer = Some(epoch_closer.clone());
+        }
+        let network_message_processor = Arc::new(network_message_processor);
 
         let network_threads = Arc::new(Mutex::new(NetworkThreads::new(
             network.clone(),
@@ -1367,6 +1382,11 @@ impl Node {
             vote_rebroadcaster,
             tokio_runner,
             aec_ticker: TimerThread::new("AEC ticker", aec_ticker),
+            #[cfg(feature = "rai_protocol")]
+            epoch_close_ticker: TimerThread::new(
+                "Epoch close",
+                crate::consensus::EpochCloseTicker(epoch_closer),
+            ),
             recently_cemented,
             stats_collector,
             container_info_factory: container_info,
@@ -1612,6 +1632,8 @@ impl Node {
         if self.config.enable_vote_rebroadcast {
             self.vote_rebroadcaster.start();
         }
+        #[cfg(feature = "rai_protocol")]
+        self.epoch_close_ticker.start(Duration::from_millis(100));
         self.ticker_pool.start();
     }
 
@@ -1627,6 +1649,8 @@ impl Node {
         }
         info!("Node stopping...");
 
+        #[cfg(feature = "rai_protocol")]
+        self.epoch_close_ticker.stop();
         self.ticker_pool.stop();
         self.tcp_listener.stop();
         self.backlog_scan.stop();

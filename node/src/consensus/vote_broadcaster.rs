@@ -5,7 +5,7 @@ use std::{
 
 use rsnano_messages::{ConfirmAck, Message};
 use rsnano_network::TrafficType;
-use rsnano_types::{Vote, VoteDelivery};
+use rsnano_types::Vote;
 use rsnano_utils::stats::{DetailType, StatType, Stats};
 
 use super::{VoteProcessorConfig, VoteProcessorQueue};
@@ -41,8 +41,15 @@ impl VoteBroadcaster {
         Self::new(queue, flooder, stats)
     }
 
+    pub(crate) fn enqueue_local(&self, vote: Arc<Vote>) -> bool {
+        self.vote_processor_queue.enqueue_local(vote)
+    }
+
     /// Broadcast vote to PRs and some non-PRs
     pub fn broadcast(&self, vote: Arc<Vote>) {
+        if !self.vote_processor_queue.enqueue_local(vote.clone()) {
+            return;
+        }
         let ack = Message::ConfirmAck(ConfirmAck::new_with_own_vote(vote.deref().clone()));
 
         let stat_type = if vote.is_final() {
@@ -50,9 +57,6 @@ impl VoteBroadcaster {
         } else {
             StatType::VoteGenerator
         };
-
-        self.vote_processor_queue
-            .enqueue(vote, None, VoteDelivery::Direct, None);
 
         let count = self
             .message_flooder

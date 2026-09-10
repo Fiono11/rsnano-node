@@ -47,6 +47,11 @@ pub(crate) async fn start_nodes(
             }
             #[cfg(feature = "rai_protocol")]
             cmd.env(
+                "NANOSPAM_RAI_EPOCH_START_FILE",
+                data_dir.join("epoch-start-ms"),
+            );
+            #[cfg(feature = "rai_protocol")]
+            cmd.env(
                 "NANOSPAM_RAI_COMMITTEE",
                 serde_json::to_string(
                     &(0..args.prs)

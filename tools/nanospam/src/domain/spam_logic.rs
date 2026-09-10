@@ -273,12 +273,20 @@ mod tests {
                 accounts,
                 SpamSpec {
                     spam_strategy: SpamStrategy::SendReceive,
-                    max_blocks: 1,
+                    max_blocks: 3,
                     rate: RateSpec::new(1),
                     fork_probability: 1.0,
                     track_confirmations: true,
                 },
             );
+            // Complete fork-free funding before testing a forked workload block.
+            for _ in 0..2 {
+                let BlockResult::Block(block) = logic.block_factory.create_next(false).unwrap()
+                else {
+                    panic!("funding block missing")
+                };
+                logic.block_factory.confirm(&block.block.hash());
+            }
             let now = Timestamp::new_test_instance();
             let BlockResult::Block(blocks) = logic.next_block(true, now).unwrap() else {
                 panic!("expected block");

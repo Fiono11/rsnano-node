@@ -8,23 +8,28 @@ impl RpcCommandHandler {
         let cemented = self.node.ledger.confirmed_count();
         BlockCountResponse {
             #[cfg(feature = "rai_protocol")]
-            confirmation_epochs: Some(
+            draining_epoch: {
+                let e = self
+                    .node
+                    .ledger
+                    .draining_epoch
+                    .load(std::sync::atomic::Ordering::Acquire);
+                (e != u64::MAX).then(|| e.into())
+            },
+            #[cfg(not(feature = "rai_protocol"))]
+            draining_epoch: None,
+            #[cfg(feature = "rai_protocol")]
+            closed_epochs: Some(
                 self.node
                     .ledger
-                    .confirmation_epoch_sets()
+                    .closed_epochs()
                     .into_iter()
-                    .map(|(epoch, (count, digest))| {
-                        (
-                            epoch.to_string(),
-                            rsnano_rpc_messages::ConfirmationEpochSet {
-                                count: count.into(),
-                                digest,
-                            },
-                        )
-                    })
+                    .map(|(e, h)| (e.to_string(), h))
                     .collect(),
             ),
             #[cfg(not(feature = "rai_protocol"))]
+            closed_epochs: None,
+            // Close digests are sufficient for epoch agreement; do not scan ledger contents.
             confirmation_epochs: None,
             current_epoch: cfg!(feature = "rai_protocol")
                 .then(|| self.node.ledger.current_epoch().into()),

@@ -66,3 +66,6 @@ pub enum BlockSource {
     Local,
     Forced,
 }
+
+#[cfg(feature = "rai_protocol")]
+mod epoch_closure;

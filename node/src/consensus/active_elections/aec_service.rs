@@ -57,6 +57,45 @@ impl AecService {
         serde_json::Value::Null
     }
 
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn elections_terminated(
+        &self,
+        epoch: u64,
+        ids: &[rsnano_types::ElectionId],
+    ) -> bool {
+        let aec = self.aec.read().unwrap();
+        let pending = aec.pending_epoch_drain(epoch, ids);
+        static LAST_DIAGNOSTIC: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        if !pending.is_empty()
+            && now > LAST_DIAGNOSTIC.load(std::sync::atomic::Ordering::Relaxed) + 5
+        {
+            LAST_DIAGNOSTIC.store(now, std::sync::atomic::Ordering::Relaxed);
+            eprintln!(
+                "EPOCH_DRAIN_WAIT {}",
+                serde_json::json!({"pending":pending.len(),"examples":pending.iter().take(8).map(|id| {
+                aec.election_for_id(id).map(|e| e.termination_diagnostic()).unwrap_or_else(|| serde_json::json!({"missing_election":true,"root":id.root,"epoch":id.epoch}))
+            }).collect::<Vec<_>>()})
+            );
+        }
+        pending.is_empty()
+    }
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn close_epoch(
+        &self,
+        ledger: &rsnano_ledger::Ledger,
+        epoch: u64,
+        hashes: &[BlockHash],
+    ) -> anyhow::Result<usize> {
+        // Serialize the assertion, canonical commit, and removal with vote processing.
+        let mut aec = self.aec.write().unwrap();
+        aec.assert_epoch_close(epoch, hashes);
+        ledger.close_epoch(epoch, hashes)?;
+        Ok(aec.discard_closed_epoch(epoch, hashes))
+    }
     pub fn termination_audit(&self, offset: usize) -> serde_json::Value {
         self.aec.read().unwrap().termination_audit(offset)
     }

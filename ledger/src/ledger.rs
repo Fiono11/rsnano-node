@@ -96,6 +96,12 @@ impl BlockError {
 }
 
 pub struct Ledger {
+    #[cfg(feature = "rai_protocol")]
+    pub voting_epoch: std::sync::atomic::AtomicU64,
+    #[cfg(feature = "rai_protocol")]
+    pub draining_epoch: std::sync::atomic::AtomicU64,
+    #[cfg(feature = "rai_protocol")]
+    pub closed_epoch_count: std::sync::atomic::AtomicU64,
     pub epoch_length: std::sync::atomic::AtomicU64,
     pub store: LmdbStore,
     pub rep_weights_updater: RepWeightsUpdater,
@@ -300,6 +306,12 @@ impl Ledger {
             store_version: 0,
             publish: RwLock::new(None),
             epoch_length: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            voting_epoch: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            draining_epoch: std::sync::atomic::AtomicU64::new(u64::MAX),
+            #[cfg(feature = "rai_protocol")]
+            closed_epoch_count: Default::default(),
             can_roll_back: RwLock::new(Box::new(|_| true)),
         };
 
@@ -781,7 +793,12 @@ impl Ledger {
         let tx = self.store.begin_read();
         let mut groups =
             std::collections::BTreeMap::<u64, (u64, rsnano_types::Blake2HashBuilder)>::new();
-        for (hash, epoch) in self.store.consensus_epochs.iter(&tx) {
+        for (hash, provisional) in self.store.consensus_epochs.iter(&tx) {
+            let epoch = self
+                .store
+                .consensus_epochs
+                .canonical(&tx, &hash)
+                .unwrap_or(provisional.max(self.store.consensus_epochs.closed_count(&tx)));
             let (count, builder) = groups
                 .remove(&epoch)
                 .unwrap_or((0, rsnano_types::Blake2HashBuilder::new()));
@@ -800,6 +817,12 @@ impl Ledger {
             .configure_length(&mut tx, length)?;
         tx.commit();
         self.epoch_length.store(length, Ordering::Relaxed);
+        let closed = self
+            .store
+            .consensus_epochs
+            .closed_count(&self.store.begin_read());
+        self.closed_epoch_count.store(closed, Ordering::Release);
+        self.voting_epoch.store(closed, Ordering::Release);
         Ok(())
     }
     pub fn current_epoch(&self) -> u64 {
@@ -807,7 +830,7 @@ impl Ledger {
         {
             let length = self.epoch_length.load(Ordering::Relaxed);
             if length > 0 {
-                return self.store.consensus_epochs.count(&self.store.begin_read()) / length;
+                return self.voting_epoch.load(Ordering::Acquire);
             }
         }
         0
@@ -1244,16 +1267,16 @@ mod rai_tests {
             ledger.process_one(&b).unwrap();
             assert_eq!(ledger.confirmation_epoch(&a.hash()), None);
             ledger.confirm(b.hash());
-            assert_eq!(ledger.current_epoch(), 2);
+            assert_eq!(ledger.current_epoch(), 0);
             assert_eq!(ledger.confirmation_epoch(&a.hash()), Some(0));
             assert_eq!(ledger.confirmation_epoch(&b.hash()), Some(0));
             ledger.confirm(b.hash());
-            assert_eq!(ledger.current_epoch(), 2);
+            assert_eq!(ledger.current_epoch(), 0);
         }
         {
             let ledger = open();
             ledger.epoch_length.store(1, Ordering::Relaxed);
-            assert_eq!(ledger.current_epoch(), 2);
+            assert_eq!(ledger.current_epoch(), 0);
             assert_eq!(ledger.confirmation_epoch(&b.hash()), Some(0));
         }
         std::fs::remove_dir_all(path).unwrap();
@@ -1261,11 +1284,11 @@ mod rai_tests {
 }
 
 #[cfg(all(test, feature = "rai_protocol"))]
-mod canonical_epoch_tests {
+mod provisional_epoch_tests {
     use super::*;
     use crate::{LedgerBuilder, test_helpers::UnsavedBlockLatticeBuilder};
     #[test]
-    fn rai_earlier_confirmation_lowers_canonical_epoch_and_dependencies_without_recounting() {
+    fn rai_earlier_confirmation_lowers_provisional_epoch_without_closing() {
         let path = std::env::temp_dir().join(format!("rsnano-canonical-{}", std::process::id()));
         std::fs::create_dir_all(&path).unwrap();
         let open = || {
@@ -1292,7 +1315,7 @@ mod canonical_epoch_tests {
             assert!(added.is_empty());
             assert_eq!(ledger.confirmation_epoch(&a.hash()), Some(1));
             assert_eq!(ledger.confirmation_epoch(&b.hash()), Some(1));
-            assert_eq!(ledger.current_epoch(), 2);
+            assert_eq!(ledger.current_epoch(), 0);
             assert_eq!(ledger.confirmed_count(), 3);
             let (tx, _) = ledger.confirm_max(ledger.store.begin_write(), b.hash(), 100, 3);
             tx.commit();
@@ -1302,7 +1325,7 @@ mod canonical_epoch_tests {
             let ledger = open();
             ledger.configure_epoch_length(1).unwrap();
             assert_eq!(ledger.confirmation_epoch(&b.hash()), Some(1));
-            assert_eq!(ledger.current_epoch(), 2);
+            assert_eq!(ledger.current_epoch(), 0);
         }
         std::fs::remove_dir_all(path).unwrap();
     }

@@ -35,6 +35,8 @@ pub struct VoteGenerators {
     vote_state: Arc<Mutex<super::kudzu_vote_state::KudzuVoteState>>,
     #[cfg(feature = "rai_protocol")]
     elections: Arc<std::sync::RwLock<std::sync::Weak<crate::consensus::AecService>>>,
+    #[cfg(feature = "rai_protocol")]
+    vote_broadcaster: Arc<VoteBroadcaster>,
     non_final_vote_generator: VoteGenerator,
     final_vote_generator: VoteGenerator,
     vote_listener: OutputListenerMt<VoteGenerationEvent>,
@@ -44,6 +46,15 @@ pub struct VoteGenerators {
 }
 
 impl VoteGenerators {
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn draining_complete(&self, epoch: u64, aec: &crate::consensus::AecService) -> bool {
+        let ids = {
+            let mut state = self.vote_state.lock().unwrap();
+            state.drain_through(epoch);
+            state.first_elections(epoch)
+        };
+        aec.elections_terminated(epoch, &ids)
+    }
     #[cfg(feature = "rai_protocol")]
     pub(crate) fn notify_notarizations(
         &self,
@@ -165,6 +176,8 @@ impl VoteGenerators {
             vote_state,
             #[cfg(feature = "rai_protocol")]
             elections,
+            #[cfg(feature = "rai_protocol")]
+            vote_broadcaster,
             non_final_vote_generator,
             final_vote_generator,
             vote_listener: OutputListenerMt::new(),
@@ -272,12 +285,15 @@ impl VoteGenerators {
             hashes.sort_unstable();
             hashes.dedup();
             for hashes in hashes.chunks(rsnano_messages::ConfirmAck::HASHES_MAX) {
-                votes.push(Arc::new(rsnano_types::Vote::new_with_kind(
+                let vote = Arc::new(rsnano_types::Vote::new_with_kind(
                     &keys[key_index],
                     hashes.to_vec(),
                     epoch,
                     kind,
-                )));
+                ));
+                if self.vote_broadcaster.enqueue_local(vote.clone()) {
+                    votes.push(vote);
+                }
             }
         }
         (blocks, votes)

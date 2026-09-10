@@ -24,6 +24,8 @@ use rsnano_ledger::BlockSource;
 
 /// Process messages that were received from other nodes in the network
 pub struct NetworkMessageProcessor {
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) epoch_closer: Option<Arc<crate::consensus::EpochCloser>>,
     stats: Arc<Stats>,
     network_filter: Arc<NetworkFilter>,
     network: Arc<RwLock<Network>>,
@@ -55,6 +57,8 @@ impl NetworkMessageProcessor {
         #[cfg(feature = "ledger_snapshots")] ledger_snapshots: Arc<LedgerSnapshots>,
     ) -> Self {
         Self {
+            #[cfg(feature = "rai_protocol")]
+            epoch_closer: None,
             stats,
             network,
             network_filter,
@@ -85,6 +89,12 @@ impl NetworkMessageProcessor {
         );
 
         match message {
+            #[cfg(feature = "rai_protocol")]
+            Message::EpochClose(packet) => {
+                if let Some(closer) = &self.epoch_closer {
+                    closer.receive(packet);
+                }
+            }
             Message::Keepalive(keepalive) => {
                 // Check for special node port data
                 let peer0 = keepalive.peers[0];

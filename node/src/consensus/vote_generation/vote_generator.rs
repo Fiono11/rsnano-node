@@ -515,15 +515,6 @@ impl SharedState {
                 candidate.5 = timeout;
             }
         }
-        // Cementation is also a finalization justification (including implicit
-        // finalization). Recover final replies only in its recorded epoch.
-        if self.is_final {
-            for (hash, _, _, _, notar, _) in &mut candidates {
-                if !*notar && self.ledger.confirmation_epoch(hash) == Some(epoch) {
-                    *notar = true;
-                }
-            }
-        }
         for key in rep_keys {
             let mut groups =
                 std::collections::BTreeMap::<VoteKind, (Vec<BlockHash>, Vec<Root>)>::new();
@@ -531,6 +522,13 @@ impl SharedState {
             {
                 // Serialize signing decisions across normal/final/request generators.
                 let mut state = self.vote_state.lock().unwrap();
+                let draining = self
+                    .ledger
+                    .draining_epoch
+                    .load(std::sync::atomic::Ordering::Acquire);
+                if draining != u64::MAX {
+                    state.drain_through(draining);
+                }
                 if self.is_final {
                     let tx = self.ledger.store.begin_read();
                     for (hash, root, qualified, second, notar, timeout) in &candidates {
@@ -740,6 +738,10 @@ impl SharedState {
                     hashes.len() as u64,
                 );
                 self.vote(&hashes, &roots, request.epoch, |vote| {
+                    #[cfg(feature = "rai_protocol")]
+                    if !self.vote_broadcaster.enqueue_local(vote.clone()) {
+                        return;
+                    }
                     let confirm =
                         Message::ConfirmAck(ConfirmAck::new_with_own_vote((*vote).clone()));
                     self.message_sender.lock().unwrap().try_send(

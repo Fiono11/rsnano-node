@@ -208,6 +208,11 @@ impl Election {
     }
 
     #[cfg(feature = "rai_protocol")]
+    pub(crate) fn has_f_plus_one_first_votes(&self) -> bool {
+        self.kudzu.has_f_plus_one_first_votes()
+    }
+
+    #[cfg(feature = "rai_protocol")]
     pub(crate) fn termination_diagnostic(&self) -> serde_json::Value {
         serde_json::json!({"root":self.qualified_root(),"epoch":self.epoch,"winner":self.winner().hash(),"candidates":self.candidate_blocks().keys().collect::<Vec<_>>(),"first":self.kudzu.first_tallies,"notarization":self.kudzu.notar_tallies,"final":self.kudzu.final_tallies,"participation":self.kudzu.participation_diagnostic(),"timeout_certificate":self.is_timed_out(),"timeout_eligible":self.should_timeout()})
     }

@@ -10,6 +10,10 @@ impl RpcCommand {
 #[derive(PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct BlockCountResponse {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub draining_epoch: Option<RpcU64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub closed_epochs: Option<std::collections::BTreeMap<String, rsnano_types::BlockHash>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub current_epoch: Option<RpcU64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub confirmation_epochs: Option<std::collections::BTreeMap<String, ConfirmationEpochSet>>,
@@ -48,6 +52,8 @@ mod tests {
     #[test]
     fn serialize_block_count_dto() {
         let block_count_dto = BlockCountResponse {
+            draining_epoch: None,
+            closed_epochs: None,
             current_epoch: None,
             confirmation_epochs: None,
             count: 1.into(),
@@ -69,6 +75,8 @@ mod tests {
     #[test]
     fn deserialize_block_account_dto() {
         let bool_dto = BlockCountResponse {
+            draining_epoch: None,
+            closed_epochs: None,
             current_epoch: None,
             confirmation_epochs: None,
             count: 1.into(),

@@ -91,7 +91,7 @@ impl NanoSpamApp {
         let genesis_rpc = &self.rpc_clients[0];
 
         if !self.args.attach {
-            let node_handles = start_nodes(&self.args, data_dir, &self.rpc_clients).await;
+            let node_handles = start_nodes(&self.args, data_dir.clone(), &self.rpc_clients).await;
             if self.args.kill_nodes() {
                 self.node_lifetime = NodeLifetime::new(node_handles);
             }
@@ -162,6 +162,25 @@ impl NanoSpamApp {
 
         info!("Connecting to websocket...");
         let mut conf_receiver = ConfirmationReceiver::connect().await?;
+
+        #[cfg(feature = "rai_protocol")]
+        if self.args.epoch_length > 0 && !self.args.attach {
+            let start = std::time::SystemTime::now() + Duration::from_secs(1);
+            let millis = start.duration_since(std::time::UNIX_EPOCH)?.as_millis();
+            let temporary = data_dir.join("epoch-start-ms.tmp");
+            std::fs::write(&temporary, millis.to_string())?;
+            std::fs::rename(temporary, data_dir.join("epoch-start-ms"))?;
+            info!(
+                "EPOCH_SCHEDULE {}",
+                serde_json::json!({"start_unix_ms":millis,"duration_seconds":self.args.epoch_length})
+            );
+            tokio::time::sleep(
+                start
+                    .duration_since(std::time::SystemTime::now())
+                    .unwrap_or_default(),
+            )
+            .await;
+        }
 
         info!("Starting with {} BPS", logic.lock().unwrap().current_bps);
 
@@ -235,6 +254,16 @@ impl NanoSpamApp {
         let workload_roots = logic.workload_roots.clone();
         drop(logic);
         info!("BENCHMARK_RESULT {summary}");
+        #[cfg(feature = "rai_protocol")]
+        if self.args.epoch_length > 0 {
+            anyhow::ensure!(
+                self.args.blocks == Some(workload_roots.len())
+                    && published_workload_blocks == workload_roots.len(),
+                "Requested workload was not completely generated"
+            );
+            verify_epoch_closures(&self.rpc_clients, self.args.epoch_length).await?;
+            return Ok(());
+        }
         let performance_cutoff = cutoff;
         let mut cutoff = cutoff;
         let mut observations = vec![Vec::new(); self.rpc_clients.len()];
@@ -332,6 +361,10 @@ impl NanoSpamApp {
             agreement["success"] == true,
             "Termination/certificate agreement failed: {agreement}"
         );
+        #[cfg(feature = "rai_protocol")]
+        if self.args.epoch_length > 0 {
+            verify_epoch_closures(&self.rpc_clients, self.args.epoch_length).await?;
+        }
         for (index, client) in self.rpc_clients.iter().enumerate() {
             if let Ok(count) = client.block_count().await {
                 info!("PR{index} ledger: {}", serde_json::to_string(&count)?);
@@ -398,11 +431,10 @@ async fn check_block_trees(
         ledgers.push(ledger);
     }
     let equal = ledgers.first().is_some_and(|first| {
-        first.confirmation_epochs.is_some()
-            && ledgers.iter().all(|ledger| {
-                ledger.cemented == first.cemented
-                    && ledger.confirmation_epochs == first.confirmation_epochs
-            })
+        ledgers.iter().all(|ledger| {
+            ledger.cemented == first.cemented
+                && ledger.confirmation_epochs == first.confirmation_epochs
+        })
     });
     let mut result = crate::termination_check::check(roots, &trees, u64::MAX, true);
     result["finalized_ledgers_equal"] = equal.into();
@@ -657,5 +689,54 @@ async fn log_status(
             stats.current_cps.to_formatted_string(&Locale::en),
             stats.average_conf_time.as_millis()
         );
+    }
+}
+
+#[cfg(feature = "rai_protocol")]
+async fn verify_epoch_closures(clients: &[NanoRpcClient], seconds: u64) -> anyhow::Result<()> {
+    let mut target = 1;
+    for client in clients {
+        let count = client.block_count().await?;
+        target = target.max(count.current_epoch.map(u64::from).unwrap_or(0) + 1);
+    }
+    let deadline =
+        Instant::now() + Duration::from_secs(seconds.saturating_mul(2).saturating_add(300));
+    let mut last_progress = Instant::now();
+    loop {
+        let mut closed = Vec::new();
+        let mut states = Vec::new();
+        for client in clients {
+            let count = client.block_count().await?;
+            states.push(serde_json::json!({"voting_epoch":count.current_epoch,"draining_epoch":count.draining_epoch}));
+            closed.push(count.closed_epochs.unwrap_or_default());
+        }
+        let complete = !closed.is_empty()
+            && (0..target).all(|e| {
+                let key = e.to_string();
+                closed[0]
+                    .get(&key)
+                    .is_some_and(|expected| closed.iter().all(|c| c.get(&key) == Some(expected)))
+            });
+        if complete {
+            info!(
+                "EPOCH_CLOSE_RESULT {}",
+                serde_json::json!({"success":true,"epochs_checked":target,"closed_epochs":closed[0]})
+            );
+            return Ok(());
+        }
+        if last_progress.elapsed() >= Duration::from_secs(5) {
+            info!(
+                "EPOCH_CLOSE_WAIT {}",
+                serde_json::json!({"target_epoch":target - 1,"states":states,"closed_epochs":closed})
+            );
+            last_progress = Instant::now();
+        }
+        anyhow::ensure!(
+            Instant::now() < deadline,
+            "Epoch close hashes did not converge through epoch {}: {:?}",
+            target - 1,
+            closed
+        );
+        tokio::time::sleep(Duration::from_millis(500)).await;
     }
 }

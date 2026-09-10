@@ -16,10 +16,68 @@ impl ConsensusEpochStore {
         crate::LmdbIterator::new(tx.open_ro_cursor(self.database).unwrap(), |key, value| {
             (
                 BlockHash::from_slice(key),
-                u64::from_le_bytes(value.try_into().unwrap()),
+                value.try_into().map(u64::from_le_bytes).unwrap_or(0),
             )
         })
         .filter_map(|(hash, epoch)| hash.map(|hash| (hash, epoch)))
+    }
+    pub fn closed_count(&self, tx: &dyn Transaction) -> u64 {
+        self.read(tx, b"closed_count").unwrap_or(0)
+    }
+    pub fn closed_blocks(&self, tx: &dyn Transaction) -> u64 {
+        self.read(tx, b"closed_blocks").unwrap_or(0)
+    }
+    pub fn canonical(&self, tx: &dyn Transaction, hash: &BlockHash) -> Option<u64> {
+        let mut key = vec![b'C'];
+        key.extend_from_slice(hash.as_bytes());
+        self.read(tx, &key)
+    }
+    pub fn close(
+        &self,
+        tx: &mut WriteTransaction,
+        epoch: u64,
+        digest: BlockHash,
+        hashes: &[BlockHash],
+    ) {
+        assert_eq!(epoch, self.closed_count(tx));
+        for hash in hashes {
+            if self.canonical(tx, hash).is_none() {
+                let mut key = vec![b'C'];
+                key.extend_from_slice(hash.as_bytes());
+                tx.put(
+                    self.database,
+                    &key,
+                    &epoch.to_le_bytes(),
+                    WriteFlags::empty(),
+                )
+                .unwrap();
+            }
+        }
+        tx.put(
+            self.database,
+            b"closed_blocks",
+            &(hashes.len() as u64).to_le_bytes(),
+            WriteFlags::empty(),
+        )
+        .unwrap();
+        let mut key = b"closed_hash".to_vec();
+        key.extend_from_slice(&epoch.to_le_bytes());
+        tx.put(self.database, &key, digest.as_bytes(), WriteFlags::empty())
+            .unwrap();
+        tx.put(
+            self.database,
+            b"closed_count",
+            &(epoch + 1).to_le_bytes(),
+            WriteFlags::empty(),
+        )
+        .unwrap();
+    }
+    pub fn close_digest(&self, tx: &dyn Transaction, epoch: u64) -> Option<BlockHash> {
+        let mut key = b"closed_hash".to_vec();
+        key.extend_from_slice(&epoch.to_le_bytes());
+        tx.get(self.database, &key)
+            .ok()
+            .and_then(BlockHash::from_slice)
     }
     pub fn get(&self, tx: &dyn Transaction, hash: &BlockHash) -> Option<u64> {
         self.read(tx, hash.as_bytes())
