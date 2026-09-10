@@ -21,6 +21,7 @@ pub(crate) struct SpamLogic {
     pub sum_nonfork_time: Duration,
     fork_originals: std::collections::HashMap<BlockHash, BlockHash>,
     fork_hashes: std::collections::HashSet<BlockHash>,
+    pub epoch_performance: crate::epoch_performance::EpochPerformance,
     pub workload_records: Vec<(rsnano_types::QualifiedRoot, BlockHash, Option<BlockHash>)>,
     pub published_hashes: std::collections::HashSet<BlockHash>,
     unpublished_hashes: std::collections::HashSet<BlockHash>,
@@ -52,6 +53,7 @@ impl SpamLogic {
             fork_originals: Default::default(),
             fork_hashes: Default::default(),
             workload_records: Vec::new(),
+            epoch_performance: Default::default(),
             published_hashes: Default::default(),
             unpublished_hashes: Default::default(),
             published_blocks: 0,
@@ -124,6 +126,8 @@ impl SpamLogic {
 
         let next = self.next_block.take().unwrap();
         self.unpublished_hashes.insert(next.block.hash());
+        self.epoch_performance
+            .register(next.block.qualified_root(), next.fork.is_some());
         self.workload_records.push((
             next.block.qualified_root(),
             next.block.hash(),

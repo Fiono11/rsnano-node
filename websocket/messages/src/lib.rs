@@ -36,6 +36,7 @@ pub enum Topic {
     Telemetry,
     /// New block arrival message
     NewUnconfirmedBlock,
+    ElectionOutcome,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -170,6 +171,7 @@ pub fn work_generation_message(
 
 pub fn to_topic(topic: impl AsRef<str>) -> Topic {
     match topic.as_ref() {
+        "election_outcome" => Topic::ElectionOutcome,
         "confirmation" => Topic::Confirmation,
         "started_election" => Topic::StartedElection,
         "stopped_election" => Topic::StoppedElection,
@@ -252,4 +254,17 @@ pub struct JsonVoteSummary {
     pub timestamp: String,
     pub hash: String,
     pub weight: String,
+}
+
+/// Compact PR-local election certificate transition, without block or vote payloads.
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ElectionOutcome {
+    pub root: rsnano_types::QualifiedRoot,
+    pub hash: BlockHash,
+    pub epoch: u64,
+    pub finalized: bool,
+    pub timeout: bool,
+    /// PR-local monotonic time from first accepted FIRST vote to this transition.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_vote_to_outcome_us: Option<u64>,
 }

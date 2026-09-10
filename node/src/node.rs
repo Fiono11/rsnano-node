@@ -1696,6 +1696,14 @@ impl Node {
 
 #[derive(Clone)]
 pub enum NodeEvent {
+    ElectionOutcome(
+        rsnano_types::QualifiedRoot,
+        BlockHash,
+        u64,
+        bool,
+        bool,
+        Option<u64>,
+    ),
     ElectionStarted(BlockHash),
     ElectionStopped(BlockHash),
     BlockConfirmed(SavedBlock, ConfirmedElection),

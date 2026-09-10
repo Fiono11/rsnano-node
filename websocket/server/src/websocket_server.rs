@@ -178,6 +178,21 @@ pub struct NodeEventProcessor {
 impl NodeEventHandler for NodeEventProcessor {
     fn handle(&mut self, event: &NodeEvent) {
         match event {
+            NodeEvent::ElectionOutcome(root, hash, epoch, finalized, timeout, first_vote_us) => {
+                if self.server.any_subscriber(Topic::ElectionOutcome) {
+                    self.server.broadcast(&MessageEnvelope::new(
+                        Topic::ElectionOutcome,
+                        rsnano_websocket_messages::ElectionOutcome {
+                            root: root.clone(),
+                            hash: *hash,
+                            epoch: *epoch,
+                            finalized: *finalized,
+                            timeout: *timeout,
+                            first_vote_to_outcome_us: *first_vote_us,
+                        },
+                    ));
+                }
+            }
             NodeEvent::ElectionStarted(hash) => {
                 if self.server.any_subscriber(Topic::StartedElection) {
                     self.server.broadcast(&started_election(hash));

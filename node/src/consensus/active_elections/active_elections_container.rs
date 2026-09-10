@@ -61,6 +61,8 @@ pub(crate) struct ActiveElectionsContainer {
     max_elections: usize,
     max_elections_per_bucket: usize,
     stats: AecStats,
+    #[cfg(feature = "rai_protocol")]
+    report_outcomes: bool,
 }
 
 impl ActiveElectionsContainer {
@@ -142,6 +144,8 @@ impl ActiveElectionsContainer {
             max_elections: config.max_elections,
             max_elections_per_bucket: max(config.max_elections / bucket_count(), 1),
             stats: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            report_outcomes: std::env::var_os("NANOSPAM_ELECTION_METRICS").is_some(),
         }
     }
 
@@ -875,10 +879,29 @@ impl ActiveElectionsContainer {
             let epoch = entry.epoch;
             let hash = entry.hash();
             let finalized = entry.finalized;
+            let root = entry.root.clone();
+            let timeout = entry.block.is_none();
+            if let (Some(ledger), Some(block)) = (&self.epoch_source, &entry.block) {
+                ledger.record_epoch_block(epoch, block.clone());
+            }
             let changed = self
                 .block_tree
                 .insert(entry)
                 .expect("Conflicting locally established outcomes");
+            if changed && self.report_outcomes {
+                let first_vote_us = self
+                    .election_for_id(&rsnano_types::ElectionId::new(root.clone(), epoch))
+                    .and_then(|e| e.first_vote_observed)
+                    .map(|first| first.elapsed(args.now).as_micros() as u64);
+                self.notify(AecFact::ElectionOutcome(
+                    root,
+                    hash,
+                    epoch,
+                    finalized,
+                    timeout,
+                    first_vote_us,
+                ));
+            }
             if epoch == 1 && changed {
                 crate::consensus::epoch_closer::debug_trace(
                     || serde_json::json!({"type":"block_certificate","epoch":epoch,"hash":hash,"finalized":finalized,"trigger_voter":args.vote.voter,"trigger_kind":format!("{:?}",args.vote.kind)}),
@@ -907,6 +930,10 @@ impl ActiveElectionsContainer {
             }
             self.cleanup_election(entry);
         }
+        #[cfg(feature = "rai_protocol")]
+        crate::consensus::epoch_closer::debug_trace(
+            || serde_json::json!({"type":"vote_applied","epoch":args.vote.epoch,"voter":args.vote.voter,"kind":format!("{:?}",args.vote.kind),"results":result.per_block.iter().map(|(h,r)| (h,format!("{:?}",r))).collect::<Vec<_>>()}),
+        );
         result.per_block
     }
 
@@ -1462,6 +1489,60 @@ mod notarized_admission_tests {
             })[&hash],
             Ok(())
         );
+    }
+
+    #[test]
+    fn drain_and_snapshot_observe_the_same_notarized_block_before_finalization() {
+        use rsnano_ledger::{
+            LedgerBuilder, LedgerConstants, test_helpers::UnsavedBlockLatticeBuilder,
+        };
+        let path = std::env::temp_dir().join(format!("rai-drain-snapshot-{}", std::process::id()));
+        std::fs::create_dir_all(&path).unwrap();
+        {
+            let ledger = std::sync::Arc::new(
+                LedgerBuilder::new(path.join("data.ldb"))
+                    .constants(LedgerConstants::dev())
+                    .init_thread_count(1)
+                    .finish()
+                    .unwrap(),
+            );
+            ledger.configure_epoch_length(40).unwrap();
+            let mut lattice = UnsavedBlockLatticeBuilder::new();
+            let block = lattice.genesis().send(100, 1);
+            let saved = ledger.process_one(&block).unwrap();
+            let mut aec = ActiveElectionsContainer::default();
+            aec.epoch_source = Some(ledger.clone());
+            aec.insert(
+                AecInsertRequest::new_priority(saved, Default::default()),
+                Timestamp::new_test_instance(),
+            )
+            .unwrap();
+            let id = rsnano_types::ElectionId::new(block.qualified_root(), 0);
+            for rep in 1..=3 {
+                apply(&mut aec, rep, block.hash(), VoteKind::First);
+            }
+            assert!(!aec.pending_epoch_drain(0, &[id.clone()]).is_empty());
+            assert!(!ledger.epoch_close_candidate(0).contains(&block.hash()));
+            apply(&mut aec, 4, block.hash(), VoteKind::First);
+            assert!(aec.pending_epoch_drain(0, &[id]).is_empty());
+            assert!(
+                !aec.election_for_block(&block.hash())
+                    .unwrap()
+                    .is_confirmed()
+            );
+            let snapshot = ledger.epoch_close_candidate(0);
+            assert!(
+                snapshot.contains(&block.hash()),
+                "drained notarized block must be in the snapshot before cementation"
+            );
+            assert!(ledger.epoch_close_candidate_valid(0, &snapshot));
+            for rep in 1..=4 {
+                apply(&mut aec, rep, block.hash(), VoteKind::Final);
+            }
+            aec.assert_epoch_close(0, &snapshot);
+            assert_eq!(ledger.epoch_close_candidate(0), snapshot);
+        }
+        std::fs::remove_dir_all(path).unwrap();
     }
 
     #[test]

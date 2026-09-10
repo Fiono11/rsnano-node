@@ -40,6 +40,11 @@ pub(crate) async fn start_nodes(
             cmd
         } else {
             let mut cmd = Command::new("rsnano");
+            if cfg!(feature = "rai_protocol") && i == 0 {
+                cmd.env("NANOSPAM_ELECTION_METRICS", "1");
+            } else {
+                cmd.env_remove("NANOSPAM_ELECTION_METRICS");
+            }
             if !cfg!(feature = "rai_protocol") || args.audit_output.is_some() {
                 cmd.env("NANOSPAM_TERMINATION_AUDIT", "1");
             } else {

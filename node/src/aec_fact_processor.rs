@@ -63,6 +63,19 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
     fn process(&mut self, event: AecFact) {
         self.plugins.handle(&event);
         match event {
+            AecFact::ElectionOutcome(root, hash, epoch, finalized, timeout, first_vote_us) => {
+                if let Some(tx) = &self.node_observer {
+                    tx.send(NodeEvent::ElectionOutcome(
+                        root,
+                        hash,
+                        epoch,
+                        finalized,
+                        timeout,
+                        first_vote_us,
+                    ))
+                    .unwrap();
+                }
+            }
             AecFact::ElectionStarted(hash, root) => {
                 self.aec_fork_inserter.try_add_cached_forks(&root);
                 self.bootstrap_election_activator.election_started(hash);

@@ -246,6 +246,7 @@ pub enum TopicSub {
     Telemetry,
     /// New block arrival message
     NewUnconfirmedBlock,
+    ElectionOutcome,
 }
 
 impl From<&TopicSub> for Topic {
@@ -259,6 +260,7 @@ impl From<&TopicSub> for Topic {
             TopicSub::Bootstrap => Topic::Bootstrap,
             TopicSub::Telemetry => Topic::Telemetry,
             TopicSub::NewUnconfirmedBlock => Topic::NewUnconfirmedBlock,
+            TopicSub::ElectionOutcome => Topic::ElectionOutcome,
         }
     }
 }

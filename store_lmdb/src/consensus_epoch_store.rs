@@ -21,6 +21,20 @@ impl ConsensusEpochStore {
         })
         .filter_map(|(hash, epoch)| hash.map(|hash| (hash, epoch)))
     }
+    /// Membership includes notarized forks which need not be in the account ledger.
+    pub fn canonical_hashes<'a>(
+        &self,
+        tx: &'a dyn Transaction,
+    ) -> impl Iterator<Item = BlockHash> + 'a {
+        crate::LmdbIterator::new(tx.open_ro_cursor(self.database).unwrap(), |key, _| {
+            (
+                (key.len() == 33 && key[0] == b'C')
+                    .then(|| BlockHash::from_slice(&key[1..]).unwrap()),
+                (),
+            )
+        })
+        .filter_map(|(hash, ())| hash)
+    }
     pub fn closed_count(&self, tx: &dyn Transaction) -> u64 {
         self.read(tx, b"closed_count").unwrap_or(0)
     }

@@ -1,5 +1,5 @@
 use crate::{AnySet, Ledger};
-use rsnano_types::{Blake2HashBuilder, BlockHash};
+use rsnano_types::{Blake2HashBuilder, Block, BlockBase, BlockHash};
 use std::{collections::BTreeSet, sync::atomic::Ordering};
 
 impl Ledger {
@@ -24,16 +24,89 @@ impl Ledger {
             || epoch <= self.closed_epoch_count.load(Ordering::Acquire)
     }
 
+    /// Record locally verified block-tree membership synchronously with certificate
+    /// application, before draining can observe that election as terminated.
+    pub fn record_epoch_block(&self, epoch: u64, block: Block) {
+        let hash = block.hash();
+        let mut blocks = self.epoch_blocks.write().unwrap();
+        if let Some((old, _, _)) = blocks.get_mut(&hash) {
+            *old = (*old).min(epoch);
+            return;
+        }
+        let any = self.any();
+        let dependencies = match &block {
+            Block::LegacySend(b) => b.dependent_blocks(),
+            Block::LegacyChange(b) => b.dependent_blocks(),
+            Block::LegacyReceive(b) => b.dependent_blocks(),
+            Block::LegacyOpen(b) => b.dependent_blocks(&self.constants.genesis_account),
+            Block::State(b) => {
+                let previous_balance = blocks
+                    .get(&b.previous())
+                    .and_then(|(_, b, _)| b.balance_field())
+                    .or_else(|| any.get_block(&b.previous()).map(|b| b.balance()));
+                let receives = b.previous().is_zero()
+                    || previous_balance.is_some_and(|balance| b.balance() >= balance);
+                let source = if receives && !self.constants.epochs.is_epoch_link(&b.link()) {
+                    b.link().into()
+                } else {
+                    BlockHash::ZERO
+                };
+                rsnano_types::DependentBlocks::new(b.previous(), source)
+            }
+        };
+        blocks.insert(
+            hash,
+            (
+                epoch,
+                block,
+                dependencies
+                    .iter()
+                    .filter(|h| !h.is_zero())
+                    .copied()
+                    .collect(),
+            ),
+        );
+    }
+
     pub fn epoch_close_candidate(&self, epoch: u64) -> Vec<BlockHash> {
+        let blocks = self.epoch_blocks.read().unwrap();
         let tx = self.store.begin_read();
-        self.store
-            .consensus_epochs
-            .iter(&tx)
-            .filter(|(hash, voting_epoch)| {
-                *voting_epoch <= epoch || self.store.consensus_epochs.canonical(&tx, hash).is_some()
-            })
-            .map(|(hash, _)| hash)
-            .collect()
+        let mut selected: BTreeSet<_> = self.store.consensus_epochs.canonical_hashes(&tx).collect();
+        selected.extend(
+            self.store
+                .consensus_epochs
+                .iter(&tx)
+                .filter(|(_, e)| *e <= epoch)
+                .map(|(h, _)| h),
+        );
+        selected.extend(
+            blocks
+                .iter()
+                .filter(|(_, (e, _, _))| *e <= epoch)
+                .map(|(h, _)| *h),
+        );
+        let any = self.any();
+        let mut pending: Vec<_> = selected.iter().copied().collect();
+        while let Some(hash) = pending.pop() {
+            let dependencies = blocks
+                .get(&hash)
+                .map(|(_, _, d)| d.clone())
+                .or_else(|| {
+                    any.get_block(&hash).map(|b| {
+                        b.dependent_blocks(&self.constants.epochs, &self.constants.genesis_account)
+                            .iter()
+                            .copied()
+                            .collect()
+                    })
+                })
+                .unwrap_or_default();
+            for dependency in dependencies {
+                if !dependency.is_zero() && selected.insert(dependency) {
+                    pending.push(dependency);
+                }
+            }
+        }
+        selected.into_iter().collect()
     }
 
     pub fn epoch_state_hash(hashes: &[BlockHash]) -> BlockHash {
@@ -59,28 +132,38 @@ impl Ledger {
             return false;
         }
         let selected: BTreeSet<_> = hashes.iter().copied().collect();
+        let blocks = self.epoch_blocks.read().unwrap();
         let tx = self.store.begin_read();
-        // A snapshot extends every previously closed snapshot, not arrival-order metadata.
-        if self.store.consensus_epochs.iter(&tx).any(|(h, _)| {
-            self.store.consensus_epochs.canonical(&tx, &h).is_some() && !selected.contains(&h)
-        }) {
+        if self
+            .store
+            .consensus_epochs
+            .canonical_hashes(&tx)
+            .any(|h| !selected.contains(&h))
+        {
             return false;
         }
         let any = self.any();
         hashes.iter().all(|hash| {
+            if self.store.consensus_epochs.canonical(&tx, hash).is_some() {
+                return true;
+            }
+            if let Some((e, _, dependencies)) = blocks.get(hash) {
+                return *e <= epoch && dependencies.iter().all(|h| selected.contains(h));
+            }
+            // Cemented dependencies and setup blocks remain eligible independently
+            // of whether their election is still retained in the block tree.
             let Some(v) = self.store.consensus_epochs.get(&tx, hash) else {
                 return false;
             };
-            if v > epoch && self.store.consensus_epochs.canonical(&tx, hash).is_none() {
+            if v > epoch {
                 return false;
             }
-            let Some(block) = any.get_block(hash) else {
-                return false;
-            };
-            block
-                .dependent_blocks(&self.constants.epochs, &self.constants.genesis_account)
-                .iter()
-                .all(|h| h.is_zero() || selected.contains(h))
+            any.get_block(hash).is_some_and(|block| {
+                block
+                    .dependent_blocks(&self.constants.epochs, &self.constants.genesis_account)
+                    .iter()
+                    .all(|h| h.is_zero() || selected.contains(h))
+            })
         })
     }
 
@@ -110,6 +193,68 @@ impl Ledger {
 mod tests {
     use super::*;
     use crate::{LedgerBuilder, LedgerConstants, test_helpers::UnsavedBlockLatticeBuilder};
+    #[test]
+    fn close_snapshot_retains_uncemented_notarized_forks_and_dependencies() {
+        use rsnano_types::{DEV_GENESIS_KEY, StateBlockArgs};
+        let path = std::env::temp_dir().join(format!("rai-close-forks-{}", std::process::id()));
+        std::fs::create_dir_all(&path).unwrap();
+        {
+            let ledger = LedgerBuilder::new(path.join("data.ldb"))
+                .constants(LedgerConstants::dev())
+                .init_thread_count(1)
+                .finish()
+                .unwrap();
+            ledger.configure_epoch_length(25).unwrap();
+            let mut lattice = UnsavedBlockLatticeBuilder::new();
+            let a = lattice.genesis().send(100, 1);
+            ledger.process_one(&a).unwrap();
+            ledger.confirm(a.hash());
+            let b = lattice.genesis().send(101, 1);
+            ledger.process_one(&b).unwrap();
+            let fork: Block = StateBlockArgs {
+                key: &DEV_GENESIS_KEY,
+                previous: b.previous(),
+                representative: 999.into(),
+                balance: b.balance_field().unwrap(),
+                link: b.link_field().unwrap(),
+                work: 0.into(),
+            }
+            .into();
+            assert_eq!(b.qualified_root(), fork.qualified_root());
+            // Payload eligibility is supplied only after certificate verification.
+            ledger.record_epoch_block(0, b.clone());
+            ledger.record_epoch_block(0, fork.clone());
+            let snapshot = ledger.epoch_close_candidate(0);
+            for hash in [a.hash(), b.hash(), fork.hash()] {
+                assert!(snapshot.contains(&hash));
+            }
+            assert!(ledger.epoch_close_candidate_valid(0, &snapshot));
+            let without_parent: Vec<_> = snapshot
+                .iter()
+                .copied()
+                .filter(|h| *h != a.hash())
+                .collect();
+            assert!(!ledger.epoch_close_candidate_valid(0, &without_parent));
+            ledger.close_epoch(0, &snapshot).unwrap();
+            assert_eq!(ledger.canonical_confirmation_epoch(&fork.hash()), Some(0));
+            assert_eq!(ledger.epoch_close_candidate(1), snapshot);
+        }
+        // Canonical fork membership survives even without an account-ledger payload.
+        {
+            let ledger = LedgerBuilder::new(path.join("data.ldb"))
+                .constants(LedgerConstants::dev())
+                .init_thread_count(1)
+                .finish()
+                .unwrap();
+            ledger.configure_epoch_length(25).unwrap();
+            let snapshot = ledger.epoch_close_candidate(1);
+            assert_eq!(snapshot.len(), 4);
+            assert!(ledger.epoch_close_candidate_valid(1, &snapshot));
+            ledger.close_epoch(1, &snapshot).unwrap();
+        }
+        std::fs::remove_dir_all(path).unwrap();
+    }
+
     #[test]
     fn epoch_closure_freezes_membership_and_releases_buffered_epoch() {
         let path = std::env::temp_dir().join(format!("rai-close-ledger-{}", std::process::id()));

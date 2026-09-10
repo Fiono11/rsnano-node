@@ -61,6 +61,9 @@ impl<'a> ApplyVoteHelper<'a> {
 
                 #[cfg(feature = "rai_protocol")]
                 {
+                    if self.args.vote.kind == rsnano_types::VoteKind::First {
+                        election.first_vote_observed.get_or_insert(self.args.now);
+                    }
                     for (hash, block) in election.candidate_blocks() {
                         if election.has_kudzu_certificate(*hash, rsnano_types::VoteKind::Notarize) {
                             let mut entry = rsnano_types::RaiBlockTreeEntry::notarized(

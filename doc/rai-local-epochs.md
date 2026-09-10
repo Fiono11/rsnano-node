@@ -55,6 +55,10 @@ A finalized descendant commits its ancestors. The oldest snapshot in the committ
 close chain is the unique Close(e) decision; descendants cannot replace it with a
 different epoch assignment. Snapshot hashes cover sorted block hashes eligible
 through certificates from e or earlier, plus dependencies and prior closed state.
+Notarized and finalized payloads are registered synchronously when their block-tree
+certificates are applied, before draining can observe termination. Notarized forks
+are included even when absent from the cemented account ledger. Timeout routing
+hashes are not blocks. Canonical membership is persisted independently of cementation.
 Snapshot pages and signed votes use a separate network message and timer. A
 successfully validated immutable candidate is cached during that close election.
 

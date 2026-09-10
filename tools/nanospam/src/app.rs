@@ -231,7 +231,7 @@ impl NanoSpamApp {
             .unwrap()
             .as_nanos() as u64;
         let duration_secs = started.elapsed().as_secs_f64();
-        let logic = logic.lock().unwrap();
+        let mut logic = logic.lock().unwrap();
         let created_blocks = logic.block_factory.created();
         let confirmed_blocks = logic.confirmed_total;
         let cps = confirmed_blocks as f64 / duration_secs;
@@ -252,6 +252,7 @@ impl NanoSpamApp {
         let published_hashes = logic.published_hashes.clone();
         let published_workload_blocks = logic.published_blocks;
         let workload_roots = logic.workload_roots.clone();
+        let logic_metrics = Mutex::new(std::mem::take(&mut logic.epoch_performance));
         drop(logic);
         info!("BENCHMARK_RESULT {summary}");
         #[cfg(feature = "rai_protocol")]
@@ -261,7 +262,27 @@ impl NanoSpamApp {
                     && published_workload_blocks == workload_roots.len(),
                 "Requested workload was not completely generated"
             );
-            verify_epoch_closures(&self.rpc_clients, self.args.epoch_length).await?;
+            let closure = verify_epoch_closures(&self.rpc_clients, self.args.epoch_length);
+            tokio::pin!(closure);
+            let closed_epochs = loop {
+                tokio::select! {
+                    result = &mut closure => break result?,
+                    message = conf_receiver.next() => {
+                        record_outcome(message?, self.clock.now(), &logic_metrics);
+                    }
+                }
+            };
+            // Consume outcome messages already queued while the final close RPC completed.
+            // Reporting and JSON aggregation happen only after the measured workload.
+            let drain_until = Instant::now() + Duration::from_secs(1);
+            while Instant::now() < drain_until {
+                match timeout(Duration::from_millis(100), conf_receiver.next()).await {
+                    Ok(message) => record_outcome(message?, self.clock.now(), &logic_metrics),
+                    Err(_) => break,
+                }
+            }
+            let metrics = logic_metrics.lock().unwrap().summarize(closed_epochs);
+            info!("EPOCH_PERFORMANCE_RESULT {metrics}");
             return Ok(());
         }
         let performance_cutoff = cutoff;
@@ -540,6 +561,11 @@ async fn publish_blocks(
     while let Some(forks) = rx_blocks.recv().await {
         let block = forks.block.clone();
         let hash = block.hash();
+        logic
+            .lock()
+            .unwrap()
+            .epoch_performance
+            .published(&block.qualified_root(), clock.now());
         let publish = Message::Publish(Publish::new_from_originator(block));
         let buffer = serializer.serialize(&publish);
         let mut fork_buffer = None;
@@ -648,6 +674,15 @@ fn track_confirmations(
     logic: &Mutex<SpamLogic>,
 ) {
     while let Ok((msg, timestamp)) = rx_ws_msg.recv() {
+        if msg.topic == Some(Topic::ElectionOutcome) {
+            let event = serde_json::from_value(msg.message.unwrap()).unwrap();
+            logic
+                .lock()
+                .unwrap()
+                .epoch_performance
+                .observe(event, timestamp);
+            continue;
+        }
         if msg.topic == Some(Topic::Confirmation) {
             let data: BlockConfirmed = serde_json::from_value(msg.message.unwrap()).unwrap();
             let block_hash = BlockHash::decode_hex(data.hash).unwrap();
@@ -693,7 +728,7 @@ async fn log_status(
 }
 
 #[cfg(feature = "rai_protocol")]
-async fn verify_epoch_closures(clients: &[NanoRpcClient], seconds: u64) -> anyhow::Result<()> {
+async fn verify_epoch_closures(clients: &[NanoRpcClient], seconds: u64) -> anyhow::Result<u64> {
     let mut target = 1;
     for client in clients {
         let count = client.block_count().await?;
@@ -722,7 +757,7 @@ async fn verify_epoch_closures(clients: &[NanoRpcClient], seconds: u64) -> anyho
                 "EPOCH_CLOSE_RESULT {}",
                 serde_json::json!({"success":true,"epochs_checked":target,"closed_epochs":closed[0]})
             );
-            return Ok(());
+            return Ok(target);
         }
         if last_progress.elapsed() >= Duration::from_secs(5) {
             info!(
@@ -738,5 +773,18 @@ async fn verify_epoch_closures(clients: &[NanoRpcClient], seconds: u64) -> anyho
             closed
         );
         tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+}
+
+fn record_outcome(
+    msg: MessageEnvelope,
+    received: Timestamp,
+    metrics: &Mutex<crate::epoch_performance::EpochPerformance>,
+) {
+    if msg.topic == Some(Topic::ElectionOutcome) {
+        metrics.lock().unwrap().observe(
+            serde_json::from_value(msg.message.unwrap()).unwrap(),
+            received,
+        );
     }
 }

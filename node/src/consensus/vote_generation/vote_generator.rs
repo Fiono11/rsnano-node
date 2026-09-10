@@ -312,7 +312,30 @@ impl SharedState {
     }
 
     fn broadcast<'a>(&'a self, mut queues: MutexGuard<'a, Queues>) -> MutexGuard<'a, Queues> {
-        let epoch = queues.candidates.front().map(|c| c.2).unwrap_or(0);
+        #[cfg(feature = "rai_protocol")]
+        {
+            // Each epoch has a separate signed batch, but ready epochs share this
+            // wakeup. Recovery for a closed epoch must not impose another full
+            // batching delay on fresh work. Snapshot the set to bound this pass.
+            let epochs: std::collections::BTreeSet<_> =
+                queues.candidates.iter().map(|c| c.2).collect();
+            for epoch in epochs {
+                queues = self.broadcast_epoch(queues, epoch);
+            }
+            queues
+        }
+        #[cfg(not(feature = "rai_protocol"))]
+        {
+            let epoch = queues.candidates.front().map(|c| c.2).unwrap_or(0);
+            self.broadcast_epoch(queues, epoch)
+        }
+    }
+
+    fn broadcast_epoch<'a>(
+        &'a self,
+        mut queues: MutexGuard<'a, Queues>,
+        epoch: u64,
+    ) -> MutexGuard<'a, Queues> {
         let mut hashes = Vec::with_capacity(VoteGenerator::MAX_HASHES);
         let mut roots = Vec::with_capacity(VoteGenerator::MAX_HASHES);
         {
@@ -675,6 +698,9 @@ impl SharedState {
                             spacing.flag_in_epoch(root, hash, self.clock.now(), epoch);
                         }
                     }
+                    crate::consensus::epoch_closer::debug_trace(
+                        || serde_json::json!({"type":"vote_generated","epoch":epoch,"voter":vote.voter,"kind":format!("{:?}",kind),"hashes":hashes}),
+                    );
                     action(vote);
                 }
             };
@@ -944,6 +970,34 @@ mod fork_recovery_tests {
         assert_eq!(
             (votes[1].kind(), votes[1].hashes.clone()),
             (VoteKind::Notarize, vec![b.hash()])
+        );
+    }
+
+    #[test]
+    fn ready_epochs_share_a_wakeup_without_sharing_a_batch() {
+        let ledger = Arc::new(Ledger::new_null());
+        let aec = Arc::new(AecService::new_null());
+        let generator = generator(ledger, &aec);
+        let shared = &generator.shared_state;
+        let old = (Root::from(1), BlockHash::from(2), 0);
+        let old_fork = (Root::from(1), BlockHash::from(3), 0);
+        let fresh = (Root::from(4), BlockHash::from(5), 1);
+        shared
+            .pending
+            .lock()
+            .unwrap()
+            .extend([old, old_fork, fresh]);
+        let mut queues = shared.queues.lock().unwrap();
+        queues.candidates.extend([old, old_fork, fresh]);
+        let queues = shared.broadcast(queues);
+        assert_eq!(
+            queues.candidates,
+            VecDeque::from([old_fork]),
+            "a ready new epoch must not wait another generator delay behind old-epoch recovery"
+        );
+        assert_eq!(
+            *shared.pending.lock().unwrap(),
+            std::collections::HashSet::from([old_fork])
         );
     }
 

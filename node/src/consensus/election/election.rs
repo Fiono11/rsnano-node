@@ -25,6 +25,8 @@ pub enum VoteType {
 #[derive(Clone)]
 pub struct Election {
     #[cfg(feature = "rai_protocol")]
+    pub(crate) first_vote_observed: Option<Timestamp>,
+    #[cfg(feature = "rai_protocol")]
     pub(super) kudzu: super::kudzu::KudzuVotes,
     qualified_root: QualifiedRoot,
     pub epoch: u64,
@@ -62,6 +64,8 @@ impl Election {
         Self {
             #[cfg(feature = "rai_protocol")]
             kudzu: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            first_vote_observed: None,
             qualified_root: block.qualified_root(),
             epoch: 0,
             votes: HashMap::new(),
@@ -214,7 +218,7 @@ impl Election {
 
     #[cfg(feature = "rai_protocol")]
     pub(crate) fn termination_diagnostic(&self) -> serde_json::Value {
-        serde_json::json!({"root":self.qualified_root(),"epoch":self.epoch,"winner":self.winner().hash(),"candidates":self.candidate_blocks().keys().collect::<Vec<_>>(),"first":self.kudzu.first_tallies,"notarization":self.kudzu.notar_tallies,"final":self.kudzu.final_tallies,"participation":self.kudzu.participation_diagnostic(),"timeout_certificate":self.is_timed_out(),"timeout_eligible":self.should_timeout()})
+        serde_json::json!({"state":format!("{:?}",self.state),"root":self.qualified_root(),"epoch":self.epoch,"winner":self.winner().hash(),"candidates":self.candidate_blocks().keys().collect::<Vec<_>>(),"first":self.kudzu.first_tallies,"notarization":self.kudzu.notar_tallies,"final":self.kudzu.final_tallies,"participation":self.kudzu.participation_diagnostic(),"timeout_certificate":self.is_timed_out(),"timeout_eligible":self.should_timeout()})
     }
 
     #[cfg(feature = "rai_protocol")]

@@ -770,6 +770,102 @@ mod tests {
     }
 
     #[test]
+    fn epoch_close_must_include_late_finalized_block() {
+        use rsnano_ledger::{
+            LedgerBuilder, LedgerConstants, test_helpers::UnsavedBlockLatticeBuilder,
+        };
+        let path = std::env::temp_dir().join(format!("rai-close-omission-{}", std::process::id()));
+        std::fs::create_dir_all(&path).unwrap();
+        {
+            let ledger = LedgerBuilder::new(path.join("data.ldb"))
+                .constants(LedgerConstants::dev())
+                .init_thread_count(1)
+                .finish()
+                .unwrap();
+            ledger.configure_epoch_length(1).unwrap();
+            let mut lattice = UnsavedBlockLatticeBuilder::new();
+            let a = lattice.genesis().send(100, 1);
+            let b = lattice.genesis().send(101, 1);
+            ledger.process_one(&a).unwrap();
+            ledger.process_one(&b).unwrap();
+            ledger.confirm(a.hash());
+            // The drain sees B's notarization before its FINAL certificate or
+            // asynchronous cementation. Snapshot membership must see it too.
+            ledger.record_epoch_block(0, b.clone());
+            let old = ledger.epoch_close_candidate(0);
+            assert!(old.contains(&b.hash()));
+            assert!(ledger.epoch_close_candidate_valid(0, &old));
+            ledger.confirm(b.hash());
+            let recent = ledger.epoch_close_candidate(0);
+            let mut replicas: Vec<_> = (0..6)
+                .map(|_| {
+                    let mut s = state();
+                    s.ready = true;
+                    s
+                })
+                .collect();
+            // Reproduce four snapshots before cementation and two afterward.
+            // Both now include the already notarized block.
+            let mut initial = Vec::new();
+            for i in 0..6 {
+                let hashes = if i < 4 { old.clone() } else { recent.clone() };
+                let mut p =
+                    replicas[i].template(0, BlockHash::ZERO, Ledger::epoch_state_hash(&hashes));
+                let id = p.candidate_id();
+                for replica in &mut replicas {
+                    replica.candidates.entry(id).or_insert_with(|| Candidate {
+                        validated: Cell::new(false),
+                        header: p.clone(),
+                        pages: Default::default(),
+                        hashes: Some(hashes.clone()),
+                    });
+                }
+                let key = PrivateKey::from(i as u64 + 1);
+                let r = replicas[i].rounds.entry(0).or_default();
+                let signer = r.signers.entry(key.public_key()).or_default();
+                signer.first = Some(id);
+                signer.notarized.insert(id);
+                p.sign(&key);
+                initial.push(p);
+            }
+            for s in &mut replicas {
+                for p in &initial {
+                    s.receive(p.clone());
+                }
+            }
+            let mut decisions = vec![None; 6];
+            for _ in 0..30 {
+                let mut packets = Vec::new();
+                for (i, s) in replicas.iter_mut().enumerate() {
+                    let (out, decision) = s.drive(&ledger, &[PrivateKey::from(i as u64 + 1)]);
+                    if decision.is_some() {
+                        decisions[i] = decision;
+                    }
+                    packets.extend(out);
+                    packets.extend(s.packets());
+                }
+                for s in &mut replicas {
+                    for p in &packets {
+                        s.receive(p.clone());
+                    }
+                }
+                if decisions.iter().all(Option::is_some) {
+                    break;
+                }
+            }
+            assert!(decisions.iter().all(Option::is_some));
+            assert!(decisions.iter().all(|d| d == &decisions[0]));
+            assert!(
+                decisions
+                    .iter()
+                    .all(|d| d.as_ref().unwrap().contains(&b.hash())),
+                "certified close omitted a block already finalized in this epoch"
+            );
+        }
+        std::fs::remove_dir_all(path).unwrap();
+    }
+
+    #[test]
     fn epoch_close_leaderless_snapshots_refresh_without_replacing_first() {
         use rsnano_ledger::{
             LedgerBuilder, LedgerConstants, test_helpers::UnsavedBlockLatticeBuilder,

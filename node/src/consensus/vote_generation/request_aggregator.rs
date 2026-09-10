@@ -323,6 +323,10 @@ impl RequestAggregatorLoop {
                 }
             }
         }
+        #[cfg(feature = "rai_protocol")]
+        crate::consensus::epoch_closer::debug_trace(
+            || serde_json::json!({"type":"request","epoch":request.epoch,"hashes":request.roots_hashes}),
+        );
         let remaining = self.aggregate(any, request);
         #[cfg(feature = "rai_protocol")]
         for block in &remaining.blocks_to_publish {

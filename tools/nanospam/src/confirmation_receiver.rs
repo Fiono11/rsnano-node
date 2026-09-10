@@ -36,7 +36,28 @@ impl ConfirmationReceiver {
             .await
             .ok_or_else(|| anyhow!("no ws response received"))??;
 
+        if cfg!(feature = "rai_protocol") {
+            ws_client
+                .subscribe(SubscribeArgs {
+                    topic: TopicSub::ElectionOutcome,
+                    ack: true,
+                    id: None,
+                })
+                .await?;
+            ws_client
+                .next()
+                .await
+                .ok_or_else(|| anyhow!("no outcome subscription response"))??;
+        }
         Ok(Self { ws_client })
+    }
+
+    pub async fn next(&mut self) -> anyhow::Result<MessageEnvelope> {
+        Ok(self
+            .ws_client
+            .next()
+            .await
+            .ok_or_else(|| anyhow!("websocket closed"))??)
     }
 
     pub async fn run(
