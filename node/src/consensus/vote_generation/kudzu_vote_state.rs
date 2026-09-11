@@ -9,6 +9,7 @@ use rsnano_types::{BlockHash, PublicKey, QualifiedRoot, VoteKind};
 pub(super) struct KudzuVoteState {
     roots: HashMap<(QualifiedRoot, PublicKey), RootVotes>,
     draining: Option<u64>,
+    cuts: HashMap<u64, Option<HashSet<QualifiedRoot>>>,
 }
 
 #[derive(Default)]
@@ -22,6 +23,37 @@ struct RootVotes {
 }
 
 impl KudzuVoteState {
+    pub fn pause_epoch(&mut self, epoch: u64) {
+        self.drain_through(epoch);
+        self.cuts.entry(epoch).or_insert(None);
+    }
+    pub fn resume_cut(&mut self, epoch: u64, roots: impl IntoIterator<Item = QualifiedRoot>) {
+        self.cuts.insert(epoch, Some(roots.into_iter().collect()));
+    }
+    pub fn voting_filter(&self) -> impl Fn(&QualifiedRoot, u64) -> bool + use<> {
+        let cuts = self.cuts.clone();
+        move |root, epoch| cuts.get(&epoch).is_none_or(|cut| cut.as_ref().is_some_and(|roots| roots.contains(root)))
+    }
+    pub fn voting_active(&self, root: &QualifiedRoot, epoch: u64) -> bool {
+        self.cuts
+            .get(&epoch)
+            .is_none_or(|cut| cut.as_ref().is_some_and(|roots| roots.contains(root)))
+    }
+    /// Filter periodic work before it consumes scheduler slots or generator queues.
+    /// Explicit recovery still uses authorize/timeout_statement to replay old votes.
+    pub fn retain_voting_targets(
+        &self,
+        targets: &mut Vec<super::voting_scheduler::VoteTarget>,
+        reps: &[PublicKey],
+    ) {
+        targets.retain(|target| {
+            self.voting_active(&target.root.root, target.root.epoch)
+                && (target.vote_type != crate::consensus::election::VoteType::Final
+                    || reps
+                        .iter()
+                        .any(|rep| self.can_finalize(&target.root.root, *rep, target.winner)))
+        });
+    }
     pub fn drain_through(&mut self, epoch: u64) {
         self.draining = Some(self.draining.map_or(epoch, |old| old.max(epoch)));
     }
@@ -65,6 +97,12 @@ impl KudzuVoteState {
         eligible: bool,
         final_lock: Option<BlockHash>,
     ) -> Option<VoteKind> {
+        if !self.voting_active(root, epoch) {
+            return self
+                .timeout_statement(root, rep, epoch)
+                .filter(|(_, old)| *old == hash)
+                .map(|(kind, _)| kind);
+        }
         if !eligible || final_lock.is_some() {
             return None;
         }
@@ -144,6 +182,18 @@ impl KudzuVoteState {
         notarized: bool,
         final_lock: Option<BlockHash>,
     ) -> Option<VoteKind> {
+        if !self.voting_active(root, epoch) {
+            let state = self.roots.get(&(root.clone(), rep))?;
+            let kinds: &[VoteKind] = if final_requested {
+                &[VoteKind::Final]
+            } else {
+                &[VoteKind::First, VoteKind::Notarize, VoteKind::FirstTimeout]
+            };
+            return kinds
+                .iter()
+                .copied()
+                .find(|kind| state.statements.contains(&(epoch, *kind, hash)));
+        }
         if final_lock.is_some_and(|h| h != hash) {
             return None;
         }
@@ -225,6 +275,124 @@ impl KudzuVoteState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn periodic_voting_excludes_frozen_roots_but_recovery_keeps_old_statements() {
+        use super::super::voting_scheduler::VoteTarget;
+        use crate::consensus::election::VoteType;
+        use rsnano_types::ElectionId;
+
+        let mut state = KudzuVoteState::default();
+        let rep = PublicKey::from(1);
+        let cut = QualifiedRoot::new(1.into(), 0.into());
+        let frozen = QualifiedRoot::new(2.into(), 0.into());
+        let fresh = QualifiedRoot::new(3.into(), 0.into());
+        for root in [&cut, &frozen] {
+            assert_eq!(
+                state.authorize(root, rep, 1.into(), 0, false, false, false, None),
+                Some(VoteKind::First)
+            );
+        }
+        let targets = || {
+            [&cut, &frozen, &fresh]
+                .into_iter()
+                .flat_map(|root| {
+                    let epoch = if root == &fresh { 1 } else { 0 };
+                    [VoteType::NonFinal, VoteType::Final]
+                        .into_iter()
+                        .map(move |vote_type| VoteTarget {
+                            root: ElectionId::new(root.clone(), epoch),
+                            winner: 1.into(),
+                            vote_type,
+                            timeout: false,
+                        })
+                })
+                .collect::<Vec<_>>()
+        };
+        state.pause_epoch(0);
+        let mut paused = targets();
+        state.retain_voting_targets(&mut paused, &[rep]);
+        assert_eq!(paused.len(), 2);
+        assert!(paused.iter().all(|t| t.root.epoch == 1));
+        let paused_filter = state.voting_filter();
+        assert!(!paused_filter(&cut, 0));
+        assert!(!paused_filter(&frozen, 0));
+        assert!(paused_filter(&fresh, 1));
+        state.resume_cut(0, [cut.clone()]);
+        let filter = state.voting_filter();
+        assert!(filter(&cut, 0));
+        assert!(!filter(&frozen, 0));
+        assert!(filter(&fresh, 1));
+        // The previously captured filter does not retain the signing mutex.
+        assert!(!paused_filter(&cut, 0));
+        let mut resumed = targets();
+        state.retain_voting_targets(&mut resumed, &[rep]);
+        assert_eq!(resumed.len(), 4);
+        assert!(resumed.iter().all(|t| t.root.root != frozen));
+        assert_eq!(
+            state.authorize(&frozen, rep, 1.into(), 0, false, false, false, None),
+            Some(VoteKind::First)
+        );
+        assert_eq!(
+            state.authorize(&frozen, rep, 1.into(), 0, true, false, true, None),
+            None
+        );
+    }
+
+    #[test]
+    fn cut_pause_preserves_old_votes_but_only_cut_resumes_new_statements() {
+        let mut state = KudzuVoteState::default();
+        let rep = PublicKey::from(1);
+        let cut = QualifiedRoot::new(1.into(), 0.into());
+        let excluded = QualifiedRoot::new(2.into(), 0.into());
+        for root in [&cut, &excluded] {
+            assert_eq!(
+                state.authorize(root, rep, 1.into(), 0, false, false, false, None),
+                Some(VoteKind::First)
+            );
+        }
+        state.pause_epoch(0);
+        for root in [&cut, &excluded] {
+            assert_eq!(
+                state.authorize(root, rep, 1.into(), 0, false, false, false, None),
+                Some(VoteKind::First)
+            );
+            assert_eq!(
+                state.authorize(root, rep, 1.into(), 0, true, false, true, None),
+                None
+            );
+            assert_eq!(
+                state.authorize(root, rep, 2.into(), 0, false, true, false, None),
+                None
+            );
+            assert_eq!(
+                state.authorize_timeout(root, rep, 1.into(), 0, true, None),
+                None
+            );
+        }
+        let fresh = QualifiedRoot::new(3.into(), 0.into());
+        assert_eq!(
+            state.authorize(&fresh, rep, 3.into(), 1, false, false, false, None),
+            Some(VoteKind::First)
+        );
+        state.resume_cut(0, [cut.clone()]);
+        assert_eq!(
+            state.authorize(&cut, rep, 1.into(), 0, true, false, true, None),
+            Some(VoteKind::Final)
+        );
+        assert_eq!(
+            state.authorize(&excluded, rep, 1.into(), 0, true, false, true, None),
+            None
+        );
+        assert_eq!(
+            state.authorize(&excluded, rep, 2.into(), 0, false, true, false, None),
+            None
+        );
+        assert_eq!(
+            state.authorize_timeout(&excluded, rep, 1.into(), 0, true, None),
+            None
+        );
+    }
 
     #[test]
     fn epoch_drain_allows_second_look_and_replay_but_never_final() {

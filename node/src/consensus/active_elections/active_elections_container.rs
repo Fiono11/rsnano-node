@@ -385,6 +385,37 @@ impl ActiveElectionsContainer {
     }
 
     #[cfg(feature = "rai_protocol")]
+    pub(crate) fn pending_cut_report(&self, epoch: u64) -> Vec<(QualifiedRoot, BlockHash)> {
+        self.roots
+            .iter()
+            .filter_map(|entry| {
+                let e = &entry.election;
+                (e.epoch == epoch && !e.has_quorum() && !e.is_confirmed() && !e.is_timed_out())
+                    .then(|| (e.qualified_root().clone(), e.winner().hash()))
+            })
+            .collect()
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn cut_pending(&self, epoch: u64, roots: &[QualifiedRoot]) -> Vec<QualifiedRoot> {
+        roots
+            .iter()
+            .filter(|root| {
+                let id = rsnano_types::ElectionId::new((*root).clone(), epoch);
+                !self
+                    .election_for_id(&id)
+                    .is_some_and(|e| e.has_quorum() || e.is_confirmed() || e.is_timed_out())
+                    && !self
+                        .block_tree
+                        .for_root(root)
+                        .iter()
+                        .any(|e| e.epoch == epoch)
+            })
+            .cloned()
+            .collect()
+    }
+
+    #[cfg(feature = "rai_protocol")]
     pub(crate) fn pending_epoch_drain(
         &self,
         epoch: u64,

@@ -58,6 +58,25 @@ impl AecService {
     }
 
     #[cfg(feature = "rai_protocol")]
+    pub(crate) fn pending_cut_report(&self, epoch: u64) -> Vec<(QualifiedRoot, BlockHash)> {
+        self.aec.read().unwrap().pending_cut_report(epoch)
+    }
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn cut_pending(&self, epoch: u64, roots: &[QualifiedRoot]) -> Vec<QualifiedRoot> {
+        let aec = self.aec.read().unwrap();
+        let pending = aec.cut_pending(epoch, roots);
+        static LAST: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+        if !pending.is_empty() && now > LAST.load(std::sync::atomic::Ordering::Relaxed) + 5 {
+            LAST.store(now, std::sync::atomic::Ordering::Relaxed);
+            eprintln!("EPOCH_CUT_PENDING {}", serde_json::json!({"pid":std::process::id(),"epoch":epoch,"pending":pending.len(),"examples":pending.iter().take(2).map(|root| {
+                aec.election_for_id(&rsnano_types::ElectionId::new(root.clone(),epoch)).map(|e| e.termination_diagnostic()).unwrap_or_else(|| serde_json::json!({"missing":true,"root":root}))
+            }).collect::<Vec<_>>()} ).to_string());
+        }
+        pending
+    }
+
+    #[cfg(feature = "rai_protocol")]
     pub(crate) fn elections_terminated(
         &self,
         epoch: u64,
@@ -394,3 +413,4 @@ pub struct ElectionSnapshot {
     pub is_final: bool,
     pub elapsed: Duration,
 }
+

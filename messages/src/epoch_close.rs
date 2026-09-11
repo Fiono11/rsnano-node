@@ -43,7 +43,15 @@ impl EpochClose {
             .update(b"rai-close-vote-v1")
             .update(self.candidate_id().as_bytes())
             .update([self.kind]);
-        if self.kind == 7 {
+        if self.kind == 8 {
+            let mut builder = builder
+                .update(self.page.to_le_bytes())
+                .update(self.pages.to_le_bytes());
+            for hash in &self.hashes {
+                builder = builder.update(hash.as_bytes());
+            }
+            builder.build()
+        } else if self.kind == 7 {
             let mut builder = builder.update(self.page.to_le_bytes());
             for base in &self.hashes {
                 builder = builder.update(base.as_bytes());
@@ -100,13 +108,32 @@ impl EpochClose {
                 .is_ok()
     }
 
+    /// Signed pages of the immutable pending-election report. Triples encode
+    /// qualified root (root, previous) and a candidate hash for ordinary recovery.
+    pub fn valid_cut_report(&self) -> bool {
+        self.kind == 8
+            && self.round == 0
+            && self.parent.is_zero()
+            && self.base.is_zero()
+            && self.removed.is_empty()
+            && self.pages > 0
+            && self.pages <= Self::MAX_PAGES
+            && self.page < self.pages
+            && self.hashes.len() <= Self::PAGE_SIZE
+            && self.hashes.len() % 3 == 0
+            && self
+                .voter
+                .verify(self.signing_hash().as_bytes(), &self.signature)
+                .is_ok()
+    }
+
     pub fn serialize(&self, writer: &mut impl std::io::Write) -> std::io::Result<()> {
         serde_json::to_writer(writer, self).map_err(std::io::Error::other)
     }
     pub fn deserialize(payload: &[u8]) -> Result<Self, DeserializationError> {
         let value: Self =
             serde_json::from_slice(payload).map_err(|_| DeserializationError::InvalidData)?;
-        if value.kind > 7
+        if value.kind > 8
             || value.hashes.len() + value.removed.len() > Self::PAGE_SIZE
             || value.pages > Self::MAX_PAGES
         {

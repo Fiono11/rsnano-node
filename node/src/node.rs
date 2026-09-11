@@ -860,6 +860,9 @@ impl Node {
         let mut aec_ticker = AecTicker::new(active_elections.clone(), steady_clock.clone());
 
         aec_ticker.add_plugin(ConfirmationSolicitorPlugin {
+            recovery_cursor: 0,
+            #[cfg(feature = "rai_protocol")]
+            vote_generators: Some(vote_generators.clone()),
             broadcast_cursor: 0,
             message_flooder: message_flooder.clone(),
             rep_tracker: rep_tracker.clone(),

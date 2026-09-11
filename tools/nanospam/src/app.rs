@@ -262,7 +262,11 @@ impl NanoSpamApp {
                     && published_workload_blocks == workload_roots.len(),
                 "Requested workload was not completely generated"
             );
-            let closure = verify_epoch_closures(&self.rpc_clients, self.args.epoch_length);
+            let closure = verify_epoch_closures(
+                &self.rpc_clients,
+                self.args.epoch_length,
+                self.args.closed_epochs,
+            );
             tokio::pin!(closure);
             let closed_epochs = loop {
                 tokio::select! {
@@ -384,7 +388,12 @@ impl NanoSpamApp {
         );
         #[cfg(feature = "rai_protocol")]
         if self.args.epoch_length > 0 {
-            verify_epoch_closures(&self.rpc_clients, self.args.epoch_length).await?;
+            verify_epoch_closures(
+                &self.rpc_clients,
+                self.args.epoch_length,
+                self.args.closed_epochs,
+            )
+            .await?;
         }
         for (index, client) in self.rpc_clients.iter().enumerate() {
             if let Ok(count) = client.block_count().await {
@@ -728,11 +737,19 @@ async fn log_status(
 }
 
 #[cfg(feature = "rai_protocol")]
-async fn verify_epoch_closures(clients: &[NanoRpcClient], seconds: u64) -> anyhow::Result<u64> {
+async fn verify_epoch_closures(
+    clients: &[NanoRpcClient],
+    seconds: u64,
+    requested: Option<u64>,
+) -> anyhow::Result<u64> {
     let mut target = 1;
     for client in clients {
         let count = client.block_count().await?;
         target = target.max(count.current_epoch.map(u64::from).unwrap_or(0) + 1);
+    }
+    if let Some(requested) = requested {
+        anyhow::ensure!(requested > 0, "closed epochs must be positive");
+        target = requested;
     }
     let deadline =
         Instant::now() + Duration::from_secs(seconds.saturating_mul(2).saturating_add(300));
@@ -753,6 +770,12 @@ async fn verify_epoch_closures(clients: &[NanoRpcClient], seconds: u64) -> anyho
                     .is_some_and(|expected| closed.iter().all(|c| c.get(&key) == Some(expected)))
             });
         if complete {
+            if requested.is_some() {
+                anyhow::ensure!(
+                    closed.iter().all(|c| c.len() == target as usize),
+                    "unexpected extra closed epochs"
+                );
+            }
             info!(
                 "EPOCH_CLOSE_RESULT {}",
                 serde_json::json!({"success":true,"epochs_checked":target,"closed_epochs":closed[0]})

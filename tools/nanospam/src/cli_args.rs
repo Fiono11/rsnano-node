@@ -14,6 +14,10 @@ pub(crate) struct CliArgs {
     #[arg(long, default_value_t = 0)]
     pub epoch_length: u64,
 
+    /// Verify exactly this many closed epochs and stop further closes in test nodes
+    #[arg(long)]
+    pub closed_epochs: Option<u64>,
+
     /// Override node vote batching delay in milliseconds for latency experiments
     #[arg(long)]
     pub vote_generator_delay_ms: Option<u64>,

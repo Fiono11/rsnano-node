@@ -90,10 +90,12 @@ impl Tickable for AecVoter {
             .collect()
         });
         #[cfg(feature = "rai_protocol")]
+        let eligible = self.vote_generators.solicitation_filter();
+        #[cfg(feature = "rai_protocol")]
         let mut targets: Vec<VoteTarget> = self.aec.round_robin(|iter| {
             let mut targets = Vec::new();
             for e in iter {
-                if e.is_confirmed() || e.is_timed_out() {
+                if !eligible(e.qualified_root(), e.epoch) || e.is_confirmed() || e.is_timed_out() {
                     continue;
                 }
                 let primary = vote_target(e);

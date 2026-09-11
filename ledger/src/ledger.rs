@@ -98,7 +98,10 @@ impl BlockError {
 pub struct Ledger {
     #[cfg(feature = "rai_protocol")]
     pub(crate) epoch_blocks:
-        RwLock<std::collections::BTreeMap<BlockHash, (u64, Block, Vec<BlockHash>)>>,
+        RwLock<std::collections::BTreeMap<BlockHash, (u64, Block, rsnano_types::DependentBlocks)>>,
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) epoch_metadata:
+        RwLock<rustc_hash::FxHashMap<BlockHash, (u64, rsnano_types::DependentBlocks)>>,
     #[cfg(feature = "rai_protocol")]
     pub voting_epoch: std::sync::atomic::AtomicU64,
     #[cfg(feature = "rai_protocol")]
@@ -311,6 +314,8 @@ impl Ledger {
             epoch_length: Default::default(),
             #[cfg(feature = "rai_protocol")]
             epoch_blocks: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            epoch_metadata: Default::default(),
             #[cfg(feature = "rai_protocol")]
             voting_epoch: Default::default(),
             #[cfg(feature = "rai_protocol")]

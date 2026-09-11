@@ -568,7 +568,10 @@ impl SharedState {
                             group.0.push(*hash);
                             group.1.push(*root);
                         }
-                        if *second {
+                        // Participation in a new epoch is a FIRST-timeout even when
+                        // the requested fork has no second-look support. Route it via
+                        // our original value so a conflicting final lock cannot hide it.
+                        {
                             if let Some(first) = state.first_value(qualified, key.public_key()) {
                                 if first != *hash
                                     && !state.has_first(qualified, key.public_key(), first, epoch)
@@ -646,7 +649,10 @@ impl SharedState {
                             group.0.push(*hash);
                             group.1.push(*root);
                         }
-                        if *second {
+                        // Participation in a new epoch is a FIRST-timeout even when
+                        // the requested fork has no second-look support. Route it via
+                        // our original value so a conflicting final lock cannot hide it.
+                        {
                             if let Some(first) = state.first_value(qualified, key.public_key()) {
                                 if first != *hash
                                     && !state.has_first(qualified, key.public_key(), first, epoch)
@@ -889,6 +895,35 @@ mod fork_recovery_tests {
             Arc::new(std::sync::RwLock::new(Arc::downgrade(aec))),
             Default::default(),
         )
+    }
+
+    #[test]
+    fn later_epoch_participation_recovers_locked_first_without_second_look() {
+        let ledger = Arc::new(Ledger::new_null());
+        let a: Block = UnsavedBlockLatticeBuilder::new().genesis().send(100, 1);
+        let b: Block = UnsavedBlockLatticeBuilder::new().genesis().send(200, 1);
+        let saved = ledger.process_one(&a).unwrap();
+        let aec = Arc::new(AecService::new_null());
+        aec.insert(AecInsertRequest::new_manual(saved, Default::default()), Timestamp::new_test_instance()).unwrap();
+        assert!(aec.try_add_fork(&b, Amount::ZERO));
+        let generator = generator(ledger.clone(), &aec);
+        let shared = &generator.shared_state;
+        let key = PrivateKey::from(1);
+        {
+            let mut state = shared.vote_state.lock().unwrap();
+            assert_eq!(state.authorize(&a.qualified_root(), key.public_key(), a.hash(), 0, false, false, false, None), Some(VoteKind::First));
+            assert_eq!(state.authorize(&a.qualified_root(), key.public_key(), a.hash(), 0, true, false, true, None), Some(VoteKind::Final));
+        }
+        let mut tx = ledger.store.begin_write();
+        assert!(ledger.store.final_vote.put(&mut tx, &a.qualified_root(), &a.hash()));
+        tx.commit();
+        let emitted = std::cell::RefCell::new(Vec::new());
+        shared.kudzu_vote(&[b.hash()], &[b.root()], 1, vec![key], |v| emitted.borrow_mut().push(v));
+        let votes = emitted.into_inner();
+        assert_eq!(votes.len(), 1);
+        assert_eq!(votes[0].epoch, 1);
+        assert_eq!(votes[0].kind(), VoteKind::FirstTimeout);
+        assert_eq!(votes[0].hashes, vec![a.hash()]);
     }
 
     #[test]

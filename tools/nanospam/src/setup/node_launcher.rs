@@ -50,6 +50,9 @@ pub(crate) async fn start_nodes(
             } else {
                 cmd.env_remove("NANOSPAM_TERMINATION_AUDIT");
             }
+            if let Some(epochs) = args.closed_epochs {
+                cmd.env("NANOSPAM_RAI_CLOSED_EPOCHS", epochs.to_string());
+            }
             #[cfg(feature = "rai_protocol")]
             cmd.env(
                 "NANOSPAM_RAI_EPOCH_START_FILE",

@@ -1,6 +1,7 @@
 use crate::{AnySet, Ledger};
-use rsnano_types::{Blake2HashBuilder, Block, BlockBase, BlockHash};
-use std::{collections::BTreeSet, sync::atomic::Ordering};
+use rsnano_types::{Blake2HashBuilder, Block, BlockBase, BlockHash, DependentBlocks};
+use rustc_hash::{FxHashMap, FxHashSet};
+use std::sync::atomic::Ordering;
 
 impl Ledger {
     pub fn closed_epochs(&self) -> std::collections::BTreeMap<u64, BlockHash> {
@@ -21,7 +22,7 @@ impl Ledger {
     }
     pub fn epoch_application_allowed(&self, epoch: u64) -> bool {
         self.epoch_length.load(Ordering::Relaxed) == 0
-            || epoch <= self.closed_epoch_count.load(Ordering::Acquire)
+            || epoch <= self.voting_epoch.load(Ordering::Acquire)
     }
 
     /// Record locally verified block-tree membership synchronously with certificate
@@ -30,7 +31,10 @@ impl Ledger {
         let hash = block.hash();
         let mut blocks = self.epoch_blocks.write().unwrap();
         if let Some((old, _, _)) = blocks.get_mut(&hash) {
-            *old = (*old).min(epoch);
+            if epoch < *old {
+                *old = epoch;
+                self.epoch_metadata.write().unwrap().get_mut(&hash).unwrap().0 = epoch;
+            }
             return;
         }
         let any = self.any();
@@ -54,24 +58,22 @@ impl Ledger {
                 rsnano_types::DependentBlocks::new(b.previous(), source)
             }
         };
-        blocks.insert(
-            hash,
-            (
-                epoch,
-                block,
-                dependencies
-                    .iter()
-                    .filter(|h| !h.is_zero())
-                    .copied()
-                    .collect(),
-            ),
-        );
+        blocks.insert(hash, (epoch, block, dependencies));
+        self.epoch_metadata.write().unwrap().insert(hash, (epoch, dependencies));
+    }
+
+    /// Snapshot the compact, incrementally maintained metadata table. Copying its
+    /// contiguous storage avoids traversing block payloads and rehashing every key.
+    /// Database scans and dependency closure run after releasing this short lock.
+    fn epoch_block_metadata(&self) -> FxHashMap<BlockHash, (u64, DependentBlocks)> {
+        self.epoch_metadata.read().unwrap().clone()
     }
 
     pub fn epoch_close_candidate(&self, epoch: u64) -> Vec<BlockHash> {
-        let blocks = self.epoch_blocks.read().unwrap();
+        let blocks = self.epoch_block_metadata();
         let tx = self.store.begin_read();
-        let mut selected: BTreeSet<_> = self.store.consensus_epochs.canonical_hashes(&tx).collect();
+        let mut selected: FxHashSet<_> =
+            self.store.consensus_epochs.canonical_hashes(&tx).collect();
         selected.extend(
             self.store
                 .consensus_epochs
@@ -82,7 +84,7 @@ impl Ledger {
         selected.extend(
             blocks
                 .iter()
-                .filter(|(_, (e, _, _))| *e <= epoch)
+                .filter(|(_, (e, _))| *e <= epoch)
                 .map(|(h, _)| *h),
         );
         let any = self.any();
@@ -90,23 +92,22 @@ impl Ledger {
         while let Some(hash) = pending.pop() {
             let dependencies = blocks
                 .get(&hash)
-                .map(|(_, _, d)| d.clone())
+                .map(|(_, d)| *d)
                 .or_else(|| {
                     any.get_block(&hash).map(|b| {
                         b.dependent_blocks(&self.constants.epochs, &self.constants.genesis_account)
-                            .iter()
-                            .copied()
-                            .collect()
                     })
                 })
                 .unwrap_or_default();
-            for dependency in dependencies {
+            for dependency in dependencies.iter().copied() {
                 if !dependency.is_zero() && selected.insert(dependency) {
                     pending.push(dependency);
                 }
             }
         }
-        selected.into_iter().collect()
+        let mut hashes: Vec<_> = selected.into_iter().collect();
+        hashes.sort_unstable();
+        hashes
     }
 
     pub fn epoch_state_hash(hashes: &[BlockHash]) -> BlockHash {
@@ -131,23 +132,19 @@ impl Ledger {
         if hashes.is_empty() || hashes.windows(2).any(|w| w[0] >= w[1]) {
             return false;
         }
-        let selected: BTreeSet<_> = hashes.iter().copied().collect();
-        let blocks = self.epoch_blocks.read().unwrap();
+        let selected: FxHashSet<_> = hashes.iter().copied().collect();
+        let blocks = self.epoch_block_metadata();
         let tx = self.store.begin_read();
-        if self
-            .store
-            .consensus_epochs
-            .canonical_hashes(&tx)
-            .any(|h| !selected.contains(&h))
-        {
+        let canonical: FxHashSet<_> = self.store.consensus_epochs.canonical_hashes(&tx).collect();
+        if !canonical.is_subset(&selected) {
             return false;
         }
         let any = self.any();
         hashes.iter().all(|hash| {
-            if self.store.consensus_epochs.canonical(&tx, hash).is_some() {
+            if canonical.contains(hash) {
                 return true;
             }
-            if let Some((e, _, dependencies)) = blocks.get(hash) {
+            if let Some((e, dependencies)) = blocks.get(hash) {
                 return *e <= epoch && dependencies.iter().all(|h| selected.contains(h));
             }
             // Cemented dependencies and setup blocks remain eligible independently
@@ -173,8 +170,8 @@ impl Ledger {
         epoch: u64,
         hashes: &[BlockHash],
     ) -> serde_json::Value {
-        let selected: BTreeSet<_> = hashes.iter().copied().collect();
-        let blocks = self.epoch_blocks.read().unwrap();
+        let selected: FxHashSet<_> = hashes.iter().copied().collect();
+        let blocks = self.epoch_block_metadata();
         let tx = self.store.begin_read();
         if let Some(hash) = self
             .store
@@ -189,7 +186,7 @@ impl Ledger {
             if self.store.consensus_epochs.canonical(&tx, hash).is_some() {
                 continue;
             }
-            if let Some((e, _, dependencies)) = blocks.get(hash) {
+            if let Some((e, dependencies)) = blocks.get(hash) {
                 if *e > epoch {
                     return serde_json::json!({"reason":"later_notarization","hash":hash,"local_epoch":e});
                 }
@@ -242,6 +239,30 @@ impl Ledger {
 mod tests {
     use super::*;
     use crate::{LedgerBuilder, LedgerConstants, test_helpers::UnsavedBlockLatticeBuilder};
+    #[test]
+    fn membership_metadata_snapshot_does_not_pin_certificate_index() {
+        let ledger = Ledger::new_null();
+        let mut lattice = UnsavedBlockLatticeBuilder::new();
+        let a = lattice.genesis().send(1, 1);
+        let b = lattice.genesis().send(2, 1);
+        ledger.record_epoch_block(0, a.clone());
+        let snapshot = ledger.epoch_block_metadata();
+        assert!(ledger.epoch_blocks.try_write().is_ok());
+        assert!(ledger.epoch_metadata.try_write().is_ok());
+        ledger.record_epoch_block(1, b.clone());
+        assert!(!snapshot.contains_key(&b.hash()));
+        assert_eq!(snapshot[&a.hash()].0, 0);
+        assert!(ledger.epoch_close_candidate(1).contains(&b.hash()));
+        assert!(!ledger.epoch_close_candidate(0).contains(&b.hash()));
+        // A late earlier certificate changes future snapshots, never a captured one.
+        ledger.record_epoch_block(0, b.clone());
+        assert!(ledger.epoch_close_candidate(0).contains(&b.hash()));
+        assert_eq!(ledger.epoch_block_metadata()[&b.hash()].0, 0);
+        ledger.record_epoch_block(2, b.clone());
+        assert_eq!(ledger.epoch_block_metadata()[&b.hash()].0, 0);
+        assert!(!snapshot.contains_key(&b.hash()));
+    }
+
     #[test]
     fn close_snapshot_retains_uncemented_notarized_forks_and_dependencies() {
         use rsnano_types::{DEV_GENESIS_KEY, StateBlockArgs};
@@ -329,7 +350,8 @@ mod tests {
             assert_eq!(ledger.canonical_confirmation_epoch(&a.hash()), None);
             assert_eq!(ledger.begin_epoch_drain(), Some(0));
             ledger.voting_epoch.store(1, Ordering::Release);
-            assert!(!ledger.epoch_application_allowed(1));
+            assert!(ledger.epoch_application_allowed(1));
+            assert!(!ledger.epoch_application_allowed(2));
             let snapshot = ledger.epoch_close_candidate(0);
             assert!(ledger.close_epoch(1, &snapshot).is_err());
             ledger.close_epoch(0, &snapshot).unwrap();

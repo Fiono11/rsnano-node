@@ -691,7 +691,7 @@ static DEV_GENESIS_DATA: &str = r###"{
 pub static DEV_GENESIS_BLOCK: LazyLock<Block> =
     LazyLock::new(|| serde_json::from_str(DEV_GENESIS_DATA).unwrap());
 
-#[derive(Default)]
+#[derive(Default, Clone, Copy)]
 pub struct DependentBlocks {
     dependents: [BlockHash; 2],
 }

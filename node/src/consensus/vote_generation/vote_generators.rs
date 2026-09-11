@@ -47,6 +47,25 @@ pub struct VoteGenerators {
 
 impl VoteGenerators {
     #[cfg(feature = "rai_protocol")]
+    pub(crate) fn pause_epoch_report(
+        &self,
+        epoch: u64,
+        aec: &crate::consensus::AecService,
+    ) -> Vec<(rsnano_types::QualifiedRoot, BlockHash)> {
+        let mut state = self.vote_state.lock().unwrap();
+        state.pause_epoch(epoch);
+        let report = aec.pending_cut_report(epoch);
+        self.ledger
+            .voting_epoch
+            .store(epoch + 1, std::sync::atomic::Ordering::Release);
+        report
+    }
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn resume_epoch_cut(&self, epoch: u64, roots: Vec<rsnano_types::QualifiedRoot>) {
+        self.vote_state.lock().unwrap().resume_cut(epoch, roots);
+    }
+
+    #[cfg(feature = "rai_protocol")]
     pub(crate) fn draining_complete(&self, epoch: u64, aec: &crate::consensus::AecService) -> bool {
         let ids = {
             let mut state = self.vote_state.lock().unwrap();
@@ -73,7 +92,8 @@ impl VoteGenerators {
             notifications
                 .into_iter()
                 .filter(|(id, hash)| {
-                    !keys.is_empty()
+                    state.voting_active(&id.root, id.epoch)
+                        && !keys.is_empty()
                         && keys.iter().all(|key| {
                             state.needs_second_look(&id.root, key.public_key(), *hash, id.epoch)
                                 && !state.has_notarization(
@@ -92,6 +112,12 @@ impl VoteGenerators {
         }
     }
 
+    /// Take the pause/cut filter without holding the signing mutex during AEC reads.
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn solicitation_filter(&self) -> impl Fn(&rsnano_types::QualifiedRoot, u64) -> bool + use<> {
+        self.vote_state.lock().unwrap().voting_filter()
+    }
+
     #[cfg(feature = "rai_protocol")]
     pub(crate) fn retain_signable_targets(
         &self,
@@ -100,12 +126,10 @@ impl VoteGenerators {
         let mut keys = Vec::new();
         self.wallet_reps.lock().unwrap().rep_priv_keys(&mut keys);
         let state = self.vote_state.lock().unwrap();
-        targets.retain(|target| {
-            target.vote_type != VoteType::Final
-                || keys.iter().any(|key| {
-                    state.can_finalize(&target.root.root, key.public_key(), target.winner)
-                })
-        });
+        state.retain_voting_targets(
+            targets,
+            &keys.iter().map(|key| key.public_key()).collect::<Vec<_>>(),
+        );
     }
 
     fn voting_delay_for(network: NetworkType) -> Duration {

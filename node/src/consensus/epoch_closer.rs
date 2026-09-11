@@ -117,6 +117,7 @@ struct Candidate {
     hashes: Option<Vec<BlockHash>>,
 }
 struct State {
+    cut: super::epoch_cut::EpochCut,
     epoch: u64,
     round: u64,
     parent: BlockHash,
@@ -130,6 +131,7 @@ struct State {
     receipts: BTreeMap<(u64, PublicKey), BlockHash>,
     local_receipts: Vec<EpochClose>,
     local_snapshots: VecDeque<(BlockHash, Vec<BlockHash>)>,
+    last_snapshot: Option<Instant>,
     archive_snapshots: BTreeMap<BlockHash, Vec<BlockHash>>,
     closed_base: Option<(BlockHash, Vec<BlockHash>)>,
     deltas: VecDeque<((BlockHash, BlockHash), SnapshotDelta)>,
@@ -172,6 +174,7 @@ impl State {
                 .fold(0u128, |s, w| s.saturating_add(w.number())),
         );
         Self {
+            cut: Default::default(),
             epoch,
             round: 0,
             parent: BlockHash::ZERO,
@@ -185,6 +188,7 @@ impl State {
             receipts: BTreeMap::new(),
             local_receipts: Vec::new(),
             local_snapshots: Default::default(),
+            last_snapshot: None,
             archive_snapshots: Default::default(),
             closed_base: None,
             deltas: Default::default(),
@@ -193,6 +197,7 @@ impl State {
     fn advance(&mut self, hashes: Vec<BlockHash>, weights: RepWeights) {
         let mut archive = std::mem::take(&mut self.archive);
         archive.extend(self.packets());
+        archive.extend(self.cut.local.iter().cloned());
         let mut archive_snapshots = std::mem::take(&mut self.archive_snapshots);
         archive_snapshots.extend(
             self.candidates
@@ -537,8 +542,22 @@ impl State {
         }
         // A compact vote is sufficient when its digest is already reconstructible
         // locally. Only a mismatch needs separate snapshot recovery.
-        let local = (self.ready || self.candidates.values().any(|c| c.hashes.is_none()))
-            .then(|| ledger.epoch_close_candidate(self.epoch));
+        let propose = self.ready && keys.iter().any(|key| {
+            !self.weights.weight(&key.public_key()).is_zero()
+                && self.rounds.get(&self.round)
+                    .and_then(|round| round.signers.get(&key.public_key()))
+                    .is_none_or(|signer| signer.first.is_none())
+        });
+        // A signed FIRST cannot change within its round. Rebuild immediately for
+        // a new proposal; between proposals refresh bases only as often as they
+        // can be advertised/requested, rather than scanning the ledger each tick.
+        let refresh = propose || ((self.ready || self.candidates.values().any(|c| c.hashes.is_none()))
+            && self.last_snapshot.is_none_or(|last| last.elapsed() >= RETRANSMIT));
+        let local = refresh.then(|| {
+            let hashes = ledger.epoch_close_candidate(self.epoch);
+            self.last_snapshot = Some(Instant::now());
+            hashes
+        });
         if let Some(hashes) = &local {
             let digest = Ledger::epoch_state_hash(hashes);
             if !self.local_snapshots.iter().any(|(h, _)| *h == digest) {
@@ -613,13 +632,7 @@ impl State {
         // Every representative proposes its current monotonic epoch snapshot.
         // Keep recent bases for recovery, but create only signed proposals.
         // FIRST remains immutable; the next round uses the latest snapshot.
-        if keys.iter().any(|key| {
-            !self.weights.weight(&key.public_key()).is_zero()
-                && self.rounds[&self.round]
-                    .signers
-                    .get(&key.public_key())
-                    .is_none_or(|s| s.first.is_none())
-        }) {
+        if propose {
             let hashes = local.unwrap();
             if hashes.len() <= EpochClose::PAGE_SIZE * EpochClose::MAX_PAGES as usize {
                 let proposal =
@@ -843,6 +856,14 @@ impl EpochCloser {
         }
     }
     fn epoch_deadline_reached(&self, epoch: u64) -> bool {
+        if self.epoch_start_file.is_some()
+            && std::env::var("NANOSPAM_RAI_CLOSED_EPOCHS")
+                .ok()
+                .and_then(|s| s.parse::<u64>().ok())
+                .is_some_and(|limit| epoch >= limit)
+        {
+            return false;
+        }
         let mut start = self.epoch_start.lock().unwrap();
         if start.is_none() {
             let Some(path) = &self.epoch_start_file else {
@@ -882,7 +903,11 @@ impl EpochCloser {
         let report_transport = state.last_send.elapsed() >= RETRANSMIT
             && std::env::var_os("RAI_CLOSE_VALIDATION_DIAGNOSTICS").is_some();
         for (p, channel) in incoming {
-            if p.kind == 7 {
+            if p.kind == 8 {
+                let epoch = state.epoch;
+                let weights = state.weights.clone();
+                state.cut.receive(p, epoch, &weights);
+            } else if p.kind == 7 {
                 if recovery.replies.len() < 128 {
                     if let Some(page) = state.recovery_page(&p) {
                         recovery.replies.push_back((channel, page));
@@ -901,25 +926,70 @@ impl EpochCloser {
                 }
             }
         }
-        if self.epoch_deadline_reached(state.epoch)
-            && self.ledger.begin_epoch_drain() == Some(state.epoch)
-            && !state.ready
-            && self.generators.draining_complete(state.epoch, &self.aec)
-        {
-            debug_trace(|| serde_json::json!({"type":"drained","epoch":state.epoch}));
-            state.ready = true;
-            let round = state.round;
-            state.rounds.entry(round).or_default().started = Instant::now();
-            self.ledger
-                .voting_epoch
-                .store(state.epoch + 1, Ordering::Release);
-            tracing::info!(
-                epoch = state.epoch,
-                "Epoch drained; starting close election"
-            );
-        }
         let mut keys = Vec::new();
         self.reps.lock().unwrap().rep_priv_keys(&mut keys);
+        let mut cut_requests = Vec::new();
+        if self.epoch_deadline_reached(state.epoch)
+            && self.ledger.begin_epoch_drain() == Some(state.epoch)
+        {
+            let epoch = state.epoch;
+            let weights = state.weights.clone();
+            if !state.cut.started {
+                let entries = self.generators.pause_epoch_report(epoch, &self.aec);
+                state.cut.started = true;
+                for key in &keys {
+                    if weights.weight(&key.public_key()).is_zero() {
+                        continue;
+                    }
+                    for packet in super::epoch_cut::EpochCut::packets(epoch, &entries, key) {
+                        state.cut.receive(packet.clone(), epoch, &weights);
+                        state.cut.local.push(packet);
+                    }
+                }
+                eprintln!(
+                    "EPOCH_CUT_PAUSED {}",
+                    serde_json::json!({"pid":std::process::id(),"epoch":epoch,"pending":entries.len(),"voting_epoch":epoch+1})
+                );
+                // Publish the report immediately, independently of close-round timing.
+                state.last_send = Instant::now() - RETRANSMIT;
+            }
+            if state.cut.finish(&weights) {
+                let roots = state.cut.roots.clone().unwrap();
+                eprintln!(
+                    "EPOCH_CUT_RESUMED {}",
+                    serde_json::json!({"pid":std::process::id(),"epoch":epoch,"roots":roots.len()})
+                );
+                self.generators.resume_epoch_cut(epoch, roots);
+            }
+            if let Some(roots) = &state.cut.roots {
+                let pending = self.aec.cut_pending(epoch, roots);
+                if pending.is_empty() && !state.ready {
+                    state.ready = true;
+                    let round = state.round;
+                    state.rounds.entry(round).or_default().started = Instant::now();
+                    eprintln!(
+                        "EPOCH_DRAINED {}",
+                        serde_json::json!({"pid":std::process::id(),"epoch":epoch,"unix_ms":SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()})
+                    );
+                } else if state.last_send.elapsed() >= RETRANSMIT {
+                    let targets = state.cut.recovery_targets(&pending);
+                    if !targets.is_empty() {
+                        let count = targets.len().min(256);
+                        for offset in 0..count {
+                            cut_requests.push(
+                                targets[(state.cut.recovery_cursor + offset) % targets.len()],
+                            );
+                        }
+                        state.cut.recovery_cursor =
+                            (state.cut.recovery_cursor + count) % targets.len();
+                    }
+                    eprintln!(
+                        "EPOCH_CUT_WAIT {}",
+                        serde_json::json!({"pid":std::process::id(),"epoch":epoch,"pending":pending.len()})
+                    );
+                }
+            }
+        }
         let (mut outgoing, closed) = state.drive(&self.ledger, &keys);
         if state.ready && state.last_send.elapsed() >= RETRANSMIT {
             if std::env::var_os("RAI_CLOSE_VALIDATION_DIAGNOSTICS").is_some() {
@@ -947,7 +1017,7 @@ impl EpochCloser {
             );
         }
 
-        if let Some(hashes) = closed {
+        if let Some(hashes) = closed.filter(|_| state.ready) {
             if let Ok(discarded) = self.aec.close_epoch(&self.ledger, state.epoch, &hashes) {
                 eprintln!(
                     "EPOCH_CLOSED {}",
@@ -983,6 +1053,7 @@ impl EpochCloser {
         // Only compact votes and receipts are flooded. Delta pages are requested
         // from one peer on a digest mismatch and never broadcast.
         if state.last_send.elapsed() >= RETRANSMIT {
+            outgoing.extend(state.cut.local.iter().cloned());
             outgoing.extend(state.local_receipts.iter().cloned());
             outgoing.extend(state.archive.iter().cloned());
             outgoing.extend(state.packets());
@@ -1003,11 +1074,21 @@ impl EpochCloser {
                 break;
             }
         }
+        let cut_epoch = state.epoch;
         drop(recovery);
         drop(state);
         let outgoing_count = outgoing.len();
         let processing_ms = tick_started.elapsed().as_millis();
         let mut flooder = self.flooder.lock().unwrap();
+        for chunk in cut_requests.chunks(rsnano_messages::ConfirmReq::HASHES_MAX) {
+            flooder.flood_prs_and_some_non_prs(
+                &Message::ConfirmReq(
+                    rsnano_messages::ConfirmReq::new(chunk.to_vec()).with_epoch(cut_epoch),
+                ),
+                TrafficType::VoteReply,
+                1.0,
+            );
+        }
         for packet in outgoing {
             flooder.flood_prs_and_some_non_prs(
                 &Message::EpochClose(packet),
@@ -1376,8 +1457,13 @@ mod tests {
             let mut packets = Vec::new();
             for (i, s) in replicas.iter_mut().enumerate() {
                 let key = PrivateKey::from(i as u64 + 1);
+                let previous_snapshot = s.last_snapshot;
                 let (out, _) = s.drive(&ledger, &[key.clone()]);
                 assert!(out.is_empty(), "ledger growth must not replace FIRST");
+                assert_eq!(s.last_snapshot, previous_snapshot, "an immediate tick must not rescan metadata");
+                s.last_snapshot = Some(Instant::now() - RETRANSMIT);
+                let (out, _) = s.drive(&ledger, &[key.clone()]);
+                assert!(out.is_empty(), "recovery refresh must not replace FIRST");
                 assert_eq!(
                     s.rounds[&0].signers[&key.public_key()].first,
                     Some(firsts[i])
