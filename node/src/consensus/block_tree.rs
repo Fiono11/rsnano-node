@@ -1,5 +1,5 @@
 use rsnano_types::{BlockHash, QualifiedRoot, RaiBlockTreeEntry};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 /// Node-lifetime consensus block tree for continuously online replicas. Blocks
 /// carry their account-chain parent links; forks remain separate from the ledger.
@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 #[derive(Default)]
 pub struct RaiBlockTree {
     entries: BTreeMap<(QualifiedRoot, u64, BlockHash), RaiBlockTreeEntry>,
+    roots_by_hash: HashMap<BlockHash, QualifiedRoot>,
 }
 
 impl RaiBlockTree {
@@ -46,8 +47,16 @@ impl RaiBlockTree {
             }
             return Ok(false);
         }
+        if entry.block.is_some() {
+            self.roots_by_hash.insert(key.2, entry.root.clone());
+        }
         self.entries.insert(key, entry);
         Ok(true)
+    }
+
+    /// Root of a certified block, for peers that know only its hash.
+    pub fn root_of(&self, hash: &BlockHash) -> Option<&QualifiedRoot> {
+        self.roots_by_hash.get(hash)
     }
 
     pub fn entries(&self) -> impl Iterator<Item = &RaiBlockTreeEntry> {
@@ -84,6 +93,8 @@ mod tests {
             Ok(true)
         );
         assert_eq!(tree.for_root(&block.qualified_root()).len(), 2);
+        assert_eq!(tree.root_of(&block.hash()), Some(&block.qualified_root()));
+        assert_eq!(tree.root_of(&BlockHash::from(1)), None);
     }
 
     #[test]

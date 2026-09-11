@@ -264,13 +264,13 @@ impl NanoSpamApp {
             );
             let closure = verify_epoch_closures(
                 &self.rpc_clients,
-                self.args.epoch_length,
+                self.args.close_timeout(),
                 self.args.closed_epochs,
             );
             tokio::pin!(closure);
-            let closed_epochs = loop {
+            let closure_result = loop {
                 tokio::select! {
-                    result = &mut closure => break result?,
+                    result = &mut closure => break result,
                     message = conf_receiver.next() => {
                         record_outcome(message?, self.clock.now(), &logic_metrics);
                     }
@@ -285,8 +285,18 @@ impl NanoSpamApp {
                     Err(_) => break,
                 }
             }
-            let metrics = logic_metrics.lock().unwrap().summarize(closed_epochs);
+            // Report per-epoch outcomes even when the close verification failed, so a
+            // stalled run still documents what terminated, what finalized, and when.
+            let metrics = {
+                let metrics = logic_metrics.lock().unwrap();
+                let epochs = match &closure_result {
+                    Ok(closed) => *closed,
+                    Err(_) => metrics.observed_epochs(),
+                };
+                metrics.summarize(epochs)
+            };
             info!("EPOCH_PERFORMANCE_RESULT {metrics}");
+            closure_result?;
             return Ok(());
         }
         let performance_cutoff = cutoff;
@@ -390,7 +400,7 @@ impl NanoSpamApp {
         if self.args.epoch_length > 0 {
             verify_epoch_closures(
                 &self.rpc_clients,
-                self.args.epoch_length,
+                self.args.close_timeout(),
                 self.args.closed_epochs,
             )
             .await?;
@@ -739,7 +749,7 @@ async fn log_status(
 #[cfg(feature = "rai_protocol")]
 async fn verify_epoch_closures(
     clients: &[NanoRpcClient],
-    seconds: u64,
+    timeout: Duration,
     requested: Option<u64>,
 ) -> anyhow::Result<u64> {
     let mut target = 1;
@@ -751,8 +761,7 @@ async fn verify_epoch_closures(
         anyhow::ensure!(requested > 0, "closed epochs must be positive");
         target = requested;
     }
-    let deadline =
-        Instant::now() + Duration::from_secs(seconds.saturating_mul(2).saturating_add(300));
+    let deadline = Instant::now() + timeout;
     let mut last_progress = Instant::now();
     loop {
         let mut closed = Vec::new();

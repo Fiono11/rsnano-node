@@ -904,21 +904,56 @@ mod fork_recovery_tests {
         let b: Block = UnsavedBlockLatticeBuilder::new().genesis().send(200, 1);
         let saved = ledger.process_one(&a).unwrap();
         let aec = Arc::new(AecService::new_null());
-        aec.insert(AecInsertRequest::new_manual(saved, Default::default()), Timestamp::new_test_instance()).unwrap();
+        aec.insert(
+            AecInsertRequest::new_manual(saved, Default::default()),
+            Timestamp::new_test_instance(),
+        )
+        .unwrap();
         assert!(aec.try_add_fork(&b, Amount::ZERO));
         let generator = generator(ledger.clone(), &aec);
         let shared = &generator.shared_state;
         let key = PrivateKey::from(1);
         {
             let mut state = shared.vote_state.lock().unwrap();
-            assert_eq!(state.authorize(&a.qualified_root(), key.public_key(), a.hash(), 0, false, false, false, None), Some(VoteKind::First));
-            assert_eq!(state.authorize(&a.qualified_root(), key.public_key(), a.hash(), 0, true, false, true, None), Some(VoteKind::Final));
+            assert_eq!(
+                state.authorize(
+                    &a.qualified_root(),
+                    key.public_key(),
+                    a.hash(),
+                    0,
+                    false,
+                    false,
+                    false,
+                    None
+                ),
+                Some(VoteKind::First)
+            );
+            assert_eq!(
+                state.authorize(
+                    &a.qualified_root(),
+                    key.public_key(),
+                    a.hash(),
+                    0,
+                    true,
+                    false,
+                    true,
+                    None
+                ),
+                Some(VoteKind::Final)
+            );
         }
         let mut tx = ledger.store.begin_write();
-        assert!(ledger.store.final_vote.put(&mut tx, &a.qualified_root(), &a.hash()));
+        assert!(
+            ledger
+                .store
+                .final_vote
+                .put(&mut tx, &a.qualified_root(), &a.hash())
+        );
         tx.commit();
         let emitted = std::cell::RefCell::new(Vec::new());
-        shared.kudzu_vote(&[b.hash()], &[b.root()], 1, vec![key], |v| emitted.borrow_mut().push(v));
+        shared.kudzu_vote(&[b.hash()], &[b.root()], 1, vec![key], |v| {
+            emitted.borrow_mut().push(v)
+        });
         let votes = emitted.into_inner();
         assert_eq!(votes.len(), 1);
         assert_eq!(votes[0].epoch, 1);

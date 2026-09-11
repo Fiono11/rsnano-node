@@ -163,13 +163,20 @@ impl VoteProcessorQueue {
                 let mut batch = VecDeque::new();
                 let mut work = 0;
                 while work < local_limit {
-                    let Some(vote) = guard.local.pop_front() else { break; };
+                    let Some(vote) = guard.local.pop_front() else {
+                        break;
+                    };
                     work += vote_work(&vote, None);
                     let tier = guard.rep_tiers.tier(&vote.voter);
-                    batch.push_back(((tier, ChannelId::LOOPBACK), (vote, VoteDelivery::Direct, None, None)));
+                    batch.push_back((
+                        (tier, ChannelId::LOOPBACK),
+                        (vote, VoteDelivery::Direct, None, None),
+                    ));
                 }
                 while work < max_batch_size {
-                    let Some(item) = guard.queue.pop() else { break; };
+                    let Some(item) = guard.queue.pop() else {
+                        break;
+                    };
                     work += vote_work(&item.1.0, item.1.3);
                     batch.push_back(item);
                 }
@@ -265,9 +272,18 @@ struct VoteProcessorQueueData {
 /// A RAI packet can carry 255 hashes; filtered cache replays touch only one.
 fn vote_work(vote: &Vote, filter: Option<BlockHash>) -> usize {
     #[cfg(feature = "rai_protocol")]
-    { if filter.is_some_and(|h| !h.is_zero()) { 1 } else { vote.hashes.len().max(1) } }
+    {
+        if filter.is_some_and(|h| !h.is_zero()) {
+            1
+        } else {
+            vote.hashes.len().max(1)
+        }
+    }
     #[cfg(not(feature = "rai_protocol"))]
-    { let _ = (vote, filter); 1 }
+    {
+        let _ = (vote, filter);
+        1
+    }
 }
 
 #[cfg(test)]
@@ -278,9 +294,13 @@ mod local_vote_tests {
     fn batched_recovery_yields_workers_to_fresh_local_votes() {
         let queue = VoteProcessorQueue::new_null();
         let mut vote = Vote::null();
-        vote.hashes = (1..=Vote::MAX_HASHES).map(|i| BlockHash::from(i as u64)).collect();
+        vote.hashes = (1..=Vote::MAX_HASHES)
+            .map(|i| BlockHash::from(i as u64))
+            .collect();
         let remote = Arc::new(vote);
-        for _ in 0..20 { assert!(queue.enqueue(remote.clone(), None, VoteDelivery::Direct, None)); }
+        for _ in 0..20 {
+            assert!(queue.enqueue(remote.clone(), None, VoteDelivery::Direct, None));
+        }
         let batch = queue.wait_for_votes(1024);
         assert_eq!(batch.len(), 5);
         assert_eq!(queue.len(), 15);

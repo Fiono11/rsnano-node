@@ -32,7 +32,10 @@ impl KudzuVoteState {
     }
     pub fn voting_filter(&self) -> impl Fn(&QualifiedRoot, u64) -> bool + use<> {
         let cuts = self.cuts.clone();
-        move |root, epoch| cuts.get(&epoch).is_none_or(|cut| cut.as_ref().is_some_and(|roots| roots.contains(root)))
+        move |root, epoch| {
+            cuts.get(&epoch)
+                .is_none_or(|cut| cut.as_ref().is_some_and(|roots| roots.contains(root)))
+        }
     }
     pub fn voting_active(&self, root: &QualifiedRoot, epoch: u64) -> bool {
         self.cuts

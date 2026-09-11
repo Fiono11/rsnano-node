@@ -44,6 +44,15 @@ impl EpochPerformance {
             times[1].get_or_insert(elapsed);
         }
     }
+    /// Epochs with at least one observed outcome; used to report a run whose
+    /// epoch closes never converged.
+    pub fn observed_epochs(&self) -> u64 {
+        self.outcomes
+            .keys()
+            .map(|(epoch, _)| epoch + 1)
+            .max()
+            .unwrap_or(0)
+    }
     pub fn summarize(&self, closed_epochs: u64) -> serde_json::Value {
         let mut rows = Vec::new();
         for epoch in 0..closed_epochs {
@@ -168,6 +177,7 @@ mod tests {
         p.observe(event(0, false), start + Duration::from_millis(20));
         p.observe(event(0, true), start + Duration::from_millis(30));
         p.observe(event(1, true), start + Duration::from_millis(50));
+        assert_eq!(p.observed_epochs(), 2);
         let s = p.summarize(2);
         assert_eq!(s["rows"][1]["terminated"]["count"], 1);
         assert_eq!(s["rows"][1]["terminated"]["mean_ms"], 10.0);

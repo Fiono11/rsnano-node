@@ -66,7 +66,10 @@ impl AecService {
         let aec = self.aec.read().unwrap();
         let pending = aec.cut_pending(epoch, roots);
         static LAST: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
         if !pending.is_empty() && now > LAST.load(std::sync::atomic::Ordering::Relaxed) + 5 {
             LAST.store(now, std::sync::atomic::Ordering::Relaxed);
             eprintln!("EPOCH_CUT_PENDING {}", serde_json::json!({"pid":std::process::id(),"epoch":epoch,"pending":pending.len(),"examples":pending.iter().take(2).map(|root| {
@@ -413,4 +416,3 @@ pub struct ElectionSnapshot {
     pub is_final: bool,
     pub elapsed: Duration,
 }
-

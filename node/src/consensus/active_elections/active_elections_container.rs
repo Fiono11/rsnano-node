@@ -240,6 +240,26 @@ impl ActiveElectionsContainer {
             {
                 return Err(AecInsertError::RecentlyConfirmed);
             }
+            // A root with a block certificate in an earlier epoch is never retried:
+            // the representatives that voted for a block there may only abstain
+            // later, so a new election could only time out. A timeout alone may
+            // stem from abstentions while draining, so one later attempt remains;
+            // a second timeout ends the retries. Earlier epochs stay recoverable.
+            let (blocks, timeouts) = self
+                .block_tree
+                .for_root(&root)
+                .iter()
+                .filter(|entry| entry.epoch < epoch)
+                .fold((0, 0), |(blocks, timeouts), entry| {
+                    if entry.block.is_some() {
+                        (blocks + 1, timeouts)
+                    } else {
+                        (blocks, timeouts + 1)
+                    }
+                });
+            if blocks > 0 || timeouts >= 2 {
+                return Err(AecInsertError::RecentlyConfirmed);
+            }
             let mut minimum = self
                 .epoch_source
                 .as_ref()
@@ -780,11 +800,14 @@ impl ActiveElectionsContainer {
     ) -> Vec<rsnano_types::RaiBlockTreeEntry> {
         let mut result = std::collections::BTreeMap::new();
         for (hash, root) in requests {
+            // A peer reconciling an epoch snapshot may know only the hash of a
+            // notarized block it never received. The block tree resolves its root.
             let qualified = self
                 .roots
                 .election_for_block(hash)
                 .filter(|e| e.winner().root() == *root)
                 .map(|e| e.qualified_root().clone())
+                .or_else(|| self.block_tree.root_of(hash).cloned())
                 .unwrap_or_else(|| QualifiedRoot::new(*root, (*root).into()));
             let mut entries = self.block_tree.for_root(&qualified);
             if entries.is_empty() {
@@ -1493,6 +1516,16 @@ mod notarized_admission_tests {
     use rsnano_types::{PrivateKey, StateBlockArgs, Vote, VoteDelivery, VoteKind};
 
     fn apply(aec: &mut ActiveElectionsContainer, rep: u64, hash: BlockHash, kind: VoteKind) {
+        apply_in_epoch(aec, rep, hash, kind, 0);
+    }
+
+    fn apply_in_epoch(
+        aec: &mut ActiveElectionsContainer,
+        rep: u64,
+        hash: BlockHash,
+        kind: VoteKind,
+        epoch: u64,
+    ) {
         let mut weights = RepWeights::default();
         for rep in 1..=6 {
             weights.put(PrivateKey::from(rep).public_key(), Amount::raw(100));
@@ -1504,7 +1537,7 @@ mod notarized_admission_tests {
             std::sync::Arc::new(Vote::new_with_kind(
                 &PrivateKey::from(rep),
                 vec![hash],
-                0,
+                epoch,
                 kind,
             )),
             VoteDelivery::Direct,
@@ -1627,6 +1660,120 @@ mod notarized_admission_tests {
     }
 
     #[test]
+    fn notarized_root_is_not_retried_in_a_later_epoch_but_earlier_epochs_stay_open() {
+        let mut aec = ActiveElectionsContainer::default();
+        let block = SavedBlock::new_test_instance();
+        let now = Timestamp::new_test_instance();
+        aec.insert_in_epoch(
+            AecInsertRequest::new_manual(block.clone(), Default::default()),
+            now,
+            1,
+        )
+        .unwrap();
+        for rep in 1..=4 {
+            apply_in_epoch(&mut aec, rep, block.hash(), VoteKind::First, 1);
+        }
+        assert!(
+            aec.election_for_id(&rsnano_types::ElectionId::new(block.qualified_root(), 1))
+                .unwrap()
+                .has_quorum()
+        );
+        assert_eq!(
+            aec.insert_in_epoch(
+                AecInsertRequest::new_manual(block.clone(), Default::default()),
+                now,
+                2,
+            ),
+            Err(AecInsertError::RecentlyConfirmed)
+        );
+        assert_eq!(
+            aec.insert_in_epoch(
+                AecInsertRequest::new_manual(block.clone(), Default::default()),
+                now,
+                0,
+            ),
+            Ok(())
+        );
+        assert_eq!(aec.len(), 2);
+    }
+
+    #[test]
+    fn timed_out_root_gets_one_later_attempt_then_no_more() {
+        let mut aec = ActiveElectionsContainer::default();
+        let block = SavedBlock::new_test_instance();
+        let now = Timestamp::new_test_instance();
+        let timeout_in = |aec: &mut ActiveElectionsContainer, epoch: u64| {
+            apply_in_epoch(aec, 1, block.hash(), VoteKind::First, epoch);
+            apply_in_epoch(aec, 1, block.hash(), VoteKind::Timeout, epoch);
+            for rep in 2..=4 {
+                apply_in_epoch(aec, rep, block.hash(), VoteKind::FirstTimeout, epoch);
+            }
+            assert!(
+                aec.election_for_id(&rsnano_types::ElectionId::new(
+                    block.qualified_root(),
+                    epoch
+                ))
+                .unwrap()
+                .is_timed_out()
+            );
+        };
+        aec.insert(
+            AecInsertRequest::new_priority(block.clone(), Default::default()),
+            now,
+        )
+        .unwrap();
+        timeout_in(&mut aec, 0);
+        // Abstentions while draining may have caused the timeout: the next epoch may finalize.
+        assert_eq!(
+            aec.insert_in_epoch(
+                AecInsertRequest::new_manual(block.clone(), Default::default()),
+                now,
+                1,
+            ),
+            Ok(())
+        );
+        timeout_in(&mut aec, 1);
+        assert_eq!(
+            aec.insert_in_epoch(
+                AecInsertRequest::new_manual(block.clone(), Default::default()),
+                now,
+                2,
+            ),
+            Err(AecInsertError::RecentlyConfirmed),
+            "a second timeout ends the retries"
+        );
+        assert_eq!(aec.len(), 2);
+    }
+
+    #[test]
+    fn recovery_resolves_the_root_of_a_notarized_block_from_its_hash_alone() {
+        let mut aec = ActiveElectionsContainer::default();
+        let args = StateBlockArgs::new_test_instance();
+        let block = SavedBlock::new_test_instance_with(args.clone().into());
+        let fork: Block = StateBlockArgs {
+            representative: 999.into(),
+            ..args
+        }
+        .into();
+        aec.insert(
+            AecInsertRequest::new_priority(block.clone(), Default::default()),
+            Timestamp::new_test_instance(),
+        )
+        .unwrap();
+        assert!(aec.try_add_fork(&fork, Amount::ZERO));
+        for rep in 1..=4 {
+            apply(&mut aec, rep, fork.hash(), VoteKind::First);
+        }
+        let entries = aec.recovery_entries(&[(fork.hash(), rsnano_types::Root::default())], 0);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].hash(), fork.hash());
+        assert!(
+            aec.recovery_entries(&[(BlockHash::from(42), rsnano_types::Root::default())], 0)
+                .is_empty()
+        );
+    }
+
+    #[test]
     fn unfinished_election_survives_expiration_and_eviction() {
         let mut aec = ActiveElectionsContainer::default();
         let block = SavedBlock::new_test_instance();
@@ -1667,14 +1814,17 @@ mod notarized_admission_tests {
             apply(&mut aec, rep, block.hash(), VoteKind::First);
         }
         assert_eq!(aec.vacancy(), capacity);
-        aec.insert_in_epoch(
-            AecInsertRequest::new_manual(block.clone(), Default::default()),
-            now,
-            2,
-        )
-        .unwrap();
+        assert_eq!(
+            aec.insert_in_epoch(
+                AecInsertRequest::new_manual(block.clone(), Default::default()),
+                now,
+                2,
+            ),
+            Err(AecInsertError::RecentlyConfirmed),
+            "a certified root is not retried in a later epoch"
+        );
         assert_eq!(aec.vacancy(), capacity);
-        assert_eq!(aec.iter_round_robin().count(), 3);
+        assert_eq!(aec.iter_round_robin().count(), 2);
         let later = aec
             .election_for_id(&rsnano_types::ElectionId::new(block.qualified_root(), 1))
             .unwrap();

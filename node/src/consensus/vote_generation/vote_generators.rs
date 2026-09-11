@@ -114,7 +114,9 @@ impl VoteGenerators {
 
     /// Take the pause/cut filter without holding the signing mutex during AEC reads.
     #[cfg(feature = "rai_protocol")]
-    pub(crate) fn solicitation_filter(&self) -> impl Fn(&rsnano_types::QualifiedRoot, u64) -> bool + use<> {
+    pub(crate) fn solicitation_filter(
+        &self,
+    ) -> impl Fn(&rsnano_types::QualifiedRoot, u64) -> bool + use<> {
         self.vote_state.lock().unwrap().voting_filter()
     }
 

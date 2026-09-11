@@ -4,10 +4,10 @@ use crate::{
     transport::MessageFlooder,
     wallets::WalletRepresentatives,
 };
-use rsnano_ledger::{Ledger, RepWeights};
+use rsnano_ledger::{AnySet, Ledger, RepWeights};
 use rsnano_messages::{EpochClose, Message};
 use rsnano_network::{ChannelId, TrafficType};
-use rsnano_types::{Amount, BlockHash, PrivateKey, PublicKey, Signature, Vote, VoteKind};
+use rsnano_types::{Amount, BlockHash, PrivateKey, PublicKey, Root, Signature, Vote, VoteKind};
 use rsnano_utils::{CancellationToken, ticker::Tickable};
 use std::{
     cell::Cell,
@@ -44,6 +44,11 @@ pub(crate) fn debug_trace(event: impl FnOnce() -> serde_json::Value) {
 
 const ROUND_TIMEOUT: Duration = Duration::from_secs(3);
 const RETRANSMIT: Duration = Duration::from_secs(2);
+/// Packets flooded per tick. A channel write queue holds 64 messages per traffic
+/// type and `try_send` drops on overflow, so a synchronous flood of a whole close
+/// archive loses the same tail on every retransmission. Bounded bursts at the
+/// 100 ms tick cadence stay well below that capacity.
+const RETRANSMIT_BURST: usize = 16;
 static DROPPED_CLOSE_PACKETS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 fn round_timeout(round: u64) -> Duration {
@@ -135,6 +140,9 @@ struct State {
     archive_snapshots: BTreeMap<BlockHash, Vec<BlockHash>>,
     closed_base: Option<(BlockHash, Vec<BlockHash>)>,
     deltas: VecDeque<((BlockHash, BlockHash), SnapshotDelta)>,
+    retransmit: VecDeque<EpochClose>,
+    solicited: HashMap<BlockHash, Instant>,
+    last_reconcile: Option<Instant>,
 }
 struct SnapshotDelta {
     added: Vec<BlockHash>,
@@ -192,7 +200,32 @@ impl State {
             archive_snapshots: Default::default(),
             closed_base: None,
             deltas: Default::default(),
+            retransmit: Default::default(),
+            solicited: Default::default(),
+            last_reconcile: None,
         }
+    }
+    /// Queue everything a lagging peer may still need, newest rounds first so the
+    /// votes that decide the current round are delivered before older history.
+    /// A cycle still in progress is finished before a new one starts, so every
+    /// packet is eventually sent regardless of archive size.
+    fn queue_retransmission(&mut self) {
+        if !self.retransmit.is_empty() {
+            return;
+        }
+        self.retransmit.extend(self.cut.local.iter().cloned());
+        self.retransmit.extend(self.local_receipts.iter().cloned());
+        self.retransmit.extend(
+            self.rounds
+                .values()
+                .rev()
+                .flat_map(|r| r.votes.values().cloned()),
+        );
+        self.retransmit.extend(self.archive.iter().rev().cloned());
+    }
+    fn retransmission_burst(&mut self) -> Vec<EpochClose> {
+        let count = self.retransmit.len().min(RETRANSMIT_BURST);
+        self.retransmit.drain(..count).collect()
     }
     fn advance(&mut self, hashes: Vec<BlockHash>, weights: RepWeights) {
         let mut archive = std::mem::take(&mut self.archive);
@@ -519,6 +552,57 @@ impl State {
             .to_vec();
         Some(page)
     }
+    /// Members of a reconstructed peer snapshot that carry no local membership in
+    /// this epoch. Their notarizations must be learned before the snapshot can be
+    /// validated, and their elections may already be timed out locally and no
+    /// longer solicit on their own, so the closer requests them directly. Roots
+    /// unknown locally are left zero; the block tree of the peer resolves them.
+    fn reconciliation_targets(&mut self, ledger: &Ledger) -> Vec<(BlockHash, Root)> {
+        let now = Instant::now();
+        if self
+            .last_reconcile
+            .is_some_and(|last| now.duration_since(last) < RETRANSMIT)
+        {
+            return Vec::new();
+        }
+        self.last_reconcile = Some(now);
+        let complete: Vec<_> = self
+            .candidates
+            .iter()
+            .filter(|(_, c)| c.hashes.is_some())
+            .map(|(id, _)| *id)
+            .collect();
+        let mut targets = Vec::new();
+        for id in complete {
+            if self.valid(id, ledger) {
+                continue;
+            }
+            let missing = {
+                let hashes = self.candidates[&id].hashes.as_ref().unwrap();
+                ledger.epoch_close_missing_members(self.epoch, hashes)
+            };
+            for hash in missing {
+                if targets.len() == rsnano_messages::ConfirmReq::HASHES_MAX {
+                    return targets;
+                }
+                if self
+                    .solicited
+                    .get(&hash)
+                    .is_some_and(|last| now.duration_since(*last) < RETRANSMIT * 2)
+                {
+                    continue;
+                }
+                self.solicited.insert(hash, now);
+                let root = ledger
+                    .any()
+                    .get_block(&hash)
+                    .map(|block| block.root())
+                    .unwrap_or_else(|| Root::from(0u64));
+                targets.push((hash, root));
+            }
+        }
+        targets
+    }
     fn drive(
         &mut self,
         ledger: &Ledger,
@@ -542,17 +626,23 @@ impl State {
         }
         // A compact vote is sufficient when its digest is already reconstructible
         // locally. Only a mismatch needs separate snapshot recovery.
-        let propose = self.ready && keys.iter().any(|key| {
-            !self.weights.weight(&key.public_key()).is_zero()
-                && self.rounds.get(&self.round)
-                    .and_then(|round| round.signers.get(&key.public_key()))
-                    .is_none_or(|signer| signer.first.is_none())
-        });
+        let propose = self.ready
+            && keys.iter().any(|key| {
+                !self.weights.weight(&key.public_key()).is_zero()
+                    && self
+                        .rounds
+                        .get(&self.round)
+                        .and_then(|round| round.signers.get(&key.public_key()))
+                        .is_none_or(|signer| signer.first.is_none())
+            });
         // A signed FIRST cannot change within its round. Rebuild immediately for
         // a new proposal; between proposals refresh bases only as often as they
         // can be advertised/requested, rather than scanning the ledger each tick.
-        let refresh = propose || ((self.ready || self.candidates.values().any(|c| c.hashes.is_none()))
-            && self.last_snapshot.is_none_or(|last| last.elapsed() >= RETRANSMIT));
+        let refresh = propose
+            || ((self.ready || self.candidates.values().any(|c| c.hashes.is_none()))
+                && self
+                    .last_snapshot
+                    .is_none_or(|last| last.elapsed() >= RETRANSMIT));
         let local = refresh.then(|| {
             let hashes = ledger.epoch_close_candidate(self.epoch);
             self.last_snapshot = Some(Instant::now());
@@ -991,6 +1081,19 @@ impl EpochCloser {
             }
         }
         let (mut outgoing, closed) = state.drive(&self.ledger, &keys);
+        if closed.is_none() {
+            let targets = state.reconciliation_targets(&self.ledger);
+            if !targets.is_empty() {
+                eprintln!(
+                    "EPOCH_CLOSE_RECONCILE {}",
+                    serde_json::json!({
+                        "pid":std::process::id(),"epoch":state.epoch,"round":state.round,"missing":targets.len(),
+                        "examples":targets.iter().take(3).map(|(hash, _)| hash).collect::<Vec<_>>()
+                    })
+                );
+                cut_requests.extend(targets);
+            }
+        }
         if state.ready && state.last_send.elapsed() >= RETRANSMIT {
             if std::env::var_os("RAI_CLOSE_VALIDATION_DIAGNOSTICS").is_some() {
                 for (id, candidate) in &state.candidates {
@@ -1053,12 +1156,10 @@ impl EpochCloser {
         // Only compact votes and receipts are flooded. Delta pages are requested
         // from one peer on a digest mismatch and never broadcast.
         if state.last_send.elapsed() >= RETRANSMIT {
-            outgoing.extend(state.cut.local.iter().cloned());
-            outgoing.extend(state.local_receipts.iter().cloned());
-            outgoing.extend(state.archive.iter().cloned());
-            outgoing.extend(state.packets());
+            state.queue_retransmission();
             state.last_send = Instant::now();
         }
+        outgoing.extend(state.retransmission_burst());
         let mut targeted = if let Some(key) = keys
             .iter()
             .find(|k| !state.weights.weight(&k.public_key()).is_zero())
@@ -1460,7 +1561,10 @@ mod tests {
                 let previous_snapshot = s.last_snapshot;
                 let (out, _) = s.drive(&ledger, &[key.clone()]);
                 assert!(out.is_empty(), "ledger growth must not replace FIRST");
-                assert_eq!(s.last_snapshot, previous_snapshot, "an immediate tick must not rescan metadata");
+                assert_eq!(
+                    s.last_snapshot, previous_snapshot,
+                    "an immediate tick must not rescan metadata"
+                );
                 s.last_snapshot = Some(Instant::now() - RETRANSMIT);
                 let (out, _) = s.drive(&ledger, &[key.clone()]);
                 assert!(out.is_empty(), "recovery refresh must not replace FIRST");
@@ -1512,6 +1616,48 @@ mod tests {
         std::fs::remove_dir_all(path).unwrap();
     }
 
+    #[test]
+    fn epoch_close_retransmission_is_bounded_and_prefers_newest_rounds() {
+        let mut s = state();
+        s.round = 19;
+        for round in 0..20 {
+            for rep in 1..=6 {
+                let mut p = s.template(round, BlockHash::ZERO, (round * 10 + rep).into());
+                p.sign(&PrivateKey::from(rep));
+                s.receive(p);
+                let mut timeout = s.template(round, BlockHash::ZERO, BlockHash::ZERO);
+                timeout.kind = 4;
+                timeout.sign(&PrivateKey::from(rep));
+                s.receive(timeout);
+            }
+        }
+        let expected = s.packets().len();
+        assert_eq!(expected, 240);
+        s.queue_retransmission();
+        let first = s.retransmission_burst();
+        assert_eq!(first.len(), RETRANSMIT_BURST);
+        assert_eq!(first.iter().filter(|p| p.round == 19).count(), 12);
+        assert!(first.iter().all(|p| p.round >= 18));
+        // A cycle in progress is completed rather than restarted or duplicated.
+        s.queue_retransmission();
+        let mut sent: Vec<_> = first;
+        loop {
+            let burst = s.retransmission_burst();
+            if burst.is_empty() {
+                break;
+            }
+            assert!(burst.len() <= RETRANSMIT_BURST);
+            sent.extend(burst);
+        }
+        assert_eq!(sent.len(), expected);
+        let rounds: Vec<_> = sent.iter().map(|p| p.round).collect();
+        assert!(rounds.windows(2).all(|w| w[0] >= w[1]));
+        let unique: HashSet<_> = sent
+            .iter()
+            .map(|p| (p.voter, p.kind, p.round, p.state))
+            .collect();
+        assert_eq!(unique.len(), expected);
+    }
     #[test]
     fn epoch_close_votes_are_deduplicated_and_separated_by_round() {
         let mut s = state();
@@ -1593,6 +1739,39 @@ mod tests {
                 .iter()
                 .all(|p| p.hashes.is_empty() && p.removed.is_empty() && p.base.is_zero())
         );
+    }
+
+    #[test]
+    fn epoch_close_reconciliation_solicits_members_without_local_membership() {
+        let ledger = Ledger::new_null();
+        let mut s = state();
+        let members = vec![BlockHash::from(9), BlockHash::from(10)];
+        let mut proposal = s.template(0, BlockHash::ZERO, Ledger::epoch_state_hash(&members));
+        proposal.sign(&PrivateKey::from(1));
+        let id = proposal.candidate_id();
+        s.receive(proposal);
+        assert!(
+            s.reconciliation_targets(&ledger).is_empty(),
+            "nothing to reconcile before the snapshot is reconstructed"
+        );
+        s.candidates.get_mut(&id).unwrap().hashes = Some(members.clone());
+        s.last_reconcile = None;
+        let targets = s.reconciliation_targets(&ledger);
+        assert_eq!(
+            targets.iter().map(|(hash, _)| *hash).collect::<Vec<_>>(),
+            members
+        );
+        assert!(targets.iter().all(|(_, root)| *root == Root::from(0u64)));
+        s.last_reconcile = None;
+        assert!(
+            s.reconciliation_targets(&ledger).is_empty(),
+            "solicitations are rate limited per member"
+        );
+        for last in s.solicited.values_mut() {
+            *last -= RETRANSMIT * 2;
+        }
+        s.last_reconcile = None;
+        assert_eq!(s.reconciliation_targets(&ledger).len(), 2);
     }
 
     #[test]

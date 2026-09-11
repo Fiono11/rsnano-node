@@ -46,28 +46,42 @@ impl AecTickerPlugin for ConfirmationSolicitorPlugin {
         solicitor.prepare(&peered_prs);
 
         #[cfg(feature = "rai_protocol")]
-        let eligible = self.vote_generators.as_ref().map(|g| g.solicitation_filter());
+        let eligible = self
+            .vote_generators
+            .as_ref()
+            .map(|g| g.solicitation_filter());
         let elections: Vec<_> = aec.round_robin(|elections_iter| {
             #[cfg(feature = "rai_protocol")]
             {
                 let (live, recovery): (Vec<_>, Vec<_>) = elections_iter
                     .filter(|e| solicitation_active(e))
-                    .partition(|e| !e.has_quorum() && eligible.as_ref().is_none_or(|f| f(e.qualified_root(), e.epoch)));
+                    .partition(|e| {
+                        !e.has_quorum()
+                            && !e.is_timed_out()
+                            && eligible
+                                .as_ref()
+                                .is_none_or(|f| f(e.qualified_root(), e.epoch))
+                    });
                 let mut elections: Vec<_> = live.into_iter().cloned().collect();
                 // Notarized and frozen elections still need vote recovery. Share
                 // a bounded rotating batch so retained forks cannot monopolize
                 // requests as they accumulate. Local final voting stays immediate.
                 let mut remaining = rsnano_messages::ConfirmReq::HASHES_MAX;
                 visit_with_budget(recovery.len(), &mut self.recovery_cursor, |index| {
-                        if remaining == 0 { return false; }
-                        remaining -= 1;
-                        elections.push(recovery[index].clone());
-                        true
+                    if remaining == 0 {
+                        return false;
+                    }
+                    remaining -= 1;
+                    elections.push(recovery[index].clone());
+                    true
                 });
                 elections
             }
             #[cfg(not(feature = "rai_protocol"))]
-            elections_iter.filter(|e| solicitation_active(e)).cloned().collect()
+            elections_iter
+                .filter(|e| solicitation_active(e))
+                .cloned()
+                .collect()
         });
 
         for election in &elections {
@@ -90,11 +104,10 @@ impl AecTickerPlugin for ConfirmationSolicitorPlugin {
     }
 }
 
+/// A timeout certificate ends voting, not evidence collection: late second-look
+/// notarizations must still be learned so that every replica's epoch membership
+/// converges. Timed-out elections therefore share the bounded recovery rotation.
 fn solicitation_active(e: &super::election::Election) -> bool {
-    #[cfg(feature = "rai_protocol")]
-    if e.is_timed_out() {
-        return false;
-    }
     e.state() == ElectionState::Active
 }
 
@@ -118,11 +131,14 @@ mod tests {
 
     #[cfg(feature = "rai_protocol")]
     #[test]
-    fn timeout_certificate_stops_periodic_solicitation() {
-        use rsnano_types::{Amount, PrivateKey, SavedBlock, Vote, VoteKind};
+    fn timeout_certificate_keeps_recovery_solicitation() {
         use rsnano_nullable_clock::Timestamp;
-        let mut election = super::super::election::Election::new_test_instance_with(SavedBlock::new_test_instance());
-        election.transition_time(Timestamp::new_test_instance() + std::time::Duration::from_secs(10));
+        use rsnano_types::{Amount, PrivateKey, SavedBlock, Vote, VoteKind};
+        let mut election = super::super::election::Election::new_test_instance_with(
+            SavedBlock::new_test_instance(),
+        );
+        election
+            .transition_time(Timestamp::new_test_instance() + std::time::Duration::from_secs(10));
         assert!(solicitation_active(&election));
         let hash = election.winner().hash();
         let mut weights = rustc_hash::FxHashMap::default();
@@ -130,13 +146,27 @@ mod tests {
             let key = PrivateKey::from(i);
             weights.insert(key.public_key(), Amount::raw(100));
             if i <= 5 {
-                election.add_kudzu_vote(Arc::new(Vote::new_with_kind(&key,vec![hash],0,VoteKind::FirstTimeout)),hash,Timestamp::new_test_instance()).unwrap();
+                election
+                    .add_kudzu_vote(
+                        Arc::new(Vote::new_with_kind(
+                            &key,
+                            vec![hash],
+                            0,
+                            VoteKind::FirstTimeout,
+                        )),
+                        hash,
+                        Timestamp::new_test_instance(),
+                    )
+                    .unwrap();
             }
         }
         election.update_kudzu_tallies(&weights, Amount::raw(600));
         assert_eq!(election.state(), ElectionState::Active);
         assert!(election.is_timed_out());
-        assert!(!solicitation_active(&election));
+        assert!(
+            solicitation_active(&election),
+            "late notarizations are still recovered after a timeout certificate"
+        );
     }
 
     #[test]

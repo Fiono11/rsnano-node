@@ -1,5 +1,8 @@
-use crate::domain::{RateSpec, SpamStrategy, spam_logic::SpamSpec};
+use std::time::Duration;
+
 use clap::Parser;
+
+use crate::domain::{RateSpec, SpamStrategy, spam_logic::SpamSpec};
 
 const DEFAULT_RATE: &str = "1+50@3s";
 
@@ -17,6 +20,10 @@ pub(crate) struct CliArgs {
     /// Verify exactly this many closed epochs and stop further closes in test nodes
     #[arg(long)]
     pub closed_epochs: Option<u64>,
+
+    /// Seconds to wait for epoch closes to converge on all PRs; defaults to twice the epoch length plus 300
+    #[arg(long)]
+    pub close_timeout: Option<u64>,
 
     /// Override node vote batching delay in milliseconds for latency experiments
     #[arg(long)]
@@ -124,6 +131,13 @@ impl CliArgs {
 
     pub(crate) fn set_up_new_nodes(&self) -> bool {
         !self.attach && !self.sync
+    }
+
+    pub(crate) fn close_timeout(&self) -> Duration {
+        Duration::from_secs(
+            self.close_timeout
+                .unwrap_or_else(|| self.epoch_length.saturating_mul(2).saturating_add(300)),
+        )
     }
 
     fn strategy(&self) -> SpamStrategy {

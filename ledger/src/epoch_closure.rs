@@ -33,7 +33,12 @@ impl Ledger {
         if let Some((old, _, _)) = blocks.get_mut(&hash) {
             if epoch < *old {
                 *old = epoch;
-                self.epoch_metadata.write().unwrap().get_mut(&hash).unwrap().0 = epoch;
+                self.epoch_metadata
+                    .write()
+                    .unwrap()
+                    .get_mut(&hash)
+                    .unwrap()
+                    .0 = epoch;
             }
             return;
         }
@@ -59,7 +64,10 @@ impl Ledger {
             }
         };
         blocks.insert(hash, (epoch, block, dependencies));
-        self.epoch_metadata.write().unwrap().insert(hash, (epoch, dependencies));
+        self.epoch_metadata
+            .write()
+            .unwrap()
+            .insert(hash, (epoch, dependencies));
     }
 
     /// Snapshot the compact, incrementally maintained metadata table. Copying its
@@ -164,6 +172,31 @@ impl Ledger {
         })
     }
 
+    /// Members of a complete peer snapshot without any local epoch-`epoch` membership:
+    /// neither canonical, nor cemented in that epoch, nor certified in the block tree.
+    /// These are the notarizations this node still has to learn before it can
+    /// validate the snapshot.
+    pub fn epoch_close_missing_members(&self, epoch: u64, hashes: &[BlockHash]) -> Vec<BlockHash> {
+        let blocks = self.epoch_block_metadata();
+        let tx = self.store.begin_read();
+        hashes
+            .iter()
+            .filter(|hash| {
+                if self.store.consensus_epochs.canonical(&tx, hash).is_some() {
+                    return false;
+                }
+                if let Some((e, _)) = blocks.get(hash) {
+                    return *e > epoch;
+                }
+                self.store
+                    .consensus_epochs
+                    .get(&tx, hash)
+                    .is_none_or(|e| e > epoch)
+            })
+            .copied()
+            .collect()
+    }
+
     /// Opt-in diagnostics for a complete snapshot rejected by this node.
     pub fn epoch_close_candidate_diagnostic(
         &self,
@@ -261,6 +294,25 @@ mod tests {
         ledger.record_epoch_block(2, b.clone());
         assert_eq!(ledger.epoch_block_metadata()[&b.hash()].0, 0);
         assert!(!snapshot.contains_key(&b.hash()));
+    }
+
+    #[test]
+    fn missing_members_are_snapshot_hashes_without_local_epoch_membership() {
+        let ledger = Ledger::new_null();
+        let mut lattice = UnsavedBlockLatticeBuilder::new();
+        let a = lattice.genesis().send(1, 1);
+        let b = lattice.genesis().send(2, 1);
+        ledger.record_epoch_block(0, a.clone());
+        ledger.record_epoch_block(1, b.clone());
+        let peer = vec![a.hash(), b.hash(), BlockHash::from(7)];
+        assert_eq!(
+            ledger.epoch_close_missing_members(0, &peer),
+            vec![b.hash(), BlockHash::from(7)]
+        );
+        assert_eq!(
+            ledger.epoch_close_missing_members(1, &peer),
+            vec![BlockHash::from(7)]
+        );
     }
 
     #[test]
