@@ -25,6 +25,10 @@ pub struct EpochClose {
     pub base: BlockHash,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub removed: Vec<BlockHash>,
+    /// Proposer's epoch member count. Replicas start a close round only once
+    /// their own membership has caught up with the most advanced proposal.
+    #[serde(default)]
+    pub members: u64,
 }
 impl EpochClose {
     pub const PAGE_SIZE: usize = 512;
@@ -42,7 +46,8 @@ impl EpochClose {
         let builder = Blake2HashBuilder::new()
             .update(b"rai-close-vote-v1")
             .update(self.candidate_id().as_bytes())
-            .update([self.kind]);
+            .update([self.kind])
+            .update(self.members.to_le_bytes());
         if self.kind == 8 {
             let mut builder = builder
                 .update(self.page.to_le_bytes())
@@ -166,6 +171,7 @@ mod tests {
             hashes: vec![4.into(), 5.into()],
             base: BlockHash::ZERO,
             removed: vec![],
+            members: 0,
         };
         request.sign(&PrivateKey::from(1));
         assert!(request.valid_recovery_request());
@@ -199,6 +205,7 @@ mod tests {
             hashes: vec![],
             base: BlockHash::ZERO,
             removed: vec![],
+            members: 0,
         };
         receipt.sign(&PrivateKey::from(1));
         assert!(receipt.valid_receipt());
@@ -223,16 +230,18 @@ mod tests {
             hashes: vec![],
             base: BlockHash::ZERO,
             removed: vec![],
+            members: 0,
         };
         v.sign(&PrivateKey::from(1));
         assert!(v.valid_vote());
-        for field in 0..5 {
+        for field in 0..6 {
             let mut changed = v.clone();
             match field {
                 0 => changed.epoch += 1,
                 1 => changed.round += 1,
                 2 => changed.parent = 10.into(),
                 3 => changed.state = 10.into(),
+                4 => changed.members += 1,
                 _ => changed.kind = 1,
             }
             assert!(!changed.valid_vote());

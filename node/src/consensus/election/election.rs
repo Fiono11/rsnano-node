@@ -240,6 +240,16 @@ impl Election {
         self.contains_block(hash) && self.kudzu.second_look(hash)
     }
 
+    /// FIRST weight observed locally for one candidate.
+    #[cfg(feature = "rai_protocol")]
+    pub fn kudzu_first_weight(&self, hash: &BlockHash) -> Amount {
+        self.kudzu
+            .first_tallies
+            .get(hash)
+            .copied()
+            .unwrap_or_default()
+    }
+
     #[cfg(feature = "rai_protocol")]
     pub fn update_kudzu_tallies(&mut self, weights: &FxHashMap<PublicKey, Amount>, total: Amount) {
         use rsnano_types::VoteKind;

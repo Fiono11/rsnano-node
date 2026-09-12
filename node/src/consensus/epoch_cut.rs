@@ -70,6 +70,7 @@ impl EpochCut {
                     hashes: hashes[start..end].to_vec(),
                     base: BlockHash::ZERO,
                     removed: vec![],
+                    members: 0,
                 };
                 packet.sign(key);
                 packet

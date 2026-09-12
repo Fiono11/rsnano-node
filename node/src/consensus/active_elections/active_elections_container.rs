@@ -240,24 +240,7 @@ impl ActiveElectionsContainer {
             {
                 return Err(AecInsertError::RecentlyConfirmed);
             }
-            // A root with a block certificate in an earlier epoch is never retried:
-            // the representatives that voted for a block there may only abstain
-            // later, so a new election could only time out. A timeout alone may
-            // stem from abstentions while draining, so one later attempt remains;
-            // a second timeout ends the retries. Earlier epochs stay recoverable.
-            let (blocks, timeouts) = self
-                .block_tree
-                .for_root(&root)
-                .iter()
-                .filter(|entry| entry.epoch < epoch)
-                .fold((0, 0), |(blocks, timeouts), entry| {
-                    if entry.block.is_some() {
-                        (blocks + 1, timeouts)
-                    } else {
-                        (blocks, timeouts + 1)
-                    }
-                });
-            if blocks > 0 || timeouts >= 2 {
+            if self.decided_before(&root, epoch) {
                 return Err(AecInsertError::RecentlyConfirmed);
             }
             let mut minimum = self
@@ -416,6 +399,87 @@ impl ActiveElectionsContainer {
             .collect()
     }
 
+    /// Elections whose outcome in `epoch` may exist on peers but not here: those
+    /// of `epoch` that timed out, never reached quorum, or hold a second-look
+    /// candidate without a notarization certificate (a fork that peers may have
+    /// cross-notarized), and timed-out elections of the next epoch, since a root
+    /// decided in `epoch` elsewhere can only time out in a later local election.
+    /// A replica that is `behind` the most advanced proposal also lists every
+    /// notarized election that is not finalized: forks with an uncertified
+    /// candidate first, most FIRST weight first, then single-candidate ones,
+    /// since peers may hold a second certified candidate this replica has never
+    /// received. After a drain these are the only elections that can still
+    /// change the epoch membership, so the closer solicits them directly instead
+    /// of leaving them to the bounded recovery rotation.
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn membership_recovery_targets(
+        &self,
+        epoch: u64,
+        behind: bool,
+    ) -> Vec<(BlockHash, rsnano_types::Root)> {
+        let mut targets = Vec::new();
+        let mut forks = Vec::new();
+        let mut notarized = Vec::new();
+        for e in self.roots.iter().map(|entry| &entry.election) {
+            if e.is_confirmed() {
+                continue;
+            }
+            let target = (e.winner().hash(), e.winner().root());
+            if e.epoch == epoch + 1 && e.is_timed_out() {
+                targets.push(target);
+                continue;
+            }
+            if e.epoch != epoch {
+                continue;
+            }
+            if e.is_timed_out() || !e.has_quorum() {
+                targets.push(target);
+                continue;
+            }
+            let uncertified = e
+                .candidate_blocks()
+                .keys()
+                .filter(|hash| !e.has_kudzu_certificate(**hash, rsnano_types::VoteKind::Notarize))
+                .map(|hash| (e.can_notarize(hash), e.kudzu_first_weight(hash)))
+                .max();
+            match uncertified {
+                Some((true, _)) => targets.push(target),
+                Some((false, weight)) if behind => forks.push((weight, target)),
+                None if behind => notarized.push(target),
+                _ => {}
+            }
+        }
+        forks.sort_by(|a, b| b.0.cmp(&a.0));
+        targets.extend(forks.into_iter().map(|(_, target)| target));
+        targets.extend(notarized);
+        targets
+    }
+
+    /// A root with a block certificate in an earlier epoch is never retried: the
+    /// representatives that voted for a block there may only abstain later, so a
+    /// new election could only time out. A timeout alone may stem from abstentions
+    /// while draining, so one later attempt remains; a second timeout ends the
+    /// retries. Earlier epochs stay recoverable.
+    #[cfg(feature = "rai_protocol")]
+    fn decided_before(&self, root: &QualifiedRoot, epoch: u64) -> bool {
+        let (blocks, timeouts) = self
+            .block_tree
+            .for_root(root)
+            .iter()
+            .filter(|entry| entry.epoch < epoch)
+            .fold((0, 0), |(blocks, timeouts), entry| {
+                if entry.block.is_some() {
+                    (blocks + 1, timeouts)
+                } else {
+                    (blocks, timeouts + 1)
+                }
+            });
+        blocks > 0 || timeouts >= 2
+    }
+
+    /// Cut roots still without a local outcome in `epoch`. A root decided in an
+    /// earlier epoch never opens an election here, so it cannot block the drain:
+    /// peers that started it in this epoch can only time it out.
     #[cfg(feature = "rai_protocol")]
     pub(crate) fn cut_pending(&self, epoch: u64, roots: &[QualifiedRoot]) -> Vec<QualifiedRoot> {
         roots
@@ -430,6 +494,7 @@ impl ActiveElectionsContainer {
                         .for_root(root)
                         .iter()
                         .any(|e| e.epoch == epoch)
+                    && !self.decided_before(root, epoch)
             })
             .cloned()
             .collect()
@@ -1695,6 +1760,174 @@ mod notarized_admission_tests {
             Ok(())
         );
         assert_eq!(aec.len(), 2);
+    }
+
+    #[test]
+    fn membership_recovery_targets_are_uncertified_or_timed_out_elections_of_the_epoch() {
+        let mut aec = ActiveElectionsContainer::default();
+        let block = SavedBlock::new_test_instance();
+        aec.insert(
+            AecInsertRequest::new_priority(block.clone(), Default::default()),
+            Timestamp::new_test_instance(),
+        )
+        .unwrap();
+        for rep in 1..=3 {
+            apply(&mut aec, rep, block.hash(), VoteKind::First);
+        }
+        assert_eq!(
+            aec.membership_recovery_targets(0, false),
+            vec![(block.hash(), block.root())],
+            "no quorum yet"
+        );
+        apply(&mut aec, 4, block.hash(), VoteKind::First);
+        assert!(
+            aec.membership_recovery_targets(0, false).is_empty(),
+            "notarized without timeout"
+        );
+        apply(&mut aec, 1, block.hash(), VoteKind::Timeout);
+        for rep in 5..=6 {
+            apply(&mut aec, rep, block.hash(), VoteKind::FirstTimeout);
+        }
+        apply(&mut aec, 2, block.hash(), VoteKind::Timeout);
+        assert!(
+            aec.election_for_block(&block.hash())
+                .unwrap()
+                .is_timed_out()
+        );
+        assert_eq!(
+            aec.membership_recovery_targets(0, false),
+            vec![(block.hash(), block.root())],
+            "timed out"
+        );
+        assert!(aec.membership_recovery_targets(1, false).is_empty());
+        // A later-epoch timeout signals a root that peers may have decided earlier.
+        let later = SavedBlock::new_test_instance_with(StateBlockArgs::new_test_instance().into());
+        aec.insert_in_epoch(
+            AecInsertRequest::new_manual(later.clone(), Default::default()),
+            Timestamp::new_test_instance(),
+            1,
+        )
+        .unwrap();
+        apply_in_epoch(&mut aec, 1, later.hash(), VoteKind::First, 1);
+        apply_in_epoch(&mut aec, 1, later.hash(), VoteKind::Timeout, 1);
+        for rep in 2..=4 {
+            apply_in_epoch(&mut aec, rep, later.hash(), VoteKind::FirstTimeout, 1);
+        }
+        assert!(
+            aec.membership_recovery_targets(0, false)
+                .contains(&(later.hash(), later.root())),
+            "timed out in the next epoch"
+        );
+    }
+
+    #[test]
+    fn membership_recovery_targets_include_notarized_forks_with_an_uncertified_second_look() {
+        let mut aec = ActiveElectionsContainer::default();
+        let args = StateBlockArgs::new_test_instance();
+        let block = SavedBlock::new_test_instance_with(args.clone().into());
+        let fork: Block = StateBlockArgs {
+            representative: 999.into(),
+            ..args
+        }
+        .into();
+        aec.insert(
+            AecInsertRequest::new_priority(block.clone(), Default::default()),
+            Timestamp::new_test_instance(),
+        )
+        .unwrap();
+        assert!(aec.try_add_fork(&fork, Amount::ZERO));
+        for rep in 1..=3 {
+            apply(&mut aec, rep, block.hash(), VoteKind::First);
+        }
+        for rep in 4..=6 {
+            apply(&mut aec, rep, fork.hash(), VoteKind::First);
+        }
+        apply(&mut aec, 4, block.hash(), VoteKind::Notarize);
+        let election = aec.election_for_block(&block.hash()).unwrap();
+        assert!(election.has_quorum() && !election.is_timed_out());
+        assert!(election.can_notarize(&fork.hash()));
+        assert!(!election.has_kudzu_certificate(fork.hash(), VoteKind::Notarize));
+        assert_eq!(
+            aec.membership_recovery_targets(0, false),
+            vec![(block.hash(), block.root())],
+            "peers may have cross-notarized the second-look candidate"
+        );
+        apply(&mut aec, 1, fork.hash(), VoteKind::Notarize);
+        assert!(
+            aec.membership_recovery_targets(0, false).is_empty(),
+            "both candidates are certified locally"
+        );
+    }
+
+    #[test]
+    fn replica_behind_the_highest_count_also_solicits_forks_below_second_look() {
+        let mut aec = ActiveElectionsContainer::default();
+        let args = StateBlockArgs::new_test_instance();
+        let block = SavedBlock::new_test_instance_with(args.clone().into());
+        let fork: Block = StateBlockArgs {
+            representative: 999.into(),
+            ..args
+        }
+        .into();
+        aec.insert(
+            AecInsertRequest::new_priority(block.clone(), Default::default()),
+            Timestamp::new_test_instance(),
+        )
+        .unwrap();
+        assert!(aec.try_add_fork(&fork, Amount::ZERO));
+        for rep in 1..=4 {
+            apply(&mut aec, rep, block.hash(), VoteKind::First);
+        }
+        apply(&mut aec, 5, fork.hash(), VoteKind::First);
+        assert!(aec.membership_recovery_targets(0, false).is_empty());
+        assert_eq!(
+            aec.membership_recovery_targets(0, true),
+            vec![(block.hash(), block.root())],
+            "a missed certificate may hide behind a fork below second look"
+        );
+        // A notarized single-candidate election may have a second certified
+        // candidate on peers that this replica never received; it comes last.
+        let single = SavedBlock::new_test_instance_with(
+            StateBlockArgs {
+                previous: BlockHash::from(77),
+                ..StateBlockArgs::new_test_instance()
+            }
+            .into(),
+        );
+        aec.insert(
+            AecInsertRequest::new_priority(single.clone(), Default::default()),
+            Timestamp::new_test_instance(),
+        )
+        .unwrap();
+        for rep in 1..=4 {
+            apply(&mut aec, rep, single.hash(), VoteKind::First);
+        }
+        assert!(aec.membership_recovery_targets(0, false).is_empty());
+        assert_eq!(
+            aec.membership_recovery_targets(0, true),
+            vec![(block.hash(), block.root()), (single.hash(), single.root())]
+        );
+    }
+
+    #[test]
+    fn cut_does_not_wait_for_roots_decided_in_an_earlier_epoch() {
+        let mut aec = ActiveElectionsContainer::default();
+        let block = SavedBlock::new_test_instance();
+        aec.insert(
+            AecInsertRequest::new_priority(block.clone(), Default::default()),
+            Timestamp::new_test_instance(),
+        )
+        .unwrap();
+        let root = block.qualified_root();
+        assert_eq!(aec.cut_pending(1, &[root.clone()]), vec![root.clone()]);
+        for rep in 1..=4 {
+            apply(&mut aec, rep, block.hash(), VoteKind::First);
+        }
+        assert!(
+            aec.cut_pending(1, &[root.clone()]).is_empty(),
+            "notarized in epoch 0: peers can only time it out in epoch 1"
+        );
+        assert_eq!(aec.cut_pending(0, &[root]).len(), 0);
     }
 
     #[test]

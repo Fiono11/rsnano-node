@@ -17,7 +17,7 @@ use tracing::{error, info, warn};
 use rsnano_ledger::{
     AnySet, BlockError, BlockSource, Ledger, LedgerBuilder, LedgerSet, ProcessResult,
 };
-use rsnano_messages::NetworkFilter;
+use rsnano_messages::{Message, NetworkFilter};
 use rsnano_network::{
     ChannelEvent, ChannelId, Network, PeerConnector, TcpListener, TcpListenerExt, TcpNetworkAdapter,
 };
@@ -406,13 +406,34 @@ impl Node {
         ));
         let mut ticker_pool = TickerPool::with_thread_pool(workers.clone());
 
+        let mut network_filter = NetworkFilter::new(config.network_duplicate_filter_size);
+        network_filter.age_cutoff = config.network_duplicate_filter_cutoff;
+        let network_filter = Arc::new(network_filter);
+
         let mut inbound_message_queue =
             InboundMessageQueue::new(config.message_processor.max_queue);
         if let Some(cb) = args.callbacks.on_inbound {
             inbound_message_queue.set_inbound_callback(cb);
         }
-        if let Some(cb) = args.callbacks.on_inbound_dropped {
-            inbound_message_queue.set_inbound_dropped_callback(cb);
+        {
+            // The duplicate filter records a block or vote when it is deserialized.
+            // A message the inbound queue then drops must be forgotten again, or
+            // every retransmission is discarded as a duplicate until the entry ages
+            // out, which leaves a lagging replica unable to recover it.
+            let filter = network_filter.clone();
+            let user_callback = args.callbacks.on_inbound_dropped;
+            inbound_message_queue.set_inbound_dropped_callback(Arc::new(
+                move |channel, message| {
+                    match message {
+                        Message::Publish(publish) => filter.clear(publish.digest),
+                        Message::ConfirmAck(ack) => filter.clear(ack.digest),
+                        _ => {}
+                    }
+                    if let Some(cb) = &user_callback {
+                        cb(channel, message);
+                    }
+                },
+            ));
         }
         let inbound_message_queue = Arc::new(inbound_message_queue);
 
@@ -429,10 +450,6 @@ impl Node {
             inbound_message_queue.clone(),
         ));
         let network = Arc::new(RwLock::new(network));
-
-        let mut network_filter = NetworkFilter::new(config.network_duplicate_filter_size);
-        network_filter.age_cutoff = config.network_duplicate_filter_cutoff;
-        let network_filter = Arc::new(network_filter);
 
         let unchecked = Arc::new(Mutex::new(UncheckedMap::new(
             config.max_unchecked_blocks as usize,

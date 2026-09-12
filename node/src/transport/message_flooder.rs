@@ -277,6 +277,7 @@ mod tests {
             hashes: (1..=512).map(Into::into).collect(),
             base: 1.into(),
             removed: vec![],
+            members: 0,
         });
         let expected = MessageSerializer::default().serialize(&message).to_vec();
         let count = flooder.flood_prs_and_some_non_prs(&message, TrafficType::VoteReply, 100.0);

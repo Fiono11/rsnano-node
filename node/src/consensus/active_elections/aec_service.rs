@@ -62,6 +62,18 @@ impl AecService {
         self.aec.read().unwrap().pending_cut_report(epoch)
     }
     #[cfg(feature = "rai_protocol")]
+    pub(crate) fn membership_recovery_targets(
+        &self,
+        epoch: u64,
+        behind: bool,
+    ) -> Vec<(BlockHash, rsnano_types::Root)> {
+        self.aec
+            .read()
+            .unwrap()
+            .membership_recovery_targets(epoch, behind)
+    }
+
+    #[cfg(feature = "rai_protocol")]
     pub(crate) fn cut_pending(&self, epoch: u64, roots: &[QualifiedRoot]) -> Vec<QualifiedRoot> {
         let aec = self.aec.read().unwrap();
         let pending = aec.cut_pending(epoch, roots);

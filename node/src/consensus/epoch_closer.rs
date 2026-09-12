@@ -49,6 +49,14 @@ const RETRANSMIT: Duration = Duration::from_secs(2);
 /// archive loses the same tail on every retransmission. Bounded bursts at the
 /// 100 ms tick cadence stay well below that capacity.
 const RETRANSMIT_BURST: usize = 16;
+/// Rounds ahead of the local round whose votes are stored on arrival. Rounds end
+/// as fast as votes propagate while digests differ, so a replica that misses one
+/// packet would otherwise crawl one round per retransmission cycle behind peers.
+const FUTURE_ROUNDS: u64 = 256;
+/// Minimum spacing of direct solicitations for one election. Peers answer at once
+/// and their reply cache suppresses repeats for five seconds, so a shorter spacing
+/// would only add request and reply load to the workload.
+const SOLICIT_INTERVAL: Duration = Duration::from_secs(10);
 static DROPPED_CLOSE_PACKETS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 fn round_timeout(round: u64) -> Duration {
@@ -143,6 +151,46 @@ struct State {
     retransmit: VecDeque<EpochClose>,
     solicited: HashMap<BlockHash, Instant>,
     last_reconcile: Option<Instant>,
+    last_timeout_solicitation: Option<Instant>,
+    /// Largest member count carried by any accepted vote of this epoch.
+    highest_members: u64,
+    /// Local member count when the current round started.
+    round_start_members: u64,
+    /// Position in the membership recovery targets for the next solicitation.
+    recovery_cursor: usize,
+}
+fn sorted_difference(
+    before: &[BlockHash],
+    after: &[BlockHash],
+) -> (Vec<BlockHash>, Vec<BlockHash>) {
+    let (mut added, mut removed) = (Vec::new(), Vec::new());
+    let (mut i, mut j) = (0, 0);
+    while i < before.len() || j < after.len() {
+        match (before.get(i), after.get(j)) {
+            (Some(b), Some(a)) if b == a => {
+                i += 1;
+                j += 1;
+            }
+            (Some(b), Some(a)) if b < a => {
+                removed.push(*b);
+                i += 1;
+            }
+            (Some(_), Some(a)) => {
+                added.push(*a);
+                j += 1;
+            }
+            (Some(b), None) => {
+                removed.push(*b);
+                i += 1;
+            }
+            (None, Some(a)) => {
+                added.push(*a);
+                j += 1;
+            }
+            (None, None) => break,
+        }
+    }
+    (added, removed)
 }
 struct SnapshotDelta {
     added: Vec<BlockHash>,
@@ -203,7 +251,69 @@ impl State {
             retransmit: Default::default(),
             solicited: Default::default(),
             last_reconcile: None,
+            last_timeout_solicitation: None,
+            highest_members: 0,
+            round_start_members: 0,
+            recovery_cursor: 0,
         }
+    }
+    /// One request's worth of recovery targets, rotating through the list so
+    /// every election gets its turn: taking the first due entries would starve
+    /// the tail as soon as the list outgrows what one throttle interval covers.
+    fn next_solicitation_batch(
+        &mut self,
+        targets: &[(BlockHash, Root)],
+        now: Instant,
+    ) -> Vec<(BlockHash, Root)> {
+        let mut batch = Vec::new();
+        if targets.is_empty() {
+            self.recovery_cursor = 0;
+            return batch;
+        }
+        let start = self.recovery_cursor % targets.len();
+        let mut examined = 0;
+        while examined < targets.len() && batch.len() < rsnano_messages::ConfirmReq::HASHES_MAX {
+            let (hash, root) = targets[(start + examined) % targets.len()].clone();
+            examined += 1;
+            if self.solicitation_due(hash, now) {
+                batch.push((hash, root));
+            }
+        }
+        self.recovery_cursor = (start + examined) % targets.len();
+        batch
+    }
+    /// Size of the latest local snapshot.
+    fn members(&self) -> u64 {
+        self.local_snapshots
+            .back()
+            .map(|(_, hashes)| hashes.len() as u64)
+            .unwrap_or(0)
+    }
+    /// Whether a timed-out round may be left for the next one. A replica behind
+    /// the most advanced proposal keeps recovering instead: a round it starts
+    /// could not succeed. A replica that caught up starts the next round; the
+    /// replica already at the highest count joins once more than `f` weight has
+    /// started it, or once the round timer expires, which keeps the rounds live.
+    fn may_start_next_round(&self) -> bool {
+        let members = self.members();
+        if members < self.highest_members {
+            return false;
+        }
+        let started = self
+            .rounds
+            .get(&(self.round + 1))
+            .is_some_and(|round| round.tally.has_f_plus_one_first_votes());
+        let progressed = members > self.round_start_members;
+        let timed = self
+            .rounds
+            .get(&self.round)
+            .is_some_and(|round| round.started.elapsed() >= round_timeout(self.round));
+        started || progressed || timed
+    }
+    fn enter_round(&mut self, round: u64) {
+        self.round = round;
+        self.rounds.entry(round).or_default().started = Instant::now();
+        self.round_start_members = self.members();
     }
     /// Queue everything a lagging peer may still need, newest rounds first so the
     /// votes that decide the current round are delivered before older history.
@@ -271,6 +381,7 @@ impl State {
             hashes: vec![],
             base: BlockHash::ZERO,
             removed: vec![],
+            members: self.members(),
         }
     }
     fn receive(&mut self, p: EpochClose) {
@@ -285,8 +396,9 @@ impl State {
             }
             return;
         }
-        // Future rounds are admitted only one step ahead. Retransmission repairs reordering.
-        if p.epoch != self.epoch || p.round > self.round + 1 {
+        // Bounded future rounds are stored so a lagging replica can catch up at
+        // tick speed once it holds the intermediate timeout certificates.
+        if p.epoch != self.epoch || p.round > self.round + FUTURE_ROUNDS {
             return;
         }
         if p.kind <= 4 {
@@ -298,6 +410,9 @@ impl State {
                 &self.weights,
                 self.total,
             );
+            if accepted {
+                self.highest_members = self.highest_members.max(p.members);
+            }
             if accepted && p.kind <= 2 && !p.state.is_zero() {
                 self.candidates
                     .entry(p.candidate_id())
@@ -585,14 +700,9 @@ impl State {
                 if targets.len() == rsnano_messages::ConfirmReq::HASHES_MAX {
                     return targets;
                 }
-                if self
-                    .solicited
-                    .get(&hash)
-                    .is_some_and(|last| now.duration_since(*last) < RETRANSMIT * 2)
-                {
+                if !self.solicitation_due(hash, now) {
                     continue;
                 }
-                self.solicited.insert(hash, now);
                 let root = ledger
                     .any()
                     .get_block(&hash)
@@ -602,6 +712,18 @@ impl State {
             }
         }
         targets
+    }
+    /// Record a direct solicitation of `hash` unless one was sent recently.
+    fn solicitation_due(&mut self, hash: BlockHash, now: Instant) -> bool {
+        if self
+            .solicited
+            .get(&hash)
+            .is_some_and(|last| now.duration_since(*last) < SOLICIT_INTERVAL)
+        {
+            return false;
+        }
+        self.solicited.insert(hash, now);
+        true
     }
     fn drive(
         &mut self,
@@ -651,6 +773,19 @@ impl State {
         if let Some(hashes) = &local {
             let digest = Ledger::epoch_state_hash(hashes);
             if !self.local_snapshots.iter().any(|(h, _)| *h == digest) {
+                if self.ready {
+                    if let Some((_, previous)) = self.local_snapshots.back() {
+                        let (added, removed) = sorted_difference(previous, hashes);
+                        eprintln!(
+                            "EPOCH_MEMBERS_CHANGED {}",
+                            serde_json::json!({
+                                "pid":std::process::id(),"epoch":self.epoch,"round":self.round,"count":hashes.len(),"state":digest,
+                                "added":added.iter().take(8).collect::<Vec<_>>(),"removed":removed.iter().take(8).collect::<Vec<_>>(),
+                                "added_total":added.len(),"removed_total":removed.len()
+                            })
+                        );
+                    }
+                }
                 if self.local_snapshots.len() == 8 {
                     self.local_snapshots.pop_front();
                 }
@@ -801,8 +936,7 @@ impl State {
             .find(|(id, _)| self.certified(*id, VoteKind::Notarize))
         {
             self.parent = *id;
-            self.round += 1;
-            self.rounds.entry(self.round).or_default().started = Instant::now();
+            self.enter_round(self.round + 1);
             return (out, None);
         }
         let p = self.template(self.round, BlockHash::ZERO, BlockHash::ZERO);
@@ -824,10 +958,11 @@ impl State {
                 self.sign(p.clone(), key, 4, &mut out);
             }
         }
-        if self.rounds[&self.round].certificate(BlockHash::ZERO, VoteKind::Timeout) {
+        if self.rounds[&self.round].certificate(BlockHash::ZERO, VoteKind::Timeout)
+            && self.may_start_next_round()
+        {
             let expired = self.round;
-            self.round += 1;
-            self.rounds.entry(self.round).or_default().started = Instant::now();
+            self.enter_round(self.round + 1);
             // Retain certified ancestors; discard unsuccessful snapshot payloads.
             self.candidates.retain(|_, c| c.header.round != expired);
         }
@@ -1056,7 +1191,7 @@ impl EpochCloser {
                 if pending.is_empty() && !state.ready {
                     state.ready = true;
                     let round = state.round;
-                    state.rounds.entry(round).or_default().started = Instant::now();
+                    state.enter_round(round);
                     eprintln!(
                         "EPOCH_DRAINED {}",
                         serde_json::json!({"pid":std::process::id(),"epoch":epoch,"unix_ms":SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()})
@@ -1081,6 +1216,38 @@ impl EpochCloser {
             }
         }
         let (mut outgoing, closed) = state.drive(&self.ledger, &keys);
+        // After the drain, membership only changes through certificates that exist
+        // on peers but not here: late cross-notarizations of timed-out forks, and
+        // roots outside the cut that never reached quorum locally. Solicit those
+        // elections directly at the retransmission cadence instead of leaving them
+        // to the bounded recovery rotation, so every replica reaches the common
+        // membership quickly.
+        let mut recovering = 0;
+        if state.ready
+            && closed.is_none()
+            && state
+                .last_timeout_solicitation
+                .is_none_or(|last| last.elapsed() >= RETRANSMIT)
+        {
+            state.last_timeout_solicitation = Some(Instant::now());
+            let now = Instant::now();
+            let behind = state.members() < state.highest_members;
+            // One request per solicitation keeps reply load bounded; the cursor
+            // rotates through the remaining targets on later solicitations.
+            let candidates = self.aec.membership_recovery_targets(state.epoch, behind);
+            let targets = state.next_solicitation_batch(&candidates, now);
+            recovering = targets.len();
+            if !targets.is_empty() {
+                eprintln!(
+                    "EPOCH_CLOSE_SOLICIT {}",
+                    serde_json::json!({
+                        "pid":std::process::id(),"epoch":state.epoch,"round":state.round,"targets":targets.len(),
+                        "examples":targets.iter().take(3).map(|(hash, _)| hash).collect::<Vec<_>>()
+                    })
+                );
+            }
+            cut_requests.extend(targets);
+        }
         if closed.is_none() {
             let targets = state.reconciliation_targets(&self.ledger);
             if !targets.is_empty() {
@@ -1114,6 +1281,12 @@ impl EpochCloser {
                 "EPOCH_CLOSE_PROGRESS {}",
                 serde_json::json!({
                     "rep": keys.first().map(|k| k.public_key()), "epoch":state.epoch, "round":state.round,
+                    "members":state.local_snapshots.back().map(|(_, hashes)| hashes.len()),
+                    "state":state.local_snapshots.back().map(|(digest, _)| *digest),
+                    "parent":state.parent,
+                    "highest":state.highest_members,
+                    "holding":state.rounds.get(&state.round).is_some_and(|r| r.certificate(BlockHash::ZERO, VoteKind::Timeout)) && !state.may_start_next_round(),
+                    "recovering":recovering,
                     "candidates":state.candidates.iter().map(|(id,c)| serde_json::json!({"id":id,"round":c.header.round,"pages":c.pages.len(),"expected":c.header.pages,"complete":c.hashes.is_some(),"valid":state.valid(*id,&self.ledger)})).collect::<Vec<_>>(),
                     "votes":state.rounds.iter().map(|(r,v)| (*r,v.votes.len())).collect::<BTreeMap<_,_>>()
                 })
@@ -1768,7 +1941,7 @@ mod tests {
             "solicitations are rate limited per member"
         );
         for last in s.solicited.values_mut() {
-            *last -= RETRANSMIT * 2;
+            *last -= SOLICIT_INTERVAL;
         }
         s.last_reconcile = None;
         assert_eq!(s.reconciliation_targets(&ledger).len(), 2);
@@ -1849,9 +2022,164 @@ mod tests {
         p.state = 2.into();
         s.receive(p);
         assert!(s.rounds.is_empty());
+        let mut p = s.template(FUTURE_ROUNDS + 1, BlockHash::ZERO, 1.into());
+        p.sign(&PrivateKey::from(1));
+        s.receive(p);
+        assert!(s.rounds.is_empty(), "rounds beyond the window are rejected");
         let mut p = s.template(9, BlockHash::ZERO, 1.into());
         p.sign(&PrivateKey::from(1));
         s.receive(p);
-        assert!(s.rounds.is_empty());
+        assert!(
+            s.rounds.contains_key(&9),
+            "a bounded future round is stored so a lagging replica can catch up"
+        );
+    }
+
+    #[test]
+    fn next_round_waits_until_membership_catches_up_with_the_highest_proposal() {
+        let ledger = Ledger::new_null();
+        let key = PrivateKey::from(6);
+        let mut s = state();
+        s.ready = true;
+        s.last_snapshot = Some(Instant::now());
+        s.local_snapshots
+            .push_back((1.into(), vec![1.into(), 2.into(), 3.into()]));
+        s.enter_round(0);
+        s.rounds
+            .entry(0)
+            .or_default()
+            .signers
+            .entry(key.public_key())
+            .or_default()
+            .first = Some(BlockHash::from(1));
+        for rep in 1..=5 {
+            let mut p = s.template(0, BlockHash::ZERO, (10 + rep).into());
+            p.members = 5;
+            p.sign(&PrivateKey::from(rep));
+            s.receive(p);
+        }
+        assert_eq!(s.highest_members, 5);
+        for rep in 1..=4 {
+            let mut timeout = s.template(0, BlockHash::ZERO, BlockHash::ZERO);
+            timeout.kind = 4;
+            timeout.sign(&PrivateKey::from(rep));
+            s.receive(timeout);
+        }
+        assert!(s.rounds[&0].certificate(BlockHash::ZERO, VoteKind::Timeout));
+        s.drive(&ledger, &[key.clone()]);
+        assert_eq!(s.round, 0, "behind the highest proposal: keep recovering");
+        s.local_snapshots.push_back((
+            2.into(),
+            vec![1.into(), 2.into(), 3.into(), 4.into(), 5.into()],
+        ));
+        s.drive(&ledger, &[key]);
+        assert_eq!(s.round, 1, "caught up: start the next round");
+    }
+
+    #[test]
+    fn replica_at_the_highest_count_joins_a_round_started_by_f_plus_one_or_after_the_timer() {
+        let ledger = Ledger::new_null();
+        let key = PrivateKey::from(6);
+        let mut setup = || {
+            let mut s = state();
+            s.ready = true;
+            s.last_snapshot = Some(Instant::now());
+            s.local_snapshots
+                .push_back((1.into(), vec![1.into(), 2.into(), 3.into()]));
+            s.enter_round(0);
+            s.rounds
+                .entry(0)
+                .or_default()
+                .signers
+                .entry(key.public_key())
+                .or_default()
+                .first = Some(BlockHash::from(1));
+            for rep in 1..=5 {
+                let mut p = s.template(0, BlockHash::ZERO, (10 + rep).into());
+                p.sign(&PrivateKey::from(rep));
+                s.receive(p);
+            }
+            for rep in 1..=4 {
+                let mut timeout = s.template(0, BlockHash::ZERO, BlockHash::ZERO);
+                timeout.kind = 4;
+                timeout.sign(&PrivateKey::from(rep));
+                s.receive(timeout);
+            }
+            s
+        };
+        let mut s = setup();
+        s.drive(&ledger, &[key.clone()]);
+        assert_eq!(
+            s.round, 0,
+            "already at the highest count: wait for starters"
+        );
+        let mut starter = s.template(1, BlockHash::ZERO, 20.into());
+        starter.sign(&PrivateKey::from(1));
+        s.receive(starter);
+        s.drive(&ledger, &[key.clone()]);
+        assert_eq!(s.round, 0, "one starter is not more than f");
+        let mut starter = s.template(1, BlockHash::ZERO, 20.into());
+        starter.sign(&PrivateKey::from(2));
+        s.receive(starter);
+        s.drive(&ledger, &[key.clone()]);
+        assert_eq!(s.round, 1, "f + 1 started the round");
+        let mut s = setup();
+        s.rounds.get_mut(&0).unwrap().started = Instant::now() - round_timeout(0);
+        s.drive(&ledger, &[key]);
+        assert_eq!(s.round, 1, "the round timer keeps rounds live");
+    }
+
+    #[test]
+    fn solicitation_batches_rotate_through_every_target() {
+        let mut s = state();
+        let targets: Vec<(BlockHash, Root)> = (1..=600u64)
+            .map(|i| (BlockHash::from(i), Root::from(0u64)))
+            .collect();
+        let now = Instant::now();
+        let first = s.next_solicitation_batch(&targets, now);
+        let second = s.next_solicitation_batch(&targets, now);
+        let third = s.next_solicitation_batch(&targets, now);
+        assert_eq!(
+            (first.len(), second.len(), third.len()),
+            (
+                rsnano_messages::ConfirmReq::HASHES_MAX,
+                rsnano_messages::ConfirmReq::HASHES_MAX,
+                90
+            )
+        );
+        let seen: HashSet<_> = first
+            .iter()
+            .chain(&second)
+            .chain(&third)
+            .map(|(h, _)| *h)
+            .collect();
+        assert_eq!(
+            seen.len(),
+            600,
+            "every target solicited exactly once per cycle"
+        );
+        assert!(
+            s.next_solicitation_batch(&targets, now).is_empty(),
+            "all throttled"
+        );
+        for last in s.solicited.values_mut() {
+            *last -= SOLICIT_INTERVAL;
+        }
+        let again = s.next_solicitation_batch(&targets, now);
+        assert_eq!(again.len(), rsnano_messages::ConfirmReq::HASHES_MAX);
+        assert_eq!(
+            again[0].0,
+            BlockHash::from(511),
+            "the cycle resumes where it stopped"
+        );
+    }
+
+    #[test]
+    fn sorted_difference_reports_added_and_removed_members() {
+        let before: Vec<BlockHash> = [1u64, 3, 5].into_iter().map(Into::into).collect();
+        let after: Vec<BlockHash> = [1u64, 4, 5, 6].into_iter().map(Into::into).collect();
+        let (added, removed) = sorted_difference(&before, &after);
+        assert_eq!(added, vec![BlockHash::from(4), BlockHash::from(6)]);
+        assert_eq!(removed, vec![BlockHash::from(3)]);
     }
 }

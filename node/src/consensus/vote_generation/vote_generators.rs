@@ -275,7 +275,11 @@ impl VoteGenerators {
                         .push(hash);
                 }
             }
-            if let Some(block) = entry.block {
+            // The requester named the candidates it already holds; republish only
+            // the others, so a lagging replica is not flooded with known blocks.
+            if let Some(block) = entry.block
+                && !requests.iter().any(|(hash, _)| *hash == block.hash())
+            {
                 blocks.push(block);
             }
         }

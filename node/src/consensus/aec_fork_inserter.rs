@@ -50,6 +50,16 @@ impl AecForkInserter {
         if added {
             debug!("Block was added to an existing election: {}", fork.hash());
         }
+        // Opt-in evidence for epoch-membership recovery experiments.
+        static TRACE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        if *TRACE.get_or_init(|| std::env::var_os("RAI_FORK_TRACE").is_some()) {
+            eprintln!(
+                "FORK_TRACE {}",
+                serde_json::json!({
+                    "pid":std::process::id(),"root":fork.qualified_root(),"hash":fork.hash(),"added":added
+                })
+            );
+        }
     }
 }
 
