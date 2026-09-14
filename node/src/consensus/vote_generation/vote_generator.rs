@@ -934,7 +934,7 @@ mod fork_recovery_tests {
         assert_eq!(votes.len(), 1);
         assert_eq!(votes[0].epoch, 1);
         assert_eq!(votes[0].kind(), VoteKind::FirstTimeout);
-        assert_eq!(votes[0].hashes, vec![a.hash()]);
+        assert_eq!(votes[0].hashes, vec![b.hash()]);
     }
 
     #[test]
@@ -1004,19 +1004,29 @@ mod fork_recovery_tests {
             Some((b.root(), b.hash(), 0))
         );
         let emitted = std::cell::RefCell::new(Vec::new());
+        shared.kudzu_vote(&[b.hash()], &[b.root()], 0, vec![key.clone()], |v| {
+            emitted.borrow_mut().push(v)
+        });
+        // Enter with timeout first, then use the existing second-look evidence.
         shared.kudzu_vote(&[b.hash()], &[b.root()], 0, vec![key], |v| {
             emitted.borrow_mut().push(v)
         });
         let votes = emitted.into_inner();
-        assert_eq!(votes.len(), 2);
-        assert_eq!(
-            (votes[0].kind(), votes[0].hashes.clone()),
-            (VoteKind::FirstTimeout, vec![a.hash()])
+        assert!(
+            votes
+                .iter()
+                .any(|v| v.kind() == VoteKind::FirstTimeout && v.hashes == vec![b.hash()])
         );
-        assert_eq!(
-            (votes[1].kind(), votes[1].hashes.clone()),
-            (VoteKind::Notarize, vec![b.hash()])
+        assert!(
+            votes
+                .iter()
+                .any(|v| v.kind() == VoteKind::Notarize && v.hashes == vec![b.hash()])
         );
+        assert!(votes.iter().all(|v| v.epoch == 0
+            && matches!(
+                v.kind(),
+                VoteKind::FirstTimeout | VoteKind::Notarize | VoteKind::Timeout
+            )));
     }
 
     #[test]
@@ -1111,27 +1121,41 @@ mod fork_recovery_tests {
         assert!(
             generator
                 .shared_state
-                .kudzu_candidates(&[child.hash()], &[child.root()])
+                .kudzu_candidates(&[child.hash()], &[child.root()], 0)
                 .is_empty()
         );
+        ledger
+            .draining_epoch
+            .store(0, std::sync::atomic::Ordering::Release);
+        assert_eq!(
+            generator
+                .shared_state
+                .kudzu_candidates(&[child.hash()], &[child.root()], 0)
+                .len(),
+            1,
+            "timeout participation must not wait for account dependencies to finalize"
+        );
+        ledger
+            .draining_epoch
+            .store(u64::MAX, std::sync::atomic::Ordering::Release);
         ledger.confirm(parent.hash());
         assert_eq!(
             generator
                 .shared_state
-                .kudzu_candidates(&[child.hash()], &[child.root()])
+                .kudzu_candidates(&[child.hash()], &[child.root()], 0)
                 .len(),
             1
         );
         assert!(
             generator
                 .shared_state
-                .kudzu_candidates(&[child.hash()], &[Root::ZERO])
+                .kudzu_candidates(&[child.hash()], &[Root::ZERO], 0)
                 .is_empty()
         );
         assert!(
             generator
                 .shared_state
-                .kudzu_candidates(&[BlockHash::from(999)], &[child.root()])
+                .kudzu_candidates(&[BlockHash::from(999)], &[child.root()], 0)
                 .is_empty()
         );
     }

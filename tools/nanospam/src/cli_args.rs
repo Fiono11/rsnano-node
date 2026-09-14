@@ -17,6 +17,10 @@ pub(crate) struct CliArgs {
     #[arg(long, default_value_t = 0)]
     pub epoch_length: u64,
 
+    /// Advance epochs every N terminated elections instead of elapsed seconds
+    #[arg(long, default_value_t = 0, conflicts_with = "epoch_length")]
+    pub epoch_terminated_elections: u64,
+
     /// Verify exactly this many closed epochs and stop further closes in test nodes
     #[arg(long)]
     pub closed_epochs: Option<u64>,
@@ -103,6 +107,10 @@ pub(crate) struct CliArgs {
 }
 
 impl CliArgs {
+    pub fn epochs_enabled(&self) -> bool {
+        self.epoch_length > 0 || self.epoch_terminated_elections > 0
+    }
+
     pub(crate) fn spam_spec(&self) -> anyhow::Result<SpamSpec> {
         Ok(SpamSpec {
             spam_strategy: self.strategy(),
@@ -151,5 +159,29 @@ impl CliArgs {
     fn rate_spec(&self) -> Result<RateSpec, anyhow::Error> {
         let rate: RateSpec = self.rate.as_deref().unwrap_or(DEFAULT_RATE).parse()?;
         Ok(rate)
+    }
+}
+
+#[cfg(test)]
+mod epoch_mode_tests {
+    use super::*;
+
+    #[test]
+    fn terminated_election_epochs_enable_closure_without_a_timer() {
+        let args =
+            CliArgs::try_parse_from(["nanospam", "--epoch-terminated-elections", "25000"]).unwrap();
+        assert!(args.epochs_enabled());
+        assert_eq!(args.epoch_terminated_elections, 25_000);
+        assert_eq!(args.epoch_length, 0);
+        assert!(
+            CliArgs::try_parse_from([
+                "nanospam",
+                "--epoch-terminated-elections",
+                "25000",
+                "--epoch-length",
+                "30"
+            ])
+            .is_err()
+        );
     }
 }

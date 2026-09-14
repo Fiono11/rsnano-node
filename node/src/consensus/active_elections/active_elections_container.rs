@@ -1440,7 +1440,7 @@ mod rai_tests {
     use crate::consensus::ReceivedVote;
     use rsnano_types::{BlockPriority, PrivateKey, Vote, VoteDelivery};
     #[test]
-    fn epoch_drain_waits_for_f_plus_one_despite_local_first_timeout() {
+    fn epoch_drain_waits_for_one_visible_first_vote() {
         use rsnano_types::{ElectionId, VoteKind};
         let mut aec = ActiveElectionsContainer::default();
         let block = SavedBlock::new_test_instance();
@@ -1472,7 +1472,7 @@ mod rai_tests {
         };
         add(&mut aec, 1, VoteKind::FirstTimeout);
         add(&mut aec, 2, VoteKind::First);
-        assert!(aec.pending_epoch_drain(1, &[]).is_empty());
+        assert_eq!(aec.pending_epoch_drain(1, &[]), vec![id.clone()]);
         assert_eq!(aec.pending_epoch_drain(1, &[id.clone()]), vec![id.clone()]);
         add(&mut aec, 3, VoteKind::First);
         assert_eq!(aec.pending_epoch_drain(1, &[]), vec![id.clone()]);
@@ -1692,6 +1692,82 @@ mod notarized_admission_tests {
     use super::*;
     use crate::consensus::ReceivedVote;
     use rsnano_types::{PrivateKey, StateBlockArgs, Vote, VoteDelivery, VoteKind};
+
+    #[test]
+    fn termination_count_counts_once_per_epoch_not_per_certificate_or_finalization() {
+        let mut aec = ActiveElectionsContainer::default();
+        let block = SavedBlock::new_test_instance();
+        aec.block_tree
+            .insert(rsnano_types::RaiBlockTreeEntry::notarized(
+                block.clone().into(),
+                0,
+            ))
+            .unwrap();
+        for rep in 1..=4 {
+            apply_in_epoch(&mut aec, rep, block.hash(), VoteKind::First, 1);
+        }
+        assert_eq!(aec.terminated_elections.len(), 1);
+        for rep in 1..=5 {
+            apply_in_epoch(&mut aec, rep, block.hash(), VoteKind::Final, 1);
+        }
+        assert_eq!(aec.terminated_elections.len(), 1);
+        for rep in 1..=4 {
+            apply_in_epoch(&mut aec, rep, block.hash(), VoteKind::FirstTimeout, 2);
+        }
+        assert_eq!(aec.terminated_elections.len(), 2);
+        aec.discard_closed_epoch(2, &[]);
+        assert_eq!(aec.terminated_elections.len(), 2);
+    }
+
+    #[test]
+    fn recover_timeout_certificate_without_reopening_prior_notarized_slot() {
+        let mut aec = ActiveElectionsContainer::default();
+        let block = SavedBlock::new_test_instance();
+        aec.block_tree
+            .insert(rsnano_types::RaiBlockTreeEntry::notarized(
+                block.clone().into(),
+                0,
+            ))
+            .unwrap();
+        let id = rsnano_types::ElectionId::new(block.qualified_root(), 1);
+        for rep in 1..=3 {
+            apply_in_epoch(&mut aec, rep, block.hash(), VoteKind::FirstTimeout, 1);
+        }
+        assert_eq!(aec.pending_epoch_drain(1, &[id.clone()]), vec![id.clone()]);
+        apply_in_epoch(&mut aec, 4, block.hash(), VoteKind::FirstTimeout, 1);
+        assert!(aec.pending_epoch_drain(1, &[id.clone()]).is_empty());
+        assert!(aec.election_for_id(&id).is_none());
+        assert!(
+            aec.block_tree
+                .for_root(&id.root)
+                .iter()
+                .any(|e| e.epoch == 1 && e.block.is_none())
+        );
+    }
+
+    #[test]
+    fn recover_same_block_certificate_in_another_epoch_without_reopening_slot() {
+        let mut aec = ActiveElectionsContainer::default();
+        let block = SavedBlock::new_test_instance();
+        aec.block_tree
+            .insert(rsnano_types::RaiBlockTreeEntry::notarized(
+                block.clone().into(),
+                0,
+            ))
+            .unwrap();
+        for rep in 1..=3 {
+            apply_in_epoch(&mut aec, rep, block.hash(), VoteKind::First, 1);
+        }
+        assert_eq!(aec.block_tree.for_root(&block.qualified_root()).len(), 1);
+        apply_in_epoch(&mut aec, 4, block.hash(), VoteKind::First, 1);
+        let entries = aec.block_tree.for_root(&block.qualified_root());
+        assert_eq!(entries.len(), 2);
+        assert!(entries.iter().any(|e| e.epoch == 1 && !e.finalized));
+        assert!(
+            aec.election_for_id(&rsnano_types::ElectionId::new(block.qualified_root(), 1))
+                .is_none()
+        );
+    }
 
     fn apply(aec: &mut ActiveElectionsContainer, rep: u64, hash: BlockHash, kind: VoteKind) {
         apply_in_epoch(aec, rep, hash, kind, 0);

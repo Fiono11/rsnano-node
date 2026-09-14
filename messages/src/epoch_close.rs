@@ -168,6 +168,7 @@ mod tests {
         let mut request = EpochClose {
             epoch: 0,
             round: 1,
+            previous_close: BlockHash::ZERO,
             parent: 2.into(),
             state: 3.into(),
             kind: 7,
@@ -175,7 +176,7 @@ mod tests {
             signature: Signature::new(),
             page: 0,
             pages: 0,
-            hashes: vec![4.into(), 5.into()],
+            hashes: vec![4.into()],
             base: BlockHash::ZERO,
             removed: vec![],
             members: 0,
@@ -202,6 +203,7 @@ mod tests {
         let mut receipt = EpochClose {
             epoch: 1,
             round: 0,
+            previous_close: BlockHash::ZERO,
             parent: BlockHash::ZERO,
             state: 9.into(),
             kind: 6,
@@ -227,6 +229,7 @@ mod tests {
         let mut v = EpochClose {
             epoch: 3,
             round: 7,
+            previous_close: BlockHash::ZERO,
             parent: 8.into(),
             state: 9.into(),
             kind: 0,

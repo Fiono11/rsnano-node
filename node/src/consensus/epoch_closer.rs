@@ -1411,6 +1411,181 @@ impl Tickable for EpochCloseTicker {
 mod tests {
     use super::*;
     #[test]
+    fn finalized_target_reconstructs_without_deleting_live_candidates() {
+        let mut source = state();
+        let mut receiver = state();
+        let target = vec![BlockHash::from(1), BlockHash::from(2)];
+        let t = Ledger::epoch_state_hash(0, &target);
+        source.local_snapshots.push_back((t, target.clone()));
+        let live = vec![BlockHash::from(3)];
+        receiver
+            .local_snapshots
+            .push_back((Ledger::epoch_state_hash(0, &live), live.clone()));
+        let mut proposal = source.template(0, BlockHash::ZERO, t);
+        for i in 1..=6 {
+            proposal.sign(&PrivateKey::from(i));
+            receiver.receive(proposal.clone());
+        }
+        assert!(receiver.has_finalized_close());
+        let mut request = proposal.clone();
+        request.kind = 7;
+        request.hashes = receiver.bases();
+        request.sign(&PrivateKey::from(1));
+        assert_eq!(request.hashes, vec![Ledger::epoch_state_hash(0, &[])]);
+        let mut delta = source.recovery_page(&request).unwrap();
+        delta.sign(&PrivateKey::from(1));
+        assert!(delta.removed.is_empty());
+        receiver.receive(delta);
+        assert_eq!(
+            receiver.candidates[&proposal.candidate_id()].hashes,
+            Some(target)
+        );
+        assert_eq!(receiver.local_snapshots.back().unwrap().1, live);
+    }
+
+    #[test]
+    fn rotating_leader_closes_with_one_silent_member() {
+        let ledger = Ledger::new_null();
+        let mut replicas: Vec<_> = (0..6)
+            .map(|_| {
+                let mut s = state();
+                s.ready = true;
+                s
+            })
+            .collect();
+        let leader = replicas[0].leader(0).unwrap();
+        let mut keys: Vec<_> = (1..=6).map(PrivateKey::from).collect();
+        keys.sort_by_key(|k| k.public_key());
+        assert_eq!(keys[0].public_key(), leader);
+        let mut decisions = vec![None; 5];
+        for _ in 0..12 {
+            let mut packets = Vec::new();
+            for i in 0..5 {
+                let (out, decision) = replicas[i].drive(&ledger, &[keys[i].clone()]);
+                if decision.is_some() {
+                    decisions[i] = decision;
+                }
+                packets.extend(out);
+            }
+            for replica in &mut replicas {
+                for packet in &packets {
+                    replica.receive(packet.clone());
+                }
+            }
+        }
+        assert!(decisions.iter().all(|d| d.as_ref() == Some(&vec![])));
+        assert_ne!(replicas[0].leader(0), replicas[0].leader(1));
+    }
+
+    #[test]
+    fn d3_blocks_non_timeout_votes_until_ready() {
+        let ledger = Ledger::new_null();
+        let mut s = state();
+        let key = leader_key(&s, 0);
+        let mut p = s.template(0, BlockHash::ZERO, Ledger::epoch_state_hash(0, &[]));
+        p.sign(&key);
+        s.receive(p);
+        assert!(s.drive(&ledger, &[key]).0.is_empty());
+    }
+
+    #[test]
+    fn d4_rechecks_new_candidates_after_target_reconstruction() {
+        let ledger = Ledger::new_null();
+        let mut s = state();
+        let mut p = s.template(0, BlockHash::ZERO, Ledger::epoch_state_hash(0, &[]));
+        p.sign(&leader_key(&s, 0));
+        let id = p.candidate_id();
+        s.receive(p);
+        s.drive(&ledger, &[]);
+        assert!(s.valid(id, &ledger));
+        let block: rsnano_types::Block = rsnano_types::SavedBlock::new_test_instance().into();
+        ledger.record_epoch_block(0, block);
+        s.ready = true;
+        let follower = (1..=6)
+            .map(PrivateKey::from)
+            .find(|k| Some(k.public_key()) != s.leader(0))
+            .unwrap();
+        assert!(s.drive(&ledger, &[follower]).0.iter().all(|p| p.kind >= 3));
+        assert!(!ledger.epoch_close_contains_known(0, &[]));
+    }
+
+    #[test]
+    fn unknown_base_and_deletion_delta_do_not_change_target() {
+        let mut s = state();
+        let base = vec![BlockHash::from(1), BlockHash::from(2)];
+        let target = vec![BlockHash::from(1)];
+        let b = Ledger::epoch_state_hash(0, &base);
+        let t = Ledger::epoch_state_hash(0, &target);
+        s.local_snapshots.push_back((b, base));
+        s.local_snapshots.push_back((t, target));
+        let mut request = s.template(0, BlockHash::ZERO, t);
+        request.kind = 7;
+        request.hashes = vec![b];
+        request.sign(&PrivateKey::from(1));
+        assert!(s.recovery_page(&request).is_none());
+        request.hashes = vec![99.into()];
+        request.sign(&PrivateKey::from(1));
+        assert!(s.recovery_page(&request).is_none());
+    }
+
+    #[test]
+    fn empty_base_is_a_valid_additive_reconciliation_version() {
+        let mut s = state();
+        let base = Ledger::epoch_state_hash(0, &[]);
+        let target = vec![BlockHash::from(1)];
+        let t = Ledger::epoch_state_hash(0, &target);
+        s.local_snapshots.push_back((base, vec![]));
+        s.local_snapshots.push_back((t, target.clone()));
+        let mut request = s.template(0, BlockHash::ZERO, t);
+        request.kind = 7;
+        request.hashes = vec![base];
+        request.sign(&PrivateKey::from(1));
+        let response = s.recovery_page(&request).unwrap();
+        assert_eq!(response.hashes, target);
+        assert!(response.removed.is_empty());
+    }
+
+    #[test]
+    fn timeout_rotates_past_unavailable_target_despite_inflated_count() {
+        let ledger = Ledger::new_null();
+        let mut s = state();
+        s.ready = true;
+        let mut unavailable = s.template(0, BlockHash::ZERO, 99.into());
+        unavailable.members = u64::MAX;
+        unavailable.sign(&leader_key(&s, 0));
+        s.receive(unavailable);
+        for i in 1..=6 {
+            let mut timeout = s.template(0, BlockHash::ZERO, BlockHash::ZERO);
+            timeout.kind = 3;
+            timeout.sign(&PrivateKey::from(i));
+            s.receive(timeout);
+        }
+        s.drive(&ledger, &[]);
+        assert_eq!(s.round, 1);
+        assert!(s.leader(1).is_some());
+    }
+
+    #[test]
+    fn previous_close_is_bound_and_wrong_history_is_rejected() {
+        let mut s = state();
+        s.advance(vec![], s.weights.clone());
+        let expected = s.previous_close;
+        assert!(!expected.is_zero());
+        let mut p = s.template(0, BlockHash::ZERO, Ledger::epoch_state_hash(1, &[]));
+        p.previous_close = BlockHash::ZERO;
+        p.sign(&leader_key(&s, 0));
+        s.receive(p);
+        assert!(s.candidates.is_empty());
+    }
+
+    fn leader_key(s: &State, round: u64) -> PrivateKey {
+        (1..=6)
+            .map(PrivateKey::from)
+            .find(|k| Some(k.public_key()) == s.leader(round))
+            .unwrap()
+    }
+
+    #[test]
     fn epoch_close_recovery_limit_does_not_drop_authenticated_decision_headers() {
         let mut replica = state();
         replica.round = 64;
@@ -1445,7 +1620,7 @@ mod tests {
     fn epoch_close_archive_survives_two_advances_with_lagging_peer() {
         let mut s = state();
         let hashes = vec![1.into()];
-        let digest = Ledger::epoch_state_hash(&hashes);
+        let digest = Ledger::epoch_state_hash(0, &hashes);
         let mut p = s.template(0, BlockHash::ZERO, digest);
         p.sign(&PrivateKey::from(1));
         s.receive(p.clone());
@@ -1517,290 +1692,6 @@ mod tests {
     }
 
     #[test]
-    fn epoch_close_split_snapshots_converge_through_parent_linked_rounds() {
-        use rsnano_ledger::{
-            LedgerBuilder, LedgerConstants, test_helpers::UnsavedBlockLatticeBuilder,
-        };
-        let path = std::env::temp_dir().join(format!("rai-close-rounds-{}", std::process::id()));
-        std::fs::create_dir_all(&path).unwrap();
-        {
-            let ledger = LedgerBuilder::new(path.join("data.ldb"))
-                .constants(LedgerConstants::dev())
-                .init_thread_count(1)
-                .finish()
-                .unwrap();
-            ledger.configure_epoch_length(1).unwrap();
-            let mut lattice = UnsavedBlockLatticeBuilder::new();
-            let a = lattice.genesis().send(100, 1);
-            let b = lattice.genesis().send(101, 1);
-            ledger.process_one(&a).unwrap();
-            ledger.process_one(&b).unwrap();
-            ledger.confirm(a.hash());
-            let old = ledger.epoch_close_candidate(0);
-            ledger.confirm(b.hash());
-            let recent = ledger.epoch_close_candidate(0);
-            let mut replicas: Vec<_> = (0..6)
-                .map(|_| {
-                    let mut s = state();
-                    s.ready = true;
-                    s
-                })
-                .collect();
-            // Two valid snapshots each receive three FIRSTs: second look notarizes
-            // both, so there is no final vote for either candidate in this round.
-            let mut initial = Vec::new();
-            for i in 0..6 {
-                let hashes = if i < 3 { old.clone() } else { recent.clone() };
-                let mut p =
-                    replicas[i].template(0, BlockHash::ZERO, Ledger::epoch_state_hash(&hashes));
-                let id = p.candidate_id();
-                for replica in &mut replicas {
-                    replica.candidates.entry(id).or_insert_with(|| Candidate {
-                        validated: Cell::new(false),
-                        header: p.clone(),
-                        pages: Default::default(),
-                        removed_pages: Default::default(),
-                        recovery_base: None,
-                        last_delta_page: None,
-                        hashes: Some(hashes.clone()),
-                    });
-                }
-                let key = PrivateKey::from(i as u64 + 1);
-                let r = replicas[i].rounds.entry(0).or_default();
-                let signer = r.signers.entry(key.public_key()).or_default();
-                signer.first = Some(id);
-                signer.notarized.insert(id);
-                p.sign(&key);
-                initial.push(p);
-            }
-            for s in &mut replicas {
-                for p in &initial {
-                    s.receive(p.clone());
-                }
-            }
-            let mut decisions = vec![None; 6];
-            for _ in 0..30 {
-                let mut packets = Vec::new();
-                for (i, s) in replicas.iter_mut().enumerate() {
-                    let (out, decision) = s.drive(&ledger, &[PrivateKey::from(i as u64 + 1)]);
-                    if decision.is_some() {
-                        decisions[i] = decision;
-                    }
-                    packets.extend(out);
-                    packets.extend(s.packets());
-                }
-                for s in &mut replicas {
-                    for p in &packets {
-                        s.receive(p.clone());
-                    }
-                }
-                if decisions.iter().all(Option::is_some) {
-                    break;
-                }
-            }
-            assert!(decisions.iter().all(Option::is_some));
-            assert!(decisions.iter().all(|d| d == &decisions[0]));
-            assert!(replicas.iter().all(|s| s.round > 0));
-        }
-        std::fs::remove_dir_all(path).unwrap();
-    }
-
-    #[test]
-    fn epoch_close_must_include_late_finalized_block() {
-        use rsnano_ledger::{
-            LedgerBuilder, LedgerConstants, test_helpers::UnsavedBlockLatticeBuilder,
-        };
-        let path = std::env::temp_dir().join(format!("rai-close-omission-{}", std::process::id()));
-        std::fs::create_dir_all(&path).unwrap();
-        {
-            let ledger = LedgerBuilder::new(path.join("data.ldb"))
-                .constants(LedgerConstants::dev())
-                .init_thread_count(1)
-                .finish()
-                .unwrap();
-            ledger.configure_epoch_length(1).unwrap();
-            let mut lattice = UnsavedBlockLatticeBuilder::new();
-            let a = lattice.genesis().send(100, 1);
-            let b = lattice.genesis().send(101, 1);
-            ledger.process_one(&a).unwrap();
-            ledger.process_one(&b).unwrap();
-            ledger.confirm(a.hash());
-            // The drain sees B's notarization before its FINAL certificate or
-            // asynchronous cementation. Snapshot membership must see it too.
-            ledger.record_epoch_block(0, b.clone());
-            let old = ledger.epoch_close_candidate(0);
-            assert!(old.contains(&b.hash()));
-            assert!(ledger.epoch_close_candidate_valid(0, &old));
-            ledger.confirm(b.hash());
-            let recent = ledger.epoch_close_candidate(0);
-            let mut replicas: Vec<_> = (0..6)
-                .map(|_| {
-                    let mut s = state();
-                    s.ready = true;
-                    s
-                })
-                .collect();
-            // Reproduce four snapshots before cementation and two afterward.
-            // Both now include the already notarized block.
-            let mut initial = Vec::new();
-            for i in 0..6 {
-                let hashes = if i < 4 { old.clone() } else { recent.clone() };
-                let mut p =
-                    replicas[i].template(0, BlockHash::ZERO, Ledger::epoch_state_hash(&hashes));
-                let id = p.candidate_id();
-                for replica in &mut replicas {
-                    replica.candidates.entry(id).or_insert_with(|| Candidate {
-                        validated: Cell::new(false),
-                        header: p.clone(),
-                        pages: Default::default(),
-                        removed_pages: Default::default(),
-                        recovery_base: None,
-                        last_delta_page: None,
-                        hashes: Some(hashes.clone()),
-                    });
-                }
-                let key = PrivateKey::from(i as u64 + 1);
-                let r = replicas[i].rounds.entry(0).or_default();
-                let signer = r.signers.entry(key.public_key()).or_default();
-                signer.first = Some(id);
-                signer.notarized.insert(id);
-                p.sign(&key);
-                initial.push(p);
-            }
-            for s in &mut replicas {
-                for p in &initial {
-                    s.receive(p.clone());
-                }
-            }
-            let mut decisions = vec![None; 6];
-            for _ in 0..30 {
-                let mut packets = Vec::new();
-                for (i, s) in replicas.iter_mut().enumerate() {
-                    let (out, decision) = s.drive(&ledger, &[PrivateKey::from(i as u64 + 1)]);
-                    if decision.is_some() {
-                        decisions[i] = decision;
-                    }
-                    packets.extend(out);
-                    packets.extend(s.packets());
-                }
-                for s in &mut replicas {
-                    for p in &packets {
-                        s.receive(p.clone());
-                    }
-                }
-                if decisions.iter().all(Option::is_some) {
-                    break;
-                }
-            }
-            assert!(decisions.iter().all(Option::is_some));
-            assert!(decisions.iter().all(|d| d == &decisions[0]));
-            assert!(
-                decisions
-                    .iter()
-                    .all(|d| d.as_ref().unwrap().contains(&b.hash())),
-                "certified close omitted a block already finalized in this epoch"
-            );
-        }
-        std::fs::remove_dir_all(path).unwrap();
-    }
-
-    #[test]
-    fn epoch_close_leaderless_snapshots_refresh_without_replacing_first() {
-        use rsnano_ledger::{
-            LedgerBuilder, LedgerConstants, test_helpers::UnsavedBlockLatticeBuilder,
-        };
-        let path =
-            std::env::temp_dir().join(format!("rai-close-leaderless-{}", std::process::id()));
-        std::fs::create_dir_all(&path).unwrap();
-        {
-            let ledger = LedgerBuilder::new(path.join("data.ldb"))
-                .constants(LedgerConstants::dev())
-                .init_thread_count(1)
-                .finish()
-                .unwrap();
-            ledger.configure_epoch_length(1).unwrap();
-            let mut lattice = UnsavedBlockLatticeBuilder::new();
-            let mut replicas: Vec<_> = (0..6).map(|_| state()).collect();
-            let mut firsts = Vec::new();
-            // Each PR sees a different prefix of the monotonically growing set.
-            // Every PR must propose independently, without a leader's message.
-            for (i, s) in replicas.iter_mut().enumerate() {
-                let key = PrivateKey::from(i as u64 + 1);
-                assert!(s.drive(&ledger, &[key.clone()]).0.is_empty());
-                let block = lattice.genesis().send(100 + i as u64, 1);
-                ledger.process_one(&block).unwrap();
-                ledger.confirm(block.hash());
-                s.ready = true;
-                let (out, decision) = s.drive(&ledger, &[key]);
-                assert!(decision.is_none());
-                assert_eq!(out.len(), 1);
-                assert_eq!(out[0].kind, 0);
-                firsts.push(out[0].candidate_id());
-            }
-            assert_eq!(firsts.iter().collect::<HashSet<_>>().len(), 6);
-            let latest = ledger.epoch_close_candidate(0);
-            let mut packets = Vec::new();
-            for (i, s) in replicas.iter_mut().enumerate() {
-                let key = PrivateKey::from(i as u64 + 1);
-                let previous_snapshot = s.last_snapshot;
-                let (out, _) = s.drive(&ledger, &[key.clone()]);
-                assert!(out.is_empty(), "ledger growth must not replace FIRST");
-                assert_eq!(
-                    s.last_snapshot, previous_snapshot,
-                    "an immediate tick must not rescan metadata"
-                );
-                s.last_snapshot = Some(Instant::now() - RETRANSMIT);
-                let (out, _) = s.drive(&ledger, &[key.clone()]);
-                assert!(out.is_empty(), "recovery refresh must not replace FIRST");
-                assert_eq!(
-                    s.rounds[&0].signers[&key.public_key()].first,
-                    Some(firsts[i])
-                );
-                assert_eq!(
-                    s.snapshot(&Ledger::epoch_state_hash(&latest)),
-                    Some(&latest)
-                );
-                assert_eq!(
-                    s.candidates.len(),
-                    1,
-                    "refreshing a recovery base must not create unsigned proposals"
-                );
-                packets.extend(s.packets());
-            }
-            for s in &mut replicas {
-                for p in &packets {
-                    s.receive(p.clone());
-                }
-            }
-            // Six distinct FIRST values force a timeout certificate. All PRs
-            // retry with the now-identical snapshot and close the same value.
-            let mut decisions = vec![None; 6];
-            for _ in 0..30 {
-                let mut packets = Vec::new();
-                for (i, s) in replicas.iter_mut().enumerate() {
-                    let (out, decision) = s.drive(&ledger, &[PrivateKey::from(i as u64 + 1)]);
-                    if decision.is_some() {
-                        decisions[i] = decision;
-                    }
-                    packets.extend(out);
-                    packets.extend(s.packets());
-                }
-                for s in &mut replicas {
-                    for p in &packets {
-                        s.receive(p.clone());
-                    }
-                }
-                if decisions.iter().all(Option::is_some) {
-                    break;
-                }
-            }
-            assert!(decisions.iter().all(|d| d.as_ref() == Some(&latest)));
-            assert!(replicas.iter().all(|s| s.round == 1));
-        }
-        std::fs::remove_dir_all(path).unwrap();
-    }
-
-    #[test]
     fn epoch_close_retransmission_is_bounded_and_prefers_newest_rounds() {
         let mut s = state();
         s.round = 19;
@@ -1866,9 +1757,9 @@ mod tests {
     #[test]
     fn epoch_close_delta_requires_shared_base_and_matches_immutable_target() {
         let base = vec![BlockHash::from(1), BlockHash::from(2)];
-        let target = vec![BlockHash::from(1), BlockHash::from(3)];
-        let base_hash = Ledger::epoch_state_hash(&base);
-        let target_hash = Ledger::epoch_state_hash(&target);
+        let target = vec![BlockHash::from(1), BlockHash::from(2), BlockHash::from(3)];
+        let base_hash = Ledger::epoch_state_hash(0, &base);
+        let target_hash = Ledger::epoch_state_hash(0, &target);
         let mut source = state();
         source.local_snapshots.push_back((base_hash, base.clone()));
         source
@@ -1893,10 +1784,11 @@ mod tests {
         );
         request.hashes = vec![base_hash];
         request.sign(&PrivateKey::from(2));
-        let page = source.recovery_page(&request).unwrap();
+        let mut page = source.recovery_page(&request).unwrap();
+        page.sign(&PrivateKey::from(1));
         assert_eq!(page.base, base_hash);
         assert_eq!(page.hashes, vec![BlockHash::from(3)]);
-        assert_eq!(page.removed, vec![BlockHash::from(2)]);
+        assert!(page.removed.is_empty());
         let mut forged = page.clone();
         forged.hashes = vec![4.into()];
         receiver.receive(forged);
@@ -1930,7 +1822,7 @@ mod tests {
         let ledger = Ledger::new_null();
         let mut s = state();
         let members = vec![BlockHash::from(9), BlockHash::from(10)];
-        let mut proposal = s.template(0, BlockHash::ZERO, Ledger::epoch_state_hash(&members));
+        let mut proposal = s.template(0, BlockHash::ZERO, Ledger::epoch_state_hash(0, &members));
         proposal.sign(&PrivateKey::from(1));
         let id = proposal.candidate_id();
         s.receive(proposal);
@@ -1971,7 +1863,7 @@ mod tests {
                 .unwrap();
             ledger.configure_epoch_length(40).unwrap();
             let snapshot = ledger.epoch_close_candidate(0);
-            let digest = Ledger::epoch_state_hash(&snapshot);
+            let digest = Ledger::epoch_state_hash(0, &snapshot);
             let mut replica = state();
             for i in 1..=6 {
                 let mut vote = replica.template(0, BlockHash::ZERO, digest);
@@ -1991,9 +1883,9 @@ mod tests {
     #[test]
     fn epoch_close_delta_pages_survive_reordering_and_base_eviction() {
         let base: Vec<BlockHash> = (1..=600).map(Into::into).collect();
-        let target: Vec<BlockHash> = (301..=900).map(Into::into).collect();
-        let base_hash = Ledger::epoch_state_hash(&base);
-        let target_hash = Ledger::epoch_state_hash(&target);
+        let target: Vec<BlockHash> = (1..=1200).map(Into::into).collect();
+        let base_hash = Ledger::epoch_state_hash(0, &base);
+        let target_hash = Ledger::epoch_state_hash(0, &target);
         let mut source = state();
         source.local_snapshots.push_back((base_hash, base.clone()));
         source
@@ -2010,7 +1902,8 @@ mod tests {
         request.hashes = vec![base_hash];
         request.page = 1;
         request.sign(&PrivateKey::from(2));
-        let last = source.recovery_page(&request).unwrap();
+        let mut last = source.recovery_page(&request).unwrap();
+        last.sign(&PrivateKey::from(1));
         assert_eq!(last.pages, 2);
         receiver.receive(last.clone());
         assert!(receiver.candidates[&id].hashes.is_none());
@@ -2018,9 +1911,10 @@ mod tests {
         receiver.local_snapshots.clear();
         request.page = 0;
         request.sign(&PrivateKey::from(2));
-        let first = source
+        let mut first = source
             .recovery_page(&request)
             .expect("cached delta retains its immutable meaning");
+        first.sign(&PrivateKey::from(1));
         receiver.receive(last);
         receiver.receive(first);
         assert_eq!(receiver.candidates[&id].hashes.as_ref(), Some(&target));
@@ -2044,100 +1938,6 @@ mod tests {
             s.rounds.contains_key(&9),
             "a bounded future round is stored so a lagging replica can catch up"
         );
-    }
-
-    #[test]
-    fn next_round_waits_until_membership_catches_up_with_the_highest_proposal() {
-        let ledger = Ledger::new_null();
-        let key = PrivateKey::from(6);
-        let mut s = state();
-        s.ready = true;
-        s.last_snapshot = Some(Instant::now());
-        s.local_snapshots
-            .push_back((1.into(), vec![1.into(), 2.into(), 3.into()]));
-        s.enter_round(0);
-        s.rounds
-            .entry(0)
-            .or_default()
-            .signers
-            .entry(key.public_key())
-            .or_default()
-            .first = Some(BlockHash::from(1));
-        for rep in 1..=5 {
-            let mut p = s.template(0, BlockHash::ZERO, (10 + rep).into());
-            p.members = 5;
-            p.sign(&PrivateKey::from(rep));
-            s.receive(p);
-        }
-        assert_eq!(s.highest_members, 5);
-        for rep in 1..=4 {
-            let mut timeout = s.template(0, BlockHash::ZERO, BlockHash::ZERO);
-            timeout.kind = 4;
-            timeout.sign(&PrivateKey::from(rep));
-            s.receive(timeout);
-        }
-        assert!(s.rounds[&0].certificate(BlockHash::ZERO, VoteKind::Timeout));
-        s.drive(&ledger, &[key.clone()]);
-        assert_eq!(s.round, 0, "behind the highest proposal: keep recovering");
-        s.local_snapshots.push_back((
-            2.into(),
-            vec![1.into(), 2.into(), 3.into(), 4.into(), 5.into()],
-        ));
-        s.drive(&ledger, &[key]);
-        assert_eq!(s.round, 1, "caught up: start the next round");
-    }
-
-    #[test]
-    fn replica_at_the_highest_count_joins_a_round_started_by_f_plus_one_or_after_the_timer() {
-        let ledger = Ledger::new_null();
-        let key = PrivateKey::from(6);
-        let mut setup = || {
-            let mut s = state();
-            s.ready = true;
-            s.last_snapshot = Some(Instant::now());
-            s.local_snapshots
-                .push_back((1.into(), vec![1.into(), 2.into(), 3.into()]));
-            s.enter_round(0);
-            s.rounds
-                .entry(0)
-                .or_default()
-                .signers
-                .entry(key.public_key())
-                .or_default()
-                .first = Some(BlockHash::from(1));
-            for rep in 1..=5 {
-                let mut p = s.template(0, BlockHash::ZERO, (10 + rep).into());
-                p.sign(&PrivateKey::from(rep));
-                s.receive(p);
-            }
-            for rep in 1..=4 {
-                let mut timeout = s.template(0, BlockHash::ZERO, BlockHash::ZERO);
-                timeout.kind = 4;
-                timeout.sign(&PrivateKey::from(rep));
-                s.receive(timeout);
-            }
-            s
-        };
-        let mut s = setup();
-        s.drive(&ledger, &[key.clone()]);
-        assert_eq!(
-            s.round, 0,
-            "already at the highest count: wait for starters"
-        );
-        let mut starter = s.template(1, BlockHash::ZERO, 20.into());
-        starter.sign(&PrivateKey::from(1));
-        s.receive(starter);
-        s.drive(&ledger, &[key.clone()]);
-        assert_eq!(s.round, 0, "one starter is not more than f");
-        let mut starter = s.template(1, BlockHash::ZERO, 20.into());
-        starter.sign(&PrivateKey::from(2));
-        s.receive(starter);
-        s.drive(&ledger, &[key.clone()]);
-        assert_eq!(s.round, 1, "f + 1 started the round");
-        let mut s = setup();
-        s.rounds.get_mut(&0).unwrap().started = Instant::now() - round_timeout(0);
-        s.drive(&ledger, &[key]);
-        assert_eq!(s.round, 1, "the round timer keeps rounds live");
     }
 
     #[test]

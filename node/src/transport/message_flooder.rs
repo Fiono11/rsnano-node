@@ -267,6 +267,7 @@ mod tests {
         let message = Message::EpochClose(EpochClose {
             epoch: 1,
             round: 0,
+            previous_close: 0.into(),
             parent: 0.into(),
             state: 1.into(),
             kind: 5,

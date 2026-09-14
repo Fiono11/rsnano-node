@@ -220,6 +220,45 @@ impl Ledger {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn roots_bind_epoch_and_membership_but_not_finalization() {
+        let ledger = Ledger::new_null();
+        let block: Block = rsnano_types::SavedBlock::new_test_instance().into();
+        ledger.record_epoch_block(7, block.clone());
+        let before = ledger.epoch_close_candidate(7);
+        let root = Ledger::epoch_state_hash(7, &before);
+        ledger.record_epoch_block(7, block.clone());
+        assert_eq!(
+            Ledger::epoch_state_hash(7, &ledger.epoch_close_candidate(7)),
+            root
+        );
+        assert_ne!(Ledger::epoch_state_hash(8, &before), root);
+        assert!(ledger.epoch_close_candidate(8).is_empty());
+        ledger.record_epoch_block(8, block);
+        assert_eq!(ledger.epoch_close_candidate(8), before);
+    }
+
+    #[test]
+    fn close_discards_omitted_candidates_and_fences_late_membership() {
+        let ledger = Ledger::new_null();
+        let mut lattice = UnsavedBlockLatticeBuilder::new();
+        let a = lattice.genesis().send(1, 1);
+        let b = lattice.genesis().send(2, 1);
+        ledger.record_epoch_block(0, a.clone());
+        ledger.record_epoch_block(0, b.clone());
+        ledger.close_epoch(0, &[a.hash()]).unwrap();
+        assert_eq!(ledger.canonical_confirmation_epoch(&a.hash()), Some(0));
+        assert_eq!(ledger.canonical_confirmation_epoch(&b.hash()), None);
+        assert!(ledger.epoch_close_candidate(1).is_empty());
+        ledger.record_epoch_block(0, b.clone());
+        assert!(ledger.epoch_close_candidate(0).is_empty());
+        assert_eq!(
+            ledger.epoch_close_missing_members(0, &[a.hash(), b.hash()]),
+            vec![b.hash()]
+        );
+    }
+
     use crate::{LedgerBuilder, LedgerConstants, test_helpers::UnsavedBlockLatticeBuilder};
     #[test]
     fn membership_metadata_snapshot_does_not_pin_certificate_index() {
@@ -260,12 +299,12 @@ mod tests {
         );
         assert_eq!(
             ledger.epoch_close_missing_members(1, &peer),
-            vec![BlockHash::from(7)]
+            vec![a.hash(), BlockHash::from(7)]
         );
     }
 
     #[test]
-    fn close_snapshot_retains_uncemented_notarized_forks_and_dependencies() {
+    fn close_snapshot_retains_only_epoch_candidates_including_notarized_forks() {
         use rsnano_types::{DEV_GENESIS_KEY, StateBlockArgs};
         let path = std::env::temp_dir().join(format!("rai-close-forks-{}", std::process::id()));
         std::fs::create_dir_all(&path).unwrap();
@@ -280,6 +319,7 @@ mod tests {
             let a = lattice.genesis().send(100, 1);
             ledger.process_one(&a).unwrap();
             ledger.confirm(a.hash());
+            ledger.record_epoch_block(0, a.clone());
             let b = lattice.genesis().send(101, 1);
             ledger.process_one(&b).unwrap();
             let fork: Block = StateBlockArgs {
@@ -305,10 +345,11 @@ mod tests {
                 .copied()
                 .filter(|h| *h != a.hash())
                 .collect();
-            assert!(!ledger.epoch_close_candidate_valid(0, &without_parent));
+            assert!(ledger.epoch_close_candidate_valid(0, &without_parent));
+            assert!(!ledger.epoch_close_contains_known(0, &without_parent));
             ledger.close_epoch(0, &snapshot).unwrap();
             assert_eq!(ledger.canonical_confirmation_epoch(&fork.hash()), Some(0));
-            assert_eq!(ledger.epoch_close_candidate(1), snapshot);
+            assert!(ledger.epoch_close_candidate(1).is_empty());
         }
         // Canonical fork membership survives even without an account-ledger payload.
         {
@@ -319,7 +360,7 @@ mod tests {
                 .unwrap();
             ledger.configure_epoch_length(25).unwrap();
             let snapshot = ledger.epoch_close_candidate(1);
-            assert_eq!(snapshot.len(), 4);
+            assert!(snapshot.is_empty());
             assert!(ledger.epoch_close_candidate_valid(1, &snapshot));
             ledger.close_epoch(1, &snapshot).unwrap();
         }
@@ -343,6 +384,7 @@ mod tests {
             ledger.process_one(&a).unwrap();
             ledger.process_one(&b).unwrap();
             ledger.confirm(a.hash());
+            ledger.record_epoch_block(0, a.clone());
             assert_eq!(
                 ledger.current_epoch(),
                 0,
@@ -359,6 +401,7 @@ mod tests {
             assert!(ledger.epoch_application_allowed(1));
             assert_eq!(ledger.canonical_confirmation_epoch(&a.hash()), Some(0));
             ledger.confirm(b.hash());
+            ledger.record_epoch_block(1, b.clone());
             assert_eq!(ledger.canonical_confirmation_epoch(&b.hash()), None);
             assert_eq!(ledger.begin_epoch_drain(), Some(1));
             let next = ledger.epoch_close_candidate(1);

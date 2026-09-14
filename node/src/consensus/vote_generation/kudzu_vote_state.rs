@@ -360,120 +360,94 @@ mod tests {
     use super::*;
 
     #[test]
-    fn periodic_voting_excludes_frozen_roots_but_recovery_keeps_old_statements() {
-        use super::super::voting_scheduler::VoteTarget;
-        use crate::consensus::election::VoteType;
-        use rsnano_types::ElectionId;
-
+    fn value_lock_in_another_epoch_does_not_block_timeout_participation() {
         let mut state = KudzuVoteState::default();
+        let root = QualifiedRoot::new_test_instance();
         let rep = PublicKey::from(1);
-        let cut = QualifiedRoot::new(1.into(), 0.into());
-        let frozen = QualifiedRoot::new(2.into(), 0.into());
-        let fresh = QualifiedRoot::new(3.into(), 0.into());
-        for root in [&cut, &frozen] {
-            assert_eq!(
-                state.authorize(root, rep, 1.into(), 0, false, false, false, None),
-                Some(VoteKind::First)
-            );
-        }
-        let targets = || {
-            [&cut, &frozen, &fresh]
-                .into_iter()
-                .flat_map(|root| {
-                    let epoch = if root == &fresh { 1 } else { 0 };
-                    [VoteType::NonFinal, VoteType::Final]
-                        .into_iter()
-                        .map(move |vote_type| VoteTarget {
-                            root: ElectionId::new(root.clone(), epoch),
-                            winner: 1.into(),
-                            vote_type,
-                            timeout: false,
-                        })
-                })
-                .collect::<Vec<_>>()
-        };
-        state.pause_epoch(0);
-        let mut paused = targets();
-        state.retain_voting_targets(&mut paused, &[rep]);
-        assert_eq!(paused.len(), 2);
-        assert!(paused.iter().all(|t| t.root.epoch == 1));
-        let paused_filter = state.voting_filter();
-        assert!(!paused_filter(&cut, 0));
-        assert!(!paused_filter(&frozen, 0));
-        assert!(paused_filter(&fresh, 1));
-        state.resume_cut(0, [cut.clone()]);
-        let filter = state.voting_filter();
-        assert!(filter(&cut, 0));
-        assert!(!filter(&frozen, 0));
-        assert!(filter(&fresh, 1));
-        // The previously captured filter does not retain the signing mutex.
-        assert!(!paused_filter(&cut, 0));
-        let mut resumed = targets();
-        state.retain_voting_targets(&mut resumed, &[rep]);
-        assert_eq!(resumed.len(), 4);
-        assert!(resumed.iter().all(|t| t.root.root != frozen));
+        let old = BlockHash::from(2);
+        let other = BlockHash::from(3);
         assert_eq!(
-            state.authorize(&frozen, rep, 1.into(), 0, false, false, false, None),
+            state.authorize(&root, rep, old, 0, false, false, false, None),
             Some(VoteKind::First)
         );
         assert_eq!(
-            state.authorize(&frozen, rep, 1.into(), 0, true, false, true, None),
+            state.authorize(&root, rep, old, 0, true, false, true, None),
+            Some(VoteKind::Final)
+        );
+        assert_eq!(
+            state.authorize(&root, rep, other, 1, false, false, false, Some(old)),
+            Some(VoteKind::FirstTimeout)
+        );
+        assert_eq!(
+            state.authorize_timeout(&root, rep, other, 1, true, Some(old)),
+            Some(VoteKind::Timeout)
+        );
+        assert_eq!(
+            state.authorize_timeout(&root, rep, old, 0, true, Some(old)),
             None
+        );
+        assert_eq!(
+            state.authorize(&root, rep, other, 1, false, true, true, Some(old)),
+            None
+        );
+        assert_eq!(
+            state.first_recovery_targets(0),
+            vec![(rsnano_types::ElectionId::new(root, 0), old)]
         );
     }
 
     #[test]
-    fn cut_pause_preserves_old_votes_but_only_cut_resumes_new_statements() {
+    fn final_requires_matching_non_timeout_first() {
         let mut state = KudzuVoteState::default();
-        let rep = PublicKey::from(1);
-        let cut = QualifiedRoot::new(1.into(), 0.into());
-        let excluded = QualifiedRoot::new(2.into(), 0.into());
-        for root in [&cut, &excluded] {
-            assert_eq!(
-                state.authorize(root, rep, 1.into(), 0, false, false, false, None),
-                Some(VoteKind::First)
-            );
-        }
-        state.pause_epoch(0);
-        for root in [&cut, &excluded] {
-            assert_eq!(
-                state.authorize(root, rep, 1.into(), 0, false, false, false, None),
-                Some(VoteKind::First)
-            );
-            assert_eq!(
-                state.authorize(root, rep, 1.into(), 0, true, false, true, None),
-                None
-            );
-            assert_eq!(
-                state.authorize(root, rep, 2.into(), 0, false, true, false, None),
-                None
-            );
-            assert_eq!(
-                state.authorize_timeout(root, rep, 1.into(), 0, true, None),
-                None
-            );
-        }
-        let fresh = QualifiedRoot::new(3.into(), 0.into());
+        let root = QualifiedRoot::new_test_instance();
         assert_eq!(
-            state.authorize(&fresh, rep, 3.into(), 1, false, false, false, None),
+            state.authorize(&root, 1.into(), 2.into(), 0, true, true, true, None),
+            None
+        );
+        assert_eq!(
+            state.authorize(&root, 1.into(), 2.into(), 0, false, false, false, None),
             Some(VoteKind::First)
         );
-        state.resume_cut(0, [cut.clone()]);
         assert_eq!(
-            state.authorize(&cut, rep, 1.into(), 0, true, false, true, None),
+            state.authorize(&root, 1.into(), 2.into(), 0, true, false, true, None),
             Some(VoteKind::Final)
         );
+    }
+
+    #[test]
+    fn fence_prevents_all_new_signatures_and_releases_only_omitted_attempts() {
+        let mut state = KudzuVoteState::default();
+        let included = QualifiedRoot::new(1.into(), 0.into());
+        let omitted = QualifiedRoot::new(2.into(), 0.into());
+        for root in [&included, &omitted] {
+            assert_eq!(
+                state.authorize(root, 1.into(), 2.into(), 0, false, false, false, None),
+                Some(VoteKind::First)
+            );
+        }
+        state.seal_epoch(0);
+        for root in [&included, &omitted] {
+            assert_eq!(
+                state.authorize(root, 1.into(), 2.into(), 0, false, true, true, None),
+                None
+            );
+            assert_eq!(
+                state.authorize(root, 1.into(), 2.into(), 0, true, true, true, None),
+                None
+            );
+            assert_eq!(
+                state.authorize_timeout(root, 1.into(), 2.into(), 0, true, None),
+                None
+            );
+        }
+        state.apply_close(0, &[included.clone()].into_iter().collect());
         assert_eq!(
-            state.authorize(&excluded, rep, 1.into(), 0, true, false, true, None),
-            None
+            state.authorize(&omitted, 1.into(), 3.into(), 1, false, false, false, None),
+            Some(VoteKind::First)
         );
         assert_eq!(
-            state.authorize(&excluded, rep, 2.into(), 0, false, true, false, None),
-            None
-        );
-        assert_eq!(
-            state.authorize_timeout(&excluded, rep, 1.into(), 0, true, None),
-            None
+            state.authorize(&included, 9.into(), 3.into(), 1, false, false, false, None),
+            Some(VoteKind::FirstTimeout)
         );
     }
 
@@ -685,7 +659,7 @@ mod tests {
         );
         assert_eq!(
             state.authorize_timeout(&root, rep, hash, 0, true, Some(hash)),
-            None
+            Some(VoteKind::Timeout)
         );
         assert_eq!(
             state.authorize_timeout(&root, rep, hash, 0, true, None),
@@ -829,6 +803,10 @@ mod tests {
         let a = BlockHash::from(10);
         let b = BlockHash::from(11);
         assert_eq!(
+            state.authorize(&root, rep, a, 2, false, false, false, None),
+            Some(VoteKind::First)
+        );
+        assert_eq!(
             state.authorize(&root, rep, a, 2, true, false, true, None),
             Some(VoteKind::Final)
         );
@@ -847,7 +825,7 @@ mod tests {
         );
         assert_eq!(
             state.authorize(&root, rep, b, 1, false, false, false, Some(a)),
-            None
+            Some(VoteKind::FirstTimeout)
         );
     }
 }

@@ -28,6 +28,7 @@ pub(crate) const NODE_CONFIG: &str = r#"
     database_backend = "DB_BACKEND"
     cps_limit = CPS_LIMIT
     epoch_length = EPOCH_LENGTH
+    epoch_terminated_elections = EPOCH_TERMINATED_ELECTIONS
     VOTE_GENERATOR_DELAY
 
 [node.lmdb]
@@ -116,6 +117,10 @@ pub(crate) fn configure_nodes(args: &CliArgs, data_dir: &Path) {
                 .replace("DB_BACKEND", if args.rocksdb { "rocksdb" } else { "lmdb" })
                 .replace("CPS_LIMIT", &args.cps_limit.to_string())
                 .replace("EPOCH_LENGTH", &args.epoch_length.to_string())
+                .replace(
+                    "EPOCH_TERMINATED_ELECTIONS",
+                    &args.epoch_terminated_elections.to_string(),
+                )
                 .replace(
                     "VOTE_GENERATOR_DELAY",
                     &args

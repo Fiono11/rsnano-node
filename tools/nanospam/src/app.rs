@@ -164,7 +164,7 @@ impl NanoSpamApp {
         let mut conf_receiver = ConfirmationReceiver::connect().await?;
 
         #[cfg(feature = "rai_protocol")]
-        if self.args.epoch_length > 0 && !self.args.attach {
+        if self.args.epochs_enabled() && !self.args.attach {
             let start = std::time::SystemTime::now() + Duration::from_secs(1);
             let millis = start.duration_since(std::time::UNIX_EPOCH)?.as_millis();
             let temporary = data_dir.join("epoch-start-ms.tmp");
@@ -247,7 +247,7 @@ impl NanoSpamApp {
         let mean_ms = |duration: Duration, count: usize| {
             (count > 0).then(|| duration.as_secs_f64() * 1000.0 / count as f64)
         };
-        let summary = serde_json::json!({ "confirmed_forks":logic.confirmed_forks,"confirmed_nonforks":confirmed_nonforks,"average_fork_confirmation_ms":mean_ms(logic.sum_fork_time, logic.confirmed_forks),"average_nonfork_confirmation_ms":mean_ms(logic.sum_nonfork_time, confirmed_nonforks), "rai_protocol": cfg!(feature = "rai_protocol"), "epoch_length": self.args.epoch_length, "prs": self.args.prs, "accounts": self.args.accounts, "created_blocks": created_blocks, "published_blocks": logic.published_blocks, "confirmed_blocks": confirmed_blocks, "duration_seconds": duration_secs, "confirmation_rate_cps": cps, "average_confirmation_ms": conf_time });
+        let summary = serde_json::json!({ "confirmed_forks":logic.confirmed_forks,"confirmed_nonforks":confirmed_nonforks,"average_fork_confirmation_ms":mean_ms(logic.sum_fork_time, logic.confirmed_forks),"average_nonfork_confirmation_ms":mean_ms(logic.sum_nonfork_time, confirmed_nonforks), "rai_protocol": cfg!(feature = "rai_protocol"), "epoch_length": self.args.epoch_length, "epoch_terminated_elections":self.args.epoch_terminated_elections, "prs": self.args.prs, "accounts": self.args.accounts, "created_blocks": created_blocks, "published_blocks": logic.published_blocks, "confirmed_blocks": confirmed_blocks, "duration_seconds": duration_secs, "confirmation_rate_cps": cps, "average_confirmation_ms": conf_time });
         let workload_records = logic.workload_records.clone();
         let published_hashes = logic.published_hashes.clone();
         let published_workload_blocks = logic.published_blocks;
@@ -256,7 +256,15 @@ impl NanoSpamApp {
         drop(logic);
         info!("BENCHMARK_RESULT {summary}");
         #[cfg(feature = "rai_protocol")]
-        if self.args.epoch_length > 0 {
+        if !self.args.epochs_enabled() {
+            // Without epoch advancement every outcome lands in epoch 0; report the
+            // workload-window latencies so runs with and without epochs compare.
+            let metrics = logic_metrics.lock().unwrap();
+            let summary = metrics.summarize(metrics.observed_epochs());
+            info!("EPOCH_PERFORMANCE_RESULT {summary}");
+        }
+        #[cfg(feature = "rai_protocol")]
+        if self.args.epochs_enabled() {
             anyhow::ensure!(
                 self.args.blocks == Some(workload_roots.len())
                     && published_workload_blocks == workload_roots.len(),
@@ -397,7 +405,7 @@ impl NanoSpamApp {
             "Termination/certificate agreement failed: {agreement}"
         );
         #[cfg(feature = "rai_protocol")]
-        if self.args.epoch_length > 0 {
+        if self.args.epochs_enabled() {
             verify_epoch_closures(
                 &self.rpc_clients,
                 self.args.close_timeout(),
