@@ -24,7 +24,9 @@ elections each).
 | 1000 | final | 98 / 124 | 123 / 184 | 1.3 | 58% |
 | 1000 | final, `--vote-generator-delay-ms 50` | 58 / 76 | 79 / 136 | 1.4 | 68% |
 | 1500 | final | 108 / 154 | 173 / 360 | 1.6 | 69% |
+| 1500 | final, `--vote-generator-delay-ms 50` | 73 / 137 | 313 / 1070 | 4.3 | 91% |
 | 2000 | final | 216 / 469 | 2010 / 3407 | 9.3 | 97% |
+| 2000 | final, `--vote-generator-delay-ms 50` | 259 / 478 | 2709 / 4649 | 10.5 | 89% |
 
 Yesterday's runs of the same commit (see `../rai-reconciliation-2026-09-14`) had e1 means of 1,137 ms at
 1000, 20,945 ms at 1500 and 7,322 ms at 2000 blocks/s. Confirmations per second reported by nanospam over
@@ -103,11 +105,13 @@ fix4-1500    790   202 |     116 /    206 |     243 /    617 |   2.1 | 1109 / 12
 fix5-1500    789   221 |     110 /    159 |     277 /    729 |   2.5 | 1130 / 1279 |       12/15s r2 |       23/25s r3 |        0         0 |        84
 fix6-1500    789   151 |     108 /    154 |     173 /    360 |   1.6 | 1060 / 1195 |        8/10s r1 |      90/101s r5 |        0         0 |        69
 fix4d50-1500  791   172 |      73 /    129 |     234 /    452 |   3.2 | 1057 / 1417 |         9/9s r2 |       22/26s r3 |        0         0 |        82
+fix6d50-1500  791   226 |      73 /    137 |     313 /   1070 |   4.3 | 1080 / 1319 |       10/11s r2 |       10/17s r2 |        0         0 |        91
 fix2-2000    787  2122 |     256 /    571 |    3549 /   6516 |  13.9 | 1367 / 5157 |       11/57s r2 |      -33/31s r1 |     6086      3108 |        88
 fix3-2000    790  1501 |     257 /    675 |    2303 /   3948 |   9.0 | 1451 / 3827 |       11/16s r1 |         4/9s r0 |        0         0 |       104
 fix4-2000    791  1328 |     176 /    368 |    2014 /   2858 |  11.5 | 1752 / 3503 |       27/27s r3 |        1/11s r0 |        0         0 |        82
 fix5-2000    792  1602 |     275 /    606 |    2429 /   4153 |   8.8 | 1451 / 3950 |       10/11s r1 |         3/4s r1 |        0         0 |       103
 fix6-2000    790  1318 |     216 /    469 |    2010 /   3407 |   9.3 | 1382 / 3255 |       13/13s r2 |        4/17s r1 |        0         0 |        97
+fix6d50-2000  790  1716 |     259 /    478 |    2709 /   4649 |  10.5 | 1650 / 3854 |       17/58s r2 |        5/18s r3 |        0         0 |        89
 ```
 
 - fix1: closer tick scan.
@@ -132,8 +136,10 @@ fix6-2000    790  1318 |     216 /    469 |    2010 /   3407 |   9.3 | 1382 / 32
   the close.
 - **Scheduler convoy at saturation.** At 2000 blocks/s the block processor waits ~20% of its time for the
   scheduler mutex, which the scheduler loop holds while taking the AEC write lock.
-- **Vote generator delay.** 50 ms instead of 100 ms cuts non-fork latency by ~40% at 1000 blocks/s and is
-  affordable up to 1500 on this host; it is a config setting, not a code change.
+- **Vote generator delay.** 50 ms instead of 100 ms cuts non-fork latency by ~40% at 1000 blocks/s. At 1500
+  it improves epoch 0 (73 ms) but the extra vote messages push the nodes to 91% CPU and epoch 1 degrades to
+  313 ms, and at 2000 everything gets worse; on this host it only pays at 1000 blocks/s. It is a config
+  setting, not a code change.
 
 ## Files
 
