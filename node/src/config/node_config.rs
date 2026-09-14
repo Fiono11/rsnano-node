@@ -117,6 +117,8 @@ pub struct NodeConfig {
     pub cps_limit: u32,
     /// Consensus epoch duration in seconds; zero disables epoch advancement.
     pub epoch_length: u64,
+    /// Advance at cumulative checkpoints of this many terminated elections; zero disables.
+    pub epoch_terminated_elections: u64,
 }
 
 impl NodeConfig {
@@ -282,6 +284,7 @@ impl NodeConfig {
             rebroadcast_history: Default::default(),
             cps_limit: 0,
             epoch_length: 0,
+            epoch_terminated_elections: 0,
         }
     }
 

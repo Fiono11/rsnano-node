@@ -13,6 +13,8 @@ pub struct EpochClose {
     pub epoch: u64,
     pub round: u64,
     pub parent: BlockHash,
+    /// Identity of the previous finalized epoch close, separate from the round parent.
+    pub previous_close: BlockHash,
     pub state: BlockHash,
     pub kind: u8,
     pub voter: PublicKey,
@@ -35,20 +37,30 @@ impl EpochClose {
     pub const MAX_PAGES: u16 = 2048;
     pub fn candidate_id(&self) -> BlockHash {
         Blake2HashBuilder::new()
-            .update(b"rai-close-candidate-v1")
+            .update(b"rai-close-candidate-v2")
             .update(self.epoch.to_le_bytes())
             .update(self.round.to_le_bytes())
             .update(self.parent.as_bytes())
+            .update(self.previous_close.as_bytes())
             .update(self.state.as_bytes())
             .build()
     }
     pub fn signing_hash(&self) -> BlockHash {
         let builder = Blake2HashBuilder::new()
-            .update(b"rai-close-vote-v1")
+            .update(b"rai-close-vote-v2")
             .update(self.candidate_id().as_bytes())
             .update([self.kind])
             .update(self.members.to_le_bytes());
-        if self.kind == 8 {
+        if self.kind == 5 {
+            let mut builder = builder
+                .update(self.base.as_bytes())
+                .update(self.page.to_le_bytes())
+                .update(self.pages.to_le_bytes());
+            for hash in &self.hashes {
+                builder = builder.update(hash.as_bytes());
+            }
+            builder.build()
+        } else if self.kind == 8 {
             let mut builder = builder
                 .update(self.page.to_le_bytes())
                 .update(self.pages.to_le_bytes());
@@ -101,8 +113,7 @@ impl EpochClose {
 
     pub fn valid_recovery_request(&self) -> bool {
         self.kind == 7
-            && !self.hashes.is_empty()
-            && self.hashes.len() <= Self::PAGE_SIZE
+            && self.hashes.len() == 1
             && self.base.is_zero()
             && self.removed.is_empty()
             && self.pages == 0
@@ -113,19 +124,14 @@ impl EpochClose {
                 .is_ok()
     }
 
-    /// Signed pages of the immutable pending-election report. Triples encode
-    /// qualified root (root, previous) and a candidate hash for ordinary recovery.
-    pub fn valid_cut_report(&self) -> bool {
-        self.kind == 8
-            && self.round == 0
-            && self.parent.is_zero()
-            && self.base.is_zero()
+    pub fn valid_delta(&self) -> bool {
+        self.kind == 5
             && self.removed.is_empty()
+            && !self.base.is_zero()
             && self.pages > 0
             && self.pages <= Self::MAX_PAGES
             && self.page < self.pages
             && self.hashes.len() <= Self::PAGE_SIZE
-            && self.hashes.len() % 3 == 0
             && self
                 .voter
                 .verify(self.signing_hash().as_bytes(), &self.signature)
@@ -138,8 +144,9 @@ impl EpochClose {
     pub fn deserialize(payload: &[u8]) -> Result<Self, DeserializationError> {
         let value: Self =
             serde_json::from_slice(payload).map_err(|_| DeserializationError::InvalidData)?;
-        if value.kind > 8
-            || value.hashes.len() + value.removed.len() > Self::PAGE_SIZE
+        if value.kind > 7
+            || !value.removed.is_empty()
+            || value.hashes.len() > Self::PAGE_SIZE
             || value.pages > Self::MAX_PAGES
         {
             return Err(DeserializationError::InvalidData);

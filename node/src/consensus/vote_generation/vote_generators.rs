@@ -47,22 +47,50 @@ pub struct VoteGenerators {
 
 impl VoteGenerators {
     #[cfg(feature = "rai_protocol")]
-    pub(crate) fn pause_epoch_report(
+    pub(crate) fn with_close_readiness<T>(
         &self,
         epoch: u64,
         aec: &crate::consensus::AecService,
-    ) -> Vec<(rsnano_types::QualifiedRoot, BlockHash)> {
-        let mut state = self.vote_state.lock().unwrap();
-        state.pause_epoch(epoch);
-        let report = aec.pending_cut_report(epoch);
+        action: impl FnOnce(bool) -> T,
+    ) -> T {
+        let state = self.vote_state.lock().unwrap();
+        aec.with_close_readiness(epoch, &state.first_elections(epoch), action)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn begin_drain(&self, epoch: u64) {
+        self.vote_state.lock().unwrap().drain_through(epoch);
         self.ledger
             .voting_epoch
-            .store(epoch + 1, std::sync::atomic::Ordering::Release);
-        report
+            .fetch_max(epoch + 1, std::sync::atomic::Ordering::AcqRel);
     }
+
     #[cfg(feature = "rai_protocol")]
-    pub(crate) fn resume_epoch_cut(&self, epoch: u64, roots: Vec<rsnano_types::QualifiedRoot>) {
-        self.vote_state.lock().unwrap().resume_cut(epoch, roots);
+    pub(crate) fn seal_epoch(&self, epoch: u64) {
+        self.vote_state.lock().unwrap().seal_epoch(epoch);
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn apply_close(
+        &self,
+        epoch: u64,
+        roots: rustc_hash::FxHashSet<rsnano_types::QualifiedRoot>,
+    ) {
+        self.vote_state.lock().unwrap().apply_close(epoch, &roots);
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn first_recovery_targets(
+        &self,
+        epoch: u64,
+        aec: &crate::consensus::AecService,
+    ) -> Vec<(BlockHash, Root)> {
+        let targets = self
+            .vote_state
+            .lock()
+            .unwrap()
+            .first_recovery_targets(epoch);
+        aec.pending_first_recovery(targets)
     }
 
     #[cfg(feature = "rai_protocol")]
@@ -243,6 +271,9 @@ impl VoteGenerators {
         self.wallet_reps.lock().unwrap().rep_priv_keys(&mut keys);
         let tx = self.ledger.store.begin_read();
         let mut state = self.vote_state.lock().unwrap();
+        let mut recovery_hashes: Vec<_> = entries.iter().map(|e| e.hash()).collect();
+        recovery_hashes.extend(requests.iter().map(|(hash, _)| *hash));
+        let mut archived = state.signed_for(epoch, &recovery_hashes);
         let mut final_locks = Vec::new();
         let mut blocks = Vec::new();
         let mut groups = std::collections::BTreeMap::<_, Vec<BlockHash>>::new();
@@ -277,9 +308,7 @@ impl VoteGenerators {
             }
             // The requester named the candidates it already holds; republish only
             // the others, so a lagging replica is not flooded with known blocks.
-            if let Some(block) = entry.block
-                && !requests.iter().any(|(hash, _)| *hash == block.hash())
-            {
+            if let Some(block) = entry.block {
                 blocks.push(block);
             }
         }
@@ -315,17 +344,24 @@ impl VoteGenerators {
             hashes.sort_unstable();
             hashes.dedup();
             for hashes in hashes.chunks(rsnano_messages::ConfirmAck::HASHES_MAX) {
+                let mut state = self.vote_state.lock().unwrap();
+                if state.is_sealed(epoch) {
+                    continue;
+                }
                 let vote = Arc::new(rsnano_types::Vote::new_with_kind(
                     &keys[key_index],
                     hashes.to_vec(),
                     epoch,
                     kind,
                 ));
+                state.remember_signed(vote.clone());
+                drop(state);
                 if self.vote_broadcaster.enqueue_local(vote.clone()) {
                     votes.push(vote);
                 }
             }
         }
+        votes.append(&mut archived);
         (blocks, votes)
     }
 

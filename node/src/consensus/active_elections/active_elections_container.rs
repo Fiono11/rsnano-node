@@ -51,6 +51,11 @@ pub(crate) struct ActiveElectionsContainer {
     notarization_notifications: super::notarization_notifications::NotarizationNotifications,
     #[cfg(feature = "rai_protocol")]
     pub block_tree: crate::consensus::RaiBlockTree,
+    #[cfg(feature = "rai_protocol")]
+    pub(super) terminated_elections: std::collections::HashSet<rsnano_types::ElectionId>,
+    #[cfg(feature = "rai_protocol")]
+    pub(super) certificate_recovery:
+        HashMap<rsnano_types::ElectionId, crate::consensus::election::kudzu::KudzuVotes>,
     roots: RootContainer,
     observer: Option<Sender<AecFact>>,
     stopped: bool,
@@ -134,6 +139,10 @@ impl ActiveElectionsContainer {
             ),
             #[cfg(feature = "rai_protocol")]
             block_tree: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            terminated_elections: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            certificate_recovery: Default::default(),
             roots: RootContainer::new(config.max_elections),
             observer: None,
             stopped: false,
@@ -509,7 +518,7 @@ impl ActiveElectionsContainer {
         let mut required: std::collections::HashSet<_> = local_first.iter().cloned().collect();
         required.extend(self.roots.iter().filter_map(|entry| {
             let e = &entry.election;
-            (e.epoch == epoch && e.has_f_plus_one_first_votes()).then(|| e.id())
+            (e.epoch == epoch).then(|| e.id())
         }));
         required
             .into_iter()
@@ -517,6 +526,11 @@ impl ActiveElectionsContainer {
                 !self
                     .election_for_id(id)
                     .is_some_and(|e| e.has_quorum() || e.is_confirmed() || e.is_timed_out())
+                    && !self
+                        .block_tree
+                        .for_root(&id.root)
+                        .iter()
+                        .any(|entry| entry.epoch == epoch)
             })
             .collect()
     }
@@ -564,6 +578,8 @@ impl ActiveElectionsContainer {
                     .keys()
                     .any(|hash| hashes.binary_search(hash).is_ok())
         });
+        self.block_tree.close_epoch(epoch, hashes);
+        self.certificate_recovery.retain(|id, _| id.epoch != epoch);
         let count = removed.len();
         for entry in removed {
             self.cleanup_election(entry);
@@ -905,6 +921,79 @@ impl ActiveElectionsContainer {
         result.into_values().collect()
     }
 
+    /// Certificate collection is epoch-local even when proposal activation is
+    /// blocked by a notarization of the same block in an earlier epoch. This
+    /// path never creates an election or authorizes a new local vote.
+    #[cfg(feature = "rai_protocol")]
+    fn recover_epoch_certificates(
+        &mut self,
+        args: &ApplyVoteArgs<'_>,
+    ) -> (Vec<rsnano_types::RaiBlockTreeEntry>, Vec<BlockHash>) {
+        use rsnano_types::{ElectionId, RaiBlockTreeEntry, VoteKind};
+        let mut entries = Vec::new();
+        let mut accepted = Vec::new();
+        let epoch = args.vote.epoch;
+        if let Some(ledger) = &self.epoch_source {
+            if epoch > ledger.current_epoch() {
+                return (entries, accepted);
+            }
+        }
+        for hash in args.vote.filtered_blocks() {
+            if self.roots.election_for_epoch_mut(hash, epoch).is_some() {
+                continue;
+            }
+            let Some(root) = self.block_tree.root_of(hash).cloned() else {
+                continue;
+            };
+            let Some(block) = self
+                .block_tree
+                .for_root(&root)
+                .into_iter()
+                .find(|e| e.hash() == *hash && e.epoch != epoch && e.block.is_some())
+                .and_then(|e| e.block)
+            else {
+                continue;
+            };
+            if self.epoch_source.as_ref().is_some_and(|ledger| {
+                epoch
+                    < ledger
+                        .closed_epoch_count
+                        .load(std::sync::atomic::Ordering::Acquire)
+                    && !ledger.store.consensus_epochs.close_contains(
+                        &ledger.store.begin_read(),
+                        epoch,
+                        hash,
+                    )
+            }) {
+                continue;
+            }
+            let votes = self
+                .certificate_recovery
+                .entry(ElectionId::new(root.clone(), epoch))
+                .or_default();
+            if votes.insert(args.vote.vote.vote.clone(), *hash).is_err() {
+                continue;
+            }
+            accepted.push(*hash);
+            votes.tally(
+                args.rep_weights,
+                args.quorum_snapshot
+                    .online_weight
+                    .max(args.quorum_snapshot.trended_or_min_weight),
+            );
+            if votes.has_certificate(BlockHash::ZERO, VoteKind::Timeout) {
+                entries.push(RaiBlockTreeEntry::timeout(root, epoch, *hash));
+            }
+            if votes.has_certificate(*hash, VoteKind::Notarize) {
+                let mut entry = RaiBlockTreeEntry::notarized(block, epoch);
+                entry.finalized = votes.has_certificate(*hash, VoteKind::First)
+                    || votes.has_certificate(*hash, VoteKind::Final);
+                entries.push(entry);
+            }
+        }
+        (entries, accepted)
+    }
+
     pub fn apply_vote<'a>(
         &mut self,
         args: ApplyVoteArgs<'a>,
@@ -992,9 +1081,31 @@ impl ActiveElectionsContainer {
             observer: &self.observer,
             roots: &mut self.roots,
         };
-        let result = apply_helper.apply_vote();
+        #[allow(unused_mut)]
+        let mut result = apply_helper.apply_vote();
+        #[cfg(feature = "rai_protocol")]
+        {
+            let (entries, accepted) = self.recover_epoch_certificates(&args);
+            result.tree_entries.extend(entries);
+            for hash in accepted {
+                result.per_block.insert(hash, Ok(()));
+            }
+        }
         #[cfg(feature = "rai_protocol")]
         for entry in result.tree_entries {
+            if self.epoch_source.as_ref().is_some_and(|ledger| {
+                entry.epoch
+                    < ledger
+                        .closed_epoch_count
+                        .load(std::sync::atomic::Ordering::Acquire)
+                    && !ledger.store.consensus_epochs.close_contains(
+                        &ledger.store.begin_read(),
+                        entry.epoch,
+                        &entry.hash(),
+                    )
+            }) {
+                continue;
+            }
             let epoch = entry.epoch;
             let hash = entry.hash();
             let finalized = entry.finalized;
@@ -1007,6 +1118,8 @@ impl ActiveElectionsContainer {
                 .block_tree
                 .insert(entry)
                 .expect("Conflicting locally established outcomes");
+            self.terminated_elections
+                .insert(rsnano_types::ElectionId::new(root.clone(), epoch));
             if changed && self.report_outcomes {
                 let first_vote_us = self
                     .election_for_id(&rsnano_types::ElectionId::new(root.clone(), epoch))

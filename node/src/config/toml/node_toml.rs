@@ -69,6 +69,7 @@ pub struct NodeToml {
     pub peering_port: Option<u16>,
     pub cps_limit: Option<u32>,
     pub epoch_length: Option<u64>,
+    pub epoch_terminated_elections: Option<u64>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -484,6 +485,9 @@ impl NodeConfig {
             self.network.listening_port = port;
         }
 
+        if let Some(count) = toml.epoch_terminated_elections {
+            self.epoch_terminated_elections = count;
+        }
         if let Some(length) = toml.epoch_length {
             self.epoch_length = length;
         }
@@ -636,6 +640,7 @@ impl From<&NodeConfig> for NodeToml {
             peering_port: Some(config.network.listening_port),
             cps_limit: Some(config.cps_limit),
             epoch_length: Some(config.epoch_length),
+            epoch_terminated_elections: Some(config.epoch_terminated_elections),
         }
     }
 }

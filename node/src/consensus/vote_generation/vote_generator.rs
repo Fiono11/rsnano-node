@@ -470,6 +470,7 @@ impl SharedState {
         &self,
         hashes: &[BlockHash],
         roots: &[Root],
+        epoch: u64,
     ) -> Vec<(BlockHash, Root, rsnano_types::QualifiedRoot)> {
         let mut blocks: Vec<Option<rsnano_types::Block>> = {
             let any = self.ledger.any();
@@ -493,6 +494,11 @@ impl SharedState {
             }
         }
         let any = self.ledger.any();
+        let draining = self
+            .ledger
+            .draining_epoch
+            .load(std::sync::atomic::Ordering::Acquire);
+        let timeout_participation = draining != u64::MAX && epoch <= draining;
         blocks
             .into_iter()
             .zip(hashes)
@@ -501,7 +507,9 @@ impl SharedState {
                 let block = block?;
                 (block.hash() == *hash
                     && block.root() == *root
-                    && any.dependencies_confirmed_for_unsaved_block(&block))
+                    && (timeout_participation
+                        || (self.ledger.epoch_parent_allowed(&block.previous(), epoch)
+                            && any.dependencies_confirmed_for_unsaved_block(&block))))
                 .then(|| (*hash, *root, block.qualified_root()))
             })
             .collect()
@@ -519,10 +527,13 @@ impl SharedState {
         F: Fn(Arc<Vote>),
     {
         use rsnano_types::{ElectionId, VoteKind};
+        if !self.ledger.epoch_entry_allowed(epoch) {
+            return;
+        }
         // Never hold the election lock while entering a database write transaction.
         let aec = self.elections.read().unwrap().upgrade();
         let mut candidates: Vec<_> = self
-            .kudzu_candidates(hashes, roots)
+            .kudzu_candidates(hashes, roots, epoch)
             .into_iter()
             .map(|(hash, root, qualified)| (hash, root, qualified, false, false, false))
             .collect();
@@ -567,31 +578,6 @@ impl SharedState {
                             let group = groups.entry(kind).or_default();
                             group.0.push(*hash);
                             group.1.push(*root);
-                        }
-                        // Participation in a new epoch is a FIRST-timeout even when
-                        // the requested fork has no second-look support. Route it via
-                        // our original value so a conflicting final lock cannot hide it.
-                        {
-                            if let Some(first) = state.first_value(qualified, key.public_key()) {
-                                if first != *hash
-                                    && !state.has_first(qualified, key.public_key(), first, epoch)
-                                {
-                                    if let Some(kind) = state.authorize(
-                                        qualified,
-                                        key.public_key(),
-                                        first,
-                                        epoch,
-                                        false,
-                                        false,
-                                        false,
-                                        lock,
-                                    ) {
-                                        let group = groups.entry(kind).or_default();
-                                        group.0.push(first);
-                                        group.1.push(*root);
-                                    }
-                                }
-                            }
                         }
                         // Preserve First recovery after election removal, but do
                         // not duplicate an active election's already-issued First.
@@ -649,31 +635,6 @@ impl SharedState {
                             group.0.push(*hash);
                             group.1.push(*root);
                         }
-                        // Participation in a new epoch is a FIRST-timeout even when
-                        // the requested fork has no second-look support. Route it via
-                        // our original value so a conflicting final lock cannot hide it.
-                        {
-                            if let Some(first) = state.first_value(qualified, key.public_key()) {
-                                if first != *hash
-                                    && !state.has_first(qualified, key.public_key(), first, epoch)
-                                {
-                                    if let Some(kind) = state.authorize(
-                                        qualified,
-                                        key.public_key(),
-                                        first,
-                                        epoch,
-                                        false,
-                                        false,
-                                        false,
-                                        lock,
-                                    ) {
-                                        let group = groups.entry(kind).or_default();
-                                        group.0.push(first);
-                                        group.1.push(*root);
-                                    }
-                                }
-                            }
-                        }
                         if let Some(kind) = state.authorize(
                             qualified,
                             key.public_key(),
@@ -696,7 +657,22 @@ impl SharedState {
                     .chunks(Vote::MAX_HASHES)
                     .zip(roots.chunks(Vote::MAX_HASHES))
                 {
-                    let vote = Arc::new(Vote::new_with_kind(&key, hashes.to_vec(), epoch, kind));
+                    let vote = {
+                        let mut state = self.vote_state.lock().unwrap();
+                        if state.is_sealed(epoch)
+                            || epoch
+                                < self
+                                    .ledger
+                                    .closed_epoch_count
+                                    .load(std::sync::atomic::Ordering::Acquire)
+                        {
+                            continue;
+                        }
+                        let vote =
+                            Arc::new(Vote::new_with_kind(&key, hashes.to_vec(), epoch, kind));
+                        state.remember_signed(vote.clone());
+                        vote
+                    };
                     {
                         let mut spacing = self.spacing.lock().unwrap();
                         for (hash, root) in hashes.iter().zip(roots) {
@@ -806,7 +782,7 @@ impl SharedState {
             {
                 let (roots, hashes): (Vec<_>, Vec<_>) = candidates.into_iter().unzip();
                 verified.extend(
-                    self.kudzu_candidates(&hashes, &roots)
+                    self.kudzu_candidates(&hashes, &roots, epoch)
                         .into_iter()
                         .map(|(h, r, _)| (r, h, epoch)),
                 );

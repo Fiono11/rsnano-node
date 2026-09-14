@@ -10,7 +10,6 @@ use rsnano_network::{ChannelId, TrafficType};
 use rsnano_types::{Amount, BlockHash, PrivateKey, PublicKey, Root, Signature, Vote, VoteKind};
 use rsnano_utils::{CancellationToken, ticker::Tickable};
 use std::{
-    cell::Cell,
     collections::{BTreeMap, HashMap, HashSet, VecDeque},
     sync::{Arc, Mutex, atomic::Ordering},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -121,19 +120,18 @@ fn kind(k: u8) -> VoteKind {
     }
 }
 struct Candidate {
-    validated: Cell<bool>,
     header: EpochClose,
     pages: BTreeMap<u16, Vec<BlockHash>>,
-    removed_pages: BTreeMap<u16, Vec<BlockHash>>,
     recovery_base: Option<Arc<Vec<BlockHash>>>,
     last_delta_page: Option<Instant>,
     hashes: Option<Vec<BlockHash>>,
 }
 struct State {
-    cut: super::epoch_cut::EpochCut,
+    draining: bool,
     epoch: u64,
     round: u64,
     parent: BlockHash,
+    previous_close: BlockHash,
     ready: bool,
     rounds: BTreeMap<u64, Round>,
     candidates: BTreeMap<BlockHash, Candidate>,
@@ -144,6 +142,7 @@ struct State {
     receipts: BTreeMap<(u64, PublicKey), BlockHash>,
     local_receipts: Vec<EpochClose>,
     local_snapshots: VecDeque<(BlockHash, Vec<BlockHash>)>,
+    empty_snapshot: (BlockHash, Vec<BlockHash>),
     last_snapshot: Option<Instant>,
     archive_snapshots: BTreeMap<BlockHash, Vec<BlockHash>>,
     closed_base: Option<(BlockHash, Vec<BlockHash>)>,
@@ -194,32 +193,11 @@ fn sorted_difference(
 }
 struct SnapshotDelta {
     added: Vec<BlockHash>,
-    removed: Vec<BlockHash>,
 }
 impl SnapshotDelta {
-    fn between(base: &[BlockHash], target: &[BlockHash]) -> Self {
-        let mut added = Vec::new();
-        let mut removed = Vec::new();
-        let (mut b, mut t) = (0, 0);
-        while b < base.len() && t < target.len() {
-            match base[b].cmp(&target[t]) {
-                std::cmp::Ordering::Less => {
-                    removed.push(base[b]);
-                    b += 1;
-                }
-                std::cmp::Ordering::Greater => {
-                    added.push(target[t]);
-                    t += 1;
-                }
-                std::cmp::Ordering::Equal => {
-                    b += 1;
-                    t += 1;
-                }
-            }
-        }
-        removed.extend_from_slice(&base[b..]);
-        added.extend_from_slice(&target[t..]);
-        Self { added, removed }
+    fn between(base: &[BlockHash], target: &[BlockHash]) -> Option<Self> {
+        let (added, removed) = sorted_difference(base, target);
+        removed.is_empty().then_some(Self { added })
     }
 }
 impl State {
@@ -230,10 +208,11 @@ impl State {
                 .fold(0u128, |s, w| s.saturating_add(w.number())),
         );
         Self {
-            cut: Default::default(),
+            draining: false,
             epoch,
             round: 0,
             parent: BlockHash::ZERO,
+            previous_close: BlockHash::ZERO,
             ready: false,
             rounds: Default::default(),
             candidates: Default::default(),
@@ -244,6 +223,7 @@ impl State {
             receipts: BTreeMap::new(),
             local_receipts: Vec::new(),
             local_snapshots: Default::default(),
+            empty_snapshot: (Ledger::epoch_state_hash(epoch, &[]), vec![]),
             last_snapshot: None,
             archive_snapshots: Default::default(),
             closed_base: None,
@@ -295,21 +275,34 @@ impl State {
     /// replica already at the highest count joins once more than `f` weight has
     /// started it, or once the round timer expires, which keeps the rounds live.
     fn may_start_next_round(&self) -> bool {
-        let members = self.members();
-        if members < self.highest_members {
-            return false;
-        }
-        let started = self
-            .rounds
-            .get(&(self.round + 1))
-            .is_some_and(|round| round.tally.has_f_plus_one_first_votes());
-        let progressed = members > self.round_start_members;
-        let timed = self
-            .rounds
-            .get(&self.round)
-            .is_some_and(|round| round.started.elapsed() >= round_timeout(self.round));
-        started || progressed || timed
+        true
     }
+
+    fn leader(&self, round: u64) -> Option<PublicKey> {
+        let mut members: Vec<_> = self
+            .weights
+            .keys()
+            .copied()
+            .filter(|rep| !self.weights.weight(rep).is_zero())
+            .collect();
+        members.sort_unstable();
+        if members.is_empty() {
+            None
+        } else {
+            Some(members[round as usize % members.len()])
+        }
+    }
+
+    fn leader_proposed(&self, id: BlockHash) -> bool {
+        self.candidates.get(&id).is_some_and(|c| {
+            self.leader(c.header.round).is_some_and(|leader| {
+                self.rounds
+                    .get(&c.header.round)
+                    .is_some_and(|r| r.votes.contains_key(&(leader, 0, id)))
+            })
+        })
+    }
+
     fn enter_round(&mut self, round: u64) {
         self.round = round;
         self.rounds.entry(round).or_default().started = Instant::now();
@@ -323,7 +316,6 @@ impl State {
         if !self.retransmit.is_empty() {
             return;
         }
-        self.retransmit.extend(self.cut.local.iter().cloned());
         self.retransmit.extend(self.local_receipts.iter().cloned());
         self.retransmit.extend(
             self.rounds
@@ -340,8 +332,8 @@ impl State {
     fn advance(&mut self, hashes: Vec<BlockHash>, weights: RepWeights) {
         let mut archive = std::mem::take(&mut self.archive);
         archive.extend(self.packets());
-        archive.extend(self.cut.local.iter().cloned());
         let mut archive_snapshots = std::mem::take(&mut self.archive_snapshots);
+        archive_snapshots.insert(self.empty_snapshot.0, vec![]);
         archive_snapshots.extend(
             self.candidates
                 .values()
@@ -353,9 +345,17 @@ impl State {
         }
         let receipts = std::mem::take(&mut self.receipts);
         let local_receipts = std::mem::take(&mut self.local_receipts);
+        let digest = Ledger::epoch_state_hash(self.epoch, &hashes);
+        let previous_close = rsnano_types::Blake2HashBuilder::new()
+            .update(b"RAI-CLOSE")
+            .update(self.epoch.to_le_bytes())
+            .update(self.previous_close.as_bytes())
+            .update(digest.as_bytes())
+            .build();
         *self = State::new(self.epoch + 1, weights, archive);
+        self.previous_close = previous_close;
         self.archive_snapshots = archive_snapshots;
-        self.closed_base = Some((Ledger::epoch_state_hash(&hashes), hashes));
+        self.closed_base = Some((digest, hashes));
         self.receipts = receipts;
         self.local_receipts = local_receipts;
     }
@@ -372,6 +372,7 @@ impl State {
             epoch: self.epoch,
             round,
             parent,
+            previous_close: self.previous_close,
             state,
             kind: 0,
             voter: PublicKey::ZERO,
@@ -398,7 +399,10 @@ impl State {
         }
         // Bounded future rounds are stored so a lagging replica can catch up at
         // tick speed once it holds the intermediate timeout certificates.
-        if p.epoch != self.epoch || p.round > self.round + FUTURE_ROUNDS {
+        if p.epoch != self.epoch
+            || p.previous_close != self.previous_close
+            || p.round > self.round + FUTURE_ROUNDS
+        {
             return;
         }
         if p.kind <= 4 {
@@ -410,23 +414,19 @@ impl State {
                 &self.weights,
                 self.total,
             );
-            if accepted {
-                self.highest_members = self.highest_members.max(p.members);
-            }
+
             if accepted && p.kind <= 2 && !p.state.is_zero() {
                 self.candidates
                     .entry(p.candidate_id())
                     .or_insert_with(|| Candidate {
-                        validated: Cell::new(false),
                         header: p.clone(),
                         pages: Default::default(),
-                        removed_pages: Default::default(),
                         recovery_base: None,
                         last_delta_page: None,
                         hashes: None,
                     });
             }
-        } else if p.kind == 5 && p.pages > 0 && p.page < p.pages && !p.base.is_zero() {
+        } else if p.valid_delta() {
             // A delta is usable only against an immutable snapshot we already
             // reconstructed. There is deliberately no full-list fallback.
             let Some(base) = self
@@ -471,22 +471,15 @@ impl State {
                 entry.last_delta_page = Some(Instant::now());
             }
             entry.pages.entry(p.page).or_insert(p.hashes);
-            entry.removed_pages.entry(p.page).or_insert(p.removed);
             if entry.pages.len() == p.pages as usize {
                 let added: Vec<_> = entry.pages.values().flatten().copied().collect();
-                let removed: Vec<_> = entry.removed_pages.values().flatten().copied().collect();
                 let valid = added.windows(2).all(|w| w[0] < w[1])
-                    && removed.windows(2).all(|w| w[0] < w[1])
-                    && added.iter().all(|h| base.binary_search(h).is_err())
-                    && removed.iter().all(|h| base.binary_search(h).is_ok());
+                    && added.iter().all(|h| base.binary_search(h).is_err());
                 let mut reconstructed: std::collections::BTreeSet<_> =
                     base.iter().copied().collect();
-                for hash in removed {
-                    reconstructed.remove(&hash);
-                }
                 reconstructed.extend(added);
                 let hashes: Vec<_> = reconstructed.into_iter().collect();
-                if valid && Ledger::epoch_state_hash(&hashes) == p.state {
+                if valid && Ledger::epoch_state_hash(self.epoch, &hashes) == p.state {
                     entry.hashes = Some(hashes);
                 } else {
                     entry.header.pages = 0;
@@ -494,7 +487,6 @@ impl State {
                 }
                 entry.recovery_base = None;
                 entry.pages.clear();
-                entry.removed_pages.clear();
             }
         }
     }
@@ -506,17 +498,26 @@ impl State {
                 .is_some_and(|r| r.certificate(id, k))
         })
     }
+    fn has_finalized_close(&self) -> bool {
+        self.candidates.keys().any(|id| {
+            self.leader_proposed(*id)
+                && (self.certified(*id, VoteKind::First)
+                    || (self.certified(*id, VoteKind::Notarize)
+                        && self.certified(*id, VoteKind::Final)))
+        })
+    }
+
     fn valid(&self, id: BlockHash, ledger: &Ledger) -> bool {
         let Some(c) = self.candidates.get(&id) else {
             return false;
         };
-        if c.validated.get() {
-            return true;
-        }
         let Some(hashes) = &c.hashes else {
             return false;
         };
-        if !ledger.epoch_close_candidate_valid(self.epoch, hashes) {
+        if Ledger::epoch_state_hash(self.epoch, hashes) != c.header.state
+            || !self.leader_proposed(id)
+            || !ledger.epoch_close_candidate_valid(self.epoch, hashes)
+        {
             return false;
         }
         let first_skipped = if c.header.parent.is_zero() {
@@ -539,12 +540,12 @@ impl State {
             }
             parent.header.round + 1
         };
-        let valid = (first_skipped..c.header.round).all(|r| {
+        let _ = first_skipped;
+        let valid = (0..c.header.round).all(|r| {
             self.rounds
                 .get(&r)
                 .is_some_and(|x| x.certificate(BlockHash::ZERO, VoteKind::Timeout))
         });
-        c.validated.set(valid);
         valid
     }
     fn sign(&mut self, mut p: EpochClose, key: &PrivateKey, k: u8, out: &mut Vec<EpochClose>) {
@@ -576,6 +577,7 @@ impl State {
     fn snapshot(&self, digest: &BlockHash) -> Option<&Vec<BlockHash>> {
         self.local_snapshots
             .iter()
+            .chain(std::iter::once(&self.empty_snapshot))
             .find(|(h, _)| h == digest)
             .map(|(_, v)| v)
             .or_else(|| {
@@ -594,28 +596,16 @@ impl State {
     }
 
     fn bases(&self) -> Vec<BlockHash> {
-        let mut bases: std::collections::BTreeSet<_> = self
-            .local_snapshots
-            .iter()
-            .filter(|(_, hashes)| !hashes.is_empty())
-            .map(|(h, _)| *h)
-            .collect();
-        bases.extend(
-            self.candidates
-                .values()
-                .filter(|c| c.hashes.as_ref().is_some_and(|v| !v.is_empty()))
-                .map(|c| c.header.state),
-        );
-        bases.extend(
-            self.archive_snapshots
-                .iter()
-                .filter(|(_, v)| !v.is_empty())
-                .map(|(h, _)| *h),
-        );
-        if let Some((digest, _)) = &self.closed_base {
-            bases.insert(*digest);
+        // A finalized close is reconstructed independently of the live N(e).
+        // Start its accumulator at the retained epoch-empty version; applying
+        // an additive delta never deletes candidates from the live state.
+        if self.has_finalized_close() {
+            return vec![self.empty_snapshot.0];
         }
-        bases.into_iter().take(EpochClose::PAGE_SIZE).collect()
+        self.local_snapshots
+            .back()
+            .map(|(hash, _)| vec![*hash])
+            .unwrap_or_default()
     }
 
     fn recovery_page(&mut self, request: &EpochClose) -> Option<EpochClose> {
@@ -637,11 +627,10 @@ impl State {
                 .hashes
                 .iter()
                 .filter_map(|h| self.snapshot(h).map(|v| (*h, v)))
-                .filter(|(_, v)| !v.is_empty())
                 .max_by_key(|(_, v)| v.len());
             let (base_hash, base) = base?;
             let cache_key = (request.state, base_hash);
-            let delta = SnapshotDelta::between(base, target);
+            let delta = SnapshotDelta::between(base, target)?;
             if self.deltas.len() == 16 {
                 self.deltas.pop_front();
             }
@@ -649,7 +638,7 @@ impl State {
             cache_key
         };
         let delta = &self.deltas.iter().find(|(key, _)| *key == cache_key)?.1;
-        let count = delta.added.len() + delta.removed.len();
+        let count = delta.added.len();
         let pages = count.div_ceil(EpochClose::PAGE_SIZE).max(1);
         if pages > EpochClose::MAX_PAGES as usize || request.page as usize >= pages {
             return None;
@@ -662,9 +651,7 @@ impl State {
         page.pages = pages as u16;
         page.hashes =
             delta.added[start.min(delta.added.len())..end.min(delta.added.len())].to_vec();
-        page.removed = delta.removed
-            [start.saturating_sub(delta.added.len())..end.saturating_sub(delta.added.len())]
-            .to_vec();
+        page.removed.clear();
         Some(page)
     }
     /// Members of a reconstructed peer snapshot that carry no local membership in
@@ -741,7 +728,6 @@ impl State {
                 candidate.header.base = BlockHash::ZERO;
                 candidate.header.pages = 0;
                 candidate.pages.clear();
-                candidate.removed_pages.clear();
                 candidate.recovery_base = None;
                 candidate.last_delta_page = None;
             }
@@ -750,7 +736,7 @@ impl State {
         // locally. Only a mismatch needs separate snapshot recovery.
         let propose = self.ready
             && keys.iter().any(|key| {
-                !self.weights.weight(&key.public_key()).is_zero()
+                self.leader(self.round) == Some(key.public_key())
                     && self
                         .rounds
                         .get(&self.round)
@@ -771,7 +757,7 @@ impl State {
             hashes
         });
         if let Some(hashes) = &local {
-            let digest = Ledger::epoch_state_hash(hashes);
+            let digest = Ledger::epoch_state_hash(self.epoch, hashes);
             if !self.local_snapshots.iter().any(|(h, _)| *h == digest) {
                 if self.ready {
                     if let Some((_, previous)) = self.local_snapshots.back() {
@@ -807,34 +793,32 @@ impl State {
                     let candidate = self.candidates.get_mut(&id).unwrap();
                     candidate.hashes = Some(hashes);
                     candidate.pages.clear();
-                    candidate.removed_pages.clear();
                     candidate.recovery_base = None;
                 }
             }
         }
-        // A later certified block finalizes its ancestors. The first block in that
-        // committed chain is the unique Close(e); later snapshots are successors,
-        // never alternative decisions that replace an already closed epoch.
+        // A newly received header may already name a retained snapshot. Do not
+        // delay matching roots until the periodic metadata refresh.
+        let reconstructed: Vec<_> = self
+            .candidates
+            .iter()
+            .filter(|(_, c)| c.hashes.is_none())
+            .filter_map(|(id, c)| self.snapshot(&c.header.state).cloned().map(|h| (*id, h)))
+            .collect();
+        for (id, hashes) in reconstructed {
+            self.candidates.get_mut(&id).unwrap().hashes = Some(hashes);
+        }
+        // Every preceding round timed out, so only this round can finalize.
         for (&id, c) in &self.candidates {
             if self.valid(id, ledger)
                 && (self.certified(id, VoteKind::First)
                     || (self.certified(id, VoteKind::Notarize)
                         && self.certified(id, VoteKind::Final)))
             {
-                let mut root = c;
-                while !root.header.parent.is_zero() {
-                    let Some(parent) = self.candidates.get(&root.header.parent) else {
-                        return (out, None);
-                    };
-                    root = parent;
-                }
-                debug_trace(
-                    || serde_json::json!({"type":"decision","epoch":self.epoch,"certified":id,"selected":root.header.candidate_id(),"fast":self.certified(id,VoteKind::First),"candidates":self.candidates.iter().map(|(id,c)| serde_json::json!({"id":id,"round":c.header.round,"parent":c.header.parent,"state":c.header.state,"hashes":c.hashes})).collect::<Vec<_>>(),"votes":self.rounds.iter().map(|(r,v)| (*r,v.votes.values().map(|p| serde_json::json!({"voter":p.voter,"kind":p.kind,"id":p.candidate_id()})).collect::<Vec<_>>())).collect::<BTreeMap<_,_>>() }),
-                );
-                return (out, root.hashes.clone());
+                return (out, c.hashes.clone());
             }
         }
-        if !self.ready {
+        if !self.ready || self.has_finalized_close() {
             return (out, None);
         }
         self.rounds.entry(self.round).or_default();
@@ -854,27 +838,31 @@ impl State {
         {
             self.parent = *id;
         }
-        // Every representative proposes its current monotonic epoch snapshot.
+        // Only the rotating leader proposes its current epoch snapshot.
         // Keep recent bases for recovery, but create only signed proposals.
         // FIRST remains immutable; the next round uses the latest snapshot.
         if propose {
             let hashes = local.unwrap();
             if hashes.len() <= EpochClose::PAGE_SIZE * EpochClose::MAX_PAGES as usize {
-                let proposal =
-                    self.template(self.round, self.parent, Ledger::epoch_state_hash(&hashes));
+                let proposal = self.template(
+                    self.round,
+                    self.parent,
+                    Ledger::epoch_state_hash(self.epoch, &hashes),
+                );
                 let id = proposal.candidate_id();
                 self.candidates.entry(id).or_insert_with(|| Candidate {
-                    validated: Cell::new(false),
                     header: proposal.clone(),
                     pages: Default::default(),
-                    removed_pages: Default::default(),
                     recovery_base: None,
                     last_delta_page: None,
                     hashes: Some(hashes),
                 });
-                if self.valid(id, ledger) {
+                if ledger.epoch_close_candidate_valid(
+                    self.epoch,
+                    self.candidates[&id].hashes.as_ref().unwrap(),
+                ) {
                     for key in keys {
-                        if self.weights.weight(&key.public_key()).is_zero() {
+                        if self.leader(self.round) != Some(key.public_key()) {
                             continue;
                         }
                         let signer = self
@@ -899,7 +887,13 @@ impl State {
         let valid: Vec<_> = self
             .candidates
             .iter()
-            .filter(|(id, c)| c.header.round == self.round && self.valid(**id, ledger))
+            .filter(|(id, c)| {
+                c.header.round == self.round
+                    && self.valid(**id, ledger)
+                    && c.hashes
+                        .as_ref()
+                        .is_some_and(|h| ledger.epoch_close_contains_known(self.epoch, h))
+            })
             .map(|(id, c)| (*id, c.header.clone()))
             .collect();
         for (id, p) in &valid {
@@ -909,7 +903,11 @@ impl State {
                 let notarized = r.certificate(*id, VoteKind::Notarize);
                 let signer = r.signers.entry(key.public_key()).or_default();
                 let mut action = None;
-                if second
+                if signer.first.is_none() {
+                    signer.first = Some(*id);
+                    signer.notarized.insert(*id);
+                    action = Some(0);
+                } else if second
                     && signer.first.is_some()
                     && !signer.notarized.contains(id)
                     && signer.final_vote.is_none()
@@ -918,6 +916,7 @@ impl State {
                     signer.notarized.insert(*id);
                     action = Some(1);
                 } else if notarized
+                    && signer.first == Some(*id)
                     && signer.final_vote.is_none()
                     && !signer.timeout
                     && signer.notarized.iter().all(|h| h == id)
@@ -930,15 +929,8 @@ impl State {
                 }
             }
         }
-        // Enter the next slot on a notarized block, or on a timeout certificate.
-        if let Some((id, _)) = valid
-            .iter()
-            .find(|(id, _)| self.certified(*id, VoteKind::Notarize))
-        {
-            self.parent = *id;
-            self.enter_round(self.round + 1);
-            return (out, None);
-        }
+        // A new close round requires a timeout certificate. This ensures no
+        // earlier round can later finalize a different target.
         let p = self.template(self.round, BlockHash::ZERO, BlockHash::ZERO);
         for key in keys {
             let r = self.rounds.get_mut(&self.round).unwrap();
@@ -964,7 +956,7 @@ impl State {
             let expired = self.round;
             self.enter_round(self.round + 1);
             // Retain certified ancestors; discard unsuccessful snapshot payloads.
-            self.candidates.retain(|_, c| c.header.round != expired);
+            let _ = expired; // Retain notarized parents and recovery snapshots.
         }
         (out, None)
     }
@@ -1042,6 +1034,7 @@ pub(crate) struct EpochCloser {
     recovery: Mutex<Recovery>,
     state: Mutex<State>,
     epoch_start: Mutex<Option<Instant>>,
+    termination_baseline: std::sync::atomic::AtomicU64,
     epoch_start_file: Option<std::path::PathBuf>,
 }
 impl EpochCloser {
@@ -1052,15 +1045,26 @@ impl EpochCloser {
         reps: Arc<Mutex<WalletRepresentatives>>,
         flooder: MessageFlooder,
     ) -> Self {
-        let state = State::new(
+        let mut state = State::new(
             ledger.closed_epoch_count.load(Ordering::Acquire),
             ledger.rep_weights.read().clone(),
             vec![],
         );
+        state.previous_close = state
+            .epoch
+            .checked_sub(1)
+            .and_then(|e| {
+                ledger
+                    .store
+                    .consensus_epochs
+                    .close_id(&ledger.store.begin_read(), e)
+            })
+            .unwrap_or_default();
         let epoch_start_file =
             std::env::var_os("NANOSPAM_RAI_EPOCH_START_FILE").map(std::path::PathBuf::from);
         Self {
             epoch_start: Mutex::new(epoch_start_file.is_none().then(Instant::now)),
+            termination_baseline: std::sync::atomic::AtomicU64::new(0),
             epoch_start_file,
             ledger,
             generators,
@@ -1100,6 +1104,8 @@ impl EpochCloser {
             let Ok(millis) = text.trim().parse::<u64>() else {
                 return false;
             };
+            self.termination_baseline
+                .store(self.aec.terminated_election_count(), Ordering::Relaxed);
             let wall_start = UNIX_EPOCH + Duration::from_millis(millis);
             let now = Instant::now();
             let wall_now = SystemTime::now();
@@ -1112,12 +1118,24 @@ impl EpochCloser {
                 serde_json::json!({"start_unix_ms":millis,"duration_seconds":self.ledger.epoch_length.load(Ordering::Relaxed)})
             );
         }
+        let count = self
+            .ledger
+            .epoch_terminated_elections
+            .load(Ordering::Relaxed);
+        if count > 0 {
+            let terminated = self
+                .aec
+                .terminated_election_count()
+                .saturating_sub(self.termination_baseline.load(Ordering::Relaxed));
+            return start.is_some_and(|s| Instant::now() >= s)
+                && terminated >= count.saturating_mul(epoch.saturating_add(1));
+        }
         let seconds = self.ledger.epoch_length.load(Ordering::Relaxed);
         start.is_some_and(|s| epoch_due(s, Instant::now(), epoch, seconds))
     }
 
     fn tick(&self) {
-        if self.ledger.epoch_length.load(Ordering::Relaxed) == 0 {
+        if !self.ledger.epochs_enabled() {
             return;
         }
         let tick_started = Instant::now();
@@ -1127,15 +1145,19 @@ impl EpochCloser {
         let incoming_count = incoming.len();
         let report_transport = state.last_send.elapsed() >= RETRANSMIT
             && std::env::var_os("RAI_CLOSE_VALIDATION_DIAGNOSTICS").is_some();
+        let mut keys = Vec::new();
+        self.reps.lock().unwrap().rep_priv_keys(&mut keys);
         for (p, channel) in incoming {
-            if p.kind == 8 {
-                let epoch = state.epoch;
-                let weights = state.weights.clone();
-                state.cut.receive(p, epoch, &weights);
-            } else if p.kind == 7 {
+            if p.kind == 7 {
                 if recovery.replies.len() < 128 {
-                    if let Some(page) = state.recovery_page(&p) {
-                        recovery.replies.push_back((channel, page));
+                    if let Some(key) = keys
+                        .iter()
+                        .find(|k| !state.weights.weight(&k.public_key()).is_zero())
+                    {
+                        if let Some(mut page) = state.recovery_page(&p) {
+                            page.sign(key);
+                            recovery.replies.push_back((channel, page));
+                        }
                     }
                 }
             } else {
@@ -1151,79 +1173,46 @@ impl EpochCloser {
                 }
             }
         }
-        let mut keys = Vec::new();
-        self.reps.lock().unwrap().rep_priv_keys(&mut keys);
-        let mut cut_requests = Vec::new();
-        if self.epoch_deadline_reached(state.epoch)
-            && self.ledger.begin_epoch_drain() == Some(state.epoch)
-        {
-            let epoch = state.epoch;
-            let weights = state.weights.clone();
-            if !state.cut.started {
-                let entries = self.generators.pause_epoch_report(epoch, &self.aec);
-                state.cut.started = true;
-                for key in &keys {
-                    if weights.weight(&key.public_key()).is_zero() {
-                        continue;
-                    }
-                    for packet in super::epoch_cut::EpochCut::packets(epoch, &entries, key) {
-                        state.cut.receive(packet.clone(), epoch, &weights);
-                        state.cut.local.push(packet);
-                    }
-                }
-                eprintln!(
-                    "EPOCH_CUT_PAUSED {}",
-                    serde_json::json!({"pid":std::process::id(),"epoch":epoch,"pending":entries.len(),"voting_epoch":epoch+1})
-                );
-                // Publish the report immediately, independently of close-round timing.
-                state.last_send = Instant::now() - RETRANSMIT;
-            }
-            if state.cut.finish(&weights) {
-                let roots = state.cut.roots.clone().unwrap();
-                eprintln!(
-                    "EPOCH_CUT_RESUMED {}",
-                    serde_json::json!({"pid":std::process::id(),"epoch":epoch,"roots":roots.len()})
-                );
-                self.generators.resume_epoch_cut(epoch, roots);
-            }
-            if let Some(roots) = &state.cut.roots {
-                let pending = self.aec.cut_pending(epoch, roots);
-                if pending.is_empty() && !state.ready {
-                    state.ready = true;
-                    let round = state.round;
-                    state.enter_round(round);
+        let mut drain_requests: Vec<(BlockHash, Root)> = Vec::new();
+        if self.epoch_deadline_reached(state.epoch) {
+            self.ledger.begin_epoch_drain();
+            if !state.draining {
+                let count = self
+                    .ledger
+                    .epoch_terminated_elections
+                    .load(Ordering::Relaxed);
+                if count > 0 {
                     eprintln!(
-                        "EPOCH_DRAINED {}",
-                        serde_json::json!({"pid":std::process::id(),"epoch":epoch,"unix_ms":SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()})
-                    );
-                } else if state.last_send.elapsed() >= RETRANSMIT {
-                    let targets = state.cut.recovery_targets(&pending);
-                    if !targets.is_empty() {
-                        let count = targets.len().min(256);
-                        for offset in 0..count {
-                            cut_requests.push(
-                                targets[(state.cut.recovery_cursor + offset) % targets.len()],
-                            );
-                        }
-                        state.cut.recovery_cursor =
-                            (state.cut.recovery_cursor + count) % targets.len();
-                    }
-                    eprintln!(
-                        "EPOCH_CUT_WAIT {}",
-                        serde_json::json!({"pid":std::process::id(),"epoch":epoch,"pending":pending.len()})
+                        "EPOCH_COUNT_REACHED {}",
+                        serde_json::json!({
+                            "epoch":state.epoch,"pid":std::process::id(),"length":count,
+                            "threshold":count.saturating_mul(state.epoch.saturating_add(1)),
+                            "terminated":self.aec.terminated_election_count().saturating_sub(self.termination_baseline.load(Ordering::Relaxed))
+                        })
                     );
                 }
+                self.generators.begin_drain(state.epoch);
+                state.draining = true;
+                state.enter_round(0);
             }
         }
-        let (mut outgoing, closed) = state.drive(&self.ledger, &keys);
-        // After the drain, membership only changes through certificates that exist
-        // on peers but not here: late cross-notarizations of timed-out forks, and
-        // roots outside the cut that never reached quorum locally. Solicit those
+        // D3 is live, not a sticky flag: newly visible elections also block signing.
+        if state.has_finalized_close() {
+            self.generators.seal_epoch(state.epoch);
+        }
+        let (mut outgoing, closed) =
+            self.generators
+                .with_close_readiness(state.epoch, &self.aec, |ready| {
+                    state.ready = state.draining && ready;
+                    state.drive(&self.ledger, &keys)
+                });
+        // Recover certificates known by peers, including notarized forks of
+        // locally timed-out elections. Solicit those
         // elections directly at the retransmission cadence instead of leaving them
         // to the bounded recovery rotation, so every replica reaches the common
         // membership quickly.
         let mut recovering = 0;
-        if state.ready
+        if state.draining
             && closed.is_none()
             && state
                 .last_timeout_solicitation
@@ -1231,10 +1220,20 @@ impl EpochCloser {
         {
             state.last_timeout_solicitation = Some(Instant::now());
             let now = Instant::now();
-            let behind = state.members() < state.highest_members;
+            let behind = state.candidates.values().any(|candidate| {
+                state
+                    .local_snapshots
+                    .back()
+                    .is_none_or(|(root, _)| *root != candidate.header.state)
+            });
             // One request per solicitation keeps reply load bounded; the cursor
             // rotates through the remaining targets on later solicitations.
-            let candidates = self.aec.membership_recovery_targets(state.epoch, behind);
+            let mut candidates = self
+                .generators
+                .first_recovery_targets(state.epoch, &self.aec);
+            candidates.extend(self.aec.membership_recovery_targets(state.epoch, behind));
+            let mut seen = std::collections::HashSet::new();
+            candidates.retain(|target| seen.insert(*target));
             let targets = state.next_solicitation_batch(&candidates, now);
             recovering = targets.len();
             if !targets.is_empty() {
@@ -1246,7 +1245,7 @@ impl EpochCloser {
                     })
                 );
             }
-            cut_requests.extend(targets);
+            drain_requests.extend(targets);
         }
         if closed.is_none() {
             let targets = state.reconciliation_targets(&self.ledger);
@@ -1258,7 +1257,7 @@ impl EpochCloser {
                         "examples":targets.iter().take(3).map(|(hash, _)| hash).collect::<Vec<_>>()
                     })
                 );
-                cut_requests.extend(targets);
+                drain_requests.extend(targets);
             }
         }
         if state.ready && state.last_send.elapsed() >= RETRANSMIT {
@@ -1293,14 +1292,26 @@ impl EpochCloser {
             );
         }
 
-        if let Some(hashes) = closed.filter(|_| state.ready) {
+        if let Some(hashes) = closed {
+            self.generators.seal_epoch(state.epoch);
             if let Ok(discarded) = self.aec.close_epoch(&self.ledger, state.epoch, &hashes) {
                 eprintln!(
                     "EPOCH_CLOSED {}",
-                    serde_json::json!({"epoch":state.epoch,"hash":Ledger::epoch_state_hash(&hashes),"blocks":hashes.len(),"round":state.round,"discarded":discarded})
+                    serde_json::json!({"epoch":state.epoch,"hash":Ledger::epoch_state_hash(state.epoch, &hashes),"blocks":hashes.len(),"round":state.round,"discarded":discarded})
                 );
                 let epoch = state.epoch;
-                let digest = Ledger::epoch_state_hash(&hashes);
+                let roots = self
+                    .aec
+                    .recovery_entries(
+                        &hashes.iter().map(|h| (*h, Root::ZERO)).collect::<Vec<_>>(),
+                        epoch,
+                    )
+                    .into_iter()
+                    .filter(|e| e.block.is_some() && hashes.binary_search(&e.hash()).is_ok())
+                    .map(|e| e.root)
+                    .collect();
+                self.generators.apply_close(epoch, roots);
+                let digest = Ledger::epoch_state_hash(state.epoch, &hashes);
                 state.advance(hashes.clone(), self.ledger.rep_weights.read().clone());
                 for key in &keys {
                     let mut receipt = state.template(0, BlockHash::ZERO, digest);
@@ -1348,16 +1359,16 @@ impl EpochCloser {
                 break;
             }
         }
-        let cut_epoch = state.epoch;
+        let drain_epoch = state.epoch;
         drop(recovery);
         drop(state);
         let outgoing_count = outgoing.len();
         let processing_ms = tick_started.elapsed().as_millis();
         let mut flooder = self.flooder.lock().unwrap();
-        for chunk in cut_requests.chunks(rsnano_messages::ConfirmReq::HASHES_MAX) {
+        for chunk in drain_requests.chunks(rsnano_messages::ConfirmReq::HASHES_MAX) {
             flooder.flood_prs_and_some_non_prs(
                 &Message::ConfirmReq(
-                    rsnano_messages::ConfirmReq::new(chunk.to_vec()).with_epoch(cut_epoch),
+                    rsnano_messages::ConfirmReq::new(chunk.to_vec()).with_epoch(drain_epoch),
                 ),
                 TrafficType::VoteReply,
                 1.0,

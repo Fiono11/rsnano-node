@@ -672,6 +672,10 @@ impl Node {
         ledger
             .configure_epoch_length(config.epoch_length)
             .expect("Invalid RAI epoch configuration");
+        #[cfg(feature = "rai_protocol")]
+        ledger
+            .configure_epoch_terminated_elections(config.epoch_terminated_elections)
+            .expect("Invalid RAI termination-count epoch configuration");
 
         let block_rate_calculator = BlockRateCalculator::new(steady_clock.clone(), ledger.clone());
         let block_rates = block_rate_calculator.rates().clone();

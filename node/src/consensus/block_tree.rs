@@ -54,6 +54,19 @@ impl RaiBlockTree {
         Ok(true)
     }
 
+    /// Keep admitted candidates (including notarized forks); discard timeout and omitted state.
+    pub fn close_epoch(&mut self, epoch: u64, hashes: &[BlockHash]) {
+        self.entries.retain(|(_, e, hash), entry| {
+            *e != epoch || (entry.block.is_some() && hashes.binary_search(hash).is_ok())
+        });
+        self.roots_by_hash = self
+            .entries
+            .values()
+            .filter(|entry| entry.block.is_some())
+            .map(|entry| (entry.hash(), entry.root.clone()))
+            .collect();
+    }
+
     /// Root of a certified block, for peers that know only its hash.
     pub fn root_of(&self, hash: &BlockHash) -> Option<&QualifiedRoot> {
         self.roots_by_hash.get(hash)

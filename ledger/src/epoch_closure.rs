@@ -1,6 +1,9 @@
 use crate::{AnySet, Ledger};
-use rsnano_types::{Blake2HashBuilder, Block, BlockBase, BlockHash, DependentBlocks};
-use rustc_hash::{FxHashMap, FxHashSet};
+#[cfg(test)]
+use rsnano_types::DependentBlocks;
+use rsnano_types::{Blake2HashBuilder, Block, BlockBase, BlockHash};
+#[cfg(test)]
+use rustc_hash::FxHashMap;
 use std::sync::atomic::Ordering;
 
 impl Ledger {
@@ -21,14 +24,49 @@ impl Ledger {
             .canonical(&self.store.begin_read(), hash)
     }
     pub fn epoch_application_allowed(&self, epoch: u64) -> bool {
-        self.epoch_length.load(Ordering::Relaxed) == 0
-            || epoch <= self.voting_epoch.load(Ordering::Acquire)
+        !self.epochs_enabled() || epoch <= self.voting_epoch.load(Ordering::Acquire)
+    }
+
+    /// With the fixed single committee, epochs e and e+1 may overlap; e+2
+    /// requires the reconstructed close of e. Persisted closes contain membership.
+    pub fn epoch_entry_allowed(&self, epoch: u64) -> bool {
+        !self.epochs_enabled()
+            || (epoch <= self.current_epoch()
+                && epoch.saturating_sub(1) <= self.closed_epoch_count.load(Ordering::Acquire))
+    }
+
+    pub fn epoch_parent_allowed(&self, parent: &BlockHash, epoch: u64) -> bool {
+        if parent.is_zero()
+            || *parent == self.constants.genesis_block.hash()
+            || !self.epochs_enabled()
+        {
+            return true;
+        }
+        let tx = self.store.begin_read();
+        if self.store.consensus_epochs.canonical(&tx, parent).is_some() {
+            return true;
+        }
+        // An unsealed immediate predecessor may still resolve concurrently.
+        // Once sealed, omitted evidence is never a parent for a later proposal.
+        let closed = self.closed_epoch_count.load(Ordering::Acquire);
+        let candidates = self.epoch_candidates.read().unwrap();
+        (closed..=epoch).any(|e| candidates.contains(&(e, *parent)))
+            || self
+                .store
+                .consensus_epochs
+                .get(&tx, parent)
+                .is_some_and(|e| e >= closed && e <= epoch)
     }
 
     /// Record locally verified block-tree membership synchronously with certificate
     /// application, before draining can observe that election as terminated.
     pub fn record_epoch_block(&self, epoch: u64, block: Block) {
         let hash = block.hash();
+        if epoch < self.closed_epoch_count.load(Ordering::Acquire) {
+            // A late certificate may update an admitted candidate, never resurrect an omission.
+            return;
+        }
+        self.epoch_candidates.write().unwrap().insert((epoch, hash));
         let mut blocks = self.epoch_blocks.write().unwrap();
         if let Some((old, _, _)) = blocks.get_mut(&hash) {
             if epoch < *old {
@@ -73,53 +111,25 @@ impl Ledger {
     /// Snapshot the compact, incrementally maintained metadata table. Copying its
     /// contiguous storage avoids traversing block payloads and rehashing every key.
     /// Database scans and dependency closure run after releasing this short lock.
+    #[cfg(test)]
     fn epoch_block_metadata(&self) -> FxHashMap<BlockHash, (u64, DependentBlocks)> {
         self.epoch_metadata.read().unwrap().clone()
     }
 
+    /// Only certificate-verified candidates of this epoch, including forks.
     pub fn epoch_close_candidate(&self, epoch: u64) -> Vec<BlockHash> {
-        let blocks = self.epoch_block_metadata();
-        let tx = self.store.begin_read();
-        let mut selected: FxHashSet<_> =
-            self.store.consensus_epochs.canonical_hashes(&tx).collect();
-        selected.extend(
-            self.store
-                .consensus_epochs
-                .iter(&tx)
-                .filter(|(_, e)| *e <= epoch)
-                .map(|(h, _)| h),
-        );
-        selected.extend(
-            blocks
-                .iter()
-                .filter(|(_, (e, _))| *e <= epoch)
-                .map(|(h, _)| *h),
-        );
-        let any = self.any();
-        let mut pending: Vec<_> = selected.iter().copied().collect();
-        while let Some(hash) = pending.pop() {
-            let dependencies = blocks
-                .get(&hash)
-                .map(|(_, d)| *d)
-                .or_else(|| {
-                    any.get_block(&hash).map(|b| {
-                        b.dependent_blocks(&self.constants.epochs, &self.constants.genesis_account)
-                    })
-                })
-                .unwrap_or_default();
-            for dependency in dependencies.iter().copied() {
-                if !dependency.is_zero() && selected.insert(dependency) {
-                    pending.push(dependency);
-                }
-            }
-        }
-        let mut hashes: Vec<_> = selected.into_iter().collect();
-        hashes.sort_unstable();
-        hashes
+        self.epoch_candidates
+            .read()
+            .unwrap()
+            .range((epoch, BlockHash::ZERO)..=(epoch, BlockHash::MAX))
+            .map(|(_, hash)| *hash)
+            .collect()
     }
 
-    pub fn epoch_state_hash(hashes: &[BlockHash]) -> BlockHash {
-        let mut builder = Blake2HashBuilder::new().update(b"rai-epoch-state-v1");
+    pub fn epoch_state_hash(epoch: u64, hashes: &[BlockHash]) -> BlockHash {
+        let mut builder = Blake2HashBuilder::new()
+            .update(b"RAI-CLOSE-STATE")
+            .update(epoch.to_le_bytes());
         for hash in hashes {
             builder = builder.update(hash.as_bytes());
         }
@@ -127,7 +137,7 @@ impl Ledger {
     }
 
     pub fn begin_epoch_drain(&self) -> Option<u64> {
-        if self.epoch_length.load(Ordering::Relaxed) == 0 {
+        if !self.epochs_enabled() {
             return None;
         }
         // The epoch clock decides when to drain; block counts do not participate.
@@ -136,114 +146,43 @@ impl Ledger {
         Some(epoch)
     }
 
+    /// Object validation is independent of D4: an already certified close may
+    /// omit a locally known, non-finalizable fork. D4 is enforced before signing.
     pub fn epoch_close_candidate_valid(&self, epoch: u64, hashes: &[BlockHash]) -> bool {
-        if hashes.is_empty() || hashes.windows(2).any(|w| w[0] >= w[1]) {
+        if hashes.windows(2).any(|w| w[0] >= w[1]) {
             return false;
         }
-        let selected: FxHashSet<_> = hashes.iter().copied().collect();
-        let blocks = self.epoch_block_metadata();
-        let tx = self.store.begin_read();
-        let canonical: FxHashSet<_> = self.store.consensus_epochs.canonical_hashes(&tx).collect();
-        if !canonical.is_subset(&selected) {
-            return false;
-        }
-        let any = self.any();
-        hashes.iter().all(|hash| {
-            if canonical.contains(hash) {
-                return true;
-            }
-            if let Some((e, dependencies)) = blocks.get(hash) {
-                return *e <= epoch && dependencies.iter().all(|h| selected.contains(h));
-            }
-            // Cemented dependencies and setup blocks remain eligible independently
-            // of whether their election is still retained in the block tree.
-            let Some(v) = self.store.consensus_epochs.get(&tx, hash) else {
-                return false;
-            };
-            if v > epoch {
-                return false;
-            }
-            any.get_block(hash).is_some_and(|block| {
-                block
-                    .dependent_blocks(&self.constants.epochs, &self.constants.genesis_account)
-                    .iter()
-                    .all(|h| h.is_zero() || selected.contains(h))
-            })
-        })
+        self.epoch_close_missing_members(epoch, hashes).is_empty()
     }
 
-    /// Members of a complete peer snapshot without any local epoch-`epoch` membership:
-    /// neither canonical, nor cemented in that epoch, nor certified in the block tree.
-    /// These are the notarizations this node still has to learn before it can
-    /// validate the snapshot.
+    pub fn epoch_close_contains_known(&self, epoch: u64, hashes: &[BlockHash]) -> bool {
+        self.epoch_candidates
+            .read()
+            .unwrap()
+            .range((epoch, BlockHash::ZERO)..=(epoch, BlockHash::MAX))
+            .all(|(_, h)| hashes.binary_search(h).is_ok())
+    }
+
     pub fn epoch_close_missing_members(&self, epoch: u64, hashes: &[BlockHash]) -> Vec<BlockHash> {
-        let blocks = self.epoch_block_metadata();
+        let candidates = self.epoch_candidates.read().unwrap();
         let tx = self.store.begin_read();
         hashes
             .iter()
             .filter(|hash| {
-                if self.store.consensus_epochs.canonical(&tx, hash).is_some() {
-                    return false;
-                }
-                if let Some((e, _)) = blocks.get(hash) {
-                    return *e > epoch;
-                }
-                self.store
-                    .consensus_epochs
-                    .get(&tx, hash)
-                    .is_none_or(|e| e > epoch)
+                !candidates.contains(&(epoch, **hash))
+                    && !self.store.consensus_epochs.close_contains(&tx, epoch, hash)
             })
             .copied()
             .collect()
     }
 
-    /// Opt-in diagnostics for a complete snapshot rejected by this node.
     pub fn epoch_close_candidate_diagnostic(
         &self,
         epoch: u64,
         hashes: &[BlockHash],
     ) -> serde_json::Value {
-        let selected: FxHashSet<_> = hashes.iter().copied().collect();
-        let blocks = self.epoch_block_metadata();
-        let tx = self.store.begin_read();
-        if let Some(hash) = self
-            .store
-            .consensus_epochs
-            .canonical_hashes(&tx)
-            .find(|h| !selected.contains(h))
-        {
-            return serde_json::json!({"reason":"missing_prior_member","hash":hash});
-        }
-        let any = self.any();
-        for hash in hashes {
-            if self.store.consensus_epochs.canonical(&tx, hash).is_some() {
-                continue;
-            }
-            if let Some((e, dependencies)) = blocks.get(hash) {
-                if *e > epoch {
-                    return serde_json::json!({"reason":"later_notarization","hash":hash,"local_epoch":e});
-                }
-                if let Some(missing) = dependencies.iter().find(|h| !selected.contains(h)) {
-                    return serde_json::json!({"reason":"missing_dependency","hash":hash,"dependency":missing});
-                }
-            } else {
-                let metadata = self.store.consensus_epochs.get(&tx, hash);
-                if metadata.is_none_or(|e| e > epoch) {
-                    return serde_json::json!({"reason":"no_eligible_local_membership","hash":hash,"cemented_epoch":metadata,"in_account_ledger":any.get_block(hash).is_some()});
-                }
-                let Some(block) = any.get_block(hash) else {
-                    return serde_json::json!({"reason":"missing_cemented_payload","hash":hash});
-                };
-                if let Some(missing) = block
-                    .dependent_blocks(&self.constants.epochs, &self.constants.genesis_account)
-                    .iter()
-                    .find(|h| !h.is_zero() && !selected.contains(h))
-                {
-                    return serde_json::json!({"reason":"missing_cemented_dependency","hash":hash,"dependency":missing});
-                }
-            }
-        }
-        serde_json::json!({"reason":"ledger_valid_check_parent_or_round"})
+        serde_json::json!({"missing_objects": self.epoch_close_missing_members(epoch, hashes),
+            "contains_known": self.epoch_close_contains_known(epoch, hashes)})
     }
 
     pub fn close_epoch(&self, epoch: u64, hashes: &[BlockHash]) -> anyhow::Result<()> {
@@ -256,11 +195,21 @@ impl Ledger {
             self.store.consensus_epochs.closed_count(&tx) == epoch,
             "out-of-order epoch close"
         );
-        let digest = Self::epoch_state_hash(hashes);
+        let digest = Self::epoch_state_hash(epoch, hashes);
         self.store
             .consensus_epochs
             .close(&mut tx, epoch, digest, hashes);
         tx.commit();
+        self.epoch_candidates
+            .write()
+            .unwrap()
+            .retain(|(e, _)| *e != epoch);
+        let mut blocks = self.epoch_blocks.write().unwrap();
+        blocks.retain(|hash, (e, _, _)| *e != epoch || hashes.binary_search(hash).is_ok());
+        self.epoch_metadata
+            .write()
+            .unwrap()
+            .retain(|hash, (e, _)| *e != epoch || hashes.binary_search(hash).is_ok());
         self.closed_epoch_count.store(epoch + 1, Ordering::Release);
         self.voting_epoch.fetch_max(epoch + 1, Ordering::AcqRel);
         self.draining_epoch.store(u64::MAX, Ordering::Release);

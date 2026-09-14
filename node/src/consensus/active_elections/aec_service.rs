@@ -58,10 +58,6 @@ impl AecService {
     }
 
     #[cfg(feature = "rai_protocol")]
-    pub(crate) fn pending_cut_report(&self, epoch: u64) -> Vec<(QualifiedRoot, BlockHash)> {
-        self.aec.read().unwrap().pending_cut_report(epoch)
-    }
-    #[cfg(feature = "rai_protocol")]
     pub(crate) fn membership_recovery_targets(
         &self,
         epoch: u64,
@@ -71,24 +67,6 @@ impl AecService {
             .read()
             .unwrap()
             .membership_recovery_targets(epoch, behind)
-    }
-
-    #[cfg(feature = "rai_protocol")]
-    pub(crate) fn cut_pending(&self, epoch: u64, roots: &[QualifiedRoot]) -> Vec<QualifiedRoot> {
-        let aec = self.aec.read().unwrap();
-        let pending = aec.cut_pending(epoch, roots);
-        static LAST: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-        if !pending.is_empty() && now > LAST.load(std::sync::atomic::Ordering::Relaxed) + 5 {
-            LAST.store(now, std::sync::atomic::Ordering::Relaxed);
-            eprintln!("EPOCH_CUT_PENDING {}", serde_json::json!({"pid":std::process::id(),"epoch":epoch,"pending":pending.len(),"examples":pending.iter().take(2).map(|root| {
-                aec.election_for_id(&rsnano_types::ElectionId::new(root.clone(),epoch)).map(|e| e.termination_diagnostic()).unwrap_or_else(|| serde_json::json!({"missing":true,"root":root}))
-            }).collect::<Vec<_>>()} ).to_string());
-        }
-        pending
     }
 
     #[cfg(feature = "rai_protocol")]
@@ -117,6 +95,65 @@ impl AecService {
         }
         pending.is_empty()
     }
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn pending_first_recovery(
+        &self,
+        targets: Vec<(rsnano_types::ElectionId, BlockHash)>,
+    ) -> Vec<(BlockHash, rsnano_types::Root)> {
+        let aec = self.aec.read().unwrap();
+        targets
+            .into_iter()
+            .filter(|(id, _)| {
+                !aec.election_for_id(id)
+                    .is_some_and(|e| e.has_quorum() || e.is_confirmed() || e.is_timed_out())
+                    && !aec
+                        .block_tree
+                        .for_root(&id.root)
+                        .iter()
+                        .any(|e| e.epoch == id.epoch)
+            })
+            .map(|(id, hash)| (hash, id.root.root))
+            .collect()
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn terminated_election_count(&self) -> u64 {
+        self.aec.read().unwrap().terminated_elections.len() as u64
+    }
+
+    /// Keep candidate ingestion stable across D3/D4 validation and close signing.
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn with_close_readiness<T>(
+        &self,
+        epoch: u64,
+        ids: &[rsnano_types::ElectionId],
+        action: impl FnOnce(bool) -> T,
+    ) -> T {
+        let aec = self.aec.read().unwrap();
+        let pending = aec.pending_epoch_drain(epoch, ids);
+        if !pending.is_empty()
+            && aec.epoch_source.as_ref().is_some_and(|l| {
+                l.draining_epoch.load(std::sync::atomic::Ordering::Acquire) == epoch
+            })
+        {
+            static LAST: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            if now > LAST.load(std::sync::atomic::Ordering::Relaxed) + 5 {
+                LAST.store(now, std::sync::atomic::Ordering::Relaxed);
+                eprintln!(
+                    "EPOCH_DRAIN_WAIT {}",
+                    serde_json::json!({"pid":std::process::id(),"epoch":epoch,"pending":pending.len(),"examples":pending.iter().take(4).map(|id| {
+                    aec.election_for_id(id).map(|e| e.termination_diagnostic()).unwrap_or_else(|| serde_json::json!({"missing_election":true,"root":id.root,"epoch":id.epoch}))
+                }).collect::<Vec<_>>()})
+                );
+            }
+        }
+        action(pending.is_empty())
+    }
+
     #[cfg(feature = "rai_protocol")]
     pub(crate) fn close_epoch(
         &self,
@@ -198,6 +235,15 @@ impl AecService {
                             e.should_timeout(),
                         )
                     })
+                    .or_else(|| {
+                        aec.certificate_recovery.get(&id).map(|votes| {
+                            (
+                                votes.second_look(&hash),
+                                votes.has_certificate(hash, rsnano_types::VoteKind::Notarize),
+                                votes.should_timeout(),
+                            )
+                        })
+                    })
                     .unwrap_or_default()
             })
             .collect()
@@ -209,11 +255,17 @@ impl AecService {
         hashes
             .iter()
             .map(|hash| {
-                aec.election_for_block(hash)?
-                    .candidate_blocks()
-                    .get(hash)
-                    .cloned()
+                aec.election_for_block(hash)
+                    .and_then(|e| e.candidate_blocks().get(hash).cloned())
                     .map(Into::into)
+                    .or_else(|| {
+                        let root = aec.block_tree.root_of(hash)?;
+                        aec.block_tree
+                            .for_root(root)
+                            .into_iter()
+                            .find(|entry| entry.hash() == *hash && entry.block.is_some())
+                            .and_then(|entry| entry.block)
+                    })
             })
             .collect()
     }

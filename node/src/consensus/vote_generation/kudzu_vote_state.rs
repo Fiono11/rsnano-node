@@ -9,7 +9,9 @@ use rsnano_types::{BlockHash, PublicKey, QualifiedRoot, VoteKind};
 pub(super) struct KudzuVoteState {
     roots: HashMap<(QualifiedRoot, PublicKey), RootVotes>,
     draining: Option<u64>,
-    cuts: HashMap<u64, Option<HashSet<QualifiedRoot>>>,
+    sealed: HashSet<u64>,
+    closed_roots: HashSet<QualifiedRoot>,
+    signed: HashMap<(u64, BlockHash), Vec<std::sync::Arc<rsnano_types::Vote>>>,
 }
 
 #[derive(Default)]
@@ -23,24 +25,82 @@ struct RootVotes {
 }
 
 impl KudzuVoteState {
-    pub fn pause_epoch(&mut self, epoch: u64) {
-        self.drain_through(epoch);
-        self.cuts.entry(epoch).or_insert(None);
+    pub fn is_sealed(&self, epoch: u64) -> bool {
+        self.sealed.contains(&epoch)
     }
-    pub fn resume_cut(&mut self, epoch: u64, roots: impl IntoIterator<Item = QualifiedRoot>) {
-        self.cuts.insert(epoch, Some(roots.into_iter().collect()));
-    }
-    pub fn voting_filter(&self) -> impl Fn(&QualifiedRoot, u64) -> bool + use<> {
-        let cuts = self.cuts.clone();
-        move |root, epoch| {
-            cuts.get(&epoch)
-                .is_none_or(|cut| cut.as_ref().is_some_and(|roots| roots.contains(root)))
+
+    pub fn remember_signed(&mut self, vote: std::sync::Arc<rsnano_types::Vote>) {
+        for hash in &vote.hashes {
+            let statements = self.signed.entry((vote.epoch, *hash)).or_default();
+            if !statements
+                .iter()
+                .any(|v| v.voter == vote.voter && v.kind == vote.kind)
+            {
+                statements.push(vote.clone());
+            }
         }
     }
-    pub fn voting_active(&self, root: &QualifiedRoot, epoch: u64) -> bool {
-        self.cuts
-            .get(&epoch)
-            .is_none_or(|cut| cut.as_ref().is_some_and(|roots| roots.contains(root)))
+
+    pub fn signed_for(
+        &self,
+        epoch: u64,
+        hashes: &[BlockHash],
+    ) -> Vec<std::sync::Arc<rsnano_types::Vote>> {
+        let mut votes: Vec<std::sync::Arc<rsnano_types::Vote>> = Vec::new();
+        for hash in hashes {
+            for vote in self.signed.get(&(epoch, *hash)).into_iter().flatten() {
+                if !votes.iter().any(|old| old.signature == vote.signature) {
+                    votes.push(vote.clone());
+                }
+            }
+        }
+        votes
+    }
+
+    pub fn seal_epoch(&mut self, epoch: u64) {
+        self.sealed.insert(epoch);
+    }
+
+    /// Release only attempts omitted by reconstructed closed history.
+    pub fn apply_close(&mut self, epoch: u64, included: &HashSet<QualifiedRoot>) {
+        self.seal_epoch(epoch);
+        self.closed_roots.extend(included.iter().cloned());
+        self.roots.retain(|(root, _), votes| {
+            if included.contains(root) {
+                return true;
+            }
+            votes.statements.retain(|(e, _, _)| *e != epoch);
+            votes.timeout_epochs.remove(&epoch);
+            votes.first = None;
+            votes.participation_epoch = None;
+            votes.final_hash = None;
+            votes.notarized.clear();
+            for (e, kind, hash) in &votes.statements {
+                match kind {
+                    VoteKind::First => {
+                        votes.first = Some(*hash);
+                        votes.participation_epoch = Some(*e);
+                        votes.notarized.insert(*hash);
+                    }
+                    VoteKind::Notarize => {
+                        votes.notarized.insert(*hash);
+                    }
+                    VoteKind::Final => {
+                        votes.final_hash = Some(*hash);
+                    }
+                    _ => {}
+                }
+            }
+            !votes.statements.is_empty()
+        });
+    }
+
+    pub fn voting_filter(&self) -> impl Fn(&QualifiedRoot, u64) -> bool + use<> {
+        let sealed = self.sealed.clone();
+        move |_, epoch| !sealed.contains(&epoch)
+    }
+    pub fn voting_active(&self, _root: &QualifiedRoot, epoch: u64) -> bool {
+        !self.sealed.contains(&epoch)
     }
     /// Filter periodic work before it consumes scheduler slots or generator queues.
     /// Explicit recovery still uses authorize/timeout_statement to replay old votes.
@@ -72,6 +132,18 @@ impl KudzuVoteState {
             .map(|((root, _), _)| rsnano_types::ElectionId::new(root.clone(), epoch))
             .collect()
     }
+    pub fn first_recovery_targets(&self, epoch: u64) -> Vec<(rsnano_types::ElectionId, BlockHash)> {
+        self.roots
+            .iter()
+            .flat_map(|((root, _), votes)| {
+                votes.statements.iter().filter_map(move |(e, kind, hash)| {
+                    (*e == epoch && *kind == VoteKind::First)
+                        .then(|| (rsnano_types::ElectionId::new(root.clone(), epoch), *hash))
+                })
+            })
+            .collect()
+    }
+
     /// Recreate only this representative's previous timeout statement. A routing
     /// hash can differ between representatives; it carries no block weight.
     pub fn timeout_statement(
@@ -98,19 +170,21 @@ impl KudzuVoteState {
         hash: BlockHash,
         epoch: u64,
         eligible: bool,
-        final_lock: Option<BlockHash>,
+        _final_lock: Option<BlockHash>,
     ) -> Option<VoteKind> {
-        if !self.voting_active(root, epoch) {
-            return self
-                .timeout_statement(root, rep, epoch)
-                .filter(|(_, old)| *old == hash)
-                .map(|(kind, _)| kind);
+        if self.sealed.contains(&epoch) {
+            return None;
         }
-        if !eligible || final_lock.is_some() {
+
+        if !eligible {
             return None;
         }
         let state = self.roots.get_mut(&(root.clone(), rep))?;
-        if state.final_hash.is_some()
+        // A value lock in another epoch does not endorse timeout in this one.
+        if state
+            .statements
+            .iter()
+            .any(|(e, k, _)| *e == epoch && *k == VoteKind::Final)
             || !state.statements.iter().any(|(e, kind, _)| {
                 *e == epoch && matches!(kind, VoteKind::First | VoteKind::FirstTimeout)
             })
@@ -185,27 +259,14 @@ impl KudzuVoteState {
         notarized: bool,
         final_lock: Option<BlockHash>,
     ) -> Option<VoteKind> {
-        if !self.voting_active(root, epoch) {
-            let state = self.roots.get(&(root.clone(), rep))?;
-            let kinds: &[VoteKind] = if final_requested {
-                &[VoteKind::Final]
-            } else {
-                &[VoteKind::First, VoteKind::Notarize, VoteKind::FirstTimeout]
-            };
-            return kinds
-                .iter()
-                .copied()
-                .find(|kind| state.statements.contains(&(epoch, *kind, hash)));
-        }
-        if final_lock.is_some_and(|h| h != hash) {
+        if self.sealed.contains(&epoch) {
             return None;
         }
+
         let state = self.roots.entry((root.clone(), rep)).or_default();
-        if state.final_hash.is_some_and(|h| h != hash) {
-            return None;
-        }
         let other_epoch = state.participation_epoch.is_some_and(|e| e != epoch);
-        let timeout_first = other_epoch
+        let timeout_first = self.closed_roots.contains(root)
+            || other_epoch
             || state
                 .statements
                 .iter()
@@ -215,6 +276,24 @@ impl KudzuVoteState {
                     .statements
                     .iter()
                     .any(|(e, k, _)| *e == epoch && *k == VoteKind::First));
+        // Timeout has no block value: even a conflicting value lock from another
+        // epoch must not prevent joining this instance with FIRST-timeout.
+        if timeout_first
+            && !final_requested
+            && (!state.timeout_epochs.contains(&epoch) || !second_look)
+            && !state
+                .statements
+                .contains(&(epoch, VoteKind::Notarize, hash))
+        {
+            state.timeout_epochs.insert(epoch);
+            state
+                .statements
+                .insert((epoch, VoteKind::FirstTimeout, hash));
+            return Some(VoteKind::FirstTimeout);
+        }
+        if final_lock.is_some_and(|h| h != hash) || state.final_hash.is_some_and(|h| h != hash) {
+            return None;
+        }
         if timeout_first && !final_requested {
             if state
                 .statements
@@ -240,7 +319,8 @@ impl KudzuVoteState {
             return None;
         }
         let kind = if final_requested {
-            if !(notarized || state.statements.contains(&(epoch, VoteKind::Final, hash)))
+            if !state.statements.contains(&(epoch, VoteKind::First, hash))
+                || !(notarized || state.statements.contains(&(epoch, VoteKind::Final, hash)))
                 || state.notarized.iter().any(|h| *h != hash)
             {
                 return None;

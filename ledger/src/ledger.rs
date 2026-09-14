@@ -97,6 +97,8 @@ impl BlockError {
 
 pub struct Ledger {
     #[cfg(feature = "rai_protocol")]
+    pub(crate) epoch_candidates: RwLock<std::collections::BTreeSet<(u64, BlockHash)>>,
+    #[cfg(feature = "rai_protocol")]
     pub(crate) epoch_blocks:
         RwLock<std::collections::BTreeMap<BlockHash, (u64, Block, rsnano_types::DependentBlocks)>>,
     #[cfg(feature = "rai_protocol")]
@@ -109,6 +111,8 @@ pub struct Ledger {
     #[cfg(feature = "rai_protocol")]
     pub closed_epoch_count: std::sync::atomic::AtomicU64,
     pub epoch_length: std::sync::atomic::AtomicU64,
+    #[cfg(feature = "rai_protocol")]
+    pub epoch_terminated_elections: std::sync::atomic::AtomicU64,
     pub store: LmdbStore,
     pub rep_weights_updater: RepWeightsUpdater,
     pub rep_weights: Arc<RepWeightCache>,
@@ -313,7 +317,11 @@ impl Ledger {
             publish: RwLock::new(None),
             epoch_length: Default::default(),
             #[cfg(feature = "rai_protocol")]
+            epoch_terminated_elections: Default::default(),
+            #[cfg(feature = "rai_protocol")]
             epoch_blocks: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            epoch_candidates: Default::default(),
             #[cfg(feature = "rai_protocol")]
             epoch_metadata: Default::default(),
             #[cfg(feature = "rai_protocol")]
@@ -835,11 +843,32 @@ impl Ledger {
         self.voting_epoch.store(closed, Ordering::Release);
         Ok(())
     }
+    #[cfg(feature = "rai_protocol")]
+    pub fn epochs_enabled(&self) -> bool {
+        self.epoch_length.load(Ordering::Relaxed) > 0
+            || self.epoch_terminated_elections.load(Ordering::Relaxed) > 0
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn configure_epoch_terminated_elections(&self, count: u64) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            count == 0 || self.epoch_length.load(Ordering::Relaxed) == 0,
+            "Configure either timed epochs or terminated-election epochs, not both"
+        );
+        let mut tx = self.store.begin_write();
+        self.store
+            .consensus_epochs
+            .configure_terminated_elections(&mut tx, count)?;
+        tx.commit();
+        self.epoch_terminated_elections
+            .store(count, Ordering::Relaxed);
+        Ok(())
+    }
+
     pub fn current_epoch(&self) -> u64 {
         #[cfg(feature = "rai_protocol")]
         {
-            let length = self.epoch_length.load(Ordering::Relaxed);
-            if length > 0 {
+            if self.epochs_enabled() {
                 return self.voting_epoch.load(Ordering::Acquire);
             }
         }

@@ -54,8 +54,15 @@ impl ConsensusEpochStore {
         hashes: &[BlockHash],
     ) {
         assert_eq!(epoch, self.closed_count(tx));
+        let mut added = 0;
         for hash in hashes {
+            let mut member = b"member".to_vec();
+            member.extend_from_slice(&epoch.to_le_bytes());
+            member.extend_from_slice(hash.as_bytes());
+            tx.put(self.database, &member, &[], WriteFlags::empty())
+                .unwrap();
             if self.canonical(tx, hash).is_none() {
+                added += 1;
                 let mut key = vec![b'C'];
                 key.extend_from_slice(hash.as_bytes());
                 tx.put(
@@ -70,10 +77,24 @@ impl ConsensusEpochStore {
         tx.put(
             self.database,
             b"closed_blocks",
-            &(hashes.len() as u64).to_le_bytes(),
+            &(self.closed_blocks(tx) + added).to_le_bytes(),
             WriteFlags::empty(),
         )
         .unwrap();
+        let previous = epoch
+            .checked_sub(1)
+            .and_then(|e| self.close_id(tx, e))
+            .unwrap_or_default();
+        let id = rsnano_types::Blake2HashBuilder::new()
+            .update(b"RAI-CLOSE")
+            .update(epoch.to_le_bytes())
+            .update(previous.as_bytes())
+            .update(digest.as_bytes())
+            .build();
+        let mut id_key = b"close_id".to_vec();
+        id_key.extend_from_slice(&epoch.to_le_bytes());
+        tx.put(self.database, &id_key, id.as_bytes(), WriteFlags::empty())
+            .unwrap();
         let mut key = b"closed_hash".to_vec();
         key.extend_from_slice(&epoch.to_le_bytes());
         tx.put(self.database, &key, digest.as_bytes(), WriteFlags::empty())
@@ -86,6 +107,21 @@ impl ConsensusEpochStore {
         )
         .unwrap();
     }
+    pub fn close_contains(&self, tx: &dyn Transaction, epoch: u64, hash: &BlockHash) -> bool {
+        let mut key = b"member".to_vec();
+        key.extend_from_slice(&epoch.to_le_bytes());
+        key.extend_from_slice(hash.as_bytes());
+        tx.get(self.database, &key).is_ok()
+    }
+
+    pub fn close_id(&self, tx: &dyn Transaction, epoch: u64) -> Option<BlockHash> {
+        let mut key = b"close_id".to_vec();
+        key.extend_from_slice(&epoch.to_le_bytes());
+        tx.get(self.database, &key)
+            .ok()
+            .and_then(BlockHash::from_slice)
+    }
+
     pub fn close_digest(&self, tx: &dyn Transaction, epoch: u64) -> Option<BlockHash> {
         let mut key = b"closed_hash".to_vec();
         key.extend_from_slice(&epoch.to_le_bytes());
@@ -125,6 +161,26 @@ impl ConsensusEpochStore {
             self.database,
             b"length",
             &length.to_le_bytes(),
+            WriteFlags::empty(),
+        )
+        .unwrap();
+        Ok(())
+    }
+    pub fn configure_terminated_elections(
+        &self,
+        tx: &mut WriteTransaction,
+        count: u64,
+    ) -> anyhow::Result<()> {
+        if let Some(previous) = self.read(tx, b"terminated_election_length") {
+            anyhow::ensure!(
+                previous == count || self.count(tx) == 0,
+                "epoch_terminated_elections cannot change after cementation; use a fresh ledger"
+            );
+        }
+        tx.put(
+            self.database,
+            b"terminated_election_length",
+            &count.to_le_bytes(),
             WriteFlags::empty(),
         )
         .unwrap();
