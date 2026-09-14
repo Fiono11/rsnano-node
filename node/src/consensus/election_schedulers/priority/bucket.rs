@@ -77,7 +77,18 @@ impl Bucket {
             return false;
         };
 
-        vacancy > 0 || highest_block.priority.time > lowest_priority
+        // Under RAI the AEC never evicts a lower priority election, so a full bucket
+        // has nothing to offer until a slot frees up; reporting it as available would
+        // make the scheduler loop spin without inserting anything.
+        #[cfg(feature = "rai_protocol")]
+        {
+            let _ = (highest_block, lowest_priority);
+            vacancy > 0
+        }
+        #[cfg(not(feature = "rai_protocol"))]
+        {
+            vacancy > 0 || highest_block.priority.time > lowest_priority
+        }
     }
 
     pub fn activate(
@@ -241,6 +252,26 @@ mod tests {
         // Ensure correct order
         assert_eq!(blocks[0], block1);
         assert_eq!(blocks[1], block0);
+    }
+
+    #[test]
+    fn full_bucket_with_better_priority_block() {
+        let mut fixture = create_fixture();
+        let bucket = &mut fixture.bucket;
+        bucket
+            .insert(test_priority(1000), SavedBlock::new_test_instance())
+            .unwrap();
+
+        // No vacancy, but the queued block outranks the lowest election
+        let available = bucket.available(0, TimePriority::new(2000));
+
+        #[cfg(feature = "rai_protocol")]
+        assert!(
+            !available,
+            "RAI never evicts, a full bucket has nothing to offer"
+        );
+        #[cfg(not(feature = "rai_protocol"))]
+        assert!(available);
     }
 
     #[derive(Default)]

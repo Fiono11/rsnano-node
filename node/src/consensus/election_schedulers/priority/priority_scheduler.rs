@@ -125,6 +125,20 @@ impl PriorityScheduler {
             }
         };
 
+        // The backlog scan and the confirmation hooks re-activate every account whose
+        // frontier is not cemented yet; under RAI elections stay in the AEC until the
+        // epoch retires them, so most of those activations would only be rejected as
+        // duplicates or recently confirmed after several ledger reads and a bucket insert.
+        #[cfg(feature = "rai_protocol")]
+        if self
+            .aec
+            .is_active_or_recently_confirmed(&next_unconfirmed_hash)
+        {
+            self.stats
+                .inc(StatType::ElectionScheduler, DetailType::ActivateSkip);
+            return;
+        }
+
         let Some(block) = any.get_block(&next_unconfirmed_hash) else {
             return;
         };

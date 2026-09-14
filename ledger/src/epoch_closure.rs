@@ -19,6 +19,13 @@ impl Ledger {
             .collect()
     }
     pub fn canonical_confirmation_epoch(&self, hash: &BlockHash) -> Option<u64> {
+        if self.closed_epoch_count.load(Ordering::Acquire) == 0 {
+            // Nothing is canonical before the first close.
+            return None;
+        }
+        if self.canonical_epochs_loaded.load(Ordering::Acquire) {
+            return self.canonical_epochs.read().unwrap().get(hash).copied();
+        }
         self.store
             .consensus_epochs
             .canonical(&self.store.begin_read(), hash)
@@ -200,6 +207,13 @@ impl Ledger {
             .consensus_epochs
             .close(&mut tx, epoch, digest, hashes);
         tx.commit();
+        {
+            // Mirror the persisted mapping: a hash keeps the epoch of its first close.
+            let mut canonical = self.canonical_epochs.write().unwrap();
+            for hash in hashes {
+                canonical.entry(*hash).or_insert(epoch);
+            }
+        }
         self.epoch_candidates
             .write()
             .unwrap()
@@ -257,6 +271,22 @@ mod tests {
             ledger.epoch_close_missing_members(0, &[a.hash(), b.hash()]),
             vec![b.hash()]
         );
+    }
+
+    #[test]
+    fn canonical_epochs_are_served_from_memory_after_loading() {
+        let ledger = Ledger::new_null();
+        ledger.configure_epoch_length(10).unwrap();
+        assert!(ledger.canonical_epochs_loaded.load(Ordering::Acquire));
+        let mut lattice = UnsavedBlockLatticeBuilder::new();
+        let a = lattice.genesis().send(1, 1);
+        let b = lattice.genesis().send(2, 1);
+        ledger.record_epoch_block(0, a.clone());
+        assert_eq!(ledger.canonical_confirmation_epoch(&a.hash()), None);
+        ledger.close_epoch(0, &[a.hash()]).unwrap();
+        assert_eq!(ledger.canonical_confirmation_epoch(&a.hash()), Some(0));
+        assert_eq!(ledger.canonical_confirmation_epoch(&b.hash()), None);
+        assert_eq!(ledger.canonical_epochs.read().unwrap().len(), 1);
     }
 
     use crate::{LedgerBuilder, LedgerConstants, test_helpers::UnsavedBlockLatticeBuilder};

@@ -311,8 +311,12 @@ impl VoteGenerators {
                 }
             }
             // The requester named the candidates it already holds; republish only
-            // the others, so a lagging replica is not flooded with known blocks.
-            if let Some(block) = entry.block {
+            // the others, so a lagging replica is not flooded with known blocks and
+            // the block it lacks is not dropped behind them in the send queue.
+            let named = requests.iter().any(|(hash, _)| *hash == entry.hash());
+            if let Some(block) = entry.block
+                && !named
+            {
                 blocks.push(block);
             }
         }

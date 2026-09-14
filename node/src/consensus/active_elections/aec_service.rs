@@ -303,6 +303,14 @@ impl AecService {
         self.aec.read().unwrap().is_active_hash(block_hash)
     }
 
+    /// True when the block already has an election or a recent outcome, i.e. when
+    /// scheduling it again could only produce a duplicate or a rejected insert.
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn is_active_or_recently_confirmed(&self, block_hash: &BlockHash) -> bool {
+        let aec = self.aec.read().unwrap();
+        aec.is_active_hash(block_hash) || aec.was_recently_confirmed(block_hash)
+    }
+
     #[cfg(feature = "rai_protocol")]
     pub(crate) fn any_active_hash<'a>(&self, hashes: impl Iterator<Item = &'a BlockHash>) -> bool {
         let aec = self.aec.read().unwrap();

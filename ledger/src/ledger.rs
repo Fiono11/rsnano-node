@@ -110,6 +110,13 @@ pub struct Ledger {
     pub draining_epoch: std::sync::atomic::AtomicU64,
     #[cfg(feature = "rai_protocol")]
     pub closed_epoch_count: std::sync::atomic::AtomicU64,
+    /// In-memory copy of the persisted canonical memberships (block hash to the
+    /// epoch whose close first included it), so election admission never opens a
+    /// read transaction while holding the AEC write lock.
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) canonical_epochs: RwLock<rustc_hash::FxHashMap<BlockHash, u64>>,
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) canonical_epochs_loaded: std::sync::atomic::AtomicBool,
     pub epoch_length: std::sync::atomic::AtomicU64,
     #[cfg(feature = "rai_protocol")]
     pub epoch_terminated_elections: std::sync::atomic::AtomicU64,
@@ -330,6 +337,10 @@ impl Ledger {
             draining_epoch: std::sync::atomic::AtomicU64::new(u64::MAX),
             #[cfg(feature = "rai_protocol")]
             closed_epoch_count: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            canonical_epochs: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            canonical_epochs_loaded: Default::default(),
             can_roll_back: RwLock::new(Box::new(|_| true)),
         };
 
@@ -841,7 +852,20 @@ impl Ledger {
             .closed_count(&self.store.begin_read());
         self.closed_epoch_count.store(closed, Ordering::Release);
         self.voting_epoch.store(closed, Ordering::Release);
+        self.load_canonical_epochs();
         Ok(())
+    }
+
+    /// Load the persisted canonical memberships once; later closes keep the copy current.
+    #[cfg(feature = "rai_protocol")]
+    fn load_canonical_epochs(&self) {
+        if self.canonical_epochs_loaded.load(Ordering::Acquire) {
+            return;
+        }
+        let tx = self.store.begin_read();
+        let entries = self.store.consensus_epochs.canonical_entries(&tx);
+        self.canonical_epochs.write().unwrap().extend(entries);
+        self.canonical_epochs_loaded.store(true, Ordering::Release);
     }
     #[cfg(feature = "rai_protocol")]
     pub fn epochs_enabled(&self) -> bool {
@@ -862,6 +886,7 @@ impl Ledger {
         tx.commit();
         self.epoch_terminated_elections
             .store(count, Ordering::Relaxed);
+        self.load_canonical_epochs();
         Ok(())
     }
 

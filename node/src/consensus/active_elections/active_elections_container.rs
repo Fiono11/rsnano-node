@@ -197,6 +197,12 @@ impl ActiveElectionsContainer {
     where
         T: ElectionCandidateSource,
     {
+        // `refill` inserts nothing while cooling down or at the global cap, so the
+        // scheduler must not be woken for those states either.
+        #[cfg(feature = "rai_protocol")]
+        if self.cooldown.is_cooling_down() || self.roots.scheduling_len() >= self.max_elections {
+            return false;
+        }
         let bucket_infos = self.roots.bucket_infos();
         source.should_schedule(&bucket_infos)
     }
@@ -1704,8 +1710,10 @@ mod earlier_vote_tests {
 #[cfg(all(test, feature = "rai_protocol"))]
 mod notarized_admission_tests {
     use super::*;
-    use crate::consensus::ReceivedVote;
-    use rsnano_types::{PrivateKey, StateBlockArgs, Vote, VoteDelivery, VoteKind};
+    use crate::consensus::{BucketInfo, ElectionCandidate, ReceivedVote};
+    use rsnano_types::{
+        BlockPriority, PrivateKey, StateBlockArgs, TimePriority, Vote, VoteDelivery, VoteKind,
+    };
 
     #[test]
     fn termination_count_counts_once_per_epoch_not_per_certificate_or_finalization() {
@@ -2346,5 +2354,50 @@ mod notarized_admission_tests {
         );
         aec.transition_time(Timestamp::new_test_instance() + Duration::from_secs(600));
         assert_eq!(aec.len(), 1);
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn no_vacancy_at_global_cap() {
+        let mut container = ActiveElectionsContainer::new(
+            ActiveElectionsConfig {
+                max_elections: 1,
+                ..Default::default()
+            },
+            Duration::from_secs(1),
+        );
+        assert!(container.check_vacancy(&AlwaysSchedule));
+
+        container
+            .insert(
+                AecInsertRequest {
+                    block: SavedBlock::new_test_instance(),
+                    behavior: ElectionBehavior::Priority,
+                    priority: BlockPriority::new_test_instance(),
+                },
+                Timestamp::new_test_instance(),
+            )
+            .unwrap();
+
+        assert!(!container.check_vacancy(&AlwaysSchedule));
+    }
+
+    /* Test helpers */
+
+    struct AlwaysSchedule;
+
+    impl ElectionCandidateSource for AlwaysSchedule {
+        fn should_schedule(&self, _: &[BucketInfo]) -> bool {
+            true
+        }
+
+        fn next_candidate(
+            &mut self,
+            _: usize,
+            _: isize,
+            _: TimePriority,
+        ) -> Option<ElectionCandidate> {
+            None
+        }
     }
 }

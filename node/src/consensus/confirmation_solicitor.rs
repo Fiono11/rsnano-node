@@ -76,6 +76,16 @@ impl ConfirmationSolicitor {
                             .or_insert_with(|| (rep_channel, Vec::new()));
 
                         request_queue.push((winner.hash(), winner.root()));
+                        // Name every candidate held locally so the recovery reply
+                        // republishes only blocks this replica is actually missing.
+                        #[cfg(feature = "rai_protocol")]
+                        request_queue.extend(
+                            election
+                                .candidate_blocks()
+                                .keys()
+                                .filter(|hash| **hash != winner.hash())
+                                .map(|hash| (*hash, winner.root())),
+                        );
 
                         if !different_hash {
                             rep_request_count += 1;

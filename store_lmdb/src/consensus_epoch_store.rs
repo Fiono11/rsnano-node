@@ -35,6 +35,21 @@ impl ConsensusEpochStore {
         })
         .filter_map(|(hash, ())| hash)
     }
+    /// Every persisted canonical membership: block hash and the epoch whose close
+    /// first included it.
+    pub fn canonical_entries<'a>(
+        &self,
+        tx: &'a dyn Transaction,
+    ) -> impl Iterator<Item = (BlockHash, u64)> + 'a {
+        crate::LmdbIterator::new(tx.open_ro_cursor(self.database).unwrap(), |key, value| {
+            (
+                (key.len() == 33 && key[0] == b'C')
+                    .then(|| BlockHash::from_slice(&key[1..]).unwrap()),
+                value.try_into().map(u64::from_le_bytes).unwrap_or(0),
+            )
+        })
+        .filter_map(|(hash, epoch)| hash.map(|hash| (hash, epoch)))
+    }
     pub fn closed_count(&self, tx: &dyn Transaction) -> u64 {
         self.read(tx, b"closed_count").unwrap_or(0)
     }

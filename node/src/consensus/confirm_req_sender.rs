@@ -48,7 +48,7 @@ impl ConfirmReqSender {
             // only recovers lost votes: leave the proactive votes time to arrive
             // instead of soliciting every election as soon as it becomes active.
             #[cfg(feature = "rai_protocol")]
-            None => election.start().elapsed(now) >= election.base_latency(),
+            None => election.start().elapsed(now) >= election.base_latency() * 2,
             #[cfg(not(feature = "rai_protocol"))]
             None => true,
         }
@@ -56,6 +56,12 @@ impl ConfirmReqSender {
 
     /// Calculates time delay between broadcasting confirmation requests
     fn confirm_req_interval(election: &Election) -> Duration {
+        // A notarized or timed-out election only collects peers' other
+        // certificates; that recovery can run at a fraction of the live cadence.
+        #[cfg(feature = "rai_protocol")]
+        if election.has_quorum() || election.is_timed_out() {
+            return election.base_latency() * 30;
+        }
         match election.behavior() {
             ElectionBehavior::Priority | ElectionBehavior::Manual | ElectionBehavior::Hinted => {
                 election.base_latency() * 5
