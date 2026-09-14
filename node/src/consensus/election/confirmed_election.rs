@@ -1,10 +1,8 @@
-use std::{
-    collections::HashMap,
-    time::{Duration, SystemTime},
-};
+use std::time::{Duration, SystemTime};
 
 use rsnano_types::{Amount, MaybeSavedBlock, PublicKey, SavedBlock};
 use rsnano_utils::stats::DetailType;
+use rustc_hash::FxHashMap;
 
 use super::VoteSummary;
 use strum_macros::{EnumCount, EnumIter};
@@ -54,7 +52,7 @@ pub struct ConfirmedElection {
     pub election_end: SystemTime,
     pub election_duration: Duration,
     pub confirmation_type: ConfirmationType,
-    pub votes: HashMap<PublicKey, VoteSummary>,
+    pub votes: FxHashMap<PublicKey, VoteSummary>,
 }
 
 impl ConfirmedElection {

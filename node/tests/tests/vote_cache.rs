@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use rsnano_ledger::{LedgerSet, test_helpers::UnsavedBlockLatticeBuilder};
 use rsnano_node::consensus::ReceivedVote;
@@ -6,6 +6,7 @@ use rsnano_types::{
     Account, Amount, DEV_GENESIS_KEY, PrivateKey, UnixMillisTimestamp, Vote, VoteDelivery,
 };
 use rsnano_utils::stats::Direction;
+use rustc_hash::FxHashMap;
 use test_helpers::{System, assert_timely_eq2, assert_timely2, start_election};
 
 #[test]
@@ -82,7 +83,8 @@ fn vote_cache_existing_vote() {
     assert_eq!(send.hash(), last_vote1.hash);
 
     // Attempt to change vote with vote_cache
-    node.vote_cache.process(vote1, rep_weight, &HashMap::new());
+    node.vote_cache
+        .process(vote1, rep_weight, &FxHashMap::default());
 
     let mut cached = Vec::new();
     node.vote_cache.collect_votes(&mut cached, &send.hash());

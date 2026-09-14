@@ -162,6 +162,22 @@ impl RootContainer {
         }
     }
 
+    /// Take every election of a sealed epoch out of the scheduler buckets: no
+    /// vote can be signed there any more, so they would only lengthen every
+    /// round-robin scan. Their evidence stays addressable by root.
+    #[cfg(feature = "rai_protocol")]
+    pub fn retire_epoch(&mut self, epoch: u64) {
+        let ids: Vec<_> = self
+            .by_root
+            .keys()
+            .filter(|id| id.epoch == epoch)
+            .cloned()
+            .collect();
+        for id in &ids {
+            self.retire_finalized(id);
+        }
+    }
+
     pub fn ids_for_root(&self, root: &QualifiedRoot) -> Vec<ElectionId> {
         self.epochs_by_root
             .get(root)

@@ -41,10 +41,16 @@ impl ConfirmReqSender {
     }
 
     fn should_send_confirm_req(&self, election: &Election) -> bool {
-        if let Some(last_req) = self.last_requests.get(&election.id()) {
-            last_req.elapsed(self.clock.now()) >= Self::confirm_req_interval(election)
-        } else {
-            true
+        let now = self.clock.now();
+        match self.last_requests.get(&election.id()) {
+            Some(last_req) => last_req.elapsed(now) >= Self::confirm_req_interval(election),
+            // Every representative votes as soon as it sees a block, so a request
+            // only recovers lost votes: leave the proactive votes time to arrive
+            // instead of soliciting every election as soon as it becomes active.
+            #[cfg(feature = "rai_protocol")]
+            None => election.start().elapsed(now) >= election.base_latency(),
+            #[cfg(not(feature = "rai_protocol"))]
+            None => true,
         }
     }
 

@@ -11,11 +11,12 @@ pub use active_elections_container::*;
 pub use aec_service::{AecService, AecSnapshot, BucketSnapshot};
 pub use cooldown_controller::AecCooldownReason;
 
-use std::{collections::HashMap, isize};
+use std::isize;
 
 use rsnano_types::{
     Amount, Block, BlockHash, BlockPriority, QualifiedRoot, SavedBlock, TimePriority, VoteError,
 };
+use rustc_hash::FxHashMap;
 
 use super::{
     ReceivedVote,
@@ -64,7 +65,7 @@ pub enum AecFact {
     VoteProcessed(
         ReceivedVote,
         Amount,
-        HashMap<BlockHash, Result<(), VoteError>>,
+        FxHashMap<BlockHash, Result<(), VoteError>>,
     ),
     Recovered,
 }

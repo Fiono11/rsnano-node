@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -16,6 +15,7 @@ use rsnano_utils::{
     stats::{DetailType, StatType, Stats},
     sync::backpressure_channel::Sender,
 };
+use rustc_hash::FxHashMap;
 
 use super::{AecFact, FilteredVote, ReceivedVote, VoteApplier, VoteProcessorQueue};
 
@@ -32,7 +32,13 @@ pub struct VoteProcessorConfig {
 impl VoteProcessorConfig {
     pub fn new(parallelism: usize) -> Self {
         Self {
-            max_pr_queue: 256,
+            // RAI votes arrive in bursts from every representative; a brief
+            // stall of vote application must not drop them.
+            max_pr_queue: if cfg!(feature = "rai_protocol") {
+                4096
+            } else {
+                256
+            },
             max_non_pr_queue: 32,
             pr_priority: 3,
             threads: (parallelism / 2).clamp(1, 4),
@@ -184,7 +190,7 @@ impl VoteProcessorExt for Arc<VoteProcessor> {
 
 // Aggregate results for individual hashes
 pub fn aggregate_vote_results(
-    results: &HashMap<BlockHash, Result<(), VoteError>>,
+    results: &FxHashMap<BlockHash, Result<(), VoteError>>,
 ) -> Result<(), VoteError> {
     let mut ignored = false;
     let mut replay = false;

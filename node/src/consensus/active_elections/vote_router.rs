@@ -1,7 +1,7 @@
 use crate::consensus::election::Election;
 use rsnano_types::{BlockHash, ElectionId};
 use rsnano_utils::container_info::ContainerInfo;
-use std::collections::HashMap;
+use rustc_hash::FxHashMap as HashMap;
 #[derive(Default)]
 pub(crate) struct VoteRouter {
     elections: HashMap<BlockHash, std::collections::BTreeMap<u64, ElectionId>>,

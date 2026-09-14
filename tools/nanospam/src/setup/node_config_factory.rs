@@ -37,6 +37,10 @@ pub(crate) const NODE_CONFIG: &str = r#"
 [node.network]
     max_peers_per_ip = 256
 
+[node.message_processor]
+    # default 64 per channel; nanospam sends bursts over few connections
+    max_queue = 1024
+
 [node.bounded_backlog]
     enable = false
 

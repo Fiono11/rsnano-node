@@ -7,9 +7,12 @@ use crate::{
 use rsnano_ledger::{AnySet, Ledger, RepWeights};
 use rsnano_messages::{EpochClose, Message};
 use rsnano_network::{ChannelId, TrafficType};
-use rsnano_types::{Amount, BlockHash, PrivateKey, PublicKey, Root, Signature, Vote, VoteKind};
+use rsnano_types::{
+    Amount, BlockHash, ElectionId, PrivateKey, PublicKey, Root, Signature, Vote, VoteKind,
+};
 use rsnano_utils::{CancellationToken, ticker::Tickable};
 use std::{
+    cell::Cell,
     collections::{BTreeMap, HashMap, HashSet, VecDeque},
     sync::{Arc, Mutex, atomic::Ordering},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -125,9 +128,14 @@ struct Candidate {
     recovery_base: Option<Arc<Vec<BlockHash>>>,
     last_delta_page: Option<Instant>,
     hashes: Option<Vec<BlockHash>>,
+    /// The digest matched and every member was known locally. Members are only
+    /// ever added within an epoch, so this never reverts once established.
+    object_valid: Cell<bool>,
 }
 struct State {
     draining: bool,
+    /// This replica's FIRST obligations in `epoch`, frozen when the drain began.
+    local_first: Arc<Vec<ElectionId>>,
     epoch: u64,
     round: u64,
     parent: BlockHash,
@@ -209,6 +217,7 @@ impl State {
         );
         Self {
             draining: false,
+            local_first: Arc::new(Vec::new()),
             epoch,
             round: 0,
             parent: BlockHash::ZERO,
@@ -424,6 +433,7 @@ impl State {
                         recovery_base: None,
                         last_delta_page: None,
                         hashes: None,
+                        object_valid: Cell::new(false),
                     });
             }
         } else if p.valid_delta() {
@@ -514,10 +524,15 @@ impl State {
         let Some(hashes) = &c.hashes else {
             return false;
         };
-        if Ledger::epoch_state_hash(self.epoch, hashes) != c.header.state
-            || !self.leader_proposed(id)
-            || !ledger.epoch_close_candidate_valid(self.epoch, hashes)
-        {
+        if !c.object_valid.get() {
+            if Ledger::epoch_state_hash(self.epoch, hashes) != c.header.state
+                || !ledger.epoch_close_candidate_valid(self.epoch, hashes)
+            {
+                return false;
+            }
+            c.object_valid.set(true);
+        }
+        if !self.leader_proposed(id) {
             return false;
         }
         let first_skipped = if c.header.parent.is_zero() {
@@ -856,6 +871,7 @@ impl State {
                     recovery_base: None,
                     last_delta_page: None,
                     hashes: Some(hashes),
+                    object_valid: Cell::new(false),
                 });
                 if ledger.epoch_close_candidate_valid(
                     self.epoch,
@@ -1191,7 +1207,7 @@ impl EpochCloser {
                         })
                     );
                 }
-                self.generators.begin_drain(state.epoch);
+                state.local_first = Arc::new(self.generators.begin_drain(state.epoch));
                 state.draining = true;
                 state.enter_round(0);
             }
@@ -1200,12 +1216,19 @@ impl EpochCloser {
         if state.has_finalized_close() {
             self.generators.seal_epoch(state.epoch);
         }
-        let (mut outgoing, closed) =
-            self.generators
-                .with_close_readiness(state.epoch, &self.aec, |ready| {
-                    state.ready = state.draining && ready;
+        // Readiness only matters while draining, so the container is scanned
+        // only then; before that the tick must not stall vote application.
+        let (mut outgoing, closed) = if state.draining {
+            let local_first = state.local_first.clone();
+            self.aec
+                .with_close_readiness(state.epoch, &local_first, |ready| {
+                    state.ready = ready;
                     state.drive(&self.ledger, &keys)
-                });
+                })
+        } else {
+            state.ready = false;
+            state.drive(&self.ledger, &keys)
+        };
         // Recover certificates known by peers, including notarized forks of
         // locally timed-out elections. Solicit those
         // elections directly at the retransmission cadence instead of leaving them

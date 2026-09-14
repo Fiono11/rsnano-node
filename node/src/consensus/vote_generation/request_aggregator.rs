@@ -1,3 +1,5 @@
+#[cfg(feature = "rai_protocol")]
+use std::collections::HashSet;
 use std::{
     sync::{Arc, Condvar, Mutex, MutexGuard},
     thread::JoinHandle,
@@ -5,6 +7,8 @@ use std::{
 
 use rsnano_ledger::{AnySet, Ledger};
 use rsnano_network::{Channel, ChannelEvent, ChannelId, TrafficType};
+#[cfg(feature = "rai_protocol")]
+use rsnano_types::VoteKind;
 use rsnano_types::{BlockHash, Root};
 use rsnano_utils::{
     EventHandler,
@@ -280,6 +284,10 @@ impl RequestAggregatorLoop {
 
     fn process(&self, any: &dyn AnySet, request: &AggregatorRequest) {
         #[cfg(feature = "rai_protocol")]
+        let mut replayed_normal = HashSet::new();
+        #[cfg(feature = "rai_protocol")]
+        let mut replayed_final = HashSet::new();
+        #[cfg(feature = "rai_protocol")]
         {
             use rsnano_messages::{ConfirmAck, Message, Publish};
             let (blocks, votes) = self
@@ -320,6 +328,14 @@ impl RequestAggregatorLoop {
                 );
                 if sent {
                     replies.sent.insert(key, now);
+                    // A request only recovers what the requester missed: hashes
+                    // whose signed statements were just delivered need no fresh
+                    // generation. A suppressed or failed replay still does.
+                    let replayed = match vote.kind {
+                        VoteKind::Final | VoteKind::Timeout => &mut replayed_final,
+                        _ => &mut replayed_normal,
+                    };
+                    replayed.extend(vote.hashes.iter().copied());
                 }
             }
         }
@@ -327,7 +343,19 @@ impl RequestAggregatorLoop {
         crate::consensus::epoch_closer::debug_trace(
             || serde_json::json!({"type":"request","epoch":request.epoch,"hashes":request.roots_hashes}),
         );
+        #[cfg(not(feature = "rai_protocol"))]
         let remaining = self.aggregate(any, request);
+        #[cfg(feature = "rai_protocol")]
+        let remaining = {
+            let mut remaining = self.aggregate(any, request);
+            remaining
+                .remaining_normal
+                .retain(|block| !replayed_normal.contains(&block.hash()));
+            remaining
+                .remaining_final
+                .retain(|block| !replayed_final.contains(&block.hash()));
+            remaining
+        };
         #[cfg(feature = "rai_protocol")]
         for block in &remaining.blocks_to_publish {
             self.message_sender.lock().unwrap().try_send(

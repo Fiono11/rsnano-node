@@ -1,4 +1,6 @@
-use std::{collections::HashMap, ops::Deref};
+use std::ops::Deref;
+
+use rustc_hash::FxHashMap;
 
 #[cfg(any(test, not(feature = "rai_protocol")))]
 use rsnano_types::{Amount, VoteDelivery};
@@ -182,7 +184,7 @@ impl<'a> ApplyVoteHelper<'a> {
 pub(crate) struct ApplyVoteResult {
     #[cfg(feature = "rai_protocol")]
     pub tree_entries: Vec<rsnano_types::RaiBlockTreeEntry>,
-    pub per_block: HashMap<BlockHash, Result<(), VoteError>>,
+    pub per_block: FxHashMap<BlockHash, Result<(), VoteError>>,
     pub confirmed: Vec<Entry>,
     #[cfg(feature = "rai_protocol")]
     pub notarization_ready: Vec<(rsnano_types::ElectionId, BlockHash)>,
@@ -573,7 +575,7 @@ mod tests {
         fn apply_vote(
             &mut self,
             hashes: Vec<BlockHash>,
-        ) -> HashMap<BlockHash, Result<(), VoteError>> {
+        ) -> FxHashMap<BlockHash, Result<(), VoteError>> {
             let vote = Vote::new(
                 &PrivateKey::from(1),
                 UnixMillisTimestamp::new(1000),

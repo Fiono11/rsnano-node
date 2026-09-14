@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     fmt::Debug,
     time::{Duration, SystemTime},
 };
@@ -33,8 +32,8 @@ pub struct Election {
     winner: MaybeSavedBlock,
     state: ElectionState,
     // TODO: there can't be more than 10 blocks, so an array might be a lot faster
-    candidate_blocks: HashMap<BlockHash, MaybeSavedBlock>,
-    votes: HashMap<PublicKey, VoteSummary>,
+    candidate_blocks: FxHashMap<BlockHash, MaybeSavedBlock>,
+    votes: FxHashMap<PublicKey, VoteSummary>,
     winner_tally: Amount,
     winner_final_tally: Amount,
 
@@ -68,8 +67,8 @@ impl Election {
             first_vote_observed: None,
             qualified_root: block.qualified_root(),
             epoch: 0,
-            votes: HashMap::new(),
-            candidate_blocks: HashMap::from([(
+            votes: FxHashMap::default(),
+            candidate_blocks: FxHashMap::from_iter([(
                 block.hash(),
                 MaybeSavedBlock::Saved(block.clone()),
             )]),
@@ -116,7 +115,7 @@ impl Election {
         self.state
     }
 
-    pub fn candidate_blocks(&self) -> &HashMap<BlockHash, MaybeSavedBlock> {
+    pub fn candidate_blocks(&self) -> &FxHashMap<BlockHash, MaybeSavedBlock> {
         &self.candidate_blocks
     }
 
@@ -160,7 +159,7 @@ impl Election {
         }
     }
 
-    pub fn votes(&self) -> &HashMap<PublicKey, VoteSummary> {
+    pub fn votes(&self) -> &FxHashMap<PublicKey, VoteSummary> {
         &self.votes
     }
 

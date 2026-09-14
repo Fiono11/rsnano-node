@@ -8,7 +8,6 @@ mod voted_block_map;
 pub use voted_block_map::TopEntry;
 
 use std::{
-    collections::HashMap,
     fmt::Debug,
     sync::{Arc, Mutex, atomic::Ordering},
     time::Duration,
@@ -22,6 +21,7 @@ use rsnano_utils::{
     stats::{StatsCollection, StatsSource},
     thread_factory::ThreadFactory,
 };
+use rustc_hash::FxHashMap;
 
 use crate::consensus::{AecFact, VoteProcessorQueue};
 use stats::VoteCacheStats;
@@ -124,7 +124,7 @@ impl VoteCache {
         &self,
         vote: Arc<Vote>,
         rep_weight: Amount,
-        results: &HashMap<BlockHash, Result<(), VoteError>>,
+        results: &FxHashMap<BlockHash, Result<(), VoteError>>,
     ) {
         let now = self.clock.now();
         let inserted = self
@@ -235,7 +235,7 @@ mod tests {
         let hash = BlockHash::from(1);
         let vote = create_vote(&rep, &hash, 1);
 
-        cache.process(vote.clone(), Amount::raw(7), &HashMap::new());
+        cache.process(vote.clone(), Amount::raw(7), &FxHashMap::default());
 
         assert_eq!(cache.len(), 1);
         let mut votes = Vec::new();
@@ -251,7 +251,7 @@ mod tests {
         let hash1 = BlockHash::from(1);
         let rep1 = PrivateKey::from(1);
         let vote1 = create_vote(&rep1, &hash1, 1);
-        cache.process(vote1, Amount::raw(7), &HashMap::new());
+        cache.process(vote1, Amount::raw(7), &FxHashMap::default());
 
         cache.remove(&hash1);
 
@@ -272,7 +272,7 @@ mod tests {
         let hash = BlockHash::from(1);
         let rep = PrivateKey::from(1);
         let vote = create_vote(&rep, &hash, 0);
-        cache.process(vote, Amount::raw(1), &HashMap::new());
+        cache.process(vote, Amount::raw(1), &FxHashMap::default());
 
         let mut top = Vec::new();
         cache.top(&mut top, 0);
@@ -324,7 +324,7 @@ mod tests {
         cache.handle(&AecFact::VoteProcessed(
             recv_vote,
             Amount::nano(1000),
-            HashMap::new(),
+            FxHashMap::default(),
         ));
 
         assert_eq!(cache.vote_count(&block_hash), 1);

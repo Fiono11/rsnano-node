@@ -1,9 +1,7 @@
-use std::{
-    collections::HashMap,
-    sync::{Arc, RwLock},
-};
+use std::sync::{Arc, RwLock};
 
 use rsnano_nullable_clock::SteadyClock;
+use rustc_hash::FxHashMap;
 
 use rsnano_ledger::RepWeightCache;
 use rsnano_types::{Amount, BlockHash, VoteError};
@@ -49,7 +47,7 @@ impl VoteApplier {
     /// Distinguishes replay votes, cannot be determined if the block is not in any election
     /// If 'filter' parameter is non-zero, only elections for the specified hash are notified.
     /// This eliminates duplicate processing when triggering votes from the vote_cache as the result of a specific election being created.
-    pub fn vote(&self, vote: &FilteredVote) -> HashMap<BlockHash, Result<(), VoteError>> {
+    pub fn vote(&self, vote: &FilteredVote) -> FxHashMap<BlockHash, Result<(), VoteError>> {
         debug_assert!(vote.validate().is_ok());
 
         let minimum_pr_weight = self.rep_tracker.quorum_snapshot().minimum_principal_weight;
@@ -99,7 +97,7 @@ impl VoteApplier {
         &self,
         vote: &ReceivedVote,
         voter_weight: Amount,
-        results: &HashMap<BlockHash, Result<(), VoteError>>,
+        results: &FxHashMap<BlockHash, Result<(), VoteError>>,
     ) {
         for sender in self.event_senders.read().unwrap().iter() {
             let _ = sender.send(AecFact::VoteProcessed(

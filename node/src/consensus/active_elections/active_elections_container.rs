@@ -1,4 +1,4 @@
-use std::{cmp::max, collections::HashMap, time::Duration};
+use std::{cmp::max, time::Duration};
 
 use strum::EnumCount;
 
@@ -52,10 +52,12 @@ pub(crate) struct ActiveElectionsContainer {
     #[cfg(feature = "rai_protocol")]
     pub block_tree: crate::consensus::RaiBlockTree,
     #[cfg(feature = "rai_protocol")]
-    pub(super) terminated_elections: std::collections::HashSet<rsnano_types::ElectionId>,
+    pub(super) terminated_elections: rustc_hash::FxHashSet<rsnano_types::ElectionId>,
     #[cfg(feature = "rai_protocol")]
-    pub(super) certificate_recovery:
-        HashMap<rsnano_types::ElectionId, crate::consensus::election::kudzu::KudzuVotes>,
+    pub(super) certificate_recovery: rustc_hash::FxHashMap<
+        rsnano_types::ElectionId,
+        crate::consensus::election::kudzu::KudzuVotes,
+    >,
     roots: RootContainer,
     observer: Option<Sender<AecFact>>,
     stopped: bool,
@@ -509,30 +511,41 @@ impl ActiveElectionsContainer {
             .collect()
     }
 
+    /// Elections of `epoch` still without an outcome: the undecided ones held
+    /// here plus the local FIRST obligations whose election is absent. The
+    /// container keeps every election of the epoch, so only the few undecided
+    /// entries are examined further and the check stays cheap enough to run
+    /// on every closer tick under the read lock.
     #[cfg(feature = "rai_protocol")]
     pub(crate) fn pending_epoch_drain(
         &self,
         epoch: u64,
         local_first: &[rsnano_types::ElectionId],
     ) -> Vec<rsnano_types::ElectionId> {
-        let mut required: std::collections::HashSet<_> = local_first.iter().cloned().collect();
-        required.extend(self.roots.iter().filter_map(|entry| {
-            let e = &entry.election;
-            (e.epoch == epoch).then(|| e.id())
-        }));
-        required
-            .into_iter()
-            .filter(|id| {
-                !self
-                    .election_for_id(id)
-                    .is_some_and(|e| e.has_quorum() || e.is_confirmed() || e.is_timed_out())
-                    && !self
-                        .block_tree
-                        .for_root(&id.root)
-                        .iter()
-                        .any(|entry| entry.epoch == epoch)
-            })
-            .collect()
+        let decided = |e: &Election| e.has_quorum() || e.is_confirmed() || e.is_timed_out();
+        let in_tree = |root: &QualifiedRoot| {
+            self.block_tree
+                .for_root(root)
+                .iter()
+                .any(|entry| entry.epoch == epoch)
+        };
+        let mut pending: Vec<_> = self
+            .roots
+            .iter()
+            .map(|entry| &entry.election)
+            .filter(|e| e.epoch == epoch && !decided(e))
+            .map(|e| e.id())
+            .filter(|id| !in_tree(&id.root))
+            .collect();
+        pending.extend(
+            local_first
+                .iter()
+                .filter(|id| self.election_for_id(id).is_none() && !in_tree(&id.root))
+                .cloned(),
+        );
+        pending.sort_unstable();
+        pending.dedup();
+        pending
     }
 
     #[cfg(feature = "rai_protocol")]
@@ -580,6 +593,7 @@ impl ActiveElectionsContainer {
         });
         self.block_tree.close_epoch(epoch, hashes);
         self.certificate_recovery.retain(|id, _| id.epoch != epoch);
+        self.roots.retire_epoch(epoch);
         let count = removed.len();
         for entry in removed {
             self.cleanup_election(entry);
@@ -997,7 +1011,7 @@ impl ActiveElectionsContainer {
     pub fn apply_vote<'a>(
         &mut self,
         args: ApplyVoteArgs<'a>,
-    ) -> HashMap<BlockHash, Result<(), VoteError>> {
+    ) -> rustc_hash::FxHashMap<BlockHash, Result<(), VoteError>> {
         #[cfg(feature = "rai_protocol")]
         {
             for hash in args.vote.filtered_blocks() {

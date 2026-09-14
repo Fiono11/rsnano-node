@@ -91,6 +91,10 @@ impl Tickable for AecVoter {
         });
         #[cfg(feature = "rai_protocol")]
         let eligible = self.vote_generators.solicitation_filter();
+        // A cross-notarized fork can never be finalized by this node, so its
+        // Final target would only be collected and rejected on every tick.
+        #[cfg(feature = "rai_protocol")]
+        let frozen = self.vote_generators.frozen_roots();
         #[cfg(feature = "rai_protocol")]
         let mut targets: Vec<VoteTarget> = self.aec.round_robin(|iter| {
             let mut targets = Vec::new();
@@ -101,7 +105,9 @@ impl Tickable for AecVoter {
                 let primary = vote_target(e);
                 let primary_hash = primary.winner;
                 let primary_type = primary.vote_type;
-                if scheduler.can_vote(&primary, now) {
+                let finalizable =
+                    primary_type != VoteType::Final || !frozen.contains(e.qualified_root());
+                if finalizable && scheduler.can_vote(&primary, now) {
                     targets.push(primary);
                 }
                 for hash in e.candidate_blocks().keys() {

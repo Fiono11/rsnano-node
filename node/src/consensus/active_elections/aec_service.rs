@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::RwLock, time::Duration};
+use std::{sync::RwLock, time::Duration};
 
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_types::{
@@ -9,6 +9,7 @@ use rsnano_utils::{
     stats::{StatsCollection, StatsSource},
     sync::backpressure_channel::Sender,
 };
+use rustc_hash::FxHashMap;
 
 use super::{
     ActiveElectionsConfig, ActiveElectionsContainer, ActiveElectionsInfo, AecCooldownReason,
@@ -351,7 +352,7 @@ impl AecService {
     pub fn apply_vote<'a>(
         &self,
         args: ApplyVoteArgs<'a>,
-    ) -> HashMap<BlockHash, Result<(), VoteError>> {
+    ) -> FxHashMap<BlockHash, Result<(), VoteError>> {
         self.aec.write().unwrap().apply_vote(args)
     }
 

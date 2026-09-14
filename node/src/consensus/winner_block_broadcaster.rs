@@ -1,6 +1,5 @@
 use std::{
     cmp::max,
-    collections::HashMap,
     sync::{Arc, RwLock},
     time::Duration,
 };
@@ -11,6 +10,7 @@ use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 use rsnano_types::{Block, BlockHash, NetworkType, PublicKey};
 use rsnano_utils::stats::{StatsCollection, StatsSource};
+use rustc_hash::FxHashMap;
 
 use super::{bounded_hash_map::BoundedHashMap, election::VoteSummary};
 use crate::{representatives::RepresentativeTracker, transport::MessageFlooder};
@@ -70,7 +70,7 @@ impl WinnerBlockBroadcaster {
     pub fn try_broadcast_winner(
         &mut self,
         winner_block: &Block,
-        votes: &HashMap<PublicKey, VoteSummary>,
+        votes: &FxHashMap<PublicKey, VoteSummary>,
     ) -> bool {
         let now = self.clock.now();
         let winner_hash = winner_block.hash();

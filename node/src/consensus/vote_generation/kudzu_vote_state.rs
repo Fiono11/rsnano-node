@@ -12,6 +12,8 @@ pub(super) struct KudzuVoteState {
     sealed: HashSet<u64>,
     closed_roots: HashSet<QualifiedRoot>,
     signed: HashMap<(u64, BlockHash), Vec<std::sync::Arc<rsnano_types::Vote>>>,
+    /// Roots with more than one notarized candidate: never finalizable here.
+    frozen: HashSet<QualifiedRoot>,
 }
 
 #[derive(Default)]
@@ -75,6 +77,7 @@ impl KudzuVoteState {
             votes.participation_epoch = None;
             votes.final_hash = None;
             votes.notarized.clear();
+            self.frozen.remove(root);
             for (e, kind, hash) in &votes.statements {
                 match kind {
                     VoteKind::First => {
@@ -90,6 +93,9 @@ impl KudzuVoteState {
                     }
                     _ => {}
                 }
+            }
+            if votes.notarized.len() > 1 {
+                self.frozen.insert(root.clone());
             }
             !votes.statements.is_empty()
         });
@@ -116,6 +122,10 @@ impl KudzuVoteState {
                         .iter()
                         .any(|rep| self.can_finalize(&target.root.root, *rep, target.winner)))
         });
+    }
+
+    pub fn frozen_roots(&self) -> &HashSet<QualifiedRoot> {
+        &self.frozen
     }
     pub fn drain_through(&mut self, epoch: u64) {
         self.draining = Some(self.draining.map_or(epoch, |old| old.max(epoch)));
@@ -312,6 +322,9 @@ impl KudzuVoteState {
                 return None;
             }
             state.notarized.insert(hash);
+            if state.notarized.len() > 1 {
+                self.frozen.insert(root.clone());
+            }
             state.statements.insert((epoch, VoteKind::Notarize, hash));
             return Some(VoteKind::Notarize);
         }
@@ -348,6 +361,9 @@ impl KudzuVoteState {
                 return None;
             }
             state.notarized.insert(hash);
+            if state.notarized.len() > 1 {
+                self.frozen.insert(root.clone());
+            }
         }
         state.participation_epoch.get_or_insert(epoch);
         state.statements.insert((epoch, kind, hash));

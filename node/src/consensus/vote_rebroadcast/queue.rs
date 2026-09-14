@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     sync::{
         Arc, Condvar, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -12,6 +12,7 @@ use rsnano_utils::{
     fair_queue::FairQueue,
     stats::{DetailType, StatType, Stats},
 };
+use rustc_hash::FxHashMap;
 
 use super::WalletRepsConsumer;
 use crate::{
@@ -87,7 +88,7 @@ impl VoteRebroadcastQueue {
     pub fn try_enqueue(
         &self,
         vote: &Arc<Vote>,
-        results: &HashMap<BlockHash, Result<(), VoteError>>,
+        results: &FxHashMap<BlockHash, Result<(), VoteError>>,
     ) {
         let should_rebroadcast = results.iter().any(|(_, res)| match res {
             Ok(()) => true,
@@ -396,7 +397,7 @@ mod tests {
     fn ignore_unprocessed_vote() {
         let queue = VoteRebroadcastQueue::build().finish();
         set_rep_tiers(&queue);
-        let mut results = HashMap::new();
+        let mut results = FxHashMap::default();
         results.insert(BlockHash::from(1), Err(VoteError::Invalid));
         results.insert(BlockHash::from(2), Err(VoteError::Replay));
         results.insert(BlockHash::from(3), Err(VoteError::Indeterminate));
@@ -411,7 +412,7 @@ mod tests {
     fn enqueue_processed_vote() {
         let queue = VoteRebroadcastQueue::build().finish();
         set_rep_tiers(&queue);
-        let mut results = HashMap::new();
+        let mut results = FxHashMap::default();
         results.insert(BlockHash::from(1), Err(VoteError::Invalid));
         results.insert(BlockHash::from(2), Err(VoteError::Replay));
         results.insert(BlockHash::from(3), Err(VoteError::Indeterminate));

@@ -46,23 +46,21 @@ pub struct VoteGenerators {
 }
 
 impl VoteGenerators {
+    /// Start draining `epoch` and return this replica's FIRST obligations in it.
+    /// No FIRST vote can be signed in a draining epoch any more, so the list is
+    /// frozen from here on and the closer reuses it on every tick instead of
+    /// rescanning the signing state while holding its lock.
     #[cfg(feature = "rai_protocol")]
-    pub(crate) fn with_close_readiness<T>(
-        &self,
-        epoch: u64,
-        aec: &crate::consensus::AecService,
-        action: impl FnOnce(bool) -> T,
-    ) -> T {
-        let state = self.vote_state.lock().unwrap();
-        aec.with_close_readiness(epoch, &state.first_elections(epoch), action)
-    }
-
-    #[cfg(feature = "rai_protocol")]
-    pub(crate) fn begin_drain(&self, epoch: u64) {
-        self.vote_state.lock().unwrap().drain_through(epoch);
+    pub(crate) fn begin_drain(&self, epoch: u64) -> Vec<rsnano_types::ElectionId> {
+        let first_elections = {
+            let mut state = self.vote_state.lock().unwrap();
+            state.drain_through(epoch);
+            state.first_elections(epoch)
+        };
         self.ledger
             .voting_epoch
             .fetch_max(epoch + 1, std::sync::atomic::Ordering::AcqRel);
+        first_elections
     }
 
     #[cfg(feature = "rai_protocol")]
@@ -160,6 +158,12 @@ impl VoteGenerators {
             targets,
             &keys.iter().map(|key| key.public_key()).collect::<Vec<_>>(),
         );
+    }
+
+    /// Roots this node has notarized more than one candidate for.
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn frozen_roots(&self) -> rustc_hash::FxHashSet<rsnano_types::QualifiedRoot> {
+        self.vote_state.lock().unwrap().frozen_roots().clone()
     }
 
     fn voting_delay_for(network: NetworkType) -> Duration {
