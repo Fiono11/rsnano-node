@@ -97,7 +97,7 @@ impl BlockError {
 
 pub struct Ledger {
     #[cfg(feature = "rai_protocol")]
-    pub(crate) epoch_candidates: RwLock<std::collections::BTreeSet<(u64, BlockHash)>>,
+    pub(crate) epoch_candidates: RwLock<crate::EpochCandidates>,
     #[cfg(feature = "rai_protocol")]
     pub voting_epoch: std::sync::atomic::AtomicU64,
     #[cfg(feature = "rai_protocol")]

@@ -419,62 +419,6 @@ impl ActiveElectionsContainer {
             .collect()
     }
 
-    /// Elections whose outcome in `epoch` may exist on peers but not here: those
-    /// of `epoch` that timed out, never reached quorum, or hold a second-look
-    /// candidate without a notarization certificate (a fork that peers may have
-    /// cross-notarized), and timed-out elections of the next epoch, since a root
-    /// decided in `epoch` elsewhere can only time out in a later local election.
-    /// A replica that is `behind` the most advanced proposal also lists every
-    /// notarized election that is not finalized: forks with an uncertified
-    /// candidate first, most FIRST weight first, then single-candidate ones,
-    /// since peers may hold a second certified candidate this replica has never
-    /// received. After a drain these are the only elections that can still
-    /// change the epoch membership, so the closer solicits them directly instead
-    /// of leaving them to the bounded recovery rotation.
-    #[cfg(feature = "rai_protocol")]
-    pub(crate) fn membership_recovery_targets(
-        &self,
-        epoch: u64,
-        behind: bool,
-    ) -> Vec<(BlockHash, rsnano_types::Root)> {
-        let mut targets = Vec::new();
-        let mut forks = Vec::new();
-        let mut notarized = Vec::new();
-        for e in self.roots.iter().map(|entry| &entry.election) {
-            if e.is_confirmed() {
-                continue;
-            }
-            let target = (e.winner().hash(), e.winner().root());
-            if e.epoch == epoch + 1 && e.is_timed_out() {
-                targets.push(target);
-                continue;
-            }
-            if e.epoch != epoch {
-                continue;
-            }
-            if e.is_timed_out() || !e.has_quorum() {
-                targets.push(target);
-                continue;
-            }
-            let uncertified = e
-                .candidate_blocks()
-                .keys()
-                .filter(|hash| !e.has_kudzu_certificate(**hash, rsnano_types::VoteKind::Notarize))
-                .map(|hash| (e.can_notarize(hash), e.kudzu_first_weight(hash)))
-                .max();
-            match uncertified {
-                Some((true, _)) => targets.push(target),
-                Some((false, weight)) if behind => forks.push((weight, target)),
-                None if behind => notarized.push(target),
-                _ => {}
-            }
-        }
-        forks.sort_by(|a, b| b.0.cmp(&a.0));
-        targets.extend(forks.into_iter().map(|(_, target)| target));
-        targets.extend(notarized);
-        targets
-    }
-
     /// A root with a block certificate in an earlier epoch is never retried: the
     /// representatives that voted for a block there may only abstain later, so a
     /// new election could only time out. A timeout alone may stem from abstentions
@@ -522,9 +466,9 @@ impl ActiveElectionsContainer {
 
     /// Elections of `epoch` still without an outcome: the undecided ones held
     /// here plus the local FIRST obligations whose election is absent. The
-    /// container keeps every election of the epoch, so only the few undecided
-    /// entries are examined further and the check stays cheap enough to run
-    /// on every closer tick under the read lock.
+    /// container indexes undecided elections per epoch, so the check costs
+    /// only the pending elections and stays cheap enough to run on every
+    /// closer tick under the read lock however many elections the epoch holds.
     #[cfg(feature = "rai_protocol")]
     pub(crate) fn pending_epoch_drain(
         &self,
@@ -540,11 +484,10 @@ impl ActiveElectionsContainer {
         };
         let mut pending: Vec<_> = self
             .roots
-            .iter()
-            .map(|entry| &entry.election)
-            .filter(|e| e.epoch == epoch && !decided(e))
-            .map(|e| e.id())
+            .undecided(epoch)
+            .filter(|id| self.election_for_id(id).is_some_and(|e| !decided(e)))
             .filter(|id| !in_tree(&id.root))
+            .cloned()
             .collect();
         pending.extend(
             local_first
@@ -1792,6 +1735,77 @@ mod notarized_admission_tests {
     };
 
     #[test]
+    fn undecided_index_tracks_decisions_removals_and_epochs() {
+        let mut aec = ActiveElectionsContainer::default();
+        let now = Timestamp::new_test_instance();
+        let blocks: Vec<SavedBlock> = (1..=3u64)
+            .map(|i| {
+                SavedBlock::new_test_instance_with(
+                    StateBlockArgs {
+                        previous: BlockHash::from(i),
+                        ..StateBlockArgs::new_test_instance()
+                    }
+                    .into(),
+                )
+            })
+            .collect();
+        for block in &blocks {
+            aec.insert_in_epoch(
+                AecInsertRequest::new_manual(block.clone(), Default::default()),
+                now,
+                1,
+            )
+            .unwrap();
+        }
+        let ids: Vec<_> = blocks
+            .iter()
+            .map(|block| rsnano_types::ElectionId::new(block.qualified_root(), 1))
+            .collect();
+        let scan = |aec: &ActiveElectionsContainer| {
+            let mut pending: Vec<_> = aec
+                .roots
+                .iter()
+                .map(|entry| &entry.election)
+                .filter(|e| {
+                    e.epoch == 1 && !e.has_quorum() && !e.is_confirmed() && !e.is_timed_out()
+                })
+                .map(|e| e.id())
+                .collect();
+            pending.sort_unstable();
+            pending
+        };
+        assert_eq!(aec.pending_epoch_drain(1, &[]), scan(&aec));
+        assert_eq!(aec.pending_epoch_drain(1, &[]).len(), 3);
+        // A notarization certificate decides the first election.
+        for rep in 1..=4 {
+            apply_in_epoch(&mut aec, rep, blocks[0].hash(), VoteKind::First, 1);
+        }
+        assert_eq!(aec.pending_epoch_drain(1, &[]), scan(&aec));
+        assert!(!aec.pending_epoch_drain(1, &[]).contains(&ids[0]));
+        // A timeout certificate decides the second one.
+        for rep in 1..=4 {
+            apply_in_epoch(&mut aec, rep, blocks[1].hash(), VoteKind::FirstTimeout, 1);
+        }
+        assert_eq!(aec.pending_epoch_drain(1, &[]), vec![ids[2].clone()]);
+        assert_eq!(aec.pending_epoch_drain(1, &[]), scan(&aec));
+        // Removal takes the third out of the index; another epoch is separate.
+        aec.roots.erase_id(&ids[2]);
+        assert!(aec.pending_epoch_drain(1, &[]).is_empty());
+        assert!(aec.roots.undecided(1).next().is_none());
+        aec.insert_in_epoch(
+            AecInsertRequest::new_manual(blocks[2].clone(), Default::default()),
+            now,
+            2,
+        )
+        .unwrap();
+        assert!(aec.pending_epoch_drain(1, &[]).is_empty());
+        assert_eq!(
+            aec.pending_epoch_drain(2, &[]),
+            vec![rsnano_types::ElectionId::new(blocks[2].qualified_root(), 2)]
+        );
+    }
+
+    #[test]
     fn repeated_certificates_preserve_membership_and_finalization_in_each_epoch() {
         let ledger = std::sync::Arc::new(rsnano_ledger::Ledger::new_null());
         let mut aec = ActiveElectionsContainer::default();
@@ -2125,153 +2139,6 @@ mod notarized_admission_tests {
             Ok(())
         );
         assert_eq!(aec.len(), 2);
-    }
-
-    #[test]
-    fn membership_recovery_targets_are_uncertified_or_timed_out_elections_of_the_epoch() {
-        let mut aec = ActiveElectionsContainer::default();
-        let block = SavedBlock::new_test_instance();
-        aec.insert(
-            AecInsertRequest::new_priority(block.clone(), Default::default()),
-            Timestamp::new_test_instance(),
-        )
-        .unwrap();
-        for rep in 1..=3 {
-            apply(&mut aec, rep, block.hash(), VoteKind::First);
-        }
-        assert_eq!(
-            aec.membership_recovery_targets(0, false),
-            vec![(block.hash(), block.root())],
-            "no quorum yet"
-        );
-        apply(&mut aec, 4, block.hash(), VoteKind::First);
-        assert!(
-            aec.membership_recovery_targets(0, false).is_empty(),
-            "notarized without timeout"
-        );
-        apply(&mut aec, 1, block.hash(), VoteKind::Timeout);
-        for rep in 5..=6 {
-            apply(&mut aec, rep, block.hash(), VoteKind::FirstTimeout);
-        }
-        apply(&mut aec, 2, block.hash(), VoteKind::Timeout);
-        assert!(
-            aec.election_for_block(&block.hash())
-                .unwrap()
-                .is_timed_out()
-        );
-        assert_eq!(
-            aec.membership_recovery_targets(0, false),
-            vec![(block.hash(), block.root())],
-            "timed out"
-        );
-        assert!(aec.membership_recovery_targets(1, false).is_empty());
-        // A later-epoch timeout signals a root that peers may have decided earlier.
-        let later = SavedBlock::new_test_instance_with(StateBlockArgs::new_test_instance().into());
-        aec.insert_in_epoch(
-            AecInsertRequest::new_manual(later.clone(), Default::default()),
-            Timestamp::new_test_instance(),
-            1,
-        )
-        .unwrap();
-        apply_in_epoch(&mut aec, 1, later.hash(), VoteKind::First, 1);
-        apply_in_epoch(&mut aec, 1, later.hash(), VoteKind::Timeout, 1);
-        for rep in 2..=4 {
-            apply_in_epoch(&mut aec, rep, later.hash(), VoteKind::FirstTimeout, 1);
-        }
-        assert!(
-            aec.membership_recovery_targets(0, false)
-                .contains(&(later.hash(), later.root())),
-            "timed out in the next epoch"
-        );
-    }
-
-    #[test]
-    fn membership_recovery_targets_include_notarized_forks_with_an_uncertified_second_look() {
-        let mut aec = ActiveElectionsContainer::default();
-        let args = StateBlockArgs::new_test_instance();
-        let block = SavedBlock::new_test_instance_with(args.clone().into());
-        let fork: Block = StateBlockArgs {
-            representative: 999.into(),
-            ..args
-        }
-        .into();
-        aec.insert(
-            AecInsertRequest::new_priority(block.clone(), Default::default()),
-            Timestamp::new_test_instance(),
-        )
-        .unwrap();
-        assert!(aec.try_add_fork(&fork, Amount::ZERO));
-        for rep in 1..=3 {
-            apply(&mut aec, rep, block.hash(), VoteKind::First);
-        }
-        for rep in 4..=6 {
-            apply(&mut aec, rep, fork.hash(), VoteKind::First);
-        }
-        apply(&mut aec, 4, block.hash(), VoteKind::Notarize);
-        let election = aec.election_for_block(&block.hash()).unwrap();
-        assert!(election.has_quorum() && !election.is_timed_out());
-        assert!(election.can_notarize(&fork.hash()));
-        assert!(!election.has_kudzu_certificate(fork.hash(), VoteKind::Notarize));
-        assert_eq!(
-            aec.membership_recovery_targets(0, false),
-            vec![(block.hash(), block.root())],
-            "peers may have cross-notarized the second-look candidate"
-        );
-        apply(&mut aec, 1, fork.hash(), VoteKind::Notarize);
-        assert!(
-            aec.membership_recovery_targets(0, false).is_empty(),
-            "both candidates are certified locally"
-        );
-    }
-
-    #[test]
-    fn replica_behind_the_highest_count_also_solicits_forks_below_second_look() {
-        let mut aec = ActiveElectionsContainer::default();
-        let args = StateBlockArgs::new_test_instance();
-        let block = SavedBlock::new_test_instance_with(args.clone().into());
-        let fork: Block = StateBlockArgs {
-            representative: 999.into(),
-            ..args
-        }
-        .into();
-        aec.insert(
-            AecInsertRequest::new_priority(block.clone(), Default::default()),
-            Timestamp::new_test_instance(),
-        )
-        .unwrap();
-        assert!(aec.try_add_fork(&fork, Amount::ZERO));
-        for rep in 1..=4 {
-            apply(&mut aec, rep, block.hash(), VoteKind::First);
-        }
-        apply(&mut aec, 5, fork.hash(), VoteKind::First);
-        assert!(aec.membership_recovery_targets(0, false).is_empty());
-        assert_eq!(
-            aec.membership_recovery_targets(0, true),
-            vec![(block.hash(), block.root())],
-            "a missed certificate may hide behind a fork below second look"
-        );
-        // A notarized single-candidate election may have a second certified
-        // candidate on peers that this replica never received; it comes last.
-        let single = SavedBlock::new_test_instance_with(
-            StateBlockArgs {
-                previous: BlockHash::from(77),
-                ..StateBlockArgs::new_test_instance()
-            }
-            .into(),
-        );
-        aec.insert(
-            AecInsertRequest::new_priority(single.clone(), Default::default()),
-            Timestamp::new_test_instance(),
-        )
-        .unwrap();
-        for rep in 1..=4 {
-            apply(&mut aec, rep, single.hash(), VoteKind::First);
-        }
-        assert!(aec.membership_recovery_targets(0, false).is_empty());
-        assert_eq!(
-            aec.membership_recovery_targets(0, true),
-            vec![(block.hash(), block.root()), (single.hash(), single.root())]
-        );
     }
 
     #[test]

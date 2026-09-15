@@ -65,6 +65,10 @@ pub(crate) struct RootContainer {
     #[cfg(feature = "rai_protocol")]
     pending_time_transitions: FxHashSet<ElectionId>,
     epochs_by_root: FxHashMap<QualifiedRoot, BTreeSet<u64>>,
+    /// Elections without an outcome yet, per epoch, so a drain check costs
+    /// only the undecided elections rather than every election of the epoch.
+    #[cfg(feature = "rai_protocol")]
+    undecided: FxHashMap<u64, FxHashSet<ElectionId>>,
     buckets: Vec<BTreeSet<BucketEntry>>,
     bucket_infos: Vec<BucketInfo>,
     pub vote_router: VoteRouter,
@@ -90,6 +94,8 @@ impl RootContainer {
             #[cfg(feature = "rai_protocol")]
             pending_time_transitions: Default::default(),
             epochs_by_root: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            undecided: Default::default(),
             vote_router: Default::default(),
             buckets: vec![BTreeSet::new(); bucket_count],
             bucket_infos: vec![BucketInfo::new(max_elections_per_bucket); bucket_count],
@@ -118,6 +124,13 @@ impl RootContainer {
             .entry(entry.root.clone())
             .or_default()
             .insert(root.epoch);
+        #[cfg(feature = "rai_protocol")]
+        if !Self::decided(&entry.election) {
+            self.undecided
+                .entry(root.epoch)
+                .or_default()
+                .insert(root.clone());
+        }
         self.by_root.insert(root.clone(), entry);
         #[cfg(feature = "rai_protocol")]
         self.track_time_transition(&root);
@@ -129,10 +142,32 @@ impl RootContainer {
         }
     }
 
+    #[cfg(feature = "rai_protocol")]
+    fn decided(election: &Election) -> bool {
+        election.has_quorum() || election.is_confirmed() || election.is_timed_out()
+    }
+
+    /// Elections of `epoch` still without an outcome.
+    #[cfg(feature = "rai_protocol")]
+    pub fn undecided(&self, epoch: u64) -> impl Iterator<Item = &ElectionId> {
+        self.undecided.get(&epoch).into_iter().flatten()
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    fn mark_decided(&mut self, id: &ElectionId) {
+        if let Some(ids) = self.undecided.get_mut(&id.epoch) {
+            ids.remove(id);
+            if ids.is_empty() {
+                self.undecided.remove(&id.epoch);
+            }
+        }
+    }
+
     /// Release admission capacity without removing the election or its vote routes.
     /// It remains in round-robin processing for additional certificates/final votes.
     #[cfg(feature = "rai_protocol")]
     pub fn mark_notarized(&mut self, id: &ElectionId) {
+        self.mark_decided(id);
         // A root with an outcome must not consume fresh admission slots merely
         // because peers are collecting evidence in another epoch.
         for related in self.ids_for_root(&id.root) {
@@ -343,7 +378,10 @@ impl RootContainer {
     pub fn erase_id(&mut self, root: &ElectionId) -> Option<Entry> {
         let erased = self.by_root.remove(root);
         #[cfg(feature = "rai_protocol")]
-        self.pending_time_transitions.remove(root);
+        {
+            self.pending_time_transitions.remove(root);
+            self.mark_decided(root);
+        }
         if let Some(epochs) = self.epochs_by_root.get_mut(&root.root) {
             epochs.remove(&root.epoch);
             if epochs.is_empty() {
@@ -372,7 +410,10 @@ impl RootContainer {
     pub fn clear(&mut self) {
         self.by_root.clear();
         #[cfg(feature = "rai_protocol")]
-        self.pending_time_transitions.clear();
+        {
+            self.pending_time_transitions.clear();
+            self.undecided.clear();
+        }
         self.capacity_released_ids.clear();
         self.released_by_bucket.fill(0);
         self.epochs_by_root.clear();

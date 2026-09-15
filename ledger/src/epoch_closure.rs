@@ -1,6 +1,57 @@
-use crate::Ledger;
-use rsnano_types::{Blake2HashBuilder, Block, BlockHash};
-use std::sync::atomic::Ordering;
+use crate::{Ledger, MembershipTrie};
+use rsnano_types::{Block, BlockHash};
+use std::{
+    collections::{BTreeSet, HashMap},
+    sync::atomic::Ordering,
+};
+
+/// Certificate-verified candidates of the open epochs. Besides the sorted set,
+/// an append-only log per epoch lets the closer follow additions incrementally
+/// instead of copying the whole membership.
+#[derive(Default)]
+pub struct EpochCandidates {
+    set: BTreeSet<(u64, BlockHash)>,
+    log: HashMap<u64, Vec<BlockHash>>,
+}
+
+impl EpochCandidates {
+    /// Returns whether the candidate was new.
+    pub fn insert(&mut self, epoch: u64, hash: BlockHash) -> bool {
+        if !self.set.insert((epoch, hash)) {
+            return false;
+        }
+        self.log.entry(epoch).or_default().push(hash);
+        true
+    }
+
+    pub fn contains(&self, epoch: u64, hash: &BlockHash) -> bool {
+        self.set.contains(&(epoch, *hash))
+    }
+
+    /// Members of `epoch` in ascending order.
+    pub fn members(&self, epoch: u64) -> impl Iterator<Item = &BlockHash> {
+        self.set
+            .range((epoch, BlockHash::ZERO)..=(epoch, BlockHash::MAX))
+            .map(|(_, hash)| hash)
+    }
+
+    /// Members recorded for `epoch` from log position `from` on, in recording order.
+    pub fn since(&self, epoch: u64, from: usize) -> &[BlockHash] {
+        self.log
+            .get(&epoch)
+            .map(|log| &log[from.min(log.len())..])
+            .unwrap_or(&[])
+    }
+
+    pub fn len(&self, epoch: u64) -> usize {
+        self.log.get(&epoch).map(Vec::len).unwrap_or(0)
+    }
+
+    fn remove_epoch(&mut self, epoch: u64) {
+        self.set.retain(|(e, _)| *e != epoch);
+        self.log.remove(&epoch);
+    }
+}
 
 /// Prepared, uncommitted close membership. Dropping it aborts the database writes.
 /// Callers must serialize finalization checks and commit with certificate application.
@@ -71,7 +122,7 @@ impl Ledger {
         // Once sealed, omitted evidence is never a parent for a later proposal.
         let closed = self.closed_epoch_count.load(Ordering::Acquire);
         let candidates = self.epoch_candidates.read().unwrap();
-        if (closed..=epoch).any(|e| candidates.contains(&(e, *parent))) {
+        if (closed..=epoch).any(|e| candidates.contains(e, parent)) {
             return true;
         }
         // Keep the persisted fallback: a concurrent close may have committed
@@ -93,7 +144,7 @@ impl Ledger {
             // A late certificate may update an admitted candidate, never resurrect an omission.
             return;
         }
-        self.epoch_candidates.write().unwrap().insert((epoch, hash));
+        self.epoch_candidates.write().unwrap().insert(epoch, hash);
     }
 
     /// Only certificate-verified candidates of this epoch, including forks.
@@ -101,19 +152,24 @@ impl Ledger {
         self.epoch_candidates
             .read()
             .unwrap()
-            .range((epoch, BlockHash::ZERO)..=(epoch, BlockHash::MAX))
-            .map(|(_, hash)| *hash)
+            .members(epoch)
+            .copied()
             .collect()
     }
 
+    /// Candidates recorded for `epoch` since log position `from`, so a caller
+    /// can follow the membership incrementally; `len` is the next position.
+    pub fn epoch_candidates_since(&self, epoch: u64, from: usize) -> (Vec<BlockHash>, usize) {
+        let candidates = self.epoch_candidates.read().unwrap();
+        (
+            candidates.since(epoch, from).to_vec(),
+            candidates.len(epoch),
+        )
+    }
+
+    /// The close identity of a membership: the root of its digest tree.
     pub fn epoch_state_hash(epoch: u64, hashes: &[BlockHash]) -> BlockHash {
-        let mut builder = Blake2HashBuilder::new()
-            .update(b"RAI-CLOSE-STATE")
-            .update(epoch.to_le_bytes());
-        for hash in hashes {
-            builder = builder.update(hash.as_bytes());
-        }
-        builder.build()
+        MembershipTrie::from_members(epoch, hashes.iter().copied()).root()
     }
 
     pub fn begin_epoch_drain(&self) -> Option<u64> {
@@ -135,36 +191,26 @@ impl Ledger {
         self.epoch_close_missing_members(epoch, hashes).is_empty()
     }
 
-    pub fn epoch_close_contains_known(&self, epoch: u64, hashes: &[BlockHash]) -> bool {
-        // Both memberships are sorted. Merge them once while keeping D4 live,
-        // rather than searching the entire snapshot for every known candidate.
-        let mut snapshot = hashes.iter();
-        self.epoch_candidates
-            .read()
-            .unwrap()
-            .range((epoch, BlockHash::ZERO)..=(epoch, BlockHash::MAX))
-            .all(|(_, hash)| snapshot.find(|candidate| **candidate >= *hash) == Some(hash))
-    }
-
     pub fn epoch_close_missing_members(&self, epoch: u64, hashes: &[BlockHash]) -> Vec<BlockHash> {
         let candidates = self.epoch_candidates.read().unwrap();
         let tx = self.store.begin_read();
-        if hashes.len() < 64 || hashes.windows(2).any(|pair| pair[0] > pair[1]) {
-            // Point lookups suit short lists; diagnostics may also supply
-            // arbitrary order. Full sorted snapshots use a single merge below.
+        if hashes.len() < 64
+            || hashes.len() * 8 < candidates.len(epoch)
+            || hashes.windows(2).any(|pair| pair[0] > pair[1])
+        {
+            // Point lookups suit lists that are short or small next to the
+            // membership, and diagnostics may supply arbitrary order. A full
+            // sorted snapshot uses a single merge below.
             return hashes
                 .iter()
                 .filter(|hash| {
-                    !candidates.contains(&(epoch, **hash))
+                    !candidates.contains(epoch, hash)
                         && !self.store.consensus_epochs.close_contains(&tx, epoch, hash)
                 })
                 .copied()
                 .collect();
         }
-        let mut local = candidates
-            .range((epoch, BlockHash::ZERO)..=(epoch, BlockHash::MAX))
-            .map(|(_, hash)| hash)
-            .peekable();
+        let mut local = candidates.members(epoch).peekable();
         hashes
             .iter()
             .filter(|hash| {
@@ -176,15 +222,6 @@ impl Ledger {
             })
             .copied()
             .collect()
-    }
-
-    pub fn epoch_close_candidate_diagnostic(
-        &self,
-        epoch: u64,
-        hashes: &[BlockHash],
-    ) -> serde_json::Value {
-        serde_json::json!({"missing_objects": self.epoch_close_missing_members(epoch, hashes),
-            "contains_known": self.epoch_close_contains_known(epoch, hashes)})
     }
 
     pub fn close_epoch(&self, epoch: u64, hashes: &[BlockHash]) -> anyhow::Result<()> {
@@ -229,10 +266,7 @@ impl Ledger {
                 canonical.entry(*hash).or_insert(epoch);
             }
         }
-        self.epoch_candidates
-            .write()
-            .unwrap()
-            .retain(|(e, _)| *e != epoch);
+        self.epoch_candidates.write().unwrap().remove_epoch(epoch);
         self.closed_epoch_count.store(epoch + 1, Ordering::Release);
         self.voting_epoch.fetch_max(epoch + 1, Ordering::AcqRel);
         self.draining_epoch.store(u64::MAX, Ordering::Release);
@@ -407,47 +441,69 @@ mod tests {
     }
 
     #[test]
-    fn close_membership_checks_follow_live_epoch_candidates() {
+    fn candidate_log_follows_the_membership_incrementally() {
         let ledger = Ledger::new_null();
-        ledger.epoch_candidates.write().unwrap().extend([
-            (0, BlockHash::from(2)),
-            (0, BlockHash::from(4)),
-            (1, BlockHash::from(3)),
-        ]);
-        let snapshot: Vec<_> = (1u64..=5).map(BlockHash::from).collect();
-        assert!(ledger.epoch_close_contains_known(0, &snapshot));
-        assert_eq!(
-            ledger.epoch_close_missing_members(0, &snapshot),
-            vec![BlockHash::from(1), BlockHash::from(3), BlockHash::from(5)]
-        );
-        for omitted in [2, 4] {
-            let incomplete: Vec<_> = snapshot
-                .iter()
-                .copied()
-                .filter(|hash| *hash != BlockHash::from(omitted))
-                .collect();
-            assert!(!ledger.epoch_close_contains_known(0, &incomplete));
+        {
+            let mut candidates = ledger.epoch_candidates.write().unwrap();
+            assert!(candidates.insert(0, BlockHash::from(4)));
+            assert!(candidates.insert(0, BlockHash::from(2)));
+            assert!(
+                !candidates.insert(0, BlockHash::from(4)),
+                "duplicates are not logged"
+            );
+            assert!(candidates.insert(1, BlockHash::from(3)));
         }
-        // A previously sufficient snapshot must fail as soon as a new local
-        // certificate appears, including one beyond the snapshot's last member.
-        ledger
-            .epoch_candidates
-            .write()
-            .unwrap()
-            .insert((0, BlockHash::from(6)));
-        assert!(!ledger.epoch_close_contains_known(0, &snapshot));
-        assert!(!ledger.epoch_close_contains_known(0, &[]));
-        assert!(ledger.epoch_close_contains_known(2, &[]));
+        assert_eq!(
+            ledger.epoch_close_candidate(0),
+            vec![BlockHash::from(2), BlockHash::from(4)],
+            "members are sorted"
+        );
+        let (added, next) = ledger.epoch_candidates_since(0, 0);
+        assert_eq!(
+            added,
+            vec![BlockHash::from(4), BlockHash::from(2)],
+            "the log keeps recording order"
+        );
+        assert_eq!(next, 2);
+        assert_eq!(ledger.epoch_candidates_since(0, next), (vec![], 2));
+        ledger.record_epoch_block(0, rsnano_types::SavedBlock::new_test_instance().into());
+        let (added, next) = ledger.epoch_candidates_since(0, next);
+        assert_eq!(added.len(), 1);
+        assert_eq!(next, 3);
+        assert_eq!(ledger.epoch_candidates_since(0, 99), (vec![], 3));
+        assert_eq!(ledger.epoch_candidates_since(1, 0).1, 1);
+        assert_eq!(
+            ledger.epoch_close_missing_members(0, &[BlockHash::from(1), BlockHash::from(2)]),
+            vec![BlockHash::from(1)]
+        );
+    }
+
+    #[test]
+    fn close_identity_is_the_membership_trie_root() {
+        let members = [BlockHash::from(1), BlockHash::from(2)];
+        assert_eq!(
+            Ledger::epoch_state_hash(3, &members),
+            MembershipTrie::from_members(3, members).root()
+        );
+        assert_ne!(
+            Ledger::epoch_state_hash(3, &members),
+            Ledger::epoch_state_hash(4, &members)
+        );
+        assert_ne!(
+            Ledger::epoch_state_hash(3, &members),
+            Ledger::epoch_state_hash(3, &members[..1])
+        );
     }
 
     #[test]
     fn full_snapshot_reconciliation_preserves_missing_member_order() {
         let ledger = Ledger::new_null();
-        ledger.epoch_candidates.write().unwrap().extend(
-            (0u64..=130)
-                .filter(|value| value % 2 == 0)
-                .map(|value| (0, BlockHash::from(value))),
-        );
+        {
+            let mut candidates = ledger.epoch_candidates.write().unwrap();
+            for value in (0u64..=130).filter(|value| value % 2 == 0) {
+                candidates.insert(0, BlockHash::from(value));
+            }
+        }
         let mut snapshot: Vec<_> = (1u64..=131).map(BlockHash::from).collect();
         let mut missing: Vec<_> = (1u64..=131).step_by(2).map(BlockHash::from).collect();
         assert_eq!(ledger.epoch_close_missing_members(0, &snapshot), missing);
@@ -589,7 +645,6 @@ mod tests {
                 .filter(|h| *h != a.hash())
                 .collect();
             assert!(ledger.epoch_close_candidate_valid(0, &without_parent));
-            assert!(!ledger.epoch_close_contains_known(0, &without_parent));
             ledger.close_epoch(0, &snapshot).unwrap();
             assert_eq!(ledger.canonical_confirmation_epoch(&fork.hash()), Some(0));
             assert!(ledger.epoch_close_candidate(1).is_empty());

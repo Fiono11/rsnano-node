@@ -6,8 +6,14 @@ while overlapping epochs are still open. Nanospam supplies a fixed committee.
 The existing continuously-online signing-state assumption remains in effect.
 
 An epoch's target is the sorted set of certificate-verified candidate block IDs
-for that epoch, including notarized forks. Its root is
-`Blake2b("RAI-CLOSE-STATE" || epoch_le_u64 || sorted_ids)`.
+for that epoch, including notarized forks. Its root is the root of a
+three-level radix digest tree over the sorted members (`MembershipTrie` in the
+ledger crate): 256 level-1 buckets by first byte, each a digest over the
+non-empty leaves of its bucket (second byte), each leaf a
+`Blake2b("RAI-CLOSE-LEAF" || epoch || prefix || members)`. The ledger keeps an
+append-only log of recorded candidates per epoch, so the closer follows the
+membership incrementally and recomputes only the digests on the changed path;
+nothing copies the whole membership except the close itself.
 Finalization certificates update candidate status without changing membership.
 Earlier epochs, timeouts, and uncertified ledger dependencies are not members.
 An empty epoch has a valid, epoch-specific root.
@@ -32,17 +38,32 @@ election read lock cover these checks and close signing, preventing concurrent
 candidate ingestion from invalidating the checks mid-vote. D4 is not cached.
 
 A drained replica announces its membership before anyone proposes (message kind
-8, signed, flooded and retransmitted with the close history): the target root,
-the member count and one digest per member bucket, where a bucket is the sorted
-members sharing a first byte. Announcements never enter a tally. A replica whose
-own root differs answers the announcer directly with the members of every bucket
-whose digest differs (kind 9, at most 32 buckets per announcement, the rest on
-its retransmissions), and answers every stored announcement again whenever its
-own membership changes. Members received this way that carry no local
-membership are solicited by hash through ordinary epoch-specific ConfirmReq
-messages every two seconds until their certificate is verified locally; a zero
-root makes the peer publish the block as well. Both directions are covered
-because both replicas announce.
+8, signed, flooded and retransmitted with the close history): the tree root, the
+member count and the 256 level-1 digests. Announcements never enter a tally. A
+replica whose own root differs treats the announced root as a view and pulls its
+pages from the announcer (kind 9 requests, answered by kind 5 level-2 pages and
+kind 7 leaves): one level-2 page per differing bucket, one leaf per differing
+prefix, at most 32 requests per tick and one request per page per two seconds.
+Members of a received leaf that carry no local membership are solicited by hash
+through ordinary epoch-specific ConfirmReq messages every two seconds until their
+certificate is verified locally; a zero root makes the peer publish the block as
+well. Both directions are covered because both replicas announce. Traffic is
+therefore proportional to the difference: a differing member costs about three
+pages, however large the membership.
+
+A replica that holds a finalized close whose root it never held (it missed the
+round, or held extra members) reconstructs the closed membership the same way:
+peers keep the closed membership as a view and announce its root with the vote
+archive until every representative acknowledged the close; the lagging replica
+fetches the differing pages, solicits the members it lacks, excludes the members
+absent from the fetched leaves, and applies the close once the assembled root
+matches. There is no full-list transfer and no delta against a shared base.
+
+Signing needs no membership scan: a proposal is signable exactly when its root
+equals the live root (object validity and D4 in one comparison); a child
+proposal is signable when this replica held its notarized parent's root, since
+members are only added. The drain check reads a per-epoch index of undecided
+elections instead of scanning every election of the epoch.
 
 The round leader proposes only once every representative announced the root it
 holds itself, or six seconds after its own drain once representatives holding

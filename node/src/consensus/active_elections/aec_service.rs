@@ -63,18 +63,6 @@ impl AecService {
     }
 
     #[cfg(feature = "rai_protocol")]
-    pub(crate) fn membership_recovery_targets(
-        &self,
-        epoch: u64,
-        behind: bool,
-    ) -> Vec<(BlockHash, rsnano_types::Root)> {
-        self.aec
-            .read()
-            .unwrap()
-            .membership_recovery_targets(epoch, behind)
-    }
-
-    #[cfg(feature = "rai_protocol")]
     pub(crate) fn elections_terminated(
         &self,
         epoch: u64,
@@ -127,15 +115,22 @@ impl AecService {
     }
 
     /// Keep candidate ingestion stable across D3/D4 validation and close signing.
+    /// The action receives whether every election of the epoch has an outcome
+    /// and the solicitation targets of those that have none yet.
     #[cfg(feature = "rai_protocol")]
     pub(crate) fn with_close_readiness<T>(
         &self,
         epoch: u64,
         ids: &[rsnano_types::ElectionId],
-        action: impl FnOnce(bool) -> T,
+        action: impl FnOnce(bool, Vec<(BlockHash, rsnano_types::Root)>) -> T,
     ) -> T {
         let aec = self.aec.read().unwrap();
         let pending = aec.pending_epoch_drain(epoch, ids);
+        let targets = pending
+            .iter()
+            .filter_map(|id| aec.election_for_id(id))
+            .map(|e| (e.winner().hash(), e.winner().root()))
+            .collect();
         if !pending.is_empty()
             && aec.epoch_source.as_ref().is_some_and(|l| {
                 l.draining_epoch.load(std::sync::atomic::Ordering::Acquire) == epoch
@@ -156,7 +151,7 @@ impl AecService {
                 );
             }
         }
-        action(pending.is_empty())
+        action(pending.is_empty(), targets)
     }
 
     #[cfg(feature = "rai_protocol")]

@@ -5,45 +5,48 @@ use rsnano_types::{
 };
 use serde::{Deserialize, Serialize};
 
-/// A digest-only close statement or a bounded delta against a reconstructed base.
-/// Vote kinds 0..=4 carry only a digest; 5 answers a delta recovery request,
-/// 6 acknowledges a persisted close, and 7 requests one page on a mismatch.
-/// Kind 8 announces a drained replica's membership digest together with one
-/// digest per member bucket, and 9 carries the members of one bucket to a
-/// replica whose bucket digest differed. Neither enters a vote tally.
+/// A digest-only close statement or one page of a membership digest tree.
+/// Vote kinds 0..=4 carry only a digest and 6 acknowledges a persisted close.
+/// Kind 8 announces a drained replica's membership: its tree root, member
+/// count and the 256 level-1 digests. Kind 9 requests one page of a view named
+/// by its root, answered by kind 5 (a level-1 bucket's leaf digests) or kind 7
+/// (the members of one two-byte prefix). Pages never enter a vote tally.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EpochClose {
     pub epoch: u64,
+    /// Close round for votes; announcement sequence for kind 8; chunk index for kind 7.
     pub round: u64,
     pub parent: BlockHash,
     /// Identity of the previous finalized epoch close, separate from the round parent.
     pub previous_close: BlockHash,
+    /// Membership tree root: the proposed close for votes, the announced or
+    /// requested view for pages.
     pub state: BlockHash,
     pub kind: u8,
     pub voter: PublicKey,
     pub signature: Signature,
+    /// Level-1 bucket (kind 5, 9 at level 1) or two-byte prefix (kind 7, 9 at level 2).
     pub page: u16,
+    /// Tree level of a page or request: 1 for a level-1 bucket, 2 for a leaf.
     pub pages: u16,
-    /// Empty for votes; base digests in requests; additions in delta responses.
+    /// Empty for votes and requests; level-1 digests, level-2 entries or members in pages.
     pub hashes: Vec<BlockHash>,
     #[serde(default, skip_serializing_if = "BlockHash::is_zero")]
     pub base: BlockHash,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub removed: Vec<BlockHash>,
-    /// Proposer's epoch member count. Replicas start a close round only once
-    /// their own membership has caught up with the most advanced proposal.
+    /// Member count of the proposer's or announcer's membership.
     #[serde(default)]
     pub members: u64,
 }
 impl EpochClose {
     pub const PAGE_SIZE: usize = 512;
-    pub const MAX_PAGES: u16 = 2048;
-    /// Snapshot digests a recovery request may advertise as candidate bases.
-    pub const MAX_BASES: usize = 8;
-    /// Members are bucketed by their first byte for readiness reconciliation.
-    pub const BUCKETS: usize = 256;
-    pub fn bucket_of(hash: &BlockHash) -> usize {
-        hash.as_bytes()[0] as usize
+    /// Members are bucketed by their first byte at level 1 of the digest tree.
+    pub const LEVEL1_BUCKETS: usize = 256;
+    pub const LEVEL2_PAGE: u16 = 1;
+    pub const LEAF_PAGE: u16 = 2;
+    pub fn prefix_of(hash: &BlockHash) -> u16 {
+        u16::from_be_bytes([hash.as_bytes()[0], hash.as_bytes()[1]])
     }
     pub fn candidate_id(&self) -> BlockHash {
         Blake2HashBuilder::new()
@@ -61,27 +64,12 @@ impl EpochClose {
             .update(self.candidate_id().as_bytes())
             .update([self.kind])
             .update(self.members.to_le_bytes());
-        if self.kind == 5 {
-            let mut builder = builder
-                .update(self.base.as_bytes())
-                .update(self.page.to_le_bytes())
-                .update(self.pages.to_le_bytes());
-            for hash in &self.hashes {
-                builder = builder.update(hash.as_bytes());
-            }
-            builder.build()
-        } else if matches!(self.kind, 8 | 9) {
+        if matches!(self.kind, 5 | 7 | 8 | 9) {
             let mut builder = builder
                 .update(self.page.to_le_bytes())
                 .update(self.pages.to_le_bytes());
             for hash in &self.hashes {
                 builder = builder.update(hash.as_bytes());
-            }
-            builder.build()
-        } else if self.kind == 7 {
-            let mut builder = builder.update(self.page.to_le_bytes());
-            for base in &self.hashes {
-                builder = builder.update(base.as_bytes());
             }
             builder.build()
         } else {
@@ -92,6 +80,14 @@ impl EpochClose {
         self.voter = key.public_key();
         self.signature = key.sign(self.signing_hash().as_bytes());
     }
+    fn signature_valid(&self) -> bool {
+        self.voter
+            .verify(self.signing_hash().as_bytes(), &self.signature)
+            .is_ok()
+    }
+    fn page_fields_clear(&self) -> bool {
+        self.base.is_zero() && self.removed.is_empty() && self.parent.is_zero()
+    }
     pub fn valid_vote(&self) -> bool {
         self.kind <= 4
             && self.hashes.is_empty()
@@ -100,91 +96,65 @@ impl EpochClose {
             && self.pages == 0
             && self.page == 0
             && (!matches!(self.kind, 3 | 4) || (self.parent.is_zero() && self.state.is_zero()))
-            && self
-                .voter
-                .verify(self.signing_hash().as_bytes(), &self.signature)
-                .is_ok()
+            && self.signature_valid()
     }
     /// Receipt only: never usable as a consensus vote or certificate.
     pub fn valid_receipt(&self) -> bool {
         self.kind == 6
-            && self.base.is_zero()
-            && self.removed.is_empty()
             && self.round == 0
-            && self.parent.is_zero()
             && self.hashes.is_empty()
             && self.pages == 0
             && self.page == 0
-            && self
-                .voter
-                .verify(self.signing_hash().as_bytes(), &self.signature)
-                .is_ok()
+            && self.page_fields_clear()
+            && self.signature_valid()
     }
-
-    /// Readiness announcement: the digest and member count of the announcer's
-    /// snapshot plus one digest per bucket, so a peer can name the buckets that
-    /// differ without either side sending its whole membership.
+    /// Readiness announcement: the root and member count of the announcer's
+    /// membership plus its 256 level-1 digests, so a peer can name the buckets
+    /// that differ without either side sending its whole membership.
     pub fn valid_announcement(&self) -> bool {
         self.kind == 8
-            && self.hashes.len() == Self::BUCKETS
-            && self.base.is_zero()
-            && self.removed.is_empty()
-            && self.parent.is_zero()
+            && self.hashes.len() == Self::LEVEL1_BUCKETS
             && self.page == 0
-            && self.pages == Self::BUCKETS as u16
-            && self
-                .voter
-                .verify(self.signing_hash().as_bytes(), &self.signature)
-                .is_ok()
+            && self.pages == 0
+            && self.page_fields_clear()
+            && self.signature_valid()
     }
-
-    /// One bucket of the sender's membership, sent to a replica whose digest for
-    /// that bucket differed. `round` numbers the chunks of an oversized bucket.
-    pub fn valid_bucket_page(&self) -> bool {
+    /// Request for one page of the view whose root is `state`.
+    pub fn valid_view_request(&self) -> bool {
         self.kind == 9
-            && self.pages == Self::BUCKETS as u16
-            && (self.page as usize) < Self::BUCKETS
+            && self.hashes.is_empty()
+            && (self.pages == Self::LEVEL2_PAGE && (self.page as usize) < Self::LEVEL1_BUCKETS
+                || self.pages == Self::LEAF_PAGE)
+            && self.page_fields_clear()
+            && self.signature_valid()
+    }
+    /// One level-1 bucket of a view: one entry per non-empty leaf, the
+    /// sub-bucket index in the first byte, in ascending order.
+    pub fn valid_level2_page(&self) -> bool {
+        self.kind == 5
+            && self.pages == Self::LEVEL2_PAGE
+            && (self.page as usize) < Self::LEVEL1_BUCKETS
+            && self.hashes.len() <= Self::LEVEL1_BUCKETS
+            && self
+                .hashes
+                .windows(2)
+                .all(|w| w[0].as_bytes()[0] < w[1].as_bytes()[0])
+            && self.page_fields_clear()
+            && self.signature_valid()
+    }
+    /// The members of one two-byte prefix of a view, sorted; `round` numbers
+    /// the chunks of an oversized leaf.
+    pub fn valid_leaf_page(&self) -> bool {
+        self.kind == 7
+            && self.pages == Self::LEAF_PAGE
             && self.hashes.len() <= Self::PAGE_SIZE
-            && self.base.is_zero()
-            && self.removed.is_empty()
-            && self.parent.is_zero()
             && self.hashes.windows(2).all(|w| w[0] < w[1])
             && self
                 .hashes
                 .iter()
-                .all(|hash| Self::bucket_of(hash) == self.page as usize)
-            && self
-                .voter
-                .verify(self.signing_hash().as_bytes(), &self.signature)
-                .is_ok()
-    }
-
-    pub fn valid_recovery_request(&self) -> bool {
-        self.kind == 7
-            && !self.hashes.is_empty()
-            && self.hashes.len() <= Self::MAX_BASES
-            && self.base.is_zero()
-            && self.removed.is_empty()
-            && self.pages == 0
-            && self.page < Self::MAX_PAGES
-            && self
-                .voter
-                .verify(self.signing_hash().as_bytes(), &self.signature)
-                .is_ok()
-    }
-
-    pub fn valid_delta(&self) -> bool {
-        self.kind == 5
-            && self.removed.is_empty()
-            && !self.base.is_zero()
-            && self.pages > 0
-            && self.pages <= Self::MAX_PAGES
-            && self.page < self.pages
-            && self.hashes.len() <= Self::PAGE_SIZE
-            && self
-                .voter
-                .verify(self.signing_hash().as_bytes(), &self.signature)
-                .is_ok()
+                .all(|hash| Self::prefix_of(hash) == self.page)
+            && self.page_fields_clear()
+            && self.signature_valid()
     }
 
     pub fn serialize(&self, writer: &mut impl std::io::Write) -> std::io::Result<()> {
@@ -193,11 +163,7 @@ impl EpochClose {
     pub fn deserialize(payload: &[u8]) -> Result<Self, DeserializationError> {
         let value: Self =
             serde_json::from_slice(payload).map_err(|_| DeserializationError::InvalidData)?;
-        if value.kind > 9
-            || !value.removed.is_empty()
-            || value.hashes.len() > Self::PAGE_SIZE
-            || value.pages > Self::MAX_PAGES
-        {
+        if value.kind > 9 || !value.removed.is_empty() || value.hashes.len() > Self::PAGE_SIZE {
             return Err(DeserializationError::InvalidData);
         }
         Ok(value)
@@ -212,76 +178,53 @@ impl MessageVariant for EpochClose {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn recovery_request_signature_binds_bases_and_page() {
-        let mut request = EpochClose {
+
+    fn packet(kind: u8) -> EpochClose {
+        EpochClose {
             epoch: 0,
-            round: 1,
+            round: 0,
             previous_close: BlockHash::ZERO,
-            parent: 2.into(),
+            parent: BlockHash::ZERO,
             state: 3.into(),
-            kind: 7,
+            kind,
             voter: 0.into(),
             signature: Signature::new(),
             page: 0,
             pages: 0,
-            hashes: vec![4.into()],
+            hashes: vec![],
             base: BlockHash::ZERO,
             removed: vec![],
             members: 0,
-        };
-        request.sign(&PrivateKey::from(1));
-        assert!(request.valid_recovery_request());
-        assert!(!request.valid_vote());
-        crate::assert_deserializable(&crate::Message::EpochClose(request.clone()));
-        let mut changed = request.clone();
-        changed.page = 1;
-        assert!(!changed.valid_recovery_request());
-        changed = request.clone();
-        changed.hashes[0] = 6.into();
-        assert!(!changed.valid_recovery_request());
-        request.hashes = (1..=EpochClose::MAX_BASES as u64).map(Into::into).collect();
-        request.sign(&PrivateKey::from(1));
-        assert!(
-            request.valid_recovery_request(),
-            "a snapshot history is a valid base set"
-        );
-        request.hashes.push(99.into());
-        request.sign(&PrivateKey::from(1));
-        assert!(!request.valid_recovery_request());
-        request.hashes.clear();
-        request.sign(&PrivateKey::from(1));
-        assert!(
-            !request.valid_recovery_request(),
-            "an empty-base request cannot request a full list"
-        );
+        }
     }
+
+    fn with_prefix(first: u8, second: u8, tail: u8) -> BlockHash {
+        let mut bytes = [0u8; 32];
+        bytes[0] = first;
+        bytes[1] = second;
+        bytes[31] = tail;
+        BlockHash::from_bytes(bytes)
+    }
+
     #[test]
     fn announcement_carries_one_digest_per_bucket_and_never_votes() {
-        let mut announcement = EpochClose {
-            epoch: 0,
-            round: 3,
-            previous_close: BlockHash::ZERO,
-            parent: BlockHash::ZERO,
-            state: 3.into(),
-            kind: 8,
-            voter: 0.into(),
-            signature: Signature::new(),
-            page: 0,
-            pages: EpochClose::BUCKETS as u16,
-            hashes: (0..EpochClose::BUCKETS as u64).map(Into::into).collect(),
-            base: BlockHash::ZERO,
-            removed: vec![],
-            members: 7,
-        };
+        let mut announcement = packet(8);
+        announcement.round = 3;
+        announcement.members = 7;
+        announcement.hashes = (0..EpochClose::LEVEL1_BUCKETS as u64)
+            .map(Into::into)
+            .collect();
         announcement.sign(&PrivateKey::from(1));
         assert!(announcement.valid_announcement());
         assert!(!announcement.valid_vote());
-        assert!(!announcement.valid_bucket_page());
+        assert!(!announcement.valid_level2_page());
         crate::assert_deserializable(&crate::Message::EpochClose(announcement.clone()));
         let mut changed = announcement.clone();
         changed.hashes[5] = 99.into();
         assert!(!changed.valid_announcement(), "bucket digests are signed");
+        changed = announcement.clone();
+        changed.round = 4;
+        assert!(!changed.valid_announcement(), "the sequence is signed");
         changed = announcement.clone();
         changed.hashes.pop();
         changed.sign(&PrivateKey::from(1));
@@ -293,74 +236,105 @@ mod tests {
     }
 
     #[test]
-    fn bucket_page_holds_sorted_members_of_its_bucket() {
-        let mut member = [0u8; 32];
-        member[0] = 9;
-        member[31] = 1;
-        let mut other = member;
-        other[31] = 2;
-        let mut page = EpochClose {
-            epoch: 0,
-            round: 0,
-            previous_close: BlockHash::ZERO,
-            parent: BlockHash::ZERO,
-            state: 3.into(),
-            kind: 9,
-            voter: 0.into(),
-            signature: Signature::new(),
-            page: 9,
-            pages: EpochClose::BUCKETS as u16,
-            hashes: vec![BlockHash::from_bytes(member), BlockHash::from_bytes(other)],
-            base: BlockHash::ZERO,
-            removed: vec![],
-            members: 2,
-        };
+    fn view_request_names_a_level1_bucket_or_a_prefix() {
+        let mut request = packet(9);
+        request.pages = EpochClose::LEVEL2_PAGE;
+        request.page = 255;
+        request.sign(&PrivateKey::from(1));
+        assert!(request.valid_view_request());
+        assert!(!request.valid_vote());
+        crate::assert_deserializable(&crate::Message::EpochClose(request.clone()));
+        let mut changed = request.clone();
+        changed.page = 256;
+        changed.sign(&PrivateKey::from(1));
+        assert!(
+            !changed.valid_view_request(),
+            "only 256 level-1 buckets exist"
+        );
+        changed.pages = EpochClose::LEAF_PAGE;
+        changed.page = 0xabcd;
+        changed.sign(&PrivateKey::from(1));
+        assert!(changed.valid_view_request());
+        changed.pages = 3;
+        changed.sign(&PrivateKey::from(1));
+        assert!(!changed.valid_view_request());
+        changed = request.clone();
+        changed.state = 4.into();
+        assert!(
+            !changed.valid_view_request(),
+            "the requested view is signed"
+        );
+    }
+
+    #[test]
+    fn level2_page_lists_leaf_digests_in_sub_bucket_order() {
+        let mut page = packet(5);
+        page.pages = EpochClose::LEVEL2_PAGE;
+        page.page = 9;
+        page.hashes = vec![with_prefix(1, 0, 1), with_prefix(7, 0, 2)];
         page.sign(&PrivateKey::from(1));
-        assert!(page.valid_bucket_page());
+        assert!(page.valid_level2_page());
+        assert!(!page.valid_leaf_page());
+        crate::assert_deserializable(&crate::Message::EpochClose(page.clone()));
+        let mut changed = page.clone();
+        changed.hashes.reverse();
+        changed.sign(&PrivateKey::from(1));
+        assert!(
+            !changed.valid_level2_page(),
+            "entries are ordered by sub-bucket"
+        );
+        changed = page.clone();
+        changed.hashes.push(with_prefix(7, 0, 3));
+        changed.sign(&PrivateKey::from(1));
+        assert!(!changed.valid_level2_page(), "one entry per sub-bucket");
+        changed = page.clone();
+        changed.hashes.clear();
+        changed.sign(&PrivateKey::from(1));
+        assert!(
+            changed.valid_level2_page(),
+            "an empty bucket is a valid page"
+        );
+        changed = page.clone();
+        changed.hashes[0] = with_prefix(2, 0, 1);
+        assert!(!changed.valid_level2_page(), "entries are signed");
+    }
+
+    #[test]
+    fn leaf_page_holds_sorted_members_of_its_prefix() {
+        let mut page = packet(7);
+        page.pages = EpochClose::LEAF_PAGE;
+        page.page = 0x0901;
+        page.hashes = vec![with_prefix(9, 1, 1), with_prefix(9, 1, 2)];
+        page.sign(&PrivateKey::from(1));
+        assert!(page.valid_leaf_page());
         assert!(!page.valid_vote());
         assert!(!page.valid_announcement());
         crate::assert_deserializable(&crate::Message::EpochClose(page.clone()));
         let mut changed = page.clone();
         changed.round = 1;
-        assert!(!changed.valid_bucket_page(), "the chunk index is signed");
+        assert!(!changed.valid_leaf_page(), "the chunk index is signed");
         changed = page.clone();
-        changed.page = 8;
+        changed.page = 0x0902;
         changed.sign(&PrivateKey::from(1));
         assert!(
-            !changed.valid_bucket_page(),
-            "members must belong to the bucket"
+            !changed.valid_leaf_page(),
+            "members must belong to the prefix"
         );
         changed = page.clone();
         changed.hashes.reverse();
         changed.sign(&PrivateKey::from(1));
-        assert!(!changed.valid_bucket_page(), "members must be sorted");
+        assert!(!changed.valid_leaf_page(), "members must be sorted");
         changed = page.clone();
         changed.hashes.clear();
         changed.sign(&PrivateKey::from(1));
-        assert!(
-            changed.valid_bucket_page(),
-            "an empty bucket is a valid page"
-        );
+        assert!(changed.valid_leaf_page(), "an empty leaf is a valid page");
     }
 
     #[test]
     fn close_receipt_cannot_be_used_as_a_vote() {
-        let mut receipt = EpochClose {
-            epoch: 1,
-            round: 0,
-            previous_close: BlockHash::ZERO,
-            parent: BlockHash::ZERO,
-            state: 9.into(),
-            kind: 6,
-            voter: PublicKey::ZERO,
-            signature: Signature::new(),
-            page: 0,
-            pages: 0,
-            hashes: vec![],
-            base: BlockHash::ZERO,
-            removed: vec![],
-            members: 0,
-        };
+        let mut receipt = packet(6);
+        receipt.epoch = 1;
+        receipt.state = 9.into();
         receipt.sign(&PrivateKey::from(1));
         assert!(receipt.valid_receipt());
         assert!(!receipt.valid_vote());
@@ -371,22 +345,11 @@ mod tests {
 
     #[test]
     fn close_signature_binds_epoch_round_parent_state_and_kind() {
-        let mut v = EpochClose {
-            epoch: 3,
-            round: 7,
-            previous_close: BlockHash::ZERO,
-            parent: 8.into(),
-            state: 9.into(),
-            kind: 0,
-            voter: PublicKey::ZERO,
-            signature: Signature::new(),
-            page: 0,
-            pages: 0,
-            hashes: vec![],
-            base: BlockHash::ZERO,
-            removed: vec![],
-            members: 0,
-        };
+        let mut v = packet(0);
+        v.epoch = 3;
+        v.round = 7;
+        v.parent = 8.into();
+        v.state = 9.into();
         v.sign(&PrivateKey::from(1));
         assert!(v.valid_vote());
         for field in 0..6 {
