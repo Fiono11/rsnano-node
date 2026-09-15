@@ -340,7 +340,7 @@ impl RequestAggregatorLoop {
             }
         }
         #[cfg(feature = "rai_protocol")]
-        crate::consensus::epoch_closer::debug_trace(
+        crate::consensus::epoch_closer::debug_trace_verbose(
             || serde_json::json!({"type":"request","epoch":request.epoch,"hashes":request.roots_hashes}),
         );
         #[cfg(not(feature = "rai_protocol"))]

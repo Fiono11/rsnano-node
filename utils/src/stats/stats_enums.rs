@@ -206,6 +206,7 @@ pub enum DetailType {
     RepCrawler,
     VoteReply,
     Telemetry,
+    EpochClose,
 
     // tcp_channels
     ChannelAccepted,

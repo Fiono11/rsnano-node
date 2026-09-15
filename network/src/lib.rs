@@ -97,6 +97,9 @@ pub enum TrafficType {
     VoteReply,
     RepCrawler,
     Telemetry,
+    /// Epoch close statements and their reconciliation pages: kept apart from
+    /// vote replies so a request burst answered on a channel cannot drop them.
+    EpochClose,
     #[cfg(feature = "ledger_snapshots")]
     LedgerSnapshots,
 }
@@ -189,6 +192,7 @@ impl From<TrafficType> for DetailType {
             TrafficType::RepCrawler => DetailType::RepCrawler,
             TrafficType::VoteReply => DetailType::VoteReply,
             TrafficType::Telemetry => DetailType::Telemetry,
+            TrafficType::EpochClose => DetailType::EpochClose,
             #[cfg(feature = "ledger_snapshots")]
             TrafficType::LedgerSnapshots => DetailType::Preproposal,
         }

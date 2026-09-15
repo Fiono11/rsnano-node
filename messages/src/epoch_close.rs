@@ -8,6 +8,9 @@ use serde::{Deserialize, Serialize};
 /// A digest-only close statement or a bounded delta against a reconstructed base.
 /// Vote kinds 0..=4 carry only a digest; 5 answers a delta recovery request,
 /// 6 acknowledges a persisted close, and 7 requests one page on a mismatch.
+/// Kind 8 announces a drained replica's membership digest together with one
+/// digest per member bucket, and 9 carries the members of one bucket to a
+/// replica whose bucket digest differed. Neither enters a vote tally.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EpochClose {
     pub epoch: u64,
@@ -37,6 +40,11 @@ impl EpochClose {
     pub const MAX_PAGES: u16 = 2048;
     /// Snapshot digests a recovery request may advertise as candidate bases.
     pub const MAX_BASES: usize = 8;
+    /// Members are bucketed by their first byte for readiness reconciliation.
+    pub const BUCKETS: usize = 256;
+    pub fn bucket_of(hash: &BlockHash) -> usize {
+        hash.as_bytes()[0] as usize
+    }
     pub fn candidate_id(&self) -> BlockHash {
         Blake2HashBuilder::new()
             .update(b"rai-close-candidate-v2")
@@ -62,7 +70,7 @@ impl EpochClose {
                 builder = builder.update(hash.as_bytes());
             }
             builder.build()
-        } else if self.kind == 8 {
+        } else if matches!(self.kind, 8 | 9) {
             let mut builder = builder
                 .update(self.page.to_le_bytes())
                 .update(self.pages.to_le_bytes());
@@ -113,6 +121,44 @@ impl EpochClose {
                 .is_ok()
     }
 
+    /// Readiness announcement: the digest and member count of the announcer's
+    /// snapshot plus one digest per bucket, so a peer can name the buckets that
+    /// differ without either side sending its whole membership.
+    pub fn valid_announcement(&self) -> bool {
+        self.kind == 8
+            && self.hashes.len() == Self::BUCKETS
+            && self.base.is_zero()
+            && self.removed.is_empty()
+            && self.parent.is_zero()
+            && self.page == 0
+            && self.pages == Self::BUCKETS as u16
+            && self
+                .voter
+                .verify(self.signing_hash().as_bytes(), &self.signature)
+                .is_ok()
+    }
+
+    /// One bucket of the sender's membership, sent to a replica whose digest for
+    /// that bucket differed. `round` numbers the chunks of an oversized bucket.
+    pub fn valid_bucket_page(&self) -> bool {
+        self.kind == 9
+            && self.pages == Self::BUCKETS as u16
+            && (self.page as usize) < Self::BUCKETS
+            && self.hashes.len() <= Self::PAGE_SIZE
+            && self.base.is_zero()
+            && self.removed.is_empty()
+            && self.parent.is_zero()
+            && self.hashes.windows(2).all(|w| w[0] < w[1])
+            && self
+                .hashes
+                .iter()
+                .all(|hash| Self::bucket_of(hash) == self.page as usize)
+            && self
+                .voter
+                .verify(self.signing_hash().as_bytes(), &self.signature)
+                .is_ok()
+    }
+
     pub fn valid_recovery_request(&self) -> bool {
         self.kind == 7
             && !self.hashes.is_empty()
@@ -147,7 +193,7 @@ impl EpochClose {
     pub fn deserialize(payload: &[u8]) -> Result<Self, DeserializationError> {
         let value: Self =
             serde_json::from_slice(payload).map_err(|_| DeserializationError::InvalidData)?;
-        if value.kind > 7
+        if value.kind > 9
             || !value.removed.is_empty()
             || value.hashes.len() > Self::PAGE_SIZE
             || value.pages > Self::MAX_PAGES
@@ -210,6 +256,93 @@ mod tests {
             "an empty-base request cannot request a full list"
         );
     }
+    #[test]
+    fn announcement_carries_one_digest_per_bucket_and_never_votes() {
+        let mut announcement = EpochClose {
+            epoch: 0,
+            round: 3,
+            previous_close: BlockHash::ZERO,
+            parent: BlockHash::ZERO,
+            state: 3.into(),
+            kind: 8,
+            voter: 0.into(),
+            signature: Signature::new(),
+            page: 0,
+            pages: EpochClose::BUCKETS as u16,
+            hashes: (0..EpochClose::BUCKETS as u64).map(Into::into).collect(),
+            base: BlockHash::ZERO,
+            removed: vec![],
+            members: 7,
+        };
+        announcement.sign(&PrivateKey::from(1));
+        assert!(announcement.valid_announcement());
+        assert!(!announcement.valid_vote());
+        assert!(!announcement.valid_bucket_page());
+        crate::assert_deserializable(&crate::Message::EpochClose(announcement.clone()));
+        let mut changed = announcement.clone();
+        changed.hashes[5] = 99.into();
+        assert!(!changed.valid_announcement(), "bucket digests are signed");
+        changed = announcement.clone();
+        changed.hashes.pop();
+        changed.sign(&PrivateKey::from(1));
+        assert!(!changed.valid_announcement());
+        changed = announcement.clone();
+        changed.parent = 1.into();
+        changed.sign(&PrivateKey::from(1));
+        assert!(!changed.valid_announcement());
+    }
+
+    #[test]
+    fn bucket_page_holds_sorted_members_of_its_bucket() {
+        let mut member = [0u8; 32];
+        member[0] = 9;
+        member[31] = 1;
+        let mut other = member;
+        other[31] = 2;
+        let mut page = EpochClose {
+            epoch: 0,
+            round: 0,
+            previous_close: BlockHash::ZERO,
+            parent: BlockHash::ZERO,
+            state: 3.into(),
+            kind: 9,
+            voter: 0.into(),
+            signature: Signature::new(),
+            page: 9,
+            pages: EpochClose::BUCKETS as u16,
+            hashes: vec![BlockHash::from_bytes(member), BlockHash::from_bytes(other)],
+            base: BlockHash::ZERO,
+            removed: vec![],
+            members: 2,
+        };
+        page.sign(&PrivateKey::from(1));
+        assert!(page.valid_bucket_page());
+        assert!(!page.valid_vote());
+        assert!(!page.valid_announcement());
+        crate::assert_deserializable(&crate::Message::EpochClose(page.clone()));
+        let mut changed = page.clone();
+        changed.round = 1;
+        assert!(!changed.valid_bucket_page(), "the chunk index is signed");
+        changed = page.clone();
+        changed.page = 8;
+        changed.sign(&PrivateKey::from(1));
+        assert!(
+            !changed.valid_bucket_page(),
+            "members must belong to the bucket"
+        );
+        changed = page.clone();
+        changed.hashes.reverse();
+        changed.sign(&PrivateKey::from(1));
+        assert!(!changed.valid_bucket_page(), "members must be sorted");
+        changed = page.clone();
+        changed.hashes.clear();
+        changed.sign(&PrivateKey::from(1));
+        assert!(
+            changed.valid_bucket_page(),
+            "an empty bucket is a valid page"
+        );
+    }
+
     #[test]
     fn close_receipt_cannot_be_used_as_a_vote() {
         let mut receipt = EpochClose {

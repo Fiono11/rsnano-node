@@ -702,7 +702,7 @@ impl SharedState {
                             spacing.flag_in_epoch(root, hash, self.clock.now(), epoch);
                         }
                     }
-                    crate::consensus::epoch_closer::debug_trace(
+                    crate::consensus::epoch_closer::debug_trace_verbose(
                         || serde_json::json!({"type":"vote_generated","epoch":epoch,"voter":vote.voter,"kind":format!("{:?}",kind),"hashes":hashes}),
                     );
                     action(vote);

@@ -1,6 +1,9 @@
 //! Priority Kudzu close rounds. Voting epochs and canonical ledger epochs are independent.
 use crate::{
-    consensus::{AecService, VoteGenerators, election::kudzu::KudzuVotes},
+    consensus::{
+        AecService, VoteGenerators,
+        election::kudzu::{KudzuThresholds, KudzuVotes},
+    },
     transport::MessageFlooder,
     wallets::WalletRepresentatives,
 };
@@ -44,6 +47,16 @@ pub(crate) fn debug_trace(event: impl FnOnce() -> serde_json::Value) {
     }
 }
 
+/// Per-vote and per-request events flood the trace; they are written only when
+/// `RAI_CLOSE_TRACE_VERBOSE` is also set.
+pub(crate) fn debug_trace_verbose(event: impl FnOnce() -> serde_json::Value) {
+    use std::sync::OnceLock;
+    static VERBOSE: OnceLock<bool> = OnceLock::new();
+    if *VERBOSE.get_or_init(|| std::env::var_os("RAI_CLOSE_TRACE_VERBOSE").is_some()) {
+        debug_trace(event);
+    }
+}
+
 const ROUND_TIMEOUT: Duration = Duration::from_secs(3);
 const RETRANSMIT: Duration = Duration::from_secs(2);
 /// Packets flooded per tick. A channel write queue holds 64 messages per traffic
@@ -59,6 +72,16 @@ const FUTURE_ROUNDS: u64 = 256;
 /// and their reply cache suppresses repeats for five seconds, so a shorter spacing
 /// would only add request and reply load to the workload.
 const SOLICIT_INTERVAL: Duration = Duration::from_secs(10);
+/// Spacing of solicitations for members named by a peer's bucket page or a
+/// reconstructed proposal. These name exactly what is missing, so they are few.
+const RECONCILE_INTERVAL: Duration = RETRANSMIT;
+/// A drained replica proposes only once every representative announced the same
+/// membership digest, or after this long with a certificate-weight majority: a
+/// proposal is immutable, so one made while memberships still differ is signed
+/// by nobody who learns one more member afterwards.
+const AGREEMENT_TIMEOUT: Duration = Duration::from_secs(6);
+/// Buckets answered per announcement; the rest follow on its retransmissions.
+const BUCKET_REPLY_LIMIT: usize = 32;
 static DROPPED_CLOSE_PACKETS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 fn round_timeout(round: u64) -> Duration {
@@ -159,12 +182,27 @@ struct State {
     solicited: HashMap<BlockHash, Instant>,
     last_reconcile: Option<Instant>,
     last_timeout_solicitation: Option<Instant>,
-    /// Largest member count carried by any accepted vote of this epoch.
-    highest_members: u64,
-    /// Local member count when the current round started.
-    round_start_members: u64,
     /// Position in the membership recovery targets for the next solicitation.
     recovery_cursor: usize,
+    /// The readiness trace event was written for this epoch.
+    ready_traced: bool,
+    /// When this replica first completed its drain.
+    ready_since: Option<Instant>,
+    /// Round 0 is timed from the moment a proposal became due, not from the
+    /// drain start; later rounds from their timeout certificate.
+    round_timer_armed: bool,
+    /// Latest readiness announcement of every representative and its channel.
+    announcements: HashMap<PublicKey, (EpochClose, ChannelId)>,
+    local_announcements: Vec<EpochClose>,
+    announcement_seq: u64,
+    /// Bucket digests of the latest local snapshot.
+    sketch: Option<(BlockHash, Vec<BlockHash>)>,
+    /// (announcer, its digest, our digest) pairs already answered with pages.
+    bucket_replied: HashMap<(PublicKey, BlockHash, BlockHash), Instant>,
+    bucket_cursor: usize,
+    bucket_replies: VecDeque<(ChannelId, EpochClose)>,
+    /// Members held by peers but not here, with the last solicitation.
+    reconcile_targets: HashMap<BlockHash, (Root, Option<Instant>)>,
 }
 fn sorted_difference(
     before: &[BlockHash],
@@ -198,6 +236,29 @@ fn sorted_difference(
         }
     }
     (added, removed)
+}
+/// Digest of one member bucket. Buckets split a sorted membership by the first
+/// byte, so a mismatch names the members to exchange without a full list.
+fn bucket_digest(epoch: u64, bucket: usize, members: &[BlockHash]) -> BlockHash {
+    let mut builder = rsnano_types::Blake2HashBuilder::new()
+        .update(b"RAI-CLOSE-BUCKET")
+        .update(epoch.to_le_bytes())
+        .update([bucket as u8]);
+    for hash in members {
+        builder = builder.update(hash.as_bytes());
+    }
+    builder.build()
+}
+/// Members of `bucket` within a sorted membership.
+fn bucket_members(members: &[BlockHash], bucket: usize) -> &[BlockHash] {
+    let start = members.partition_point(|h| EpochClose::bucket_of(h) < bucket);
+    let end = members.partition_point(|h| EpochClose::bucket_of(h) <= bucket);
+    &members[start..end]
+}
+fn sketch(epoch: u64, members: &[BlockHash]) -> Vec<BlockHash> {
+    (0..EpochClose::BUCKETS)
+        .map(|bucket| bucket_digest(epoch, bucket, bucket_members(members, bucket)))
+        .collect()
 }
 struct SnapshotDelta {
     added: Vec<BlockHash>,
@@ -241,9 +302,18 @@ impl State {
             solicited: Default::default(),
             last_reconcile: None,
             last_timeout_solicitation: None,
-            highest_members: 0,
-            round_start_members: 0,
             recovery_cursor: 0,
+            ready_traced: false,
+            ready_since: None,
+            round_timer_armed: false,
+            announcements: Default::default(),
+            local_announcements: Vec::new(),
+            announcement_seq: 0,
+            sketch: None,
+            bucket_replied: Default::default(),
+            bucket_cursor: 0,
+            bucket_replies: Default::default(),
+            reconcile_targets: Default::default(),
         }
     }
     /// One request's worth of recovery targets, rotating through the list so
@@ -278,15 +348,6 @@ impl State {
             .map(|(_, hashes)| hashes.len() as u64)
             .unwrap_or(0)
     }
-    /// Whether a timed-out round may be left for the next one. A replica behind
-    /// the most advanced proposal keeps recovering instead: a round it starts
-    /// could not succeed. A replica that caught up starts the next round; the
-    /// replica already at the highest count joins once more than `f` weight has
-    /// started it, or once the round timer expires, which keeps the rounds live.
-    fn may_start_next_round(&self) -> bool {
-        true
-    }
-
     fn leader(&self, round: u64) -> Option<PublicKey> {
         let mut members: Vec<_> = self
             .weights
@@ -315,7 +376,250 @@ impl State {
     fn enter_round(&mut self, round: u64) {
         self.round = round;
         self.rounds.entry(round).or_default().started = Instant::now();
-        self.round_start_members = self.members();
+        // A later round follows a timeout certificate every replica observed at
+        // about the same time. Round 0 waits for the proposal to become due.
+        self.round_timer_armed = round > 0;
+    }
+    fn arm_round_timer(&mut self) {
+        self.rounds.entry(self.round).or_default().started = Instant::now();
+        self.round_timer_armed = true;
+    }
+    fn round_timed_out(&self) -> bool {
+        self.round_timer_armed
+            && self
+                .rounds
+                .get(&self.round)
+                .is_some_and(|r| r.started.elapsed() >= round_timeout(self.round))
+    }
+    fn local_digest(&self) -> Option<BlockHash> {
+        self.local_snapshots.back().map(|(digest, _)| *digest)
+    }
+    /// Weight whose announced membership digest equals ours, counting our own
+    /// keys, and whether that is every representative.
+    fn agreement(&self, keys: &[PublicKey]) -> (bool, Amount) {
+        let Some(digest) = self.local_digest() else {
+            return (false, Amount::ZERO);
+        };
+        let mut agreeing = 0u128;
+        let mut all = true;
+        for (rep, weight) in self.weights.iter() {
+            if weight.is_zero() {
+                continue;
+            }
+            let agrees = keys.contains(rep)
+                || self
+                    .announcements
+                    .get(rep)
+                    .is_some_and(|(announcement, _)| announcement.state == digest);
+            if agrees {
+                agreeing = agreeing.saturating_add(weight.number());
+            } else {
+                all = false;
+            }
+        }
+        (all, Amount::raw(agreeing))
+    }
+    /// Whether the agreement wait has expired since this replica became ready.
+    fn agreement_expired(&self, now: Instant) -> bool {
+        self.ready
+            && self
+                .ready_since
+                .is_some_and(|since| now.duration_since(since) >= AGREEMENT_TIMEOUT)
+    }
+    /// A proposal is due once every representative announced our digest, or
+    /// after `AGREEMENT_TIMEOUT` once enough weight to certify it has.
+    fn proposal_due(&self, keys: &[PublicKey], now: Instant) -> bool {
+        if !self.ready {
+            return false;
+        }
+        let (all, agreeing) = self.agreement(keys);
+        all || (self.agreement_expired(now)
+            && agreeing >= KudzuThresholds::new(self.total).certificate)
+    }
+    fn sketch_for(&mut self, digest: BlockHash) -> Option<&[BlockHash]> {
+        if self.sketch.as_ref().is_none_or(|(d, _)| *d != digest) {
+            let (_, members) = self.local_snapshots.iter().find(|(d, _)| *d == digest)?;
+            self.sketch = Some((digest, sketch(self.epoch, members)));
+        }
+        self.sketch.as_ref().map(|(_, sketch)| sketch.as_slice())
+    }
+    /// Announce the latest local snapshot once it changes. Announcements are
+    /// retransmitted with the close history until the epoch closes. A changed
+    /// membership is also compared with every stored announcement again, so
+    /// the peers learn what they lack without waiting for their retransmission.
+    fn announce(&mut self, keys: &[PrivateKey], out: &mut Vec<EpochClose>) {
+        if !self.ready || keys.is_empty() {
+            return;
+        }
+        let Some(digest) = self.local_digest() else {
+            return;
+        };
+        if self
+            .local_announcements
+            .first()
+            .is_some_and(|announcement| announcement.state == digest)
+        {
+            return;
+        }
+        self.announcement_seq += 1;
+        let Some(sketch) = self.sketch_for(digest).map(|s| s.to_vec()) else {
+            return;
+        };
+        let mut announcement = self.template(self.announcement_seq, BlockHash::ZERO, digest);
+        announcement.kind = 8;
+        announcement.pages = EpochClose::BUCKETS as u16;
+        announcement.hashes = sketch;
+        self.local_announcements.clear();
+        for key in keys {
+            announcement.sign(key);
+            self.announcements.insert(
+                key.public_key(),
+                (announcement.clone(), ChannelId::LOOPBACK),
+            );
+            self.local_announcements.push(announcement.clone());
+            out.push(announcement.clone());
+        }
+        let stored: Vec<_> = self
+            .announcements
+            .values()
+            .filter(|(a, _)| !keys.iter().any(|key| key.public_key() == a.voter))
+            .cloned()
+            .collect();
+        for (announcement, channel) in stored {
+            self.answer_announcement(&announcement, channel, &keys[0]);
+        }
+    }
+    /// Store a peer's announcement and answer a differing digest with the
+    /// members of every bucket whose digest differs, so the peer can name
+    /// exactly the members it lacks. Its own announcement makes the peer answer
+    /// ours the same way, covering both directions.
+    fn receive_announcement(
+        &mut self,
+        p: EpochClose,
+        channel: ChannelId,
+        key: Option<&PrivateKey>,
+    ) {
+        if p.epoch != self.epoch
+            || p.previous_close != self.previous_close
+            || self.weights.weight(&p.voter).is_zero()
+            || !p.valid_announcement()
+            || self
+                .announcements
+                .get(&p.voter)
+                .is_some_and(|(old, _)| old.round >= p.round)
+        {
+            return;
+        }
+        if let Some(key) = key {
+            self.answer_announcement(&p, channel, key);
+        }
+        self.announcements.insert(p.voter, (p, channel));
+    }
+    fn answer_announcement(&mut self, p: &EpochClose, channel: ChannelId, key: &PrivateKey) {
+        let Some(digest) = self.local_digest() else {
+            return;
+        };
+        if p.state == digest {
+            return;
+        }
+        let now = Instant::now();
+        let dedupe = (p.voter, p.state, digest);
+        if self
+            .bucket_replied
+            .get(&dedupe)
+            .is_some_and(|last| now.duration_since(*last) < RETRANSMIT * 2)
+        {
+            return;
+        }
+        let mismatched: Vec<usize> = self
+            .sketch_for(digest)
+            .map(|sketch| {
+                (0..EpochClose::BUCKETS)
+                    .filter(|bucket| sketch[*bucket] != p.hashes[*bucket])
+                    .collect()
+            })
+            .unwrap_or_default();
+        if mismatched.is_empty() {
+            return;
+        }
+        let start = self.bucket_cursor % mismatched.len();
+        let selected: Vec<usize> = mismatched
+            .iter()
+            .cycle()
+            .skip(start)
+            .take(mismatched.len().min(BUCKET_REPLY_LIMIT))
+            .copied()
+            .collect();
+        self.bucket_cursor = start + selected.len();
+        if selected.len() == mismatched.len() {
+            self.bucket_replied.insert(dedupe, now);
+        }
+        let members = self
+            .local_snapshots
+            .iter()
+            .find(|(d, _)| *d == digest)
+            .map(|(_, members)| members.clone())
+            .unwrap_or_default();
+        for bucket in selected {
+            let chunks = bucket_members(&members, bucket).chunks(EpochClose::PAGE_SIZE);
+            for (chunk, hashes) in chunks.enumerate() {
+                if self.bucket_replies.len() >= 256 {
+                    return;
+                }
+                let mut page = self.template(chunk as u64, BlockHash::ZERO, digest);
+                page.kind = 9;
+                page.page = bucket as u16;
+                page.pages = EpochClose::BUCKETS as u16;
+                page.hashes = hashes.to_vec();
+                page.sign(key);
+                self.bucket_replies.push_back((channel, page));
+            }
+        }
+    }
+    /// Members of a peer's bucket that carry no local membership become
+    /// reconciliation targets. Roots unknown locally stay zero: the peer then
+    /// publishes the block together with its votes.
+    fn receive_bucket_page(
+        &mut self,
+        p: EpochClose,
+        missing: impl Fn(&[BlockHash]) -> Vec<(BlockHash, Root)>,
+    ) {
+        if p.epoch != self.epoch
+            || p.previous_close != self.previous_close
+            || self.weights.weight(&p.voter).is_zero()
+            || !p.valid_bucket_page()
+        {
+            return;
+        }
+        for (hash, root) in missing(&p.hashes) {
+            self.reconcile_targets.entry(hash).or_insert((root, None));
+        }
+    }
+    /// Reconciliation targets due for a solicitation. Targets that gained local
+    /// membership since are dropped.
+    fn reconcile_batch(
+        &mut self,
+        now: Instant,
+        still_missing: impl Fn(&[BlockHash]) -> HashSet<BlockHash>,
+    ) -> Vec<(BlockHash, Root)> {
+        if self.reconcile_targets.is_empty() {
+            return Vec::new();
+        }
+        let hashes: Vec<_> = self.reconcile_targets.keys().copied().collect();
+        let missing = still_missing(&hashes);
+        self.reconcile_targets
+            .retain(|hash, _| missing.contains(hash));
+        let mut batch = Vec::new();
+        for (hash, (root, last)) in &mut self.reconcile_targets {
+            if batch.len() == rsnano_messages::ConfirmReq::HASHES_MAX {
+                break;
+            }
+            if last.is_none_or(|last| now.duration_since(last) >= RECONCILE_INTERVAL) {
+                *last = Some(now);
+                batch.push((*hash, *root));
+            }
+        }
+        batch
     }
     /// Queue everything a lagging peer may still need, newest rounds first so the
     /// votes that decide the current round are delivered before older history.
@@ -687,17 +991,22 @@ impl State {
         Some(page)
     }
     /// Members of a reconstructed peer snapshot that carry no local membership in
-    /// this epoch. Their notarizations must be learned before the snapshot can be
-    /// validated, and their elections may already be timed out locally and no
-    /// longer solicit on their own, so the closer requests them directly. Roots
-    /// unknown locally are left zero; the block tree of the peer resolves them.
-    fn reconciliation_targets(&mut self, ledger: &Ledger) -> Vec<(BlockHash, Root)> {
+    /// this epoch become reconciliation targets. Their notarizations must be
+    /// learned before the snapshot can be validated, and their elections may
+    /// already be timed out locally and no longer solicit on their own, so the
+    /// closer requests them directly. Roots unknown locally are left zero; the
+    /// block tree of the peer resolves them.
+    fn candidate_reconciliation(
+        &mut self,
+        ledger: &Ledger,
+        missing: impl Fn(&[BlockHash]) -> Vec<(BlockHash, Root)>,
+    ) {
         let now = Instant::now();
         if self
             .last_reconcile
             .is_some_and(|last| now.duration_since(last) < RETRANSMIT)
         {
-            return Vec::new();
+            return;
         }
         self.last_reconcile = Some(now);
         let complete: Vec<_> = self
@@ -706,31 +1015,15 @@ impl State {
             .filter(|(_, c)| c.hashes.is_some())
             .map(|(id, _)| *id)
             .collect();
-        let mut targets = Vec::new();
         for id in complete {
             if self.valid(id, ledger) {
                 continue;
             }
-            let missing = {
-                let hashes = self.candidates[&id].hashes.as_ref().unwrap();
-                ledger.epoch_close_missing_members(self.epoch, hashes)
-            };
-            for hash in missing {
-                if targets.len() == rsnano_messages::ConfirmReq::HASHES_MAX {
-                    return targets;
-                }
-                if !self.solicitation_due(hash, now) {
-                    continue;
-                }
-                let root = ledger
-                    .any()
-                    .get_block(&hash)
-                    .map(|block| block.root())
-                    .unwrap_or_else(|| Root::from(0u64));
-                targets.push((hash, root));
+            let hashes = self.candidates[&id].hashes.as_ref().unwrap();
+            for (hash, root) in missing(hashes) {
+                self.reconcile_targets.entry(hash).or_insert((root, None));
             }
         }
-        targets
     }
     /// Record a direct solicitation of `hash` unless one was sent recently.
     fn solicitation_due(&mut self, hash: BlockHash, now: Instant) -> bool {
@@ -764,9 +1057,20 @@ impl State {
                 candidate.last_delta_page = None;
             }
         }
+        let now = Instant::now();
+        if self.ready && self.ready_since.is_none() {
+            self.ready_since = Some(now);
+        }
+        let public_keys: Vec<_> = keys.iter().map(|key| key.public_key()).collect();
+        let due = self.proposal_due(&public_keys, now);
+        // Round timeouts keep the rounds rotating even while no membership has
+        // enough support to be proposed; reconciliation continues meanwhile.
+        if !self.round_timer_armed && (due || self.agreement_expired(now)) {
+            self.arm_round_timer();
+        }
         // A compact vote is sufficient when its digest is already reconstructible
         // locally. Only a mismatch needs separate snapshot recovery.
-        let propose = self.ready
+        let leading = due
             && keys.iter().any(|key| {
                 self.leader(self.round) == Some(key.public_key())
                     && self
@@ -778,7 +1082,14 @@ impl State {
         // A signed FIRST cannot change within its round. Rebuild immediately for
         // a new proposal; between proposals refresh bases only as often as they
         // can be advertised/requested, rather than scanning the ledger each tick.
-        let refresh = propose
+        // While drained replicas still disagree, refresh at tick cadence so a
+        // reconciled member is announced without waiting a whole cycle.
+        let disagreeing = self.ready && !self.agreement(&public_keys).0;
+        let refresh = leading
+            || (disagreeing
+                && self
+                    .last_snapshot
+                    .is_none_or(|last| last.elapsed() >= Duration::from_millis(200)))
             || ((self.ready || self.candidates.values().any(|c| c.hashes.is_none()))
                 && self
                     .last_snapshot
@@ -801,6 +1112,9 @@ impl State {
                                 "added":added.iter().take(8).collect::<Vec<_>>(),"removed":removed.iter().take(8).collect::<Vec<_>>(),
                                 "added_total":added.len(),"removed_total":removed.len()
                             })
+                        );
+                        debug_trace(
+                            || serde_json::json!({"type":"members_changed","epoch":self.epoch,"round":self.round,"count":hashes.len(),"state":digest,"added":added,"removed":removed}),
                         );
                     }
                 }
@@ -840,6 +1154,18 @@ impl State {
         for (id, hashes) in reconstructed {
             self.candidates.get_mut(&id).unwrap().hashes = Some(hashes);
         }
+        // The agreed digest is the one announced. A member learned since the
+        // announcement makes the fresh snapshot unsigned by everyone else, so
+        // announce it instead and propose once it is agreed on as well.
+        let propose = leading
+            && local.as_ref().is_some_and(|hashes| {
+                self.local_announcements
+                    .first()
+                    .is_some_and(|announcement| {
+                        announcement.state == Ledger::epoch_state_hash(self.epoch, hashes)
+                    })
+            });
+        self.announce(keys, &mut out);
         // Every preceding round timed out, so only this round can finalize.
         for (&id, c) in &self.candidates {
             if self.valid(id, ledger)
@@ -965,9 +1291,9 @@ impl State {
         // A new close round requires a timeout certificate. This ensures no
         // earlier round can later finalize a different target.
         let p = self.template(self.round, BlockHash::ZERO, BlockHash::ZERO);
+        let timed = self.round_timed_out();
         for key in keys {
             let r = self.rounds.get_mut(&self.round).unwrap();
-            let timed = r.started.elapsed() >= round_timeout(self.round);
             let eligible = r.tally.should_timeout();
             let signer = r.signers.entry(key.public_key()).or_default();
             if signer.first.is_none() && timed {
@@ -983,13 +1309,9 @@ impl State {
                 self.sign(p.clone(), key, 4, &mut out);
             }
         }
-        if self.rounds[&self.round].certificate(BlockHash::ZERO, VoteKind::Timeout)
-            && self.may_start_next_round()
-        {
-            let expired = self.round;
+        if self.rounds[&self.round].certificate(BlockHash::ZERO, VoteKind::Timeout) {
+            // Certified ancestors and recovery snapshots are retained across rounds.
             self.enter_round(self.round + 1);
-            // Retain certified ancestors; discard unsuccessful snapshot payloads.
-            let _ = expired; // Retain notarized parents and recovery snapshots.
         }
         (out, None)
     }
@@ -1180,19 +1502,46 @@ impl EpochCloser {
             && std::env::var_os("RAI_CLOSE_VALIDATION_DIAGNOSTICS").is_some();
         let mut keys = Vec::new();
         self.reps.lock().unwrap().rep_priv_keys(&mut keys);
+        let signing_key = keys
+            .iter()
+            .find(|k| !state.weights.weight(&k.public_key()).is_zero())
+            .cloned();
+        // Members named by peers are solicited by hash; a root known locally lets
+        // the peer skip the block, a zero root makes it publish the block too.
+        let root_of = |hash: &BlockHash| {
+            self.ledger
+                .any()
+                .get_block(hash)
+                .map(|block| block.root())
+                .or_else(|| {
+                    self.aec
+                        .election_for_block(hash)
+                        .map(|election| election.qualified_root().root)
+                })
+                .unwrap_or_else(|| Root::from(0u64))
+        };
+        let epoch = state.epoch;
+        let missing_members = |hashes: &[BlockHash]| {
+            self.ledger
+                .epoch_close_missing_members(epoch, hashes)
+                .into_iter()
+                .map(|hash| (hash, root_of(&hash)))
+                .collect::<Vec<_>>()
+        };
         for (p, channel) in incoming {
             if p.kind == 7 {
                 if recovery.replies.len() < 128 {
-                    if let Some(key) = keys
-                        .iter()
-                        .find(|k| !state.weights.weight(&k.public_key()).is_zero())
-                    {
+                    if let Some(key) = &signing_key {
                         if let Some(mut page) = state.recovery_page(&p) {
                             page.sign(key);
                             recovery.replies.push_back((channel, page));
                         }
                     }
                 }
+            } else if p.kind == 8 {
+                state.receive_announcement(p, channel, signing_key.as_ref());
+            } else if p.kind == 9 {
+                state.receive_bucket_page(p, missing_members);
             } else {
                 let id = p.candidate_id();
                 let source =
@@ -1231,6 +1580,9 @@ impl EpochCloser {
                 state.local_first = Arc::new(self.generators.begin_drain(state.epoch));
                 state.draining = true;
                 state.enter_round(0);
+                debug_trace(
+                    || serde_json::json!({"type":"drain_start","epoch":state.epoch,"local_first":state.local_first.len()}),
+                );
             }
         }
         // D3 is live, not a sticky flag: newly visible elections also block signing.
@@ -1250,6 +1602,20 @@ impl EpochCloser {
             state.ready = false;
             state.drive(&self.ledger, &keys)
         };
+        let cycle = state.last_send.elapsed() >= RETRANSMIT;
+        if state.ready && !state.ready_traced {
+            state.ready_traced = true;
+            let incomplete = self.aec.membership_recovery_targets(state.epoch, false);
+            let firsts = self
+                .generators
+                .first_recovery_targets(state.epoch, &self.aec);
+            debug_trace(|| {
+                serde_json::json!({"type":"ready","epoch":state.epoch,"round":state.round,"round_started_ms":state.rounds.get(&state.round).map(|r| r.started.elapsed().as_millis()),
+                    "members":state.local_snapshots.back().map(|(_, h)| h.len()),"state":state.local_snapshots.back().map(|(d, _)| *d),
+                    "membership":state.local_snapshots.back().map(|(_, h)| h.clone()),
+                    "incomplete":incomplete,"pending_first":firsts})
+            });
+        }
         // Recover certificates known by peers, including notarized forks of
         // locally timed-out elections. Solicit those
         // elections directly at the retransmission cadence instead of leaving them
@@ -1290,7 +1656,13 @@ impl EpochCloser {
             drain_requests.extend(targets);
         }
         if closed.is_none() {
-            let targets = state.reconciliation_targets(&self.ledger);
+            state.candidate_reconciliation(&self.ledger, missing_members);
+            let targets = state.reconcile_batch(Instant::now(), |hashes| {
+                self.ledger
+                    .epoch_close_missing_members(epoch, hashes)
+                    .into_iter()
+                    .collect()
+            });
             if !targets.is_empty() {
                 eprintln!(
                     "EPOCH_CLOSE_RECONCILE {}",
@@ -1318,6 +1690,8 @@ impl EpochCloser {
                     }
                 }
             }
+            let public_keys: Vec<_> = keys.iter().map(|k| k.public_key()).collect();
+            let (agreed, agreeing) = state.agreement(&public_keys);
             eprintln!(
                 "EPOCH_CLOSE_PROGRESS {}",
                 serde_json::json!({
@@ -1325,8 +1699,12 @@ impl EpochCloser {
                     "members":state.local_snapshots.back().map(|(_, hashes)| hashes.len()),
                     "state":state.local_snapshots.back().map(|(digest, _)| *digest),
                     "parent":state.parent,
-                    "highest":state.highest_members,
-                    "holding":state.rounds.get(&state.round).is_some_and(|r| r.certificate(BlockHash::ZERO, VoteKind::Timeout)) && !state.may_start_next_round(),
+                    "ready_for_ms":state.ready_since.map(|since| since.elapsed().as_millis()),
+                    "agreed":agreed,
+                    "agreeing_weight":agreeing,
+                    "announcements":state.announcements.iter().map(|(rep, (a, _))| serde_json::json!({"rep":rep,"members":a.members,"state":a.state})).collect::<Vec<_>>(),
+                    "reconcile_targets":state.reconcile_targets.len(),
+                    "round_timer_armed":state.round_timer_armed,
                     "recovering":recovering,
                     "candidates":state.candidates.iter().map(|(id,c)| serde_json::json!({"id":id,"round":c.header.round,"pages":c.pages.len(),"expected":c.header.pages,"complete":c.hashes.is_some(),"valid":state.valid(*id,&self.ledger)})).collect::<Vec<_>>(),
                     "votes":state.rounds.iter().map(|(r,v)| (*r,v.votes.len())).collect::<BTreeMap<_,_>>()
@@ -1395,23 +1773,28 @@ impl EpochCloser {
                 state.archive_snapshots.clear();
             }
         }
-        // Only compact votes and receipts are flooded. Delta pages are requested
-        // from one peer on a digest mismatch and never broadcast.
-        if state.last_send.elapsed() >= RETRANSMIT {
+        // Only compact votes, receipts and readiness announcements are flooded.
+        // Delta and bucket pages go to one peer and are never broadcast.
+        if cycle {
+            outgoing.extend(state.local_announcements.iter().cloned());
             state.queue_retransmission();
             state.last_send = Instant::now();
         }
         outgoing.extend(state.retransmission_burst());
-        let mut targeted = if let Some(key) = keys
-            .iter()
-            .find(|k| !state.weights.weight(&k.public_key()).is_zero())
-        {
+        let mut targeted = if let Some(key) = &signing_key {
             recovery.requests(&state, key)
         } else {
             Vec::new()
         };
         for _ in 0..32 {
             if let Some(reply) = recovery.replies.pop_front() {
+                targeted.push(reply);
+            } else {
+                break;
+            }
+        }
+        for _ in 0..32 {
+            if let Some(reply) = state.bucket_replies.pop_front() {
                 targeted.push(reply);
             } else {
                 break;
@@ -1428,14 +1811,14 @@ impl EpochCloser {
                 &Message::ConfirmReq(
                     rsnano_messages::ConfirmReq::new(chunk.to_vec()).with_epoch(drain_epoch),
                 ),
-                TrafficType::VoteReply,
+                TrafficType::ConfirmationRequests,
                 1.0,
             );
         }
         for packet in outgoing {
             flooder.flood_prs_and_some_non_prs(
                 &Message::EpochClose(packet),
-                TrafficType::VoteReply,
+                TrafficType::EpochClose,
                 1.0,
             );
         }
@@ -1443,7 +1826,7 @@ impl EpochCloser {
             flooder.try_send_channel_id(
                 channel,
                 &Message::EpochClose(packet),
-                TrafficType::VoteReply,
+                TrafficType::EpochClose,
             );
         }
         if report_transport {
@@ -1516,7 +1899,7 @@ mod tests {
         keys.sort_by_key(|k| k.public_key());
         assert_eq!(keys[0].public_key(), leader);
         let mut decisions = vec![None; 5];
-        for _ in 0..12 {
+        for step in 0..12 {
             let mut packets = Vec::new();
             for i in 0..5 {
                 let (out, decision) = replicas[i].drive(&ledger, &[keys[i].clone()]);
@@ -1525,14 +1908,315 @@ mod tests {
                 }
                 packets.extend(out);
             }
-            for replica in &mut replicas {
-                for packet in &packets {
-                    replica.receive(packet.clone());
+            exchange(&mut replicas, packets);
+            if step == 0 {
+                assert!(
+                    replicas.iter().all(|r| r.candidates.is_empty()),
+                    "no proposal while a representative has not announced"
+                );
+                for replica in &mut replicas {
+                    replica.ready_since = Some(Instant::now() - AGREEMENT_TIMEOUT);
                 }
             }
         }
         assert!(decisions.iter().all(|d| d.as_ref() == Some(&vec![])));
         assert_ne!(replicas[0].leader(0), replicas[0].leader(1));
+    }
+
+    #[test]
+    fn first_proposal_waits_until_every_representative_announces_the_same_digest() {
+        let ledgers: Vec<_> = (0..6).map(|_| Ledger::new_null()).collect();
+        let extra: rsnano_types::Block = rsnano_types::SavedBlock::new_test_instance().into();
+        ledgers[3].record_epoch_block(0, extra.clone());
+        let mut replicas: Vec<_> = (0..6)
+            .map(|_| {
+                let mut s = state();
+                s.ready = true;
+                s
+            })
+            .collect();
+        let keys = sorted_keys();
+        let mut round = |replicas: &mut Vec<State>| {
+            let mut packets = Vec::new();
+            let mut decisions = Vec::new();
+            for i in 0..6 {
+                let (out, decision) = replicas[i].drive(&ledgers[i], &[keys[i].clone()]);
+                decisions.push(decision);
+                packets.extend(out);
+            }
+            exchange(replicas, packets);
+            decisions
+        };
+        for _ in 0..3 {
+            round(&mut replicas);
+        }
+        assert!(
+            replicas.iter().all(|r| r.candidates.is_empty()),
+            "one replica holds an extra member, so nobody proposes"
+        );
+        assert!(replicas.iter().all(|r| r.announcements.len() == 6));
+        assert!(!replicas[0].round_timer_armed);
+        // The others learn the member (as if their solicitations were answered).
+        for ledger in &ledgers {
+            ledger.record_epoch_block(0, extra.clone());
+        }
+        for replica in &mut replicas {
+            replica.last_snapshot = None;
+        }
+        let mut decisions = vec![None; 6];
+        for _ in 0..4 {
+            for (i, decision) in round(&mut replicas).into_iter().enumerate() {
+                if decision.is_some() {
+                    decisions[i] = decision;
+                }
+            }
+        }
+        assert!(
+            decisions
+                .iter()
+                .all(|d| d.as_ref() == Some(&vec![extra.hash()])),
+            "every replica closes on the reconciled membership"
+        );
+        assert!(replicas.iter().all(|r| r.round == 0), "closed in round 0");
+        assert!(replicas.iter().all(|r| r.round_timer_armed));
+    }
+
+    #[test]
+    fn round_zero_is_timed_from_the_proposal_not_from_the_drain() {
+        let ledger = Ledger::new_null();
+        let mut s = state();
+        s.ready = true;
+        s.enter_round(0);
+        let key = (1..=6)
+            .map(PrivateKey::from)
+            .find(|k| Some(k.public_key()) != s.leader(0))
+            .unwrap();
+        s.rounds.get_mut(&0).unwrap().started = Instant::now() - round_timeout(0) * 10;
+        let (out, _) = s.drive(&ledger, &[key.clone()]);
+        assert!(
+            out.iter().all(|p| p.kind == 8),
+            "only the announcement goes out while the proposal is not due"
+        );
+        for i in 1..=6 {
+            let mut announcement = out[0].clone();
+            announcement.sign(&PrivateKey::from(i));
+            s.receive_announcement(announcement, ChannelId::from(i as usize), None);
+        }
+        let (out, _) = s.drive(&ledger, &[key.clone()]);
+        assert!(s.round_timer_armed);
+        assert!(
+            out.is_empty(),
+            "the timer starts when the proposal becomes due"
+        );
+        s.rounds.get_mut(&0).unwrap().started = Instant::now() - round_timeout(0);
+        let (out, _) = s.drive(&ledger, &[key]);
+        assert_eq!(out.iter().map(|p| p.kind).collect::<Vec<_>>(), vec![3]);
+    }
+
+    #[test]
+    fn announcement_mismatch_is_answered_with_the_differing_buckets() {
+        let mut a = state();
+        let mut b = state();
+        let shared = BlockHash::from(1);
+        let mut only_a = [0u8; 32];
+        only_a[0] = 7;
+        only_a[31] = 2;
+        let only_a = BlockHash::from_bytes(only_a);
+        let members_a = vec![shared, only_a];
+        let members_b = vec![shared];
+        let digest_a = Ledger::epoch_state_hash(0, &members_a);
+        let digest_b = Ledger::epoch_state_hash(0, &members_b);
+        a.local_snapshots.push_back((digest_a, members_a.clone()));
+        b.local_snapshots.push_back((digest_b, members_b.clone()));
+        a.ready = true;
+        b.ready = true;
+        let mut out = Vec::new();
+        b.announce(&[PrivateKey::from(2)], &mut out);
+        assert_eq!(out.len(), 1);
+        assert!(out[0].valid_announcement());
+        assert_eq!(out[0].members, 1);
+        let key_a = PrivateKey::from(1);
+        a.receive_announcement(out[0].clone(), ChannelId::from(2), Some(&key_a));
+        let pages: Vec<_> = a.bucket_replies.drain(..).collect();
+        assert_eq!(
+            pages
+                .iter()
+                .map(|(channel, p)| (*channel, p.kind, p.page, p.hashes.clone()))
+                .collect::<Vec<_>>(),
+            vec![(ChannelId::from(2), 9, 7, vec![only_a])],
+            "only the bucket holding the extra member differs and B's copy is empty"
+        );
+        a.receive_announcement(out[0].clone(), ChannelId::from(2), Some(&key_a));
+        assert!(
+            a.bucket_replies.is_empty(),
+            "an unchanged announcement is not answered twice"
+        );
+        let page = pages[0].1.clone();
+        assert!(page.valid_bucket_page());
+        let missing = |hashes: &[BlockHash]| {
+            hashes
+                .iter()
+                .filter(|h| !members_b.contains(h))
+                .map(|h| (*h, Root::from(0u64)))
+                .collect()
+        };
+        b.receive_bucket_page(page, missing);
+        assert_eq!(
+            b.reconcile_targets.keys().copied().collect::<Vec<_>>(),
+            vec![only_a]
+        );
+        // The announcement in the other direction reveals nothing B lacks.
+        let mut out = Vec::new();
+        a.announce(&[key_a.clone()], &mut out);
+        b.receive_announcement(
+            out[0].clone(),
+            ChannelId::from(1),
+            Some(&PrivateKey::from(2)),
+        );
+        assert!(
+            b.bucket_replies.is_empty(),
+            "B holds no member of the differing bucket"
+        );
+        assert_eq!(
+            b.agreement(&[PrivateKey::from(2).public_key()]).1,
+            Amount::raw(100)
+        );
+        assert!(!b.agreement(&[PrivateKey::from(2).public_key()]).0);
+        // Once B learns the member, its new announcement agrees, and A answers
+        // nothing further.
+        b.local_snapshots.push_back((digest_a, members_a.clone()));
+        b.local_announcements.clear();
+        let mut out = Vec::new();
+        b.announce(&[PrivateKey::from(2)], &mut out);
+        assert_eq!(out[0].state, digest_a);
+        a.receive_announcement(out[0].clone(), ChannelId::from(2), Some(&key_a));
+        assert!(a.bucket_replies.is_empty());
+        assert_eq!(
+            a.agreement(&[key_a.public_key()]),
+            (false, Amount::raw(200)),
+            "A and B agree; the other four have not announced"
+        );
+    }
+
+    #[test]
+    fn a_changed_membership_answers_stored_announcements_at_once() {
+        let mut a = state();
+        let mut b = state();
+        let member = BlockHash::from(5);
+        let members = vec![member];
+        let digest_full = Ledger::epoch_state_hash(0, &members);
+        let digest_empty = Ledger::epoch_state_hash(0, &[]);
+        b.local_snapshots.push_back((digest_empty, vec![]));
+        b.ready = true;
+        let mut out = Vec::new();
+        b.announce(&[PrivateKey::from(2)], &mut out);
+        // A stores the announcement before it has a snapshot of its own.
+        a.receive_announcement(
+            out[0].clone(),
+            ChannelId::from(2),
+            Some(&PrivateKey::from(1)),
+        );
+        assert!(a.bucket_replies.is_empty());
+        a.local_snapshots.push_back((digest_full, members.clone()));
+        a.ready = true;
+        let mut out = Vec::new();
+        a.announce(&[PrivateKey::from(1)], &mut out);
+        assert_eq!(out.len(), 1);
+        let pages: Vec<_> = a.bucket_replies.drain(..).collect();
+        assert_eq!(pages.len(), 1);
+        assert_eq!(pages[0].0, ChannelId::from(2));
+        assert_eq!(pages[0].1.hashes, members);
+    }
+
+    #[test]
+    fn agreement_counts_our_keys_and_matching_announcements() {
+        let mut s = state();
+        let digest = Ledger::epoch_state_hash(0, &[]);
+        s.local_snapshots.push_back((digest, vec![]));
+        s.ready = true;
+        let mine = PrivateKey::from(1).public_key();
+        assert_eq!(s.agreement(&[mine]), (false, Amount::raw(100)));
+        let mut announcement = s.template(1, BlockHash::ZERO, digest);
+        announcement.kind = 8;
+        announcement.pages = EpochClose::BUCKETS as u16;
+        announcement.hashes = sketch(0, &[]);
+        for i in 2..=5 {
+            announcement.sign(&PrivateKey::from(i));
+            s.receive_announcement(announcement.clone(), ChannelId::from(i as usize), None);
+        }
+        assert_eq!(s.agreement(&[mine]), (false, Amount::raw(500)));
+        assert!(!s.proposal_due(&[mine], Instant::now()));
+        s.ready_since = Some(Instant::now() - AGREEMENT_TIMEOUT);
+        assert!(
+            s.proposal_due(&[mine], Instant::now()),
+            "certificate weight suffices after the agreement timeout"
+        );
+        let mut stale = announcement.clone();
+        stale.state = 9.into();
+        stale.round = 0;
+        stale.sign(&PrivateKey::from(6));
+        s.receive_announcement(stale, ChannelId::from(6), None);
+        announcement.sign(&PrivateKey::from(6));
+        s.receive_announcement(announcement.clone(), ChannelId::from(6), None);
+        assert_eq!(s.agreement(&[mine]), (true, Amount::raw(600)));
+        let mut older = announcement.clone();
+        older.state = 9.into();
+        older.round = 0;
+        older.sign(&PrivateKey::from(6));
+        s.receive_announcement(older, ChannelId::from(6), None);
+        assert!(
+            s.agreement(&[mine]).0,
+            "an older sequence does not replace a newer one"
+        );
+        s.ready_since = None;
+        assert!(s.proposal_due(&[mine], Instant::now()));
+    }
+
+    #[test]
+    fn rounds_keep_rotating_while_no_membership_has_certificate_support() {
+        let ledger = Ledger::new_null();
+        let mut s = state();
+        s.ready = true;
+        s.enter_round(0);
+        let key = leader_key(&s, 0);
+        let (out, _) = s.drive(&ledger, &[key.clone()]);
+        assert_eq!(out.iter().map(|p| p.kind).collect::<Vec<_>>(), vec![8]);
+        // Every other representative agrees on a different membership.
+        let mut other = out[0].clone();
+        other.state = 9.into();
+        for i in 1..=6 {
+            let signer = PrivateKey::from(i);
+            if signer.public_key() == key.public_key() {
+                continue;
+            }
+            other.sign(&signer);
+            s.receive_announcement(other.clone(), ChannelId::from(i as usize), None);
+        }
+        s.ready_since = Some(Instant::now() - AGREEMENT_TIMEOUT);
+        let (out, _) = s.drive(&ledger, &[key.clone()]);
+        assert!(out.is_empty(), "an unsupported membership is not proposed");
+        assert!(s.round_timer_armed, "but the round is timed from here");
+        s.rounds.get_mut(&0).unwrap().started = Instant::now() - round_timeout(0);
+        let (out, _) = s.drive(&ledger, &[key]);
+        assert_eq!(out.iter().map(|p| p.kind).collect::<Vec<_>>(), vec![3]);
+    }
+
+    fn sorted_keys() -> Vec<PrivateKey> {
+        let mut keys: Vec<_> = (1..=6).map(PrivateKey::from).collect();
+        keys.sort_by_key(|k| k.public_key());
+        keys
+    }
+
+    fn exchange(replicas: &mut [State], packets: Vec<EpochClose>) {
+        for replica in replicas.iter_mut() {
+            for packet in &packets {
+                if packet.kind == 8 {
+                    replica.receive_announcement(packet.clone(), ChannelId::LOOPBACK, None);
+                } else {
+                    replica.receive(packet.clone());
+                }
+            }
+        }
     }
 
     #[test]
@@ -1634,6 +2318,14 @@ mod tests {
         p.sign(&leader_key(&s, 0));
         s.receive(p);
         assert!(s.candidates.is_empty());
+    }
+
+    fn unknown_members(ledger: &Ledger, hashes: &[BlockHash]) -> Vec<(BlockHash, Root)> {
+        ledger
+            .epoch_close_missing_members(0, hashes)
+            .into_iter()
+            .map(|hash| (hash, Root::from(0u64)))
+            .collect()
     }
 
     fn leader_key(s: &State, round: u64) -> PrivateKey {
@@ -1943,28 +2635,45 @@ mod tests {
         proposal.sign(&PrivateKey::from(1));
         let id = proposal.candidate_id();
         s.receive(proposal);
+        let missing = |hashes: &[BlockHash]| unknown_members(&ledger, hashes);
+        s.candidate_reconciliation(&ledger, missing);
         assert!(
-            s.reconciliation_targets(&ledger).is_empty(),
+            s.reconcile_targets.is_empty(),
             "nothing to reconcile before the snapshot is reconstructed"
         );
         s.candidates.get_mut(&id).unwrap().hashes = Some(members.clone());
         s.last_reconcile = None;
-        let targets = s.reconciliation_targets(&ledger);
+        s.candidate_reconciliation(&ledger, missing);
+        let now = Instant::now();
+        let still_missing = |hashes: &[BlockHash]| {
+            unknown_members(&ledger, hashes)
+                .into_iter()
+                .map(|(hash, _)| hash)
+                .collect()
+        };
+        let mut targets = s.reconcile_batch(now, still_missing);
+        targets.sort();
         assert_eq!(
             targets.iter().map(|(hash, _)| *hash).collect::<Vec<_>>(),
             members
         );
         assert!(targets.iter().all(|(_, root)| *root == Root::from(0u64)));
-        s.last_reconcile = None;
         assert!(
-            s.reconciliation_targets(&ledger).is_empty(),
+            s.reconcile_batch(now, still_missing).is_empty(),
             "solicitations are rate limited per member"
         );
-        for last in s.solicited.values_mut() {
-            *last -= SOLICIT_INTERVAL;
-        }
-        s.last_reconcile = None;
-        assert_eq!(s.reconciliation_targets(&ledger).len(), 2);
+        assert_eq!(
+            s.reconcile_batch(now + RECONCILE_INTERVAL, still_missing)
+                .len(),
+            2
+        );
+        ledger.record_epoch_block(0, rsnano_types::SavedBlock::new_test_instance().into());
+        let known = |_: &[BlockHash]| HashSet::from([BlockHash::from(9)]);
+        assert_eq!(
+            s.reconcile_batch(now + RECONCILE_INTERVAL * 2, known).len(),
+            1,
+            "a member learned since is no longer solicited"
+        );
     }
 
     #[test]

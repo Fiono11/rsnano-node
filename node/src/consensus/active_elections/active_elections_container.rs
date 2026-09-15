@@ -1133,6 +1133,7 @@ impl ActiveElectionsContainer {
             let hash = entry.hash();
             let finalized = entry.finalized;
             let root = entry.root.clone();
+            let root_for_trace = root.clone();
             let timeout = entry.block.is_none();
             let block = entry.block.clone();
             let changed = self
@@ -1163,11 +1164,9 @@ impl ActiveElectionsContainer {
                     first_vote_us,
                 ));
             }
-            if epoch == 1 && changed {
-                crate::consensus::epoch_closer::debug_trace(
-                    || serde_json::json!({"type":"block_certificate","epoch":epoch,"hash":hash,"finalized":finalized,"trigger_voter":args.vote.voter,"trigger_kind":format!("{:?}",args.vote.kind)}),
-                );
-            }
+            crate::consensus::epoch_closer::debug_trace(
+                || serde_json::json!({"type":"block_certificate","epoch":epoch,"hash":hash,"root":root_for_trace,"timeout":timeout,"finalized":finalized,"trigger_voter":args.vote.voter,"trigger_kind":format!("{:?}",args.vote.kind),"trigger_epoch":args.vote.epoch}),
+            );
         }
         #[cfg(feature = "rai_protocol")]
         for item in result.notarization_ready {
@@ -1192,7 +1191,7 @@ impl ActiveElectionsContainer {
             self.cleanup_election(entry);
         }
         #[cfg(feature = "rai_protocol")]
-        crate::consensus::epoch_closer::debug_trace(
+        crate::consensus::epoch_closer::debug_trace_verbose(
             || serde_json::json!({"type":"vote_applied","epoch":args.vote.epoch,"voter":args.vote.voter,"kind":format!("{:?}",args.vote.kind),"results":result.per_block.iter().map(|(h,r)| (h,format!("{:?}",r))).collect::<Vec<_>>()}),
         );
         result.per_block

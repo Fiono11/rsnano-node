@@ -24,13 +24,52 @@ added in the descendant. Reconstructed parent states must be subsets of children
 Advertised member counts do not gate progress.
 
 At the epoch deadline, signing stops issuing new non-timeout FIRST votes in that
-epoch. Old elections continue, with FIRST-timeout for new participants. There is
-no all-member report or selected-root barrier. D3 covers local non-timeout first
-votes and all locally visible elections, including an election with just one
-valid first vote. D4 requires the reconstructed target to include every locally
-known notarized candidate. The signing reservation and election read lock cover
-these checks and close signing, preventing concurrent candidate ingestion from
-invalidating the checks mid-vote. D4 is not cached.
+epoch. Old elections continue, with FIRST-timeout for new participants. D3 covers
+local non-timeout first votes and all locally visible elections, including an
+election with just one valid first vote. D4 requires the reconstructed target to
+include every locally known notarized candidate. The signing reservation and
+election read lock cover these checks and close signing, preventing concurrent
+candidate ingestion from invalidating the checks mid-vote. D4 is not cached.
+
+A drained replica announces its membership before anyone proposes (message kind
+8, signed, flooded and retransmitted with the close history): the target root,
+the member count and one digest per member bucket, where a bucket is the sorted
+members sharing a first byte. Announcements never enter a tally. A replica whose
+own root differs answers the announcer directly with the members of every bucket
+whose digest differs (kind 9, at most 32 buckets per announcement, the rest on
+its retransmissions), and answers every stored announcement again whenever its
+own membership changes. Members received this way that carry no local
+membership are solicited by hash through ordinary epoch-specific ConfirmReq
+messages every two seconds until their certificate is verified locally; a zero
+root makes the peer publish the block as well. Both directions are covered
+because both replicas announce.
+
+The round leader proposes only once every representative announced the root it
+holds itself, or six seconds after its own drain once representatives holding
+certificate weight have; a fresh snapshot that differs from the announced root
+is announced instead of proposed. Round 0 is timed from the moment a proposal
+became due on each replica rather than from the drain start, so followers do not
+FIRST-timeout a round before its proposal can exist; later rounds are timed from
+their timeout certificate as before. After the six-second wait the round timer
+is armed even without certificate-weight agreement, so rounds keep rotating
+while reconciliation continues. Close statements, announcements and pages use
+their own outbound traffic class (`TrafficType::EpochClose`): on the shared
+vote-reply queue a burst of recovery replies to one peer dropped an announcement
+on that channel repeatedly, so the leader never saw agreement and round 0 was
+lost even without forks. With six replicas and 5% forks at 2000 blocks/s
+both epochs close in round 0 within about five seconds of the drain, where the
+previous design needed two to three rounds and 14-27 seconds: memberships that
+differed by 1-25 members at readiness could only converge through blind
+solicitation, and a proposal is immutable, so every member learned after it made
+the proposal unsignable for that replica.
+
+Two subtleties observed on the way: a candidate with second-look FIRST weight is
+not certain to be notarized, because representatives that already cast FINAL for
+the other candidate are value-locked (about half of the 3-3 forks end with one
+side locked), so readiness must not wait for such certificates; and late votes
+of the draining epoch can open new local elections after readiness, which D3
+then blocks until they terminate, so a replica may miss round 0 and reconstruct
+the finalized target from the empty version instead.
 
 Reconciliation requests name one target and up to eight candidate bases, the
 requester's retained snapshot history newest first, with epoch and bounded page
