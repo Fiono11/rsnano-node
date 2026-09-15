@@ -32,9 +32,13 @@ known notarized candidate. The signing reservation and election read lock cover
 these checks and close signing, preventing concurrent candidate ingestion from
 invalidating the checks mid-vote. D4 is not cached.
 
-Reconciliation requests name exactly one base and target, with epoch and bounded
-page routing metadata. A recognized subset base receives only added IDs. An
-unknown base or non-subset base gets no delta. Responses are authenticated, contain
+Reconciliation requests name one target and up to eight candidate bases, the
+requester's retained snapshot history newest first, with epoch and bounded page
+routing metadata. The serving replica answers against the largest base it also
+holds that is a subset of the target, and the requester pins that base for the
+remaining pages. A live state that already exceeds the target can therefore
+still be served through an earlier version. An unknown base or non-subset base
+gets no delta. Responses are authenticated, contain
 no block bodies or proofs, and are accepted only against a pinned immutable base
 and a matching recomputed target root. Object and certificate recovery uses the
 ordinary publish/confirm-ack path; locally verified certification is required
@@ -72,7 +76,13 @@ that would strand a finite workload. Nanospam excludes pre-start setup outcomes.
 This counter shares the continuously-online assumption of the voting state.
 
 Drain recovery includes locally signed FIRST obligations even when no active
-election remains. Archived signatures are replayed for explicitly requested IDs,
+election remains. A reconstructed snapshot names exactly the members missing
+locally, and those are requested directly; a request whose root is zero names a
+block the requester does not hold, so the peer publishes it. Blind solicitation
+of notarized elections and their forks runs only while a proposal has no delta
+page flow, since memberships that differ in both directions share no base;
+soliciting them on every drain tick would amplify replies and drops. Archived
+signatures are replayed for explicitly requested IDs,
 and certificate-only collection recognizes timeout as well as block outcomes.
 A final value lock from another epoch cannot suppress a FIRST-timeout or eligible
 timeout in this epoch; it still prohibits endorsing a conflicting block.

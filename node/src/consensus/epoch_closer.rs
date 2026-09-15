@@ -617,10 +617,27 @@ impl State {
         if self.has_finalized_close() {
             return vec![self.empty_snapshot.0];
         }
+        // Advertise the retained snapshot history, newest first: the live state
+        // may hold members the target lacks, while an earlier version is still
+        // a subset of it and can be served as a delta.
         self.local_snapshots
-            .back()
-            .map(|(hash, _)| vec![*hash])
-            .unwrap_or_default()
+            .iter()
+            .rev()
+            .map(|(hash, _)| *hash)
+            .take(EpochClose::MAX_BASES)
+            .collect()
+    }
+
+    /// A candidate with no page flow: no peer has served a delta against any
+    /// advertised base, so the missing members cannot be named exactly. Only
+    /// then is blind recovery of terminated elections worth its request and
+    /// reply load; it must start within the first close round.
+    fn reconstruction_stalled(&self, now: Instant) -> bool {
+        self.candidates.values().any(|c| {
+            c.hashes.is_none()
+                && c.last_delta_page
+                    .is_none_or(|last| now.duration_since(last) >= RETRANSMIT * 2)
+        })
     }
 
     fn recovery_page(&mut self, request: &EpochClose) -> Option<EpochClose> {
@@ -1243,12 +1260,10 @@ impl EpochCloser {
         {
             state.last_timeout_solicitation = Some(Instant::now());
             let now = Instant::now();
-            let behind = state.candidates.values().any(|candidate| {
-                state
-                    .local_snapshots
-                    .back()
-                    .is_none_or(|(root, _)| *root != candidate.header.state)
-            });
+            // A reconstructed snapshot names exactly what is missing locally, and
+            // reconciliation_targets requests it. Blind recovery of terminated
+            // elections is the fallback for a proposal no peer can serve pages for.
+            let behind = state.reconstruction_stalled(now);
             // One request per solicitation keeps reply load bounded; the cursor
             // rotates through the remaining targets on later solicitations.
             let mut candidates = self
@@ -1838,6 +1853,65 @@ mod tests {
                 .iter()
                 .all(|p| p.hashes.is_empty() && p.removed.is_empty() && p.base.is_zero())
         );
+    }
+
+    #[test]
+    fn recovery_request_advertises_snapshot_history_and_the_shared_base_is_served() {
+        let old = vec![BlockHash::from(1)];
+        let live = vec![BlockHash::from(1), BlockHash::from(5)];
+        let target = vec![BlockHash::from(1), BlockHash::from(2), BlockHash::from(3)];
+        let old_hash = Ledger::epoch_state_hash(0, &old);
+        let live_hash = Ledger::epoch_state_hash(0, &live);
+        let target_hash = Ledger::epoch_state_hash(0, &target);
+        let mut source = state();
+        source.local_snapshots.push_back((old_hash, old.clone()));
+        source
+            .local_snapshots
+            .push_back((target_hash, target.clone()));
+        let mut receiver = state();
+        receiver.local_snapshots.push_back((old_hash, old.clone()));
+        receiver.local_snapshots.push_back((live_hash, live));
+        assert_eq!(receiver.bases(), vec![live_hash, old_hash], "newest first");
+        let mut request = source.template(0, BlockHash::ZERO, target_hash);
+        request.kind = 7;
+        request.hashes = receiver.bases();
+        request.sign(&PrivateKey::from(2));
+        assert!(request.valid_recovery_request());
+        let mut page = source
+            .recovery_page(&request)
+            .expect("the live state is not a subset, but its predecessor is");
+        assert_eq!(page.base, old_hash);
+        assert_eq!(page.hashes, vec![BlockHash::from(2), BlockHash::from(3)]);
+        let mut proposal = source.template(0, BlockHash::ZERO, target_hash);
+        proposal.sign(&PrivateKey::from(1));
+        let id = proposal.candidate_id();
+        receiver.receive(proposal);
+        page.sign(&PrivateKey::from(1));
+        receiver.receive(page);
+        assert_eq!(receiver.candidates[&id].hashes.as_ref(), Some(&target));
+    }
+
+    #[test]
+    fn blind_recovery_is_only_a_fallback_for_a_stalled_reconstruction() {
+        let mut s = state();
+        let mut proposal = s.template(0, BlockHash::ZERO, 7.into());
+        proposal.sign(&PrivateKey::from(1));
+        let id = proposal.candidate_id();
+        let received = Instant::now();
+        assert!(
+            !s.reconstruction_stalled(received),
+            "no candidate, nothing to recover"
+        );
+        s.receive(proposal);
+        assert!(
+            s.reconstruction_stalled(received),
+            "no page flow: recover blindly at once"
+        );
+        s.candidates.get_mut(&id).unwrap().last_delta_page = Some(received);
+        assert!(!s.reconstruction_stalled(received + RETRANSMIT));
+        assert!(s.reconstruction_stalled(received + RETRANSMIT * 2));
+        s.candidates.get_mut(&id).unwrap().hashes = Some(vec![]);
+        assert!(!s.reconstruction_stalled(received + RETRANSMIT * 2));
     }
 
     #[test]

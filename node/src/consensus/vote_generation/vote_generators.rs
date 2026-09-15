@@ -312,8 +312,12 @@ impl VoteGenerators {
             }
             // The requester named the candidates it already holds; republish only
             // the others, so a lagging replica is not flooded with known blocks and
-            // the block it lacks is not dropped behind them in the send queue.
-            let named = requests.iter().any(|(hash, _)| *hash == entry.hash());
+            // the block it lacks is not dropped behind them in the send queue. A
+            // zero root names a hash learned from a snapshot page, which the
+            // requester does not hold: that block must be published.
+            let named = requests
+                .iter()
+                .any(|(hash, root)| *hash == entry.hash() && !root.is_zero());
             if let Some(block) = entry.block
                 && !named
             {

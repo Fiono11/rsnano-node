@@ -35,6 +35,8 @@ pub struct EpochClose {
 impl EpochClose {
     pub const PAGE_SIZE: usize = 512;
     pub const MAX_PAGES: u16 = 2048;
+    /// Snapshot digests a recovery request may advertise as candidate bases.
+    pub const MAX_BASES: usize = 8;
     pub fn candidate_id(&self) -> BlockHash {
         Blake2HashBuilder::new()
             .update(b"rai-close-candidate-v2")
@@ -113,7 +115,8 @@ impl EpochClose {
 
     pub fn valid_recovery_request(&self) -> bool {
         self.kind == 7
-            && self.hashes.len() == 1
+            && !self.hashes.is_empty()
+            && self.hashes.len() <= Self::MAX_BASES
             && self.base.is_zero()
             && self.removed.is_empty()
             && self.pages == 0
@@ -191,6 +194,15 @@ mod tests {
         changed = request.clone();
         changed.hashes[0] = 6.into();
         assert!(!changed.valid_recovery_request());
+        request.hashes = (1..=EpochClose::MAX_BASES as u64).map(Into::into).collect();
+        request.sign(&PrivateKey::from(1));
+        assert!(
+            request.valid_recovery_request(),
+            "a snapshot history is a valid base set"
+        );
+        request.hashes.push(99.into());
+        request.sign(&PrivateKey::from(1));
+        assert!(!request.valid_recovery_request());
         request.hashes.clear();
         request.sign(&PrivateKey::from(1));
         assert!(
