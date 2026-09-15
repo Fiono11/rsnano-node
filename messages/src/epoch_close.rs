@@ -8,9 +8,11 @@ use serde::{Deserialize, Serialize};
 /// A digest-only close statement or one page of a membership digest tree.
 /// Vote kinds 0..=4 carry only a digest and 6 acknowledges a persisted close.
 /// Kind 8 announces a drained replica's membership: its tree root, member
-/// count and the 256 level-1 digests. Kind 9 requests one page of a view named
-/// by its root, answered by kind 5 (a level-1 bucket's leaf digests) or kind 7
-/// (the members of one two-byte prefix). Pages never enter a vote tally.
+/// count and a set sketch from which a peer decodes the differing members in
+/// one step. Kind 9 requests one page of a view named by its root, answered by
+/// kind 5 (the 256 level-1 digests, or one bucket's leaf digests) or kind 7
+/// (the members of one two-byte prefix); pages are the fallback when a sketch
+/// does not decode. Pages never enter a vote tally.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EpochClose {
     pub epoch: u64,
@@ -38,6 +40,9 @@ pub struct EpochClose {
     /// Member count of the proposer's or announcer's membership.
     #[serde(default)]
     pub members: u64,
+    /// Hex-encoded membership sketch of an announcement, empty otherwise.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub sketch: String,
 }
 impl EpochClose {
     pub const PAGE_SIZE: usize = 512;
@@ -45,6 +50,15 @@ impl EpochClose {
     pub const LEVEL1_BUCKETS: usize = 256;
     pub const LEVEL2_PAGE: u16 = 1;
     pub const LEAF_PAGE: u16 = 2;
+    pub const LEVEL1_PAGE: u16 = 3;
+    /// Serialized size of a membership sketch (192 cells of 44 bytes).
+    pub const SKETCH_BYTES: usize = 192 * 44;
+    pub fn sketch_bytes(&self) -> Option<Vec<u8>> {
+        decode_hex(&self.sketch)
+    }
+    pub fn set_sketch(&mut self, bytes: &[u8]) {
+        self.sketch = encode_hex(bytes);
+    }
     pub fn prefix_of(hash: &BlockHash) -> u16 {
         u16::from_be_bytes([hash.as_bytes()[0], hash.as_bytes()[1]])
     }
@@ -67,7 +81,8 @@ impl EpochClose {
         if matches!(self.kind, 5 | 7 | 8 | 9) {
             let mut builder = builder
                 .update(self.page.to_le_bytes())
-                .update(self.pages.to_le_bytes());
+                .update(self.pages.to_le_bytes())
+                .update(self.sketch.as_bytes());
             for hash in &self.hashes {
                 builder = builder.update(hash.as_bytes());
             }
@@ -86,11 +101,15 @@ impl EpochClose {
             .is_ok()
     }
     fn page_fields_clear(&self) -> bool {
-        self.base.is_zero() && self.removed.is_empty() && self.parent.is_zero()
+        self.base.is_zero()
+            && self.removed.is_empty()
+            && self.parent.is_zero()
+            && self.sketch.is_empty()
     }
     pub fn valid_vote(&self) -> bool {
         self.kind <= 4
             && self.hashes.is_empty()
+            && self.sketch.is_empty()
             && self.base.is_zero()
             && self.removed.is_empty()
             && self.pages == 0
@@ -109,14 +128,18 @@ impl EpochClose {
             && self.signature_valid()
     }
     /// Readiness announcement: the root and member count of the announcer's
-    /// membership plus its 256 level-1 digests, so a peer can name the buckets
-    /// that differ without either side sending its whole membership.
+    /// membership plus its sketch, from which a peer decodes the members on
+    /// either side only without either side sending its whole membership.
     pub fn valid_announcement(&self) -> bool {
         self.kind == 8
-            && self.hashes.len() == Self::LEVEL1_BUCKETS
+            && self.hashes.is_empty()
+            && self.sketch.len() == Self::SKETCH_BYTES * 2
+            && self.sketch_bytes().is_some()
             && self.page == 0
             && self.pages == 0
-            && self.page_fields_clear()
+            && self.base.is_zero()
+            && self.removed.is_empty()
+            && self.parent.is_zero()
             && self.signature_valid()
     }
     /// Request for one page of the view whose root is `state`.
@@ -124,7 +147,17 @@ impl EpochClose {
         self.kind == 9
             && self.hashes.is_empty()
             && (self.pages == Self::LEVEL2_PAGE && (self.page as usize) < Self::LEVEL1_BUCKETS
-                || self.pages == Self::LEAF_PAGE)
+                || self.pages == Self::LEAF_PAGE
+                || self.pages == Self::LEVEL1_PAGE && self.page == 0)
+            && self.page_fields_clear()
+            && self.signature_valid()
+    }
+    /// The 256 level-1 digests of a view, for a peer whose sketch did not decode.
+    pub fn valid_level1_page(&self) -> bool {
+        self.kind == 5
+            && self.pages == Self::LEVEL1_PAGE
+            && self.page == 0
+            && self.hashes.len() == Self::LEVEL1_BUCKETS
             && self.page_fields_clear()
             && self.signature_valid()
     }
@@ -163,11 +196,38 @@ impl EpochClose {
     pub fn deserialize(payload: &[u8]) -> Result<Self, DeserializationError> {
         let value: Self =
             serde_json::from_slice(payload).map_err(|_| DeserializationError::InvalidData)?;
-        if value.kind > 9 || !value.removed.is_empty() || value.hashes.len() > Self::PAGE_SIZE {
+        if value.kind > 9
+            || !value.removed.is_empty()
+            || value.hashes.len() > Self::PAGE_SIZE
+            || value.sketch.len() > Self::SKETCH_BYTES * 2
+        {
             return Err(DeserializationError::InvalidData);
         }
         Ok(value)
     }
+}
+
+fn encode_hex(bytes: &[u8]) -> String {
+    const DIGITS: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        out.push(DIGITS[(byte >> 4) as usize] as char);
+        out.push(DIGITS[(byte & 0xf) as usize] as char);
+    }
+    out
+}
+
+fn decode_hex(text: &str) -> Option<Vec<u8>> {
+    if text.len() % 2 != 0 {
+        return None;
+    }
+    text.as_bytes()
+        .chunks(2)
+        .map(|pair| {
+            let digit = |c: u8| (c as char).to_digit(16).map(|d| d as u8);
+            Some(digit(pair[0])? << 4 | digit(pair[1])?)
+        })
+        .collect()
 }
 impl MessageVariant for EpochClose {
     fn header_extensions(&self, payload_len: u16) -> BitArray<u16> {
@@ -195,6 +255,7 @@ mod tests {
             base: BlockHash::ZERO,
             removed: vec![],
             members: 0,
+            sketch: String::new(),
         }
     }
 
@@ -207,32 +268,67 @@ mod tests {
     }
 
     #[test]
-    fn announcement_carries_one_digest_per_bucket_and_never_votes() {
+    fn announcement_carries_a_sketch_and_never_votes() {
         let mut announcement = packet(8);
         announcement.round = 3;
         announcement.members = 7;
-        announcement.hashes = (0..EpochClose::LEVEL1_BUCKETS as u64)
-            .map(Into::into)
-            .collect();
+        let bytes: Vec<u8> = (0..EpochClose::SKETCH_BYTES).map(|i| i as u8).collect();
+        announcement.set_sketch(&bytes);
         announcement.sign(&PrivateKey::from(1));
         assert!(announcement.valid_announcement());
+        assert_eq!(announcement.sketch_bytes(), Some(bytes.clone()));
         assert!(!announcement.valid_vote());
         assert!(!announcement.valid_level2_page());
         crate::assert_deserializable(&crate::Message::EpochClose(announcement.clone()));
         let mut changed = announcement.clone();
-        changed.hashes[5] = 99.into();
-        assert!(!changed.valid_announcement(), "bucket digests are signed");
+        changed.sketch.replace_range(0..2, "ff");
+        assert!(!changed.valid_announcement(), "the sketch is signed");
         changed = announcement.clone();
         changed.round = 4;
         assert!(!changed.valid_announcement(), "the sequence is signed");
         changed = announcement.clone();
-        changed.hashes.pop();
+        changed.set_sketch(&bytes[1..]);
         changed.sign(&PrivateKey::from(1));
-        assert!(!changed.valid_announcement());
+        assert!(!changed.valid_announcement(), "the sketch has a fixed size");
+        changed = announcement.clone();
+        changed.sketch.replace_range(0..2, "zz");
+        changed.sign(&PrivateKey::from(1));
+        assert!(!changed.valid_announcement(), "the sketch must be hex");
         changed = announcement.clone();
         changed.parent = 1.into();
         changed.sign(&PrivateKey::from(1));
         assert!(!changed.valid_announcement());
+        changed = announcement.clone();
+        changed.hashes.push(1.into());
+        changed.sign(&PrivateKey::from(1));
+        assert!(!changed.valid_announcement(), "no digests ride along");
+    }
+
+    #[test]
+    fn level1_page_lists_every_bucket_digest() {
+        let mut page = packet(5);
+        page.pages = EpochClose::LEVEL1_PAGE;
+        page.hashes = (0..EpochClose::LEVEL1_BUCKETS as u64)
+            .map(Into::into)
+            .collect();
+        page.sign(&PrivateKey::from(1));
+        assert!(page.valid_level1_page());
+        assert!(!page.valid_level2_page());
+        crate::assert_deserializable(&crate::Message::EpochClose(page.clone()));
+        let mut changed = page.clone();
+        changed.hashes.pop();
+        changed.sign(&PrivateKey::from(1));
+        assert!(!changed.valid_level1_page());
+        changed = page.clone();
+        changed.hashes[5] = 99.into();
+        assert!(!changed.valid_level1_page(), "digests are signed");
+        let mut request = packet(9);
+        request.pages = EpochClose::LEVEL1_PAGE;
+        request.sign(&PrivateKey::from(1));
+        assert!(request.valid_view_request());
+        request.page = 1;
+        request.sign(&PrivateKey::from(1));
+        assert!(!request.valid_view_request(), "there is one level-1 page");
     }
 
     #[test]
@@ -255,7 +351,7 @@ mod tests {
         changed.page = 0xabcd;
         changed.sign(&PrivateKey::from(1));
         assert!(changed.valid_view_request());
-        changed.pages = 3;
+        changed.pages = 4;
         changed.sign(&PrivateKey::from(1));
         assert!(!changed.valid_view_request());
         changed = request.clone();

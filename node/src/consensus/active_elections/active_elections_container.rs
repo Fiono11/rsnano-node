@@ -1107,7 +1107,8 @@ impl ActiveElectionsContainer {
                     first_vote_us,
                 ));
             }
-            crate::consensus::epoch_closer::debug_trace(
+            // One event per certificate under the container lock: verbose only.
+            crate::consensus::epoch_closer::debug_trace_verbose(
                 || serde_json::json!({"type":"block_certificate","epoch":epoch,"hash":hash,"root":root_for_trace,"timeout":timeout,"finalized":finalized,"trigger_voter":args.vote.voter,"trigger_kind":format!("{:?}",args.vote.kind),"trigger_epoch":args.vote.epoch}),
             );
         }

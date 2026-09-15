@@ -2,6 +2,8 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use rsnano_types::{Blake2HashBuilder, BlockHash};
 
+use crate::MembershipSketch;
+
 /// Number of level-1 buckets: members are bucketed by their first byte.
 pub const LEVEL1_BUCKETS: usize = 256;
 /// Bytes of a leaf digest carried in a level-2 page entry after the sub-bucket index.
@@ -25,6 +27,7 @@ pub struct MembershipTrie {
     root: BlockHash,
     root_dirty: bool,
     len: usize,
+    sketch: MembershipSketch,
 }
 
 impl MembershipTrie {
@@ -41,6 +44,7 @@ impl MembershipTrie {
             root: BlockHash::ZERO,
             root_dirty: true,
             len: 0,
+            sketch: MembershipSketch::new(),
         }
     }
 
@@ -81,8 +85,14 @@ impl MembershipTrie {
         };
         leaf.insert(position, member);
         self.len += 1;
+        self.sketch.insert(&member);
         self.mark_dirty(prefix);
         true
+    }
+
+    /// The set sketch of the membership, maintained with every insertion.
+    pub fn sketch(&self) -> &MembershipSketch {
+        &self.sketch
     }
 
     fn mark_dirty(&mut self, prefix: u16) {

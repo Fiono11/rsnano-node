@@ -1,11 +1,14 @@
-//! Priority Kudzu close rounds. Voting epochs and canonical ledger epochs are independent.
+//! Leaderless Kudzu close rounds: every drained replica votes for the
+//! membership root it announced once enough weight announced the same one, so
+//! no replica's proposal is ever waited for. Voting epochs and canonical ledger
+//! epochs are independent.
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
     sync::{Arc, Mutex, atomic::Ordering},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use rsnano_ledger::{AnySet, Ledger, MembershipTrie, RepWeights};
+use rsnano_ledger::{AnySet, Ledger, MembershipSketch, MembershipTrie, RepWeights};
 use rsnano_messages::{EpochClose, Message};
 use rsnano_network::{ChannelId, TrafficType};
 use rsnano_types::{
@@ -78,10 +81,11 @@ const SOLICIT_INTERVAL: Duration = Duration::from_secs(10);
 /// Spacing of solicitations for members named by a peer's leaf page. These name
 /// exactly what is missing, so they are few.
 const RECONCILE_INTERVAL: Duration = RETRANSMIT;
-/// A drained replica proposes only once every representative announced the same
-/// membership root, or after this long with a certificate-weight majority: a
-/// proposal is immutable, so one made while memberships still differ is signed
-/// by nobody who learns one more member afterwards.
+/// A drained replica votes for its announced root only once every
+/// representative announced the same one, or after this long with a
+/// certificate-weight majority: a candidate is immutable, so one voted while
+/// memberships still differ is signed by nobody who learns one more member
+/// afterwards.
 const AGREEMENT_TIMEOUT: Duration = Duration::from_secs(6);
 static DROPPED_CLOSE_PACKETS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
@@ -148,16 +152,24 @@ fn kind(k: u8) -> VoteKind {
 }
 struct Candidate {
     header: EpochClose,
-    /// Channels that delivered votes for it, asked for the pages of its view
-    /// when it finalizes with a root this replica never held.
+    /// Channels that delivered votes for it, asked for the sketch and pages of
+    /// its view when it finalizes with a root this replica never held.
     sources: Vec<ChannelId>,
 }
 
 /// What this replica has learned about a membership named by its root: the
-/// level-1 digests from an announcement, the level-2 pages and leaves fetched
-/// for the buckets that differ from the local membership, and where to ask.
+/// sketch from an announcement and the members it decoded on either side, or,
+/// when the difference was too large to decode, the level-1 digests, level-2
+/// pages and leaves fetched for the buckets that differ, and where to ask.
 #[derive(Default)]
 struct View {
+    sketch: Option<MembershipSketch>,
+    /// Local root the sketch was last decoded against; the difference is
+    /// relative to that membership.
+    decoded_for: Option<BlockHash>,
+    sketch_failed: bool,
+    only_mine: Vec<BlockHash>,
+    only_theirs: Vec<BlockHash>,
     level1: Option<Vec<BlockHash>>,
     level2: HashMap<u8, Vec<BlockHash>>,
     /// Members received per prefix and the leaf size the sender declared.
@@ -169,6 +181,14 @@ struct View {
     attempted: Option<(BlockHash, usize)>,
 }
 impl View {
+    /// The sketch decoded against the live membership named by `root`.
+    fn decoded(&self, root: BlockHash) -> bool {
+        self.decoded_for == Some(root)
+    }
+    /// Pages are fetched only for a view whose sketch did not decode.
+    fn needs_pages(&self) -> bool {
+        self.sketch_failed || self.sketch.is_none()
+    }
     fn add_source(&mut self, channel: ChannelId) {
         if !self.sources.contains(&channel) && self.sources.len() < 16 {
             self.sources.push(channel);
@@ -315,31 +335,6 @@ impl State {
         true
     }
 
-    fn leader(&self, round: u64) -> Option<PublicKey> {
-        let mut members: Vec<_> = self
-            .weights
-            .keys()
-            .copied()
-            .filter(|rep| !self.weights.weight(rep).is_zero())
-            .collect();
-        members.sort_unstable();
-        if members.is_empty() {
-            None
-        } else {
-            Some(members[round as usize % members.len()])
-        }
-    }
-
-    fn leader_proposed(&self, id: BlockHash) -> bool {
-        self.candidates.get(&id).is_some_and(|c| {
-            self.leader(c.header.round).is_some_and(|leader| {
-                self.rounds
-                    .get(&c.header.round)
-                    .is_some_and(|r| r.votes.contains_key(&(leader, 0, id)))
-            })
-        })
-    }
-
     fn enter_round(&mut self, round: u64) {
         self.round = round;
         self.rounds.entry(round).or_default().started = Instant::now();
@@ -407,8 +402,9 @@ impl State {
                 .ready_since
                 .is_some_and(|since| now.duration_since(since) >= AGREEMENT_TIMEOUT)
     }
-    /// A proposal is due once every representative announced our root, or
-    /// after `AGREEMENT_TIMEOUT` once enough weight to certify it has.
+    /// A FIRST vote for our announced root is due once every representative
+    /// announced it, or after `AGREEMENT_TIMEOUT` once enough weight to certify
+    /// it has.
     fn proposal_due(&mut self, keys: &[PublicKey], now: Instant) -> bool {
         if !self.ready {
             return false;
@@ -435,7 +431,7 @@ impl State {
         self.announcement_seq += 1;
         let mut announcement = self.template(self.announcement_seq, BlockHash::ZERO, root);
         announcement.kind = 8;
-        announcement.hashes = self.trie.level1().to_vec();
+        announcement.set_sketch(&self.trie.sketch().to_bytes());
         self.local_announcements.clear();
         for key in keys {
             announcement.sign(key);
@@ -448,7 +444,8 @@ impl State {
         }
     }
     /// Store a peer's announcement. While its root differs from ours it is a
-    /// view whose differing pages are requested from the announcer.
+    /// view whose sketch is decoded against the local membership, or whose
+    /// differing pages are requested from the announcer when that fails.
     fn receive_announcement(&mut self, p: EpochClose, channel: ChannelId) {
         if p.epoch != self.epoch
             || p.previous_close != self.previous_close
@@ -485,7 +482,13 @@ impl State {
         };
         let epoch = trie.epoch();
         let mut pages = Vec::new();
-        if p.pages == EpochClose::LEVEL2_PAGE {
+        if p.pages == EpochClose::LEVEL1_PAGE {
+            let mut page = p.clone();
+            page.kind = 5;
+            page.hashes = trie.level1().to_vec();
+            page.members = trie.len() as u64;
+            pages.push(page);
+        } else if p.pages == EpochClose::LEVEL2_PAGE {
             let mut page = p.clone();
             page.kind = 5;
             page.hashes = trie.level2(p.page as u8);
@@ -516,12 +519,55 @@ impl State {
             self.pages_out.push_back((channel, page));
         }
     }
-    fn receive_level2_page(&mut self, p: EpochClose) {
-        if self.weights.weight(&p.voter).is_zero() || !p.valid_level2_page() {
+    /// A level-1 or level-2 digest page of a view.
+    fn receive_digest_page(&mut self, p: EpochClose) {
+        if self.weights.weight(&p.voter).is_zero() {
             return;
         }
-        if let Some(view) = self.views.get_mut(&p.state) {
-            view.level2.insert(p.page as u8, p.hashes);
+        if p.valid_level1_page() {
+            if let Some(view) = self.views.get_mut(&p.state) {
+                view.level1 = Some(p.hashes);
+            }
+        } else if p.valid_level2_page() {
+            if let Some(view) = self.views.get_mut(&p.state) {
+                view.level2.insert(p.page as u8, p.hashes);
+            }
+        }
+    }
+    /// Decode the sketch of every active view against the live membership.
+    /// Members held by the peer only become reconciliation targets; a
+    /// difference too large to decode falls back to the digest pages.
+    fn decode_sketches(&mut self, missing: impl Fn(&[BlockHash]) -> Vec<(BlockHash, Root)>) {
+        let root = self.root();
+        let epoch = self.epoch;
+        let mut targets = Vec::new();
+        for (state, view) in &mut self.views {
+            if view.decoded(root) || view.sketch_failed {
+                continue;
+            }
+            let Some(sketch) = &view.sketch else {
+                continue;
+            };
+            match self.trie.sketch().difference(sketch) {
+                Some((only_mine, only_theirs)) => {
+                    debug_trace(
+                        || serde_json::json!({"type":"sketch_decoded","epoch":epoch,"state":state,"only_mine":only_mine.len(),"only_theirs":only_theirs.len()}),
+                    );
+                    targets.extend(only_theirs.iter().copied());
+                    view.only_mine = only_mine;
+                    view.only_theirs = only_theirs;
+                    view.decoded_for = Some(root);
+                }
+                None => {
+                    debug_trace(
+                        || serde_json::json!({"type":"sketch_undecodable","epoch":epoch,"state":state}),
+                    );
+                    view.sketch_failed = true;
+                }
+            }
+        }
+        for (hash, root) in missing(&targets) {
+            self.reconcile_targets.entry(hash).or_insert((root, None));
         }
     }
     /// Members of a peer's leaf that carry no local membership become
@@ -545,8 +591,9 @@ impl State {
             self.reconcile_targets.entry(hash).or_insert((root, None));
         }
     }
-    /// Roots whose pages are worth fetching: the announced memberships that
-    /// differ from ours and the finalized proposals this replica never held.
+    /// Roots whose difference is worth resolving: the announced memberships
+    /// that differ from ours and the finalized candidates this replica never
+    /// held.
     fn active_views(&mut self) -> Vec<BlockHash> {
         let root = self.root();
         let mut active = BTreeSet::new();
@@ -555,7 +602,11 @@ impl State {
                 continue;
             }
             let view = self.views.entry(announcement.state).or_default();
-            view.level1 = Some(announcement.hashes.clone());
+            if view.sketch.is_none() {
+                view.sketch = announcement
+                    .sketch_bytes()
+                    .and_then(|bytes| MembershipSketch::from_bytes(&bytes));
+            }
             view.add_source(*channel);
             active.insert(announcement.state);
         }
@@ -573,8 +624,9 @@ impl State {
         self.views.retain(|state, _| active.contains(state));
         active.into_iter().collect()
     }
-    /// Requests for the pages of every active view that differ from the live
-    /// membership and were not requested recently, `PAGE_BURST` at most.
+    /// Requests for the pages of every active view whose sketch did not
+    /// decode, for the buckets that differ from the live membership and were
+    /// not requested recently, `PAGE_BURST` at most.
     fn page_requests(&mut self, key: &PrivateKey, now: Instant) -> Vec<(ChannelId, EpochClose)> {
         let mut requests = Vec::new();
         let epoch = self.epoch;
@@ -583,10 +635,22 @@ impl State {
             let mut wanted = Vec::new();
             {
                 let view = self.views.get_mut(&state).unwrap();
-                if view.sources.is_empty() {
+                if view.sources.is_empty() || !view.needs_pages() {
                     continue;
                 }
                 let Some(level1) = view.level1.clone() else {
+                    wanted.push((EpochClose::LEVEL1_PAGE, 0));
+                    let view = self.views.get_mut(&state).unwrap();
+                    Self::push_page_requests(
+                        &mut requests,
+                        view,
+                        wanted,
+                        epoch,
+                        previous_close,
+                        state,
+                        key,
+                        now,
+                    );
                     continue;
                 };
                 for bucket in self.trie.mismatched_buckets(&level1) {
@@ -603,47 +667,83 @@ impl State {
                 }
             }
             let view = self.views.get_mut(&state).unwrap();
-            for (level, page) in wanted {
-                if requests.len() >= PAGE_BURST {
-                    return requests;
-                }
-                if view
-                    .requested
-                    .get(&(level, page))
-                    .is_some_and(|last| now.duration_since(*last) < RETRANSMIT)
-                {
-                    continue;
-                }
-                view.requested.insert((level, page), now);
-                let source = view.sources[view.requested.len() % view.sources.len()];
-                let mut request = EpochClose {
-                    epoch,
-                    round: 0,
-                    parent: BlockHash::ZERO,
-                    previous_close,
-                    state,
-                    kind: 9,
-                    voter: PublicKey::ZERO,
-                    signature: Signature::new(),
-                    page,
-                    pages: level,
-                    hashes: vec![],
-                    base: BlockHash::ZERO,
-                    removed: vec![],
-                    members: 0,
-                };
-                request.sign(key);
-                requests.push((source, request));
+            Self::push_page_requests(
+                &mut requests,
+                view,
+                wanted,
+                epoch,
+                previous_close,
+                state,
+                key,
+                now,
+            );
+            if requests.len() >= PAGE_BURST {
+                break;
             }
         }
         requests
     }
+    #[allow(clippy::too_many_arguments)]
+    fn push_page_requests(
+        requests: &mut Vec<(ChannelId, EpochClose)>,
+        view: &mut View,
+        wanted: Vec<(u16, u16)>,
+        epoch: u64,
+        previous_close: BlockHash,
+        state: BlockHash,
+        key: &PrivateKey,
+        now: Instant,
+    ) {
+        for (level, page) in wanted {
+            if requests.len() >= PAGE_BURST {
+                return;
+            }
+            if view
+                .requested
+                .get(&(level, page))
+                .is_some_and(|last| now.duration_since(*last) < RETRANSMIT)
+            {
+                continue;
+            }
+            view.requested.insert((level, page), now);
+            let source = view.sources[view.requested.len() % view.sources.len()];
+            let mut request = EpochClose {
+                epoch,
+                round: 0,
+                parent: BlockHash::ZERO,
+                previous_close,
+                state,
+                kind: 9,
+                voter: PublicKey::ZERO,
+                signature: Signature::new(),
+                page,
+                pages: level,
+                hashes: vec![],
+                base: BlockHash::ZERO,
+                removed: vec![],
+                members: 0,
+                sketch: String::new(),
+            };
+            request.sign(key);
+            requests.push((source, request));
+        }
+    }
     /// The members of a finalized view this replica never held: its own
-    /// membership without the members absent from the view's leaves, once every
-    /// differing leaf has been fetched and every member it names is held here.
+    /// membership without the members the view lacks, once every member the
+    /// view names is held here. The decoded sketch names both sides directly;
+    /// otherwise the differing leaves must all have been fetched.
     fn assemble_view(&mut self, state: BlockHash) -> Option<Vec<BlockHash>> {
         let root = self.root();
         let view = self.views.get_mut(&state)?;
+        if view.decoded(root) {
+            if !view.only_theirs.is_empty() || view.attempted == Some((root, usize::MAX)) {
+                return None;
+            }
+            view.attempted = Some((root, usize::MAX));
+            let excluded: HashSet<_> = view.only_mine.iter().copied().collect();
+            let mut assembled = self.trie.without(&excluded);
+            return (assembled.root() == state).then(|| assembled.members().copied().collect());
+        }
         let attempt = (root, view.level2.len() + view.leaves.len());
         if view.attempted == Some(attempt) {
             return None;
@@ -740,7 +840,7 @@ impl State {
         let mut announcement = self.template(self.announcement_seq + 1, BlockHash::ZERO, digest);
         announcement.kind = 8;
         announcement.members = trie.len() as u64;
-        announcement.hashes = trie.level1().to_vec();
+        announcement.set_sketch(&trie.sketch().to_bytes());
         let announcements = keys
             .iter()
             .map(|key| {
@@ -781,6 +881,7 @@ impl State {
             base: BlockHash::ZERO,
             removed: vec![],
             members: self.trie.len() as u64,
+            sketch: String::new(),
         }
     }
     /// Votes and receipts. Pages and requests have their own entry points.
@@ -831,23 +932,23 @@ impl State {
     }
     fn has_finalized_close(&self) -> bool {
         self.candidates.keys().any(|id| {
-            self.leader_proposed(*id)
+            self.well_formed(*id)
                 && (self.certified(*id, VoteKind::First)
                     || (self.certified(*id, VoteKind::Notarize)
                         && self.certified(*id, VoteKind::Final)))
         })
     }
-    /// Every round before the candidate's timed out and the leader proposed it.
+    /// Every round before the candidate's timed out. Any representative may
+    /// vote a candidate into existence; a quorum decides, not a proposer.
     fn well_formed(&self, id: BlockHash) -> bool {
         let Some(c) = self.candidates.get(&id) else {
             return false;
         };
-        self.leader_proposed(id)
-            && (0..c.header.round).all(|r| {
-                self.rounds
-                    .get(&r)
-                    .is_some_and(|x| x.certificate(BlockHash::ZERO, VoteKind::Timeout))
-            })
+        (0..c.header.round).all(|r| {
+            self.rounds
+                .get(&r)
+                .is_some_and(|x| x.certificate(BlockHash::ZERO, VoteKind::Timeout))
+        })
     }
     /// A candidate carries a certificate that decides the epoch.
     fn finalized(&self, id: BlockHash) -> bool {
@@ -855,9 +956,10 @@ impl State {
             && (self.certified(id, VoteKind::First)
                 || (self.certified(id, VoteKind::Notarize) && self.certified(id, VoteKind::Final)))
     }
-    /// Signable: the proposed root is exactly the live membership, which covers
-    /// both object validity and D4 in one comparison, and a parent, if any, is
-    /// a notarized earlier-round candidate whose membership this replica held.
+    /// Signable: the candidate's root is exactly the live membership, which
+    /// covers both object validity and D4 in one comparison, and a parent, if
+    /// any, is a notarized earlier-round candidate whose membership this
+    /// replica held.
     fn signable(&mut self, id: BlockHash) -> bool {
         let root = self.root();
         let Some(c) = self.candidates.get(&id) else {
@@ -882,6 +984,7 @@ impl State {
         p.pages = 0;
         p.page = 0;
         p.hashes.clear();
+        p.sketch.clear();
         p.base = BlockHash::ZERO;
         p.removed.clear();
         if matches!(k, 3 | 4) {
@@ -895,7 +998,7 @@ impl State {
         self.receive(p.clone());
         out.push(p);
     }
-    /// Proposals and votes never include members or pages.
+    /// Votes never include members, sketches or pages.
     fn packets(&self) -> Vec<EpochClose> {
         self.rounds
             .values()
@@ -957,9 +1060,11 @@ impl State {
         {
             self.parent = id;
         }
-        // Only the rotating leader proposes, and only the root it announced: a
-        // member learned since would make the proposal unsignable for everyone
-        // else, so it is announced first and proposed once agreed on as well.
+        // Every replica votes FIRST for its own candidate, and only the root it
+        // announced: a member learned since would make the candidate unsignable
+        // for everyone else, so it is announced first and voted once agreed on
+        // as well. Replicas holding the same membership and parent create the
+        // same candidate, so their votes tally together without a proposer.
         let announced = self
             .local_announcements
             .first()
@@ -967,7 +1072,6 @@ impl State {
         for key in keys {
             if !due
                 || !announced
-                || self.leader(self.round) != Some(key.public_key())
                 || self
                     .rounds
                     .get(&self.round)
@@ -993,7 +1097,7 @@ impl State {
                 signer.first = Some(id);
                 signer.notarized.insert(id);
                 debug_trace(
-                    || serde_json::json!({"type":"proposal","epoch":self.epoch,"round":self.round,"id":id,"parent":proposal.parent,"state":proposal.state,"members":proposal.members,"rep":key.public_key()}),
+                    || serde_json::json!({"type":"own_candidate","epoch":self.epoch,"round":self.round,"id":id,"parent":proposal.parent,"state":proposal.state,"members":proposal.members,"rep":key.public_key()}),
                 );
                 self.sign(proposal.clone(), key, 0, &mut out);
             }
@@ -1218,7 +1322,7 @@ impl EpochCloser {
         };
         for (p, channel) in incoming {
             match p.kind {
-                5 => state.receive_level2_page(p),
+                5 => state.receive_digest_page(p),
                 7 => state.receive_leaf_page(p, missing_members),
                 8 => state.receive_announcement(p, channel),
                 9 => {
@@ -1242,6 +1346,8 @@ impl EpochCloser {
                 }
             }
         }
+        state.active_views();
+        state.decode_sketches(missing_members);
         let mut drain_requests: Vec<(BlockHash, Root)> = Vec::new();
         if self.epoch_deadline_reached(state.epoch) {
             self.ledger.begin_epoch_drain();
@@ -1377,7 +1483,7 @@ impl EpochCloser {
                     "agreed":agreed,
                     "agreeing_weight":agreeing,
                     "announcements":state.announcements.iter().map(|(rep, (a, _))| serde_json::json!({"rep":rep,"members":a.members,"state":a.state})).collect::<Vec<_>>(),
-                    "views":state.views.iter().map(|(root, v)| serde_json::json!({"state":root,"level2":v.level2.len(),"leaves":v.leaves.len()})).collect::<Vec<_>>(),
+                    "views":state.views.iter().map(|(root, v)| serde_json::json!({"state":root,"decoded":v.decoded_for.is_some(),"sketch_failed":v.sketch_failed,"only_mine":v.only_mine.len(),"only_theirs":v.only_theirs.len(),"level2":v.level2.len(),"leaves":v.leaves.len()})).collect::<Vec<_>>(),
                     "reconcile_targets":state.reconcile_targets.len(),
                     "round_timer_armed":state.round_timer_armed,
                     "recovering":recovering,
@@ -1523,12 +1629,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rotating_leader_closes_with_one_silent_member() {
+    fn leaderless_close_with_one_silent_member() {
         let ledger = Ledger::new_null();
         let mut replicas: Vec<_> = (0..6).map(|_| ready_state(&ledger)).collect();
-        let leader = replicas[0].leader(0).unwrap();
         let keys = sorted_keys();
-        assert_eq!(keys[0].public_key(), leader);
         let mut decisions = vec![None; 5];
         for step in 0..12 {
             let mut packets = Vec::new();
@@ -1551,7 +1655,15 @@ mod tests {
             }
         }
         assert!(decisions.iter().all(|d| d.as_ref() == Some(&vec![])));
-        assert_ne!(replicas[0].leader(0), replicas[0].leader(1));
+        assert!(
+            replicas[..5].iter().all(|r| r.round == 0),
+            "five identical candidates certify in round 0 without a proposer"
+        );
+        assert_eq!(
+            replicas[0].candidates.len(),
+            1,
+            "replicas with the same membership and parent create the same candidate"
+        );
     }
 
     #[test]
@@ -1621,12 +1733,12 @@ mod tests {
         let ledger = Ledger::new_null();
         let mut s = ready_state(&ledger);
         s.enter_round(0);
-        let key = follower_key(&s, 0);
+        let key = PrivateKey::from(1);
         s.rounds.get_mut(&0).unwrap().started = Instant::now() - round_timeout(0) * 10;
         let (out, _) = s.drive(&[key.clone()]);
         assert!(
             out.iter().all(|p| p.kind == 8),
-            "only the announcement goes out while the proposal is not due"
+            "only the announcement goes out while the vote is not due"
         );
         for i in 1..=6 {
             let mut announcement = out[0].clone();
@@ -1634,18 +1746,80 @@ mod tests {
             s.receive_announcement(announcement, ChannelId::from(i as usize));
         }
         let (out, _) = s.drive(&[key.clone()]);
-        assert!(s.round_timer_armed);
         assert!(
-            out.is_empty(),
-            "the timer starts when the proposal becomes due"
+            s.round_timer_armed,
+            "the timer starts when the vote becomes due"
         );
+        assert!(!s.round_timed_out(), "and not from the stale drain start");
+        assert_eq!(
+            out.iter().map(|p| p.kind).collect::<Vec<_>>(),
+            vec![0],
+            "the replica votes FIRST for its own announced root"
+        );
+        assert_eq!(out[0].state, s.root());
         s.rounds.get_mut(&0).unwrap().started = Instant::now() - round_timeout(0);
-        let (out, _) = s.drive(&[key]);
-        assert_eq!(out.iter().map(|p| p.kind).collect::<Vec<_>>(), vec![3]);
+        assert!(s.round_timed_out());
     }
 
     #[test]
-    fn differing_views_are_fetched_page_by_page_and_name_the_missing_members() {
+    fn differing_views_are_decoded_from_the_announced_sketch() {
+        let ledger_a = Ledger::new_null();
+        let ledger_b = Ledger::new_null();
+        let mut lattice = rsnano_ledger::test_helpers::UnsavedBlockLatticeBuilder::new();
+        let shared = lattice.genesis().send(1, 1);
+        let only_a = lattice.genesis().send(2, 1);
+        let only_b = lattice.genesis().send(3, 1);
+        for ledger in [&ledger_a, &ledger_b] {
+            ledger.record_epoch_block(0, shared.clone());
+        }
+        ledger_a.record_epoch_block(0, only_a.clone());
+        ledger_b.record_epoch_block(0, only_b.clone());
+        let mut a = ready_state(&ledger_a);
+        let mut b = ready_state(&ledger_b);
+        let (key_a, key_b) = (PrivateKey::from(1), PrivateKey::from(2));
+        let mut out = Vec::new();
+        a.announce(&[key_a.clone()], &mut out);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].members, 2);
+        assert!(
+            out[0].hashes.is_empty(),
+            "no digests travel with the sketch"
+        );
+        b.receive_announcement(out[0].clone(), ChannelId::from(1));
+        b.active_views();
+        b.decode_sketches(|hashes| unknown_members(&ledger_b, hashes));
+        let root_b = b.root();
+        let view = &b.views[&a.root()];
+        assert!(view.decoded(root_b));
+        assert_eq!(view.only_theirs, vec![only_a.hash()]);
+        assert_eq!(view.only_mine, vec![only_b.hash()]);
+        assert_eq!(
+            b.reconcile_targets.keys().copied().collect::<Vec<_>>(),
+            vec![only_a.hash()],
+            "the member A holds is solicited directly"
+        );
+        assert!(
+            b.page_requests(&key_b, Instant::now()).is_empty(),
+            "a decoded sketch needs no pages"
+        );
+        // Once the member is certified locally the difference shrinks to B's extra.
+        ledger_b.record_epoch_block(0, only_a.clone());
+        b.sync_membership(&ledger_b);
+        b.decode_sketches(|hashes| unknown_members(&ledger_b, hashes));
+        let root_b = b.root();
+        let view = &b.views[&a.root()];
+        assert!(view.decoded(root_b));
+        assert!(view.only_theirs.is_empty());
+        assert_eq!(view.only_mine, vec![only_b.hash()]);
+        assert!(
+            b.reconcile_batch(Instant::now(), |_| HashSet::new())
+                .is_empty(),
+            "a member learned since is no longer solicited"
+        );
+    }
+
+    #[test]
+    fn an_undecodable_sketch_falls_back_to_digest_pages() {
         let ledger_a = Ledger::new_null();
         let ledger_b = Ledger::new_null();
         let mut lattice = rsnano_ledger::test_helpers::UnsavedBlockLatticeBuilder::new();
@@ -1660,10 +1834,22 @@ mod tests {
         let (key_a, key_b) = (PrivateKey::from(1), PrivateKey::from(2));
         let mut out = Vec::new();
         a.announce(&[key_a.clone()], &mut out);
-        assert_eq!(out.len(), 1);
-        assert_eq!(out[0].members, 2);
         b.receive_announcement(out[0].clone(), ChannelId::from(1));
-        // B asks A for the level-2 page of the bucket that differs.
+        b.active_views();
+        // A difference too large to decode (simulated) leaves the view on pages.
+        b.views.get_mut(&a.root()).unwrap().sketch_failed = true;
+        // B asks A for the level-1 digests first.
+        let requests = b.page_requests(&key_b, Instant::now());
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].1.pages, EpochClose::LEVEL1_PAGE);
+        a.serve_request(requests[0].1.clone(), ChannelId::from(2), &key_a);
+        let (_, level1) = a.pages_out.pop_front().unwrap();
+        assert!(level1.valid_level1_page());
+        b.receive_digest_page(level1);
+        for view in b.views.values_mut() {
+            view.requested.clear();
+        }
+        // Then the level-2 page of the bucket that differs.
         let requests = b.page_requests(&key_b, Instant::now());
         assert_eq!(requests.len(), 1);
         let (channel, request) = &requests[0];
@@ -1680,7 +1866,7 @@ mod tests {
         a.serve_request(request.clone(), ChannelId::from(2), &key_a);
         let (_, level2) = a.pages_out.pop_front().unwrap();
         assert_eq!(level2.kind, 5);
-        b.receive_level2_page(level2);
+        b.receive_digest_page(level2);
         // Then the leaf, which names the member B lacks.
         let requests = b.page_requests(&key_b, Instant::now());
         assert_eq!(requests.len(), 1);
@@ -1757,22 +1943,12 @@ mod tests {
         let announcement = peer.closed.as_ref().unwrap().announcements[0].clone();
         lagging.receive_announcement(announcement, ChannelId::from(2));
         let key = PrivateKey::from(1);
-        for _ in 0..3 {
-            for (channel, request) in lagging.page_requests(&key, Instant::now()) {
-                assert_eq!(channel, ChannelId::from(2));
-                peer.serve_request(request, ChannelId::from(1), &PrivateKey::from(2));
-            }
-            while let Some((_, page)) = peer.pages_out.pop_front() {
-                match page.kind {
-                    5 => lagging.receive_level2_page(page),
-                    _ => lagging
-                        .receive_leaf_page(page, |hashes| unknown_members(&ledger_lagging, hashes)),
-                }
-            }
-            for view in lagging.views.values_mut() {
-                view.requested.clear();
-            }
-        }
+        lagging.active_views();
+        lagging.decode_sketches(|hashes| unknown_members(&ledger_lagging, hashes));
+        assert!(
+            lagging.page_requests(&key, Instant::now()).is_empty(),
+            "the closed sketch decodes, so no pages are fetched"
+        );
         assert_eq!(
             lagging
                 .reconcile_targets
@@ -1787,6 +1963,7 @@ mod tests {
         );
         ledger_lagging.record_epoch_block(0, missing.clone());
         lagging.sync_membership(&ledger_lagging);
+        lagging.decode_sketches(|hashes| unknown_members(&ledger_lagging, hashes));
         let (_, decision) = lagging.drive(&[]);
         assert_eq!(decision, Some(closed_members));
         assert!(
@@ -1804,7 +1981,7 @@ mod tests {
         assert_eq!(s.agreement(&[mine]), (false, Amount::raw(100)));
         let mut announcement = s.template(1, BlockHash::ZERO, root);
         announcement.kind = 8;
-        announcement.hashes = s.trie.level1().to_vec();
+        announcement.set_sketch(&s.trie.sketch().to_bytes());
         for i in 2..=5 {
             announcement.sign(&PrivateKey::from(i));
             s.receive_announcement(announcement.clone(), ChannelId::from(i as usize));
@@ -1842,7 +2019,7 @@ mod tests {
         let ledger = Ledger::new_null();
         let mut s = ready_state(&ledger);
         s.enter_round(0);
-        let key = leader_key(&s, 0);
+        let key = PrivateKey::from(1);
         let (out, _) = s.drive(&[key.clone()]);
         assert_eq!(out.iter().map(|p| p.kind).collect::<Vec<_>>(), vec![8]);
         // Every other representative agrees on a different membership.
@@ -1866,10 +2043,10 @@ mod tests {
     }
 
     #[test]
-    fn a_leader_announces_a_changed_membership_instead_of_proposing_it() {
+    fn a_changed_membership_is_announced_instead_of_voted() {
         let ledger = Ledger::new_null();
         let mut s = ready_state(&ledger);
-        let key = leader_key(&s, 0);
+        let key = PrivateKey::from(1);
         let (out, _) = s.drive(&[key.clone()]);
         let announced = out[0].clone();
         for i in 1..=6 {
@@ -1877,14 +2054,14 @@ mod tests {
             announcement.sign(&PrivateKey::from(i));
             s.receive_announcement(announcement, ChannelId::from(i as usize));
         }
-        // A member arrives before the proposal is made.
+        // A member arrives before the vote is cast.
         ledger.record_epoch_block(0, rsnano_types::SavedBlock::new_test_instance().into());
         s.sync_membership(&ledger);
         let (out, _) = s.drive(&[key.clone()]);
         assert_eq!(
             out.iter().map(|p| p.kind).collect::<Vec<_>>(),
             vec![8],
-            "the new root is announced, nothing proposed"
+            "the new root is announced, nothing voted"
         );
         assert!(s.candidates.is_empty());
         assert_eq!(out[0].members, 1);
@@ -1903,7 +2080,7 @@ mod tests {
         let ledger = Ledger::new_null();
         let mut s = state();
         s.sync_membership(&ledger);
-        let key = leader_key(&s, 0);
+        let key = PrivateKey::from(1);
         let root = s.root();
         let mut p = s.template(0, BlockHash::ZERO, root);
         p.sign(&key);
@@ -1912,30 +2089,34 @@ mod tests {
     }
 
     #[test]
-    fn d4_rejects_a_proposal_missing_a_local_member_until_it_matches_again() {
+    fn d4_rejects_a_candidate_missing_a_local_member_until_it_matches_again() {
         let ledger = Ledger::new_null();
         let mut s = ready_state(&ledger);
         let root = s.root();
         let mut p = s.template(0, BlockHash::ZERO, root);
-        p.sign(&leader_key(&s, 0));
+        p.sign(&PrivateKey::from(2));
         let id = p.candidate_id();
         s.receive(p);
         assert!(s.signable(id));
         let block: rsnano_types::Block = rsnano_types::SavedBlock::new_test_instance().into();
         ledger.record_epoch_block(0, block);
         s.sync_membership(&ledger);
-        assert!(!s.signable(id), "the proposal omits a local candidate");
-        let follower = follower_key(&s, 0);
-        assert!(s.drive(&[follower]).0.iter().all(|p| p.kind >= 3));
+        assert!(!s.signable(id), "the candidate omits a local member");
+        assert!(
+            s.drive(&[PrivateKey::from(1)])
+                .0
+                .iter()
+                .all(|p| p.kind >= 3)
+        );
     }
 
     #[test]
-    fn a_child_proposal_needs_a_parent_this_replica_held() {
+    fn a_child_candidate_needs_a_parent_this_replica_held() {
         let ledger = Ledger::new_null();
         let mut s = ready_state(&ledger);
         let root = s.root();
         let mut parent = s.template(0, BlockHash::ZERO, 77.into());
-        parent.sign(&leader_key(&s, 0));
+        parent.sign(&PrivateKey::from(1));
         let parent_id = parent.candidate_id();
         for i in 1..=6 {
             parent.sign(&PrivateKey::from(i));
@@ -1947,7 +2128,7 @@ mod tests {
         }
         s.round = 1;
         let mut child = s.template(1, parent_id, root);
-        child.sign(&leader_key(&s, 1));
+        child.sign(&PrivateKey::from(2));
         let child_id = child.candidate_id();
         s.receive(child);
         assert!(
@@ -1964,7 +2145,7 @@ mod tests {
         let mut s = ready_state(&ledger);
         let mut unavailable = s.template(0, BlockHash::ZERO, 99.into());
         unavailable.members = u64::MAX;
-        unavailable.sign(&leader_key(&s, 0));
+        unavailable.sign(&PrivateKey::from(1));
         s.receive(unavailable);
         for i in 1..=6 {
             let mut timeout = s.template(0, BlockHash::ZERO, BlockHash::ZERO);
@@ -1974,7 +2155,6 @@ mod tests {
         }
         s.drive(&[]);
         assert_eq!(s.round, 1);
-        assert!(s.leader(1).is_some());
     }
 
     #[test]
@@ -1985,7 +2165,7 @@ mod tests {
         assert!(!expected.is_zero());
         let mut p = s.template(0, BlockHash::ZERO, Ledger::epoch_state_hash(1, &[]));
         p.previous_close = BlockHash::ZERO;
-        p.sign(&leader_key(&s, 0));
+        p.sign(&PrivateKey::from(1));
         s.receive(p);
         assert!(s.candidates.is_empty());
     }
@@ -2288,6 +2468,7 @@ mod tests {
     #[test]
     fn level1_bucket_counts_agree_between_messages_and_the_trie() {
         assert_eq!(EpochClose::LEVEL1_BUCKETS, rsnano_ledger::LEVEL1_BUCKETS);
+        assert_eq!(EpochClose::SKETCH_BYTES, rsnano_ledger::SKETCH_BYTES);
         let hash = BlockHash::from(0x1234u64 << 48);
         assert_eq!(
             EpochClose::prefix_of(&hash),
@@ -2321,20 +2502,6 @@ mod tests {
             .into_iter()
             .map(|hash| (hash, Root::from(0u64)))
             .collect()
-    }
-
-    fn leader_key(s: &State, round: u64) -> PrivateKey {
-        (1..=6)
-            .map(PrivateKey::from)
-            .find(|k| Some(k.public_key()) == s.leader(round))
-            .unwrap()
-    }
-
-    fn follower_key(s: &State, round: u64) -> PrivateKey {
-        (1..=6)
-            .map(PrivateKey::from)
-            .find(|k| Some(k.public_key()) != s.leader(round))
-            .unwrap()
     }
 
     fn sorted_keys() -> Vec<PrivateKey> {

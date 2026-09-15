@@ -279,6 +279,7 @@ mod tests {
             base: 1.into(),
             removed: vec![],
             members: 0,
+            sketch: String::new(),
         });
         let expected = MessageSerializer::default().serialize(&message).to_vec();
         let count = flooder.flood_prs_and_some_non_prs(&message, TrafficType::VoteReply, 100.0);
