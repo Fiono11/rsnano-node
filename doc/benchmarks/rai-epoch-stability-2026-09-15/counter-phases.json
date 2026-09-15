@@ -1,0 +1,1062 @@
+{
+  "method": "Rates use cumulative-counter differences over 5\u201310s and 15\u201325s after the workload anchor (epoch schedule, or Starting with log timestamp for no-epoch controls). Endpoints are linearly interpolated between approximately two-second samples.",
+  "limitations": [
+    "vote_processor/process counts accepted queue entries, not completed signature verifications.",
+    "election/vote counts candidate-hash vote applications; packets can carry many hashes.",
+    "requests_generated_hashes counts hashes submitted to request-reply voting before authorization; it is not a count of hashes actually signed.",
+    "No writer-transaction, writer-wait, or signature-verification-duration counters are present in these captures.",
+    "derived/local_vote_batches_emitted sums normal/final generator_broadcasts and requests_generated_votes; it counts emitted local vote batches, not signatures verified or hashes signed."
+  ],
+  "runs": [
+    {
+      "run": "writers-01",
+      "workload_anchor_basis": "epoch_schedule",
+      "counters": [
+        {
+          "counter": "active_elections/started/in",
+          "early_per_second": 1996.9527072458636,
+          "late_per_second": 1844.496835509628,
+          "late_over_early": 0.9236557424805026,
+          "early_per_election_started": 1.0,
+          "late_per_election_started": 1.0
+        },
+        {
+          "counter": "active_elections/confirmed/in",
+          "early_per_second": 1969.153749966342,
+          "late_per_second": 1721.093716018148,
+          "late_over_early": 0.874027087040596,
+          "early_per_election_started": 0.9860793111531113,
+          "late_per_election_started": 0.9330965946290798
+        },
+        {
+          "counter": "active_elections/cooldown/in",
+          "early_per_second": 0.0,
+          "late_per_second": 1.3430993876589732,
+          "late_over_early": null,
+          "early_per_election_started": 0.0,
+          "late_per_election_started": 0.0007281657315979506
+        },
+        {
+          "counter": "block_processor/enqueued/in",
+          "early_per_second": 2206.378321165216,
+          "late_per_second": 2123.432875297343,
+          "late_over_early": 0.9624065170183195,
+          "early_per_election_started": 1.104872595710184,
+          "late_per_election_started": 1.1512260874715168
+        },
+        {
+          "counter": "block_processor_source/live_originator/in",
+          "early_per_second": 1998.4032391362052,
+          "late_per_second": 1904.5181116143613,
+          "late_over_early": 0.953019928269119,
+          "early_per_election_started": 1.0007263726802735,
+          "late_per_election_started": 1.0325407314066493
+        },
+        {
+          "counter": "block_processor_source/live/in",
+          "early_per_second": 126.50117956371723,
+          "late_per_second": 154.53286375857283,
+          "late_over_early": 1.2215922751987964,
+          "early_per_election_started": 0.06334710837403046,
+          "late_per_election_started": 0.08378049817357151
+        },
+        {
+          "counter": "block_processor_source/forced/in",
+          "early_per_second": 73.20933005473731,
+          "late_per_second": 62.419268636212166,
+          "late_over_early": 0.8526135752033572,
+          "early_per_election_started": 0.036660522699961874,
+          "late_per_election_started": 0.03384081091088776
+        },
+        {
+          "counter": "block_processor_result/progress/in",
+          "early_per_second": 2065.8268178128933,
+          "late_per_second": 1942.3955228646853,
+          "late_over_early": 0.9402508991151128,
+          "early_per_election_started": 1.0344896052455939,
+          "late_per_election_started": 1.053076093962508
+        },
+        {
+          "counter": "block_processor_result/old/in",
+          "early_per_second": 34.60972240921035,
+          "late_per_second": 47.45167526062244,
+          "late_over_early": 1.371050443559599,
+          "early_per_election_started": 0.017331267928193964,
+          "late_per_election_started": 0.025726081144244253
+        },
+        {
+          "counter": "block_processor_result/fork/in",
+          "early_per_second": 94.37519954302243,
+          "late_per_second": 128.43796199882942,
+          "late_over_early": 1.3609291701712263,
+          "early_per_election_started": 0.0472596067000414,
+          "late_per_election_started": 0.06963306172511945
+        },
+        {
+          "counter": "block_processor_result/conflict/in",
+          "early_per_second": 4.833426870126823,
+          "late_per_second": 8.169602532147268,
+          "late_over_early": 1.690229882785608,
+          "early_per_election_started": 0.0024204012706905507,
+          "late_per_election_started": 0.004429176767814858
+        },
+        {
+          "counter": "vote_processor/process/in",
+          "early_per_second": 1338.7140320576684,
+          "late_per_second": 1199.0908715610014,
+          "late_over_early": 0.8957035205778344,
+          "early_per_election_started": 0.6703784357036587,
+          "late_per_election_started": 0.6500910429752496
+        },
+        {
+          "counter": "vote_processor/overfill/in",
+          "early_per_second": 0.0,
+          "late_per_second": 0.0,
+          "late_over_early": null,
+          "early_per_election_started": 0.0,
+          "late_per_election_started": 0.0
+        },
+        {
+          "counter": "election/vote/in",
+          "early_per_second": 20581.438089829942,
+          "late_per_second": 17410.426223786006,
+          "late_over_early": 0.8459285569743131,
+          "early_per_election_started": 10.306422388047054,
+          "late_per_election_started": 9.439119595440003
+        },
+        {
+          "counter": "election_vote/replayed/in",
+          "early_per_second": 788.9082727171318,
+          "late_per_second": 291.71229205066595,
+          "late_over_early": 0.3697670592880971,
+          "early_per_election_started": 0.3950560620963178,
+          "late_per_election_started": 0.15815277447741832
+        },
+        {
+          "counter": "election_vote/forwarded/in",
+          "early_per_second": 113.85272224765262,
+          "late_per_second": 48.7500661455952,
+          "late_over_early": 0.4281853361358719,
+          "early_per_election_started": 0.05701322912382579,
+          "late_per_election_started": 0.026430008014692922
+        },
+        {
+          "counter": "election/generate_vote_normal/in",
+          "early_per_second": 2177.192165123534,
+          "late_per_second": 2148.5767439209294,
+          "late_over_early": 0.986856731499867,
+          "early_per_election_started": 1.0902572490693838,
+          "late_per_election_started": 1.1648579181906187
+        },
+        {
+          "counter": "election/generate_vote_final/in",
+          "early_per_second": 1342.9829045963172,
+          "late_per_second": 1183.6324779844192,
+          "late_over_early": 0.8813459009295457,
+          "early_per_election_started": 0.6725161290617234,
+          "late_per_election_started": 0.6417102242722936
+        },
+        {
+          "counter": "election/confirmation_request/in",
+          "early_per_second": 129.48703422331124,
+          "late_per_second": 120.74679209471688,
+          "late_over_early": 0.9325010246699984,
+          "early_per_election_started": 0.06484231386826171,
+          "late_per_election_started": 0.06546326877343488
+        },
+        {
+          "counter": "election/kudzu_fast_confirmed/in",
+          "early_per_second": 1819.1998256522897,
+          "late_per_second": 1690.7053384039168,
+          "late_over_early": 0.9293675793959028,
+          "early_per_election_started": 0.9109879362948333,
+          "late_per_election_started": 0.9166214361852135
+        },
+        {
+          "counter": "election/kudzu_slow_confirmed/in",
+          "early_per_second": 149.9539243140528,
+          "late_per_second": 30.388377614230922,
+          "late_over_early": 0.20265143278669834,
+          "early_per_election_started": 0.0750913748582783,
+          "late_per_election_started": 0.016475158443866194
+        },
+        {
+          "counter": "vote_generator/generator_broadcasts/in",
+          "early_per_second": 29.298415387988562,
+          "late_per_second": 37.35643580108085,
+          "late_over_early": 1.275032635942346,
+          "early_per_election_started": 0.01467156196623006,
+          "late_per_election_started": 0.020252914009884652
+        },
+        {
+          "counter": "vote_generator_final/generator_broadcasts/in",
+          "early_per_second": 9.07615177194204,
+          "late_per_second": 8.906969185933983,
+          "late_over_early": 0.9813596565748198,
+          "early_per_election_started": 0.00454500086006523,
+          "late_per_election_started": 0.004828942514001668
+        },
+        {
+          "counter": "vote_generator/generator_replies/in",
+          "early_per_second": 10.257885170924226,
+          "late_per_second": 18.609304942871525,
+          "late_over_early": 1.8141463501287023,
+          "early_per_election_started": 0.0051367692052515295,
+          "late_per_election_started": 0.010089095619255882
+        },
+        {
+          "counter": "vote_generator_final/generator_replies/in",
+          "early_per_second": 19.064076870703815,
+          "late_per_second": 28.94461568380161,
+          "late_over_early": 1.5182804748485585,
+          "early_per_election_started": 0.00954658405355849,
+          "late_per_election_started": 0.015692418185040864
+        },
+        {
+          "counter": "requests/requests_generated_hashes/in",
+          "early_per_second": 354.4797770118745,
+          "late_per_second": 1102.1783047997349,
+          "late_over_early": 3.10928401639909,
+          "early_per_election_started": 0.1775103515099074,
+          "late_per_election_started": 0.5975495775221576
+        },
+        {
+          "counter": "requests/requests_generated_votes/in",
+          "early_per_second": 65.38188409002612,
+          "late_per_second": 89.87519841944284,
+          "late_over_early": 1.374619279794556,
+          "early_per_election_started": 0.03274082748819767,
+          "late_per_election_started": 0.04872613315956741
+        },
+        {
+          "counter": "request_aggregator/request_hashes/in",
+          "early_per_second": 503.3403089406814,
+          "late_per_second": 1411.8691285176196,
+          "late_over_early": 2.8049991296922103,
+          "early_per_election_started": 0.25205419593279854,
+          "late_per_election_started": 0.765449471821688
+        },
+        {
+          "counter": "request_aggregator/request/in",
+          "early_per_second": 20.125534679134823,
+          "late_per_second": 32.52688896488907,
+          "late_over_early": 1.6161999908808071,
+          "early_per_election_started": 0.010078122834912474,
+          "late_per_election_started": 0.01763455937613577
+        },
+        {
+          "counter": "request_aggregator/channel_full/out",
+          "early_per_second": 0.0,
+          "late_per_second": 0.1,
+          "late_over_early": null,
+          "early_per_election_started": 0.0,
+          "late_per_election_started": 5.421532749464997e-05
+        },
+        {
+          "counter": "message_processor_type/confirm_req/in",
+          "early_per_second": 20.12553467913482,
+          "late_per_second": 32.783789577230095,
+          "late_over_early": 1.6289648995620842,
+          "early_per_election_started": 0.010078122834912473,
+          "late_per_election_started": 0.01777383888445222
+        },
+        {
+          "counter": "message_processor_type/confirm_ack/in",
+          "early_per_second": 435.31040172097437,
+          "late_per_second": 597.0844152375588,
+          "late_over_early": 1.3716291016181104,
+          "early_per_election_started": 0.21798733647595553,
+          "late_per_election_started": 0.3237112711405582
+        },
+        {
+          "counter": "message_processor_type/publish/in",
+          "early_per_second": 2131.837573229885,
+          "late_per_second": 2050.293757502224,
+          "late_over_early": 0.9617495175281499,
+          "early_per_election_started": 1.0675453482171096,
+          "late_per_election_started": 1.111573475232195
+        },
+        {
+          "counter": "message_processor_type/epoch_close/in",
+          "early_per_second": 0.0,
+          "late_per_second": 18.008525324363152,
+          "late_over_early": null,
+          "early_per_election_started": 0.0,
+          "late_per_election_started": 0.009763380981560458
+        },
+        {
+          "counter": "vote_rebroadcaster/rebroadcast/in",
+          "early_per_second": 249.8228482049783,
+          "late_per_second": 188.71437573519182,
+          "late_over_early": 0.7553927796882401,
+          "early_per_election_started": 0.12510203536543754,
+          "late_per_election_started": 0.10231211683431851
+        },
+        {
+          "counter": "vote_rebroadcaster/rebroadcast_hashes/in",
+          "early_per_second": 21140.72677367301,
+          "late_per_second": 17606.337694109745,
+          "late_over_early": 0.8328161033723441,
+          "early_per_election_started": 10.586493459241535,
+          "late_per_election_started": 9.545333640675603
+        },
+        {
+          "counter": "vote_rebroadcaster/overfill/in",
+          "early_per_second": 361.24514413256975,
+          "late_per_second": 113.61238389835144,
+          "late_over_early": 0.3145021759978536,
+          "early_per_election_started": 0.1808981969486839,
+          "late_per_election_started": 0.061595326004970204
+        },
+        {
+          "counter": "drop/publish/out",
+          "early_per_second": 0.0,
+          "late_per_second": 194.12530789901652,
+          "late_over_early": null,
+          "early_per_election_started": 0.0,
+          "late_per_election_started": 0.10524567142744942
+        },
+        {
+          "counter": "drop/confirm_ack/out",
+          "early_per_second": 0.0,
+          "late_per_second": 195.78522336769757,
+          "late_over_early": null,
+          "early_per_election_started": 0.0,
+          "late_per_election_started": 0.1061456000349292
+        },
+        {
+          "counter": "ledger/rollback/in",
+          "early_per_second": 67.42357867668838,
+          "late_per_second": 55.12482750232334,
+          "late_over_early": 0.817589759906688,
+          "early_per_election_started": 0.03376323256532045,
+          "late_per_election_started": 0.029886105761245476
+        },
+        {
+          "counter": "confirming_set/cemented/in",
+          "early_per_second": 1943.0240099781126,
+          "late_per_second": 1679.7495602664872,
+          "late_over_early": 0.8645027295804795,
+          "early_per_election_started": 0.9729945045408072,
+          "late_per_election_started": 0.9106817251884188
+        },
+        {
+          "counter": "confirming_set/loop/in",
+          "early_per_second": 133.73618681458174,
+          "late_per_second": 31.86742087213215,
+          "late_over_early": 0.23828569986307946,
+          "early_per_election_started": 0.06697013220659924,
+          "late_per_election_started": 0.017277026589924884
+        },
+        {
+          "counter": "derived/local_vote_batches_emitted",
+          "early_per_second": 103.75645124995673,
+          "late_per_second": 136.13860340645766,
+          "late_over_early": 1.3120977227574024,
+          "early_per_election_started": 0.05195739031449296,
+          "late_per_election_started": 0.07380798968345373
+        }
+      ]
+    },
+    {
+      "run": "writers-02",
+      "workload_anchor_basis": "epoch_schedule",
+      "counters": [
+        {
+          "counter": "active_elections/started/in",
+          "early_per_second": 1906.4780066615197,
+          "late_per_second": 1819.041635941731,
+          "late_over_early": 0.9541372255991033,
+          "early_per_election_started": 1.0,
+          "late_per_election_started": 1.0
+        },
+        {
+          "counter": "active_elections/confirmed/in",
+          "early_per_second": 1810.2555619040136,
+          "late_per_second": 1636.5688190950427,
+          "late_over_early": 0.9040540206233155,
+          "early_per_election_started": 0.9495286888066422,
+          "late_per_election_started": 0.8996873885450012
+        },
+        {
+          "counter": "active_elections/cooldown/in",
+          "early_per_second": 0.0,
+          "late_per_second": 0.9977363560130478,
+          "late_over_early": null,
+          "early_per_election_started": 0.0,
+          "late_per_election_started": 0.0005484956123593688
+        },
+        {
+          "counter": "block_processor/enqueued/in",
+          "early_per_second": 2092.1854752112067,
+          "late_per_second": 2039.63906199513,
+          "late_over_early": 0.9748844383833741,
+          "early_per_election_started": 1.0974086603154074,
+          "late_per_election_started": 1.1212712351903886
+        },
+        {
+          "counter": "block_processor_source/live_originator/in",
+          "early_per_second": 1909.673978346425,
+          "late_per_second": 1846.4666321431864,
+          "late_over_early": 0.9669014989364995,
+          "early_per_election_started": 1.0016763747988375,
+          "late_per_election_started": 1.015076618181561
+        },
+        {
+          "counter": "block_processor_source/live/in",
+          "early_per_second": 113.48145779995374,
+          "late_per_second": 136.7736201426714,
+          "late_over_early": 1.2052508206563342,
+          "early_per_election_started": 0.05952413686569294,
+          "late_per_election_started": 0.07518993377623416
+        },
+        {
+          "counter": "block_processor_source/forced/in",
+          "early_per_second": 71.02886493920744,
+          "late_per_second": 57.15011417270587,
+          "late_over_early": 0.8046040749999287,
+          "early_per_election_started": 0.037256587640152126,
+          "late_per_election_started": 0.031417705369409445
+        },
+        {
+          "counter": "block_processor_result/progress/in",
+          "early_per_second": 1978.5470925270886,
+          "late_per_second": 1880.4987586212533,
+          "late_over_early": 0.9504442758647692,
+          "early_per_election_started": 1.0378022120442767,
+          "late_per_election_started": 1.033785440346837
+        },
+        {
+          "counter": "block_processor_result/old/in",
+          "early_per_second": 25.82447287197,
+          "late_per_second": 50.56401662896972,
+          "late_over_early": 1.9579883345403009,
+          "early_per_election_started": 0.013545644262213056,
+          "late_per_election_started": 0.027797063920855423
+        },
+        {
+          "counter": "block_processor_result/fork/in",
+          "early_per_second": 88.23505744870468,
+          "late_per_second": 105.7659953099997,
+          "late_over_early": 1.1986844953491032,
+          "early_per_election_started": 0.04628170749434202,
+          "late_per_election_started": 0.058143801230390126
+        },
+        {
+          "counter": "block_processor_result/conflict/in",
+          "early_per_second": 1.5776782378229535,
+          "late_per_second": 3.5615958983413343,
+          "late_over_early": 2.2574919352731895,
+          "early_per_election_started": 0.0008275355038507181,
+          "late_per_election_started": 0.0019579518291220808
+        },
+        {
+          "counter": "vote_processor/process/in",
+          "early_per_second": 1255.380333250464,
+          "late_per_second": 1153.8937153803545,
+          "late_over_early": 0.919158668347673,
+          "early_per_election_started": 0.6584814138238034,
+          "late_per_election_started": 0.6343415634810224
+        },
+        {
+          "counter": "vote_processor/overfill/in",
+          "early_per_second": 0.0,
+          "late_per_second": 0.0,
+          "late_over_early": null,
+          "early_per_election_started": 0.0,
+          "late_per_election_started": 0.0
+        },
+        {
+          "counter": "election/vote/in",
+          "early_per_second": 18804.171175186922,
+          "late_per_second": 17784.32736456987,
+          "late_over_early": 0.9457650219668926,
+          "early_per_election_started": 9.86330348919963,
+          "late_per_election_started": 9.776756624574341
+        },
+        {
+          "counter": "election_vote/replayed/in",
+          "early_per_second": 748.9615955081988,
+          "late_per_second": 349.2122512434224,
+          "late_over_early": 0.46626189291651016,
+          "early_per_election_started": 0.39285089725200856,
+          "late_per_election_started": 0.19197595280035062
+        },
+        {
+          "counter": "election_vote/forwarded/in",
+          "early_per_second": 33.2904495435652,
+          "late_per_second": 66.36482172805884,
+          "late_over_early": 1.9935093288905938,
+          "early_per_election_started": 0.017461753782232674,
+          "late_per_election_started": 0.036483398959530296
+        },
+        {
+          "counter": "election/generate_vote_normal/in",
+          "early_per_second": 2079.9839111642245,
+          "late_per_second": 2031.3876346800375,
+          "late_over_early": 0.9766362248172457,
+          "early_per_election_started": 1.0910086053426524,
+          "late_per_election_started": 1.1167350953065862
+        },
+        {
+          "counter": "election/generate_vote_final/in",
+          "early_per_second": 1150.4341569368053,
+          "late_per_second": 1346.2564338928253,
+          "late_over_early": 1.1702159795719425,
+          "early_per_election_started": 0.6034342661793192,
+          "late_per_election_started": 0.7400910497553611
+        },
+        {
+          "counter": "election/confirmation_request/in",
+          "early_per_second": 100.286381974642,
+          "late_per_second": 127.41183136001355,
+          "late_over_early": 1.2704798882088535,
+          "early_per_election_started": 0.05260295771796284,
+          "late_per_election_started": 0.0700433837480864
+        },
+        {
+          "counter": "election/kudzu_fast_confirmed/in",
+          "early_per_second": 1760.4735727235322,
+          "late_per_second": 1416.82691064381,
+          "late_over_early": 0.804798738587092,
+          "early_per_election_started": 0.9234166702013734,
+          "late_per_election_started": 0.7788864656252402
+        },
+        {
+          "counter": "election/kudzu_slow_confirmed/in",
+          "early_per_second": 49.781989180481844,
+          "late_per_second": 219.7419084512325,
+          "late_over_early": 4.414084532752807,
+          "early_per_election_started": 0.026112018605269044,
+          "late_per_election_started": 0.12080092291976072
+        },
+        {
+          "counter": "vote_generator/generator_broadcasts/in",
+          "early_per_second": 26.470389092669556,
+          "late_per_second": 30.243044865137243,
+          "late_over_early": 1.1425236236331882,
+          "early_per_election_started": 0.01388444503433979,
+          "late_per_election_started": 0.01662581233303118
+        },
+        {
+          "counter": "vote_generator_final/generator_broadcasts/in",
+          "early_per_second": 10.358107732858794,
+          "late_per_second": 9.870609988537051,
+          "late_over_early": 0.9529356368079408,
+          "early_per_election_started": 0.005433111578872673,
+          "late_per_election_started": 0.005426269412149527
+        },
+        {
+          "counter": "vote_generator/generator_replies/in",
+          "early_per_second": 6.535198907871265,
+          "late_per_second": 15.799561244076193,
+          "late_over_early": 2.417609848882571,
+          "early_per_election_started": 0.0034278910561969774,
+          "late_per_election_started": 0.008685651241785153
+        },
+        {
+          "counter": "vote_generator_final/generator_replies/in",
+          "early_per_second": 16.247583199943012,
+          "late_per_second": 22.94594640013386,
+          "late_over_early": 1.4122682812428584,
+          "early_per_election_started": 0.008522302981294054,
+          "late_per_election_started": 0.012614305218063124
+        },
+        {
+          "counter": "requests/requests_generated_hashes/in",
+          "early_per_second": 290.83555582694,
+          "late_per_second": 739.6380079471319,
+          "late_over_early": 2.5431485013725394,
+          "early_per_election_started": 0.15255122524923811,
+          "late_per_election_started": 0.40660861924923225
+        },
+        {
+          "counter": "requests/requests_generated_votes/in",
+          "early_per_second": 47.98650598766267,
+          "late_per_second": 66.96392940669621,
+          "late_over_early": 1.3954741656730048,
+          "early_per_election_started": 0.02517023842918231,
+          "late_per_election_started": 0.036812752431600336
+        },
+        {
+          "counter": "request_aggregator/request_hashes/in",
+          "early_per_second": 422.37371883500447,
+          "late_per_second": 1091.4485808830318,
+          "late_over_early": 2.5840826079176433,
+          "early_per_election_started": 0.22154659920500916,
+          "late_per_election_started": 0.6000129734897359
+        },
+        {
+          "counter": "request_aggregator/request/in",
+          "early_per_second": 16.625458579214957,
+          "late_per_second": 26.19070424052191,
+          "late_over_early": 1.5753372525474494,
+          "early_per_election_started": 0.008720508981023183,
+          "late_per_election_started": 0.014398078484312862
+        },
+        {
+          "counter": "request_aggregator/channel_full/out",
+          "early_per_second": 0.0,
+          "late_per_second": 0.0,
+          "late_over_early": null,
+          "early_per_election_started": 0.0,
+          "late_per_election_started": 0.0
+        },
+        {
+          "counter": "message_processor_type/confirm_req/in",
+          "early_per_second": 16.625458579214957,
+          "late_per_second": 26.19070424052191,
+          "late_over_early": 1.5753372525474494,
+          "early_per_election_started": 0.008720508981023183,
+          "late_per_election_started": 0.014398078484312862
+        },
+        {
+          "counter": "message_processor_type/confirm_ack/in",
+          "early_per_second": 384.3680555252671,
+          "late_per_second": 492.25182758070224,
+          "late_over_early": 1.2806782991057986,
+          "early_per_election_started": 0.20161158648682415,
+          "late_per_election_started": 0.27061053351088354
+        },
+        {
+          "counter": "message_processor_type/publish/in",
+          "early_per_second": 2022.575486420356,
+          "late_per_second": 1982.5419263380493,
+          "late_over_early": 0.9802066422978557,
+          "early_per_election_started": 1.0608963121280048,
+          "late_per_election_started": 1.089882654231646
+        },
+        {
+          "counter": "message_processor_type/epoch_close/in",
+          "early_per_second": 0.0,
+          "late_per_second": 19.220654296875,
+          "late_over_early": null,
+          "early_per_election_started": 0.0,
+          "late_per_election_started": 0.01056636303265501
+        },
+        {
+          "counter": "vote_rebroadcaster/rebroadcast/in",
+          "early_per_second": 233.5363611119592,
+          "late_per_second": 188.3373361817608,
+          "late_over_early": 0.8064582974788683,
+          "early_per_election_started": 0.12249622618039556,
+          "late_per_election_started": 0.10353657247886863
+        },
+        {
+          "counter": "vote_rebroadcaster/rebroadcast_hashes/in",
+          "early_per_second": 20277.361326256014,
+          "late_per_second": 18060.80469682807,
+          "late_over_early": 0.8906881130259364,
+          "early_per_election_started": 10.636032125943167,
+          "late_per_election_started": 9.928747280970212
+        },
+        {
+          "counter": "vote_rebroadcaster/overfill/in",
+          "early_per_second": 234.59643371700312,
+          "late_per_second": 135.4353912068024,
+          "late_over_early": 0.577312233868738,
+          "early_per_election_started": 0.12305226333442508,
+          "late_per_election_started": 0.07445425576346773
+        },
+        {
+          "counter": "drop/publish/out",
+          "early_per_second": 0.0,
+          "late_per_second": 69.66617429837518,
+          "late_over_early": null,
+          "early_per_election_started": 0.0,
+          "late_per_election_started": 0.03829828461419933
+        },
+        {
+          "counter": "drop/confirm_ack/out",
+          "early_per_second": 0.0,
+          "late_per_second": 108.2927734375,
+          "late_over_early": null,
+          "early_per_election_started": 0.0,
+          "late_per_election_started": 0.0595328723091245
+        },
+        {
+          "counter": "ledger/rollback/in",
+          "early_per_second": 69.051285272109,
+          "late_per_second": 53.54149678998954,
+          "late_over_early": 0.7753874034205105,
+          "early_per_election_started": 0.036219292869277,
+          "late_per_election_started": 0.029433903948147242
+        },
+        {
+          "counter": "confirming_set/cemented/in",
+          "early_per_second": 1962.4689335025603,
+          "late_per_second": 1591.1545815975428,
+          "late_over_early": 0.8107922395274274,
+          "early_per_election_started": 1.0293687766894766,
+          "late_per_election_started": 0.8747213643484254
+        },
+        {
+          "counter": "confirming_set/loop/in",
+          "early_per_second": 201.12517638780454,
+          "late_per_second": 45.065954992537534,
+          "late_over_early": 0.22406918816390486,
+          "early_per_election_started": 0.10549567090994129,
+          "late_per_election_started": 0.024774559362521993
+        },
+        {
+          "counter": "derived/local_vote_batches_emitted",
+          "early_per_second": 84.81500281319101,
+          "late_per_second": 107.0775842603705,
+          "late_over_early": 1.2624840029329936,
+          "early_per_election_started": 0.04448779504239477,
+          "late_per_election_started": 0.05886483417678104
+        }
+      ]
+    },
+    {
+      "run": "writers-noepoch-control",
+      "workload_anchor_basis": "starting_with_log",
+      "counters": [
+        {
+          "counter": "active_elections/started/in",
+          "early_per_second": 1935.853305047674,
+          "late_per_second": 1894.4160050918817,
+          "late_over_early": 0.9785948140555145,
+          "early_per_election_started": 1.0,
+          "late_per_election_started": 1.0
+        },
+        {
+          "counter": "active_elections/confirmed/in",
+          "early_per_second": 1817.2860577484498,
+          "late_per_second": 1785.2400817785124,
+          "late_over_early": 0.9823660255173909,
+          "early_per_election_started": 0.9387519462399015,
+          "late_per_election_started": 0.942369615216551
+        },
+        {
+          "counter": "active_elections/cooldown/in",
+          "early_per_second": 0.0,
+          "late_per_second": 0.0,
+          "late_over_early": null,
+          "early_per_election_started": 0.0,
+          "late_per_election_started": 0.0
+        },
+        {
+          "counter": "block_processor/enqueued/in",
+          "early_per_second": 2126.6186777854723,
+          "late_per_second": 2087.920861751507,
+          "late_over_early": 0.9818031241622204,
+          "early_per_election_started": 1.0985432998669806,
+          "late_per_election_started": 1.1021448594920629
+        },
+        {
+          "counter": "block_processor_source/live_originator/in",
+          "early_per_second": 1935.9226755629516,
+          "late_per_second": 1910.574512448156,
+          "late_over_early": 0.9869064175781584,
+          "early_per_election_started": 1.0000358345929914,
+          "late_per_election_started": 1.0085295454181356
+        },
+        {
+          "counter": "block_processor_source/live/in",
+          "early_per_second": 111.94277982356964,
+          "late_per_second": 97.59374673102707,
+          "late_over_early": 0.8718181457066035,
+          "early_per_election_started": 0.05782606540055618,
+          "late_per_election_started": 0.051516534102705513
+        },
+        {
+          "counter": "block_processor_source/forced/in",
+          "early_per_second": 76.42690170710316,
+          "late_per_second": 64.61614328804669,
+          "late_over_early": 0.8454633361388929,
+          "early_per_election_started": 0.03947969689016338,
+          "late_per_election_started": 0.03410874016814101
+        },
+        {
+          "counter": "block_processor_result/progress/in",
+          "early_per_second": 2011.961372137303,
+          "late_per_second": 1958.2004746065636,
+          "late_over_early": 0.9732793590000044,
+          "early_per_election_started": 1.0393149971080866,
+          "late_per_election_started": 1.033669726893797
+        },
+        {
+          "counter": "block_processor_result/old/in",
+          "early_per_second": 20.669450253777747,
+          "late_per_second": 20.81366480266622,
+          "late_over_early": 1.0069771835785577,
+          "early_per_election_started": 0.010677177965852491,
+          "late_per_election_started": 0.010986850167398544
+        },
+        {
+          "counter": "block_processor_result/fork/in",
+          "early_per_second": 91.89489514461718,
+          "late_per_second": 91.52203017083022,
+          "late_over_early": 0.9959424843654245,
+          "early_per_election_started": 0.047469968362274274,
+          "late_per_election_started": 0.04831147431442403
+        },
+        {
+          "counter": "block_processor_result/conflict/in",
+          "early_per_second": 0.25377289507176154,
+          "late_per_second": 3.041673770158689,
+          "late_over_early": 11.985810262749176,
+          "early_per_election_started": 0.00013109097389252432,
+          "late_per_election_started": 0.0016055997003737116
+        },
+        {
+          "counter": "vote_processor/process/in",
+          "early_per_second": 943.8488044929248,
+          "late_per_second": 1010.8790312974455,
+          "late_over_early": 1.0710179707654894,
+          "early_per_election_started": 0.4875621525824659,
+          "late_per_election_started": 0.5336098452400989
+        },
+        {
+          "counter": "vote_processor/overfill/in",
+          "early_per_second": 0.0,
+          "late_per_second": 0.0,
+          "late_over_early": null,
+          "early_per_election_started": 0.0,
+          "late_per_election_started": 0.0
+        },
+        {
+          "counter": "election/vote/in",
+          "early_per_second": 17828.247335062093,
+          "late_per_second": 16959.129756859376,
+          "late_over_early": 0.9512505317057466,
+          "early_per_election_started": 9.209503265859826,
+          "late_per_election_started": 8.952167692458255
+        },
+        {
+          "counter": "election_vote/replayed/in",
+          "early_per_second": 447.49283772999786,
+          "late_per_second": 494.9931488669202,
+          "late_over_early": 1.1061476455754637,
+          "early_per_election_started": 0.2311605102324515,
+          "late_per_election_started": 0.2612906286351357
+        },
+        {
+          "counter": "election_vote/forwarded/in",
+          "early_per_second": 487.3633251183375,
+          "late_per_second": 459.5036657498508,
+          "late_over_early": 0.9428359543432571,
+          "early_per_election_started": 0.25175633083744187,
+          "late_per_election_started": 0.24255689590606277
+        },
+        {
+          "counter": "election/generate_vote_normal/in",
+          "early_per_second": 2101.6752661395603,
+          "late_per_second": 2186.8539473340634,
+          "late_over_early": 1.0405289449644437,
+          "early_per_election_started": 1.085658329925884,
+          "late_per_election_started": 1.154368386593101
+        },
+        {
+          "counter": "election/generate_vote_final/in",
+          "early_per_second": 1002.7920023304862,
+          "late_per_second": 948.5815016788525,
+          "late_over_early": 0.9459404337832287,
+          "early_per_election_started": 0.5180103263587892,
+          "late_per_election_started": 0.5007250250891145
+        },
+        {
+          "counter": "election/confirmation_request/in",
+          "early_per_second": 101.78228895529267,
+          "late_per_second": 93.02462481788459,
+          "late_over_early": 0.9139568953764162,
+          "early_per_election_started": 0.052577480271825704,
+          "late_per_election_started": 0.049104644686198566
+        },
+        {
+          "counter": "election/kudzu_fast_confirmed/in",
+          "early_per_second": 1783.4655223360448,
+          "late_per_second": 1771.0427878352862,
+          "late_over_early": 0.9930344969694245,
+          "early_per_election_started": 0.9212813376332375,
+          "late_per_election_started": 0.9348753299565732
+        },
+        {
+          "counter": "election/kudzu_slow_confirmed/in",
+          "early_per_second": 33.82053541240496,
+          "late_per_second": 14.197293943226668,
+          "late_over_early": 0.4197832402741701,
+          "early_per_election_started": 0.017470608606664058,
+          "late_per_election_started": 0.00749428525997809
+        },
+        {
+          "counter": "vote_generator/generator_broadcasts/in",
+          "early_per_second": 25.238396055358873,
+          "late_per_second": 28.593041851746385,
+          "late_over_early": 1.1329183435044485,
+          "early_per_election_started": 0.013037349467312727,
+          "late_per_election_started": 0.01509332785137633
+        },
+        {
+          "counter": "vote_generator_final/generator_broadcasts/in",
+          "early_per_second": 11.038963398767567,
+          "late_per_second": 8.45860909940987,
+          "late_over_early": 0.7662503075564343,
+          "early_per_election_started": 0.005702375985816607,
+          "late_per_election_started": 0.00446502197863326
+        },
+        {
+          "counter": "vote_generator/generator_replies/in",
+          "early_per_second": 7.741047274209057,
+          "late_per_second": 7.109428236376212,
+          "late_over_early": 0.9184065132973392,
+          "early_per_election_started": 0.003998777827857375,
+          "late_per_election_started": 0.003752833705620744
+        },
+        {
+          "counter": "vote_generator_final/generator_replies/in",
+          "early_per_second": 16.299351330368978,
+          "late_per_second": 15.580742120027665,
+          "late_over_early": 0.9559117908574436,
+          "early_per_election_started": 0.00841972441190092,
+          "late_per_election_started": 0.008224562122653718
+        },
+        {
+          "counter": "requests/requests_generated_hashes/in",
+          "early_per_second": 262.7059508421098,
+          "late_per_second": 262.5450289200165,
+          "late_over_early": 0.9993874447016617,
+          "early_per_election_started": 0.13570550524521288,
+          "late_per_election_started": 0.1385888992778451
+        },
+        {
+          "counter": "requests/requests_generated_votes/in",
+          "early_per_second": 47.47116754357106,
+          "late_per_second": 46.72104971258689,
+          "late_over_early": 0.9841984541396483,
+          "early_per_election_started": 0.024522089261511476,
+          "late_per_election_started": 0.024662507911149566
+        },
+        {
+          "counter": "request_aggregator/request_hashes/in",
+          "early_per_second": 334.80507856896963,
+          "late_per_second": 300.9588147989851,
+          "late_over_early": 0.898907555659995,
+          "early_per_election_started": 0.17294961229550626,
+          "late_per_election_started": 0.15886627540627654
+        },
+        {
+          "counter": "request_aggregator/request/in",
+          "early_per_second": 16.661176055502363,
+          "late_per_second": 15.968037335786084,
+          "late_over_early": 0.9583979715833223,
+          "early_per_election_started": 0.008606631510796244,
+          "late_per_election_started": 0.008429002549000114
+        },
+        {
+          "counter": "request_aggregator/channel_full/out",
+          "early_per_second": 0.0,
+          "late_per_second": 0.0,
+          "late_over_early": null,
+          "early_per_election_started": 0.0,
+          "late_per_election_started": 0.0
+        },
+        {
+          "counter": "message_processor_type/confirm_req/in",
+          "early_per_second": 16.661176055502363,
+          "late_per_second": 15.968037335786082,
+          "late_over_early": 0.9583979715833222,
+          "early_per_election_started": 0.008606631510796244,
+          "late_per_election_started": 0.008429002549000112
+        },
+        {
+          "counter": "message_processor_type/confirm_ack/in",
+          "early_per_second": 394.84947556867394,
+          "late_per_second": 387.6809947205205,
+          "late_over_early": 0.9818450288231252,
+          "early_per_election_started": 0.2039666303945226,
+          "late_per_election_started": 0.20464406639222701
+        },
+        {
+          "counter": "message_processor_type/publish/in",
+          "early_per_second": 2049.704642741224,
+          "late_per_second": 2022.2421532913504,
+          "late_over_early": 0.9866017333047821,
+          "early_per_election_started": 1.0588119654504224,
+          "late_per_election_started": 1.0674752260622233
+        },
+        {
+          "counter": "message_processor_type/epoch_close/in",
+          "early_per_second": 0.0,
+          "late_per_second": 0.0,
+          "late_over_early": null,
+          "early_per_election_started": 0.0,
+          "late_per_election_started": 0.0
+        },
+        {
+          "counter": "vote_rebroadcaster/rebroadcast/in",
+          "early_per_second": 230.2412140721705,
+          "late_per_second": 220.41028683701225,
+          "late_over_early": 0.9573016183276524,
+          "early_per_election_started": 0.11893525892267977,
+          "late_per_election_started": 0.11634735255856438
+        },
+        {
+          "counter": "vote_rebroadcaster/rebroadcast_hashes/in",
+          "early_per_second": 18654.754983432875,
+          "late_per_second": 18446.19001581932,
+          "late_over_early": 0.9888197423231353,
+          "early_per_election_started": 9.636450724231642,
+          "late_per_election_started": 9.737137970878079
+        },
+        {
+          "counter": "vote_rebroadcaster/overfill/in",
+          "early_per_second": 126.23831702171033,
+          "late_per_second": 205.11760837684642,
+          "late_over_early": 1.6248442882961638,
+          "early_per_election_started": 0.06521068341932111,
+          "late_per_election_started": 0.10827484978247845
+        },
+        {
+          "counter": "drop/publish/out",
+          "early_per_second": 0.0,
+          "late_per_second": 0.0,
+          "late_over_early": null,
+          "early_per_election_started": 0.0,
+          "late_per_election_started": 0.0
+        },
+        {
+          "counter": "drop/confirm_ack/out",
+          "early_per_second": 0.0,
+          "late_per_second": 0.0,
+          "late_over_early": null,
+          "early_per_election_started": 0.0,
+          "late_per_election_started": 0.0
+        },
+        {
+          "counter": "ledger/rollback/in",
+          "early_per_second": 76.17312881203136,
+          "late_per_second": 61.67706416494241,
+          "late_over_early": 0.8096958222254442,
+          "early_per_election_started": 0.03934860591627084,
+          "late_per_election_started": 0.03255729681293048
+        },
+        {
+          "counter": "confirming_set/cemented/in",
+          "early_per_second": 1817.2860577484494,
+          "late_per_second": 1769.490861305167,
+          "late_over_early": 0.9736996846261514,
+          "early_per_election_started": 0.9387519462399013,
+          "late_per_election_started": 0.9340561189036958
+        },
+        {
+          "counter": "confirming_set/loop/in",
+          "early_per_second": 196.73929249674757,
+          "late_per_second": 95.4472372290832,
+          "late_over_early": 0.4851457785468101,
+          "early_per_election_started": 0.10162923604994052,
+          "late_per_election_started": 0.05038346222399756
+        },
+        {
+          "counter": "derived/local_vote_batches_emitted",
+          "early_per_second": 83.7485269976975,
+          "late_per_second": 83.77270066374314,
+          "late_over_early": 1.0002886458653333,
+          "early_per_election_started": 0.04326181471464081,
+          "late_per_election_started": 0.04422085774115915
+        }
+      ]
+    }
+  ]
+}

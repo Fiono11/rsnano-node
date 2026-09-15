@@ -1,0 +1,81 @@
+{
+  "run": "writers-delay200-01",
+  "state": "complete",
+  "profile": false,
+  "block_processor_threads": null,
+  "vote_generator_delay_ms": 200,
+  "exit_code": 0,
+  "data_deleted": true,
+  "two_closes_agree": true,
+  "nonfork_finalized_by_epoch": {
+    "0": {
+      "count": 24023,
+      "mean_ms": 160.20880481696722,
+      "p95_ms": 277.852417,
+      "max_ms": 2152.505417
+    },
+    "1": {
+      "count": 23520,
+      "mean_ms": 1000.2610584667073,
+      "p95_ms": 2129.49075,
+      "max_ms": 3518.194125
+    }
+  },
+  "epoch1_over_epoch0_mean": 6.243483681246293,
+  "nonfork_finalized_per_second": {
+    "5_10s": 1843.8,
+    "15_20s": 1624.8,
+    "20_25s": 1803.0,
+    "15_25s": 1713.9
+  },
+  "pr0_epoch_state_changes": [
+    {
+      "seconds_after_schedule": -19.429,
+      "state": {
+        "closed_epochs": {},
+        "current_epoch": "0"
+      }
+    },
+    {
+      "seconds_after_schedule": 15.314,
+      "state": {
+        "draining_epoch": "0",
+        "closed_epochs": {},
+        "current_epoch": "1"
+      }
+    },
+    {
+      "seconds_after_schedule": 27.954,
+      "state": {
+        "closed_epochs": {
+          "0": "F9AC1E7C8881E401BF51200FB9A55EC5071748F94CBAD0B0F54F6A5B46A887FB"
+        },
+        "current_epoch": "1"
+      }
+    },
+    {
+      "seconds_after_schedule": 30.038,
+      "state": {
+        "draining_epoch": "1",
+        "closed_epochs": {
+          "0": "F9AC1E7C8881E401BF51200FB9A55EC5071748F94CBAD0B0F54F6A5B46A887FB"
+        },
+        "current_epoch": "2"
+      }
+    },
+    {
+      "seconds_after_schedule": 76.865,
+      "state": {
+        "closed_epochs": {
+          "0": "F9AC1E7C8881E401BF51200FB9A55EC5071748F94CBAD0B0F54F6A5B46A887FB",
+          "1": "AFF5A73411D960FD161E178029847262A9D6E606D9B364A4C289AF93FF22244C"
+        },
+        "current_epoch": "2"
+      }
+    }
+  ],
+  "six_node_ps_cpu_percent_sample_mean": {
+    "5_10s": 576.9333333333334,
+    "15_25s": 626.24
+  }
+}

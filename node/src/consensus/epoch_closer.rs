@@ -1215,10 +1215,14 @@ impl EpochCloser {
                     .epoch_terminated_elections
                     .load(Ordering::Relaxed);
                 if count > 0 {
+                    let drain_unix_us = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap()
+                        .as_micros();
                     eprintln!(
                         "EPOCH_COUNT_REACHED {}",
                         serde_json::json!({
-                            "epoch":state.epoch,"pid":std::process::id(),"length":count,
+                            "epoch":state.epoch,"pid":std::process::id(),"unix_us":drain_unix_us,"length":count,
                             "threshold":count.saturating_mul(state.epoch.saturating_add(1)),
                             "terminated":self.aec.terminated_election_count().saturating_sub(self.termination_baseline.load(Ordering::Relaxed))
                         })
@@ -1333,9 +1337,15 @@ impl EpochCloser {
         if let Some(hashes) = closed {
             self.generators.seal_epoch(state.epoch);
             if let Ok(discarded) = self.aec.close_epoch(&self.ledger, state.epoch, &hashes) {
+                // Persistence and AEC cleanup are complete at this boundary.
+                // Capture it before digest formatting or post-close housekeeping.
+                let closed_unix_us = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_micros();
                 eprintln!(
                     "EPOCH_CLOSED {}",
-                    serde_json::json!({"epoch":state.epoch,"hash":Ledger::epoch_state_hash(state.epoch, &hashes),"blocks":hashes.len(),"round":state.round,"discarded":discarded})
+                    serde_json::json!({"pid":std::process::id(),"unix_us":closed_unix_us,"epoch":state.epoch,"hash":Ledger::epoch_state_hash(state.epoch, &hashes),"blocks":hashes.len(),"round":state.round,"discarded":discarded})
                 );
                 let epoch = state.epoch;
                 let roots = self
@@ -1359,6 +1369,16 @@ impl EpochCloser {
                     state.receive(receipt.clone());
                     state.local_receipts.push(receipt);
                 }
+                // Vote-generator cleanup, state advancement, and local receipt
+                // construction are complete; ordinary retransmission follows.
+                let complete_unix_us = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_micros();
+                eprintln!(
+                    "EPOCH_CLOSE_COMPLETE {}",
+                    serde_json::json!({"pid":std::process::id(),"epoch":epoch,"unix_us":complete_unix_us})
+                );
             }
         }
         if let Some(receipt) = state.local_receipts.first() {

@@ -1,0 +1,1815 @@
+{
+  "BENCHMARK_RESULT": {
+    "confirmed_forks": 8,
+    "confirmed_nonforks": 47302,
+    "average_fork_confirmation_ms": 1586.0698385,
+    "average_nonfork_confirmation_ms": 919.215920245423,
+    "rai_protocol": true,
+    "epoch_length": 0,
+    "epoch_terminated_elections": 25000,
+    "prs": 6,
+    "accounts": 50000,
+    "created_blocks": 50000,
+    "published_blocks": 50000,
+    "confirmed_blocks": 47310,
+    "duration_seconds": 60.072942291,
+    "confirmation_rate_cps": 787.542580665104,
+    "average_confirmation_ms": 919.3286835374552
+  },
+  "EPOCH_CLOSE_RESULT": {
+    "success": true,
+    "epochs_checked": 2,
+    "closed_epochs": {
+      "0": "7ED92645FE64B5512CB19AD5BA8C12FBEC35B408E309EBA2ED5797D0AFF9E067",
+      "1": "45CF01C5AAA2685554A752273605D4DAC1A514214ABABFCD44F30D295B806712"
+    }
+  },
+  "EPOCH_PERFORMANCE_RESULT": {
+    "publication_windows": [
+      {
+        "epoch": 0,
+        "forked": false,
+        "publication_start_seconds": 0,
+        "prior_epoch_outcome": false,
+        "termination": {
+          "count": 8752,
+          "mean_ms": 167.10669800514208,
+          "p95_ms": 274.093291
+        },
+        "finalization": {
+          "count": 8752,
+          "mean_ms": 185.82975895943756,
+          "p95_ms": 347.436833
+        },
+        "first_to_termination": {
+          "count": 8752,
+          "mean_ms": 57.58513745429529,
+          "p95_ms": 100.48899999999999
+        },
+        "first_to_finalization": {
+          "count": 8752,
+          "mean_ms": 76.0189818327253,
+          "p95_ms": 143.167
+        }
+      },
+      {
+        "epoch": 0,
+        "forked": false,
+        "publication_start_seconds": 5,
+        "prior_epoch_outcome": false,
+        "termination": {
+          "count": 9401,
+          "mean_ms": 418.58554215828184,
+          "p95_ms": 722.545833
+        },
+        "finalization": {
+          "count": 9401,
+          "mean_ms": 475.7713322907131,
+          "p95_ms": 772.33625
+        },
+        "first_to_termination": {
+          "count": 9401,
+          "mean_ms": 139.25823454951689,
+          "p95_ms": 271.475
+        },
+        "first_to_finalization": {
+          "count": 9401,
+          "mean_ms": 191.9065162216789,
+          "p95_ms": 432.379
+        }
+      },
+      {
+        "epoch": 0,
+        "forked": false,
+        "publication_start_seconds": 10,
+        "prior_epoch_outcome": false,
+        "termination": {
+          "count": 6093,
+          "mean_ms": 202.78413500065662,
+          "p95_ms": 325.384459
+        },
+        "finalization": {
+          "count": 5964,
+          "mean_ms": 234.5027909466799,
+          "p95_ms": 352.517417
+        },
+        "first_to_termination": {
+          "count": 6053,
+          "mean_ms": 69.90017924995855,
+          "p95_ms": 151.97299999999998
+        },
+        "first_to_finalization": {
+          "count": 5964,
+          "mean_ms": 101.73448826291117,
+          "p95_ms": 194.737
+        }
+      },
+      {
+        "epoch": 0,
+        "forked": true,
+        "publication_start_seconds": 0,
+        "prior_epoch_outcome": false,
+        "termination": {
+          "count": 493,
+          "mean_ms": 1993.22151579919,
+          "p95_ms": 2563.1218750000003
+        },
+        "finalization": {
+          "count": 3,
+          "mean_ms": 946.121514,
+          "p95_ms": 1457.055084
+        },
+        "first_to_termination": {
+          "count": 493,
+          "mean_ms": 1838.574535496957,
+          "p95_ms": 2408.773
+        },
+        "first_to_finalization": {
+          "count": 3,
+          "mean_ms": 781.628,
+          "p95_ms": 1133.472
+        }
+      },
+      {
+        "epoch": 0,
+        "forked": true,
+        "publication_start_seconds": 5,
+        "prior_epoch_outcome": false,
+        "termination": {
+          "count": 480,
+          "mean_ms": 2123.028557560416,
+          "p95_ms": 2822.569958
+        },
+        "finalization": {
+          "count": 3,
+          "mean_ms": 2309.155708,
+          "p95_ms": 2388.3251250000003
+        },
+        "first_to_termination": {
+          "count": 480,
+          "mean_ms": 1816.4940625000015,
+          "p95_ms": 2411.388
+        },
+        "first_to_finalization": {
+          "count": 3,
+          "mean_ms": 1981.905,
+          "p95_ms": 2151.177
+        }
+      },
+      {
+        "epoch": 0,
+        "forked": true,
+        "publication_start_seconds": 10,
+        "prior_epoch_outcome": false,
+        "termination": {
+          "count": 385,
+          "mean_ms": 1966.531625651947,
+          "p95_ms": 2892.423875
+        },
+        "finalization": {
+          "count": 2,
+          "mean_ms": 892.2577919999999,
+          "p95_ms": 1250.8007089999999
+        },
+        "first_to_termination": {
+          "count": 370,
+          "mean_ms": 1698.0343891891894,
+          "p95_ms": 2543.359
+        },
+        "first_to_finalization": {
+          "count": 2,
+          "mean_ms": 805.2444999999999,
+          "p95_ms": 1225.7959999999998
+        }
+      },
+      {
+        "epoch": 0,
+        "forked": true,
+        "publication_start_seconds": 15,
+        "prior_epoch_outcome": false,
+        "termination": {
+          "count": 5,
+          "mean_ms": 6962.6121168,
+          "p95_ms": 9306.110167
+        },
+        "finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        },
+        "first_to_termination": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        },
+        "first_to_finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        }
+      },
+      {
+        "epoch": 0,
+        "forked": true,
+        "publication_start_seconds": 20,
+        "prior_epoch_outcome": false,
+        "termination": {
+          "count": 2,
+          "mean_ms": 4473.1379995,
+          "p95_ms": 4759.122458
+        },
+        "finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        },
+        "first_to_termination": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        },
+        "first_to_finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        }
+      },
+      {
+        "epoch": 1,
+        "forked": false,
+        "publication_start_seconds": 10,
+        "prior_epoch_outcome": false,
+        "termination": {
+          "count": 2835,
+          "mean_ms": 476.89409234109417,
+          "p95_ms": 712.8240000000001
+        },
+        "finalization": {
+          "count": 2835,
+          "mean_ms": 571.7732710433862,
+          "p95_ms": 874.2791669999999
+        },
+        "first_to_termination": {
+          "count": 2835,
+          "mean_ms": 150.96662962963026,
+          "p95_ms": 343.019
+        },
+        "first_to_finalization": {
+          "count": 2835,
+          "mean_ms": 218.3731467372114,
+          "p95_ms": 412.01
+        }
+      },
+      {
+        "epoch": 1,
+        "forked": false,
+        "publication_start_seconds": 10,
+        "prior_epoch_outcome": true,
+        "termination": {
+          "count": 125,
+          "mean_ms": 4623.173270632,
+          "p95_ms": 11783.616583
+        },
+        "finalization": {
+          "count": 72,
+          "mean_ms": 729.9891510833335,
+          "p95_ms": 1438.502041
+        },
+        "first_to_termination": {
+          "count": 77,
+          "mean_ms": 470.7205714285716,
+          "p95_ms": 5905.005
+        },
+        "first_to_finalization": {
+          "count": 72,
+          "mean_ms": 257.866861111111,
+          "p95_ms": 576.6850000000001
+        }
+      },
+      {
+        "epoch": 1,
+        "forked": false,
+        "publication_start_seconds": 15,
+        "prior_epoch_outcome": false,
+        "termination": {
+          "count": 9052,
+          "mean_ms": 905.5934452221613,
+          "p95_ms": 1277.654375
+        },
+        "finalization": {
+          "count": 9052,
+          "mean_ms": 1021.9062087886621,
+          "p95_ms": 1445.174292
+        },
+        "first_to_termination": {
+          "count": 9052,
+          "mean_ms": 221.5734540433029,
+          "p95_ms": 555.7919999999999
+        },
+        "first_to_finalization": {
+          "count": 9052,
+          "mean_ms": 306.2873087715413,
+          "p95_ms": 648.3330000000001
+        }
+      },
+      {
+        "epoch": 1,
+        "forked": false,
+        "publication_start_seconds": 20,
+        "prior_epoch_outcome": false,
+        "termination": {
+          "count": 8764,
+          "mean_ms": 1139.1560581446852,
+          "p95_ms": 1553.7738330000002
+        },
+        "finalization": {
+          "count": 8764,
+          "mean_ms": 1255.2372059383872,
+          "p95_ms": 1673.82925
+        },
+        "first_to_termination": {
+          "count": 8764,
+          "mean_ms": 228.22949897307277,
+          "p95_ms": 491.692
+        },
+        "first_to_finalization": {
+          "count": 8764,
+          "mean_ms": 368.1887698539462,
+          "p95_ms": 675.2399999999999
+        }
+      },
+      {
+        "epoch": 1,
+        "forked": false,
+        "publication_start_seconds": 25,
+        "prior_epoch_outcome": false,
+        "termination": {
+          "count": 2462,
+          "mean_ms": 1255.5067665804247,
+          "p95_ms": 1635.875125
+        },
+        "finalization": {
+          "count": 2462,
+          "mean_ms": 1380.4165429171408,
+          "p95_ms": 1729.0618749999999
+        },
+        "first_to_termination": {
+          "count": 2462,
+          "mean_ms": 444.4871539398841,
+          "p95_ms": 635.441
+        },
+        "first_to_finalization": {
+          "count": 2462,
+          "mean_ms": 643.251274573514,
+          "p95_ms": 1146.586
+        }
+      },
+      {
+        "epoch": 1,
+        "forked": true,
+        "publication_start_seconds": 10,
+        "prior_epoch_outcome": false,
+        "termination": {
+          "count": 169,
+          "mean_ms": 2553.3004943254437,
+          "p95_ms": 3277.7476659999998
+        },
+        "finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        },
+        "first_to_termination": {
+          "count": 169,
+          "mean_ms": 2098.277449704142,
+          "p95_ms": 2668.791
+        },
+        "first_to_finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        }
+      },
+      {
+        "epoch": 1,
+        "forked": true,
+        "publication_start_seconds": 10,
+        "prior_epoch_outcome": true,
+        "termination": {
+          "count": 155,
+          "mean_ms": 5318.597085477419,
+          "p95_ms": 7687.976708
+        },
+        "finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        },
+        "first_to_termination": {
+          "count": 31,
+          "mean_ms": 1505.6746129032258,
+          "p95_ms": 2707.733
+        },
+        "first_to_finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        }
+      },
+      {
+        "epoch": 1,
+        "forked": true,
+        "publication_start_seconds": 15,
+        "prior_epoch_outcome": false,
+        "termination": {
+          "count": 488,
+          "mean_ms": 3096.7701169344305,
+          "p95_ms": 3729.5026249999996
+        },
+        "finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        },
+        "first_to_termination": {
+          "count": 488,
+          "mean_ms": 2262.4649118852476,
+          "p95_ms": 2941.191
+        },
+        "first_to_finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        }
+      },
+      {
+        "epoch": 1,
+        "forked": true,
+        "publication_start_seconds": 15,
+        "prior_epoch_outcome": true,
+        "termination": {
+          "count": 5,
+          "mean_ms": 3408.2593334000003,
+          "p95_ms": 3741.741166
+        },
+        "finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        },
+        "first_to_termination": {
+          "count": 5,
+          "mean_ms": 2873.7182,
+          "p95_ms": 3076.347
+        },
+        "first_to_finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        }
+      },
+      {
+        "epoch": 1,
+        "forked": true,
+        "publication_start_seconds": 20,
+        "prior_epoch_outcome": false,
+        "termination": {
+          "count": 483,
+          "mean_ms": 3045.8238288467937,
+          "p95_ms": 3791.840541
+        },
+        "finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        },
+        "first_to_termination": {
+          "count": 483,
+          "mean_ms": 2204.0253809523806,
+          "p95_ms": 2909.69
+        },
+        "first_to_finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        }
+      },
+      {
+        "epoch": 1,
+        "forked": true,
+        "publication_start_seconds": 20,
+        "prior_epoch_outcome": true,
+        "termination": {
+          "count": 2,
+          "mean_ms": 3265.5022915,
+          "p95_ms": 3388.196708
+        },
+        "finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        },
+        "first_to_termination": {
+          "count": 2,
+          "mean_ms": 2362.9405,
+          "p95_ms": 2533.8950000000004
+        },
+        "first_to_finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        }
+      },
+      {
+        "epoch": 1,
+        "forked": true,
+        "publication_start_seconds": 25,
+        "prior_epoch_outcome": false,
+        "termination": {
+          "count": 136,
+          "mean_ms": 1696.524422779412,
+          "p95_ms": 2347.924
+        },
+        "finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        },
+        "first_to_termination": {
+          "count": 136,
+          "mean_ms": 1100.9731838235298,
+          "p95_ms": 1892.849
+        },
+        "first_to_finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        }
+      },
+      {
+        "epoch": 2,
+        "forked": true,
+        "publication_start_seconds": 10,
+        "prior_epoch_outcome": true,
+        "termination": {
+          "count": 10,
+          "mean_ms": 14716.465795799997,
+          "p95_ms": 15135.834292
+        },
+        "finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        },
+        "first_to_termination": {
+          "count": 10,
+          "mean_ms": 148.067,
+          "p95_ms": 162.525
+        },
+        "first_to_finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        }
+      },
+      {
+        "epoch": 2,
+        "forked": true,
+        "publication_start_seconds": 20,
+        "prior_epoch_outcome": true,
+        "termination": {
+          "count": 9,
+          "mean_ms": 7478.982143555556,
+          "p95_ms": 7591.108208
+        },
+        "finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        },
+        "first_to_termination": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        },
+        "first_to_finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        }
+      },
+      {
+        "epoch": 2,
+        "forked": true,
+        "publication_start_seconds": 25,
+        "prior_epoch_outcome": true,
+        "termination": {
+          "count": 78,
+          "mean_ms": 5993.767971641027,
+          "p95_ms": 7400.4825
+        },
+        "finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        },
+        "first_to_termination": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        },
+        "first_to_finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        }
+      }
+    ],
+    "outcome_windows": [
+      {
+        "epoch": 0,
+        "forked": false,
+        "outcome_start_seconds": 0,
+        "window_seconds": 5,
+        "prior_epoch_outcome": false,
+        "termination": {
+          "count": 8210,
+          "mean_ms": 151.19665416479938,
+          "p95_ms": 259.699292,
+          "per_second": 1642.0
+        },
+        "finalization": {
+          "count": 8102,
+          "mean_ms": 166.94644440656592,
+          "p95_ms": 273.514125,
+          "per_second": 1620.4
+        },
+        "first_to_termination": {
+          "count": 8210,
+          "mean_ms": 46.4922660170517,
+          "p95_ms": 92.50800000000001
+        },
+        "first_to_finalization": {
+          "count": 8102,
+          "mean_ms": 62.66978437422968,
+          "p95_ms": 140.201
+        }
+      },
+      {
+        "epoch": 0,
+        "forked": false,
+        "outcome_start_seconds": 5,
+        "window_seconds": 5,
+        "prior_epoch_outcome": false,
+        "termination": {
+          "count": 8992,
+          "mean_ms": 428.7646751306726,
+          "p95_ms": 729.64625,
+          "per_second": 1798.4
+        },
+        "finalization": {
+          "count": 9084,
+          "mean_ms": 487.969453030933,
+          "p95_ms": 781.498625,
+          "per_second": 1816.8
+        },
+        "first_to_termination": {
+          "count": 8992,
+          "mean_ms": 149.11444539590858,
+          "p95_ms": 283.791
+        },
+        "first_to_finalization": {
+          "count": 9084,
+          "mean_ms": 203.39527597974433,
+          "p95_ms": 448.446
+        }
+      },
+      {
+        "epoch": 0,
+        "forked": false,
+        "outcome_start_seconds": 10,
+        "window_seconds": 5,
+        "prior_epoch_outcome": false,
+        "termination": {
+          "count": 7044,
+          "mean_ms": 218.11864677200498,
+          "p95_ms": 423.069667,
+          "per_second": 1408.8
+        },
+        "finalization": {
+          "count": 6931,
+          "mean_ms": 247.0593545763959,
+          "p95_ms": 446.6035,
+          "per_second": 1386.2
+        },
+        "first_to_termination": {
+          "count": 7004,
+          "mean_ms": 73.34651256424863,
+          "p95_ms": 186.894
+        },
+        "first_to_finalization": {
+          "count": 6931,
+          "mean_ms": 103.99401183090485,
+          "p95_ms": 257.487
+        }
+      },
+      {
+        "epoch": 0,
+        "forked": true,
+        "outcome_start_seconds": 0,
+        "window_seconds": 5,
+        "prior_epoch_outcome": false,
+        "termination": {
+          "count": 278,
+          "mean_ms": 1884.945176827338,
+          "p95_ms": 2500.518917,
+          "per_second": 55.6
+        },
+        "finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null,
+          "per_second": 0.0
+        },
+        "first_to_termination": {
+          "count": 278,
+          "mean_ms": 1745.1175719424455,
+          "p95_ms": 2295.233
+        },
+        "first_to_finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        }
+      },
+      {
+        "epoch": 0,
+        "forked": true,
+        "outcome_start_seconds": 5,
+        "window_seconds": 5,
+        "prior_epoch_outcome": false,
+        "termination": {
+          "count": 506,
+          "mean_ms": 2115.310182496047,
+          "p95_ms": 2817.5639170000004,
+          "per_second": 101.2
+        },
+        "finalization": {
+          "count": 6,
+          "mean_ms": 1627.6386110000003,
+          "p95_ms": 2388.3251250000003,
+          "per_second": 1.2
+        },
+        "first_to_termination": {
+          "count": 506,
+          "mean_ms": 1824.3051067193687,
+          "p95_ms": 2446.866
+        },
+        "first_to_finalization": {
+          "count": 6,
+          "mean_ms": 1381.7665,
+          "p95_ms": 2151.177
+        }
+      },
+      {
+        "epoch": 0,
+        "forked": true,
+        "outcome_start_seconds": 10,
+        "window_seconds": 5,
+        "prior_epoch_outcome": false,
+        "termination": {
+          "count": 519,
+          "mean_ms": 1885.895621949904,
+          "p95_ms": 2548.0702499999998,
+          "per_second": 103.8
+        },
+        "finalization": {
+          "count": 2,
+          "mean_ms": 892.2577919999999,
+          "p95_ms": 1250.8007089999999,
+          "per_second": 0.4
+        },
+        "first_to_termination": {
+          "count": 518,
+          "mean_ms": 1728.6886814671814,
+          "p95_ms": 2382.611
+        },
+        "first_to_finalization": {
+          "count": 2,
+          "mean_ms": 805.2444999999999,
+          "p95_ms": 1225.7959999999998
+        }
+      },
+      {
+        "epoch": 0,
+        "forked": true,
+        "outcome_start_seconds": 15,
+        "window_seconds": 5,
+        "prior_epoch_outcome": false,
+        "termination": {
+          "count": 50,
+          "mean_ms": 2881.3685583600013,
+          "p95_ms": 4194.813292,
+          "per_second": 10.0
+        },
+        "finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null,
+          "per_second": 0.0
+        },
+        "first_to_termination": {
+          "count": 41,
+          "mean_ms": 2509.8857073170734,
+          "p95_ms": 2660.044
+        },
+        "first_to_finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        }
+      },
+      {
+        "epoch": 0,
+        "forked": true,
+        "outcome_start_seconds": 20,
+        "window_seconds": 5,
+        "prior_epoch_outcome": false,
+        "termination": {
+          "count": 11,
+          "mean_ms": 7380.800602272727,
+          "p95_ms": 10435.613459,
+          "per_second": 2.2
+        },
+        "finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null,
+          "per_second": 0.0
+        },
+        "first_to_termination": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        },
+        "first_to_finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        }
+      },
+      {
+        "epoch": 0,
+        "forked": true,
+        "outcome_start_seconds": 25,
+        "window_seconds": 5,
+        "prior_epoch_outcome": false,
+        "termination": {
+          "count": 1,
+          "mean_ms": 4187.153541,
+          "p95_ms": 4187.153541,
+          "per_second": 0.2
+        },
+        "finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null,
+          "per_second": 0.0
+        },
+        "first_to_termination": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        },
+        "first_to_finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        }
+      },
+      {
+        "epoch": 1,
+        "forked": false,
+        "outcome_start_seconds": 10,
+        "window_seconds": 5,
+        "prior_epoch_outcome": false,
+        "termination": {
+          "count": 2002,
+          "mean_ms": 407.08289189860125,
+          "p95_ms": 600.3127910000001,
+          "per_second": 400.4
+        },
+        "finalization": {
+          "count": 1787,
+          "mean_ms": 477.2639880553991,
+          "p95_ms": 688.4298749999999,
+          "per_second": 357.4
+        },
+        "first_to_termination": {
+          "count": 2002,
+          "mean_ms": 138.99994305694318,
+          "p95_ms": 328.58700000000005
+        },
+        "first_to_finalization": {
+          "count": 1787,
+          "mean_ms": 191.66480358142246,
+          "p95_ms": 403.089
+        }
+      },
+      {
+        "epoch": 1,
+        "forked": false,
+        "outcome_start_seconds": 10,
+        "window_seconds": 5,
+        "prior_epoch_outcome": true,
+        "termination": {
+          "count": 72,
+          "mean_ms": 560.0717048472222,
+          "p95_ms": 940.064625,
+          "per_second": 14.4
+        },
+        "finalization": {
+          "count": 71,
+          "mean_ms": 713.167061661972,
+          "p95_ms": 1402.5453340000001,
+          "per_second": 14.2
+        },
+        "first_to_termination": {
+          "count": 72,
+          "mean_ms": 98.958263888889,
+          "p95_ms": 208.828
+        },
+        "first_to_finalization": {
+          "count": 71,
+          "mean_ms": 252.20636619718303,
+          "p95_ms": 576.6850000000001
+        }
+      },
+      {
+        "epoch": 1,
+        "forked": false,
+        "outcome_start_seconds": 15,
+        "window_seconds": 5,
+        "prior_epoch_outcome": false,
+        "termination": {
+          "count": 7714,
+          "mean_ms": 815.8469865036307,
+          "p95_ms": 1170.832458,
+          "per_second": 1542.8
+        },
+        "finalization": {
+          "count": 7811,
+          "mean_ms": 915.7498917548301,
+          "p95_ms": 1351.7977079999998,
+          "per_second": 1562.2
+        },
+        "first_to_termination": {
+          "count": 7714,
+          "mean_ms": 187.53495864661227,
+          "p95_ms": 475.734
+        },
+        "first_to_finalization": {
+          "count": 7811,
+          "mean_ms": 274.2798831135572,
+          "p95_ms": 513.805
+        }
+      },
+      {
+        "epoch": 1,
+        "forked": false,
+        "outcome_start_seconds": 15,
+        "window_seconds": 5,
+        "prior_epoch_outcome": true,
+        "termination": {
+          "count": 5,
+          "mean_ms": 6855.4515168,
+          "p95_ms": 6870.734292,
+          "per_second": 1.0
+        },
+        "finalization": {
+          "count": 1,
+          "mean_ms": 1924.3575,
+          "p95_ms": 1924.3575,
+          "per_second": 0.2
+        },
+        "first_to_termination": {
+          "count": 5,
+          "mean_ms": 5824.0978000000005,
+          "p95_ms": 5906.597
+        },
+        "first_to_finalization": {
+          "count": 1,
+          "mean_ms": 659.762,
+          "p95_ms": 659.762
+        }
+      },
+      {
+        "epoch": 1,
+        "forked": false,
+        "outcome_start_seconds": 20,
+        "window_seconds": 5,
+        "prior_epoch_outcome": false,
+        "termination": {
+          "count": 8667,
+          "mean_ms": 1102.2287167654363,
+          "p95_ms": 1470.444375,
+          "per_second": 1733.4
+        },
+        "finalization": {
+          "count": 8692,
+          "mean_ms": 1221.9075783970338,
+          "p95_ms": 1613.974,
+          "per_second": 1738.4
+        },
+        "first_to_termination": {
+          "count": 8667,
+          "mean_ms": 238.53455209415148,
+          "p95_ms": 504.957
+        },
+        "first_to_finalization": {
+          "count": 8692,
+          "mean_ms": 362.4032696732647,
+          "p95_ms": 643.9209999999999
+        }
+      },
+      {
+        "epoch": 1,
+        "forked": false,
+        "outcome_start_seconds": 20,
+        "window_seconds": 5,
+        "prior_epoch_outcome": true,
+        "termination": {
+          "count": 15,
+          "mean_ms": 7650.721327666665,
+          "p95_ms": 7674.067083,
+          "per_second": 3.0
+        },
+        "finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null,
+          "per_second": 0.0
+        },
+        "first_to_termination": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        },
+        "first_to_finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        }
+      },
+      {
+        "epoch": 1,
+        "forked": false,
+        "outcome_start_seconds": 25,
+        "window_seconds": 5,
+        "prior_epoch_outcome": false,
+        "termination": {
+          "count": 4730,
+          "mean_ms": 1260.59367424165,
+          "p95_ms": 1624.114292,
+          "per_second": 946.0
+        },
+        "finalization": {
+          "count": 4823,
+          "mean_ms": 1377.595439413226,
+          "p95_ms": 1759.6485,
+          "per_second": 964.6
+        },
+        "first_to_termination": {
+          "count": 4730,
+          "mean_ms": 366.9984107822425,
+          "p95_ms": 632.605
+        },
+        "first_to_finalization": {
+          "count": 4823,
+          "mean_ms": 532.2780874974226,
+          "p95_ms": 975.99
+        }
+      },
+      {
+        "epoch": 1,
+        "forked": false,
+        "outcome_start_seconds": 25,
+        "window_seconds": 5,
+        "prior_epoch_outcome": true,
+        "termination": {
+          "count": 33,
+          "mean_ms": 11773.739957000002,
+          "p95_ms": 11960.399708,
+          "per_second": 6.6
+        },
+        "finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null,
+          "per_second": 0.0
+        },
+        "first_to_termination": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        },
+        "first_to_finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        }
+      },
+      {
+        "epoch": 1,
+        "forked": true,
+        "outcome_start_seconds": 10,
+        "window_seconds": 5,
+        "prior_epoch_outcome": false,
+        "termination": {
+          "count": 8,
+          "mean_ms": 1183.2878177500002,
+          "p95_ms": 1397.20675,
+          "per_second": 1.6
+        },
+        "finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null,
+          "per_second": 0.0
+        },
+        "first_to_termination": {
+          "count": 8,
+          "mean_ms": 866.64725,
+          "p95_ms": 1169.953
+        },
+        "first_to_finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        }
+      },
+      {
+        "epoch": 1,
+        "forked": true,
+        "outcome_start_seconds": 10,
+        "window_seconds": 5,
+        "prior_epoch_outcome": true,
+        "termination": {
+          "count": 17,
+          "mean_ms": 1518.1414166470586,
+          "p95_ms": 2421.960833,
+          "per_second": 3.4
+        },
+        "finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null,
+          "per_second": 0.0
+        },
+        "first_to_termination": {
+          "count": 9,
+          "mean_ms": 208.39977777777779,
+          "p95_ms": 412.678
+        },
+        "first_to_finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        }
+      },
+      {
+        "epoch": 1,
+        "forked": true,
+        "outcome_start_seconds": 15,
+        "window_seconds": 5,
+        "prior_epoch_outcome": false,
+        "termination": {
+          "count": 337,
+          "mean_ms": 2728.4703549851624,
+          "p95_ms": 3471.018083,
+          "per_second": 67.4
+        },
+        "finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null,
+          "per_second": 0.0
+        },
+        "first_to_termination": {
+          "count": 337,
+          "mean_ms": 2173.276267062316,
+          "p95_ms": 2782.377
+        },
+        "first_to_finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        }
+      },
+      {
+        "epoch": 1,
+        "forked": true,
+        "outcome_start_seconds": 15,
+        "window_seconds": 5,
+        "prior_epoch_outcome": true,
+        "termination": {
+          "count": 125,
+          "mean_ms": 5486.937669336001,
+          "p95_ms": 7617.108583,
+          "per_second": 25.0
+        },
+        "finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null,
+          "per_second": 0.0
+        },
+        "first_to_termination": {
+          "count": 26,
+          "mean_ms": 2157.406115384615,
+          "p95_ms": 2911.524
+        },
+        "first_to_finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        }
+      },
+      {
+        "epoch": 1,
+        "forked": true,
+        "outcome_start_seconds": 20,
+        "window_seconds": 5,
+        "prior_epoch_outcome": false,
+        "termination": {
+          "count": 468,
+          "mean_ms": 3134.343043579064,
+          "p95_ms": 3816.6523749999997,
+          "per_second": 93.6
+        },
+        "finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null,
+          "per_second": 0.0
+        },
+        "first_to_termination": {
+          "count": 468,
+          "mean_ms": 2211.922245726495,
+          "p95_ms": 2895.5899999999997
+        },
+        "first_to_finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        }
+      },
+      {
+        "epoch": 1,
+        "forked": true,
+        "outcome_start_seconds": 20,
+        "window_seconds": 5,
+        "prior_epoch_outcome": true,
+        "termination": {
+          "count": 20,
+          "mean_ms": 6813.9618374500005,
+          "p95_ms": 7738.7422910000005,
+          "per_second": 4.0
+        },
+        "finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null,
+          "per_second": 0.0
+        },
+        "first_to_termination": {
+          "count": 3,
+          "mean_ms": 2600.742666666667,
+          "p95_ms": 3076.347
+        },
+        "first_to_finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        }
+      },
+      {
+        "epoch": 1,
+        "forked": true,
+        "outcome_start_seconds": 25,
+        "window_seconds": 5,
+        "prior_epoch_outcome": false,
+        "termination": {
+          "count": 463,
+          "mean_ms": 2697.102537514041,
+          "p95_ms": 3781.852333,
+          "per_second": 92.6
+        },
+        "finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null,
+          "per_second": 0.0
+        },
+        "first_to_termination": {
+          "count": 463,
+          "mean_ms": 1940.5215701943837,
+          "p95_ms": 2906.656
+        },
+        "first_to_finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        }
+      },
+      {
+        "epoch": 2,
+        "forked": true,
+        "outcome_start_seconds": 25,
+        "window_seconds": 5,
+        "prior_epoch_outcome": true,
+        "termination": {
+          "count": 26,
+          "mean_ms": 6920.0814311153845,
+          "p95_ms": 14808.980416,
+          "per_second": 5.2
+        },
+        "finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null,
+          "per_second": 0.0
+        },
+        "first_to_termination": {
+          "count": 10,
+          "mean_ms": 148.067,
+          "p95_ms": 162.525
+        },
+        "first_to_finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        }
+      },
+      {
+        "epoch": 2,
+        "forked": true,
+        "outcome_start_seconds": 30,
+        "window_seconds": 5,
+        "prior_epoch_outcome": true,
+        "termination": {
+          "count": 71,
+          "mean_ms": 7071.370166605634,
+          "p95_ms": 7470.155625,
+          "per_second": 14.2
+        },
+        "finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null,
+          "per_second": 0.0
+        },
+        "first_to_termination": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        },
+        "first_to_finalization": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null
+        }
+      }
+    ],
+    "cohorts": [
+      {
+        "epoch": 0,
+        "forked": false,
+        "prior_epoch_outcome": false,
+        "terminated": {
+          "publication": {
+            "count": 24246,
+            "mean_ms": 273.57932183989055,
+            "p95_ms": 574.8441250000001,
+            "max_ms": 2831.845709
+          },
+          "first_vote": {
+            "count": 24206,
+            "mean_ms": 92.38443241344962,
+            "p95_ms": 243.234,
+            "max_ms": 2306.784
+          },
+          "before_first_plus_delivery": {
+            "count": 24206,
+            "mean_ms": 181.09196246095874,
+            "p95_ms": 448.094,
+            "max_ms": 713.757542
+          }
+        },
+        "finalized": {
+          "publication": {
+            "count": 24117,
+            "mean_ms": 310.88787952415436,
+            "p95_ms": 669.693125,
+            "max_ms": 2934.842084
+          },
+          "first_vote": {
+            "count": 24117,
+            "mean_ms": 127.55217381929889,
+            "p95_ms": 301.62899999999996,
+            "max_ms": 2390.767
+          },
+          "before_first_plus_delivery": {
+            "count": 24117,
+            "mean_ms": 183.33570570485531,
+            "p95_ms": 460.813375,
+            "max_ms": 853.6380839999999
+          }
+        }
+      },
+      {
+        "epoch": 0,
+        "forked": false,
+        "prior_epoch_outcome": true,
+        "terminated": {
+          "publication": {
+            "count": 0,
+            "mean_ms": null,
+            "p95_ms": null,
+            "max_ms": null
+          },
+          "first_vote": {
+            "count": 0,
+            "mean_ms": null,
+            "p95_ms": null,
+            "max_ms": null
+          },
+          "before_first_plus_delivery": {
+            "count": 0,
+            "mean_ms": null,
+            "p95_ms": null,
+            "max_ms": null
+          }
+        },
+        "finalized": {
+          "publication": {
+            "count": 0,
+            "mean_ms": null,
+            "p95_ms": null,
+            "max_ms": null
+          },
+          "first_vote": {
+            "count": 0,
+            "mean_ms": null,
+            "p95_ms": null,
+            "max_ms": null
+          },
+          "before_first_plus_delivery": {
+            "count": 0,
+            "mean_ms": null,
+            "p95_ms": null,
+            "max_ms": null
+          }
+        }
+      },
+      {
+        "epoch": 0,
+        "forked": true,
+        "prior_epoch_outcome": false,
+        "terminated": {
+          "publication": {
+            "count": 1365,
+            "mean_ms": 2053.1765035728918,
+            "p95_ms": 2815.763208,
+            "max_ms": 10435.613459
+          },
+          "first_vote": {
+            "count": 1343,
+            "mean_ms": 1791.963603871932,
+            "p95_ms": 2439.597,
+            "max_ms": 5411.05
+          },
+          "before_first_plus_delivery": {
+            "count": 1343,
+            "mean_ms": 207.33897133432617,
+            "p95_ms": 485.101917,
+            "max_ms": 812.623625
+          }
+        },
+        "finalized": {
+          "publication": {
+            "count": 8,
+            "mean_ms": 1443.7934062499999,
+            "p95_ms": 2388.3251250000003,
+            "max_ms": 2388.3251250000003
+          },
+          "first_vote": {
+            "count": 8,
+            "mean_ms": 1237.636,
+            "p95_ms": 2151.177,
+            "max_ms": 2151.177
+          },
+          "before_first_plus_delivery": {
+            "count": 8,
+            "mean_ms": 206.15740625000004,
+            "p95_ms": 393.688458,
+            "max_ms": 393.688458
+          }
+        }
+      },
+      {
+        "epoch": 0,
+        "forked": true,
+        "prior_epoch_outcome": true,
+        "terminated": {
+          "publication": {
+            "count": 0,
+            "mean_ms": null,
+            "p95_ms": null,
+            "max_ms": null
+          },
+          "first_vote": {
+            "count": 0,
+            "mean_ms": null,
+            "p95_ms": null,
+            "max_ms": null
+          },
+          "before_first_plus_delivery": {
+            "count": 0,
+            "mean_ms": null,
+            "p95_ms": null,
+            "max_ms": null
+          }
+        },
+        "finalized": {
+          "publication": {
+            "count": 0,
+            "mean_ms": null,
+            "p95_ms": null,
+            "max_ms": null
+          },
+          "first_vote": {
+            "count": 0,
+            "mean_ms": null,
+            "p95_ms": null,
+            "max_ms": null
+          },
+          "before_first_plus_delivery": {
+            "count": 0,
+            "mean_ms": null,
+            "p95_ms": null,
+            "max_ms": null
+          }
+        }
+      },
+      {
+        "epoch": 1,
+        "forked": false,
+        "prior_epoch_outcome": false,
+        "terminated": {
+          "publication": {
+            "count": 23113,
+            "mean_ms": 978.8451508172446,
+            "p95_ms": 1503.109708,
+            "max_ms": 1952.4554589999998
+          },
+          "first_vote": {
+            "count": 23113,
+            "mean_ms": 239.18158625015792,
+            "p95_ms": 549.246,
+            "max_ms": 1190.895
+          },
+          "before_first_plus_delivery": {
+            "count": 23113,
+            "mean_ms": 739.6635645670843,
+            "p95_ms": 1201.9964169999998,
+            "max_ms": 1598.893417
+          }
+        },
+        "finalized": {
+          "publication": {
+            "count": 23113,
+            "mean_ms": 1093.3568393055432,
+            "p95_ms": 1643.0790829999999,
+            "max_ms": 2074.2846250000002
+          },
+          "first_vote": {
+            "count": 23113,
+            "mean_ms": 354.8691908017122,
+            "p95_ms": 689.234,
+            "max_ms": 1272.213
+          },
+          "before_first_plus_delivery": {
+            "count": 23113,
+            "mean_ms": 738.4876485038335,
+            "p95_ms": 1183.0767090000002,
+            "max_ms": 1649.9097080000001
+          }
+        }
+      },
+      {
+        "epoch": 1,
+        "forked": false,
+        "prior_epoch_outcome": true,
+        "terminated": {
+          "publication": {
+            "count": 125,
+            "mean_ms": 4623.173270632,
+            "p95_ms": 11783.616583,
+            "max_ms": 11960.49625
+          },
+          "first_vote": {
+            "count": 77,
+            "mean_ms": 470.7205714285716,
+            "p95_ms": 5905.005,
+            "max_ms": 5906.597
+          },
+          "before_first_plus_delivery": {
+            "count": 77,
+            "mean_ms": 498.14203029870134,
+            "p95_ms": 965.679458,
+            "max_ms": 1295.804209
+          }
+        },
+        "finalized": {
+          "publication": {
+            "count": 72,
+            "mean_ms": 729.9891510833335,
+            "p95_ms": 1438.502041,
+            "max_ms": 1924.3575
+          },
+          "first_vote": {
+            "count": 72,
+            "mean_ms": 257.866861111111,
+            "p95_ms": 576.6850000000001,
+            "max_ms": 756.004
+          },
+          "before_first_plus_delivery": {
+            "count": 72,
+            "mean_ms": 472.12228997222223,
+            "p95_ms": 1036.385334,
+            "max_ms": 1264.5955
+          }
+        }
+      },
+      {
+        "epoch": 1,
+        "forked": true,
+        "prior_epoch_outcome": false,
+        "terminated": {
+          "publication": {
+            "count": 1276,
+            "mean_ms": 2856.263190780562,
+            "p95_ms": 3746.8954160000003,
+            "max_ms": 6679.654917
+          },
+          "first_vote": {
+            "count": 1276,
+            "mean_ms": 2094.8028040752383,
+            "p95_ms": 2895.5899999999997,
+            "max_ms": 5865.29
+          },
+          "before_first_plus_delivery": {
+            "count": 1276,
+            "mean_ms": 761.4603867053285,
+            "p95_ms": 1191.55675,
+            "max_ms": 1648.903625
+          }
+        },
+        "finalized": {
+          "publication": {
+            "count": 0,
+            "mean_ms": null,
+            "p95_ms": null,
+            "max_ms": null
+          },
+          "first_vote": {
+            "count": 0,
+            "mean_ms": null,
+            "p95_ms": null,
+            "max_ms": null
+          },
+          "before_first_plus_delivery": {
+            "count": 0,
+            "mean_ms": null,
+            "p95_ms": null,
+            "max_ms": null
+          }
+        }
+      },
+      {
+        "epoch": 1,
+        "forked": true,
+        "prior_epoch_outcome": true,
+        "terminated": {
+          "publication": {
+            "count": 162,
+            "mean_ms": 5234.28919443827,
+            "p95_ms": 7685.180125000001,
+            "max_ms": 7759.707209
+          },
+          "first_vote": {
+            "count": 38,
+            "mean_ms": 1730.7996052631577,
+            "p95_ms": 2918.272,
+            "max_ms": 3076.347
+          },
+          "before_first_plus_delivery": {
+            "count": 38,
+            "mean_ms": 858.2934737631579,
+            "p95_ms": 1306.3577500000001,
+            "max_ms": 1495.518459
+          }
+        },
+        "finalized": {
+          "publication": {
+            "count": 0,
+            "mean_ms": null,
+            "p95_ms": null,
+            "max_ms": null
+          },
+          "first_vote": {
+            "count": 0,
+            "mean_ms": null,
+            "p95_ms": null,
+            "max_ms": null
+          },
+          "before_first_plus_delivery": {
+            "count": 0,
+            "mean_ms": null,
+            "p95_ms": null,
+            "max_ms": null
+          }
+        }
+      }
+    ],
+    "pr": 0,
+    "latency_basis": "first publication to PR0 WebSocket outcome receipt",
+    "rows": [
+      {
+        "epoch": 0,
+        "forked": false,
+        "terminated": {
+          "count": 24246,
+          "mean_ms": 273.57932183989055,
+          "p95_ms": 574.8441250000001,
+          "max_ms": 2831.845709
+        },
+        "finalized": {
+          "count": 24117,
+          "mean_ms": 310.88787952415436,
+          "p95_ms": 669.693125,
+          "max_ms": 2934.842084
+        }
+      },
+      {
+        "epoch": 0,
+        "forked": true,
+        "terminated": {
+          "count": 1365,
+          "mean_ms": 2053.1765035728918,
+          "p95_ms": 2815.763208,
+          "max_ms": 10435.613459
+        },
+        "finalized": {
+          "count": 8,
+          "mean_ms": 1443.7934062499999,
+          "p95_ms": 2388.3251250000003,
+          "max_ms": 2388.3251250000003
+        }
+      },
+      {
+        "epoch": 1,
+        "forked": false,
+        "terminated": {
+          "count": 23238,
+          "mean_ms": 998.4484305735419,
+          "p95_ms": 1508.214792,
+          "max_ms": 11960.49625
+        },
+        "finalized": {
+          "count": 23185,
+          "mean_ms": 1092.228416896572,
+          "p95_ms": 1642.972875,
+          "max_ms": 2074.2846250000002
+        }
+      },
+      {
+        "epoch": 1,
+        "forked": true,
+        "terminated": {
+          "count": 1438,
+          "mean_ms": 3124.1631995375483,
+          "p95_ms": 6872.4237920000005,
+          "max_ms": 7759.707209
+        },
+        "finalized": {
+          "count": 0,
+          "mean_ms": null,
+          "p95_ms": null,
+          "max_ms": null
+        }
+      }
+    ]
+  }
+}

@@ -204,6 +204,11 @@ impl NodeEventHandler for NodeEventProcessor {
                 }
             }
             NodeEvent::BlockConfirmed(block, election) => {
+                // Avoid registering an LMDB reader for every confirmation when
+                // no client consumes this topic.
+                if !self.server.any_subscriber(Topic::Confirmation) {
+                    return;
+                }
                 let amount = self
                     .ledger
                     .any()
@@ -228,5 +233,54 @@ impl NodeEventHandler for NodeEventProcessor {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rsnano_ledger::test_helpers::UnsavedBlockLatticeBuilder;
+    use rsnano_node::consensus::election::{ConfirmationType, ConfirmedElection};
+    use rsnano_wallet::Wallets;
+
+    #[test]
+    fn unsubscribed_confirmation_does_not_read_the_ledger() {
+        let ledger = Arc::new(Ledger::new_null());
+        let mut lattice = UnsavedBlockLatticeBuilder::new();
+        ledger.process_one(&lattice.genesis().send(100, 1)).unwrap();
+        let block = ledger.process_one(&lattice.genesis().send(200, 1)).unwrap();
+        // Make this in-memory ledger fail if the previous balance is fetched:
+        // the block index remains present, but its backing payload is absent.
+        let mut tx = ledger.store.begin_write();
+        // Genesis has ID 0 and the first send has ID 1 in this fresh ledger.
+        tx.delete(
+            ledger.store.env.open_db(Some("block_data")).unwrap(),
+            &1u64.to_be_bytes(),
+            None,
+        )
+        .unwrap();
+        tx.commit();
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                ledger.any().block_amount_for(&block)
+            }))
+            .is_err()
+        );
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let server = Arc::new(WebsocketListener::new(
+            "[::1]:0".parse().unwrap(),
+            Arc::new(Wallets::new_null()),
+            ledger.clone(),
+            runtime.handle().clone(),
+        ));
+        assert_eq!(server.subscriber_count(Topic::Confirmation), 0);
+        let mut processor = NodeEventProcessor { server, ledger };
+        let election =
+            ConfirmedElection::new(block.clone(), ConfirmationType::InactiveConfirmationHeight);
+        processor.handle(&NodeEvent::BlockConfirmed(block, election));
     }
 }

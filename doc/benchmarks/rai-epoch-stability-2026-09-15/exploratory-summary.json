@@ -1,0 +1,226 @@
+{
+  "description": "Compact observations from exploratory runs; the one-worker configuration is rejected and the profile run is diagnostic.",
+  "runs": [
+    {
+      "run": "low-risk-01",
+      "state": "complete",
+      "profile": false,
+      "block_processor_threads": null,
+      "exit_code": 0,
+      "data_deleted": true,
+      "two_closes_agree": true,
+      "nonfork_finalized_by_epoch": {
+        "0": {
+          "count": 24205,
+          "mean_ms": 807.2633404769709,
+          "p95_ms": 1318.096292,
+          "max_ms": 2802.446792
+        },
+        "1": {
+          "count": 23336,
+          "mean_ms": 2185.4173807645643,
+          "p95_ms": 3163.07025,
+          "max_ms": 7882.397542
+        }
+      },
+      "epoch1_over_epoch0_mean": 2.7071926485269504,
+      "nonfork_finalized_per_second": {
+        "5_10s": 1510.8,
+        "15_20s": 1575.4,
+        "20_25s": 1586.0,
+        "15_25s": 1580.7
+      },
+      "pr0_epoch_state_changes": [
+        {
+          "seconds_after_schedule": -18.875,
+          "state": {
+            "closed_epochs": {},
+            "current_epoch": "0"
+          }
+        },
+        {
+          "seconds_after_schedule": 15.38,
+          "state": {
+            "draining_epoch": "0",
+            "closed_epochs": {},
+            "current_epoch": "1"
+          }
+        },
+        {
+          "seconds_after_schedule": 27.998,
+          "state": {
+            "closed_epochs": {
+              "0": "086618FDAA2A0E970DAC189BE787028CE1F2C81DCF212C42A142BFFDE11371E1"
+            },
+            "current_epoch": "1"
+          }
+        },
+        {
+          "seconds_after_schedule": 30.012,
+          "state": {
+            "draining_epoch": "1",
+            "closed_epochs": {
+              "0": "086618FDAA2A0E970DAC189BE787028CE1F2C81DCF212C42A142BFFDE11371E1"
+            },
+            "current_epoch": "2"
+          }
+        },
+        {
+          "seconds_after_schedule": 38.044,
+          "state": {
+            "closed_epochs": {
+              "0": "086618FDAA2A0E970DAC189BE787028CE1F2C81DCF212C42A142BFFDE11371E1",
+              "1": "ACE2A57F24E46BC7E0F183048F5E6C021AB57FA205914A43EFB661BD6E2439C8"
+            },
+            "current_epoch": "2"
+          }
+        }
+      ],
+      "six_node_ps_cpu_percent_sample_mean": {
+        "5_10s": null,
+        "15_25s": null
+      }
+    },
+    {
+      "run": "staged-profile",
+      "state": "complete",
+      "profile": true,
+      "block_processor_threads": null,
+      "exit_code": 0,
+      "data_deleted": true,
+      "two_closes_agree": true,
+      "nonfork_finalized_by_epoch": {
+        "0": {
+          "count": 24279,
+          "mean_ms": 405.25892910515154,
+          "p95_ms": 736.951917,
+          "max_ms": 2520.864334
+        },
+        "1": {
+          "count": 23182,
+          "mean_ms": 1542.6618306605146,
+          "p95_ms": 2474.943916,
+          "max_ms": 3929.575708
+        }
+      },
+      "epoch1_over_epoch0_mean": 3.806607874296198,
+      "nonfork_finalized_per_second": {
+        "5_10s": 1931.8,
+        "15_20s": 1764.6,
+        "20_25s": 1283.4,
+        "15_25s": 1524.0
+      },
+      "pr0_epoch_state_changes": [
+        {
+          "seconds_after_schedule": -18.754,
+          "state": {
+            "closed_epochs": {},
+            "current_epoch": "0"
+          }
+        },
+        {
+          "seconds_after_schedule": 13.968,
+          "state": {
+            "draining_epoch": "0",
+            "closed_epochs": {},
+            "current_epoch": "1"
+          }
+        },
+        {
+          "seconds_after_schedule": 28.621,
+          "state": {
+            "draining_epoch": "1",
+            "closed_epochs": {
+              "0": "163C3E6A67EA13EB3B1B65698A215E5360B1196668AE8BCF66B8D645D5188802"
+            },
+            "current_epoch": "2"
+          }
+        },
+        {
+          "seconds_after_schedule": 50.933,
+          "state": {
+            "closed_epochs": {
+              "0": "163C3E6A67EA13EB3B1B65698A215E5360B1196668AE8BCF66B8D645D5188802",
+              "1": "558B6D5E8C243DEE45BF743709135E88733370D6583838E24A0D6F653E6342CC"
+            },
+            "current_epoch": "2"
+          }
+        }
+      ],
+      "six_node_ps_cpu_percent_sample_mean": {
+        "5_10s": 596.4333333333333,
+        "15_25s": 581.48
+      }
+    },
+    {
+      "run": "final-one-worker-01",
+      "state": "complete",
+      "profile": false,
+      "block_processor_threads": 1,
+      "exit_code": 1,
+      "data_deleted": true,
+      "two_closes_agree": false,
+      "nonfork_finalized_by_epoch": {
+        "0": {
+          "count": 23963,
+          "mean_ms": 1343.08594305383,
+          "p95_ms": 3777.3482080000003,
+          "max_ms": 5629.858167
+        },
+        "1": {
+          "count": 23005,
+          "mean_ms": 5824.635014965417,
+          "p95_ms": 13568.647832999999,
+          "max_ms": 16739.333541
+        }
+      },
+      "epoch1_over_epoch0_mean": 4.3367552501679105,
+      "nonfork_finalized_per_second": {
+        "5_10s": 1463.8,
+        "15_20s": 1213.0,
+        "20_25s": 976.4,
+        "15_25s": 1094.7
+      },
+      "pr0_epoch_state_changes": [
+        {
+          "seconds_after_schedule": -17.719,
+          "state": {
+            "closed_epochs": {},
+            "current_epoch": "0"
+          }
+        },
+        {
+          "seconds_after_schedule": 17.051,
+          "state": {
+            "draining_epoch": "0",
+            "closed_epochs": {},
+            "current_epoch": "1"
+          }
+        },
+        {
+          "seconds_after_schedule": 29.312,
+          "state": {
+            "closed_epochs": {
+              "0": "9EBFE6FAD8B14D101B049187D4F7A94041B095DF027C3093341CD6495A60D100"
+            },
+            "current_epoch": "1"
+          }
+        },
+        {
+          "seconds_after_schedule": 35.705,
+          "state": {
+            "draining_epoch": "1",
+            "closed_epochs": {
+              "0": "9EBFE6FAD8B14D101B049187D4F7A94041B095DF027C3093341CD6495A60D100"
+            },
+            "current_epoch": "2"
+          }
+        }
+      ],
+      "six_node_ps_cpu_percent_sample_mean": {
+        "5_10s": 609.35,
+        "15_25s": 625.42
+      }
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "run": "writers-noepoch-control",
+  "state": "complete",
+  "profile": false,
+  "block_processor_threads": null,
+  "vote_generator_delay_ms": null,
+  "epochs_enabled": false,
+  "exit_code": 0,
+  "data_deleted": true,
+  "two_closes_agree": null,
+  "nonfork_finalized_by_epoch": {
+    "0": {
+      "count": 47515,
+      "mean_ms": 250.68553627797488,
+      "p95_ms": 482.578417,
+      "max_ms": 2381.1880419999998
+    }
+  },
+  "nonfork_finalized_per_second": {
+    "5_10s": 1806.8,
+    "15_20s": 1845.0,
+    "20_25s": 1726.2,
+    "15_25s": 1785.6
+  },
+  "workload_anchor_basis": "starting_with_log",
+  "pr0_epoch_state_changes": [
+    {
+      "seconds_after_schedule": -16.866972900390625,
+      "state": {
+        "closed_epochs": {},
+        "current_epoch": "0"
+      }
+    }
+  ],
+  "six_node_ps_cpu_percent_sample_mean": {
+    "5_10s": 583.5333333333333,
+    "15_25s": 601.5
+  }
+}

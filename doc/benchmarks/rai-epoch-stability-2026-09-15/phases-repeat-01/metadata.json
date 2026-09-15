@@ -1,0 +1,43 @@
+{
+  "command": [
+    "/Users/ruimorais/rsnano-node/target/nanospam-stability-20260915/phases-bin/nanospam",
+    "--prs",
+    "6",
+    "--no-prio",
+    "--blocks",
+    "50000",
+    "--accounts",
+    "50000",
+    "--rate",
+    "2000",
+    "--fork-percentage",
+    "5",
+    "--data-dir",
+    "/Users/ruimorais/rsnano-node/target/nanospam-stability-20260915/phases-repeat-01-data-5not0_c9",
+    "--epoch-terminated-elections",
+    "25000",
+    "--closed-epochs",
+    "2",
+    "--close-timeout",
+    "240"
+  ],
+  "profile": false,
+  "binaries": {
+    "nanospam": "5a476df0b3095fc8367624a1f55b751d56b94086087af31fc8b3b1a65ed1b3f8",
+    "rsnano": "0fcc45714bdb879aa20fc8f7239a162e051778f5bfd9e5d069a3211af888d4c1"
+  },
+  "block_processor_threads": null,
+  "vote_processor_threads": null,
+  "no_epochs": false,
+  "exit_code": 0,
+  "data_deleted": true,
+  "nodes_by_pr": {
+    "0": 69157,
+    "1": 69160,
+    "2": 69162,
+    "3": 69163,
+    "4": 69166,
+    "5": 69168
+  },
+  "wall_seconds": 81.81495870800063
+}

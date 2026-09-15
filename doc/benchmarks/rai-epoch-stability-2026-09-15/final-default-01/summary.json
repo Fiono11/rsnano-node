@@ -1,0 +1,80 @@
+{
+  "run": "final-default-01",
+  "state": "complete",
+  "profile": false,
+  "block_processor_threads": null,
+  "exit_code": 0,
+  "data_deleted": true,
+  "two_closes_agree": true,
+  "nonfork_finalized_by_epoch": {
+    "0": {
+      "count": 24096,
+      "mean_ms": 316.270293786024,
+      "p95_ms": 601.154,
+      "max_ms": 2523.0975839999996
+    },
+    "1": {
+      "count": 23410,
+      "mean_ms": 991.607038071209,
+      "p95_ms": 1676.1580000000001,
+      "max_ms": 2472.652541
+    }
+  },
+  "epoch1_over_epoch0_mean": 3.135315132511595,
+  "nonfork_finalized_per_second": {
+    "5_10s": 1972.2,
+    "15_20s": 1629.4,
+    "20_25s": 1568.6,
+    "15_25s": 1599.0
+  },
+  "pr0_epoch_state_changes": [
+    {
+      "seconds_after_schedule": -17.817,
+      "state": {
+        "closed_epochs": {},
+        "current_epoch": "0"
+      }
+    },
+    {
+      "seconds_after_schedule": 14.967,
+      "state": {
+        "draining_epoch": "0",
+        "closed_epochs": {},
+        "current_epoch": "1"
+      }
+    },
+    {
+      "seconds_after_schedule": 25.333,
+      "state": {
+        "closed_epochs": {
+          "0": "11F2368C29FC00C3430525E374746EF664B7733FD41C71ABEA5AE46ACCB6CD26"
+        },
+        "current_epoch": "1"
+      }
+    },
+    {
+      "seconds_after_schedule": 27.698,
+      "state": {
+        "draining_epoch": "1",
+        "closed_epochs": {
+          "0": "11F2368C29FC00C3430525E374746EF664B7733FD41C71ABEA5AE46ACCB6CD26"
+        },
+        "current_epoch": "2"
+      }
+    },
+    {
+      "seconds_after_schedule": 31.758,
+      "state": {
+        "closed_epochs": {
+          "0": "11F2368C29FC00C3430525E374746EF664B7733FD41C71ABEA5AE46ACCB6CD26",
+          "1": "FC3573072AF1E1EC1AB06B7104527ACD2A36C101802EA56FB4F1CDC0F2FA83CC"
+        },
+        "current_epoch": "2"
+      }
+    }
+  ],
+  "six_node_ps_cpu_percent_sample_mean": {
+    "5_10s": 589.85,
+    "15_25s": 591.175
+  }
+}

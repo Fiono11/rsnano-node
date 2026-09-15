@@ -184,6 +184,17 @@ impl NanoSpamApp {
 
         info!("Starting with {} BPS", logic.lock().unwrap().current_bps);
 
+        let clock_before = self.clock.now();
+        let unix_us = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_micros() as u64;
+        let clock_after = self.clock.now();
+        logic.lock().unwrap().epoch_performance.set_clock_anchor(
+            clock_before,
+            unix_us,
+            clock_after,
+        );
+
         let started = Instant::now();
         logic.lock().unwrap().deadline = Some(started + Duration::from_secs(60));
         std::thread::scope(|s| {
@@ -260,7 +271,7 @@ impl NanoSpamApp {
             // Without epoch advancement every outcome lands in epoch 0; report the
             // workload-window latencies so runs with and without epochs compare.
             let metrics = logic_metrics.lock().unwrap();
-            let summary = metrics.summarize(metrics.observed_epochs());
+            let summary = metrics.summarize(metrics.observed_epochs(), self.clock.now());
             info!("EPOCH_PERFORMANCE_RESULT {summary}");
         }
         #[cfg(feature = "rai_protocol")]
@@ -301,7 +312,7 @@ impl NanoSpamApp {
                     Ok(closed) => *closed,
                     Err(_) => metrics.observed_epochs(),
                 };
-                metrics.summarize(epochs)
+                metrics.summarize(epochs, self.clock.now())
             };
             info!("EPOCH_PERFORMANCE_RESULT {metrics}");
             closure_result?;

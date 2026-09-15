@@ -1,0 +1,80 @@
+{
+  "run": "writers-current-profile",
+  "state": "complete",
+  "profile": true,
+  "block_processor_threads": null,
+  "vote_generator_delay_ms": null,
+  "epochs_enabled": true,
+  "exit_code": 1,
+  "data_deleted": true,
+  "two_closes_agree": false,
+  "nonfork_finalized_by_epoch": {
+    "0": {
+      "count": 23963,
+      "mean_ms": 520.1881374803647,
+      "p95_ms": 1282.41725,
+      "max_ms": 3449.877125
+    },
+    "1": {
+      "count": 23454,
+      "mean_ms": 1233.0870181056473,
+      "p95_ms": 1873.224,
+      "max_ms": 2373.5634999999997
+    },
+    "2": {
+      "count": 0,
+      "mean_ms": null,
+      "p95_ms": null,
+      "max_ms": null
+    }
+  },
+  "epoch1_over_epoch0_mean": 2.3704635482045995,
+  "nonfork_finalized_per_second": {
+    "5_10s": 1474.4,
+    "15_20s": 1610.2,
+    "20_25s": 1861.8,
+    "15_25s": 1736.0
+  },
+  "workload_anchor_basis": "epoch_schedule",
+  "pr0_epoch_state_changes": [
+    {
+      "seconds_after_schedule": -17.714,
+      "state": {
+        "closed_epochs": {},
+        "current_epoch": "0"
+      }
+    },
+    {
+      "seconds_after_schedule": 15.072,
+      "state": {
+        "draining_epoch": "0",
+        "closed_epochs": {},
+        "current_epoch": "1"
+      }
+    },
+    {
+      "seconds_after_schedule": 28.457,
+      "state": {
+        "draining_epoch": "1",
+        "closed_epochs": {
+          "0": "0D45B389BDE5A62C119D7672D16DBA3E38E84C19809F7504D54655B15EEEC88D"
+        },
+        "current_epoch": "2"
+      }
+    },
+    {
+      "seconds_after_schedule": 38.624,
+      "state": {
+        "closed_epochs": {
+          "0": "0D45B389BDE5A62C119D7672D16DBA3E38E84C19809F7504D54655B15EEEC88D",
+          "1": "671B430346A34F70575165348A586E0C1D96022FB3F0953C7D2C32CA68F5CC59"
+        },
+        "current_epoch": "2"
+      }
+    }
+  ],
+  "six_node_ps_cpu_percent_sample_mean": {
+    "5_10s": 579.4,
+    "15_25s": 620.54
+  }
+}

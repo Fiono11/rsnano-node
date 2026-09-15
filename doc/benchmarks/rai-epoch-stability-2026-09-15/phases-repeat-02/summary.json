@@ -1,0 +1,84 @@
+{
+  "run": "phases-repeat-02",
+  "state": "complete",
+  "profile": false,
+  "block_processor_threads": null,
+  "vote_processor_threads": null,
+  "vote_generator_delay_ms": null,
+  "epochs_enabled": true,
+  "exit_code": 0,
+  "data_deleted": true,
+  "two_closes_agree": true,
+  "nonfork_finalized_by_epoch": {
+    "0": {
+      "count": 24088,
+      "mean_ms": 272.7451618989949,
+      "p95_ms": 597.586459,
+      "max_ms": 2475.6638749999997
+    },
+    "1": {
+      "count": 23358,
+      "mean_ms": 614.6537231373836,
+      "p95_ms": 1362.011792,
+      "max_ms": 2610.198542
+    }
+  },
+  "epoch1_over_epoch0_mean": 2.2535824975146834,
+  "nonfork_finalized_per_second": {
+    "5_10s": 1934.8,
+    "15_20s": 1745.4,
+    "20_25s": 1529.4,
+    "15_25s": 1637.4
+  },
+  "workload_anchor_basis": "epoch_schedule",
+  "pr0_epoch_state_changes": [
+    {
+      "seconds_after_schedule": -18.404,
+      "state": {
+        "closed_epochs": {},
+        "current_epoch": "0"
+      }
+    },
+    {
+      "seconds_after_schedule": 14.309,
+      "state": {
+        "draining_epoch": "0",
+        "closed_epochs": {},
+        "current_epoch": "1"
+      }
+    },
+    {
+      "seconds_after_schedule": 24.604,
+      "state": {
+        "closed_epochs": {
+          "0": "F6E4EB3114763976AADC0FDB5FD1D98F120CDEB446CB662ED6E3D2696058956E"
+        },
+        "current_epoch": "1"
+      }
+    },
+    {
+      "seconds_after_schedule": 28.696,
+      "state": {
+        "draining_epoch": "1",
+        "closed_epochs": {
+          "0": "F6E4EB3114763976AADC0FDB5FD1D98F120CDEB446CB662ED6E3D2696058956E"
+        },
+        "current_epoch": "2"
+      }
+    },
+    {
+      "seconds_after_schedule": 38.838,
+      "state": {
+        "closed_epochs": {
+          "0": "F6E4EB3114763976AADC0FDB5FD1D98F120CDEB446CB662ED6E3D2696058956E",
+          "1": "D8EDEF6CA517310470B7072477FB05CC1209D865FF43BAFBFBFF9A8DB26740A3"
+        },
+        "current_epoch": "2"
+      }
+    }
+  ],
+  "six_node_ps_cpu_percent_sample_mean": {
+    "5_10s": 587.65,
+    "15_25s": 601.9399999999999
+  }
+}

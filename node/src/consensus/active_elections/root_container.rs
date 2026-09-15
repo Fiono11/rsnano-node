@@ -3,6 +3,11 @@ use std::{cmp::Ordering, collections::BTreeSet};
 use rsnano_types::ElectionId;
 use rsnano_types::{BlockHash, BlockPriority, QualifiedRoot, TimePriority};
 use rustc_hash::FxHashMap;
+#[cfg(feature = "rai_protocol")]
+use rustc_hash::FxHashSet;
+
+#[cfg(feature = "rai_protocol")]
+use crate::consensus::election::ElectionState;
 
 use super::{AecInsertRequest, vote_router::VoteRouter};
 use crate::consensus::{
@@ -55,6 +60,10 @@ impl PartialOrd for BucketEntry {
 /// Contains elections and their qualified roots
 pub(crate) struct RootContainer {
     by_root: FxHashMap<ElectionId, Entry>,
+    // Retained evidence has no periodic state transitions after activation or
+    // confirmation expiry. Keep only elections that still need a timer tick.
+    #[cfg(feature = "rai_protocol")]
+    pending_time_transitions: FxHashSet<ElectionId>,
     epochs_by_root: FxHashMap<QualifiedRoot, BTreeSet<u64>>,
     buckets: Vec<BTreeSet<BucketEntry>>,
     bucket_infos: Vec<BucketInfo>,
@@ -78,6 +87,8 @@ impl RootContainer {
         let max_elections_per_bucket = max_elections / bucket_count;
         Self {
             by_root: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            pending_time_transitions: Default::default(),
             epochs_by_root: Default::default(),
             vote_router: Default::default(),
             buckets: vec![BTreeSet::new(); bucket_count],
@@ -108,6 +119,8 @@ impl RootContainer {
             .or_default()
             .insert(root.epoch);
         self.by_root.insert(root.clone(), entry);
+        #[cfg(feature = "rai_protocol")]
+        self.track_time_transition(&root);
         self.vote_router.connect_epoch(hash, root.clone());
         #[cfg(feature = "rai_protocol")]
         if self.ids_for_root(&root.root).len() > 1 {
@@ -143,6 +156,9 @@ impl RootContainer {
     /// Keep completed evidence addressable, but remove it from live scheduler scans.
     #[cfg(feature = "rai_protocol")]
     pub fn retire_finalized(&mut self, id: &ElectionId) {
+        // A newly confirmed election leaves the scheduler immediately, but its
+        // Confirmed -> ExpiredConfirmed transition still belongs to the next tick.
+        self.track_time_transition(id);
         self.mark_notarized(id);
         let Some(entry) = self.by_root.get(id) else {
             return;
@@ -326,6 +342,8 @@ impl RootContainer {
     }
     pub fn erase_id(&mut self, root: &ElectionId) -> Option<Entry> {
         let erased = self.by_root.remove(root);
+        #[cfg(feature = "rai_protocol")]
+        self.pending_time_transitions.remove(root);
         if let Some(epochs) = self.epochs_by_root.get_mut(&root.root) {
             epochs.remove(&root.epoch);
             if epochs.is_empty() {
@@ -353,6 +371,8 @@ impl RootContainer {
 
     pub fn clear(&mut self) {
         self.by_root.clear();
+        #[cfg(feature = "rai_protocol")]
+        self.pending_time_transitions.clear();
         self.capacity_released_ids.clear();
         self.released_by_bucket.fill(0);
         self.epochs_by_root.clear();
@@ -379,6 +399,31 @@ impl RootContainer {
 
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Entry> {
         self.by_root.values_mut()
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn track_time_transition(&mut self, id: &ElectionId) {
+        if self.by_root.get(id).is_some_and(|entry| {
+            matches!(
+                entry.election.state(),
+                ElectionState::Passive | ElectionState::Confirmed
+            )
+        }) {
+            self.pending_time_transitions.insert(id.clone());
+        } else {
+            self.pending_time_transitions.remove(id);
+        }
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn transition_time(&mut self, now: Timestamp) {
+        self.pending_time_transitions.retain(|id| {
+            let Some(entry) = self.by_root.get_mut(id) else {
+                return false;
+            };
+            entry.election.transition_time(now);
+            entry.election.state() == ElectionState::Passive
+        });
     }
 
     pub fn bucket_len(&self, bucket_id: usize) -> usize {
@@ -498,5 +543,113 @@ impl<'a> Iterator for RoundRobinIterator<'a> {
         }
 
         None
+    }
+}
+
+#[cfg(all(test, feature = "rai_protocol"))]
+mod rai_timer_tests {
+    use super::*;
+    use rsnano_types::SavedBlock;
+    use std::time::Duration;
+
+    fn entry(key: u64) -> Entry {
+        let block = SavedBlock::new_test_instance_with_key(key);
+        Entry {
+            root: block.qualified_root(),
+            election: Election::new_test_instance_with(block),
+            priority: Default::default(),
+        }
+    }
+
+    #[test]
+    fn retained_finalized_evidence_leaves_timer_work_after_one_tick() {
+        let mut roots = RootContainer::default();
+        for key in 1..=128 {
+            let mut entry = entry(key);
+            entry.election.force_confirm();
+            let id = entry.election.id();
+            roots.insert(entry);
+            roots.retire_finalized(&id);
+        }
+        assert_eq!(roots.round_robin().count(), 0);
+        assert_eq!(roots.pending_time_transitions.len(), 128);
+
+        roots.transition_time(Timestamp::new_test_instance());
+
+        assert!(roots.pending_time_transitions.is_empty());
+        assert_eq!(roots.len(), 128);
+        for entry in roots.iter() {
+            assert_eq!(entry.election.state(), ElectionState::ExpiredConfirmed);
+            assert!(
+                roots
+                    .election_for_block(&entry.election.winner().hash())
+                    .is_some()
+            );
+        }
+        // Epoch retirement must not reintroduce already expired history.
+        roots.retire_epoch(0);
+        assert!(roots.pending_time_transitions.is_empty());
+        roots.transition_time(Timestamp::new_test_instance() + Duration::from_secs(60));
+        assert_eq!(roots.len(), 128);
+    }
+
+    #[test]
+    fn timer_keeps_passive_boundary_and_prunes_activation_and_cancellation() {
+        let mut roots = RootContainer::default();
+        let passive = entry(1);
+        let active_id = passive.election.id();
+        roots.insert(passive);
+        let cancelled = entry(2);
+        let cancelled_id = cancelled.election.id();
+        roots.insert(cancelled);
+        roots.get_id_mut(&cancelled_id).unwrap().election.cancel();
+
+        let boundary = Timestamp::new_test_instance() + Duration::from_secs(5);
+        roots.transition_time(boundary);
+        assert_eq!(roots.pending_time_transitions.len(), 1);
+        assert_eq!(
+            roots.get_id(&active_id).unwrap().election.state(),
+            ElectionState::Passive
+        );
+        assert_eq!(
+            roots.get_id(&cancelled_id).unwrap().election.state(),
+            ElectionState::Cancelled
+        );
+
+        roots.transition_time(boundary + Duration::from_nanos(1));
+        assert_eq!(
+            roots.get_id(&active_id).unwrap().election.state(),
+            ElectionState::Active
+        );
+        assert!(roots.pending_time_transitions.is_empty());
+        assert_eq!(roots.len(), 2);
+    }
+
+    #[test]
+    fn timer_index_follows_replacement_removal_and_clear() {
+        let mut roots = RootContainer::default();
+        let passive = entry(1);
+        let id = passive.election.id();
+        roots.insert(passive);
+        let mut replacement = entry(1);
+        replacement.election.transition_active();
+        roots.insert(replacement);
+        assert!(roots.pending_time_transitions.is_empty());
+
+        roots.insert(entry(1));
+        assert_eq!(roots.pending_time_transitions.len(), 1);
+        roots.erase_id(&id);
+        assert!(roots.pending_time_transitions.is_empty());
+
+        roots.insert(entry(1));
+        roots.clear();
+        assert!(roots.pending_time_transitions.is_empty());
+        roots.insert(entry(1));
+        assert_eq!(roots.pending_time_transitions.len(), 1);
+        roots.transition_time(Timestamp::new_test_instance() + Duration::from_secs(6));
+        assert_eq!(
+            roots.get_id(&id).unwrap().election.state(),
+            ElectionState::Active
+        );
     }
 }

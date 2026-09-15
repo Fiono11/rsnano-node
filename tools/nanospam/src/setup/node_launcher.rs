@@ -81,7 +81,12 @@ pub(crate) async fn start_nodes(
         };
 
         info!("Starting node: {cmd:?}");
-        children.push(cmd.spawn().unwrap());
+        let child = cmd.spawn().unwrap();
+        info!(
+            "NANOSPAM_NODE {}",
+            serde_json::json!({"pr": i, "pid": child.id()})
+        );
+        children.push(child);
 
         info!("Waiting for RPC...");
         while rpc_client.version().await.is_err() {

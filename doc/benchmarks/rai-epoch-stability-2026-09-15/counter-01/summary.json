@@ -1,0 +1,84 @@
+{
+  "run": "counter-01",
+  "state": "complete",
+  "profile": false,
+  "block_processor_threads": null,
+  "vote_processor_threads": null,
+  "vote_generator_delay_ms": null,
+  "epochs_enabled": true,
+  "exit_code": 0,
+  "data_deleted": true,
+  "two_closes_agree": true,
+  "nonfork_finalized_by_epoch": {
+    "0": {
+      "count": 24049,
+      "mean_ms": 372.5823824967371,
+      "p95_ms": 722.279291,
+      "max_ms": 2721.886875
+    },
+    "1": {
+      "count": 23412,
+      "mean_ms": 1466.5264698774165,
+      "p95_ms": 2746.684292,
+      "max_ms": 4779.920083
+    }
+  },
+  "epoch1_over_epoch0_mean": 3.9361132967425254,
+  "nonfork_finalized_per_second": {
+    "5_10s": 2057.2,
+    "15_20s": 1429.6,
+    "20_25s": 1569.4,
+    "15_25s": 1499.5
+  },
+  "workload_anchor_basis": "epoch_schedule",
+  "pr0_epoch_state_changes": [
+    {
+      "seconds_after_schedule": -18.049,
+      "state": {
+        "closed_epochs": {},
+        "current_epoch": "0"
+      }
+    },
+    {
+      "seconds_after_schedule": 14.689,
+      "state": {
+        "draining_epoch": "0",
+        "closed_epochs": {},
+        "current_epoch": "1"
+      }
+    },
+    {
+      "seconds_after_schedule": 25.238,
+      "state": {
+        "closed_epochs": {
+          "0": "D54981041BFADE2F54673279E79202B2CCAB57679863463EF8D210C7F2D1F7AE"
+        },
+        "current_epoch": "1"
+      }
+    },
+    {
+      "seconds_after_schedule": 27.379,
+      "state": {
+        "draining_epoch": "1",
+        "closed_epochs": {
+          "0": "D54981041BFADE2F54673279E79202B2CCAB57679863463EF8D210C7F2D1F7AE"
+        },
+        "current_epoch": "2"
+      }
+    },
+    {
+      "seconds_after_schedule": 37.552,
+      "state": {
+        "closed_epochs": {
+          "0": "D54981041BFADE2F54673279E79202B2CCAB57679863463EF8D210C7F2D1F7AE",
+          "1": "569EBC1069FFDC4DA6995B21CC5BB6D08FDE7CE2D7CC20F7BD12D7E07DD68C65"
+        },
+        "current_epoch": "2"
+      }
+    }
+  ],
+  "six_node_ps_cpu_percent_sample_mean": {
+    "5_10s": 608.0999999999999,
+    "15_25s": 618.75
+  }
+}

@@ -1,0 +1,509 @@
+{
+  "method": "For each publication-time bin, sum termination.count across all epochs only where prior_epoch_outcome=false. This counts each root with an observed outcome once, including roots whose first observed outcome is finalized. Exclude forked=true for non-fork rates. Receipt rates sum finalization.count across all epochs and carried/fresh groups, as in the main comparison.",
+  "limitations": [
+    "This is reconstructed publication timing for observed roots, not an independent publisher counter. Missing-outcome roots would be absent.",
+    "For these seven captures, deduplicated observed roots across both fork classes equal published_blocks=50000, so no aggregate publication coverage gap is visible.",
+    "The publication timestamp is taken immediately before serialization/TCP writes, not at peer receipt. Shared-host generation, transport, and observation scheduling are not isolated.",
+    "Receipt windows can include backlog from preceding publication windows; early and late differences are descriptive, not a causal decomposition.",
+    "The 25-second publication bin is a partial tail; phase comparisons use 5-10 and 15-25 seconds only."
+  ],
+  "runs": [
+    {
+      "run": "cert-01",
+      "deduplicated_observed_nonfork_roots": 47495,
+      "deduplicated_observed_all_roots": 50000,
+      "reported_published_blocks": 50000,
+      "bins": [
+        {
+          "start_seconds": 0,
+          "used_in_phase_comparison": false,
+          "nonfork_observed_publications_per_second": 1798.4,
+          "all_observed_publications_per_second": 1887.8,
+          "nonfork_finalizations_per_second": 1652.0,
+          "fresh_nonfork_publication_cohort_finalization_mean_ms": 244.0147571058718
+        },
+        {
+          "start_seconds": 5,
+          "used_in_phase_comparison": true,
+          "nonfork_observed_publications_per_second": 1860.2,
+          "all_observed_publications_per_second": 1957.8,
+          "nonfork_finalizations_per_second": 1962.8,
+          "fresh_nonfork_publication_cohort_finalization_mean_ms": 233.70863149091505
+        },
+        {
+          "start_seconds": 10,
+          "used_in_phase_comparison": false,
+          "nonfork_observed_publications_per_second": 1723.4,
+          "all_observed_publications_per_second": 1813.4,
+          "nonfork_finalizations_per_second": 1684.2,
+          "fresh_nonfork_publication_cohort_finalization_mean_ms": 317.9696702847295
+        },
+        {
+          "start_seconds": 15,
+          "used_in_phase_comparison": true,
+          "nonfork_observed_publications_per_second": 1892.0,
+          "all_observed_publications_per_second": 1998.6,
+          "nonfork_finalizations_per_second": 1511.6,
+          "fresh_nonfork_publication_cohort_finalization_mean_ms": 761.2849581565551
+        },
+        {
+          "start_seconds": 20,
+          "used_in_phase_comparison": true,
+          "nonfork_observed_publications_per_second": 1756.2,
+          "all_observed_publications_per_second": 1850.0,
+          "nonfork_finalizations_per_second": 1798.2,
+          "fresh_nonfork_publication_cohort_finalization_mean_ms": 893.7020146378551
+        },
+        {
+          "start_seconds": 25,
+          "used_in_phase_comparison": false,
+          "nonfork_observed_publications_per_second": 468.8,
+          "all_observed_publications_per_second": 492.4,
+          "nonfork_finalizations_per_second": 885.0,
+          "fresh_nonfork_publication_cohort_finalization_mean_ms": 734.6791953191118
+        }
+      ],
+      "early_5_10s_per_second": {
+        "nonfork_observed_publications": 1860.2,
+        "all_observed_publications": 1957.8,
+        "nonfork_finalizations": 1962.8
+      },
+      "late_15_25s_per_second": {
+        "nonfork_observed_publications": 1824.1,
+        "all_observed_publications": 1924.3,
+        "nonfork_finalizations": 1654.9
+      },
+      "early_to_late_decline_percent": {
+        "nonfork_observed_publications": 1.9406515428448623,
+        "all_observed_publications": 1.711104300745736,
+        "nonfork_finalizations": 15.686773996331759
+      }
+    },
+    {
+      "run": "notify-01",
+      "deduplicated_observed_nonfork_roots": 47494,
+      "deduplicated_observed_all_roots": 50000,
+      "reported_published_blocks": 50000,
+      "bins": [
+        {
+          "start_seconds": 0,
+          "used_in_phase_comparison": false,
+          "nonfork_observed_publications_per_second": 1764.4,
+          "all_observed_publications_per_second": 1855.8,
+          "nonfork_finalizations_per_second": 1621.4,
+          "fresh_nonfork_publication_cohort_finalization_mean_ms": 320.9315122132167
+        },
+        {
+          "start_seconds": 5,
+          "used_in_phase_comparison": true,
+          "nonfork_observed_publications_per_second": 1788.2,
+          "all_observed_publications_per_second": 1877.8,
+          "nonfork_finalizations_per_second": 1915.4,
+          "fresh_nonfork_publication_cohort_finalization_mean_ms": 242.9278130788507
+        },
+        {
+          "start_seconds": 10,
+          "used_in_phase_comparison": false,
+          "nonfork_observed_publications_per_second": 1823.8,
+          "all_observed_publications_per_second": 1926.0,
+          "nonfork_finalizations_per_second": 1644.2,
+          "fresh_nonfork_publication_cohort_finalization_mean_ms": 279.7029234244975
+        },
+        {
+          "start_seconds": 15,
+          "used_in_phase_comparison": true,
+          "nonfork_observed_publications_per_second": 1731.0,
+          "all_observed_publications_per_second": 1821.4,
+          "nonfork_finalizations_per_second": 1770.4,
+          "fresh_nonfork_publication_cohort_finalization_mean_ms": 553.4013156330453
+        },
+        {
+          "start_seconds": 20,
+          "used_in_phase_comparison": true,
+          "nonfork_observed_publications_per_second": 1871.8,
+          "all_observed_publications_per_second": 1971.4,
+          "nonfork_finalizations_per_second": 1787.0,
+          "fresh_nonfork_publication_cohort_finalization_mean_ms": 708.7287258600282
+        },
+        {
+          "start_seconds": 25,
+          "used_in_phase_comparison": false,
+          "nonfork_observed_publications_per_second": 519.6,
+          "all_observed_publications_per_second": 547.6,
+          "nonfork_finalizations_per_second": 758.0,
+          "fresh_nonfork_publication_cohort_finalization_mean_ms": 954.0073243315345
+        }
+      ],
+      "early_5_10s_per_second": {
+        "nonfork_observed_publications": 1788.2,
+        "all_observed_publications": 1877.8,
+        "nonfork_finalizations": 1915.4
+      },
+      "late_15_25s_per_second": {
+        "nonfork_observed_publications": 1801.4,
+        "all_observed_publications": 1896.4,
+        "nonfork_finalizations": 1778.7
+      },
+      "early_to_late_decline_percent": {
+        "nonfork_observed_publications": -0.7381724639302201,
+        "all_observed_publications": -0.9905208222388051,
+        "nonfork_finalizations": 7.13689046674324
+      }
+    },
+    {
+      "run": "writers-noepoch-control",
+      "deduplicated_observed_nonfork_roots": 47515,
+      "deduplicated_observed_all_roots": 50000,
+      "reported_published_blocks": 50000,
+      "bins": [
+        {
+          "start_seconds": 0,
+          "used_in_phase_comparison": false,
+          "nonfork_observed_publications_per_second": 1749.8,
+          "all_observed_publications_per_second": 1839.2,
+          "nonfork_finalizations_per_second": 1719.8,
+          "fresh_nonfork_publication_cohort_finalization_mean_ms": 237.41932538050125
+        },
+        {
+          "start_seconds": 5,
+          "used_in_phase_comparison": true,
+          "nonfork_observed_publications_per_second": 1845.0,
+          "all_observed_publications_per_second": 1941.8,
+          "nonfork_finalizations_per_second": 1806.8,
+          "fresh_nonfork_publication_cohort_finalization_mean_ms": 154.11922632010828
+        },
+        {
+          "start_seconds": 10,
+          "used_in_phase_comparison": false,
+          "nonfork_observed_publications_per_second": 1790.4,
+          "all_observed_publications_per_second": 1883.0,
+          "nonfork_finalizations_per_second": 1709.8,
+          "fresh_nonfork_publication_cohort_finalization_mean_ms": 169.62688640437872
+        },
+        {
+          "start_seconds": 15,
+          "used_in_phase_comparison": true,
+          "nonfork_observed_publications_per_second": 1799.8,
+          "all_observed_publications_per_second": 1894.4,
+          "nonfork_finalizations_per_second": 1845.0,
+          "fresh_nonfork_publication_cohort_finalization_mean_ms": 288.23469201255625
+        },
+        {
+          "start_seconds": 20,
+          "used_in_phase_comparison": true,
+          "nonfork_observed_publications_per_second": 1791.4,
+          "all_observed_publications_per_second": 1886.0,
+          "nonfork_finalizations_per_second": 1726.2,
+          "fresh_nonfork_publication_cohort_finalization_mean_ms": 358.2908570813889
+        },
+        {
+          "start_seconds": 25,
+          "used_in_phase_comparison": false,
+          "nonfork_observed_publications_per_second": 526.6,
+          "all_observed_publications_per_second": 555.6,
+          "nonfork_finalizations_per_second": 695.4,
+          "fresh_nonfork_publication_cohort_finalization_mean_ms": 414.30179578427646
+        }
+      ],
+      "early_5_10s_per_second": {
+        "nonfork_observed_publications": 1845.0,
+        "all_observed_publications": 1941.8,
+        "nonfork_finalizations": 1806.8
+      },
+      "late_15_25s_per_second": {
+        "nonfork_observed_publications": 1795.6,
+        "all_observed_publications": 1890.2,
+        "nonfork_finalizations": 1785.6
+      },
+      "early_to_late_decline_percent": {
+        "nonfork_observed_publications": 2.6775067750677506,
+        "all_observed_publications": 2.657328252137192,
+        "nonfork_finalizations": 1.1733451405800288
+      }
+    },
+    {
+      "run": "notified-01",
+      "deduplicated_observed_nonfork_roots": 47549,
+      "deduplicated_observed_all_roots": 50000,
+      "reported_published_blocks": 50000,
+      "bins": [
+        {
+          "start_seconds": 0,
+          "used_in_phase_comparison": false,
+          "nonfork_observed_publications_per_second": 1663.2,
+          "all_observed_publications_per_second": 1748.6,
+          "nonfork_finalizations_per_second": 1513.8,
+          "fresh_nonfork_publication_cohort_finalization_mean_ms": 256.8756005838144
+        },
+        {
+          "start_seconds": 5,
+          "used_in_phase_comparison": true,
+          "nonfork_observed_publications_per_second": 1955.4,
+          "all_observed_publications_per_second": 2059.6,
+          "nonfork_finalizations_per_second": 1845.2,
+          "fresh_nonfork_publication_cohort_finalization_mean_ms": 395.0211250410149
+        },
+        {
+          "start_seconds": 10,
+          "used_in_phase_comparison": false,
+          "nonfork_observed_publications_per_second": 1725.4,
+          "all_observed_publications_per_second": 1818.0,
+          "nonfork_finalizations_per_second": 1870.6,
+          "fresh_nonfork_publication_cohort_finalization_mean_ms": 384.15210446962425
+        },
+        {
+          "start_seconds": 15,
+          "used_in_phase_comparison": true,
+          "nonfork_observed_publications_per_second": 1823.0,
+          "all_observed_publications_per_second": 1917.6,
+          "nonfork_finalizations_per_second": 1685.6,
+          "fresh_nonfork_publication_cohort_finalization_mean_ms": 526.3484173295674
+        },
+        {
+          "start_seconds": 20,
+          "used_in_phase_comparison": true,
+          "nonfork_observed_publications_per_second": 1731.8,
+          "all_observed_publications_per_second": 1817.0,
+          "nonfork_finalizations_per_second": 1769.4,
+          "fresh_nonfork_publication_cohort_finalization_mean_ms": 584.439655460331
+        },
+        {
+          "start_seconds": 25,
+          "used_in_phase_comparison": false,
+          "nonfork_observed_publications_per_second": 611.0,
+          "all_observed_publications_per_second": 639.2,
+          "nonfork_finalizations_per_second": 825.0,
+          "fresh_nonfork_publication_cohort_finalization_mean_ms": 569.3843432690664
+        }
+      ],
+      "early_5_10s_per_second": {
+        "nonfork_observed_publications": 1955.4,
+        "all_observed_publications": 2059.6,
+        "nonfork_finalizations": 1845.2
+      },
+      "late_15_25s_per_second": {
+        "nonfork_observed_publications": 1777.4,
+        "all_observed_publications": 1867.3,
+        "nonfork_finalizations": 1727.5
+      },
+      "early_to_late_decline_percent": {
+        "nonfork_observed_publications": 9.102996829293241,
+        "all_observed_publications": 9.336764420275777,
+        "nonfork_finalizations": 6.378712334706272
+      }
+    },
+    {
+      "run": "counter-01",
+      "deduplicated_observed_nonfork_roots": 47498,
+      "deduplicated_observed_all_roots": 50000,
+      "reported_published_blocks": 50000,
+      "bins": [
+        {
+          "start_seconds": 0,
+          "used_in_phase_comparison": false,
+          "nonfork_observed_publications_per_second": 1646.4,
+          "all_observed_publications_per_second": 1734.8,
+          "nonfork_finalizations_per_second": 1481.8,
+          "fresh_nonfork_publication_cohort_finalization_mean_ms": 252.35192778085482
+        },
+        {
+          "start_seconds": 5,
+          "used_in_phase_comparison": true,
+          "nonfork_observed_publications_per_second": 1955.8,
+          "all_observed_publications_per_second": 2061.8,
+          "nonfork_finalizations_per_second": 2057.2,
+          "fresh_nonfork_publication_cohort_finalization_mean_ms": 410.25371285744967
+        },
+        {
+          "start_seconds": 10,
+          "used_in_phase_comparison": false,
+          "nonfork_observed_publications_per_second": 1777.0,
+          "all_observed_publications_per_second": 1870.0,
+          "nonfork_finalizations_per_second": 1646.6,
+          "fresh_nonfork_publication_cohort_finalization_mean_ms": 529.3226918332139
+        },
+        {
+          "start_seconds": 15,
+          "used_in_phase_comparison": true,
+          "nonfork_observed_publications_per_second": 1857.4,
+          "all_observed_publications_per_second": 1960.2,
+          "nonfork_finalizations_per_second": 1429.6,
+          "fresh_nonfork_publication_cohort_finalization_mean_ms": 1240.650515808227
+        },
+        {
+          "start_seconds": 20,
+          "used_in_phase_comparison": true,
+          "nonfork_observed_publications_per_second": 1766.4,
+          "all_observed_publications_per_second": 1855.0,
+          "nonfork_finalizations_per_second": 1569.4,
+          "fresh_nonfork_publication_cohort_finalization_mean_ms": 1864.4065720119954
+        },
+        {
+          "start_seconds": 25,
+          "used_in_phase_comparison": false,
+          "nonfork_observed_publications_per_second": 496.6,
+          "all_observed_publications_per_second": 518.2,
+          "nonfork_finalizations_per_second": 1307.6,
+          "fresh_nonfork_publication_cohort_finalization_mean_ms": 1727.735076537657
+        }
+      ],
+      "early_5_10s_per_second": {
+        "nonfork_observed_publications": 1955.8,
+        "all_observed_publications": 2061.8,
+        "nonfork_finalizations": 2057.2
+      },
+      "late_15_25s_per_second": {
+        "nonfork_observed_publications": 1811.9,
+        "all_observed_publications": 1907.6,
+        "nonfork_finalizations": 1499.5
+      },
+      "early_to_late_decline_percent": {
+        "nonfork_observed_publications": 7.357603026894354,
+        "all_observed_publications": 7.478901930352134,
+        "nonfork_finalizations": 27.10966362045498
+      }
+    },
+    {
+      "run": "counter-02",
+      "deduplicated_observed_nonfork_roots": 47497,
+      "deduplicated_observed_all_roots": 50000,
+      "reported_published_blocks": 50000,
+      "bins": [
+        {
+          "start_seconds": 0,
+          "used_in_phase_comparison": false,
+          "nonfork_observed_publications_per_second": 1782.8,
+          "all_observed_publications_per_second": 1888.6,
+          "nonfork_finalizations_per_second": 1682.0,
+          "fresh_nonfork_publication_cohort_finalization_mean_ms": 293.81366676845425
+        },
+        {
+          "start_seconds": 5,
+          "used_in_phase_comparison": true,
+          "nonfork_observed_publications_per_second": 1789.8,
+          "all_observed_publications_per_second": 1887.4,
+          "nonfork_finalizations_per_second": 1844.0,
+          "fresh_nonfork_publication_cohort_finalization_mean_ms": 172.77943225924685
+        },
+        {
+          "start_seconds": 10,
+          "used_in_phase_comparison": false,
+          "nonfork_observed_publications_per_second": 1792.4,
+          "all_observed_publications_per_second": 1879.2,
+          "nonfork_finalizations_per_second": 1636.2,
+          "fresh_nonfork_publication_cohort_finalization_mean_ms": 235.57948350741657
+        },
+        {
+          "start_seconds": 15,
+          "used_in_phase_comparison": true,
+          "nonfork_observed_publications_per_second": 1809.0,
+          "all_observed_publications_per_second": 1901.2,
+          "nonfork_finalizations_per_second": 1701.2,
+          "fresh_nonfork_publication_cohort_finalization_mean_ms": 645.2045975554456
+        },
+        {
+          "start_seconds": 20,
+          "used_in_phase_comparison": true,
+          "nonfork_observed_publications_per_second": 1798.2,
+          "all_observed_publications_per_second": 1885.8,
+          "nonfork_finalizations_per_second": 1871.6,
+          "fresh_nonfork_publication_cohort_finalization_mean_ms": 697.5899867344012
+        },
+        {
+          "start_seconds": 25,
+          "used_in_phase_comparison": false,
+          "nonfork_observed_publications_per_second": 527.2,
+          "all_observed_publications_per_second": 557.8,
+          "nonfork_finalizations_per_second": 756.0,
+          "fresh_nonfork_publication_cohort_finalization_mean_ms": 622.7955752803476
+        }
+      ],
+      "early_5_10s_per_second": {
+        "nonfork_observed_publications": 1789.8,
+        "all_observed_publications": 1887.4,
+        "nonfork_finalizations": 1844.0
+      },
+      "late_15_25s_per_second": {
+        "nonfork_observed_publications": 1803.6,
+        "all_observed_publications": 1893.5,
+        "nonfork_finalizations": 1786.4
+      },
+      "early_to_late_decline_percent": {
+        "nonfork_observed_publications": -0.7710358699295927,
+        "all_observed_publications": -0.32319593091023613,
+        "nonfork_finalizations": 3.123644251626889
+      }
+    },
+    {
+      "run": "counter-noepoch-control",
+      "deduplicated_observed_nonfork_roots": 47514,
+      "deduplicated_observed_all_roots": 50000,
+      "reported_published_blocks": 50000,
+      "bins": [
+        {
+          "start_seconds": 0,
+          "used_in_phase_comparison": false,
+          "nonfork_observed_publications_per_second": 1826.0,
+          "all_observed_publications_per_second": 1921.2,
+          "nonfork_finalizations_per_second": 1782.4,
+          "fresh_nonfork_publication_cohort_finalization_mean_ms": 182.00503899200473
+        },
+        {
+          "start_seconds": 5,
+          "used_in_phase_comparison": true,
+          "nonfork_observed_publications_per_second": 1782.8,
+          "all_observed_publications_per_second": 1882.8,
+          "nonfork_finalizations_per_second": 1779.8,
+          "fresh_nonfork_publication_cohort_finalization_mean_ms": 114.51957960601291
+        },
+        {
+          "start_seconds": 10,
+          "used_in_phase_comparison": false,
+          "nonfork_observed_publications_per_second": 1782.0,
+          "all_observed_publications_per_second": 1878.0,
+          "nonfork_finalizations_per_second": 1778.6,
+          "fresh_nonfork_publication_cohort_finalization_mean_ms": 118.85707751997758
+        },
+        {
+          "start_seconds": 15,
+          "used_in_phase_comparison": true,
+          "nonfork_observed_publications_per_second": 1797.6,
+          "all_observed_publications_per_second": 1892.6,
+          "nonfork_finalizations_per_second": 1780.8,
+          "fresh_nonfork_publication_cohort_finalization_mean_ms": 199.58957411704526
+        },
+        {
+          "start_seconds": 20,
+          "used_in_phase_comparison": true,
+          "nonfork_observed_publications_per_second": 1814.2,
+          "all_observed_publications_per_second": 1899.6,
+          "nonfork_finalizations_per_second": 1795.6,
+          "fresh_nonfork_publication_cohort_finalization_mean_ms": 235.53589341858648
+        },
+        {
+          "start_seconds": 25,
+          "used_in_phase_comparison": false,
+          "nonfork_observed_publications_per_second": 500.2,
+          "all_observed_publications_per_second": 525.8,
+          "nonfork_finalizations_per_second": 585.6,
+          "fresh_nonfork_publication_cohort_finalization_mean_ms": 214.40362673650515
+        }
+      ],
+      "early_5_10s_per_second": {
+        "nonfork_observed_publications": 1782.8,
+        "all_observed_publications": 1882.8,
+        "nonfork_finalizations": 1779.8
+      },
+      "late_15_25s_per_second": {
+        "nonfork_observed_publications": 1805.9,
+        "all_observed_publications": 1896.1,
+        "nonfork_finalizations": 1788.2
+      },
+      "early_to_late_decline_percent": {
+        "nonfork_observed_publications": -1.2957146062373859,
+        "all_observed_publications": -0.7063947312513363,
+        "nonfork_finalizations": -0.47196314192605726
+      }
+    }
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "diagnostic_only": true,
+  "profiles": [
+    {
+      "file": "pr0-7s.sample.txt.gz",
+      "capture_timestamp": "2026-09-15 14:21:51.435 +0100",
+      "actual_seconds_after_schedule": 9.051
+    },
+    {
+      "file": "pr0-18s.sample.txt.gz",
+      "capture_timestamp": "2026-09-15 14:22:01.723 +0100",
+      "actual_seconds_after_schedule": 19.339
+    },
+    {
+      "file": "pr0-24s.sample.txt.gz",
+      "capture_timestamp": "2026-09-15 14:22:09.069 +0100",
+      "actual_seconds_after_schedule": 26.685
+    }
+  ],
+  "exit_code": 1,
+  "data_deleted": true,
+  "closure": "PR4 (zero-based) still drained epoch 1 at the 240-second verification timeout; PR0 had closed both epochs by its 38.6-second observation.",
+  "hotspot": {
+    "symbol": "ActiveElectionsContainer::apply_vote",
+    "offsets_bytes": [
+      22320,
+      22400
+    ],
+    "disassembly_mapping": "40-byte (epoch, block hash) BTreeSet lookup/insert in Ledger::record_epoch_block for epoch_candidates",
+    "mapping_basis": "Disassembly analysis supplied by the root investigation; retained sample independently confirms the symbol/offset hotspot.",
+    "profile": "pr0-24s.sample.txt.gz",
+    "thread": "Thread_398995: Vote processing",
+    "self_samples": 193,
+    "thread_samples": 716,
+    "self_fraction": 0.26955307262569833,
+    "actual_seconds_after_schedule": 26.685,
+    "phase": "workload tail; nominal 24-second profile actually began 26.685 seconds after schedule anchor"
+  },
+  "limitations": [
+    "A single thread and sample interval; not a whole-run or whole-node CPU percentage.",
+    "Profiling perturbs timing; this is diagnostic evidence, not an unprofiled comparison."
+  ],
+  "changes_under_investigation": [
+    "No-op repeated publication of certificate membership and remove unused ledger block payload cache.",
+    "Index RAI timer deadlines.",
+    "Avoid validator ledger reads when the existing validation conditions do not require them."
+  ],
+  "validation_status": "Certificate/timer/validator changes passed the recorded suites and release build and were benchmarked as cert-01 and notify-01 (identical binary hashes). The subsequent hinted-scheduler source passed full node suites (704 RAI, 603 default) and its corrected executable was benchmarked as notified-01.",
+  "notification_wait": {
+    "profile": "pr0-24s.sample.txt.gz",
+    "thread": "Thread_398976: AEC ev proc",
+    "stack": "AecFactProcessor::process -> ElectionSchedulers::notify -> AecService::count_by_behavior -> semaphore_wait_trap",
+    "wait_samples": 459,
+    "thread_samples": 716,
+    "wait_fraction": 0.6410614525139665,
+    "actual_seconds_after_schedule": 26.685,
+    "mapping_basis": "Retained profile confirms the wait stack; source review identifies the hinted-scheduler vacancy check and its two active-election reads.",
+    "followup": "Ordinary hinted-scheduler notification reads/wakes removed with shutdown wake preserved. Full node suites passed (704 RAI, 603 default). Corrected CLI executable c6a15d28b970f9d08b53278f1f39d8095d3f790e95fea1675578449630c87a35 was benchmarked in notified-01; notify-01 reused the certificate executable."
+  }
+}

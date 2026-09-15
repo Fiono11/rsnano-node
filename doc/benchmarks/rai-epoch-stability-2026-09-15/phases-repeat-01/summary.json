@@ -1,0 +1,65 @@
+{
+  "run": "phases-repeat-01",
+  "state": "complete",
+  "profile": false,
+  "block_processor_threads": null,
+  "vote_processor_threads": null,
+  "vote_generator_delay_ms": null,
+  "epochs_enabled": true,
+  "exit_code": 0,
+  "data_deleted": true,
+  "two_closes_agree": true,
+  "nonfork_finalized_by_epoch": {
+    "0": {
+      "count": 23999,
+      "mean_ms": 141.6721342225092,
+      "p95_ms": 285.799292,
+      "max_ms": 2088.8227920000004
+    },
+    "1": {
+      "count": 23519,
+      "mean_ms": 435.1511844509091,
+      "p95_ms": 711.173,
+      "max_ms": 2582.6142499999996
+    }
+  },
+  "epoch1_over_epoch0_mean": 3.0715368751872116,
+  "nonfork_finalized_per_second": {
+    "5_10s": 1768.8,
+    "15_20s": 1785.4,
+    "20_25s": 1727.0,
+    "15_25s": 1756.2
+  },
+  "workload_anchor_basis": "epoch_schedule",
+  "pr0_epoch_state_changes": [
+    {
+      "seconds_after_schedule": -17.695,
+      "state": {
+        "closed_epochs": {},
+        "current_epoch": "0"
+      }
+    },
+    {
+      "seconds_after_schedule": 14.987,
+      "state": {
+        "draining_epoch": "0",
+        "closed_epochs": {},
+        "current_epoch": "1"
+      }
+    },
+    {
+      "seconds_after_schedule": 37.563,
+      "state": {
+        "closed_epochs": {
+          "0": "46435CADAFC87AECEDD46BBC960253ECEE7E601B193515B4A5B3A040419FC201",
+          "1": "A72F0DE6B71441FA9DBD41F85AB2488C18F32BCE3AFB96C6628E6DF399094710"
+        },
+        "current_epoch": "2"
+      }
+    }
+  ],
+  "six_node_ps_cpu_percent_sample_mean": {
+    "5_10s": 572.05,
+    "15_25s": 643.35
+  }
+}

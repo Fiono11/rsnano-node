@@ -239,6 +239,14 @@ impl Election {
         self.contains_block(hash) && self.kudzu.second_look(hash)
     }
 
+    /// For callers already iterating this election's candidate map, avoid a
+    /// second membership lookup before checking the FIRST-weight threshold.
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn can_notarize_known_candidate(&self, hash: &BlockHash) -> bool {
+        debug_assert!(self.contains_block(hash));
+        self.kudzu.second_look(hash)
+    }
+
     /// FIRST weight observed locally for one candidate.
     #[cfg(feature = "rai_protocol")]
     pub fn kudzu_first_weight(&self, hash: &BlockHash) -> Amount {

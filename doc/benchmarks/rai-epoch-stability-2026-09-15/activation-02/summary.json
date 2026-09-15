@@ -1,0 +1,84 @@
+{
+  "run": "activation-02",
+  "state": "complete",
+  "profile": false,
+  "block_processor_threads": null,
+  "vote_processor_threads": null,
+  "vote_generator_delay_ms": null,
+  "epochs_enabled": true,
+  "exit_code": 0,
+  "data_deleted": true,
+  "two_closes_agree": true,
+  "nonfork_finalized_by_epoch": {
+    "0": {
+      "count": 24046,
+      "mean_ms": 253.99859743620593,
+      "p95_ms": 724.904625,
+      "max_ms": 2278.1825
+    },
+    "1": {
+      "count": 23378,
+      "mean_ms": 632.9571504431505,
+      "p95_ms": 1286.664875,
+      "max_ms": 2946.2627079999997
+    }
+  },
+  "epoch1_over_epoch0_mean": 2.4919710456358857,
+  "nonfork_finalized_per_second": {
+    "5_10s": 1958.4,
+    "15_20s": 1629.8,
+    "20_25s": 1669.8,
+    "15_25s": 1649.8
+  },
+  "workload_anchor_basis": "epoch_schedule",
+  "pr0_epoch_state_changes": [
+    {
+      "seconds_after_schedule": -18.435,
+      "state": {
+        "closed_epochs": {},
+        "current_epoch": "0"
+      }
+    },
+    {
+      "seconds_after_schedule": 14.37,
+      "state": {
+        "draining_epoch": "0",
+        "closed_epochs": {},
+        "current_epoch": "1"
+      }
+    },
+    {
+      "seconds_after_schedule": 24.652,
+      "state": {
+        "closed_epochs": {
+          "0": "341623AE9FE061F04A0274FEE8DB2FD35D0D3E3723F10E594BD76475AA2213B0"
+        },
+        "current_epoch": "1"
+      }
+    },
+    {
+      "seconds_after_schedule": 28.764,
+      "state": {
+        "draining_epoch": "1",
+        "closed_epochs": {
+          "0": "341623AE9FE061F04A0274FEE8DB2FD35D0D3E3723F10E594BD76475AA2213B0"
+        },
+        "current_epoch": "2"
+      }
+    },
+    {
+      "seconds_after_schedule": 51.087,
+      "state": {
+        "closed_epochs": {
+          "0": "341623AE9FE061F04A0274FEE8DB2FD35D0D3E3723F10E594BD76475AA2213B0",
+          "1": "966BDB746183D3CFA3AC5F991A6B6F1D765A18970D45437ACC675D4F963081B1"
+        },
+        "current_epoch": "2"
+      }
+    }
+  ],
+  "six_node_ps_cpu_percent_sample_mean": {
+    "5_10s": 588.2,
+    "15_25s": 607.24
+  }
+}

@@ -14,6 +14,7 @@ use crate::{
     test_helpers::SavedBlockLatticeBuilder,
 };
 
+mod batch_transactions;
 mod empty_ledger;
 mod receivable_iteration;
 mod rollback_legacy_change;

@@ -1,0 +1,76 @@
+{
+  "run": "baseline-01",
+  "state": "complete",
+  "profile": false,
+  "block_processor_threads": null,
+  "exit_code": 1,
+  "data_deleted": true,
+  "two_closes_agree": false,
+  "nonfork_finalized_by_epoch": {
+    "0": {
+      "count": 24047,
+      "mean_ms": 422.7138698284188,
+      "p95_ms": 826.184458,
+      "max_ms": 2362.257125
+    },
+    "1": {
+      "count": 23278,
+      "mean_ms": 1515.6900753585921,
+      "p95_ms": 2171.445666,
+      "max_ms": 3783.8177499999997
+    },
+    "2": {
+      "count": 46,
+      "mean_ms": 2357.943845956522,
+      "p95_ms": 3044.654958,
+      "max_ms": 3071.021041
+    }
+  },
+  "epoch1_over_epoch0_mean": 3.585617088868687,
+  "nonfork_finalized_per_second": {
+    "5_10s": 1811.4,
+    "15_20s": 1535.0,
+    "20_25s": 1734.6,
+    "15_25s": 1634.8
+  },
+  "pr0_epoch_state_changes": [
+    {
+      "seconds_after_schedule": -18.144,
+      "state": {
+        "closed_epochs": {},
+        "current_epoch": "0"
+      }
+    },
+    {
+      "seconds_after_schedule": 14.105,
+      "state": {
+        "draining_epoch": "0",
+        "closed_epochs": {},
+        "current_epoch": "1"
+      }
+    },
+    {
+      "seconds_after_schedule": 26.603,
+      "state": {
+        "closed_epochs": {
+          "0": "2F324D4AB51A8970633E28B74C99ABF36620E9003DE53AF11FBE4BD7BEAB5A68"
+        },
+        "current_epoch": "1"
+      }
+    },
+    {
+      "seconds_after_schedule": 28.717,
+      "state": {
+        "draining_epoch": "1",
+        "closed_epochs": {
+          "0": "2F324D4AB51A8970633E28B74C99ABF36620E9003DE53AF11FBE4BD7BEAB5A68"
+        },
+        "current_epoch": "2"
+      }
+    }
+  ],
+  "six_node_ps_cpu_percent_sample_mean": {
+    "5_10s": null,
+    "15_25s": null
+  }
+}

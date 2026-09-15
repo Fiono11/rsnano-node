@@ -532,6 +532,80 @@ mod tests {
         assert!(matches!(fixture.events[0], AecFact::ElectionConfirmed(_)));
     }
 
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn accepted_late_vote_preserves_expired_confirmation_without_repeating_completion() {
+        use crate::consensus::election::ElectionState;
+        use rsnano_types::VoteKind;
+
+        let mut fixture = Fixture::default();
+        fixture.add_active_election();
+        let rep = PrivateKey::from(1);
+        fixture.rep_weights.put(rep.public_key(), Amount::MAX);
+        let now = Timestamp::new_test_instance();
+        let apply = |fixture: &mut Fixture, kind| {
+            let vote: FilteredVote = ReceivedVote::new(
+                Vote::new_with_kind(&rep, vec![fixture.block_hash], 0, kind).into(),
+                VoteDelivery::Direct,
+                None,
+            )
+            .into();
+            let quorum = QuorumSnapshot::new_test_instance();
+            let args = ApplyVoteArgs {
+                vote: &vote,
+                rep_weights: &fixture.rep_weights,
+                quorum_snapshot: &quorum,
+                now,
+            };
+            ApplyVoteHelper {
+                args: &args,
+                recently_confirmed: &mut fixture.recently_confirmed,
+                vote_counter: &mut VoteCounter::default(),
+                observer: &None,
+                roots: &mut fixture.roots,
+            }
+            .apply_vote()
+        };
+
+        let first = apply(&mut fixture, VoteKind::First);
+        assert_eq!(first.per_block[&fixture.block_hash], Ok(()));
+        assert_eq!(first.confirmed.len(), 1);
+        fixture.roots.transition_time(now);
+        assert_eq!(
+            fixture
+                .roots
+                .election_for_block(&fixture.block_hash)
+                .unwrap()
+                .state(),
+            ElectionState::ExpiredConfirmed
+        );
+
+        // A different vote kind is newly accepted after the expiry timer was
+        // removed. Retained certificates must not reactivate the timer or scheduler.
+        let late = apply(&mut fixture, VoteKind::Final);
+        assert_eq!(late.per_block[&fixture.block_hash], Ok(()));
+        assert!(late.confirmed.is_empty());
+        assert_eq!(fixture.roots.round_robin().count(), 0);
+        assert_eq!(
+            fixture
+                .roots
+                .election_for_block(&fixture.block_hash)
+                .unwrap()
+                .state(),
+            ElectionState::ExpiredConfirmed
+        );
+        fixture.roots.transition_time(now);
+        assert_eq!(
+            fixture
+                .roots
+                .election_for_block(&fixture.block_hash)
+                .unwrap()
+                .state(),
+            ElectionState::ExpiredConfirmed
+        );
+        assert_eq!(fixture.roots.len(), 1);
+    }
+
     // Test helpers:
     //--------------------------------------------------------------------------------
 

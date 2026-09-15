@@ -73,7 +73,6 @@ pub struct HintedScheduler {
     stopped_mutex: Mutex<()>,
     cooldowns: Mutex<OrderedCooldowns>,
     pub max_elections: usize,
-    notification_threshold: usize,
 }
 
 impl HintedScheduler {
@@ -88,9 +87,6 @@ impl HintedScheduler {
         clock: Arc<SteadyClock>,
     ) -> Self {
         let max_elections = active_elections.max_len() * config.hinted_limit_percentage / 100;
-
-        let notification_threshold =
-            max_elections * config.vacancy_threshold_percent as usize / 100;
 
         Self {
             thread: Mutex::new(None),
@@ -107,12 +103,16 @@ impl HintedScheduler {
             stopped_mutex: Mutex::new(()),
             cooldowns: Mutex::new(OrderedCooldowns::new()),
             max_elections,
-            notification_threshold,
         }
     }
 
     pub fn stop(&self) {
-        self.stopped.store(true, Ordering::SeqCst);
+        {
+            // Pair the state change with the wait mutex so shutdown cannot miss
+            // a notification between the worker's predicate check and its wait.
+            let _guard = self.stopped_mutex.lock().unwrap();
+            self.stopped.store(true, Ordering::SeqCst);
+        }
         self.notify();
         let handle = self.thread.lock().unwrap().take();
         if let Some(handle) = handle {
@@ -120,10 +120,10 @@ impl HintedScheduler {
         }
     }
 
-    /// Notify about changes in AEC vacancy
+    /// The worker checks vacancy on its configured interval. Ordinary vacancy
+    /// notifications do not satisfy its wait predicate; only shutdown wakes it.
     pub fn notify(&self) {
-        // Avoid notifying when there is very little space inside AEC
-        if self.aec_vacancy() >= self.notification_threshold as i64 {
+        if self.stopped.load(Ordering::SeqCst) {
             self.condition.notify_all();
         }
     }
@@ -400,5 +400,136 @@ impl OrderedCooldowns {
 
     fn len(&self) -> usize {
         self.by_hash.len()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::consensus::{
+        AecCooldownReason, BucketInfo, ElectionCandidate, ElectionCandidateSource,
+    };
+    use rsnano_nullable_clock::Timestamp;
+    use rsnano_types::TimePriority;
+    use rsnano_utils::stats::Direction;
+    use std::sync::mpsc;
+
+    fn scheduler(aec: Arc<AecService>, interval: Duration) -> Arc<HintedScheduler> {
+        HintedScheduler::new(
+            HintedSchedulerConfig {
+                check_interval: interval,
+                ..Default::default()
+            },
+            aec,
+            Arc::new(Ledger::new_null()),
+            Arc::new(Stats::default()),
+            Arc::new(VoteCache::new_null()),
+            Arc::new(ConfirmingSet::new_null()),
+            Arc::new(RepresentativeTracker::new_null()),
+            Arc::new(SteadyClock::new_null()),
+        )
+        .into()
+    }
+
+    struct BlockingCandidates {
+        entered: Option<mpsc::Sender<()>>,
+        release: mpsc::Receiver<()>,
+    }
+
+    impl ElectionCandidateSource for BlockingCandidates {
+        fn should_schedule(&self, _buckets: &[BucketInfo]) -> bool {
+            true
+        }
+
+        fn next_candidate(
+            &mut self,
+            _bucket_id: usize,
+            _vacancy: isize,
+            _lowest_priority: TimePriority,
+        ) -> Option<ElectionCandidate> {
+            if let Some(entered) = self.entered.take() {
+                entered.send(()).unwrap();
+                self.release.recv().unwrap();
+            }
+            None
+        }
+    }
+
+    #[test]
+    fn vacancy_notification_does_not_wait_for_aec_writer() {
+        let aec = Arc::new(AecService::new_null());
+        let scheduler = scheduler(aec.clone(), Duration::from_secs(60));
+        let completed = std::thread::scope(|scope| {
+            let (entered_tx, entered_rx) = mpsc::channel();
+            let (release_tx, release_rx) = mpsc::channel();
+            let writer = scope.spawn(move || {
+                aec.refill(
+                    &mut BlockingCandidates {
+                        entered: Some(entered_tx),
+                        release: release_rx,
+                    },
+                    Timestamp::new_test_instance(),
+                );
+            });
+            entered_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+            let (completed_tx, completed_rx) = mpsc::channel();
+            let notifier = scope.spawn(move || {
+                scheduler.notify();
+                completed_tx.send(()).unwrap();
+            });
+            let completed = completed_rx.recv_timeout(Duration::from_secs(2));
+            // Release before joining: a regression must fail, rather than hang.
+            release_tx.send(()).unwrap();
+            writer.join().unwrap();
+            notifier.join().unwrap();
+            completed
+        });
+        assert!(
+            completed.is_ok(),
+            "vacancy notification waited for the AEC writer"
+        );
+    }
+
+    #[test]
+    fn stop_wakes_periodic_wait_even_when_aec_has_no_vacancy() {
+        let aec = Arc::new(AecService::new_null());
+        aec.set_cooldown(true, AecCooldownReason::AecFactQueueFull);
+        let scheduler = scheduler(aec, Duration::from_secs(60));
+        assert_eq!(scheduler.aec_vacancy(), 0);
+        scheduler.start();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while scheduler
+            .stats
+            .count(StatType::Hinting, DetailType::Loop, Direction::In)
+            == 0
+            && Instant::now() < deadline
+        {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        let started = scheduler
+            .stats
+            .count(StatType::Hinting, DetailType::Loop, Direction::In)
+            > 0;
+        // The loop increments its counter under this mutex, immediately before
+        // waiting. Acquiring it now ensures the worker has reached its wait.
+        drop(scheduler.stopped_mutex.lock().unwrap());
+        let completed = std::thread::scope(|scope| {
+            let (completed_tx, completed_rx) = mpsc::channel();
+            let scheduler_l = scheduler.clone();
+            let stopper = scope.spawn(move || {
+                scheduler_l.stop();
+                completed_tx.send(()).unwrap();
+            });
+            let completed = completed_rx.recv_timeout(Duration::from_secs(2));
+            // Rescue the old vacancy-gated stop path without a 60-second hang.
+            scheduler.condition.notify_all();
+            stopper.join().unwrap();
+            completed
+        });
+        assert!(started, "scheduler did not enter its periodic wait");
+        assert!(
+            completed.is_ok(),
+            "stop waited for the configured check interval"
+        );
     }
 }

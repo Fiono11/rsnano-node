@@ -398,6 +398,9 @@ impl ActiveElectionsContainer {
     /// Returns the current active elections after transitioning
     pub fn transition_time(&mut self, now: Timestamp) {
         self.stats.ticked += 1;
+        #[cfg(feature = "rai_protocol")]
+        self.roots.transition_time(now);
+        #[cfg(not(feature = "rai_protocol"))]
         for entry in self.roots.iter_mut() {
             entry.election.transition_time(now);
         }
@@ -1131,16 +1134,22 @@ impl ActiveElectionsContainer {
             let finalized = entry.finalized;
             let root = entry.root.clone();
             let timeout = entry.block.is_none();
-            if let (Some(ledger), Some(block)) = (&self.epoch_source, &entry.block) {
-                ledger.record_epoch_block(epoch, block.clone());
-            }
+            let block = entry.block.clone();
             let changed = self
                 .block_tree
                 .insert(entry)
                 .expect("Conflicting locally established outcomes");
+            if !changed {
+                continue;
+            }
+            // The AEC write lock serializes this publication with drain/close
+            // checks. Already-known certificates have already been published.
+            if let (Some(ledger), Some(block)) = (&self.epoch_source, block) {
+                ledger.record_epoch_block(epoch, block);
+            }
             self.terminated_elections
                 .insert(rsnano_types::ElectionId::new(root.clone(), epoch));
-            if changed && self.report_outcomes {
+            if self.report_outcomes {
                 let first_vote_us = self
                     .election_for_id(&rsnano_types::ElectionId::new(root.clone(), epoch))
                     .and_then(|e| e.first_vote_observed)
@@ -1196,6 +1205,11 @@ impl ActiveElectionsContainer {
         if election.force_confirm() {
             let confirmed_election =
                 election.into_confirmed_election(now, ConfirmationType::ActiveConfirmedQuorum);
+            #[cfg(feature = "rai_protocol")]
+            {
+                let id = election.id();
+                self.roots.track_time_transition(&id);
+            }
             self.notify(AecFact::ElectionConfirmed(confirmed_election));
         }
     }
@@ -1459,6 +1473,69 @@ mod rai_tests {
     use super::*;
     use crate::consensus::ReceivedVote;
     use rsnano_types::{BlockPriority, PrivateKey, Vote, VoteDelivery};
+
+    #[test]
+    fn confirmation_after_activation_still_expires_on_next_tick() {
+        use crate::consensus::election::ElectionState;
+
+        for force in [false, true] {
+            let mut aec = ActiveElectionsContainer::default();
+            let block = SavedBlock::new_test_instance();
+            let now = Timestamp::new_test_instance();
+            aec.insert(
+                AecInsertRequest::new_manual(block.clone(), Default::default()),
+                now,
+            )
+            .unwrap();
+            aec.transition_active(&block.hash());
+            // The activation timer has been pruned before either confirmation path.
+            aec.transition_time(now);
+            assert_eq!(
+                aec.election_for_block(&block.hash()).unwrap().state(),
+                ElectionState::Active
+            );
+
+            if force {
+                aec.force_confirm(&block.hash(), now);
+            } else {
+                let rep = PrivateKey::from(1);
+                let vote: FilteredVote = ReceivedVote::new(
+                    std::sync::Arc::new(Vote::new_with_kind(
+                        &rep,
+                        vec![block.hash()],
+                        0,
+                        rsnano_types::VoteKind::First,
+                    )),
+                    VoteDelivery::Direct,
+                    None,
+                )
+                .into();
+                let mut weights = RepWeights::default();
+                weights.put(rep.public_key(), Amount::MAX);
+                assert_eq!(
+                    aec.apply_vote(ApplyVoteArgs {
+                        vote: &vote,
+                        rep_weights: &weights,
+                        quorum_snapshot: &QuorumSnapshot::new_test_instance(),
+                        now,
+                    })[&block.hash()],
+                    Ok(())
+                );
+            }
+
+            assert_eq!(
+                aec.election_for_block(&block.hash()).unwrap().state(),
+                ElectionState::Confirmed
+            );
+            aec.transition_time(now);
+            assert_eq!(
+                aec.election_for_block(&block.hash()).unwrap().state(),
+                ElectionState::ExpiredConfirmed
+            );
+            assert_eq!(aec.len(), 1);
+        }
+    }
+
     #[test]
     fn epoch_drain_waits_for_one_visible_first_vote() {
         use rsnano_types::{ElectionId, VoteKind};
@@ -1714,6 +1791,84 @@ mod notarized_admission_tests {
     use rsnano_types::{
         BlockPriority, PrivateKey, StateBlockArgs, TimePriority, Vote, VoteDelivery, VoteKind,
     };
+
+    #[test]
+    fn repeated_certificates_preserve_membership_and_finalization_in_each_epoch() {
+        let ledger = std::sync::Arc::new(rsnano_ledger::Ledger::new_null());
+        let mut aec = ActiveElectionsContainer::default();
+        aec.epoch_source = Some(ledger.clone());
+        let block = SavedBlock::new_test_instance();
+        let now = Timestamp::new_test_instance();
+        for epoch in [0, 1] {
+            aec.insert_in_epoch(
+                AecInsertRequest::new_manual(block.clone(), Default::default()),
+                now,
+                epoch,
+            )
+            .unwrap();
+        }
+
+        for epoch in [0, 1] {
+            for rep in 1..=4 {
+                apply_in_epoch(&mut aec, rep, block.hash(), VoteKind::First, epoch);
+            }
+            assert_eq!(ledger.epoch_close_candidate(epoch), vec![block.hash()]);
+            let id = rsnano_types::ElectionId::new(block.qualified_root(), epoch);
+            assert!(aec.terminated_elections.contains(&id));
+            assert!(aec.pending_epoch_drain(epoch, &[id]).is_empty());
+            assert!(
+                !aec.election_for_id(&rsnano_types::ElectionId::new(
+                    block.qualified_root(),
+                    epoch
+                ))
+                .unwrap()
+                .is_confirmed()
+            );
+
+            // These are accepted votes from distinct representatives, each
+            // re-emitting the existing notarization without a final certificate.
+            for rep in 1..=3 {
+                apply_in_epoch(&mut aec, rep, block.hash(), VoteKind::Final, epoch);
+                assert_eq!(ledger.epoch_close_candidate(epoch), vec![block.hash()]);
+            }
+        }
+        assert_eq!(aec.terminated_elections.len(), 2);
+
+        for epoch in [0, 1] {
+            apply_in_epoch(&mut aec, 4, block.hash(), VoteKind::Final, epoch);
+            let entry = aec
+                .block_tree
+                .for_root(&block.qualified_root())
+                .into_iter()
+                .find(|entry| entry.epoch == epoch)
+                .unwrap();
+            assert!(entry.finalized);
+            let snapshot = ledger.epoch_close_candidate(epoch);
+            assert_eq!(snapshot, vec![block.hash()]);
+            aec.assert_epoch_close(epoch, &snapshot);
+            ledger.close_epoch(epoch, &snapshot).unwrap();
+            assert_eq!(aec.discard_closed_epoch(epoch, &snapshot), 0);
+            assert!(ledger.epoch_close_candidate(epoch).is_empty());
+            if epoch == 0 {
+                assert_eq!(ledger.epoch_close_candidate(1), vec![block.hash()]);
+            }
+
+            // Late, newly accepted evidence cannot resurrect closed candidates.
+            apply_in_epoch(&mut aec, 5, block.hash(), VoteKind::Final, epoch);
+            assert!(ledger.epoch_close_candidate(epoch).is_empty());
+        }
+        assert_eq!(aec.terminated_elections.len(), 2);
+        assert_eq!(ledger.canonical_confirmation_epoch(&block.hash()), Some(0));
+        let tx = ledger.store.begin_read();
+        for epoch in [0, 1] {
+            assert!(
+                ledger
+                    .store
+                    .consensus_epochs
+                    .close_contains(&tx, epoch, &block.hash())
+            );
+        }
+    }
 
     #[test]
     fn termination_count_counts_once_per_epoch_not_per_certificate_or_finalization() {

@@ -57,8 +57,9 @@ impl ConsensusEpochStore {
         self.read(tx, b"closed_blocks").unwrap_or(0)
     }
     pub fn canonical(&self, tx: &dyn Transaction, hash: &BlockHash) -> Option<u64> {
-        let mut key = vec![b'C'];
-        key.extend_from_slice(hash.as_bytes());
+        let mut key = [0; 33];
+        key[0] = b'C';
+        key[1..].copy_from_slice(hash.as_bytes());
         self.read(tx, &key)
     }
     pub fn close(
@@ -70,23 +71,21 @@ impl ConsensusEpochStore {
     ) {
         assert_eq!(epoch, self.closed_count(tx));
         let mut added = 0;
+        let epoch_bytes = epoch.to_le_bytes();
+        let mut member = [0; 46];
+        member[..6].copy_from_slice(b"member");
+        member[6..14].copy_from_slice(&epoch_bytes);
+        let mut canonical = [0; 33];
+        canonical[0] = b'C';
         for hash in hashes {
-            let mut member = b"member".to_vec();
-            member.extend_from_slice(&epoch.to_le_bytes());
-            member.extend_from_slice(hash.as_bytes());
+            member[14..].copy_from_slice(hash.as_bytes());
             tx.put(self.database, &member, &[], WriteFlags::empty())
                 .unwrap();
-            if self.canonical(tx, hash).is_none() {
+            canonical[1..].copy_from_slice(hash.as_bytes());
+            if self.read(tx, &canonical).is_none() {
                 added += 1;
-                let mut key = vec![b'C'];
-                key.extend_from_slice(hash.as_bytes());
-                tx.put(
-                    self.database,
-                    &key,
-                    &epoch.to_le_bytes(),
-                    WriteFlags::empty(),
-                )
-                .unwrap();
+                tx.put(self.database, &canonical, &epoch_bytes, WriteFlags::empty())
+                    .unwrap();
             }
         }
         tx.put(
@@ -106,12 +105,14 @@ impl ConsensusEpochStore {
             .update(previous.as_bytes())
             .update(digest.as_bytes())
             .build();
-        let mut id_key = b"close_id".to_vec();
-        id_key.extend_from_slice(&epoch.to_le_bytes());
+        let mut id_key = [0; 16];
+        id_key[..8].copy_from_slice(b"close_id");
+        id_key[8..].copy_from_slice(&epoch_bytes);
         tx.put(self.database, &id_key, id.as_bytes(), WriteFlags::empty())
             .unwrap();
-        let mut key = b"closed_hash".to_vec();
-        key.extend_from_slice(&epoch.to_le_bytes());
+        let mut key = [0; 19];
+        key[..11].copy_from_slice(b"closed_hash");
+        key[11..].copy_from_slice(&epoch_bytes);
         tx.put(self.database, &key, digest.as_bytes(), WriteFlags::empty())
             .unwrap();
         tx.put(
@@ -123,23 +124,26 @@ impl ConsensusEpochStore {
         .unwrap();
     }
     pub fn close_contains(&self, tx: &dyn Transaction, epoch: u64, hash: &BlockHash) -> bool {
-        let mut key = b"member".to_vec();
-        key.extend_from_slice(&epoch.to_le_bytes());
-        key.extend_from_slice(hash.as_bytes());
+        let mut key = [0; 46];
+        key[..6].copy_from_slice(b"member");
+        key[6..14].copy_from_slice(&epoch.to_le_bytes());
+        key[14..].copy_from_slice(hash.as_bytes());
         tx.get(self.database, &key).is_ok()
     }
 
     pub fn close_id(&self, tx: &dyn Transaction, epoch: u64) -> Option<BlockHash> {
-        let mut key = b"close_id".to_vec();
-        key.extend_from_slice(&epoch.to_le_bytes());
+        let mut key = [0; 16];
+        key[..8].copy_from_slice(b"close_id");
+        key[8..].copy_from_slice(&epoch.to_le_bytes());
         tx.get(self.database, &key)
             .ok()
             .and_then(BlockHash::from_slice)
     }
 
     pub fn close_digest(&self, tx: &dyn Transaction, epoch: u64) -> Option<BlockHash> {
-        let mut key = b"closed_hash".to_vec();
-        key.extend_from_slice(&epoch.to_le_bytes());
+        let mut key = [0; 19];
+        key[..11].copy_from_slice(b"closed_hash");
+        key[11..].copy_from_slice(&epoch.to_le_bytes());
         tx.get(self.database, &key)
             .ok()
             .and_then(BlockHash::from_slice)

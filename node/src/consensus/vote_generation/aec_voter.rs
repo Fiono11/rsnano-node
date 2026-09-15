@@ -102,29 +102,7 @@ impl Tickable for AecVoter {
                 if !eligible(e.qualified_root(), e.epoch) || e.is_confirmed() || e.is_timed_out() {
                     continue;
                 }
-                let primary = vote_target(e);
-                let primary_hash = primary.winner;
-                let primary_type = primary.vote_type;
-                let finalizable =
-                    primary_type != VoteType::Final || !frozen.contains(e.qualified_root());
-                if finalizable && scheduler.can_vote(&primary, now) {
-                    targets.push(primary);
-                }
-                for hash in e.candidate_blocks().keys() {
-                    if (*hash != primary_hash || primary_type != VoteType::NonFinal)
-                        && e.can_notarize(hash)
-                    {
-                        let target = VoteTarget {
-                            root: e.id(),
-                            winner: *hash,
-                            vote_type: VoteType::NonFinal,
-                            timeout: e.should_timeout(),
-                        };
-                        if scheduler.can_vote(&target, now) {
-                            targets.push(target);
-                        }
-                    }
-                }
+                collect_election_targets(e, scheduler, now, &frozen, &mut targets);
             }
             targets
         });
@@ -157,5 +135,138 @@ impl Tickable for AecVoter {
 
         self.scheduler.cleanup(now);
         self.flush(&mut vote_queue);
+    }
+}
+
+#[cfg(feature = "rai_protocol")]
+fn collect_election_targets(
+    election: &crate::consensus::election::Election,
+    scheduler: &VotingScheduler,
+    now: rsnano_nullable_clock::Timestamp,
+    frozen: &rustc_hash::FxHashSet<rsnano_types::QualifiedRoot>,
+    targets: &mut Vec<VoteTarget>,
+) {
+    let primary_hash = election.winner().hash();
+    let primary_type = election.vote_type();
+    // Eligibility is stable while the caller holds the AEC read lock. Compute
+    // timeout once even when several fork candidates need non-final votes.
+    let timeout = if primary_type != VoteType::Final || !frozen.contains(election.qualified_root())
+    {
+        let primary = vote_target(election);
+        let timeout = primary.timeout;
+        if scheduler.can_vote(&primary, now) {
+            targets.push(primary);
+        }
+        timeout
+    } else {
+        election.should_timeout()
+    };
+    if primary_type == VoteType::NonFinal && election.block_count() == 1 {
+        return;
+    }
+    for hash in election.candidate_blocks().keys() {
+        if (*hash != primary_hash || primary_type != VoteType::NonFinal)
+            && election.can_notarize_known_candidate(hash)
+        {
+            let target = VoteTarget {
+                root: election.id(),
+                winner: *hash,
+                vote_type: VoteType::NonFinal,
+                timeout,
+            };
+            if scheduler.can_vote(&target, now) {
+                targets.push(target);
+            }
+        }
+    }
+}
+
+#[cfg(all(test, feature = "rai_protocol"))]
+mod tests {
+    use super::*;
+    use crate::consensus::election::Election;
+    use rsnano_nullable_clock::Timestamp;
+    use rsnano_types::{Amount, Block, PrivateKey, SavedBlock, StateBlockArgs, Vote, VoteKind};
+
+    #[test]
+    fn frozen_final_target_keeps_secondary_notarization_and_retry_timing() {
+        let args = StateBlockArgs::new_test_instance();
+        let a = SavedBlock::new_test_instance_with(args.clone().into());
+        let b: Block = StateBlockArgs {
+            representative: 999.into(),
+            ..args
+        }
+        .into();
+        let mut election = Election::new_test_instance_with(a.clone());
+        election.try_add_fork(&b, Amount::ZERO);
+        let now = Timestamp::new_test_instance();
+        let keys: Vec<_> = (1..=6).map(PrivateKey::from).collect();
+        let weights = keys
+            .iter()
+            .map(|key| (key.public_key(), Amount::raw(100)))
+            .collect();
+        for (i, key) in keys.iter().enumerate() {
+            let hash = if i < 3 { a.hash() } else { b.hash() };
+            election
+                .add_kudzu_vote(
+                    Arc::new(Vote::new_with_kind(key, vec![hash], 0, VoteKind::First)),
+                    hash,
+                    now,
+                )
+                .unwrap();
+        }
+        election.update_kudzu_tallies(&weights, Amount::raw(600));
+        assert!(election.should_timeout());
+        let mut scheduler = VotingScheduler::new(Duration::from_millis(500));
+        let frozen = [election.qualified_root().clone()].into_iter().collect();
+        let mut targets = Vec::new();
+        collect_election_targets(&election, &scheduler, now, &frozen, &mut targets);
+        assert_eq!(targets.len(), 2);
+        assert!(targets.iter().all(|target| target.timeout));
+        for target in targets.drain(..) {
+            scheduler.mark_voted(&target, now);
+        }
+        collect_election_targets(
+            &election,
+            &scheduler,
+            now + Duration::from_millis(100),
+            &frozen,
+            &mut targets,
+        );
+        assert!(targets.is_empty());
+        collect_election_targets(
+            &election,
+            &scheduler,
+            now + Duration::from_millis(500),
+            &frozen,
+            &mut targets,
+        );
+        assert_eq!(targets.len(), 2);
+
+        election
+            .add_kudzu_vote(
+                Arc::new(Vote::new_with_kind(
+                    &keys[3],
+                    vec![a.hash()],
+                    0,
+                    VoteKind::Notarize,
+                )),
+                a.hash(),
+                now,
+            )
+            .unwrap();
+        election.update_kudzu_tallies(&weights, Amount::raw(600));
+        assert!(election.has_quorum());
+        assert!(!election.is_confirmed());
+        targets.clear();
+        collect_election_targets(&election, &scheduler, now, &frozen, &mut targets);
+        assert_eq!(targets.len(), 2);
+        assert!(
+            targets
+                .iter()
+                .all(|target| target.vote_type == VoteType::NonFinal && !target.timeout)
+        );
+        assert!(targets.iter().any(|target| target.winner == a.hash()));
+        assert!(targets.iter().any(|target| target.winner == b.hash()));
     }
 }

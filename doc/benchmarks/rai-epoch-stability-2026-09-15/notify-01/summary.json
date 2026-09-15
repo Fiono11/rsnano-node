@@ -1,0 +1,85 @@
+{
+  "run": "notify-01",
+  "state": "complete",
+  "profile": false,
+  "block_processor_threads": null,
+  "vote_processor_threads": null,
+  "vote_generator_delay_ms": null,
+  "epochs_enabled": true,
+  "exit_code": 0,
+  "data_deleted": true,
+  "two_closes_agree": true,
+  "nonfork_finalized_by_epoch": {
+    "0": {
+      "count": 24042,
+      "mean_ms": 254.03149115398034,
+      "p95_ms": 499.95929099999995,
+      "max_ms": 2466.3578749999997
+    },
+    "1": {
+      "count": 23440,
+      "mean_ms": 654.8561271170229,
+      "p95_ms": 1053.7474579999998,
+      "max_ms": 2096.2355000000002
+    }
+  },
+  "epoch1_over_epoch0_mean": 2.5778541240781996,
+  "nonfork_finalized_per_second": {
+    "5_10s": 1915.4,
+    "15_20s": 1770.4,
+    "20_25s": 1787.0,
+    "15_25s": 1778.7
+  },
+  "workload_anchor_basis": "epoch_schedule",
+  "pr0_epoch_state_changes": [
+    {
+      "seconds_after_schedule": -18.023,
+      "state": {
+        "closed_epochs": {},
+        "current_epoch": "0"
+      }
+    },
+    {
+      "seconds_after_schedule": 14.606,
+      "state": {
+        "draining_epoch": "0",
+        "closed_epochs": {},
+        "current_epoch": "1"
+      }
+    },
+    {
+      "seconds_after_schedule": 26.916,
+      "state": {
+        "closed_epochs": {
+          "0": "41DACBFD0BC49B20137F28C3836D66A5F053D456F2113A95A17C58F91AF45E37"
+        },
+        "current_epoch": "1"
+      }
+    },
+    {
+      "seconds_after_schedule": 28.951,
+      "state": {
+        "draining_epoch": "1",
+        "closed_epochs": {
+          "0": "41DACBFD0BC49B20137F28C3836D66A5F053D456F2113A95A17C58F91AF45E37"
+        },
+        "current_epoch": "2"
+      }
+    },
+    {
+      "seconds_after_schedule": 49.26,
+      "state": {
+        "closed_epochs": {
+          "0": "41DACBFD0BC49B20137F28C3836D66A5F053D456F2113A95A17C58F91AF45E37",
+          "1": "4E85D4AB8E36CA918D4F34DF41A1AAC422542B6B3BA968E0669C3A89893C30F1"
+        },
+        "current_epoch": "2"
+      }
+    }
+  ],
+  "six_node_ps_cpu_percent_sample_mean": {
+    "5_10s": 595.95,
+    "15_25s": 620.5600000000001
+  },
+  "interpretation": "Second certificate-build run: binary hashes match cert-01. Does not include the hinted-scheduler notification fix; the intended rebuild targeted the daemon library instead of the CLI executable."
+}

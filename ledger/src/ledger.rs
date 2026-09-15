@@ -99,12 +99,6 @@ pub struct Ledger {
     #[cfg(feature = "rai_protocol")]
     pub(crate) epoch_candidates: RwLock<std::collections::BTreeSet<(u64, BlockHash)>>,
     #[cfg(feature = "rai_protocol")]
-    pub(crate) epoch_blocks:
-        RwLock<std::collections::BTreeMap<BlockHash, (u64, Block, rsnano_types::DependentBlocks)>>,
-    #[cfg(feature = "rai_protocol")]
-    pub(crate) epoch_metadata:
-        RwLock<rustc_hash::FxHashMap<BlockHash, (u64, rsnano_types::DependentBlocks)>>,
-    #[cfg(feature = "rai_protocol")]
     pub voting_epoch: std::sync::atomic::AtomicU64,
     #[cfg(feature = "rai_protocol")]
     pub draining_epoch: std::sync::atomic::AtomicU64,
@@ -326,11 +320,7 @@ impl Ledger {
             #[cfg(feature = "rai_protocol")]
             epoch_terminated_elections: Default::default(),
             #[cfg(feature = "rai_protocol")]
-            epoch_blocks: Default::default(),
-            #[cfg(feature = "rai_protocol")]
             epoch_candidates: Default::default(),
-            #[cfg(feature = "rai_protocol")]
-            epoch_metadata: Default::default(),
             #[cfg(feature = "rai_protocol")]
             voting_epoch: Default::default(),
             #[cfg(feature = "rai_protocol")]
@@ -693,12 +683,15 @@ impl Ledger {
         // Insert blocks
         let mut processed = Vec::with_capacity(validation_results.len());
         {
-            let mut txn = self.store.begin_write();
+            // Rejected-only batches need no writer and must not queue behind
+            // unrelated block insertion, final votes, or epoch persistence.
+            let mut txn = None;
             for (result, block, source) in validation_results {
                 match result {
                     Ok(instructions) => {
+                        let txn = txn.get_or_insert_with(|| self.store.begin_write());
                         if let Some((saved_block, priority)) =
-                            BlockInserter::new(self, &mut txn, block, &instructions).insert()
+                            BlockInserter::new(self, txn, block, &instructions).insert()
                         {
                             processed.push(ProcessResult {
                                 block: block.clone(),
@@ -729,7 +722,9 @@ impl Ledger {
                     }
                 }
             }
-            txn.commit();
+            if let Some(txn) = txn {
+                txn.commit();
+            }
         }
 
         if !processed.is_empty() {
@@ -743,6 +738,10 @@ impl Ledger {
     where
         T: IntoIterator<Item = &'a Block>,
     {
+        let mut blocks = blocks.into_iter().peekable();
+        if blocks.peek().is_none() {
+            return;
+        }
         let mut rolled_back = RollbackResults::new();
         {
             let mut txn = self.store.begin_write();

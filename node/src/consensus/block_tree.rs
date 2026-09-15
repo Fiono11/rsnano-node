@@ -17,6 +17,20 @@ impl RaiBlockTree {
         if !entry.is_valid() {
             return Err("invalid block-tree entry");
         }
+        let key = (
+            entry.root.clone(),
+            entry.epoch,
+            entry.block.as_ref().map(|b| b.hash()).unwrap_or_default(),
+        );
+        // A duplicate or downgrade cannot introduce a new conflict. Finalization
+        // upgrades still check every related outcome before changing the tree.
+        if self
+            .entries
+            .get(&key)
+            .is_some_and(|old| !entry.finalized || old.finalized)
+        {
+            return Ok(false);
+        }
         let related = self
             .entries
             .range(
@@ -35,11 +49,6 @@ impl RaiBlockTree {
                 return Err("timeout and finalization in the same epoch");
             }
         }
-        let key = (
-            entry.root.clone(),
-            entry.epoch,
-            entry.block.as_ref().map(|b| b.hash()).unwrap_or_default(),
-        );
         if let Some(old) = self.entries.get_mut(&key) {
             if entry.finalized && !old.finalized {
                 old.finalized = true;
@@ -149,5 +158,29 @@ mod tests {
         b.finalized = true;
         b.epoch = 1;
         assert!(tree.insert(b).is_err());
+    }
+
+    #[test]
+    fn duplicate_fast_path_preserves_validation_and_upgrade_conflicts() {
+        let block = SavedBlock::new_test_instance();
+        let mut tree = RaiBlockTree::default();
+        let notarized = RaiBlockTreeEntry::notarized(block.clone().into(), 0);
+        tree.insert(notarized.clone()).unwrap();
+        let mut invalid = notarized.clone();
+        invalid.root = QualifiedRoot::new(99.into(), 99.into());
+        assert_eq!(tree.insert(invalid), Err("invalid block-tree entry"));
+
+        let timeout = RaiBlockTreeEntry::timeout(block.qualified_root(), 0, block.hash());
+        tree.insert(timeout.clone()).unwrap();
+        let mut rerouted = timeout;
+        rerouted.timeout_hash = 123.into();
+        assert_eq!(tree.insert(rerouted), Ok(false));
+        assert_eq!(tree.insert(notarized.clone()), Ok(false));
+        let mut finalized = notarized;
+        finalized.finalized = true;
+        assert_eq!(
+            tree.insert(finalized),
+            Err("timeout and finalization in the same epoch")
+        );
     }
 }

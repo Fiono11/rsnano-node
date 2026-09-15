@@ -23,8 +23,13 @@ impl LocalVotesRemover {
             .filter(|v| v.epoch == epoch)
             .collect();
 
-        self.active_elections
-            .remove_votes_in_epoch(root, epoch, votes.iter().map(|i| &i.voter));
+        if !votes.is_empty() {
+            self.active_elections.remove_votes_in_epoch(
+                root,
+                epoch,
+                votes.iter().map(|i| &i.voter),
+            );
+        }
 
         self.vote_history.erase_in_epoch(&root.root, epoch);
     }

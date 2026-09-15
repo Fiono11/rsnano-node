@@ -1,0 +1,65 @@
+{
+  "run": "cert-one-voter",
+  "state": "complete",
+  "profile": false,
+  "block_processor_threads": null,
+  "vote_processor_threads": 1,
+  "vote_generator_delay_ms": null,
+  "epochs_enabled": true,
+  "exit_code": 0,
+  "data_deleted": true,
+  "two_closes_agree": true,
+  "nonfork_finalized_by_epoch": {
+    "0": {
+      "count": 26501,
+      "mean_ms": 3285.542877195415,
+      "p95_ms": 7530.10375,
+      "max_ms": 19941.789
+    },
+    "1": {
+      "count": 20516,
+      "mean_ms": 10259.19196511126,
+      "p95_ms": 18734.886333,
+      "max_ms": 25484.651542000003
+    }
+  },
+  "epoch1_over_epoch0_mean": 3.122525667316401,
+  "nonfork_finalized_per_second": {
+    "5_10s": 1211.4,
+    "15_20s": 893.4,
+    "20_25s": 569.6,
+    "15_25s": 731.5
+  },
+  "workload_anchor_basis": "epoch_schedule",
+  "pr0_epoch_state_changes": [
+    {
+      "seconds_after_schedule": -17.798,
+      "state": {
+        "closed_epochs": {},
+        "current_epoch": "0"
+      }
+    },
+    {
+      "seconds_after_schedule": 20.999,
+      "state": {
+        "draining_epoch": "0",
+        "closed_epochs": {},
+        "current_epoch": "1"
+      }
+    },
+    {
+      "seconds_after_schedule": 51.705,
+      "state": {
+        "draining_epoch": "1",
+        "closed_epochs": {
+          "0": "89B91744562D6A745B54F4912AA618374F73DE2EB330506228A099B16FF6D311"
+        },
+        "current_epoch": "2"
+      }
+    }
+  ],
+  "six_node_ps_cpu_percent_sample_mean": {
+    "5_10s": 605.6500000000001,
+    "15_25s": 641.275
+  }
+}

@@ -69,3 +69,6 @@ pub enum BlockSource {
 
 #[cfg(feature = "rai_protocol")]
 mod epoch_closure;
+
+#[cfg(feature = "rai_protocol")]
+pub use epoch_closure::PendingEpochClose;

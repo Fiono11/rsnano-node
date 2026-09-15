@@ -472,12 +472,22 @@ impl SharedState {
         roots: &[Root],
         epoch: u64,
     ) -> Vec<(BlockHash, Root, rsnano_types::QualifiedRoot)> {
+        if hashes.is_empty() {
+            return Vec::new();
+        }
         let mut blocks: Vec<Option<rsnano_types::Block>> = {
             let any = self.ledger.any();
-            hashes
+            let blocks: Vec<_> = hashes
                 .iter()
                 .map(|h| any.get_block(h).map(Into::into))
-                .collect()
+                .collect();
+            if blocks.iter().all(Option::is_some) {
+                // Most voting batches contain only ledger blocks. Validate their
+                // dependencies in the same snapshot instead of registering another
+                // LMDB reader for both queue verification and signing.
+                return self.checked_kudzu_candidates(&any, blocks, hashes, roots, epoch);
+            }
+            blocks
         };
         let missing: Vec<_> = blocks
             .iter()
@@ -494,6 +504,18 @@ impl SharedState {
             }
         }
         let any = self.ledger.any();
+        self.checked_kudzu_candidates(&any, blocks, hashes, roots, epoch)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    fn checked_kudzu_candidates(
+        &self,
+        any: &impl AnySet,
+        blocks: Vec<Option<rsnano_types::Block>>,
+        hashes: &[BlockHash],
+        roots: &[Root],
+        epoch: u64,
+    ) -> Vec<(BlockHash, Root, rsnano_types::QualifiedRoot)> {
         let draining = self
             .ledger
             .draining_epoch
@@ -1157,6 +1179,70 @@ mod fork_recovery_tests {
                 .shared_state
                 .kudzu_candidates(&[BlockHash::from(999)], &[child.root()], 0)
                 .is_empty()
+        );
+    }
+
+    #[test]
+    fn candidate_lookup_preserves_order_and_validation_with_ledger_and_fork_blocks() {
+        let ledger = Arc::new(Ledger::new_null());
+        let mut lattice = UnsavedBlockLatticeBuilder::new();
+        let parent = lattice.genesis().send(100, 1);
+        let saved = ledger.process_one(&parent).unwrap();
+        let child = lattice.genesis().send(200, 1);
+        ledger.process_one(&child).unwrap();
+        let fork = UnsavedBlockLatticeBuilder::new().genesis().send(300, 1);
+        let aec = Arc::new(AecService::new_null());
+        aec.insert(
+            AecInsertRequest::new_manual(saved, Default::default()),
+            Timestamp::new_test_instance(),
+        )
+        .unwrap();
+        assert!(aec.try_add_fork(&fork, Amount::ZERO));
+        assert!(ledger.any().get_block(&fork.hash()).is_none());
+        let generator = generator(ledger, &aec);
+
+        // The ledger-only path rejects a wrong root and an unconfirmed dependency.
+        let known = generator.shared_state.kudzu_candidates(
+            &[parent.hash(), child.hash(), parent.hash(), parent.hash()],
+            &[parent.root(), child.root(), Root::ZERO, parent.root()],
+            0,
+        );
+        let parent_candidate = (parent.hash(), parent.root(), parent.qualified_root());
+        assert_eq!(
+            known,
+            vec![parent_candidate.clone(), parent_candidate.clone()]
+        );
+
+        // Interleaving an unsaved fork uses AEC recovery without changing input
+        // ordering, duplicate handling, or the checks on ledger-resident entries.
+        let mixed = generator.shared_state.kudzu_candidates(
+            &[
+                fork.hash(),
+                parent.hash(),
+                child.hash(),
+                parent.hash(),
+                BlockHash::from(999),
+                parent.hash(),
+                fork.hash(),
+            ],
+            &[
+                fork.root(),
+                parent.root(),
+                child.root(),
+                Root::ZERO,
+                parent.root(),
+                parent.root(),
+                Root::ZERO,
+            ],
+            0,
+        );
+        assert_eq!(
+            mixed,
+            vec![
+                (fork.hash(), fork.root(), fork.qualified_root()),
+                parent_candidate.clone(),
+                parent_candidate,
+            ]
         );
     }
 }
