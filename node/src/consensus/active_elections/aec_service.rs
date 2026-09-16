@@ -177,6 +177,23 @@ impl AecService {
     }
 
     #[cfg(feature = "rai_protocol")]
+    pub(crate) fn retire_unfinalizable(&self, ids: &[rsnano_types::ElectionId]) {
+        if !ids.is_empty() {
+            self.aec.write().unwrap().retire_unfinalizable(ids);
+        }
+    }
+
+    /// Retired elections after `after` in id order, wrapping around.
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn recovery_batch(
+        &self,
+        after: Option<&rsnano_types::ElectionId>,
+        limit: usize,
+    ) -> Vec<Election> {
+        self.aec.read().unwrap().recovery_batch(after, limit)
+    }
+
+    #[cfg(feature = "rai_protocol")]
     pub(crate) fn take_notarization_notifications(
         &self,
     ) -> Vec<(rsnano_types::ElectionId, BlockHash)> {

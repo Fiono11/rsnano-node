@@ -108,6 +108,7 @@ impl VoteProcessorQueue {
         channel: Option<Arc<Channel>>,
         source: VoteDelivery,
         filter: Option<BlockHash>,
+        digest: u128,
     ) -> bool {
         let channel_id = match &channel {
             Some(channel) => channel.channel_id(),
@@ -118,9 +119,16 @@ impl VoteProcessorQueue {
         let added = {
             let mut guard = self.data.lock().unwrap();
             tier = guard.rep_tiers.tier(&vote.voter);
-            guard
-                .queue
-                .push((tier, channel_id), (vote, source, channel, filter))
+            guard.queue.push(
+                (tier, channel_id),
+                QueuedVote {
+                    vote,
+                    source,
+                    channel,
+                    filter,
+                    digest,
+                },
+            )
         };
 
         if added {
@@ -139,15 +147,7 @@ impl VoteProcessorQueue {
     pub(crate) fn wait_for_votes(
         &self,
         max_batch_size: usize,
-    ) -> VecDeque<(
-        (RepTier, ChannelId),
-        (
-            Arc<Vote>,
-            VoteDelivery,
-            Option<Arc<Channel>>,
-            Option<BlockHash>,
-        ),
-    )> {
+    ) -> VecDeque<((RepTier, ChannelId), QueuedVote)> {
         let mut guard = self.data.lock().unwrap();
         loop {
             if guard.stopped {
@@ -170,14 +170,20 @@ impl VoteProcessorQueue {
                     let tier = guard.rep_tiers.tier(&vote.voter);
                     batch.push_back((
                         (tier, ChannelId::LOOPBACK),
-                        (vote, VoteDelivery::Direct, None, None),
+                        QueuedVote {
+                            vote,
+                            source: VoteDelivery::Direct,
+                            channel: None,
+                            filter: None,
+                            digest: 0,
+                        },
                     ));
                 }
                 while work < max_batch_size {
                     let Some(item) = guard.queue.pop() else {
                         break;
                     };
-                    work += vote_work(&item.1.0, item.1.3);
+                    work += vote_work(&item.1.vote, item.1.filter);
                     batch.push_back(item);
                 }
                 self.condition.notify_all();
@@ -256,16 +262,19 @@ struct VoteProcessorQueueData {
     local: VecDeque<Arc<Vote>>,
     local_seen: HashSet<Signature>,
     local_history: VecDeque<Signature>,
-    queue: FairQueue<
-        (RepTier, ChannelId),
-        (
-            Arc<Vote>,
-            VoteDelivery,
-            Option<Arc<Channel>>,
-            Option<BlockHash>, //filter
-        ),
-    >,
+    queue: FairQueue<(RepTier, ChannelId), QueuedVote>,
     rep_tiers: RepTiers,
+}
+
+pub(crate) struct QueuedVote {
+    pub vote: Arc<Vote>,
+    pub source: VoteDelivery,
+    pub channel: Option<Arc<Channel>>,
+    /// Only this hash of the vote is applied (vote cache replays).
+    pub filter: Option<BlockHash>,
+    /// Digest of the network message that carried the vote, zero when local,
+    /// so a vote that found no election can be accepted again when replayed.
+    pub digest: u128,
 }
 
 /// Bound the amount of election work leased to a worker, not just packet count.
@@ -299,7 +308,7 @@ mod local_vote_tests {
             .collect();
         let remote = Arc::new(vote);
         for _ in 0..20 {
-            assert!(queue.enqueue(remote.clone(), None, VoteDelivery::Direct, None));
+            assert!(queue.enqueue(remote.clone(), None, VoteDelivery::Direct, None, 0));
         }
         let batch = queue.wait_for_votes(1024);
         assert_eq!(batch.len(), 5);
@@ -307,7 +316,7 @@ mod local_vote_tests {
         let local = Arc::new(Vote::null());
         assert!(queue.enqueue_local(local.clone()));
         let next = queue.wait_for_votes(1024);
-        assert!(Arc::ptr_eq(&next[0].1.0, &local));
+        assert!(Arc::ptr_eq(&next[0].1.vote, &local));
         assert_eq!(vote_work(&remote, Some(1.into())), 1);
         assert_eq!(vote_work(&remote, None), Vote::MAX_HASHES);
     }
@@ -316,11 +325,11 @@ mod local_vote_tests {
     fn local_vote_survives_full_remote_queue() {
         let queue = VoteProcessorQueue::new_null();
         let remote = Arc::new(Vote::null());
-        while queue.enqueue(remote.clone(), None, VoteDelivery::Direct, None) {}
+        while queue.enqueue(remote.clone(), None, VoteDelivery::Direct, None, 0) {}
         let local = Arc::new(Vote::null());
         assert!(queue.enqueue_local(local.clone()));
         let batch = queue.wait_for_votes(2);
-        assert!(Arc::ptr_eq(&batch[0].1.0, &local));
+        assert!(Arc::ptr_eq(&batch[0].1.vote, &local));
         assert_eq!(batch.len(), 2);
         queue.stop();
         assert!(!queue.enqueue_local(local));

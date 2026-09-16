@@ -183,6 +183,7 @@ impl NetworkMessageProcessor {
                     Some(channel.clone()),
                     source,
                     None,
+                    ack.digest,
                 );
 
                 if !added {

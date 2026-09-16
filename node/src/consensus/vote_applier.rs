@@ -4,7 +4,7 @@ use rsnano_nullable_clock::SteadyClock;
 use rustc_hash::FxHashMap;
 
 use rsnano_ledger::RepWeightCache;
-use rsnano_types::{Amount, BlockHash, VoteError};
+use rsnano_types::{Amount, BlockHash, PublicKey, VoteError};
 use rsnano_utils::sync::backpressure_channel::Sender;
 
 use super::{AecFact, AecService, FilteredVote, ReceivedVote};
@@ -43,6 +43,15 @@ impl VoteApplier {
         self.event_senders.write().unwrap().clear();
     }
 
+    /// Only principal representatives take part in elections.
+    pub fn is_principal(&self, voter: &PublicKey) -> bool {
+        self.is_principal_weight(self.rep_weights.weight(voter))
+    }
+
+    fn is_principal_weight(&self, weight: Amount) -> bool {
+        weight > self.rep_tracker.quorum_snapshot().minimum_principal_weight
+    }
+
     /// Route vote to associated elections
     /// Distinguishes replay votes, cannot be determined if the block is not in any election
     /// If 'filter' parameter is non-zero, only elections for the specified hash are notified.
@@ -50,10 +59,9 @@ impl VoteApplier {
     pub fn vote(&self, vote: &FilteredVote) -> FxHashMap<BlockHash, Result<(), VoteError>> {
         debug_assert!(vote.validate().is_ok());
 
-        let minimum_pr_weight = self.rep_tracker.quorum_snapshot().minimum_principal_weight;
         let voter_weight = self.rep_weights.weight(&vote.voter);
 
-        if voter_weight <= minimum_pr_weight {
+        if !self.is_principal_weight(voter_weight) {
             // Ignore votes from reps below min PR weight!
             return vote
                 .filtered_blocks()

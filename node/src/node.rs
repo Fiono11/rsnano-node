@@ -702,6 +702,7 @@ impl Node {
             vote_processor_queue.clone(),
             vote_applier,
             stats.clone(),
+            network_filter.clone(),
         ));
 
         let recently_cemented = Arc::new(Mutex::new(BoundedVecDeque::new(
@@ -882,6 +883,8 @@ impl Node {
 
         aec_ticker.add_plugin(ConfirmationSolicitorPlugin {
             recovery_cursor: 0,
+            #[cfg(feature = "rai_protocol")]
+            retired_cursor: None,
             #[cfg(feature = "rai_protocol")]
             vote_generators: Some(vote_generators.clone()),
             broadcast_cursor: 0,

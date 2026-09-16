@@ -9,6 +9,7 @@ use std::{
 
 use tracing::debug;
 
+use rsnano_messages::NetworkFilter;
 use rsnano_network::Channel;
 use rsnano_types::{BlockHash, Vote, VoteDelivery, VoteError};
 use rsnano_utils::{
@@ -17,7 +18,10 @@ use rsnano_utils::{
 };
 use rustc_hash::FxHashMap;
 
-use super::{AecFact, FilteredVote, ReceivedVote, VoteApplier, VoteProcessorQueue};
+use super::{
+    AecFact, FilteredVote, ReceivedVote, VoteApplier, VoteProcessorQueue,
+    vote_processor_queue::QueuedVote,
+};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct VoteProcessorConfig {
@@ -56,6 +60,7 @@ pub struct VoteProcessor {
     queue: Arc<VoteProcessorQueue>,
     vote_applier: VoteApplier,
     stats: Arc<Stats>,
+    network_filter: Arc<NetworkFilter>,
     pub total_processed: AtomicU64,
     cool_down: AtomicBool,
 }
@@ -65,11 +70,13 @@ impl VoteProcessor {
         queue: Arc<VoteProcessorQueue>,
         vote_applier: VoteApplier,
         stats: Arc<Stats>,
+        network_filter: Arc<NetworkFilter>,
     ) -> Self {
         Self {
             queue,
             vote_applier,
             stats,
+            network_filter,
             threads: Mutex::new(Vec::new()),
             total_processed: AtomicU64::new(0),
             cool_down: AtomicBool::new(false),
@@ -122,15 +129,8 @@ impl VoteProcessor {
 
             let start = Instant::now();
 
-            for (_, (vote, source, channel, filter)) in &batch {
-                let filter = filter.unwrap_or_default();
-                let received_vote = ReceivedVote::new(
-                    vote.clone(),
-                    *source,
-                    channel.as_ref().map(|c| c.channel_id()),
-                );
-                let filtered_vote = FilteredVote::new(received_vote.clone(), filter);
-                let _ = self.vote_blocking(&filtered_vote);
+            for (_, queued) in &batch {
+                self.process(queued);
             }
 
             self.total_processed
@@ -148,14 +148,42 @@ impl VoteProcessor {
         }
     }
 
-    pub fn vote_blocking(&self, vote: &FilteredVote) -> Result<(), VoteError> {
-        let mut result = Err(VoteError::Invalid);
-        if vote.validate().is_ok() {
-            let vote_results = self.vote_applier.vote(vote);
-            result = aggregate_vote_results(&vote_results);
+    fn process(&self, queued: &QueuedVote) {
+        let filter = queued.filter.unwrap_or_default();
+        let received_vote = ReceivedVote::new(
+            queued.vote.clone(),
+            queued.source,
+            queued.channel.as_ref().map(|c| c.channel_id()),
+        );
+        let filtered_vote = FilteredVote::new(received_vote, filter);
+        let results = self.vote_results(&filtered_vote);
+        // RAI replays archived votes byte for byte when a peer asks for
+        // evidence it lacks. A vote that found no election for one of its
+        // hashes must stay acceptable, or the replay is discarded as a
+        // duplicate until the filter entry ages out.
+        #[cfg(feature = "rai_protocol")]
+        if queued.digest != 0
+            && self.vote_applier.is_principal(&queued.vote.voter)
+            && results
+                .values()
+                .any(|r| matches!(r, Err(VoteError::Indeterminate)))
+        {
+            self.network_filter.clear(queued.digest);
         }
+        #[cfg(not(feature = "rai_protocol"))]
+        let _ = results;
+    }
 
-        result
+    pub fn vote_blocking(&self, vote: &FilteredVote) -> Result<(), VoteError> {
+        aggregate_vote_results(&self.vote_results(vote))
+    }
+
+    fn vote_results(&self, vote: &FilteredVote) -> FxHashMap<BlockHash, Result<(), VoteError>> {
+        if vote.validate().is_ok() {
+            self.vote_applier.vote(vote)
+        } else {
+            FxHashMap::default()
+        }
     }
 }
 
@@ -184,6 +212,120 @@ impl VoteProcessorExt for Arc<VoteProcessor> {
                     }))
                     .unwrap(),
             )
+        }
+    }
+}
+
+#[cfg(all(test, feature = "rai_protocol"))]
+mod tests {
+    use super::*;
+    use crate::{
+        consensus::{AecInsertRequest, AecService},
+        representatives::RepresentativeTracker,
+    };
+    use rsnano_ledger::RepWeightCache;
+    use rsnano_nullable_clock::SteadyClock;
+    use rsnano_types::{Amount, BlockPriority, PrivateKey, SavedBlock, VoteKind};
+
+    #[test]
+    fn vote_without_election_leaves_the_duplicate_filter_for_replays() {
+        let (processor, filter, aec) = processor();
+        let unknown = SavedBlock::new_test_instance_with_key(1);
+        let known = SavedBlock::new_test_instance_with_key(2);
+        aec.insert(
+            AecInsertRequest::new_priority(known.clone(), BlockPriority::new_test_instance()),
+            SteadyClock::new_null().now(),
+        )
+        .unwrap();
+        let vote = Arc::new(Vote::new_with_kind(
+            &PrivateKey::from(1),
+            vec![known.hash(), unknown.hash()],
+            0,
+            VoteKind::First,
+        ));
+        let (digest, _) = filter.apply(b"vote message");
+        assert!(filter.check(digest));
+
+        processor.process(&queued(vote, digest));
+
+        assert!(
+            !filter.check(digest),
+            "a replay of the same message must reach the processor again"
+        );
+    }
+
+    #[test]
+    fn vote_applied_to_every_hash_stays_filtered() {
+        let (processor, filter, aec) = processor();
+        let block = SavedBlock::new_test_instance_with_key(1);
+        aec.insert(
+            AecInsertRequest::new_priority(block.clone(), BlockPriority::new_test_instance()),
+            SteadyClock::new_null().now(),
+        )
+        .unwrap();
+        let vote = Arc::new(Vote::new_with_kind(
+            &PrivateKey::from(1),
+            vec![block.hash()],
+            0,
+            VoteKind::First,
+        ));
+        let (digest, _) = filter.apply(b"vote message");
+
+        processor.process(&queued(vote, digest));
+
+        assert!(filter.check(digest));
+    }
+
+    #[test]
+    fn vote_of_a_non_principal_stays_filtered() {
+        let (processor, filter, _) = processor();
+        let vote = Arc::new(Vote::new_with_kind(
+            &PrivateKey::from(2),
+            vec![BlockHash::from(1)],
+            0,
+            VoteKind::First,
+        ));
+        let (digest, _) = filter.apply(b"vote message");
+
+        processor.process(&queued(vote, digest));
+
+        assert!(filter.check(digest));
+    }
+
+    /* Test helpers */
+
+    fn processor() -> (VoteProcessor, Arc<NetworkFilter>, Arc<AecService>) {
+        let rep_weights = Arc::new(RepWeightCache::default());
+        rep_weights.put(PrivateKey::from(1).public_key(), Amount::nano(50_000_000));
+        let aec = Arc::new(AecService::new_null());
+        let rep_tracker = Arc::new(
+            RepresentativeTracker::builder()
+                .rep_weights(rep_weights.clone())
+                .finish(),
+        );
+        let applier = VoteApplier::new(
+            aec.clone(),
+            rep_tracker,
+            Arc::new(SteadyClock::new_null()),
+            rep_weights,
+        );
+        let filter = Arc::new(NetworkFilter::new(1024));
+        let processor = VoteProcessor::new(
+            Arc::new(VoteProcessorQueue::new_null()),
+            applier,
+            Arc::new(Stats::default()),
+            filter.clone(),
+        );
+        (processor, filter, aec)
+    }
+
+    fn queued(vote: Arc<Vote>, digest: u128) -> QueuedVote {
+        QueuedVote {
+            vote,
+            source: VoteDelivery::Direct,
+            channel: None,
+            filter: None,
+            digest,
         }
     }
 }

@@ -553,6 +553,28 @@ impl ActiveElectionsContainer {
         count
     }
 
+    /// Take elections this node has no vote left for out of the scheduler
+    /// buckets; they stay addressable and in the recovery rotation.
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn retire_unfinalizable(&mut self, ids: &[rsnano_types::ElectionId]) {
+        for id in ids {
+            self.roots.retire_unfinalizable(id);
+        }
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn recovery_batch(
+        &self,
+        after: Option<&rsnano_types::ElectionId>,
+        limit: usize,
+    ) -> Vec<Election> {
+        self.roots
+            .recovery_batch(after, limit)
+            .into_iter()
+            .map(|entry| entry.election.clone())
+            .collect()
+    }
+
     pub fn election_for_id(&self, id: &rsnano_types::ElectionId) -> Option<&Election> {
         self.roots.get_id(id).map(|e| &e.election)
     }
@@ -2097,6 +2119,10 @@ mod notarized_admission_tests {
         assert!(e.is_timed_out());
         assert!(!e.is_confirmed());
         assert_eq!(aec.vacancy(), capacity);
+        // Voting is over here, so the election leaves the scheduler scans but
+        // still rotates through evidence recovery.
+        assert_eq!(aec.iter_round_robin().count(), 0);
+        assert_eq!(aec.recovery_batch(None, 8).len(), 1);
         let entries = aec.recovery_entries(&[(block.hash(), block.root())], 1);
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].epoch, 0);

@@ -16,6 +16,9 @@ pub(crate) struct ConfirmationSolicitorPlugin {
     pub(crate) confirm_req_sender: ConfirmReqSender,
     pub(crate) broadcast_cursor: usize,
     pub(crate) recovery_cursor: usize,
+    /// Last retired election solicited; the next batch continues after it.
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) retired_cursor: Option<rsnano_types::ElectionId>,
     #[cfg(feature = "rai_protocol")]
     pub(crate) vote_generators: Option<Arc<super::VoteGenerators>>,
 }
@@ -30,6 +33,8 @@ impl ConfirmationSolicitorPlugin {
             confirm_req_sender: ConfirmReqSender::new_null(),
             broadcast_cursor: 0,
             recovery_cursor: 0,
+            #[cfg(feature = "rai_protocol")]
+            retired_cursor: None,
             #[cfg(feature = "rai_protocol")]
             vote_generators: None,
         }
@@ -50,7 +55,7 @@ impl AecTickerPlugin for ConfirmationSolicitorPlugin {
             .vote_generators
             .as_ref()
             .map(|g| g.solicitation_filter());
-        let elections: Vec<_> = aec.round_robin(|elections_iter| {
+        let elections = aec.round_robin(|elections_iter| {
             #[cfg(feature = "rai_protocol")]
             {
                 let (live, recovery): (Vec<_>, Vec<_>) = elections_iter
@@ -75,14 +80,26 @@ impl AecTickerPlugin for ConfirmationSolicitorPlugin {
                     elections.push(recovery[index].clone());
                     true
                 });
-                elections
+                (elections, remaining)
             }
             #[cfg(not(feature = "rai_protocol"))]
             elections_iter
                 .filter(|e| solicitation_active(e))
                 .cloned()
-                .collect()
+                .collect::<Vec<_>>()
         });
+        // Elections retired from the buckets take the rest of the batch, in a
+        // rotation of their own that survives their number growing.
+        #[cfg(feature = "rai_protocol")]
+        let elections = {
+            let (mut elections, remaining) = elections;
+            let retired = aec.recovery_batch(self.retired_cursor.as_ref(), remaining);
+            if let Some(last) = retired.last() {
+                self.retired_cursor = Some(last.id());
+            }
+            elections.extend(retired.into_iter().filter(solicitation_active));
+            elections
+        };
 
         for election in &elections {
             self.confirm_req_sender

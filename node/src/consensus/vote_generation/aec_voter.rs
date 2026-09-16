@@ -96,16 +96,27 @@ impl Tickable for AecVoter {
         #[cfg(feature = "rai_protocol")]
         let frozen = self.vote_generators.frozen_roots();
         #[cfg(feature = "rai_protocol")]
+        let mut retired = Vec::new();
+        #[cfg(feature = "rai_protocol")]
         let mut targets: Vec<VoteTarget> = self.aec.round_robin(|iter| {
             let mut targets = Vec::new();
             for e in iter {
-                if !eligible(e.qualified_root(), e.epoch) || e.is_confirmed() || e.is_timed_out() {
+                if !eligible(e.qualified_root(), e.epoch) || e.is_confirmed() {
+                    continue;
+                }
+                // A notarized value this node cross-notarized cannot get its
+                // final vote, and timeout does not apply once notarized: the
+                // election has nothing left to collect from this scan.
+                if e.is_timed_out() || (e.has_quorum() && frozen.contains(e.qualified_root())) {
+                    retired.push(e.id());
                     continue;
                 }
                 collect_election_targets(e, scheduler, now, &frozen, &mut targets);
             }
             targets
         });
+        #[cfg(feature = "rai_protocol")]
+        self.aec.retire_unfinalizable(&retired);
 
         #[cfg(feature = "rai_protocol")]
         self.vote_generators.retain_signable_targets(&mut targets);

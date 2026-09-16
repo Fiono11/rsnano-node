@@ -38,7 +38,7 @@ impl CachedVotesEnqueuer {
 
             for vote in self.vote_buffer.drain(..) {
                 self.vote_queue
-                    .enqueue(vote, None, VoteDelivery::Replayed, Some(*hash));
+                    .enqueue(vote, None, VoteDelivery::Replayed, Some(*hash), 0);
             }
         }
         self.stats

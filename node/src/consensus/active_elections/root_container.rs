@@ -69,6 +69,12 @@ pub(crate) struct RootContainer {
     /// only the undecided elections rather than every election of the epoch.
     #[cfg(feature = "rai_protocol")]
     undecided: FxHashMap<u64, FxHashSet<ElectionId>>,
+    /// Elections this node has no vote left for (a timeout certificate, or a
+    /// notarized value it can never finalize) but whose evidence peers may
+    /// still ask for. They leave the scheduler buckets and rotate through the
+    /// solicitor's bounded recovery batch instead of every round-robin scan.
+    #[cfg(feature = "rai_protocol")]
+    recovery: BTreeSet<ElectionId>,
     buckets: Vec<BTreeSet<BucketEntry>>,
     bucket_infos: Vec<BucketInfo>,
     pub vote_router: VoteRouter,
@@ -96,6 +102,8 @@ impl RootContainer {
             epochs_by_root: Default::default(),
             #[cfg(feature = "rai_protocol")]
             undecided: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            recovery: Default::default(),
             vote_router: Default::default(),
             buckets: vec![BTreeSet::new(); bucket_count],
             bucket_infos: vec![BucketInfo::new(max_elections_per_bucket); bucket_count],
@@ -194,6 +202,28 @@ impl RootContainer {
         // A newly confirmed election leaves the scheduler immediately, but its
         // Confirmed -> ExpiredConfirmed transition still belongs to the next tick.
         self.track_time_transition(id);
+        self.recovery.remove(id);
+        self.remove_from_buckets(id);
+    }
+
+    /// Remove an election this node cannot vote for any more from the
+    /// scheduler buckets while keeping it in the recovery rotation, so peers
+    /// still learn late notarizations without every scan visiting it.
+    #[cfg(feature = "rai_protocol")]
+    pub fn retire_unfinalizable(&mut self, id: &ElectionId) {
+        if self
+            .by_root
+            .get(id)
+            .is_none_or(|entry| entry.election.is_confirmed())
+        {
+            return;
+        }
+        self.remove_from_buckets(id);
+        self.recovery.insert(id.clone());
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    fn remove_from_buckets(&mut self, id: &ElectionId) {
         self.mark_notarized(id);
         let Some(entry) = self.by_root.get(id) else {
             return;
@@ -211,6 +241,26 @@ impl RootContainer {
                 .map(|e| e.priority)
                 .unwrap_or_default();
         }
+    }
+
+    /// Up to `limit` retired elections in id order, continuing after `after`
+    /// and wrapping around, so repeated calls rotate through the whole set.
+    #[cfg(feature = "rai_protocol")]
+    pub fn recovery_batch(&self, after: Option<&ElectionId>, limit: usize) -> Vec<&Entry> {
+        let mut ids: Vec<&ElectionId> = match after {
+            Some(after) => self
+                .recovery
+                .range((std::ops::Bound::Excluded(after), std::ops::Bound::Unbounded))
+                .take(limit)
+                .collect(),
+            None => Vec::new(),
+        };
+        if ids.len() < limit {
+            ids.extend(self.recovery.iter().take(limit - ids.len()));
+        }
+        ids.into_iter()
+            .filter_map(|id| self.by_root.get(id))
+            .collect()
     }
 
     /// Take every election of a sealed epoch out of the scheduler buckets: no
@@ -381,6 +431,7 @@ impl RootContainer {
         {
             self.pending_time_transitions.remove(root);
             self.mark_decided(root);
+            self.recovery.remove(root);
         }
         if let Some(epochs) = self.epochs_by_root.get_mut(&root.root) {
             epochs.remove(&root.epoch);
@@ -413,6 +464,7 @@ impl RootContainer {
         {
             self.pending_time_transitions.clear();
             self.undecided.clear();
+            self.recovery.clear();
         }
         self.capacity_released_ids.clear();
         self.released_by_bucket.fill(0);
@@ -534,6 +586,10 @@ impl ContainerInfoProvider for RootContainer {
         for (i, b) in self.buckets.iter().enumerate() {
             result = result.leaf(format!("bucket {}", i), b.len(), 0);
         }
+        #[cfg(feature = "rai_protocol")]
+        {
+            result = result.leaf("recovery", self.recovery.len(), 0);
+        }
         result.finish()
     }
 }
@@ -632,6 +688,57 @@ mod rai_timer_tests {
         assert!(roots.pending_time_transitions.is_empty());
         roots.transition_time(Timestamp::new_test_instance() + Duration::from_secs(60));
         assert_eq!(roots.len(), 128);
+    }
+
+    #[test]
+    fn retired_unfinalizable_elections_leave_scans_and_rotate_through_recovery() {
+        let mut roots = RootContainer::default();
+        let ids: Vec<_> = (1..=3)
+            .map(|key| {
+                let entry = entry(key);
+                let id = entry.election.id();
+                roots.insert(entry);
+                id
+            })
+            .collect();
+        for id in &ids {
+            roots.retire_unfinalizable(id);
+        }
+        assert_eq!(roots.round_robin().count(), 0);
+        assert_eq!(roots.len(), 3);
+        let sorted: Vec<_> = roots.recovery.iter().cloned().collect();
+
+        let first: Vec<_> = roots
+            .recovery_batch(None, 2)
+            .into_iter()
+            .map(|e| e.election.id())
+            .collect();
+        assert_eq!(first, sorted[..2]);
+        let wrapped: Vec<_> = roots
+            .recovery_batch(Some(&sorted[1]), 2)
+            .into_iter()
+            .map(|e| e.election.id())
+            .collect();
+        assert_eq!(wrapped, vec![sorted[2].clone(), sorted[0].clone()]);
+
+        // Finalization and erasure end recovery; retirement is idempotent.
+        roots.retire_finalized(&sorted[0]);
+        roots.erase_id(&sorted[1]);
+        roots.retire_unfinalizable(&sorted[2]);
+        assert_eq!(roots.recovery_batch(None, 10).len(), 1);
+        assert_eq!(roots.recovery_batch(None, 10)[0].election.id(), sorted[2]);
+    }
+
+    #[test]
+    fn confirmed_election_is_not_retired_into_recovery() {
+        let mut roots = RootContainer::default();
+        let mut entry = entry(1);
+        entry.election.force_confirm();
+        let id = entry.election.id();
+        roots.insert(entry);
+        roots.retire_unfinalizable(&id);
+        assert!(roots.recovery.is_empty());
+        assert_eq!(roots.round_robin().count(), 1);
     }
 
     #[test]

@@ -146,8 +146,16 @@ impl<'a> ApplyVoteHelper<'a> {
                 let root = election.id();
                 let confirmed = election.is_confirmed();
                 #[cfg(feature = "rai_protocol")]
-                if election.has_quorum() || election.is_timed_out() {
+                let timed_out = election.is_timed_out();
+                #[cfg(feature = "rai_protocol")]
+                if election.has_quorum() || timed_out {
                     self.roots.mark_notarized(&root);
+                }
+                // A timeout certificate ends voting here; evidence collection
+                // continues from the recovery rotation.
+                #[cfg(feature = "rai_protocol")]
+                if timed_out && !confirmed {
+                    self.roots.retire_unfinalizable(&root);
                 }
                 #[cfg(feature = "rai_protocol")]
                 if confirmed && !was_confirmed {
