@@ -157,6 +157,30 @@ impl VoteProcessor {
         );
         let filtered_vote = FilteredVote::new(received_vote, filter);
         let results = self.vote_results(&filtered_vote);
+        // Opt-in evidence for drain stragglers: timeout votes that were
+        // replayed from the cache or did not apply cleanly, with the result
+        // for each hash. Every vote is far too much output under load.
+        #[cfg(feature = "rai_protocol")]
+        {
+            static TRACE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+            if *TRACE.get_or_init(|| std::env::var_os("RAI_VOTE_TRACE").is_some())
+                && queued.vote.kind() == rsnano_types::VoteKind::Timeout
+                && (queued.source == VoteDelivery::Replayed
+                    || results
+                        .values()
+                        .any(|r| !matches!(r, Ok(()) | Err(VoteError::Replay))))
+            {
+                eprintln!(
+                    "VOTE_TRACE {}",
+                    serde_json::json!({
+                        "pid":std::process::id(),"voter":queued.vote.voter,"epoch":queued.vote.epoch,
+                        "kind":format!("{:?}",queued.vote.kind()),"source":format!("{:?}",queued.source),
+                        "filter":queued.filter,
+                        "hashes":queued.vote.hashes.iter().map(|h| (h, results.get(h).map(|r| format!("{:?}", r)))).collect::<Vec<_>>()
+                    })
+                );
+            }
+        }
         // RAI replays archived votes byte for byte when a peer asks for
         // evidence it lacks. A vote that found no election for one of its
         // hashes must stay acceptable, or the replay is discarded as a

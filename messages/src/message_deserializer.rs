@@ -7,6 +7,11 @@ use crate::{
     validate_header,
 };
 
+/// Filter epochs (five-second ticks outside the dev network) within which a
+/// second copy of a block is a duplicate: the current one and the previous.
+#[cfg(feature = "rai_protocol")]
+const PUBLISH_AGE_CUTOFF: u64 = 5;
+
 pub struct MessageDeserializer {
     buffer: VecDeque<u8>,
     current_header: Option<MessageHeader>,
@@ -112,6 +117,18 @@ impl MessageDeserializer {
     ) -> Result<u128, ParseMessageError> {
         if matches!(message_type, MessageType::Publish | MessageType::ConfirmAck) {
             if let Some(filter) = self.network_filter.as_ref() {
+                // A received block is never flooded on, so a duplicate publish
+                // only needs suppressing for the fan-in of one flood. Under RAI
+                // a block that was received once and then lost before it reached
+                // its election is recovered by peers republishing it on request,
+                // and the filter's full cutoff made that wait a minute.
+                #[cfg(feature = "rai_protocol")]
+                let (digest, existed) = if message_type == MessageType::Publish {
+                    filter.apply_within(payload_bytes, PUBLISH_AGE_CUTOFF)
+                } else {
+                    filter.apply(payload_bytes)
+                };
+                #[cfg(not(feature = "rai_protocol"))]
                 let (digest, existed) = filter.apply(payload_bytes);
                 if existed {
                     if message_type == MessageType::ConfirmAck {

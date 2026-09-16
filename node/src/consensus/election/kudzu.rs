@@ -61,6 +61,7 @@ impl KudzuVotes {
                         "representative": rep,
                         "kind": format!("{:?}", vote),
                         "hash": self.first_hashes.get(rep),
+                        "timeout": self.timeout_votes.get(rep).map(|kind| format!("{:?}", kind)),
                     })
                 })
                 .collect::<Vec<_>>()

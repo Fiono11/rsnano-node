@@ -36,9 +36,13 @@ impl<T: NetworkFilterHasher> NetworkFilter<T> {
     }
 
     fn compare(&self, existing: &Entry, digest: u128) -> bool {
+        self.compare_within(existing, digest, self.age_cutoff)
+    }
+
+    fn compare_within(&self, existing: &Entry, digest: u128, age_cutoff: u64) -> bool {
         // Only consider digests to be the same if the epoch is within the age cutoff
         existing.digest == digest
-            && existing.epoch + self.age_cutoff >= self.current_epoch.load(Ordering::SeqCst)
+            && existing.epoch + age_cutoff >= self.current_epoch.load(Ordering::SeqCst)
     }
 
     /// Reads `count` bytes starting from `bytes` and inserts the siphash digest in the filter.
@@ -46,15 +50,25 @@ impl<T: NetworkFilterHasher> NetworkFilter<T> {
     /// * the resulting siphash digest
     /// * a boolean representing the previous existence of the hash in the filter.
     pub fn apply(&self, bytes: &[u8]) -> (u128, bool) {
+        self.apply_within(bytes, self.age_cutoff)
+    }
+
+    /// Like `apply`, but an existing entry counts as a duplicate only within
+    /// `age_cutoff` filter epochs instead of the filter's own cutoff.
+    pub fn apply_within(&self, bytes: &[u8], age_cutoff: u64) -> (u128, bool) {
         let digest = self.hash(bytes);
-        let existed = self.apply_digest(digest);
+        let existed = self.apply_digest_within(digest, age_cutoff);
         (digest, existed)
     }
 
     pub fn apply_digest(&self, digest: u128) -> bool {
+        self.apply_digest_within(digest, self.age_cutoff)
+    }
+
+    fn apply_digest_within(&self, digest: u128, age_cutoff: u64) -> bool {
         let mut lock = self.items.lock().unwrap();
         let element = self.get_element(digest, &mut lock);
-        let existed = self.compare(element, digest);
+        let existed = self.compare_within(element, digest, age_cutoff);
         if !existed {
             // Replace likely old element with a new one
             *element = Entry {
@@ -198,6 +212,25 @@ mod tests {
         assert_eq!(filter.check(digest), true);
         assert_eq!(filter.check(digest2), true);
         assert_eq!(filter.check(123), false);
+    }
+
+    #[test]
+    fn apply_within_uses_its_own_cutoff() {
+        let mut filter = NetworkFilter::new(1);
+        filter.age_cutoff = 60;
+        let bytes = [1, 2, 3];
+        filter.apply(&bytes);
+        filter.update(10);
+        let (_, existed) = filter.apply_within(&bytes, 5);
+        assert!(!existed, "older than the short cutoff");
+        let (_, existed) = filter.apply(&bytes);
+        assert!(
+            existed,
+            "the entry is refreshed and within the filter cutoff"
+        );
+        filter.update(3);
+        let (_, existed) = filter.apply_within(&bytes, 5);
+        assert!(existed, "within the short cutoff");
     }
 
     #[test]

@@ -728,6 +728,7 @@ impl Node {
             confirming_set.clone(),
             rep_tracker.clone(),
             steady_clock.clone(),
+            Arc::new(Mutex::new(message_flooder.clone())),
         ));
         ledger_event_handlers.add(election_schedulers.clone());
 

@@ -157,3 +157,27 @@ signatures are replayed for explicitly requested IDs,
 and certificate-only collection recognizes timeout as well as block outcomes.
 A final value lock from another epoch cannot suppress a FIRST-timeout or eligible
 timeout in this epoch; it still prohibits endorsing a conflicting block.
+
+Drain stragglers observed with the termination audit come in one shape: the
+two candidates of a fork reach the replicas around the drain boundary, one
+replica lacks the second one, and every FIRST-timeout and TIMEOUT its peers
+route through that hash is indeterminate there, so the election cannot
+terminate until the block arrives. Under saturation each node drops two to
+four thousand of the 45,000 published blocks at its block-processor queue,
+and the drain solicitation, rotating through hundreds of pending elections at
+two-second cadence, recovered such a block in about five seconds. The
+minute-long stragglers were the same shape with the network duplicate filter
+in the way: the first copy of the block had been received and lost, and
+every copy a peer republished on request was a byte-identical duplicate until
+the filter's 60-second cutoff. Three repairs: the hinted scheduler, which
+already scans the vote cache every second for hashes with representative
+weight and no block, requests a block neither the ledger nor an election
+holds from the principal representatives with a zero-root ConfirmReq
+(five-second cooldown per hash, independent of container vacancy); a
+zero-root request makes the aggregator publish a block it holds even without
+a certificate for it, since votes alone cannot help a requester that lacks the
+block; and a duplicate publish is suppressed only for two filter epochs (five
+to ten seconds), which covers the fan-in of one flood, since a received block
+is never flooded on. With those, the largest gap between a replica's first
+sight of one fork candidate and of the other in a run is about ten seconds
+where it was over sixty.

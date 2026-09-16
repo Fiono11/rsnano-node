@@ -11,8 +11,10 @@ use std::{
 };
 
 use rsnano_ledger::{AnySet, Ledger, LedgerSet};
+use rsnano_messages::{ConfirmReq, Message};
+use rsnano_network::TrafficType;
 use rsnano_nullable_clock::SteadyClock;
-use rsnano_types::{Amount, BlockHash};
+use rsnano_types::{Amount, BlockHash, Root};
 use rsnano_utils::{
     container_info::ContainerInfo,
     stats::{DetailType, StatType, Stats},
@@ -23,6 +25,7 @@ use crate::{
     cementation::ConfirmingSet,
     consensus::{AecInsertRequest, AecService, election::ElectionBehavior},
     representatives::RepresentativeTracker,
+    transport::MessageFlooder,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -69,6 +72,7 @@ pub struct HintedScheduler {
     vote_cache: Arc<VoteCache>,
     rep_tracker: Arc<RepresentativeTracker>,
     clock: Arc<SteadyClock>,
+    flooder: Arc<Mutex<MessageFlooder>>,
     stopped: AtomicBool,
     stopped_mutex: Mutex<()>,
     cooldowns: Mutex<OrderedCooldowns>,
@@ -85,6 +89,7 @@ impl HintedScheduler {
         confirming_set: Arc<ConfirmingSet>,
         rep_tracker: Arc<RepresentativeTracker>,
         clock: Arc<SteadyClock>,
+        flooder: Arc<Mutex<MessageFlooder>>,
     ) -> Self {
         let max_elections = active_elections.max_len() * config.hinted_limit_percentage / 100;
 
@@ -99,6 +104,7 @@ impl HintedScheduler {
             confirming_set,
             rep_tracker,
             clock,
+            flooder,
             stopped: AtomicBool::new(false),
             stopped_mutex: Mutex::new(()),
             cooldowns: Mutex::new(OrderedCooldowns::new()),
@@ -151,8 +157,16 @@ impl HintedScheduler {
         self.aec_vacancy() > 0
     }
 
-    fn activate(&self, any: &impl AnySet, hash: BlockHash, check_dependents: bool) {
+    /// Activate the block, or request it when representatives voted for a
+    /// block this node never received. Returns the hashes to request.
+    fn activate(
+        &self,
+        any: &impl AnySet,
+        hash: BlockHash,
+        check_dependents: bool,
+    ) -> Vec<BlockHash> {
         const MAX_ITERATIONS: usize = 64;
+        let mut missing = Vec::new();
         let mut visited = HashSet::new();
         let mut stack = Vec::new();
         stack.push(hash);
@@ -221,9 +235,39 @@ impl HintedScheduler {
                 );
             } else {
                 self.stats.inc(StatType::Hinting, DetailType::MissingBlock);
-
-                // TODO: Block is missing, bootstrap it
+                missing.push(current_hash);
             }
+        }
+        missing
+    }
+
+    /// Ask the principal representatives for blocks their votes name but this
+    /// node lacks. A fork candidate that never arrived leaves every vote
+    /// routed through it unusable here, and the election it belongs to cannot
+    /// terminate until the block does. A zero root tells the peer to publish
+    /// the block rather than only replay its votes.
+    fn request_missing(&self, missing: Vec<BlockHash>) {
+        if missing.is_empty() {
+            return;
+        }
+        self.stats.add(
+            StatType::Hinting,
+            DetailType::MissingBlockRequest,
+            missing.len() as u64,
+        );
+        let epoch = self.ledger.current_epoch();
+        #[cfg(feature = "rai_protocol")]
+        crate::consensus::epoch_closer::debug_trace(
+            || serde_json::json!({"type":"missing_block_request","count":missing.len(),"examples":missing.iter().take(4).collect::<Vec<_>>()}),
+        );
+        let mut flooder = self.flooder.lock().unwrap();
+        for chunk in missing.chunks(ConfirmReq::HASHES_MAX) {
+            let hashes = chunk.iter().map(|hash| (*hash, Root::ZERO)).collect();
+            flooder.flood_prs_and_some_non_prs(
+                &Message::ConfirmReq(ConfirmReq::new(hashes).with_epoch(epoch)),
+                TrafficType::ConfirmationRequests,
+                1.0,
+            );
         }
     }
 
@@ -238,36 +282,52 @@ impl HintedScheduler {
         self.vote_cache.top(&mut tops, minimum_tally);
 
         let mut any = self.ledger.any();
+        let mut missing = Vec::new();
 
         for entry in tops {
             if self.stopped.load(Ordering::SeqCst) {
                 return;
             }
 
+            if any.should_refresh() {
+                any = self.ledger.any();
+            }
+
+            // A block the votes name but this node lacks is requested whether
+            // or not an election could start: the request opens none, and the
+            // container is most often full exactly when blocks go missing. A
+            // fork candidate held only by its election is not missing.
+            if !any.block_exists(&entry.hash) {
+                if !self.active_elections.is_active_hash(&entry.hash) && !self.cooldown(entry.hash)
+                {
+                    self.stats.inc(StatType::Hinting, DetailType::MissingBlock);
+                    missing.push(entry.hash);
+                }
+                continue;
+            }
+
             if !self.predicate() {
-                return;
+                continue;
             }
 
             if self.cooldown(entry.hash) {
                 continue;
             }
 
-            if any.should_refresh() {
-                any = self.ledger.any();
-            }
-
             // Check dependents only if cached tally is lower than quorum
             if entry.final_tally < minimum_final_tally {
                 // Ensure all dependent blocks are already confirmed before activating
                 self.stats.inc(StatType::Hinting, DetailType::Activate);
-                self.activate(&any, entry.hash, /* activate dependents */ true);
+                missing.extend(self.activate(&any, entry.hash, /* activate dependents */ true));
             } else {
                 // Blocks with a vote tally higher than quorum, can be activated and confirmed immediately
                 self.stats
                     .inc(StatType::Hinting, DetailType::ActivateImmediate);
-                self.activate(&any, entry.hash, false);
+                missing.extend(self.activate(&any, entry.hash, false));
             }
         }
+        drop(any);
+        self.request_missing(missing);
     }
 
     fn run(&self) {
@@ -414,7 +474,58 @@ mod tests {
     use rsnano_utils::stats::Direction;
     use std::sync::mpsc;
 
+    #[test]
+    fn votes_for_a_block_this_node_lacks_request_it() {
+        let aec = Arc::new(AecService::new_null());
+        let vote_cache = Arc::new(VoteCache::new_null());
+        let flooder = Arc::new(Mutex::new(MessageFlooder::new_null()));
+        let floods = flooder.lock().unwrap().track_floods();
+        let missing = BlockHash::from(42);
+        let vote = Arc::new(rsnano_types::Vote::new(
+            &rsnano_types::PrivateKey::from(1),
+            rsnano_types::UnixMillisTimestamp::new(0),
+            0,
+            vec![missing],
+        ));
+        vote_cache.process(vote, Amount::MAX, &Default::default());
+        let scheduler = scheduler_with(aec, Duration::from_secs(60), vote_cache, flooder);
+        scheduler.run_interactive();
+        let requested: Vec<_> = floods
+            .output()
+            .into_iter()
+            .filter_map(|event| match event.message {
+                rsnano_messages::Message::ConfirmReq(request) => {
+                    Some(request.roots_hashes().clone())
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(requested, vec![vec![(missing, Root::ZERO)]]);
+        scheduler.run_interactive();
+        assert_eq!(
+            floods.output().len(),
+            1,
+            "a block stays in cooldown between requests"
+        );
+    }
+
+    /* Test helpers */
+
     fn scheduler(aec: Arc<AecService>, interval: Duration) -> Arc<HintedScheduler> {
+        scheduler_with(
+            aec,
+            interval,
+            Arc::new(VoteCache::new_null()),
+            Arc::new(Mutex::new(MessageFlooder::new_null())),
+        )
+    }
+
+    fn scheduler_with(
+        aec: Arc<AecService>,
+        interval: Duration,
+        vote_cache: Arc<VoteCache>,
+        flooder: Arc<Mutex<MessageFlooder>>,
+    ) -> Arc<HintedScheduler> {
         HintedScheduler::new(
             HintedSchedulerConfig {
                 check_interval: interval,
@@ -423,10 +534,11 @@ mod tests {
             aec,
             Arc::new(Ledger::new_null()),
             Arc::new(Stats::default()),
-            Arc::new(VoteCache::new_null()),
+            vote_cache,
             Arc::new(ConfirmingSet::new_null()),
             Arc::new(RepresentativeTracker::new_null()),
             Arc::new(SteadyClock::new_null()),
+            flooder,
         )
         .into()
     }

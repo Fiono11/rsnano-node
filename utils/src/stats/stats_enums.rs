@@ -260,6 +260,7 @@ pub enum DetailType {
 
     // hinting
     MissingBlock,
+    MissingBlockRequest,
     DependentUnconfirmed,
     AlreadyConfirmed,
     Activate,

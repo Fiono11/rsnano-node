@@ -51,3 +51,54 @@ described in the Sept 16 notes and occur with either build.
 
 Excluding the straggler runs, closes after the last drain are 2.3-3.5 s (new)
 against 2.7-8.7 s (base), and latency is the same within run-to-run noise.
+
+## The recurring straggler
+
+Runs `a12`, `a14`, `a17` and `a19` were made with the nodes' termination audit
+(`NANOSPAM_TERMINATION_AUDIT`, collected over RPC by `collect_audit.py`) and
+`RAI_FORK_TRACE`; the audit roughly doubles latency, so those runs compare
+only with each other. `straggle.py` prints, for the elections a drain was
+waiting on, every node's audit events for that root in time order; the
+`*-straggler-trace.txt` files are its output for the four runs.
+
+Every straggler had one shape: a fork whose two candidates reach the nodes
+around a drain boundary, and one node that lacks the second candidate. All
+FIRST-timeout and TIMEOUT votes its peers route through that hash are
+indeterminate there, so the election cannot terminate until the block
+arrives (`a12`: pr1 got `511E0263` 61 s after everyone else; `a14`: pr3 got
+`D63B75B9` 65 s late; `a17`: pr4 got `B3956D72` 64 s late). The 60 s is the
+network duplicate filter's cutoff: the first copy of the block had reached the
+node and was lost before it reached its election, and every copy a peer
+republished on request was byte-identical and dropped as a duplicate until the
+entry aged out. The multi-epoch straggler of `new2` is the same root re-elected
+in each epoch while the node keeps lacking one candidate.
+
+Three repairs, all in the working tree of these runs from `a19` on:
+
+- the hinted scheduler requests a block that representatives voted for but
+  neither the ledger nor an election holds, with a zero-root ConfirmReq to the
+  principal representatives (1 s scan, 5 s cooldown per hash, not gated on
+  container vacancy); the node stats show 1.6k-4.5k such requests per node per
+  run, matching the 1.7k-3.9k blocks each node drops at its block-processor
+  queue under this load;
+- a zero-root request makes the aggregator publish a block it holds even
+  without a certificate for it;
+- a duplicate `Publish` is suppressed for two filter epochs (5-10 s) instead
+  of 60 s; a received block is never flooded on, so this only covers one
+  flood's fan-in.
+
+| Run | Audit | Epoch 0 close | Epoch 1 close | Epoch 2 close | Latency e0 / e1 / e2 (mean ms) |
+|---|---|---:|---:|---:|---:|
+| a19 | yes | 2.59 / 2.73 s | 8.5 s | 6.5 s | 531 (run mean) |
+| a20 | yes | 1.66 / 1.82 s | 1.54 / 2.15 s | 0.82 / 0.84 s | 468 |
+| a21 | yes | 4.90 / 5.28 s | 2.57 / 2.60 s | 2.26 / 2.36 s | 484 |
+| a22 | yes | 1.94 / 2.24 s | 2.74 / 4.73 s | 2.29 / 2.41 s | 485 |
+| new8 | no | 1.62 / 1.75 s | 7.36 / 7.61 s | 0.66 / 0.73 s | 220 / 208 / 343 |
+| new9 | no | 4.76 / 4.90 s | 2.60 / 2.81 s | 0.37 / 0.56 s | 236 / 177 / 337 |
+| new10 | no | 2.65 / 2.82 s | 2.48 / 2.69 s | 2.23 / 2.34 s | 232 / 286 / 387 |
+
+No minute-long straggler in these seven runs (previously about one run in
+three); in `a19` the one late candidate arrived 6 s after the others, and the
+largest gap in that run between a node's first sight of one fork candidate and
+of the other is 11 s. Un-audited latency (new8-new10: 302-383 ms run mean) is
+unchanged from new3/new4.

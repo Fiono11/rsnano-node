@@ -1,0 +1,79 @@
+epoch boundaries (s):
+  epoch 0 pr0 drain  25.701 close  28.312
+  epoch 0 pr1 drain  25.710 close  28.290
+  epoch 0 pr3 drain  25.738 close  28.349
+  epoch 0 pr4 drain  25.775 close  28.266
+  epoch 0 pr5 drain  25.804 close  28.311
+  epoch 1 pr0 drain  33.627 close  37.690
+  epoch 1 pr1 drain  33.686 close  38.002
+  epoch 1 pr2 drain  33.664 close  38.981
+  epoch 1 pr4 drain  33.626 close  37.742
+  epoch 1 pr5 drain  33.842 close  37.636
+  epoch 2 pr0 drain  41.432 close 0
+  epoch 2 pr3 drain  41.451 close 0
+  epoch 2 pr4 drain  41.509 close 0
+====================================================================================================
+root ADA0EF368D3C6122 seen pending at [(1, 2, 1)]
+  last diag: state Active epoch 2 candidates ['01986699'] participation [('A353E4', 'First'), ('735FE2', 'First'), ('65A900', 'First')] tc False eligible False
+  fork_trace pr 5 511E0263 added False
+  fork_trace pr 5 511E0263 added True
+  fork_trace pr 2 01986699 added True
+  fork_trace pr 3 511E0263 added True
+  fork_trace pr 0 01986699 added True
+  fork_trace pr 4 01986699 added True
+  fork_trace pr 1 511E0263 added True
+   37.506 pr2 e2 activate         511E0263
+   37.542 pr2 e2 first/ft-vote    511E0263
+   37.650 pr5 e2 activate         01986699
+   37.661 pr5 e2 first/ft-vote    511E0263
+   37.672 pr5 e2 first/ft-vote    01986699
+   37.719 pr0 e2 activate         511E0263
+   37.720 pr0 e2 first/ft-vote    511E0263
+   37.766 pr4 e2 activate         511E0263
+   37.767 pr4 e2 first/ft-vote    511E0263
+   37.782 pr0 e2 second-look      511E0263
+   37.784 pr2 e2 second-look      511E0263
+   37.784 pr4 e2 second-look      511E0263
+   37.871 pr3 e2 activate         01986699
+   37.872 pr3 e2 first/ft-vote    01986699
+   38.083 pr1 e2 activate         01986699
+   38.110 pr1 e2 first/ft-vote    01986699
+   38.161 pr1 e2 second-look      01986699
+   38.218 pr5 e2 second-look      511E0263
+   38.246 pr2 e2 first/ft-vote    01986699
+   38.246 pr2 e2 second-look      01986699
+   38.246 pr2 e2 timeout-eligible 00000000
+   38.303 pr5 e2 notarize-vote    511E0263
+   38.303 pr5 e2 notarized        511E0263
+   38.307 pr0 e2 notarize-vote    511E0263
+   38.307 pr0 e2 notarized        511E0263
+   38.309 pr2 e2 notarize-vote    511E0263
+   38.309 pr2 e2 notarized        511E0263
+   38.325 pr2 e2 final-vote       511E0263
+   38.328 pr0 e2 final-vote       511E0263
+   38.344 pr5 e2 second-look      01986699
+   38.469 pr5 e2 final-vote       511E0263
+   38.517 pr4 e2 final-vote       511E0263
+   38.551 pr3 e2 second-look      01986699
+   38.625 pr4 e2 notarize-vote    511E0263
+   38.626 pr4 e2 notarized        511E0263
+   39.230 pr3 e2 first/ft-vote    511E0263
+   39.240 pr3 e2 final-vote       511E0263
+   39.293 pr3 e2 notarize-vote    511E0263
+   39.293 pr3 e2 notarized        511E0263
+   39.293 pr3 e2 second-look      511E0263
+   39.981 pr0 e2 first/ft-vote    01986699
+   40.322 pr0 e2 second-look      01986699
+   40.538 pr4 e2 first/ft-vote    01986699
+   40.538 pr4 e2 second-look      01986699
+   42.605 pr1 e3 activate         01986699
+   42.648 pr1 e3 first/ft-vote    01986699
+   99.352 pr1 e3 timeout-vote     511E0263
+   99.352 pr1 e2 notarize-vote    511E0263
+   99.353 pr1 e3 first/ft-vote    511E0263
+   99.353 pr1 e3 timeout-cert     00000000
+   99.355 pr1 e2 final-vote       511E0263
+   99.355 pr1 e2 first/ft-vote    511E0263
+   99.355 pr1 e2 notarized        511E0263
+   99.357 pr1 e2 second-look      511E0263
+  still active at pr2: epoch 2 participation [('65A900', 'First'), ('A353E4', 'First'), ('D31585', 'First'), ('911999', 'First'), ('633D9D', 'First'), ('735FE2', 'First')]

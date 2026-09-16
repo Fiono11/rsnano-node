@@ -30,6 +30,7 @@ use crate::{
     config::NodeConfig,
     consensus::vote_cache::VoteCache,
     representatives::RepresentativeTracker,
+    transport::MessageFlooder,
 };
 use priority::{PriorityScheduler, PrioritySchedulerExt};
 use rsnano_utils::{EventProcessor, EventSender};
@@ -57,6 +58,7 @@ impl ElectionSchedulers {
         confirming_set: Arc<ConfirmingSet>,
         rep_tracker: Arc<RepresentativeTracker>,
         clock: Arc<SteadyClock>,
+        flooder: Arc<Mutex<MessageFlooder>>,
     ) -> Self {
         let hinted = Arc::new(HintedScheduler::new(
             config.hinted_scheduler.clone(),
@@ -67,6 +69,7 @@ impl ElectionSchedulers {
             confirming_set.clone(),
             rep_tracker,
             clock.clone(),
+            flooder,
         ));
 
         let manual = Arc::new(ManualScheduler::new(
@@ -140,6 +143,7 @@ impl ElectionSchedulers {
             confirming_set,
             rep_tracker,
             clock,
+            Arc::new(Mutex::new(MessageFlooder::new_null())),
         )
     }
 

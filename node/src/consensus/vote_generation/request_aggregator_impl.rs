@@ -67,8 +67,7 @@ impl<'a> RequestAggregatorImpl<'a> {
 
             if let Some(block) = block {
                 #[cfg(feature = "rai_protocol")]
-                if block.hash() != *hash
-                    && block.root() == *root
+                if ((block.hash() != *hash && block.root() == *root) || root.is_zero())
                     && !self
                         .blocks_to_publish
                         .iter()
@@ -76,6 +75,9 @@ impl<'a> RequestAggregatorImpl<'a> {
                 {
                     // A vote naming a different hash is unusable until the requester
                     // has that candidate. Repair the root disagreement in this reply.
+                    // A zero root says the requester lacks the block itself: it
+                    // learned the hash from votes or a close page, so votes alone
+                    // would not help it.
                     self.blocks_to_publish.push(block.clone());
                 }
                 // Recover first/notarization statements even when a final vote exists.
@@ -175,6 +177,18 @@ mod tests {
 
         assert_eq!(result.remaining_final.len(), 1);
         assert_eq!(result.remaining_final[0].hash(), fork_a.hash());
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn zero_root_request_publishes_the_block() {
+        let ledger = Ledger::new_null();
+        let a = UnsavedBlockLatticeBuilder::new().genesis().send(100, 1);
+        ledger.process_one(&a).unwrap();
+        let result = run_aggregator(&ledger, &[(a.hash(), Root::ZERO)]);
+        assert_eq!(result.blocks_to_publish.len(), 1);
+        assert_eq!(result.blocks_to_publish[0].hash(), a.hash());
+        assert_eq!(result.remaining_normal.len(), 1, "votes still ride along");
     }
 
     #[cfg(feature = "rai_protocol")]
