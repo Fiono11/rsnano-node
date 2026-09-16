@@ -71,6 +71,18 @@ cache) under a saturated straggler, not the close logic; the close itself was
 round 0 on all six. Mean confirmation 444 ms (run4, the more loaded run) and
 268 ms (run5).
 
+## First votes reserved for the own value (2026-09-16, run7)
+
+To match rule C3 of the protocol document, a replica now casts its FIRST vote
+only for its own value (its live root and parent); any other candidate,
+including one that omits droppable members, is reached through Kudzu's second
+look. Otherwise a Byzantine member could split correct first votes every round
+with a different valid subset target. run7 (same workload): both epochs round 0
+on all six PRs, closes 3.5–5.8 s and 1.5–1.6 s after the last drain; non-fork
+finalization 123 / 222 ms (epoch 0) and 984 / 2,077 ms (epoch 1) mean / p95;
+mean confirmation 726 ms. A run made while Spotlight indexed the fresh build
+(run6, discarded) had 10× epoch-1 latency with the closes still in round 0.
+
 Files: `runN-close-events.log` (drain, close, reconciliation and progress lines
 of the six nodes), `runN-results.log` (`BENCHMARK_RESULT` and
 `EPOCH_PERFORMANCE_RESULT` without the timeline), `summarize.py` and `rows.py`

@@ -1170,13 +1170,19 @@ impl State {
             .filter(|(id, _)| self.signable(*id))
             .collect();
         for (id, p) in &signable {
+            // A FIRST vote goes only to this replica's own value: the candidate
+            // that carries its live root and parent. Any other candidate,
+            // including one that omits droppable members, is reached through the
+            // second look, so a value that only a Byzantine member formed can
+            // never split the first votes of the correct replicas.
+            let own = p.state == root && p.parent == self.parent;
             for key in keys {
                 let r = self.rounds.get_mut(&self.round).unwrap();
                 let second = r.tally.second_look(id);
                 let notarized = r.certificate(*id, VoteKind::Notarize);
                 let signer = r.signers.entry(key.public_key()).or_default();
                 let mut action = None;
-                if signer.first.is_none() {
+                if signer.first.is_none() && own {
                     signer.first = Some(*id);
                     signer.notarized.insert(*id);
                     action = Some(0);
@@ -2222,8 +2228,24 @@ mod tests {
         assert!(mine.omitted_members().is_empty());
         let (out, _) = mine.drive(&[PrivateKey::from(1)]);
         assert!(
-            out.iter().any(|p| p.kind == 0 && p.state == their_root),
-            "the replica votes for the smaller membership"
+            !out.iter().any(|p| p.kind == 0 && p.state == their_root),
+            "a FIRST vote goes only to the replica's own value"
+        );
+        // With f+p+1 first votes the smaller membership gets a second look,
+        // once this replica has first-voted: here by timing out the round.
+        for i in 3..=4 {
+            let mut vote = mine.template(0, BlockHash::ZERO, their_root);
+            vote.sign(&PrivateKey::from(i));
+            mine.receive(vote);
+        }
+        mine.arm_round_timer();
+        mine.rounds.get_mut(&0).unwrap().started = Instant::now() - round_timeout(0);
+        let (out, _) = mine.drive(&[PrivateKey::from(1)]);
+        assert_eq!(out.iter().map(|p| p.kind).collect::<Vec<_>>(), vec![3]);
+        let (out, _) = mine.drive(&[PrivateKey::from(1)]);
+        assert!(
+            out.iter().any(|p| p.kind == 1 && p.state == their_root),
+            "the replica notarizes the smaller membership on second look"
         );
         // Finalized, the close is assembled without the droppable member.
         for i in 2..=6 {

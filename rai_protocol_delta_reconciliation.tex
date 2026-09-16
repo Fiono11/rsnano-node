@@ -37,13 +37,14 @@
 \newcommand{\Apply}{\mathsf{Apply}}
 \newcommand{\ReconReq}{\mathsf{ReconReq}}
 \newcommand{\ReconResp}{\mathsf{ReconResp}}
+\newcommand{\Announce}{\mathsf{Announce}}
 \newcommand{\id}{\mathsf{id}}
 \newcommand{\DA}{\mathsf{DA}}
 \newcommand{\true}{\mathsf{true}}
 \newcommand{\false}{\mathsf{false}}
 
 \title{RAI: Epoch-Based Kudzu for Single-Writer Accounts with Seamless Reconfiguration\\
-\large Compact Hash-Only Epoch Closure with Delta Reconciliation}
+\large Leaderless Hash-Only Epoch Closure with Delta Reconciliation}
 \author{}
 \date{Draft}
 
@@ -53,9 +54,11 @@
 \begin{abstract}
 RAI is an epoch-based generalization of Kudzu for a single-writer account model with seamless committee reconfiguration. Account slots are not epoch-indexed: an owner may propose a block for any logical slot in any eligible epoch. Each proposal is processed by a slot election in the epoch in which replicas receive it. A slot election is the conjunction of two Kudzu instances run by lagged committees, while epoch closure is performed by a Kudzu chain on one of those committees.
 
-This version replaces the variable-size epoch-close manifest with a constant-size target-state hash. A close proposal commits to the canonical set of jointly notarized epoch candidates by a single root. A replica whose current state has base root $b$ and whose proposed close has target root $t$ may request reconciliation by sending only $(b,t)$ to the close leader. If the leader recognizes both versions and the base is a subset of the target, it returns only the additive difference. The reconciliation response carries neither Merkle proofs nor block data: the referenced objects are obtained from an independent data-availability layer, validated locally, applied to the base state, and accepted only if the resulting root equals $t$. If the leader does not recognize the requester's base, no alternative reconciliation mechanism is required. Reliable dissemination causes correct replicas' deterministic epoch states to converge; eventually the requester's base is itself the target or another common version from which a delta is available.
+This version makes the epoch close \emph{leaderless}. The close value is a constant-size target-state root that commits to a canonical set of jointly notarized epoch candidates. No replica proposes it: every close-ready replica announces the root of its own close state and, once a quorum has announced the same root, casts a Kudzu first vote for that root as its own value. Replicas that hold the same state form the same close value, so their votes tally together without a proposer. A replica may also vote for a target that omits some of its locally known candidates, provided each omitted candidate belongs to a slot election it knows to be dead; this makes the validity of a close value monotone under late certificates, so a certificate learned after a vote never invalidates that vote.
 
-The protocol retains the drain and cross-epoch rules needed to prevent late slot finalization from escaping a finalized epoch. We prove slot safety, epoch completeness including late finalization, safe garbage collection, and termination under partial synchrony, with computational binding of close state reduced to collision resistance of the state hash. Kudzu is used as a black-box primitive satisfying the properties stated below.
+Reconciliation remains hash-to-hash: a replica whose close state has root $b$ and which has learned an announced or voted target $t$ sends only $(b,t)$ to any replica that announced $t$; if that replica recognizes both states and the base is a subset of the target, it returns the additive difference. Referenced objects are obtained from a data-availability layer and validated locally. Reliable dissemination makes the correct replicas' close states converge, after which every correct replica announces and votes the same root.
+
+We prove slot safety, epoch completeness including late finalization, safe garbage collection, and termination under partial synchrony. Termination does not depend on the availability of any designated replica: the close satisfies leaderless termination in the sense of Antoniadis et al. Kudzu is used as a black-box primitive satisfying the properties stated below.
 \end{abstract}
 
 \section{Model and notation}
@@ -80,13 +83,13 @@ An \emph{account} $a$ has a unique owner. Its logical positions are slots
 \]
 Only the owner of $a$ may authenticate a non-timeout block for $s$. A block may reference a parent block from the same account tree. Byzantine account owners may equivocate; replica safety must therefore not rely on owner honesty.
 
-All protocol messages are authenticated. Correct replicas rebroadcast protocol metadata and certificates. Thus, if a correct replica receives a valid protocol object or certificate, every correct replica eventually learns its identifier and certification status. Safety does not assume a delivery bound. Termination is proved under partial synchrony.
+All protocol messages are authenticated. Correct replicas rebroadcast protocol metadata and certificates. Thus, if a correct replica receives a valid protocol object or certificate, every correct replica eventually receives it. Safety does not assume a delivery bound. Termination is proved under partial synchrony.
 
 \subsection{Kudzu properties used by RAI}
 
 RAI treats a Kudzu instance as a black box. For a Kudzu instance $K$ on a committee of size $n$, write $\Notar_K(B)$ for a notarization certificate, $\Final_K(B)$ for a slow finalization certificate, $\Fast_K(B)$ for a fast finalization certificate, and $\TO_K$ for a timeout certificate.
 
-We use the following properties of Kudzu.
+Slot elections use Kudzu as published: the account owner plays the role of the slot leader. The close election uses a \emph{proposer-free} Kudzu slot: the leader's proposal step is omitted and every correct replica first-votes for a value it forms locally. All other rules of the slot (one first vote per replica, second-look notarization of a value with $f+p+1$ first votes, the timeout rule, final voting only by a replica that notarized nothing else) are unchanged. Kudzu's safety argument depends only on those vote rules and not on who supplied the value; its termination argument for a synchronous slot does not require an honest leader once first votes are cast. We use the following properties.
 
 \begin{description}[leftmargin=2.4em,labelindent=0em]
 \item[K1 (certificate thresholds).]
@@ -98,11 +101,17 @@ If $B$ is fast- or slow-finalized in $K$, then no $C\ne B$ can be notarized in $
 \item[K3 (honest final voters are non-timeout first voters).]
 If an honest replica contributes a slow finalization vote for $B$, then its first vote in that Kudzu slot was a non-timeout first vote for $B$. This follows because a first vote contains a notarization vote and an honest replica final-votes only when it did not notarize a different value or timeout.
 
-\item[K4 (termination under synchrony).]
-If all correct committee members enter a Kudzu slot and the network is sufficiently synchronous for the Kudzu timeout bound, then all correct committee members eventually exit the slot by learning a block or a timeout certificate. Certificates and reconstructed Kudzu blocks are rebroadcast and eventually become known to all correct replicas.
+\item[K4 (slot exit under synchrony).]
+If all correct committee members enter a Kudzu slot, proposer-free or not, and the network is sufficiently synchronous for the Kudzu timeout bound, then all correct committee members eventually exit the slot by learning a notarized block or a timeout certificate. Certificates and reconstructed Kudzu blocks are rebroadcast and eventually become known to all correct replicas.
+
+\item[K5 (unanimous first votes finalize).]
+If, in a synchronous slot, every correct committee member casts a non-timeout first vote for the same value $X$, then every correct member finalizes $X$: at most $f$ first votes name anything else, so no correct member takes a second look at another value or times out, every correct member notarizes and final-votes $X$, and the resulting certificates reach all correct members.
+
+\item[K6 (chain safety).]
+Blocks of consecutive Kudzu slots are linked by parent references. If a block of slot $v$ is finalized, every block of a later slot in any correct replica's complete block tree descends from it.
 \end{description}
 
-These are the only Kudzu-specific properties needed below.
+These are the only Kudzu-specific properties needed below. K1--K3 and K6 hold for proposer-free slots because Kudzu's safety lemmas use only the vote rules; K4 is Kudzu's liveness lemma for a slot with arbitrary first votes; K5 is the argument of Kudzu's honest-leader liveness lemma with the leader's single proposal replaced by unanimous local values.
 
 \subsection{Canonical close state, hashing, and data availability}
 
@@ -124,10 +133,10 @@ Large candidate objects and their certificates are carried by a separate content
 
 \begin{assumption}[data availability]
 \label{ass:da}
-If a correct replica needs a valid candidate object or certificate identified by a correct leader's close target, then the object is eventually retrievable from $\DA$. During the synchronous interval used for termination, such retrieval completes within the liveness window. A replica validates every retrieved object and certificate before inserting it into its close state.
+If a correct replica needs a valid candidate object or certificate identified by a correct replica's announced or voted close target, then the object is eventually retrievable from $\DA$. During the synchronous interval used for termination, such retrieval completes within the liveness window. A replica validates every retrieved object and certificate before inserting it into its close state.
 \end{assumption}
 
-A Byzantine leader may name unavailable or invalid content. Correct replicas do not non-timeout close-vote until they have reconstructed and validated the target state, so such a proposal can delay its close round but cannot force acceptance.
+A Byzantine replica may announce or vote a target naming unavailable or invalid content. Correct replicas do not non-timeout close-vote until they have reconstructed and validated the target state, so such a value can at most delay a close round; it cannot be accepted.
 
 \subsection{Hash-to-hash delta reconciliation}
 \label{subsec:reconciliation}
@@ -136,13 +145,13 @@ Delta reconciliation is a state-transfer optimization, not a proof system. Repli
 \[
   b=\Root_e(M_b)
 \]
-and receives a close proposal with target root $t$. It sends
+and learns a target root $t$ from an announcement or a close vote. It sends
 \[
   \ReconReq(e,b,t)
 \]
-to the close leader.
+to any replica that announced $t$.
 
-If the leader can resolve $b$ and $t$ to states $M_b$ and $M_t$ and $M_b\subseteq M_t$, it responds with the additive difference
+If the responder can resolve $b$ and $t$ to states $M_b$ and $M_t$ and $M_b\subseteq M_t$, it responds with the additive difference
 \begin{equation}
   \Delta_{b\to t}
   :=
@@ -151,7 +160,7 @@ If the leader can resolve $b$ and $t$ to states $M_b$ and $M_t$ and $M_b\subsete
   \{\id(B): B\in M_t\setminus M_b\}.
   \label{eq:delta}
 \end{equation}
-Otherwise it responds with $\bot$ or does not provide a usable reconciliation response. No deletion delta is used for a valid close: if the requester's known jointly notarized state is not a subset of the target, the requester must reject that target under the close validity rule below.
+Otherwise it responds with $\bot$ or does not provide a usable reconciliation response.
 
 The response contains only the difference descriptors, normally content identifiers. It contains no Merkle path, membership proof, block body, or availability proof. The requester retrieves the referenced objects and certificates from $\DA$, validates them, and computes
 \[
@@ -162,9 +171,9 @@ The reconciliation succeeds only if
   \Root_e(M')=t.
   \label{eq:recon-check}
 \end{equation}
-Thus the leader's delta is not trusted. An incorrect or incomplete delta simply fails the target-root check or object validation.
+Thus the responder's delta is not trusted. An incorrect or incomplete delta simply fails the target-root check or object validation.
 
-If the leader does not recognize the requester's base root, the protocol does not invoke a second reconciliation construction. The requester continues ordinary protocol dissemination and $\DA$ retrieval, recomputes its current base root as its state advances, and may retry with a newer pair $(b',t)$. The termination argument below relies on eventual convergence of correct replicas' deterministic close states: after convergence, the base root of every correct close participant equals the correct leader's target root, so reconciliation is empty. Successful pre-convergence deltas only accelerate this process.
+If no responder recognizes the requester's base root, the protocol does not invoke a second reconciliation construction. The requester continues ordinary protocol dissemination and $\DA$ retrieval, recomputes its current base root as its state advances, and may retry with a newer pair $(b',t')$. The termination argument below relies on eventual convergence of correct replicas' deterministic close states: after convergence, every correct close participant announces the same root, so reconciliation is empty. Successful pre-convergence deltas only accelerate this process.
 
 \section{RAI protocol}
 
@@ -207,7 +216,7 @@ The election $\SE(s,e)$ is \emph{dead} if either
   \item one constituent Kudzu instance has a timeout certificate, or
   \item there are blocks $B\ne C$ such that $\Notar_{K^-_{s,e}}(B)$ and $\Notar_{K^+_{s,e}}(C)$.
 \end{enumerate}
-In either case no block can subsequently become jointly finalized in $\SE(s,e)$.
+In either case no block can subsequently become jointly finalized in $\SE(s,e)$. Deadness is witnessed by certificates, so it is objective: if any replica holds dead evidence, the election is dead for all.
 \end{definition}
 
 \begin{definition}[local termination]
@@ -217,6 +226,10 @@ A correct replica regards $\SE(s,e)$ as \emph{locally terminated} once it knows 
   \item evidence that $\SE(s,e)$ is dead.
 \end{enumerate}
 A later certificate may add further notarized forks, but after local termination any block that can still become jointly finalized is already among the locally known jointly notarized candidates.
+\end{definition}
+
+\begin{definition}[droppable candidates]
+For replica $r$ and epoch $e$, let $\Dead_r(e)\subseteq N_r(e)$ be the set of jointly notarized epoch-$e$ candidates whose slot election $r$ knows to be dead. A candidate in $\Dead_r(e)$ can never be jointly finalized, so a close that omits it discards nothing that could still decide its slot.
 \end{definition}
 
 \subsection{Replica epoch entry and cross-epoch voting}
@@ -249,22 +262,22 @@ After $T_e$, an honest replica never issues a new non-timeout first vote in an e
 Until epoch $e$ closes, correct replicas continue to participate in all epoch-$e$ elections they learn. If they have not already issued the election's first vote, that first vote is timeout.
 
 \item[D3 (close readiness).]
-A correct replica may cast a non-timeout vote in the epoch-$e$ close election only after every epoch-$e$ slot election
+A correct replica may announce a close state or cast a non-timeout vote in the epoch-$e$ close election only after every epoch-$e$ slot election
 \begin{enumerate}[label=(\alph*),nosep]
   \item in which it issued a non-timeout first vote, and
   \item that is otherwise locally visible under the protocol's activation rule,
 \end{enumerate}
 has locally terminated.
 
-\item[D4 (target reconstruction and superset rule).]
-Let $N_r(e)$ be the set of all epoch-$e$ blocks that replica $r$ currently knows to be jointly notarized, including notarized forks. A close proposal carries a target root $t$. Replica $r$ treats the proposal as valid for non-timeout voting only after it has reconstructed and validated a close state $M_t$ satisfying
+\item[D4 (target validity with dead-election omission).]
+A close value carries a target root $t$. Replica $r$ treats it as valid for non-timeout voting only after it has reconstructed and validated a close state $M_t$ satisfying
 \begin{equation}
   \Root_e(M_t)=t
   \qquad\text{and}\qquad
-  N_r(e)\subseteq M_t.
+  N_r(e)\setminus M_t \subseteq \Dead_r(e).
   \label{eq:d4}
 \end{equation}
-Reconstruction may be immediate because the replica already has the target state, may use the hash-to-hash delta mechanism of Section~\ref{subsec:reconciliation}, or may result from ordinary dissemination and $\DA$ retrieval. The leader supplies no proof. If the target would require dropping any locally known jointly notarized block, or if the target cannot be reconstructed and validated, the replica does not cast a non-timeout vote for it.
+That is, the target may omit a locally known jointly notarized candidate only if $r$ knows that candidate's slot election to be dead. Reconstruction may be immediate because the replica already has the target state, may use the hash-to-hash delta mechanism of Section~\ref{subsec:reconciliation}, or may result from ordinary dissemination and $\DA$ retrieval. Nobody supplies a proof. If the target would require dropping a candidate whose election is not known to be dead, or if the target cannot be reconstructed and validated, the replica does not cast a non-timeout vote for it.
 
 \item[D5 (post-close fence).]
 Once a correct replica learns a finalized close root for epoch $e$, it issues no further epoch-$e$ votes. Before using that close as closed history for a later epoch, it reconstructs the finalized close state as required by R2. Any epoch-$e$ election or candidate omitted from that finalized close state is thereafter treated as permanently dead and creates no persistent account-tree state.
@@ -272,27 +285,51 @@ Once a correct replica learns a finalized close root for epoch $e$, it issues no
 
 Epoch $e+1$ slot elections may begin immediately at $T_e$; they do not wait for the close of epoch $e$.
 
-\subsection{Hash-only close election}
+\subsection{Leaderless hash-only close election}
+\label{subsec:close}
 
-The close election for epoch $e$ runs on committee $\C_{e-2}$. It is a sequence of ordinary Kudzu slots (close rounds) with rotating leaders. The variable-size manifest is not carried in the Kudzu proposal. A close block has the constant-size form
+The close election for epoch $e$ runs on committee $\C_{e-2}$. It is a sequence of proposer-free Kudzu slots (close rounds). A close value has the constant-size form
 \begin{equation}
-  X=(e,\hash(X_{e-1}),t),
+  X=(e,\hash(X_{e-1}),\hash(P),t),
   \label{eq:close-block}
 \end{equation}
-where $X_{e-1}$ is the previously finalized epoch close and $t$ is one target-state root. Thus the epoch-state payload of a close proposal is a single hash.
+where $X_{e-1}$ is the previously finalized epoch close, $P$ is the close-round block that $X$ extends (Kudzu's parent reference; the notional genesis in the first round), and $t$ is one target-state root. The epoch-state payload of a close value is a single hash. A close value is a deterministic function of $(e,X_{e-1},P,t)$: two replicas that hold the same target root and the same parent form the same value, and a Kudzu vote is a vote for that value.
 
-A correct close leader proposes only when it is close-ready. Let $M$ be its current canonical close state containing all blocks in its local $N_r(e)$. It proposes
+\begin{description}[leftmargin=2.4em,labelindent=0em]
+\item[C1 (announcement).]
+When a correct replica $r$ becomes close-ready (D3), it announces
 \[
-  t=\Root_e(M).
+  \Announce(e,\,b_r),
+  \qquad b_r=\Root_e(N_r(e)),
 \]
-A correct voter applies D3 and D4. If its current root differs from $t$, it may send $(b,t)$ to the leader and use the returned additive delta if available; all referenced data is obtained separately through $\DA$.
+and announces again whenever $N_r(e)$ changes. An announcement is not a vote and carries no obligation; it states what $r$ would vote for.
 
-Close-round proposals are monotone at the state level. A proposal extending an earlier close-round block may only enlarge the reconstructed target state. Correct leaders obey this rule, and a correct voter that has reconstructed the parent and child targets refuses a child that removes parent-state candidates. The canonical $\CE_e$ is the earliest close-round block on the unique Kudzu close chain that becomes explicitly or implicitly finalized. Close-round proposals are ordered by Kudzu parent links, so Kudzu safety makes this block unique; later finalized close-round blocks are descendants and do not change the canonical state of $\CE_e$.
+\item[C2 (own value).]
+In its current close round, a close-ready replica $r$ that has not yet first-voted in that round casts a non-timeout first vote for its own value
+\[
+  X_r=(e,\hash(X_{e-1}),\hash(P_r),b_r),
+\]
+where $P_r$ is the latest close-round block in its complete close block tree, as soon as at least $q$ committee members, itself included, have announced $b_r$. A replica may wait for more announcements, up to the Kudzu timeout of the round, to increase the chance of a fast finalization; the liveness proof needs only $q$.
 
-After $\CE_e$ finalizes, the state represented by its target root is the admitted epoch-$e$ close state. Its represented blocks are admitted to the persistent account block tree with their certified notarization/finalization status. Epoch-$e$ slot-election state not represented in the finalized target state is discarded once the replica has reconstructed that state and may be garbage-collected.
+\item[C3 (following through the second look).]
+A correct replica never casts a non-timeout first vote for a value other than its own value of C2. Any other close value $X$ with target $t$ that reaches it is treated as a candidate of the round under Kudzu's remaining rules: the replica notarizes $X$ on second look, once $X$ carries $f+p+1$ first votes, and final-votes it, provided $t$ is valid at the replica under D4. A value whose target is not valid at the replica receives no non-timeout vote. If the replica has not first-voted by the Kudzu timeout of the round, its first vote is timeout.
+
+\item[C4 (no proposer).]
+No replica has a distinguished role in any close round. A close value enters the round only through C2, and a certificate for it forms only from the votes of replicas at which its target is valid.
+\end{description}
+
+\begin{remark}[why first votes are reserved for own values]
+In Kudzu the leader's proposal is the only value an honest replica first-votes, which is what confines honest first votes to one value per slot. Without a leader that confinement must come from the value itself: a replica's own value is a function of its state, and after convergence all correct replicas have the same state. If a replica could instead first-vote any valid value it happened to receive first, a Byzantine member could form, from the converged state minus some droppable candidates, up to $2^{|D_e|}$ distinct values that are all valid at every correct replica, deliver a different one to each subset of the correct replicas ahead of C2, and split the first votes of every round. Reaching foreign values only through the second look requires $f+p+1$ first votes, at least $p+1$ of them from correct replicas that formed that value themselves.
+\end{remark}
+
+The canonical $\CE_e$ is the earliest close-round block on the close chain that becomes explicitly or implicitly finalized. By K6 finalized close-round blocks lie on one chain, so this block is unique; later finalized close-round blocks are descendants and do not change the canonical state of $\CE_e$. After $\CE_e$ finalizes, the state represented by its target root is the admitted epoch-$e$ close state. Its represented blocks are admitted to the persistent account block tree with their certified notarization/finalization status. Epoch-$e$ slot-election state not represented in the finalized target state is discarded once the replica has reconstructed that state and may be garbage-collected.
 
 \begin{remark}[what the close hash commits to]
-The close root commits to which jointly notarized candidate blocks are admitted, not to the bytes of those blocks being transmitted inside the close proposal. The bytes and certificates reside in $\DA$. It also does not freeze whether an included candidate is merely jointly notarized or later becomes jointly finalized; late finalization may change status but cannot change close membership.
+The close root commits to which jointly notarized candidate blocks are admitted, not to the bytes of those blocks being transmitted inside the close value. The bytes and certificates reside in $\DA$. It also does not freeze whether an included candidate is merely jointly notarized or later becomes jointly finalized; late finalization may change status but cannot change close membership.
+\end{remark}
+
+\begin{remark}[why the omission rule is exactly deadness]
+A close may safely omit a candidate if and only if the candidate can never be jointly finalized, and by Lemma~\ref{lem:joint-terminal} below that is exactly deadness of its election. The rule is therefore the weakest validity condition compatible with completeness, and it is the one that makes validity monotone: certificates only accumulate, a dead election stays dead, and, as Lemma~\ref{lem:vote-stability} shows, every certificate a close-ready replica can still learn about an election it has already seen makes that election dead.
 \end{remark}
 
 \subsection{Admission and validity after closing}
@@ -339,6 +376,15 @@ Suppose $\JNotar_{s,e}(B)$ holds. Then $B$ is notarized in each constituent Kudz
 If one constituent has a timeout certificate, K2 excludes any later finalization in that constituent, hence excludes joint finalization. Otherwise there are $B\ne C$ with $B$ notarized in $K^-_{s,e}$ and $C$ notarized in $K^+_{s,e}$. Any later joint finalization of $Y$ would, by K2, require $Y=B$ in the first instance and $Y=C$ in the second, impossible because $B\ne C$.
 \end{proof}
 
+\begin{corollary}[droppable candidates are never finalized]
+\label{cor:droppable}
+If $B\in\Dead_r(e)$ for some correct replica $r$, then $B$ is never jointly finalized.
+\end{corollary}
+
+\begin{proof}
+$B\in\Dead_r(e)$ means $r$ holds dead evidence for the election of $B$; deadness is witnessed by certificates and is therefore a fact about the election. Lemma~\ref{lem:joint-terminal} then excludes joint finalization of every block of that election.
+\end{proof}
+
 \begin{lemma}[a potentially finalizable election blocks close]
 \label{lem:block-close}
 Fix an epoch-$e$ slot election $\SE(s,e)$. If $\SE(s,e)$ can later jointly finalize a block $B$, then before that election locally terminates, epoch $e$ cannot obtain a finalized close certificate.
@@ -368,17 +414,17 @@ Let $t_e$ be the target root of a finalized close $\CE_e$, and let $M_e$ be its 
 \begin{proof}
 Again use the $\C_{e-2}$ constituent of $\SE(s,e)$.
 
-If its eventual finalization is slow, let $H$ be the set of its honest final signers. Then $|H|\ge q-f$. By K3, every replica in $H$ non-timeout-first-voted for $B$, so by D3 each member of $H$ waits until $\SE(s,e)$ locally terminates before close-voting. By Lemma~\ref{lem:joint-terminal}, because the election eventually jointly finalizes $B$, local termination at such a replica cannot be dead and must expose $B$ as a jointly notarized candidate. Therefore $B\in N_r(e)$ for every close-voting $r\in H$.
+If its eventual finalization is slow, let $H$ be the set of its honest final signers. Then $|H|\ge q-f$. By K3, every replica in $H$ non-timeout-first-voted for $B$, so by D3 each member of $H$ waits until $\SE(s,e)$ locally terminates before close-voting. By Lemma~\ref{lem:joint-terminal}, because the election eventually jointly finalizes $B$, local termination at such a replica cannot be dead and must expose $B$ as a jointly notarized candidate. Therefore $B\in N_r(e)$ for every close-voting $r\in H$. Moreover $B\notin\Dead_r(e)$ for any correct $r$, by Corollary~\ref{cor:droppable}.
 
 The complement of $H$ has size at most
 \[
   n-(q-f)=2f+p<q.
 \]
-Consequently, every close certificate of size at least $q$ contains at least one member $r\in H$. By D4, $r$ issues a non-timeout close vote for target root $t_e$ only after reconstructing a state $M$ with $\Root_e(M)=t_e$ and $N_r(e)\subseteq M$. Hence $B\in M$. By Lemma~\ref{lem:root-binding}, $M=M_e$ except with negligible probability, so $B\in M_e$.
+Consequently, every close certificate of size at least $q$ contains at least one member $r\in H$. By D4, $r$ issues a non-timeout close vote for target root $t_e$ only after reconstructing a state $M$ with $\Root_e(M)=t_e$ and $N_r(e)\setminus M\subseteq\Dead_r(e)$. Since $B\in N_r(e)$ and $B\notin\Dead_r(e)$, we get $B\in M$. By Lemma~\ref{lem:root-binding}, $M=M_e$ except with negligible probability, so $B\in M_e$.
 
 If the slot finalization is fast, the fast certificate contains at least $q$ honest non-timeout first voters. The complement of those honest voters has size at most $n-q=f+p<q$, so every close certificate contains at least one such honest voter. The same D3/D4 argument forces $B$ into $M_e$.
 
-The proof does not depend on when the finalization certificate is assembled. The honest blocker need only have issued the non-timeout first vote before close-voting; it may learn the finalization certificate later. Thus the argument covers both early and late finalization. The proof also does not depend on how the blocker reconstructed $M_e$: direct possession, delta reconciliation, or later state convergence all enforce the same D4 predicate.
+The proof does not depend on when the finalization certificate is assembled. The honest blocker need only have issued the non-timeout first vote before close-voting; it may learn the finalization certificate later. It does not depend on who formed the close value: the certificate, not a proposer, carries the guarantee, and every certificate contains a blocker. Nor does it depend on how the blocker reconstructed $M_e$: direct possession, delta reconciliation, or later state convergence all enforce the same D4 predicate.
 \end{proof}
 
 \begin{corollary}[safe garbage collection]
@@ -434,12 +480,12 @@ For every epoch $e$, except with negligible probability of a close-root collisio
 \end{theorem}
 
 \begin{proof}
-Part (i) follows from running close rounds as consecutive Kudzu slots, requiring monotone extension of reconstructed close states, and stopping at the first finalized valid close. Kudzu safety makes finalized close-round blocks lie on one chain, while Lemma~\ref{lem:root-binding} binds each target root to one state. Part (ii) is Lemma~\ref{lem:close-inclusion}. Part (iii) is Corollary~\ref{cor:gc} together with D5 and the post-close validity rule.
+Part (i): close rounds are consecutive Kudzu slots whose values are linked by parent references, and the canonical close is the first finalized block on the chain. K6 holds for proposer-free slots, since Kudzu's chain safety uses only the vote rules; hence finalized close-round blocks lie on one chain, and Lemma~\ref{lem:root-binding} binds each target root to one state. The absence of a proposer is immaterial: a certificate for a close value requires $q$ votes whatever the value's origin, and Kudzu's one-first-vote-per-slot rule and K2 apply to every value in the round. Part (ii) is Lemma~\ref{lem:close-inclusion}. Part (iii) is Corollary~\ref{cor:gc} together with D5 and the post-close validity rule.
 \end{proof}
 
 \section{Termination}
 
-Safety holds without synchrony. We now state the assumptions required for termination.
+Safety holds without synchrony. We now state the assumptions required for termination. No assumption concerns the availability or honesty of a designated replica.
 
 \begin{assumption}[termination conditions]
 \label{ass:termination}
@@ -447,10 +493,9 @@ For each epoch $e$:
 \begin{enumerate}[label=(\roman*)]
   \item there is a sufficiently long interval of $\delta$-synchrony after $T_e$;
   \item correct replicas in $\C_{e-3}$ and $\C_{e-2}$ remain available until $\CE_e$ finalizes;
-  \item every valid protocol object, candidate identifier, and certificate received by a correct replica is eventually announced to all correct replicas that need it;
+  \item every valid protocol object, candidate identifier, certificate and announcement received by a correct replica is eventually received by all correct replicas;
   \item only finitely many epoch-$e$ slot elections are admitted before $T_e$;
-  \item close rounds rotate leaders so that correct leaders occur infinitely often, or at least eventually during the synchronous interval;
-  \item the Kudzu timeout parameter is chosen large enough for K4 during the synchronous interval;
+  \item the Kudzu timeout parameter is chosen large enough for K4 and K5 during the synchronous interval;
   \item Assumption~\ref{ass:da} holds during the synchronous interval;
   \item before participating in epoch $e$, correct replicas can obtain and reconstruct the finalized close history required by R2 through epoch $e-2$.
 \end{enumerate}
@@ -458,36 +503,58 @@ For each epoch $e$:
 
 \begin{lemma}[drain termination]
 \label{lem:drain}
-Under Assumption~\ref{ass:termination}, every epoch-$e$ slot election that is relevant to a correct close voter eventually locally terminates at every correct participant.
+Under Assumption~\ref{ass:termination}, every epoch-$e$ slot election that is relevant to a correct close voter eventually locally terminates at every correct participant, and every correct member of $\C_{e-2}$ eventually becomes close-ready.
 \end{lemma}
 
 \begin{proof}
 There are finitely many admitted epoch-$e$ elections. By reliable dissemination, any such election known to a correct replica is eventually known to all correct replicas that must participate in its two constituent committees. During draining, D2 causes a correct replica that has not yet first-voted in the election to enter it with a timeout first vote. Thus all correct members eventually enter each constituent Kudzu instance.
 
-During the synchronous interval, K4 implies that each constituent Kudzu slot exits with either a reconstructed/notarized block or a timeout certificate. If one constituent times out, the RAI election is dead. If both expose compatible notarizations, the corresponding block is jointly notarized and the election locally terminates. If they expose incompatible notarizations, the election is dead by definition. Hence every relevant slot election eventually locally terminates.
+During the synchronous interval, K4 implies that each constituent Kudzu slot exits with either a reconstructed/notarized block or a timeout certificate. If one constituent times out, the RAI election is dead. If both expose compatible notarizations, the corresponding block is jointly notarized and the election locally terminates. If they expose incompatible notarizations, the election is dead by definition. Hence every relevant slot election eventually locally terminates, and D3 is satisfied at every correct member of $\C_{e-2}$.
 \end{proof}
 
 \begin{lemma}[close-state convergence]
 \label{lem:state-convergence}
-Under Assumption~\ref{ass:termination}, after some finite time the close-validity states of all correct members of $\C_{e-2}$ converge to the same finite set $U_e$ of epoch-$e$ jointly notarized candidates that can affect a correct close vote. Consequently their base roots all equal
+Under Assumption~\ref{ass:termination}, after some finite time the close states of all correct members of $\C_{e-2}$ converge to the same finite set $U_e$ of epoch-$e$ jointly notarized candidates, their droppable sets converge to the same set $D_e\subseteq U_e$, and their announced roots all equal
 \[
   u_e=\Root_e(U_e).
 \]
 \end{lemma}
 
 \begin{proof}
-By finite admission and Lemma~\ref{lem:drain}, only finitely many relevant elections and certificates exist. Any jointly notarized candidate known to a correct close participant is announced to the others, and its object and certificates are retrievable from $\DA$. During the synchronous interval, all such finite information is delivered and validated in finite time. Hence the union of candidates that can enter any correct replica's $N_r(e)$ eventually becomes known to every correct member of $\C_{e-2}$.
+By finite admission and Lemma~\ref{lem:drain}, only finitely many relevant elections and certificates exist. Any jointly notarized candidate or dead evidence known to a correct close participant is disseminated to the others, and its object and certificates are retrievable from $\DA$. During the synchronous interval, all such finite information is delivered and validated in finite time. Hence the union of candidates that can enter any correct replica's $N_r(e)$, and the union of dead evidence, eventually become known to every correct member of $\C_{e-2}$.
 
-After that time, no correct replica can acquire a new close-relevant jointly notarized candidate that another correct close participant will not also eventually acquire. Because the set is finite, there is a finite time after which all correct close-validity sets are equal to a common set $U_e$. Since $\Root_e$ is deterministic, all corresponding base roots are then $u_e$.
+After that time, no correct replica can acquire a new close-relevant candidate or dead evidence that another correct close participant will not also acquire. Because the sets are finite, there is a finite time after which all correct $N_r(e)$ equal a common $U_e$ and all $\Dead_r(e)$ equal a common $D_e$. Since $\Root_e$ is deterministic, all announced roots are then $u_e$ by C1.
 \end{proof}
 
-\begin{lemma}[eventual reconciliation without a fallback protocol]
-\label{lem:recon-termination}
-Let a correct close leader propose the converged target $t=u_e$ after the convergence point of Lemma~\ref{lem:state-convergence}. Every correct close voter can validate that target without requiring the leader to recognize any earlier divergent base root. In particular, its current base already equals the target and the required delta is empty.
+\begin{lemma}[vote stability]
+\label{lem:vote-stability}
+Let $r$ be a correct close-ready replica and let a close value with target $t$ be valid at $r$ under D4 at some time $\tau$. Any certificate that $r$ learns after $\tau$ concerning an epoch-$e$ election that $r$ had already seen at $\tau$ leaves the value valid at $r$. Consequently the value can become invalid at $r$ only through a jointly notarized candidate of an election that was invisible to $r$ at $\tau$.
 \end{lemma}
 
 \begin{proof}
-After convergence, every correct close participant has state $U_e$ and base root $u_e$. A correct leader's local $N_r(e)$ is therefore $U_e$, so its target is $t=\Root_e(U_e)=u_e$. Every correct voter already has the same state and computes the same root. It satisfies D4 directly with $M_t=U_e$ and needs no state transfer. Thus failure to reconcile an earlier pair $(b,t)$ is not a liveness failure: ordinary dissemination eventually advances the base to $t$ itself. Any successful delta before that point only reduces latency and bandwidth.
+At $\tau$ every election visible to $r$ had locally terminated (D3). Consider such an election $\SE(s,e)$ and a certificate learned after $\tau$. If it is a finalization certificate, $N_r(e)$ is unchanged. If it is a timeout certificate for a constituent, the election is dead. If it is a notarization of some $C$ in one constituent: either $r$'s termination was by dead evidence, in which case the election is still dead; or $r$ knew $\JNotar_{s,e}(B)$ with $B\ne C$, in which case $B$ is notarized in both constituents and $C$ in one, so the election has incompatible constituent notarizations and is dead; or $C=B$, in which case $N_r(e)$ is unchanged. Hence every new member that such a certificate can add to $N_r(e)$ belongs to an election that is now dead, so it also enters $\Dead_r(e)$, and $N_r(e)\setminus M_t\subseteq\Dead_r(e)$ is preserved. Since deadness is permanent, previously droppable members remain droppable.
+\end{proof}
+
+\begin{corollary}[late certificates cost no round]
+\label{cor:no-lost-round}
+A close round in which every correct member has cast a non-timeout first vote for the same value cannot be prevented from finalizing that value by certificates of already-seen elections that arrive during the round.
+\end{corollary}
+
+\begin{proof}
+By Lemma~\ref{lem:vote-stability} the value stays valid at every correct member, so under C3 they continue to notarize and final-vote it, and K5 applies.
+\end{proof}
+
+\begin{lemma}[unanimous close round]
+\label{lem:unanimous-round}
+Under Assumption~\ref{ass:termination}, let $\tau^*$ be a time after the convergence point of Lemma~\ref{lem:state-convergence} by which every correct member of $\C_{e-2}$ has received every correct member's announcement of $u_e$. Unless an earlier round finalizes a close, there is a close round that every correct member enters after $\tau^*$, and in that round every correct member casts a non-timeout first vote for the same close value, which is valid at every correct member.
+\end{lemma}
+
+\begin{proof}
+Such a $\tau^*$ exists by Assumption~\ref{ass:termination}(iii). Rounds are entered only after the previous round exits, and by K4 every round entered by all correct members exits in finite time during the synchronous interval; hence, unless some round finalizes a close first, there is a first round $\rho$ that every correct member enters after $\tau^*$.
+
+When a correct member $r$ enters $\rho$ it has state $N_r(e)=U_e$, has announced $u_e$ (C1), and already holds at least $n-f\ge q$ announcements of $u_e$. So the condition of C2 is satisfied on entry, before the round's Kudzu timeout, and $r$ first-votes its own value. By C3 this is the only non-timeout first vote $r$ casts in $\rho$. By K4 and Assumption~\ref{ass:termination}(iii), the close-round blocks and certificates of all rounds before $\rho$ are known to every correct member when it enters $\rho$, so all correct members hold the same complete close block tree and the same parent $P$. Each therefore forms and first-votes the same value $X=(e,\hash(X_{e-1}),\hash(P),u_e)$.
+
+Validity of $X$ at every correct member is immediate: $M_{u_e}=U_e$ is the member's own state, so $U_e\setminus M_{u_e}=\emptyset$. Byzantine members may inject other values into $\rho$, but by C3 no correct member first-votes them, so they gather at most $f<f+p+1$ first votes and receive no second look.
 \end{proof}
 
 \begin{lemma}[close termination]
@@ -496,9 +563,9 @@ Under Assumption~\ref{ass:termination}, epoch $e$ eventually obtains a finalized
 \end{lemma}
 
 \begin{proof}
-By Lemma~\ref{lem:drain}, every correct member of $\C_{e-2}$ eventually becomes close-ready. By Lemma~\ref{lem:state-convergence}, after some finite time all correct members have the same close state $U_e$ and root $u_e$. A correct close leader occurring after that point proposes $t=u_e$. By Lemma~\ref{lem:recon-termination}, every correct close voter already reconstructs that target locally, and $N_r(e)=U_e\subseteq U_e$, so every correct voter accepts it under D4.
+By Lemma~\ref{lem:drain}, every correct member of $\C_{e-2}$ eventually becomes close-ready. Close rounds are Kudzu slots; by K4 every round entered by all correct members exits in finite time during the synchronous interval, by a notarized close value or a timeout certificate, so either some earlier round finalizes a valid close, in which case we are done, or the round of Lemma~\ref{lem:unanimous-round} is reached. In that round every correct member first-votes the same valid value $X$, so K5 finalizes $X$ at every correct member, and Corollary~\ref{cor:no-lost-round} ensures that certificates still in flight cannot disturb this. The target of $X$ is $u_e$, which every correct member has reconstructed; hence $\CE_e$ finalizes.
 
-Close rounds are ordinary Kudzu slots on $\C_{e-2}$. During a sufficiently long synchronous interval, K4 causes faulty-leader rounds, unavailable-target rounds, or otherwise invalid rounds to be left by timeout, and a correct-leader round with the converged valid target to make progress. Therefore a valid close block eventually finalizes.
+No step of this argument names a particular replica. The round advances on the votes of any $q$ members, the value is formed identically by every member from converged state, and the announcements of C2 are satisfied by any $q$ of the at least $n-f$ correct members.
 \end{proof}
 
 \begin{theorem}[RAI termination]
@@ -507,42 +574,67 @@ Under Assumptions~\ref{ass:da} and~\ref{ass:termination}, every epoch eventually
 \end{theorem}
 
 \begin{proof}
-The first statement is Lemma~\ref{lem:close-termination}. The second is a protocol property: D1--D5 constrain only epoch-$e$ voting and the epoch-$e$ close election. Epoch-$e+1$ slot elections use committees $\C_{e-2}$ and $\C_{e-1}$ and may begin immediately at $T_e$. Correct replicas may therefore participate in new-epoch slot elections while continuing to drain old-epoch elections and the close chain.
+The first statement is Lemma~\ref{lem:close-termination}. The second is a protocol property: D1--D5 and C1--C4 constrain only epoch-$e$ voting and the epoch-$e$ close election. Epoch-$e+1$ slot elections use committees $\C_{e-2}$ and $\C_{e-1}$ and may begin immediately at $T_e$. Correct replicas may therefore participate in new-epoch slot elections while continuing to drain old-epoch elections and the close chain.
 
-The last statement is Lemma~\ref{lem:recon-termination}: if a leader cannot compute a delta for an earlier base hash, correct-state convergence eventually makes the requester's base equal the target itself. No interactive Merkle walk, proof-carrying reconciliation, or alternative set-reconciliation mechanism is required by the liveness proof.
+The last statement follows from Lemma~\ref{lem:state-convergence}: if no responder can compute a delta for an earlier base hash, correct-state convergence eventually makes the requester's own root equal the common root $u_e$, and by C2 it then votes that root itself. No interactive Merkle walk, proof-carrying reconciliation, or alternative set-reconciliation mechanism is required by the liveness proof.
+\end{proof}
+
+\begin{theorem}[leaderless termination of the close]
+\label{thm:leaderless}
+Assume $p\ge 1$ and Assumption~\ref{ass:termination}. Let an adversary, in addition to controlling at most $f$ Byzantine members of $\C_{e-2}$, be allowed to suspend any one correct member during any communication round of the synchronous interval, suspending each correct member only finitely often. Then epoch $e$ still eventually closes.
+\end{theorem}
+
+\begin{proof}
+A member suspended in a round neither sends nor receives in that round; since each correct member is suspended only finitely often, every message it must send or receive is eventually sent or received, so Assumption~\ref{ass:termination}(iii) is preserved and Lemmas~\ref{lem:drain} and~\ref{lem:state-convergence} hold with the suspended member merely delayed. Within any close round, at most one correct member is silent at a time; the remaining correct members number at least $n-f-1\ge n-f-p=q$, which suffices for every certificate threshold in K4 and K5 except the fast threshold, and the fast path is not needed for finalization. Kudzu tolerates a temporarily silent correct member as it tolerates one of the $p$ slow members. Finally, no rule of the close designates a member whose step is required: C2 requires $q$ announcements from any members, C3 accepts any value valid at the voter, and C4 assigns no role. Hence the argument of Lemma~\ref{lem:close-termination} goes through with the suspended member treated as one of the $p$ slow members of that round.
+\end{proof}
+
+\begin{remark}[contrast with a rotating leader]
+With a designated round leader, an adversary that suspends exactly the leader of each round stalls the close for as long as it likes without violating any synchrony bound, which is the sense in which leader-based protocols fail leaderless termination. Here the value of a round is a function of the converged state rather than of any member's proposal, so suspending a member removes one vote, never the value.
+\end{remark}
+
+\begin{proposition}[rounds lost before convergence]
+\label{prop:lost-rounds}
+After every correct member of $\C_{e-2}$ is close-ready, the number of close rounds that fail because a correct member's first vote is invalidated by a later certificate is at most the number of epoch-$e$ elections that were invisible to some correct member when it became close-ready.
+\end{proposition}
+
+\begin{proof}
+By Lemma~\ref{lem:vote-stability}, a value valid at a close-ready member can be invalidated only by a jointly notarized candidate of an election the member had not seen. Each such election can do so at most once per member, and after the member has seen it every further certificate of that election is absorbed by deadness. Under finite admission the number of such elections is finite.
 \end{proof}
 
 \section{Communication consequences of the redesign}
 
-The redesign separates three concerns that were previously coupled in the manifest carried by a close proposal.
+The redesign separates three concerns that were previously coupled in the manifest carried by a close proposal, and removes the proposer.
 
 \begin{enumerate}[leftmargin=2.0em]
-  \item \textbf{Consensus value.} The close Kudzu instance agrees on one constant-size target root $t$ together with fixed epoch and parent-close metadata. The proposal size is independent of the number of epoch candidates.
+  \item \textbf{Consensus value.} The close Kudzu instance agrees on one constant-size target root $t$ together with fixed epoch, parent-close and parent-round metadata. The value size is independent of the number of epoch candidates, and every member forms it locally.
 
-  \item \textbf{State reconciliation.} A lagging replica sends only its current base root and the target root. When the leader recognizes the base, the response is only the additive identifier difference $M_t\setminus M_b$. The response contains no proofs and no block bodies.
+  \item \textbf{Announcements.} The only pre-vote traffic is one announcement per close-ready member per change of its state: an epoch and a root. A member compares announced roots with its own; agreement is visible without any exchange of state.
+
+  \item \textbf{State reconciliation.} A lagging member sends only its current base root and an announced target root to any announcer of that target. When the responder recognizes the base, the response is only the additive identifier difference $M_t\setminus M_b$. The response contains no proofs and no block bodies. Because every member announces, every member is a potential responder; no reconciliation depends on one replica.
 
   \item \textbf{Data availability.} The actual candidate blocks and certificates referenced by the delta are retrieved independently from $\DA$. The requester validates them and recomputes the target root locally.
 \end{enumerate}
 
-As correct replicas disseminate the same candidate information, their close states become identical. Therefore a target root learned in one reconciliation naturally becomes a later base root, and after stabilization all correct replicas use the same base. In the steady state the common case is either an empty delta because $b=t$, or a small additive delta containing only candidates that arrived since the common base was computed.
+As correct replicas disseminate the same candidate information, their close states become identical. Therefore a target root learned from one announcement naturally becomes a later base root, and after stabilization all correct replicas announce and vote the same root. In the steady state the common case is an empty delta because $b=t$, or a small additive delta containing only candidates that arrived since the common base was computed.
 
-The mechanism deliberately does not attempt to derive a difference from the algebra of two cryptographic hashes. The pair $(b,t)$ names two state versions. The leader can return a difference only when it can resolve those versions from its retained snapshots or deterministic state history. Eventual convergence is the only fallback: an unrecognized base is allowed to become obsolete as ordinary dissemination advances the requester to a newer, common root.
+The mechanism deliberately does not attempt to derive a difference from the algebra of two cryptographic hashes. The pair $(b,t)$ names two state versions. A responder can return a difference only when it can resolve those versions from its retained snapshots or deterministic state history. Eventual convergence is the only fallback: an unrecognized base is allowed to become obsolete as ordinary dissemination advances the requester to a newer, common root, at which point the requester needs no reconciliation because it votes its own root.
 
 \section{Main guarantee}
 
-\begin{theorem}[RAI safety and liveness with compact closure]
-Assume the Kudzu properties K1--K4, the RAI rules R1--R2 and D1--D5, committee resilience \eqref{eq:kudzu-resilience}, authenticated reliable dissemination, the post-close validity rule, collision resistance as in Assumption~\ref{ass:hash}, and data availability as in Assumption~\ref{ass:da}. Then, except with negligible probability of a close-root collision:
+\begin{theorem}[RAI safety and liveness with leaderless compact closure]
+Assume the Kudzu properties K1--K6, the RAI rules R1--R2, D1--D5 and C1--C4, committee resilience \eqref{eq:kudzu-resilience}, authenticated reliable dissemination, the post-close validity rule, collision resistance as in Assumption~\ref{ass:hash}, and data availability as in Assumption~\ref{ass:da}. Then, except with negligible probability of a close-root collision:
 \begin{enumerate}[label=(\roman*)]
   \item \textbf{slot safety:} no two honest replicas can finalize different blocks for the same logical account slot, even across reconfiguration;
   \item \textbf{epoch completeness:} every block that ever finalizes in an epoch-$e$ slot election, including a block whose finalization certificate is assembled after close voting begins, is contained in the state represented by the finalized epoch-$e$ close root;
   \item \textbf{safe reclamation:} after $\CE_e$ finalizes, omitted epoch-$e$ elections cannot later produce a finalized block and may be discarded after the finalized state is reconstructed;
-  \item \textbf{compact closure:} the epoch-state component of every close proposal is one fixed-size hash, while state differences and object transfer are kept off the consensus proposal path;
-  \item \textbf{termination:} under Assumption~\ref{ass:termination}, every activated slot election needed for draining terminates and every epoch eventually closes, even if some pre-convergence base hashes cannot be reconciled by a leader.
+  \item \textbf{compact closure:} the epoch-state component of every close value is one fixed-size hash, while state differences and object transfer are kept off the consensus path;
+  \item \textbf{termination:} under Assumption~\ref{ass:termination}, every activated slot election needed for draining terminates and every epoch eventually closes, even if some pre-convergence base hashes cannot be reconciled by any responder;
+  \item \textbf{leaderless termination:} with $p\ge 1$, the close terminates even if an adversary suspends any one correct member per communication round, and a certificate learned during a close round about an already-seen election never invalidates a vote already cast.
 \end{enumerate}
 \end{theorem}
 
 \begin{proof}
-Slot safety is Theorem~\ref{thm:slot-safety}. Epoch completeness and safe reclamation are Theorem~\ref{thm:epoch-safety}. Compact closure follows from the close-block format \eqref{eq:close-block} and the separation of reconciliation from $\DA$. Termination is Theorem~\ref{thm:termination}.
+Slot safety is Theorem~\ref{thm:slot-safety}. Epoch completeness and safe reclamation are Theorem~\ref{thm:epoch-safety}. Compact closure follows from the close-value format \eqref{eq:close-block} and the separation of reconciliation from $\DA$. Termination is Theorem~\ref{thm:termination}. Leaderless termination is Theorem~\ref{thm:leaderless} together with Lemma~\ref{lem:vote-stability} and Corollary~\ref{cor:no-lost-round}.
 \end{proof}
 
 \section{Protocol summary}
@@ -551,7 +643,7 @@ For reference, the full protocol can be summarized as follows.
 \begin{enumerate}[leftmargin=2.0em]
   \item A logical slot has no epoch. When its owner proposes a block in epoch $e$, the corresponding election $\SE(s,e)$ runs Kudzu on $\C_{e-3}$ and $\C_{e-2}$.
 
-  \item Matching notarizations in both instances create an epoch-local candidate, including forks; matching finalizations jointly finalize it. Persistent account-tree admission occurs only through the finalized epoch close. A constituent timeout or incompatible constituent notarizations make the election dead.
+  \item Matching notarizations in both instances create an epoch-local candidate, including forks; matching finalizations jointly finalize it. Persistent account-tree admission occurs only through the finalized epoch close. A constituent timeout or incompatible constituent notarizations make the election dead; a dead election can never finalize a block.
 
   \item While an earlier attempt for a logical slot remains unsealed, an honest replica that non-timeout-first-voted in it does not non-timeout-first-vote for a competing epoch attempt.
 
@@ -559,28 +651,35 @@ For reference, the full protocol can be summarized as follows.
 
   \item At $T_e$, no new epoch-$e$ non-timeout first votes are issued. Correct replicas continue draining old elections, using timeout first votes for newly encountered old elections.
 
-  \item A replica close-votes only after every epoch-$e$ election in which it non-timeout-first-voted, and every otherwise visible required election, locally terminates.
+  \item A replica announces or close-votes only after every epoch-$e$ election in which it non-timeout-first-voted, and every otherwise visible required election, locally terminates.
 
-  \item The close leader proposes one target-state root instead of a manifest. The fixed close header also commits to the epoch and previous finalized close.
+  \item A close-ready replica announces the root of its own close state and re-announces whenever that state changes. Announcements are not votes.
 
-  \item A voter with base root $b$ and target root $t$ may send $(b,t)$ to the leader. If the leader recognizes both states and the base is a subset of the target, it returns only the additive difference. The response contains no proofs and no data objects.
+  \item Once $q$ members have announced the same root as its own, a replica casts a first vote for its own close value: the epoch, the previous finalized close, the parent close-round block, and that root. Replicas with the same state and parent thereby vote for the same value. There is no proposer.
 
-  \item The voter retrieves delta-referenced objects from the separate $\DA$ layer, validates them, applies the delta, and accepts only if the resulting canonical state hashes to $t$ and contains all of its locally known jointly notarized candidates.
+  \item A replica first-votes only its own value. It notarizes on second look, and final-votes, any close value that has gathered $f+p+1$ first votes and whose target it can reconstruct and validate, provided the target omits none of its jointly notarized candidates except candidates of elections it knows to be dead. Its validity judgement about a value never changes because of a later certificate about an election it had already seen.
 
-  \item If a leader does not recognize $b$, there is no alternate reconciliation protocol. Ordinary dissemination advances the replica's state and base hash; eventually correct replicas converge to a common state, so a correct leader's target equals every correct voter's base and the delta is empty.
+  \item A voter with base root $b$ may send $(b,t)$ to any announcer of $t$. If the responder recognizes both states and the base is a subset of the target, it returns only the additive difference. The response contains no proofs and no data objects; the referenced objects come from $\DA$ and are validated locally.
 
-  \item Close rounds run as consecutive Kudzu slots on $\C_{e-2}$ until a valid target root finalizes. State-level close proposals are monotone along the close chain.
+  \item If nobody recognizes $b$, there is no alternate reconciliation protocol. Ordinary dissemination advances the replica's state; eventually correct replicas converge to a common state, all announce the same root, and each votes that root as its own value with an empty delta.
+
+  \item Close rounds run as consecutive proposer-free Kudzu slots on $\C_{e-2}$ until a valid target root finalizes; the first finalized close-round block is the close.
 
   \item Epoch $e+1$ slot elections may run concurrently with draining and closing epoch $e$.
 
   \item After $\CE_e$, included blocks are admitted to the persistent account tree with their certified status; omitted epoch-$e$ state is permanently dead and may be garbage-collected after the close state is reconstructed. A still-undecided slot may be proposed again in a later eligible epoch, but discarded evidence cannot be resurrected.
 \end{enumerate}
 
-\begin{thebibliography}{1}
+\begin{thebibliography}{2}
 \bibitem{kudzu}
 Victor Shoup, Jakub Sliwinski, and Yann Vonlanthen.
 \newblock \emph{Kudzu: Fast and Simple High-Throughput BFT}.
 \newblock arXiv:2505.08771, 2025.
+
+\bibitem{leaderless}
+Karolos Antoniadis, Antoine Desjardins, Vincent Gramoli, Rachid Guerraoui, and Igor Zablotchi.
+\newblock \emph{Leaderless Consensus}.
+\newblock Technical report, EPFL and University of Sydney.
 \end{thebibliography}
 
 \end{document}
