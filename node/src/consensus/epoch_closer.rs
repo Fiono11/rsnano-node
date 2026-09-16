@@ -179,6 +179,9 @@ struct View {
     /// Live root and page count of the last assembly attempt, so the whole
     /// membership is not copied again while nothing changed.
     attempted: Option<(BlockHash, usize)>,
+    /// Whether this view is the live membership minus droppable members, for
+    /// the live root and droppable count it was last checked against.
+    subset: Option<(BlockHash, usize, bool)>,
 }
 impl View {
     /// The sketch decoded against the live membership named by `root`.
@@ -254,6 +257,11 @@ struct State {
     pages_out: VecDeque<(ChannelId, EpochClose)>,
     /// Members held by peers but not here, with the last solicitation.
     reconcile_targets: HashMap<BlockHash, (Root, Option<Instant>)>,
+    /// Local members a close may omit: their root carries a second
+    /// certificate (a timeout or another notarized block), so no block of
+    /// that root can ever be finalized. Certificates only accumulate, so the
+    /// set only grows.
+    droppable: HashSet<BlockHash>,
 }
 impl State {
     fn new(epoch: u64, weights: RepWeights, archive: Vec<EpochClose>) -> Self {
@@ -295,6 +303,7 @@ impl State {
             views: Default::default(),
             pages_out: Default::default(),
             reconcile_targets: Default::default(),
+            droppable: HashSet::new(),
         }
     }
     /// One request's worth of recovery targets, rotating through the list so
@@ -956,18 +965,66 @@ impl State {
             && (self.certified(id, VoteKind::First)
                 || (self.certified(id, VoteKind::Notarize) && self.certified(id, VoteKind::Final)))
     }
-    /// Signable: the candidate's root is exactly the live membership, which
-    /// covers both object validity and D4 in one comparison, and a parent, if
-    /// any, is a notarized earlier-round candidate whose membership this
-    /// replica held.
+    /// Local members that active views omit and are not yet known droppable;
+    /// the caller decides droppability from the certificates it holds.
+    fn omitted_members(&self) -> Vec<BlockHash> {
+        let mut omitted = BTreeSet::new();
+        for view in self.views.values() {
+            omitted.extend(
+                view.only_mine
+                    .iter()
+                    .filter(|member| !self.droppable.contains(member))
+                    .copied(),
+            );
+        }
+        omitted.into_iter().collect()
+    }
+    /// Whether the view named by `state` is the live membership minus
+    /// droppable members only: signing it omits nothing that could still be
+    /// finalized, so a certificate learned after the vote never invalidates a
+    /// candidate already voted for.
+    fn subset_of_membership(&mut self, state: BlockHash) -> bool {
+        let root = self.root();
+        let droppable_count = self.droppable.len();
+        let Some(view) = self.views.get_mut(&state) else {
+            return false;
+        };
+        if let Some((checked_root, checked_count, result)) = view.subset {
+            if checked_root == root && checked_count == droppable_count {
+                return result;
+            }
+        }
+        let result = view.decoded(root)
+            && view.only_theirs.is_empty()
+            && !view.only_mine.is_empty()
+            && view
+                .only_mine
+                .iter()
+                .all(|member| self.droppable.contains(member))
+            && {
+                let excluded: HashSet<_> = view.only_mine.iter().copied().collect();
+                self.trie.without(&excluded).root() == state
+            };
+        let view = self.views.get_mut(&state).unwrap();
+        view.subset = Some((root, droppable_count, result));
+        result
+    }
+    /// Signable: the candidate's root is the live membership, or the live
+    /// membership minus droppable members, which covers both object validity
+    /// and D4; and a parent, if any, is a notarized earlier-round candidate
+    /// whose membership this replica held.
     fn signable(&mut self, id: BlockHash) -> bool {
         let root = self.root();
         let Some(c) = self.candidates.get(&id) else {
             return false;
         };
-        if c.header.state != root || !self.well_formed(id) {
+        let state = c.header.state;
+        if !self.well_formed(id) || (state != root && !self.subset_of_membership(state)) {
             return false;
         }
+        let Some(c) = self.candidates.get(&id) else {
+            return false;
+        };
         if c.header.parent.is_zero() {
             return true;
         }
@@ -1382,6 +1439,24 @@ impl EpochCloser {
         if state.has_finalized_close() {
             self.generators.seal_epoch(state.epoch);
         }
+        // Droppability is read from the container before `drive` runs under
+        // its lock: a member whose root has a timeout certificate or another
+        // notarized block can never be finalized, so a close may omit it.
+        for member in state.omitted_members() {
+            let droppable = self
+                .aec
+                .election_for_block(&member)
+                .is_some_and(|election| {
+                    election.is_timed_out()
+                        || election.candidate_blocks().keys().any(|hash| {
+                            *hash != member
+                                && election.has_kudzu_certificate(*hash, VoteKind::Notarize)
+                        })
+                });
+            if droppable {
+                state.droppable.insert(member);
+            }
+        }
         // Readiness only matters while draining, so the container is scanned
         // only then; before that the tick must not stall vote application.
         let mut pending_targets = Vec::new();
@@ -1485,6 +1560,7 @@ impl EpochCloser {
                     "announcements":state.announcements.iter().map(|(rep, (a, _))| serde_json::json!({"rep":rep,"members":a.members,"state":a.state})).collect::<Vec<_>>(),
                     "views":state.views.iter().map(|(root, v)| serde_json::json!({"state":root,"decoded":v.decoded_for.is_some(),"sketch_failed":v.sketch_failed,"only_mine":v.only_mine.len(),"only_theirs":v.only_theirs.len(),"level2":v.level2.len(),"leaves":v.leaves.len()})).collect::<Vec<_>>(),
                     "reconcile_targets":state.reconcile_targets.len(),
+                    "droppable":state.droppable.len(),
                     "round_timer_armed":state.round_timer_armed,
                     "recovering":recovering,
                     "candidates":state.candidates.iter().map(|(id,c)| serde_json::json!({"id":id,"round":c.header.round,"state":c.header.state,"members":c.header.members})).collect::<Vec<_>>(),
@@ -2108,6 +2184,62 @@ mod tests {
                 .iter()
                 .all(|p| p.kind >= 3)
         );
+    }
+
+    #[test]
+    fn a_candidate_omitting_only_droppable_members_is_signable() {
+        let ledger_mine = Ledger::new_null();
+        let ledger_theirs = Ledger::new_null();
+        let mut lattice = rsnano_ledger::test_helpers::UnsavedBlockLatticeBuilder::new();
+        let shared = lattice.genesis().send(1, 1);
+        let extra = lattice.genesis().send(2, 1);
+        for ledger in [&ledger_mine, &ledger_theirs] {
+            ledger.record_epoch_block(0, shared.clone());
+        }
+        ledger_mine.record_epoch_block(0, extra.clone());
+        let mut mine = ready_state(&ledger_mine);
+        let mut theirs = ready_state(&ledger_theirs);
+        let their_root = theirs.root();
+        let mut out = Vec::new();
+        theirs.announce(&[PrivateKey::from(2)], &mut out);
+        mine.receive_announcement(out[0].clone(), ChannelId::from(2));
+        mine.active_views();
+        mine.decode_sketches(|hashes| unknown_members(&ledger_mine, hashes));
+        assert_eq!(mine.omitted_members(), vec![extra.hash()]);
+        let mut candidate = mine.template(0, BlockHash::ZERO, their_root);
+        candidate.sign(&PrivateKey::from(2));
+        let id = candidate.candidate_id();
+        mine.receive(candidate);
+        assert!(
+            !mine.signable(id),
+            "the omitted member could still be finalized"
+        );
+        mine.droppable.insert(extra.hash());
+        assert!(
+            mine.signable(id),
+            "a root with a second certificate can be omitted"
+        );
+        assert!(mine.omitted_members().is_empty());
+        let (out, _) = mine.drive(&[PrivateKey::from(1)]);
+        assert!(
+            out.iter().any(|p| p.kind == 0 && p.state == their_root),
+            "the replica votes for the smaller membership"
+        );
+        // Finalized, the close is assembled without the droppable member.
+        for i in 2..=6 {
+            let mut vote = mine.template(0, BlockHash::ZERO, their_root);
+            vote.sign(&PrivateKey::from(i));
+            mine.receive(vote);
+        }
+        let (_, decision) = mine.drive(&[PrivateKey::from(1)]);
+        assert_eq!(decision, Some(vec![shared.hash()]));
+        // A view with members this replica lacks is never a subset.
+        let mut lagging = ready_state(&ledger_theirs);
+        let announcement = mine.local_announcements[0].clone();
+        lagging.receive_announcement(announcement, ChannelId::from(1));
+        lagging.active_views();
+        lagging.decode_sketches(|hashes| unknown_members(&ledger_theirs, hashes));
+        assert!(!lagging.subset_of_membership(mine.root()));
     }
 
     #[test]
