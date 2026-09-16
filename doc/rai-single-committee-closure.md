@@ -21,16 +21,29 @@ An empty epoch has a valid, epoch-specific root.
 The signed close header includes the epoch, close round, round parent,
 previous finalized close identity, and target root. The epoch-close identity is
 `Blake2b("RAI-CLOSE" || epoch_le_u64 || previous_close || target_root)`.
-Close rounds have no proposer. A drained replica announces the parent and
-membership root it would close on; once certificate weight announced the same
-pair, every draining replica that holds that membership FIRST-votes the value
-it names, whether or not the pair is its own (rule C2 of `rai_protocol.tex`).
+Close rounds have no proposer. In each round a drained replica signs exactly
+one commitment (message kind 10, rule C1) naming the parent and membership root
+it would close on; once certificate weight committed to the same pair in the
+current round, every draining replica that holds that membership FIRST-votes
+the value it names, whether or not the pair is its own (rule C2). A replica
+never signs a second pair in a round, so two pairs cannot both reach
+certificate weight in one round (Lemma 12) and correct FIRST votes cannot be
+split by a changed membership; a root learned after the commitment is
+committed in the next round. Commitments of other rounds enable nothing.
 Replicas holding the same pair create the same candidate, so their votes tally
-without a proposer. A new round requires a timeout certificate for the
-previous round. In particular, a notarized ancestor is not silently selected as
-the finalized target when a descendant finalizes: doing so could omit candidates
-added in the descendant. Reconstructed parent states must be subsets of children.
-Advertised member counts do not gate progress.
+without a proposer. A round exits either with a timeout certificate or with a
+complete candidate: one notarized and signable here (rule X1). A notarized
+value short of its FINAL quorum, with too few FIRST-timeouts to trigger timeout
+shares, would otherwise stall the epoch for good. The next round extends the
+complete candidate as its parent; ParentOK (K6) requires the parent to be
+notarized and a timeout certificate for every round skipped strictly between
+parent and child, nothing for the parent's own round, and no local knowledge
+of the parent's membership. The decision is the earliest candidate on the
+chain of the explicitly finalized one: an ancestor is finalized implicitly by
+its descendant, so members that arrived after the ancestor are omitted and
+released for the next epoch. Explicit finality excludes a timeout in its round,
+so every later candidate descends from it and all replicas reach the same
+ancestor. Advertised member counts do not gate progress.
 
 At the epoch deadline, signing stops issuing new non-timeout FIRST votes in that
 epoch. Old elections continue, with FIRST-timeout for new participants. D3 covers
@@ -40,9 +53,10 @@ include every locally known notarized candidate. The signing reservation and
 election read lock cover these checks and close signing, preventing concurrent
 candidate ingestion from invalidating the checks mid-vote. D4 is not cached.
 
-A drained replica announces its membership before anyone proposes (message kind
-8, signed, flooded and retransmitted with the close history): the tree root, the
-member count and the 256 level-1 digests. Announcements never enter a tally. A
+A drained replica announces its membership sketch before committing (message
+kind 8, signed, flooded and retransmitted with the close history, re-sent
+whenever the root or parent changes): the tree root, the member count and the
+sketch. Sketches never enter a tally and never enable a value. A
 replica whose own root differs treats the announced root as a view and pulls its
 pages from the announcer (kind 9 requests, answered by kind 5 level-2 pages and
 kind 7 leaves): one level-2 page per differing bucket, one leaf per differing
@@ -65,26 +79,28 @@ matches. There is no full-list transfer and no delta against a shared base.
 Signing needs no membership scan: a candidate is signable when its root equals
 the live root, or when the announced view with that root decoded against the
 live membership names nothing this replica lacks, so every entry verifies
-locally; a child candidate is signable when this replica held its notarized
-parent's root, since members are only added. D3 and D4 are the announcers'
-judgment: an announcement is made only when drained and names the full live
+locally; a child candidate is signable when its parent satisfies ParentOK,
+whether or not this replica ever held the parent's membership. D3 and D4 are the committers'
+judgment: a commitment is signed only when drained and names the full live
 membership, and a quorum of them authorizes the value for the round. A voter
 does not re-run them (rule C3): a FINAL vote follows the FIRST vote even when a
-member arrived since, because a member the announcing quorum never saw cannot
+member arrived since, because a member the committing quorum never saw cannot
 be finalized once that quorum closed without it. The drain check reads a
 per-epoch index of undecided elections instead of scanning every election of
 the epoch.
 
-The announced value is voted only once every representative announced the same
-pair, or six seconds after this replica's own drain once certificate weight
-has: the announcement phase of a round, which gives late certificates a chance
-to enter the close instead of being discarded with it. A fresh snapshot that
-differs from the announced root is announced instead of voted. Round 0 is timed
-from the moment the vote became due on each replica rather than from the drain
-start, so nobody FIRST-timeouts a round before its value can exist; later
-rounds are timed from their timeout certificate as before. After the six-second wait the round timer
-is armed even without certificate-weight agreement, so rounds keep rotating
-while reconciliation continues. Close statements, announcements and pages use
+A replica signs its round-0 commitment once every representative's sketch
+names its own pair, or six seconds after its own drain: the announcement phase
+of the round, which gives late certificates a chance to enter the close instead
+of being discarded with it. In later rounds the phase ends at convergence or
+half the round's first-vote budget after entry, so the commitment always
+precedes a FIRST timeout. The committed value is voted as soon as certificate
+weight committed to it. Round 0 is timed from the moment the vote became due on
+each replica rather than from the drain start, so nobody FIRST-timeouts a round
+before its value can exist; later rounds are timed from their entry as before.
+After the six-second wait the round timer is armed even without
+certificate-weight agreement, so rounds keep rotating while reconciliation
+continues. Close statements, announcements and pages use
 their own outbound traffic class (`TrafficType::EpochClose`): on the shared
 vote-reply queue a burst of recovery replies to one peer dropped an announcement
 on that channel repeatedly, so the leader never saw agreement and round 0 was

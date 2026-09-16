@@ -142,6 +142,20 @@ impl EpochClose {
             && self.removed.is_empty()
             && self.signature_valid()
     }
+    /// Close announcement (rule C1): the one previous-close/parent/root pair
+    /// a close-ready replica signs in a close round. Never a consensus vote;
+    /// a quorum of matching announcements enables the value for the round.
+    pub fn valid_commitment(&self) -> bool {
+        self.kind == 10
+            && self.hashes.is_empty()
+            && self.sketch.is_empty()
+            && self.page == 0
+            && self.pages == 0
+            && self.base.is_zero()
+            && self.removed.is_empty()
+            && !self.state.is_zero()
+            && self.signature_valid()
+    }
     /// Request for one page of the view whose root is `state`.
     pub fn valid_view_request(&self) -> bool {
         self.kind == 9
@@ -196,7 +210,7 @@ impl EpochClose {
     pub fn deserialize(payload: &[u8]) -> Result<Self, DeserializationError> {
         let value: Self =
             serde_json::from_slice(payload).map_err(|_| DeserializationError::InvalidData)?;
-        if value.kind > 9
+        if value.kind > 10
             || !value.removed.is_empty()
             || value.hashes.len() > Self::PAGE_SIZE
             || value.sketch.len() > Self::SKETCH_BYTES * 2
@@ -265,6 +279,42 @@ mod tests {
         bytes[1] = second;
         bytes[31] = tail;
         BlockHash::from_bytes(bytes)
+    }
+
+    #[test]
+    fn commitment_binds_round_parent_and_root_and_never_votes() {
+        let mut commitment = packet(10);
+        commitment.round = 2;
+        commitment.parent = 5.into();
+        commitment.sign(&PrivateKey::from(1));
+        assert!(commitment.valid_commitment());
+        assert!(!commitment.valid_vote());
+        assert!(!commitment.valid_announcement());
+        crate::assert_deserializable(&crate::Message::EpochClose(commitment.clone()));
+        for (field, change) in [
+            (
+                "round",
+                Box::new(|p: &mut EpochClose| p.round = 3) as Box<dyn Fn(&mut EpochClose)>,
+            ),
+            ("parent", Box::new(|p: &mut EpochClose| p.parent = 6.into())),
+            ("state", Box::new(|p: &mut EpochClose| p.state = 4.into())),
+            (
+                "previous close",
+                Box::new(|p: &mut EpochClose| p.previous_close = 1.into()),
+            ),
+        ] {
+            let mut changed = commitment.clone();
+            change(&mut changed);
+            assert!(!changed.valid_commitment(), "the {field} is signed");
+        }
+        let mut empty = commitment.clone();
+        empty.state = BlockHash::ZERO;
+        empty.sign(&PrivateKey::from(1));
+        assert!(!empty.valid_commitment(), "a commitment names a root");
+        let mut vote = commitment.clone();
+        vote.kind = 0;
+        vote.sign(&PrivateKey::from(1));
+        assert!(!vote.valid_commitment());
     }
 
     #[test]

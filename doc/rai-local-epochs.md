@@ -43,11 +43,11 @@ including fast certificates, but their cementation waits for Close(e).
 Close rounds use a rotating leader, selected from sorted committee public keys.
 The leader proposes its latest valid epoch snapshot extending its retained
 notarized parent. Replicas FIRST-vote that exact validated proposal, or
-FIRST-timeout after the round deadline. Close-round timeouts grow from 3 seconds
-to a maximum of 192 seconds on retries, and begin at local round entry. Second-look, notarization, final voting,
-and timeout thresholds reuse the block-election tally rules. A notarized proposal
-advances the round and becomes the retained parent; a timeout certificate permits
-skipping the round. Per-round signing state and certificates are retained so
+FIRST-timeout after the round deadline. Close-round timeouts start at 3 seconds,
+double every round without a cap, and begin at local round entry. Second-look, notarization, final voting,
+and timeout thresholds reuse the block-election tally rules. A notarized, locally
+complete proposal advances the round and becomes the retained parent; a timeout
+certificate permits skipping the round. Per-round signing state and certificates are retained so
 messages from earlier rounds can still establish a decision. Parent ancestry must
 be notarized, valid, and extended by the child's snapshot.
 
