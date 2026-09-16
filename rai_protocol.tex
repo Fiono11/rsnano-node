@@ -1,0 +1,742 @@
+% Reconstructed standalone manuscript from rai_protocol_option2_full_fixed.diff.
+% The supplied unified diff did not include the original preamble or all unchanged
+% source text; those portions are conservatively reconstructed here so the file
+% is self-contained and compilable.
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{enumitem}
+\usepackage{microtype}
+\usepackage[hidelinks]{hyperref}
+\emergencystretch=2em
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+\newtheorem{proposition}[theorem]{Proposition}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{assumption}[theorem]{Assumption}
+\theoremstyle{remark}
+\newtheorem{remark}[theorem]{Remark}
+
+\newcommand{\C}{\mathcal C}
+\newcommand{\SE}{\mathsf{SE}}
+\newcommand{\CE}{\mathsf{CE}}
+\newcommand{\DA}{\mathsf{DA}}
+\newcommand{\GST}{\mathsf{GST}}
+\newcommand{\Root}{\mathsf{Root}}
+\newcommand{\State}{\mathsf{State}}
+\newcommand{\Entry}{\mathsf{Entry}}
+\newcommand{\Cand}{\mathsf{Cand}}
+\newcommand{\hash}{\mathsf{H}}
+\newcommand{\Announce}{\mathsf{Announce}}
+\newcommand{\ACert}{\mathsf{ACert}}
+\newcommand{\Notar}{\mathsf{Notar}}
+\newcommand{\Final}{\mathsf{Final}}
+\newcommand{\Fast}{\mathsf{Fast}}
+\newcommand{\TO}{\mathsf{TO}}
+\newcommand{\JNotar}{\mathsf{JNotar}}
+\newcommand{\JFinal}{\mathsf{JFinal}}
+\newcommand{\Dead}{\mathsf{Dead}}
+\newcommand{\Pending}{\mathsf{Pending}}
+
+\title{RAI with Proposer-Free Semantic Epoch Closure\\
+\large Safety, Liveness, Reconfiguration, and Compact Close-State Commitments}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+RAI is an epoch-based generalization of Kudzu for a single-writer account model with seamless committee reconfiguration. Account slots are not epoch-indexed: an owner may propose a block for any logical slot in any eligible epoch. Each proposal is processed by a slot election in the epoch in which replicas receive it. A slot election is the conjunction of two Kudzu instances run by lagged committees, while epoch closure is performed by a Kudzu chain on one of those committees.
+
+This version makes the epoch close \emph{proposer-free}. The close value is a constant-size target-state root together with ordinary Kudzu parent metadata and the canonical previous-close hash. Before participating in epoch-$e$ close rounds, a correct replica reconstructs the finalized previous close $\CE_{e-1}$. In each close round, a close-ready replica may sign at most one round-scoped \emph{semantic announcement} binding that previous-close hash, a target root, and a structurally valid parent. Before signing, a correct announcer must satisfy the close-readiness and target-safety predicates D3--D4, and C1 occurs only after the epoch freeze $T_e$. A two-phase close pacemaker admits announcements only during the round's announcement phase. In every execution each correct voter has an authenticated local pre-cutoff admission set, so timeliness is well-defined even before synchrony; during synchrony the common-cutoff property makes those local sets identical, and honest inclusion places every on-schedule active-correct announcement in that common set. A non-timeout close value can be enabled at a correct voter only by a locally timely certificate of $q$ matching semantic announcements. Quorum intersection gives a stronger safety fact: in one round at most one previous-close/parent/root triple can obtain any size-$q$ semantic announcement certificate at all, independently of whether different pre-stabilization voters have identical cutoff views. The $q$ signed announcements are retained as portable semantic evidence, while timeliness remains a live-round admission predicate checked by the voter that uses them. Every blocker set for a block that eventually jointly finalizes intersects the semantic announcement quorum, so late-finalized state is already represented in any certified target.
+
+Reconciliation remains hash-to-hash: a replica whose close state has root $b$ and which learns an announced or enabled target $t$ sends only $(b,t)$ to an announcer of $t$; if that replica recognizes both states and the base is a subset of the target, it returns the additive difference. Referenced objects are obtained from a data-availability layer and validated locally. The close-state root commits only to immutable membership and deterministic immutable identifying/election metadata. It does not commit to a replica-dependent choice of notarization certificate or signer set: any valid constituent notarization certificates for the committed candidate can validate membership. Later changes from jointly notarized to jointly finalized status are maintained outside that root. Correct announcers retain the canonical state descriptor needed to enumerate a root's entries, while the referenced blocks and certificates remain in data availability. Reliable dissemination therefore makes equal candidate sets induce byte-identical close states and roots. Correct replicas vote only in objectively admitted epoch elections, so every honest non-timeout blocker is within the D3 readiness scope. Once state and parent views have converged, close-parent extendability gives a common eligible parent; parent eligibility already verified for a fixed round remains valid for that round, and the matching correct announcements enable one common close value without any designated proposer.
+
+We prove slot safety, epoch completeness including late finalization, safe garbage collection, eventual reconstructibility of finalized close states, and epoch-close termination under a static fault assignment and partial synchrony with the stated close-pacemaker, synchronized common-cutoff and honest-inclusion relay, parent-evidence catch-up, data-availability, eventual validation-window, and baseline continuous-activity assumptions. Close-round liveness no longer assumes a proposer-free extension of Kudzu's ordinary slot-exit theorem: in a stabilized round, either no certificate is timely in the now-common cutoff view and $q$ correct timeout votes directly certify timeout, or the honest-inclusion property supplies a certificate that is timely for every active correct voter and all correct replicas perform the same objective certificate-bound validation of its unique enabled value. The liveness theorem is an epoch-closure theorem: it does not assert that every submitted logical slot eventually jointly finalizes or becomes objectively dead. With $p\ge1$, after close-state, close-readiness, and parent-view convergence the deciding round still finalizes if any one correct close member is silent for that round. The stronger $\Diamond$-synchronous$^{-1}$ leaderless-termination property would additionally require one-suspension progress for the ordinary Kudzu slot-election and draining stages.
+\end{abstract}
+
+\section{Model and notation}
+
+\subsection{Replicas, committees, epochs, and thresholds}
+
+The system is partitioned into epoch committees $\C_e$, each of size $n$. At most $f$ replicas of any committee are Byzantine. The parameter $p\ge0$ is a protocol slack parameter used by Kudzu's thresholds. Throughout we assume
+\begin{equation}
+  n\ge 3f+2p+1.
+  \label{eq:resilience}
+\end{equation}
+Define
+\begin{equation}
+  q=n-f-p,
+  \qquad
+  q_{\mathrm{fast}}=n-p.
+  \label{eq:thresholds}
+\end{equation}
+Then
+\begin{align}
+  q &> f, \\
+  n-f &\ge q, \\
+  2q-n &= n-2f-2p\ge f+1,
+  \label{eq:qqintersect}\\
+  n-(q-f)&=2f+p<q, \\
+  n-q&=f+p.
+\end{align}
+These are the only quorum arithmetic facts used below.
+
+We assume authenticated channels and unforgeable signatures. Faults are static for an execution: each replica's correct/Byzantine status is fixed, and at most $f$ replicas of any committee are Byzantine. In particular, a replica that is correct in an execution prefix remains correct in every admissible continuation considered from that prefix; the model does not permit mobile corruption of an already identified correct blocker or lock holder. Correct replicas follow the protocol exactly. ``Eventually'' refers to the execution under consideration unless a theorem explicitly quantifies over continuations. An \emph{admissible continuation} of an execution prefix preserves all protocol parameters, committee memberships, the fixed fault assignment and fault bounds, cryptographic assumptions, and already produced messages and certificates, and extends the prefix with replicas continuing to obey the protocol. Safety statements below explicitly quantify over admissible continuations when they justify irreversible reclamation or lock release.
+
+\subsection{Logical account slots and epoch eligibility}
+
+Each account has a unique writer. Its blocks are indexed by a logical slot $s$ that is independent of epochs. A candidate block $B$ names its account, logical slot, predecessor, payload commitment, and any protocol metadata needed to validate the account transition. Two blocks are \emph{slot-conflicting} if they name the same account and logical slot but differ as blocks.
+
+A proposal received while epoch $e$ is eligible is handled by the epoch-$e$ slot election $\SE(s,e)$. The same logical slot may therefore have attempts in more than one epoch. Reconfiguration safety is enforced by the lagged-committee construction and the handoff rules R1--R2 below.
+
+\begin{description}[leftmargin=2.4em,labelindent=0em]
+\item[R1 (pending-slot lock and handoff).]
+If a correct replica issues a non-timeout first vote for candidate $B$ in logical slot $s$ during epoch $e$, it records a pending lock $(s,e,B)$. Until it reconstructs the finalized epoch-$e$ close state $M_e$, it issues no non-timeout first vote for a slot-conflicting block in epoch $e+1$. After reconstructing $M_e$, if $B\in M_e$ the lock becomes a closed-history lock and the replica rejects every slot-conflicting candidate in later epochs; if $B\notin M_e$, the lock may be released because Theorem~\ref{thm:epoch-safety} shows that $B$ cannot jointly finalize in any admissible continuation after that finalized close.
+
+\item[R2 (reconstructed close-history prerequisite).]
+Before a correct replica issues a non-timeout first vote in an epoch-$e$ slot election, it has reconstructed finalized close history through epoch $e-2$ and rejects a candidate that conflicts with a block for the same logical slot in that history. Thus epoch $e+1$ may run concurrently with draining and closing epoch $e$: it requires reconstructed history only through $e-1$.
+\end{description}
+
+\subsection{Kudzu black-box properties}
+
+RAI treats a Kudzu instance as a black box. For a Kudzu instance $K$ on a committee of size $n$, write $\Notar_K(B)$ for a notarization certificate, $\Final_K(B)$ for a slow finalization certificate, $\Fast_K(B)$ for a fast finalization certificate, and $\TO_K$ for a timeout certificate.
+
+Slot elections use Kudzu as published: the account owner plays the role of the slot leader. The close election uses a \emph{proposer-free} Kudzu slot: the leader's proposal step is omitted and a non-timeout value is enabled by the round-scoped announcement certificate defined below. Correct replicas then apply Kudzu's ordinary first-vote, second-look, timeout, and final-vote rules to that enabled value. The one-first-vote-per-replica rule and the rule that a replica final-votes only when it notarized no different value or timeout are unchanged. We import Kudzu's ordinary slot-exit theorem only for the two leader-based slot-election instances. Proposer-free close-round progress is proved directly from the semantic announcement gate and the ordinary Kudzu vote/certificate thresholds. We use the following properties.
+
+\begin{description}[leftmargin=2.4em,labelindent=0em]
+\item[K1 (certificate thresholds).]
+A notarization, timeout, or slow finalization certificate contains $q=n-f-p$ shares. A timeout certificate is the notarization certificate for Kudzu's timeout block. A fast finalization certificate contains $q_{\mathrm{fast}}=n-p$ first-vote shares.
+
+\item[K2 (finalization incompatibility).]
+If $B$ is fast- or slow-finalized in $K$, then no $C\ne B$ can be notarized in $K$, and no timeout certificate can exist in $K$.
+
+\item[K3 (honest final voters are non-timeout first voters).]
+If an honest replica contributes a slow finalization vote for $B$, then its first vote in that Kudzu slot was a non-timeout first vote for $B$. This follows because a first vote contains a notarization vote and an honest replica final-votes only when it did not notarize a different value or timeout.
+
+\item[K4 (ordinary-slot exit under synchrony).]
+During a sufficiently long synchronous interval with message-delay bound $\delta$, if some correct committee member has entered an ordinary Kudzu slot $v$ and every other correct member is in slot $v$ or an earlier slot, completeness of blocks and certificates brings every correct member into slot $v$ within the synchronous catch-up window. With the Kudzu timeout chosen for that window, all correct members then exit $v$ in finite time by learning a notarized block or a timeout certificate. Certificates and reconstructed Kudzu blocks are rebroadcast and become known to all correct replicas. RAI uses K4 only for the two ordinary Kudzu instances that form each slot election. Proposer-free close rounds do not invoke K4; Lemma~\ref{lem:close-round-exit} proves their synchronized exit directly.
+
+\item[K5 ($q$ stable correct first votes finalize).]
+If, in a synchronous slot, at least $q$ correct committee members cast a non-timeout first vote for the same value $X$, and the validity condition under which those votes were cast remains authorized through their final-vote decision, then $X$ is slow-finalized and the resulting certificates eventually reach every correct member. Indeed, only $n-q=f+p$ replicas remain able to first-vote anything else, so no competing value can reach the $f+p+1$ second-look threshold. The $q$ correct first voters therefore notarize no value other than $X$ and, while $X$ remains authorized, final-vote it, producing a slow finalization certificate of size $q$. Ordinary Kudzu validity is static. In a RAI close round, C1--C3 make semantic validity a property of the timely announcement certificate and freeze that round-scoped authorization after enablement.
+
+\item[K6 (chain safety).]
+Blocks of consecutive Kudzu slots are linked by parent references. If a block of slot $v$ is finalized, every block of a later slot in any correct replica's complete block tree descends from it.
+
+\item[K7 (finitely many certifiable values per slot).]
+In one Kudzu slot only finitely many distinct non-timeout values can become notarized. More precisely, every distinct certifiable non-timeout value consumes first votes from at least $p+1$ correct replicas, because its $f+p+1$ second-look support contains at most $f$ Byzantine first voters and a correct replica first-votes at most once. Hence the number of such values is bounded by the finite committee size.
+
+\item[K8 (complete-tree certification).]
+Every non-timeout block that appears in a correct replica's complete Kudzu block tree is accompanied by a valid notarization certificate for that block's Kudzu slot. Thus a close-round block that is only implicitly finalized by a later finalized descendant still has its own notarization certificate of size $q$. This property concerns certification of blocks already present in the complete block tree; it does not assert that every notarized block later finalizes.
+
+\item[K9 (close-parent extendability and round-validity monotonicity).]
+For every proposer-free close slot reached by a correct replica, if the replica has a complete certified non-timeout close-block tree for the objects it knows and the timeout-supported eligibility evidence required by the ordinary Kudzu parent rules, then the deterministic close-parent selector is defined and returns an objectively valid eligible parent position. If two correct replicas have identical complete non-timeout close-block trees and identical timeout-supported eligibility relations, the selector returns the same parent position at both replicas. In particular, a finite prefix consisting only of certified close blocks and timeout-supported advances is always extendable to the next close slot. Moreover, for a fixed close slot and a fixed parent position, objective parent eligibility is monotone under extension by additional valid certified-block and timeout-support evidence: once the evidence presented for that slot verifies and makes the parent eligible, later valid evidence cannot make that already verified parent ineligible for that same slot. Later evidence may change the deterministic selector's choice in a later close round, but it does not revoke the objective validity of a parent already accepted for the current round.
+\end{description}
+
+These are the only Kudzu-specific properties needed below, and K1--K9 are standing assumptions for the safety and liveness results unless a statement explicitly says otherwise. K1--K3, K6, K8, and K9 apply to proposer-free close slots because the close retains Kudzu's vote, certification, chain, and parent rules. K4 is used only for ordinary slot elections. K5 is used in close rounds only after the semantic announcement gate has made the round's non-timeout authorization certificate-bound and immutable. K7 is used only for finiteness of candidate/deadness facts arising from the ordinary Kudzu slot-election constituents in the state-convergence proof; close-round finiteness instead follows from the positive minimum round duration and Lemma~\ref{lem:announce-unique}, which permits at most one notarized non-timeout close block per round. K8 records the ordinary complete-tree certification property; together with Lemma~\ref{lem:close-acert} it gives an implicitly finalized close ancestor its own associated semantic announcement certificate. K9 is the explicit parent-existence and current-round parent-validity persistence obligation needed by the close liveness proof.
+
+\subsection{Slot elections, joint status, and deadness}
+
+The epoch-$e$ slot election $\SE(s,e)$ consists of two ordinary Kudzu instances for the same candidate namespace: one on $\C_{e-1}$ and one on $\C_{e-2}$. For $e<2$, the missing lagged committees are fixed genesis committees with the same threshold properties.
+
+A block $B$ is \emph{jointly notarized} in $\SE(s,e)$, written $\JNotar_{s,e}(B)$, when both constituent instances notarize $B$. It is \emph{jointly finalized}, written $\JFinal_{s,e}(B)$, when both constituent instances finalize $B$ by either slow or fast finality.
+
+An election is \emph{dead} once a correct replica holds objective certificate evidence of either of the following:
+\begin{enumerate}[label=(\alph*),nosep]
+  \item one constituent has a timeout certificate; or
+  \item the two constituents have notarization certificates for different candidates.
+\end{enumerate}
+Deadness is permanent because its witnesses are certificates. A correct replica says that an election has \emph{locally terminated} once it knows either a jointly notarized candidate or dead evidence.
+
+For replica $r$, let $N_r(e)$ be the set of epoch-$e$ candidate blocks for which $r$ knows a valid joint notarization. Let $\Dead_r(e)$ be the set of candidate blocks whose epoch-$e$ slot election is known dead at $r$. The latter is candidate-indexed only for notational convenience: deadness is a property of the election.
+
+\begin{lemma}[joint-terminal consistency]
+\label{lem:joint-terminal}
+If a correct replica locally terminates $\SE(s,e)$ by dead evidence, then no block of that election can later jointly finalize. If it locally terminates by $\JNotar_{s,e}(C)$ and a block $B$ of the election later jointly finalizes, then $B=C$.
+\end{lemma}
+
+\begin{proof}
+If a constituent timed out, K2 excludes finalization of every non-timeout block in that constituent. If the two constituents notarized different candidates, say $B_1\ne B_2$, then any candidate jointly finalized later would have to finalize in both constituents, but K2 makes it incompatible with the already notarized conflicting candidate in at least one constituent. Thus dead evidence excludes future joint finalization.
+
+For the second statement, if $C$ is jointly notarized and $B$ later jointly finalizes, then $B$ finalizes in each constituent. K2 says that no distinct value can coexist with that finalization as a notarized block, so the already notarized $C$ must equal $B$.
+\end{proof}
+
+\begin{corollary}[dead candidates are not finalizable]
+\label{cor:droppable}
+If $B\in\Dead_r(e)$ at a correct replica $r$, then $B$ cannot later jointly finalize. Equivalently, if $B$ eventually jointly finalizes in the execution, then $B\notin\Dead_r(e)$ for every correct replica $r$ at every time.
+\end{corollary}
+
+\subsection{Canonical close state, hashing, and data availability}
+
+For every epoch-$e$ candidate block $B$, define a deterministic canonical entry
+\[
+  \Entry_e(B)
+\]
+from the immutable candidate identifier and the immutable election-identifying metadata needed to determine the account, logical slot, epoch, and the two constituent Kudzu instances in which joint notarization is validated. The candidate identifier is itself a canonical cryptographic identity of the complete immutable candidate object: except with negligible collision probability, one identifier names at most one valid candidate block. The entry is therefore a deterministic function of $B$ and its objective election identity. In particular, it contains no replica-dependent choice of certificate bytes, certificate hash, signer subset, aggregation order, or other witness representation. Given $\Entry_e(B)$, a validator may retrieve \emph{any} valid candidate object matching that identifier and any valid notarization certificate for that same $B$ from each named constituent and verify joint notarization.
+
+For a finite candidate set $S$, let
+\[
+  \State_e(S)=\{\Entry_e(B):B\in S\},
+\]
+serialized by a fixed deterministic ordering on candidate identifiers and fixed canonical encodings of all entry fields. A valid close state $M$ is exactly such a canonical state for a finite set of jointly notarized epoch-$e$ candidates, and $\Cand(M)$ denotes that candidate set. We write $B\in M$ as shorthand for $B\in\Cand(M)$. Consequently
+\[
+  S=S'\quad\Longrightarrow\quad \State_e(S)=\State_e(S')
+\]
+byte-for-byte, independently of which valid joint-notarization certificates different replicas happened to receive. Whether an included candidate is later merely jointly notarized or jointly finalized is mutable status and is not encoded into $M$. Define
+\[
+  \Root_e(M)=\hash(e\parallel\mathsf{encode}(M)).
+\]
+
+\begin{assumption}[collision resistance and canonical encoding]
+\label{ass:hash}
+The hash function $\hash$ is collision resistant over canonical encodings of every protocol object whose hash is used as an identity or consensus field, including candidate identifiers, close states, close-round blocks, and previous closes. Canonical encodings are injective. A candidate identifier is the hash of the candidate's complete canonical immutable encoding (or an equivalent injective cryptographic identifier with the same binding property). Consequently, except with negligible probability, equality of identifiers or hashes of valid canonical objects implies equality of those objects; in particular, if $\Root_e(M)=\Root_e(M')$ for valid canonical states, then $M=M'$.
+\end{assumption}
+
+\begin{lemma}[hash binding]
+\label{lem:root-binding}
+Under Assumption~\ref{ass:hash}, a valid epoch-$e$ root identifies at most one canonical close state, and a valid parent or previous-close hash identifies at most one corresponding canonical protocol object, except with negligible probability.
+\end{lemma}
+
+\begin{proof}
+Immediate from collision resistance and injective canonical encoding.
+\end{proof}
+
+The non-timeout close value in close round $\rho$ is the constant-size tuple
+\begin{equation}
+  X=(e,h_{e-1},\hash(P),t),
+  \label{eq:close-block}
+\end{equation}
+where $h_{e-1}=\hash(\CE_{e-1})$ is the canonical previous-close hash fixed by C0 below, $P$ is an eligible parent close-round block (or the round's timeout-supported parent position), and $t$ is an epoch-$e$ close-state root. For $e=0$, $\CE_{-1}$ is a fixed genesis close.
+
+\begin{assumption}[data availability and retained semantic evidence]
+\label{ass:da}
+If a correct replica needs a valid candidate object or certificate identified by a correct replica's announced or voted close target, then the object is eventually retrievable from $\DA$. In addition, for every target root $t=\Root_e(M_t)$ that a correct C1 signer announces or a correct non-timeout close voter accepts, the canonical state descriptor $\mathsf{encode}(M_t)$ (equivalently, the ordered list of deterministic entries $\Entry_e(B)$) is retained and eventually retrievable by $t$. This descriptor enumerates the target membership but is not itself part of the fixed-size close value. The same retention guarantee applies to the signed C1 announcements forming any semantic announcement certificate used by a correct non-timeout close voter: those signatures remain retrievable for at least as long as the corresponding certified close block may be needed for validation, catch-up, or the epoch-completeness proof. The certified close-chain objects needed to identify a finalized close ancestor are likewise eventually retrievable. After $\GST$ in the termination execution, retrieval and validation of every fixed finite set of such retained objects complete in finite time; Assumption~\ref{ass:termination}(vi) requires the stabilized close-round validation window to be, or eventually become, long enough for the finite set needed by a deciding round. A replica validates every retrieved state descriptor, object, certificate, signature, and canonical encoding before using it and accepts a descriptor for $t$ only after recomputing $\Root_e(M_t)=t$.
+\end{assumption}
+
+A Byzantine replica may broadcast an announcement naming unavailable or invalid content, but such an announcement cannot by itself enable a close value. Any semantic announcement certificate contains $q$ matching signatures and therefore at least $q-f$ correct C1 signers, each of whom reconstructed and validated the previous close, canonical target descriptor, and parent before signing. A correct voter may use that portable certificate only if it was timely in the voter's authenticated local relay-admission set for the live round, and the voter still retrieves the target descriptor, reconstructs those hash-bound objects, and verifies their objective structural conditions before voting. Thus invalid content cannot obtain correct semantic attestations, and unavailable content can only cause a voter to time out until the required descriptor and data become available; it cannot be accepted merely because a Byzantine replica named its hash.
+
+\subsection{Hash-to-hash delta reconciliation}
+\label{subsec:reconciliation}
+
+Suppose replica $r$ currently knows a canonical state $M_b$ with base root $b=\Root_e(M_b)$ and learns an announced target root $t$. It may send only the pair $(b,t)$ to any replica that announced $t$. If the responder recognizes canonical states $M_b$ and $M_t$ for both roots and $\Cand(M_b)\subseteq\Cand(M_t)$, it returns the additive canonical-entry difference
+\[
+  \Delta=M_t\setminus M_b.
+\]
+The response contains no Merkle proof and no candidate bodies. The requester obtains the referenced candidate objects and any valid constituent notarization certificates from $\DA$, validates them, reconstructs the canonical state $M_b\cup\Delta$, and accepts the result only if its recomputed root equals $t$.
+
+If the responder does not recognize $b$, or the known base is not a subset of the target, it may decline. There is no attempt to derive a set difference from the algebra of the hashes themselves. Ordinary dissemination is the fallback: as the requester's local state advances, an old unrecognized base can become irrelevant.
+
+\section{Protocol}
+
+\subsection{Admission freeze and draining}
+
+For each epoch $e$, the protocol defines a finite freeze time $T_e$ after which admission of new epoch-$e$ elections stops. Admission is governed by an objective activation rule. An admitted election has a finite, protocol-valid activation witness that identifies its epoch, account, logical slot, and candidate namespace and verifies under the epoch's admission/freeze mechanism. Acceptance of a valid activation witness is monotone: learning the witness later proves that the election belonged to the frozen admitted set even if the learner first sees it after $T_e$. A witness that does not verify as admitted under that mechanism is ignored for epoch-$e$ draining and close readiness. Whenever a correct replica learns a valid activation witness, reliable dissemination rebroadcasts it to every correct replica that must participate in the corresponding constituent instances. Thus ``locally visible under the protocol's activation rule'' below means that the replica has validated such a witness. The following rules govern draining and closure.
+
+\begin{description}[leftmargin=2.4em,labelindent=0em]
+\item[D0 (admission-gated epoch voting).]
+A correct replica issues no first vote, timeout or non-timeout, in an epoch-$e$ slot election until it has validated that election's protocol-valid activation witness and therefore knows that the election belongs to the admitted epoch-$e$ set. Consequently every epoch-$e$ election in which a correct replica has issued a non-timeout first vote is both admitted and locally visible to that replica for D3. Learning an activation witness after $T_e$ can make an already admitted election newly visible, but cannot create a newly admitted election after the freeze.
+
+\item[D1 (freeze and non-timeout-vote fence).]
+At $T_e$, the set of admitted epoch-$e$ slot elections is frozen. After $T_e$, no correct replica issues a new epoch-$e$ non-timeout first vote. Elections admitted before $T_e$ may continue to accumulate certificates from votes already issued and from timeout participation under D2.
+
+\item[D2 (continued drain participation).]
+Until epoch $e$ closes, correct replicas continue to participate in every admitted epoch-$e$ election they learn. If they have not already issued the election's first vote, that first vote is timeout.
+
+\item[D3 (semantic-announcement readiness).]
+A correct replica may issue a C1 semantic announcement for epoch $e$ only after the epoch freeze time $T_e$ has occurred and every admitted epoch-$e$ slot election
+\begin{enumerate}[label=(\alph*),nosep]
+  \item in which it issued a non-timeout first vote, and
+  \item that is otherwise locally visible under the protocol's activation rule,
+\end{enumerate}
+has locally terminated. Satisfying D3 makes the replica \emph{close-ready}. D3 gates semantic announcements, not later C2--C3 votes on a value already authorized by a semantic announcement certificate accepted as timely by that voter.
+
+\item[D4 (semantic target safety).]
+Before a correct replica $r$ signs a C1 announcement for target root $t$, it reconstructs and validates a canonical close state $M_t$ satisfying
+\begin{equation}
+  \Root_e(M_t)=t
+  \qquad\text{and}\qquad
+  N_r(e)\setminus\Cand(M_t)\subseteq\Dead_r(e).
+  \label{eq:d4}
+\end{equation}
+Thus a correct semantic announcer never attests a target that omits a locally known candidate whose election it does not know to be dead. In the baseline C1 rule below, the announcer uses the deterministic canonical state $M_t=\State_e(N_r(e))$, so $\Cand(M_t)=N_r(e)$ and the omission condition is satisfied trivially; it is stated explicitly because it is the safety predicate attested by the announcement quorum. D4 is evaluated when the C1 signature is issued. Replicas that later vote on a timely certified target do not re-evaluate D4 against their own local election views.
+
+\item[D5 (post-close fence).]
+Once a correct replica learns a finalized close root for epoch $e$, it issues no further epoch-$e$ votes. Before using that close as closed history for a later epoch, it reconstructs the finalized close state as required by R2. Any epoch-$e$ election or candidate omitted from that finalized close state is thereafter treated as permanently dead and creates no persistent account-tree state.
+\end{description}
+
+\subsection{Proposer-free close rounds}
+
+Close rounds are consecutive Kudzu slots executed by $\C_{e-2}$. Each close round $\rho$ has an announcement phase followed by the ordinary Kudzu first-vote phase. The announcement phase has a positive minimum duration.
+
+The round's authenticated announcement relay admits an announcement only during that announcement phase. In every execution, each correct close member $r$ obtains an authenticated round-scoped local admission set $\mathcal A_{\rho,r}$, fixed when that member's announcement cutoff occurs. The set contains only announcements admitted for round $\rho$ before that cutoff; an announcement learned or disclosed after the cutoff is not retroactively inserted into $\mathcal A_{\rho,r}$. Thus the protocol has a well-defined replica-local timeliness predicate even before $\GST$, when different correct members may have different admission sets.
+
+During a $\delta$-synchronous interval the pacemaker and relay satisfy two stronger properties for the correct close members active throughout the round. First, the \emph{common-cutoff property}: before first voting, all such members have identical local admission sets,
+\[
+  \mathcal A_{\rho,r}=\mathcal A_\rho .
+\]
+If an announcement is admitted for round $\rho$ at any active correct member before the common cutoff, the relay makes that same round-scoped admission visible in every active correct member's set before first voting. An announcement first disclosed after the common cutoff is absent from every such set. Thus, after stabilization, a Byzantine last-message release cannot make an announcement timely at only a proper subset of the active correct members. Second, the \emph{honest-inclusion property}: the stabilized round schedule leaves a send-and-admission margin larger than the maximum correct-entry skew, local signing time, and the relay/network delay bound, so every valid C1 announcement broadcast according to the protocol by an active correct member belongs to every active correct member's common set $\mathcal A_\rho$. The gap after the common cutoff and before the Kudzu first-vote deadline is additionally long enough, or under Assumption~\ref{ass:termination}(vi) eventually becomes long enough, to disseminate the resulting announcement certificate, retrieve and hash-check its target descriptor, and reconstruct and validate its referenced previous close, parent chain, supporting timeout certificates, and target state. Thus synchronized active correct members begin voting from one common round-scoped admission set, while the safety rules remain defined even before such commonality holds.
+
+The eligible-parent selector is deterministic on the replica's complete non-timeout close block tree plus the timeout-supported eligibility relation. A parent is objectively valid when its block/certificate chain and required timeout support verify under the ordinary Kudzu parent rules. K9 guarantees that the selector is defined on every valid close prefix and therefore that convergence of the relevant views yields not merely agreement but a common eligible parent.
+
+\begin{description}[leftmargin=2.4em,labelindent=0em]
+\item[C0 (previous-close anchor).]
+A correct replica participates in an epoch-$e$ close round only after the canonical previous close $\CE_{e-1}$ has finalized and the replica has reconstructed and validated it (with the fixed genesis close used for $e=0$). Let
+\[
+  h_{e-1}=\hash(\CE_{e-1}).
+\]
+Every epoch-$e$ semantic announcement and every non-timeout epoch-$e$ close value issued by that replica is bound to this exact $h_{e-1}$. A correct replica does not sign or non-timeout-vote for an epoch-$e$ close object carrying any other previous-close hash.
+
+\item[C1 (semantic announcement).]
+During the announcement phase, when a close-ready correct replica $r$ enters close round $\rho$, or when it becomes close-ready while already in $\rho$, it computes its deterministic eligible parent $P_r(\rho)$ and current complete canonical epoch state
+\[
+  M_r=\State_e(N_r(e)),\qquad b_r=\Root_e(M_r).
+\]
+Because $\State_e$ is deterministic, replicas with the same candidate set compute byte-identical $M_r$ and the same root even if they hold different valid certificate representations. After validating $P_r(\rho)$ and satisfying D4 for $M_r$, it signs and broadcasts at most one announcement
+\[
+  \Announce(e,\rho,h_{e-1},\hash(P_r(\rho)),b_r).
+\]
+The announcement is not a Kudzu vote. Its signature is a round-scoped semantic attestation that C0, D3--D4, and the parent-validity conditions held for this exact previous-close/parent/root triple when $r$ signed. If $N_r(e)$ or the local parent view changes later in the round, $r$ does not sign a second triple in the same round; the updated parent/root pair is used in the next round under the same canonical previous-close anchor. A correct announcer retains and serves, directly or through $\DA$, its signed C1 announcement together with the canonical target descriptor $\mathsf{encode}(M_r)$ addressable by $b_r$, the previous-close object, parent-chain objects, and the candidate/certificate objects needed to validate the announced triple.
+
+\item[C2 (relay-cutoff first vote).]
+A \emph{semantic announcement certificate} $\ACert_\rho(h_{e-1},P,t)$ is the portable object consisting of $q$ valid, matching, one-per-replica C1 announcements for $(h_{e-1},\hash(P),t)$. For a correct replica $r$, such a certificate is \emph{timely for $r$} in round $\rho$ exactly when all $q$ constituent announcements belong to $r$'s authenticated local admission set $\mathcal A_{\rho,r}$. Timeliness is a live-round fact and is not implied by the signatures alone. Before stabilization two correct replicas may therefore disagree about whether the same portable certificate was timely. During a synchronized round, the common-cutoff property gives $\mathcal A_{\rho,r}=\mathcal A_\rho$ for every active correct $r$, so the timeliness predicate becomes common; honest inclusion additionally guarantees that every on-schedule announcement broadcast by an active correct member belongs to that common set.
+
+A non-timeout close value
+\[
+  X=(e,h_{e-1},\hash(P),t)
+\]
+is enabled at a correct replica $r$ in round $\rho$ only by an $\ACert_\rho(h_{e-1},P,t)$ that is timely for $r$ and whose previous-close component equals $r$'s local C0 anchor. Every correct close member participates in the voting phase whether or not it was itself close-ready or signed an announcement. If no semantic announcement certificate is timely for $r$ at its cutoff, it first-votes timeout. If a certificate is timely for $r$, Lemma~\ref{lem:announce-unique} makes its certified triple the only triple that can have any size-$q$ semantic certificate in that round; the replica first-votes $X$ once it has verified the certificate, retrieved and hash-checked the canonical target descriptor, reconstructed the referenced previous close, target state, and parent chain, checked their hashes, checked the previous-close anchor, verified that every target entry has valid joint-notarization evidence in the two named constituent instances, and checked the remaining objective structural and parent-validity conditions. If those objective checks cannot be completed by its first-vote deadline, it first-votes timeout. It does not re-run D3 or D4 against its own local election view: the $q$ C1 signatures carry the semantic authorization for this round.
+\item[C3 (certificate-bound later voting).]
+Only the non-timeout value enabled for that correct replica under C2 is eligible for its non-timeout second-look notarization or final vote. The replica continues to require the same valid $\ACert_\rho(h_{e-1},P,t)$ that it accepted as timely for itself, the same hash-checked canonical target descriptor and reconstructed hash-bound previous close, target, and parent data, and the same objective structural/parent checks, but it does not re-run D3 or D4 at second look or final voting. The semantic authorization represented by an accepted locally timely certificate is immutable for that replica in round $\rho$: later disclosure or assembly of epoch-election certificates may change a replica's state and its announcements in later rounds, but cannot revoke the current round's certificate-bound authorization. The hash, signature, certificate, canonical-encoding, and target-entry checks are immutable facts once verified, and K9 makes the verified parent eligibility for this already-entered close slot monotone under later valid parent evidence. Hence, once a correct replica non-timeout-first-votes an enabled value under C2, every validity condition relevant to K5 remains authorized for that replica through its final-vote decision in that round. Final voting otherwise follows Kudzu's ordinary rule: a correct replica final-votes a block only if it has not notarized a different block or timeout in that close round.
+\item[C4 (no proposer and retained certificate evidence).]
+No replica has a distinguished role in a close round. Any semantic announcement certificate that is timely for a correct replica under C2 can enable the value bound to its previous-close/parent/root triple at that replica. The certificate is auxiliary pre-vote validity evidence rather than part of the epoch-state payload; the consensus value itself remains the fixed-size tuple in \eqref{eq:close-block}. Correct replicas that non-timeout-vote retain and rebroadcast the portable $q$-signature certificate object, and Assumption~\ref{ass:da} keeps that evidence retrievable. The live cutoff-admission transcript itself need not remain portable: for a later certified block, its notarization certificate contains a correct voter, and C2--C3 guarantee that this voter verified the semantic certificate as timely against its own authenticated $\mathcal A_{\rho,r}$ during the live round. Thus the block's epoch, round, previous-close hash, parent, and target identify retrievable semantic quorum evidence without enlarging the target-state commitment.
+\end{description}
+
+\begin{remark}[why the semantic announcement certificate replaces a proposer]
+The proposer-free close needs both a unique non-timeout value and a portable safety judgment for that value. Requiring $q$ matching, one-per-replica semantic announcements over the full previous-close/parent/root triple provides both. Any two size-$q$ semantic announcement certificates, whether or not they were regarded as timely by the same voter, intersect in at least $2q-n\ge f+1$ replicas and therefore in a correct replica. Because a correct replica signs at most one C1 triple in a close round, at most one triple can obtain a size-$q$ semantic certificate at all. Timeliness determines whether a particular correct replica may use that portable certificate in the live round; it is checked against that replica's authenticated $\mathcal A_{\rho,r}$ and need not be reconstructible later.
+
+Before stabilization, correct replicas may have different local admission sets and may therefore differ on whether the unique portable certificate is timely. That does not create two safety-valid non-timeout values, because the certificate triple itself is globally unique by quorum intersection. During synchrony, common cutoff strengthens the relay behavior by making all active-correct sets identical, so a Byzantine last-message release cannot make the certificate timely at only some active correct voters; honest inclusion further guarantees that on-schedule active-correct announcements are present in that common set. C0 guarantees that every correct signer uses the reconstructed canonical previous close, and each correct signer is close-ready and has already validated the announced parent and target. C2--C3 therefore do not ask later voters to repeat replica-local D3--D4 checks, which would reintroduce divergent semantic judgments after a value had been selected. A voter may adopt the quorum-certified parent and target even when its own local announcement, if any, named a different parent/root pair, but only under the same C0 previous-close anchor and only if the certificate was timely for that voter. A later catch-up validator need not reconstruct any cutoff transcript: the portable semantic quorum is retrievable, while a certified block's notarization certificate proves that at least one correct voter accepted that quorum as locally timely before contributing its share.
+\end{remark}
+
+\subsection{Canonical close and post-close validity}
+
+The canonical $\CE_e$ is the earliest \emph{non-timeout} close-round block on the close chain that becomes explicitly or implicitly finalized. A timeout certificate advances the close-round chain but is not itself an epoch close and carries no target root. Explicit finality means that the non-timeout block itself carries a slow or fast finalization certificate in its Kudzu close slot; implicit finality is inherited from a later finalized descendant under K6. By K6 finalized close-round blocks lie on one chain, so the canonical block is unique and later finalized descendants do not change its state. By K8, a canonical block that is only implicitly finalized nevertheless has its own notarization certificate. Lemma~\ref{lem:close-acert} then associates that certified non-timeout block with a retrievable semantic announcement quorum for the unique certifiable previous-close/parent/root triple in its round and establishes that a correct voter accepted that quorum as timely in its authenticated local admission set when the block was certified. Lemma~\ref{lem:close-inclusion} uses the portable announcement quorum, not a reconstructed cutoff transcript, to bind every late-finalizable epoch block to the canonical target.
+
+After $\CE_e$ finalizes, the state represented by its target root is the admitted epoch-$e$ close state $M_e$. Its represented blocks are admitted to the persistent account block tree; their current notarization/finalization status is maintained as validated auxiliary status outside the immutable close-state root. Epoch-$e$ slot-election state not represented in the finalized target state is discarded once the replica has reconstructed that state and may be garbage-collected.
+
+\begin{remark}[what the close hash commits to]
+The close root commits to which jointly notarized candidate blocks are admitted and to deterministic immutable identifying/election metadata for each candidate, not to the bytes of those blocks, to a particular notarization certificate representation, or to signer subsets. The canonical descriptor enumerating those deterministic entries and the candidate blocks and certificates used to validate them reside in $\DA$. The root deliberately excludes mutable finalization status: an included candidate may move from jointly notarized to jointly finalized without changing the close-state encoding or root. Late finalization changes auxiliary status but cannot change close membership.
+\end{remark}
+
+\begin{remark}[why later voters do not re-run D4]
+D4 is an announcement-time safety predicate. In the baseline protocol a correct C1 signer announces its complete current candidate state, so it omits none of its own known candidates; nevertheless the explicit D4 condition makes clear what semantic fact the signature attests. A certified target may still omit candidates known only to non-signing replicas. Replicas that accept the certificate as locally timely do not veto the target by re-running D4 after enablement. Safety instead comes from quorum intersection: for every block that eventually jointly finalizes in the execution, the honest blocker set in the $\C_{e-2}$ constituent intersects every size-$q$ semantic announcement certificate, and the intersecting signer had already issued its non-timeout first vote and locally terminated that election before signing. The first-vote ordering follows because D3 permits C1 only after $T_e$, while D1 forbids new epoch-$e$ non-timeout first votes after $T_e$. Thus any late-finalized block is forced into the certified target by a signer that knew it. The round-scoped certificate freeze does not claim that every replica's local D4 predicate remains true forever; it makes that continuing agreement unnecessary.
+\end{remark}
+
+\section{Safety}
+
+\subsection{Announcement and close-round safety}
+
+\begin{lemma}[unique semantic certificate and enabled close value]
+\label{lem:announce-unique}
+In one epoch-$e$ close round $\rho$, at most one previous-close/parent/root triple can obtain a size-$q$ semantic announcement certificate, regardless of which correct replicas regard that certificate as timely. Consequently at most one non-timeout close value can be enabled at any correct replica, and at most one non-timeout close value can become notarized in that round.
+\end{lemma}
+
+\begin{proof}
+Suppose two distinct previous-close/parent/root triples each had semantic announcement certificates with $q$ signers. Their signer sets would intersect in at least $2q-n\ge f+1$ replicas by \eqref{eq:qqintersect}, hence in at least one correct replica. That correct replica would have signed two C1 announcements in the same round, contradicting C1. Thus the size-$q$ certified triple is globally unique even if pre-stabilization replicas have different local cutoff views. Because C1 signs the previous-close hash together with the parent and target, that triple determines at most one valid non-timeout close value in the round; C0 additionally ensures that every correct signer uses the canonical reconstructed $\CE_{e-1}$.
+
+By C2--C3 a correct replica casts a non-timeout notarization share only for the value bound to a semantic certificate that was timely for that replica. Since there is at most one size-$q$ semantic certificate triple in the round, every correct non-timeout notarization share is for that same value. Any different non-timeout value can therefore collect at most the $f$ Byzantine notarization shares, fewer than $q$. Hence at most one non-timeout close block can become notarized in the round.
+\end{proof}
+
+\begin{lemma}[certified close blocks have semantic announcement evidence]
+\label{lem:close-acert}
+Every non-timeout close block that obtains a Kudzu notarization certificate in round $\rho$ has an associated semantic announcement certificate $\ACert_\rho(h_{e-1},P,t)$ of size $q$ for the round's unique certifiable previous-close/parent/root triple, and at least one correct notarization signer verified that certificate as timely against its authenticated local admission set $\mathcal A_{\rho,r}$ before voting. Consequently every non-timeout close block in a correct replica's complete close block tree has retrievable portable semantic-quorum evidence, including a block whose finality is only implicit through a later descendant.
+\end{lemma}
+
+\begin{proof}
+A notarization certificate has $q$ shares by K1, so it contains at least one correct notarization share because $q>f$. Under C2--C3, a correct replica issues such a non-timeout share only after verifying a size-$q$ $\ACert_\rho(h_{e-1},P,t)$ for exactly that epoch, round, and previous-close/parent/root triple and checking that all of its constituent announcements belonged to the replica's authenticated local admission set for the live round. Hence the portable semantic certificate exists, and a correct voter accepted it as locally timely before the block became certified. Lemma~\ref{lem:announce-unique} makes the size-$q$ semantic certificate triple unique for the round. C4 and Assumption~\ref{ass:da} retain the signed quorum evidence even though later validators need not reconstruct any cutoff-admission transcript. If the block is present in the complete block tree, K8 supplies its notarization certificate even when finality is inherited from a descendant, so the same argument applies.
+\end{proof}
+
+\begin{lemma}[close-root omission soundness]
+\label{lem:close-root}
+Suppose a correct replica $r$ signs a C1 announcement for target $t$ representing state $M_t$. If $B\in N_r(e)$ but $B\notin\Cand(M_t)$, then in every admissible continuation of the prefix containing that signature, $B$ cannot jointly finalize.
+\end{lemma}
+
+\begin{proof}
+D4 gives $N_r(e)\setminus\Cand(M_t)\subseteq\Dead_r(e)$, so $B\in\Dead_r(e)$. Deadness is witnessed by certificates already present in the prefix and is therefore permanent in every admissible continuation. Lemma~\ref{lem:joint-terminal} then excludes joint finalization of every block of that election in every such continuation.
+\end{proof}
+
+\subsection{Late finalization and epoch completeness}
+
+\begin{lemma}[every semantic announcement quorum contains a terminated blocker]
+\label{lem:block-close}
+Fix an epoch-$e$ slot election $\SE(s,e)$ and an execution prefix containing a size-$q$ semantic announcement certificate $A$ for an epoch-$e$ close round. In every admissible continuation of that prefix in which a block $B$ of this election jointly finalizes, $A$ contains a correct signer $r$ that issued a non-timeout first vote for $B$ in the $\C_{e-2}$ constituent before signing the semantic announcement and locally terminated $\SE(s,e)$ before that signature.
+\end{lemma}
+
+\begin{proof}
+It suffices to consider the constituent instance on $\C_{e-2}$, because the close election uses the same committee.
+
+Suppose first that $B$ is eventually slow-finalized in that constituent. Let $H$ be the honest signers of its slow finalization certificate. Then $|H|\ge q-f$, and K3 implies that every replica in $H$ previously issued a non-timeout first vote for $B$. The complement of $H$ has size at most
+\[
+  n-(q-f)=2f+p<q.
+\]
+Hence the fixed size-$q$ signer set of $A$ intersects $H$. Let $r$ be an intersecting signer. It is correct. By K3 it issued a non-timeout first vote for $B$. D0 implies that this vote was cast only after $r$ validated the election's activation witness, so the election was admitted and locally visible to $r$ for D3. Because D3 permits a C1 signature only after $T_e$ and D1 forbids any new epoch-$e$ non-timeout first vote after $T_e$, that first vote necessarily preceded $r$'s semantic announcement. C1 also permits the signature only after D3 holds, and D3 therefore required this admitted election to have locally terminated at $r$ before the announcement.
+
+If $B$ is eventually fast-finalized in that constituent, its fast certificate contains at least
+\[
+  q_{\mathrm{fast}}-f=n-p-f=q
+\]
+honest non-timeout first voters. Let $H$ be those honest voters. Then the complement of $H$ has size at most $n-q=f+p<q$, so the fixed size-$q$ signer set of $A$ again intersects $H$. Any intersecting signer is correct and belongs to the honest first-voter set. By D0 the voted election was admitted and locally visible to that signer; as above, D1 together with the C1-after-$T_e$ premise in D3 places the non-timeout first vote before the semantic announcement, and D3 places local termination of that election before the signature.
+\end{proof}
+
+\begin{lemma}[close inclusion of every finalizable block]
+\label{lem:close-inclusion}
+Let an execution prefix contain a finalized canonical close $\CE_e$ binding state $M_e$. In every admissible continuation of that prefix, if an epoch-$e$ block $B$ jointly finalizes, then $B\in M_e$, except with negligible hash-collision probability.
+\end{lemma}
+
+\begin{proof}
+Use the $\C_{e-2}$ constituent of $\SE(s,e)$. The canonical close block $\CE_e$ is a certified non-timeout close block: if its finality is implicit, K8 supplies its own notarization certificate. Lemma~\ref{lem:close-acert} therefore gives an associated semantic announcement certificate
+\[
+  A_e=\ACert_{\rho_e}(h_{e-1},P_e,t_e)
+\]
+of size $q$ for the canonical block's round and target.
+
+Consider any admissible continuation in which $\SE(s,e)$ jointly finalizes $B$. Lemma~\ref{lem:block-close} applied to the prefix certificate $A_e$ gives a correct signer $r\in A_e$ that previously non-timeout-first-voted for $B$ in the $\C_{e-2}$ constituent and locally terminated $\SE(s,e)$ before signing the canonical target. Because the election eventually jointly finalizes $B$, Lemma~\ref{lem:joint-terminal} implies that this local termination cannot be by dead evidence and that any jointly notarized candidate exposed at termination must be $B$. Thus $B\in N_r(e)$, while Corollary~\ref{cor:droppable} gives $B\notin\Dead_r(e)$.
+
+C1 says that $r$ signed only after D4 held for the announced target. Hence $r$ reconstructed a state $M$ with $\Root_e(M)=t_e$ and $N_r(e)\setminus\Cand(M)\subseteq\Dead_r(e)$. Since $B\in N_r(e)$ and $B\notin\Dead_r(e)$, we obtain $B\in\Cand(M)$. Lemma~\ref{lem:root-binding} gives $M=M_e$ except with negligible probability, so $B\in M_e$.
+
+The argument depends on the semantic announcement quorum associated with the canonical block, not on the local election views of later first-vote or second-look participants. It therefore covers finalization certificates assembled after close voting begins and canonical close blocks whose finality is only implicit.
+\end{proof}
+
+\begin{corollary}[safe garbage collection]
+\label{cor:gc}
+After a correct replica reconstructs the finalized epoch-$e$ state $M_e$, any epoch-$e$ candidate omitted from $M_e$ cannot jointly finalize in any admissible continuation of that finalized-close prefix and may be discarded together with election-only state not required by later close-history validation.
+\end{corollary}
+
+\begin{proof}
+Contrapositively, Lemma~\ref{lem:close-inclusion} says that every block that jointly finalizes in any admissible continuation belongs to $M_e$. Therefore an omitted block cannot jointly finalize in any such continuation. D5 supplies the post-close vote fence and permits reclamation once the finalized state has been reconstructed.
+\end{proof}
+
+\subsection{Cross-epoch slot safety}
+
+\begin{lemma}[adjacent-epoch blocker handoff]
+\label{lem:adjacent-handoff}
+Suppose block $B$ for logical slot $s$ eventually jointly finalizes in epoch $e$. Then no slot-conflicting block $C$ can jointly finalize in epoch $e+1$.
+\end{lemma}
+
+\begin{proof}
+Consider the shared committee $\C_{e-1}$, which is a constituent of both $\SE(s,e)$ and $\SE(s,e+1)$. If $B$ slow-finalizes in the epoch-$e$ constituent on this committee, let $H$ be the honest slow-finalization signers. Then $|H|\ge q-f$ and every $r\in H$ previously non-timeout-first-voted for $B$ by K3. If $B$ fast-finalizes, let $H$ be the honest first voters in its fast certificate; then $|H|\ge q$. In either case, the complement of $H$ has size strictly less than $q$.
+
+If a conflicting $C$ jointly finalized in epoch $e+1$, then in the shared $\C_{e-1}$ constituent its finalization certificate has $q$ signers in the slow case, while a fast certificate has at least $q$ honest first voters and in particular contains a size-$q$ certifying set. Such a certifying set intersects $H$ in a correct replica $r$. The replica's epoch-$e$ non-timeout first vote for $B$ created the R1 pending lock. If $r$ has not reconstructed $M_e$, R1 forbids a non-timeout first vote for conflicting $C$ in epoch $e+1$. If it has reconstructed $M_e$, Lemma~\ref{lem:close-inclusion} places $B$ in $M_e$, so R1 turns the pending lock into a closed-history lock and again forbids a conflicting non-timeout first vote. K3 (or the definition of a fast certificate) requires the intersecting correct signer to have issued such a first vote for $C$, a contradiction.
+\end{proof}
+
+\begin{theorem}[slot safety]
+\label{thm:slot-safety}
+Except with negligible hash-collision probability, no two slot-conflicting blocks can both jointly finalize, even if their elections occur in different epochs.
+\end{theorem}
+
+\begin{proof}
+Within one epoch, joint finalization of distinct candidates would imply finalization of distinct candidates in each constituent, contradicting K2.
+
+For adjacent epochs, Lemma~\ref{lem:adjacent-handoff} applies. For epochs separated by at least two, suppose $B$ jointly finalizes in epoch $e$ and $C$ is proposed in epoch $e'\ge e+2$. Lemma~\ref{lem:close-inclusion} places $B$ in $M_e$. By R2, every correct replica issuing a non-timeout first vote in epoch $e'$ has reconstructed finalized close history through at least epoch $e$, sees $B$ for the logical slot, and rejects the conflicting $C$. Thus no correct replica issues a non-timeout first vote for $C$ in either epoch-$e'$ constituent. A fast finalization certificate for $C$ would contain $q_{\mathrm{fast}}=n-p>f$ first-vote shares and therefore at least one correct non-timeout first voter, impossible. A slow finalization certificate has $q>f$ final voters and therefore at least one correct final voter; by K3 that replica's first vote would have been a non-timeout first vote for $C$, again impossible. Hence $C$ cannot finalize in either constituent and therefore cannot jointly finalize.
+\end{proof}
+
+\subsection{Epoch safety theorem}
+
+\begin{theorem}[epoch-close safety, completeness, and reclamation]
+\label{thm:epoch-safety}
+Assume K1--K3, K6, K8, D0--D5, C0--C4, and Assumptions~\ref{ass:hash}--\ref{ass:da}. Then for every epoch $e$:
+\begin{enumerate}[label=(\roman*)]
+  \item at most one canonical close $\CE_e$ can exist; whenever such a close is finalized, its target root binds one canonical state $M_e$;
+  \item in every admissible continuation of a prefix containing finalized $\CE_e$, every epoch-$e$ block that jointly finalizes belongs to $M_e$; and
+  \item after $M_e$ is reconstructed, omitted epoch-$e$ candidates can be safely reclaimed and cannot create persistent account-tree state in any admissible continuation.
+\end{enumerate}
+\end{theorem}
+
+\begin{proof}
+Part (i): this is an at-most-one statement under the safety assumptions; existence is established separately by the termination theorem. Close rounds are consecutive Kudzu slots whose values are linked by parent references, and if a canonical close exists it is the earliest explicitly or implicitly finalized non-timeout close block on the finalized chain. Lemma~\ref{lem:announce-unique} gives at most one non-timeout notarized close block per round, while K6 gives the usual cross-round chain safety. Hence all finalized close-round blocks lie on one chain, so there can be at most one earliest finalized non-timeout block, and Lemma~\ref{lem:root-binding} binds its target root to one state. The absence of a proposer is immaterial because the unique enabled previous-close/parent/root triple is selected by an intersecting semantic announcement quorum before Kudzu first voting begins.
+
+Part (ii) is Lemma~\ref{lem:close-inclusion}: K8 and Lemma~\ref{lem:close-acert} give the canonical block its own semantic announcement evidence even when finality is implicit, and Lemma~\ref{lem:block-close} supplies the late-finalization blocker intersection.
+
+Part (iii) is Corollary~\ref{cor:gc} together with D5 and the post-close validity rule.
+\end{proof}
+
+\section{Termination}
+
+\subsection{Termination assumptions}
+
+\begin{assumption}[partial synchrony and close progress]
+\label{ass:termination}
+For the liveness execution, the following hold.
+\begin{enumerate}[label=(\roman*)]
+  \item There exists a global stabilization time $\GST$ after which messages among correct replicas are delivered within $\delta$.
+  \item Reliable dissemination repeatedly rebroadcasts valid activation witnesses, blocks, votes, certificates, semantic announcements, and close-parent evidence learned by correct replicas.
+  \item The ordinary Kudzu pacemakers satisfy K4 for every admitted slot-election constituent once the execution is in a sufficiently long synchronous interval.
+  \item For each epoch $e$, admission freezes at finite time $T_e$, so only finitely many epoch-$e$ slot elections have valid activation witnesses in the frozen admitted set.
+  \item The close pacemaker continues advancing rounds. After a finite stabilization time, continuously active correct close members repeatedly co-enter common close rounds: for every sufficiently late round reached by one such member, every other continuously active correct close member reaches that same round and enters its announcement phase within the bounded catch-up window. The authenticated relay satisfies the common-cutoff and honest-inclusion properties stated above. In particular, before first voting the active correct members' local sets $\mathcal A_{\rho,r}$ are identical to one common set $\mathcal A_\rho$, and every valid C1 announcement broadcast on schedule by an active correct member belongs to that common set. Parent-evidence catch-up is also part of stabilized round entry: before an active correct member computes its C1 parent in a sufficiently late common round, it has received and validated every certified non-timeout close block and every timeout-supported advance fact from earlier rounds that the ordinary Kudzu parent rules require to justify the member's current close position or that can affect the deterministic parent selector there. Any such earlier-round evidence learned by one continuously active correct close member after stabilization is disseminated to all continuously active correct close members before they select a parent in a later common round whose selector can depend on that evidence.
+  \item For each fixed epoch and stabilized close round, the data and computation required to validate a particular finite announcement certificate, its finite canonical target descriptor, its referenced candidate/certificate set, the previous close, and the finite parent evidence are finite. Close-round phase lengths and first-vote deadlines either have a known bound sufficient for every stabilized round workload or increase so that there is a finite time after which every later common round has enough time for that round's own finite workload. Concretely, after stabilization the announcement margin exceeds the stabilized entry skew plus local C1 processing plus the relay/network delay bound, and eventually, in every sufficiently late common round, the post-cutoff validation margin exceeds the time needed to disseminate a semantic certificate that is timely in the common admission view and to retrieve, reconstruct, hash-check, and objectively validate all finite data required by that round before the active correct replicas' first-vote deadlines.
+  \item For the baseline termination theorem, every correct replica is eventually continuously active and executes the protocol. In particular, there is a finite time after which every correct close member remains active throughout every sufficiently late common close round. This baseline activity condition is relaxed only by the explicitly scoped suspension theorem below.
+\end{enumerate}
+\end{assumption}
+
+\begin{lemma}[drain progress on the no-close branch]
+\label{lem:drain}
+Under Assumption~\ref{ass:termination}, fix epoch $e$ and an execution branch on which $\CE_e$ has not yet finalized. Every admitted epoch-$e$ election that becomes D3-relevant to a correct replica before closure eventually locally terminates at every correct participant unless the epoch closes first. In particular, on an infinite branch on which epoch $e$ never closes, there is a finite time after which every correct member of $\C_{e-2}$ is continuously close-ready. A valid activation witness first revealed only after epoch $e$ has closed need not be drained, because D5 has already fenced further epoch-$e$ voting.
+\end{lemma}
+
+\begin{proof}
+By D1 and Assumption~\ref{ass:termination}(iv), the frozen admitted set of epoch-$e$ elections is finite and no new election can become part of that set after $T_e$, although a valid witness for an already admitted election may be disclosed later.
+
+Consider an admitted election $E$ that becomes relevant under D3 while epoch $e$ is still open. If a correct replica issued a non-timeout first vote in $E$, then $E$ is already visible to a correct participant. Otherwise, let $\tau_E$ be the first pre-close time at which a correct replica validates $E$'s objective activation witness. Elections whose witness is never validated before closure do not constrain pre-close D3 readiness.
+
+After $\tau_E$, reliable dissemination of the validated activation witness and election data makes $E$ known to all correct replicas that must participate in its constituent Kudzu instances. While epoch $e$ remains open, D2 makes every such correct replica that has not already first-voted enter with a timeout first vote. After $\GST$, K4 applies for as long as necessary. Therefore, unless the epoch closes first, each constituent exits in finite time with a notarized block or a timeout certificate. If either constituent times out, the RAI election is dead; if both expose compatible notarizations, the candidate is jointly notarized; and if they expose incompatible notarizations, the election is dead. Hence every election that becomes D3-relevant before closure locally terminates at every correct participant unless closure makes further draining unnecessary.
+
+Now restrict to an infinite branch on which epoch $e$ never closes. Every admitted election that ever becomes D3-relevant has a finite first-visibility time on that branch. Because the admitted set is finite, there are only finitely many such times, so there is a finite latest one. After reliable dissemination and the subsequent K4 exits, every correct member of $\C_{e-2}$ satisfies D3. No later visible election remains undrained, so close readiness then persists forever on this no-close branch.
+\end{proof}
+
+\begin{lemma}[state convergence]
+\label{lem:state-convergence}
+Under Assumptions~\ref{ass:da} and~\ref{ass:termination}, there is a finite time after which every correct close member has the same permanent epoch-$e$ candidate set $U_e$ and the same permanent dead-election set $D_e$. Consequently every correct close member computes the same byte-identical canonical state $\State_e(U_e)$, and all later correct C1 announcements have the same target root
+\[
+  u_e=\Root_e(\State_e(U_e)).
+\]
+\end{lemma}
+
+\begin{proof}
+The admitted election set is finite. For each election, K7 implies that only finitely many distinct non-timeout candidate values can become certified, and there is only one semantic timeout/deadness fact per constituent or conflicting-candidate relation relevant to $N_r(e)$ and $\Dead_r(e)$. Thus only finitely many distinct candidate-membership and deadness facts can ever change those sets. This argument counts semantic facts, not the potentially many byte-level representations of equivalent certificate witnesses.
+
+For every such fact that is ever disclosed to a correct replica, its first valid witness reaches some correct replica at a finite time. Take a time after the last such first disclosure and after $\GST$. Reliable dissemination and Assumption~\ref{ass:da} then deliver and validate at least one sufficient witness for every such visible fact at every correct member of $\C_{e-2}$. Because the synchronous suffix after $\GST$ does not end, these deliveries complete even when the last Byzantine disclosure occurs arbitrarily late.
+
+No additional close-relevant candidate-membership or deadness fact can subsequently become visible for the first time. Hence there is a finite time after which every correct $N_r(e)$ equals the same finite set $U_e$ and every correct $\Dead_r(e)$ equals the same set $D_e$. These equalities are permanent. The close-state encoding contains only immutable membership and deterministic immutable identifying/election metadata; it excludes certificate-representation choices and mutable finalization status. Therefore every replica with candidate set $U_e$ computes the same byte string $\mathsf{encode}(\State_e(U_e))$. Since C1 uses $M_r=\State_e(N_r(e))$, all subsequent correct C1 announcements carry the same target root $u_e=\Root_e(\State_e(U_e))$.
+\end{proof}
+
+\begin{remark}[round-scoped semantic stability]
+A semantic announcement certificate accepted as locally timely freezes authorization only for its own close round at that voter. Later epoch-election evidence may change $N_r(e)$ and the pair a replica announces in a later round, but C3 does not permit that later local evidence to revoke an already verified certificate in the current round. This is a protocol rule, not a claim that the announcement-time D4 predicate remains true in every replica's evolving local view. Safety under such later evidence is provided by Lemmas~\ref{lem:block-close} and~\ref{lem:close-inclusion}.
+\end{remark}
+
+\begin{lemma}[close-round authorization stability]
+\label{lem:close-auth-stability}
+Suppose a correct close member non-timeout-first-votes an enabled value $X=(e,h_{e-1},\hash(P),t)$ in round $\rho$ under C2. Then the validity conditions under which that vote was cast remain authorized for that replica through its final-vote decision in round $\rho$.
+\end{lemma}
+
+\begin{proof}
+The semantic component is frozen by C3: later epoch-election evidence cannot revoke the locally timely $\ACert_\rho(h_{e-1},P,t)$ that enabled $X$. The certificate signatures, the C0 previous-close anchor, the canonical target encoding, the candidate identifiers and constituent notarization certificates, and the relevant hashes are immutable objective facts once verified. The structural parent evidence used by C2 is likewise objective, and K9 states that a parent already verified as eligible for this fixed close slot remains eligible under later additions of valid parent evidence. Thus none of the conditions that authorized the C2 first vote becomes false before the replica's final-vote decision. This is exactly the persistence premise required by K5.
+\end{proof}
+
+\begin{lemma}[semantic-gated close-round exit under synchrony]
+\label{lem:close-round-exit}
+Consider a close round $\rho$ in a sufficiently long synchronous interval in which at least $q$ correct close members remain active throughout the round, the active correct members enter within the pacemaker catch-up window, and the common-cutoff, honest-inclusion, reconstruction, and data-availability conditions hold. Then all correct members active throughout the round exit the close slot in finite time. More precisely, either no semantic announcement certificate is timely in the common synchronized admission set and a timeout certificate forms from correct timeout votes, or the unique size-$q$ semantic certificate is timely for every active correct member and its non-timeout value slow-finalizes.
+\end{lemma}
+
+\begin{proof}
+By Lemma~\ref{lem:announce-unique}, at most one previous-close/parent/root triple can have a size-$q$ semantic announcement certificate in $\rho$. The common-cutoff property gives every active correct member the same round-scoped admission set $\mathcal A_\rho$ before voting begins, so in this synchronized round any such certificate is timely either for all active correct members or for none of them.
+
+If no semantic announcement certificate is timely in $\mathcal A_\rho$, C2 makes every active correct member first-vote the Kudzu timeout block. By hypothesis at least $q$ correct members remain active throughout the round, so at least $q$ timeout first votes are cast. Each first vote contains a timeout notarization share, so K1 yields a timeout certificate. Reliable dissemination delivers it to every active correct member, so the round exits.
+
+Otherwise let $A=\ACert_\rho(h_{e-1},P,t)$ be the unique size-$q$ certificate, which is timely for every active correct member, and let
+\[
+  X=(e,h_{e-1},\hash(P),t).
+\]
+The certificate has $q$ signers and therefore at least $q-f$ correct semantic announcers. By C0--C1 each correct signer reconstructed the canonical previous close and target, validated the parent, satisfied D3--D4, and retained or served the referenced material. Under the synchronous common-cutoff, reconstruction, and data-availability conditions, every active correct close member receives $A$ and reconstructs the same hash-bound previous close, target, and parent before its first-vote deadline. The remaining C2 checks are objective, so every active correct member first-votes $X$. When at least $q$ correct members are active, at least $q$ correct members cast the same non-timeout first vote.
+
+By Lemma~\ref{lem:close-auth-stability}, the full K5-relevant authorization for each of those first votes persists through the final-vote decision: C3 freezes the semantic certificate and K9 preserves the already verified parent eligibility for this round. K5 therefore yields a slow finalization certificate for $X$, which reliable dissemination delivers to every correct member. No proposer-free extension of K4 is used.
+\end{proof}
+
+\begin{lemma}[post-convergence round dichotomy]
+\label{lem:round-dichotomy}
+After the state-convergence time of Lemma~\ref{lem:state-convergence}, every sufficiently synchronized close round with all correct close members active has exactly one of the following outcomes:
+\begin{enumerate}[label=(\alph*)]
+  \item the unique semantic certificate for target $u_e$ under the canonical previous-close anchor is timely in the common synchronized admission set and its enabled close value slow-finalizes; or
+  \item no semantic announcement certificate is timely in the common synchronized admission set, no non-timeout close block is notarized, and a timeout certificate forms from correct votes.
+\end{enumerate}
+\end{lemma}
+
+\begin{proof}
+After state convergence every correct close member's baseline C1 target is $u_e=\Root_e(\State_e(U_e))$. By C0 every correct signer also uses the same canonical $h_{e-1}$. Hence any size-$q$ semantic announcement certificate contains at least one correct signer and must use target $u_e$ and previous-close hash $h_{e-1}$. Lemma~\ref{lem:announce-unique} makes the full previous-close/parent/root triple unique.
+
+If a size-$q$ $\ACert_\rho(h_{e-1},P,u_e)$ exists and is timely in the common synchronized admission set, Lemma~\ref{lem:close-round-exit} applies its certificate branch: every correct member reconstructs the same enabled value, first-votes it, and K5 slow-finalizes it. This is case~(a).
+
+If no semantic announcement certificate is timely in the common synchronized admission set, C2 makes every correct member first-vote timeout and C3 permits no correct later non-timeout share for an uncertified value. A non-timeout value therefore has at most the $f$ Byzantine notarization shares, fewer than $q$, while the $n-f\ge q$ correct timeout shares form a timeout certificate. This is case~(b). An announcement first disclosed after the cutoff is stale for the round and cannot change the conclusion.
+\end{proof}
+
+\begin{lemma}[parent-view convergence on the no-close branch]
+\label{lem:parent-convergence}
+Assume the conditions of Assumption~\ref{ass:termination}. On an execution branch where epoch $e$ has not yet closed, there is a finite time after which correct close members entering the same sufficiently late round have identical complete non-timeout close block trees, identical timeout-supported parent-eligibility relations, and therefore choose the same eligible parent.
+\end{lemma}
+
+\begin{proof}
+On the no-close branch, let $\tau_s$ be later than $\GST$, close-pacemaker and relay stabilization, the stabilized parent-evidence catch-up regime of Assumption~\ref{ass:termination}(v), the continuous-close-readiness time supplied by Lemma~\ref{lem:drain}, state convergence, the eventual validation-window sufficiency required by Assumption~\ref{ass:termination}(vi), and the eventual-continuous-activity time from Assumption~\ref{ass:termination}(vii). Because every close round has a positive minimum duration, only finitely many close rounds begin before the finite time $\tau_s$. Lemma~\ref{lem:announce-unique} allows at most one notarized non-timeout close block per round, so this finite prefix contains only finitely many certified non-timeout close blocks. There are likewise only finitely many timeout-supported advance relations among the finite prefix. Thus the pre-$\tau_s$ close information that can affect the deterministic parent selector consists of finitely many semantic block/certification and timeout-eligibility facts, irrespective of how many equivalent certificate encodings might exist.
+
+For each of those finite facts that is ever disclosed to a correct close member, the first sufficient valid witness arrives at a finite time. Reliable dissemination in the permanent synchronous suffix therefore gives a finite time $\tau_p>\tau_s$ after which every pre-$\tau_s$ close fact that will ever be visible to any correct member is already represented by a valid witness at every correct close member.
+
+Now consider any sufficiently late common close round beginning after $\tau_s$ on the branch where epoch $e$ has not closed. Lemma~\ref{lem:round-dichotomy}(a) cannot occur, because under the now-sufficient validation window it would slow-finalize the close. Hence case~(b) occurs: no semantic announcement certificate is timely in the common synchronized admission set and no non-timeout close block becomes notarized. By C2 every correct member that reaches its first-vote deadline first-votes timeout, and by Lemma~\ref{lem:close-round-exit} every active correct member exits the slot with timeout evidence. Thus post-$\tau_s$ no-close rounds add no non-timeout close blocks.
+
+The remaining issue is whether timeout-supported eligibility evidence can be present at one correct member but missing at another when they choose the parent of a later round. This is exactly the parent-evidence catch-up condition in Assumption~\ref{ass:termination}(v): every certified non-timeout block and timeout-supported advance fact from earlier rounds that can affect the later selector is validated by all continuously active correct members before they perform that later C1 parent selection. Consequently, after $\tau_p$, all selector-relevant pre-$\tau_s$ facts are already common, every post-$\tau_s$ no-close round contributes only timeout-supported advance evidence, and that evidence is common before any later common round whose selector depends on it. No new non-timeout block can appear on the no-close suffix.
+
+Therefore the complete non-timeout close block tree and the timeout-supported eligibility relation are identical at correct close members when they enter the same sufficiently late common round and compute C1. By K9 this common valid prefix has an objectively valid eligible parent position, and the selector is deterministic on precisely that tree and eligibility relation. Hence all correct members choose the same eligible parent.
+\end{proof}
+
+\begin{lemma}[post-convergence deciding round]
+\label{lem:deciding-round}
+Under Assumption~\ref{ass:termination}, if epoch $e$ has not already closed, a sufficiently late common close round forms from correct announcements alone a semantic certificate that is timely for every active correct member and slow-finalizes its enabled value.
+\end{lemma}
+
+\begin{proof}
+Work on the branch where epoch $e$ has not already closed. Choose a finite time after $\GST$, close-pacemaker stabilization, the continuous-close-readiness time supplied by Lemma~\ref{lem:drain}, the permanent state convergence of Lemma~\ref{lem:state-convergence}, reconstruction of the canonical previous close required by C0, and the eventual-continuous-activity time. Lemma~\ref{lem:parent-convergence} gives a later finite time $\tau_p$ after which correct close members entering the same sufficiently late common round have the same complete parent view and choose the same eligible parent $P$. Their candidate sets are already the same permanent set $U_e$, their canonical close states are the same $\State_e(U_e)$ with root $u_e$, and every correct member remains close-ready for as long as the epoch stays open.
+
+By Assumption~\ref{ass:termination}(v), continuously active correct close members repeatedly co-enter common rounds after $\tau_p$ within bounded skew. Choose such a round $\rho$ whose announcement phase begins after $\tau_p$ and whose validation window is sufficient under Assumption~\ref{ass:termination}(vi). By C0 they use the same reconstructed canonical previous-close hash $h_{e-1}$, and by C1 every correct member now signs the same semantic announcement
+\[
+  \Announce(e,\rho,h_{e-1},\hash(P),u_e).
+\]
+D3 holds throughout this still-open suffix by Lemma~\ref{lem:drain}, and D4 holds for the baseline target because each announcer's canonical target state is exactly $\State_e(U_e)$ and therefore has candidate set $U_e$.
+
+There are at least $n-f\ge q$ active correct members. By the honest-inclusion property, every one of their on-schedule announcements belongs to every active correct member's common set $\mathcal A_\rho$; therefore any $q$ of them form an $\ACert_\rho(h_{e-1},P,u_e)$ that is timely for every active correct member. The common-cutoff property makes this admission view identical at those members, and the post-cutoff reconstruction condition delivers the certificate and its referenced data before first voting. C2 makes the remaining checks objective, so every correct member first-votes
+\[
+  X=(e,h_{e-1},\hash(P),u_e).
+\]
+Lemma~\ref{lem:close-auth-stability} gives persistence of the full round-specific authorization through final voting. Thus at least $q$ correct stable first votes exist, and K5 slow-finalizes $X$.
+\end{proof}
+
+\begin{lemma}[finalized close reconstructibility]
+\label{lem:close-reconstruct}
+Under Assumptions~\ref{ass:da} and~\ref{ass:termination}, if the canonical non-timeout close $\CE_e$ finalizes, then every correct replica eventually obtains the certified close-chain evidence needed to identify $\CE_e$ and reconstructs and validates its unique bound close state $M_e$.
+\end{lemma}
+
+\begin{proof}
+Reliable dissemination eventually delivers the finalization certificate for a finalized descendant and the certified close-chain objects needed to identify the earliest finalized non-timeout ancestor $\CE_e$. If $\CE_e$ is only implicitly finalized, K8 supplies its own notarization certificate, and Lemma~\ref{lem:close-acert} supplies retrievable semantic-announcement evidence for its bound previous-close/parent/root triple. That notarization certificate contains at least one correct voter because $q>f$. By C2--C4, such a voter retrieved, reconstructed, and validated the canonical target state before issuing its non-timeout share. Assumption~\ref{ass:da} makes the canonical target descriptor addressable by that root, every candidate object and valid constituent notarization certificate needed to validate its entries, and the retained C1 signatures eventually retrievable. A correct replica first retrieves and hash-checks the descriptor, uses it to enumerate the deterministic entries, validates the corresponding candidate objects and any valid constituent certificates, reconstructs the canonical immutable state, and accepts it only if its recomputed root equals the target root in $\CE_e$. Lemma~\ref{lem:root-binding} makes the reconstructed state unique except with negligible collision probability.
+\end{proof}
+
+\begin{lemma}[close termination from the previous close]
+\label{lem:close-from-prev}
+Assume $\CE_{e-1}$ is finalized and reconstructible. Under Assumptions~\ref{ass:da} and~\ref{ass:termination}, $\CE_e$ eventually finalizes and then eventually becomes reconstructible at every correct replica.
+\end{lemma}
+
+\begin{proof}
+By C0, reconstructibility of $\CE_{e-1}$ supplies the unique previous-close anchor for epoch $e$. Consider the execution branch until epoch $e$ closes. If closure occurs before the stabilization arguments below are needed, the claim is immediate. Otherwise, on the no-close suffix Lemma~\ref{lem:drain} gives a finite time after which every correct member of $\C_{e-2}$ remains close-ready while the epoch stays open. Lemma~\ref{lem:state-convergence} gives permanent convergence of their candidate sets to $U_e$ and of their canonical close states to the common byte-identical state $\State_e(U_e)$. After the stabilization times in Assumption~\ref{ass:termination}, the close pacemaker repeatedly brings the continuously active correct members into common rounds, and Lemma~\ref{lem:close-round-exit} guarantees that every sufficiently synchronized such round exits: if no semantic certificate is timely in the common admission view the round produces timeout evidence, while a certificate that is timely in that common view finalizes its enabled value.
+
+Therefore either some stabilized round already finalizes epoch $e$, or the post-convergence deciding round of Lemma~\ref{lem:deciding-round} is reached and finalizes its enabled value. In either case the finalized close value binds the canonical $h_{e-1}=\hash(\CE_{e-1})$ and a valid epoch-$e$ target.
+
+Hence $\CE_e$ eventually finalizes. Lemma~\ref{lem:close-reconstruct} then gives eventual reconstruction at every correct replica. No step designates a proposer: the enabling certificate may be assembled from any $q$ matching semantic announcements.
+\end{proof}
+
+\begin{theorem}[RAI termination]
+\label{thm:termination}
+Assume the fixed genesis close $\CE_{-1}$ and Assumptions~\ref{ass:da} and~\ref{ass:termination}. Then every epoch eventually obtains a finalized canonical close whose bound state eventually becomes reconstructible at every correct replica. This theorem concerns epoch closure; it does not assert that every submitted logical slot eventually jointly finalizes or becomes dead.
+\end{theorem}
+
+\begin{proof}
+Induct on $e$. The base uses the fixed genesis $\CE_{-1}$. For the induction step, assume $\CE_{e-1}$ is finalized and reconstructible. Lemma~\ref{lem:close-from-prev} yields eventual finalization and eventual reconstructibility of $\CE_e$, which supplies the induction hypothesis for epoch $e+1$. The qualifier about logical slots is necessary because an election that is never activated at a correct replica need not be driven to a terminal certificate solely for the purpose of close liveness.
+\end{proof}
+
+\subsection{One-suspension deciding-round robustness}
+
+\begin{theorem}[one-suspension deciding-round robustness]
+\label{thm:one-suspension}
+Assume K1--K9 and $p\ge1$, and assume that the synchronous common-cutoff, honest-inclusion, reconstruction, data-availability, and timeout conditions of Assumption~\ref{ass:termination}(v)--(vi) hold for the active correct members in the round. Suppose the correct close members are permanently close-ready, have converged permanently to the same candidate set $U_e$ and canonical state $\State_e(U_e)$ with root $u_e$, have reconstructed the same canonical previous close, and have converged permanently to the same complete close-parent view, so every active correct member selects the same eligible parent $P$ throughout the round. Then a synchronous deciding close round still finalizes epoch $e$ if any one correct member of $\C_{e-2}$ is silent for the entire round.
+\end{theorem}
+
+\begin{proof}
+At most $f$ members are Byzantine and one additional correct member is silent. Thus
+\[
+  n-f-1\ge n-f-p=q
+\]
+correct members remain active because $p\ge1$. Permanent close readiness, state convergence, parent-view convergence, and C0 make every active correct member use the same previous-close anchor $h_{e-1}$ and satisfy the same C1 conditions, so each signs
+\[
+  \Announce(e,\rho,h_{e-1},\hash(P),u_e).
+\]
+By the honest-inclusion property those on-schedule active-correct announcements all belong to every active correct member's common set $\mathcal A_\rho$. Hence any $q$ of them form an $\ACert_\rho(h_{e-1},P,u_e)$ that is timely for every active correct member without Byzantine cooperation. The common-cutoff and reconstruction conditions make that admission view identical and deliver the certificate and its referenced data to every active correct member before its first-vote deadline. C2 makes every active correct member first-vote the same enabled value
+\[
+  X=(e,h_{e-1},\hash(P),u_e).
+\]
+There are at least $q$ such correct first votes, and Lemma~\ref{lem:close-auth-stability} preserves their certificate-bound and parent-valid authorization through final voting, so K5 yields a slow finalization certificate without Byzantine cooperation. The silent member can learn that certificate on resumption by reliable dissemination. No designated member is required.
+\end{proof}
+
+\begin{remark}[counting strength of the deciding round]
+The same counting argument tolerates any number $s$ of silent correct members satisfying $s\le p$, provided the common-cutoff, honest-inclusion, reconstruction, and timeout assumptions continue to hold for the remaining active correct members and at least $q$ of them have the converged C0--C1 view. The theorem states the one-suspension case because it is the minimal nontrivial proposer-robustness claim and because the pre-close machinery is not proved under recurring suspensions.
+\end{remark}
+
+\begin{remark}[scope of the suspension result]
+Theorem~\ref{thm:one-suspension} is deliberately narrower than leaderless termination in the $\Diamond$-synchronous$^{-1}$ sense. The semantic announcement gate removes the earlier need for a proposer-free analogue of K4 inside a stabilized close round: if the unique semantic certificate is timely in the common synchronized admission view, the enabled value finalizes; if no certificate is timely there, the active correct replicas directly create timeout evidence. Honest inclusion ensures that, after the C0--C1 views have converged, active correct announcements themselves create the timely certificate rather than merely agreeing about whichever announcements happen to have been admitted. The remaining gap to the stronger property lies in the pre-close machinery, especially the ordinary Kudzu slot elections and synchronized catch-up/draining assumptions, whose K4 progress argument still assumes the correct members needed by that argument eventually enter and execute the slot. Establishing full $\Diamond$-synchronous$^{-1}$ leaderless termination would therefore require a corresponding one-suspension progress theorem for those ordinary stages and their pacemaker/catch-up dependencies.
+\end{remark}
+
+\section{Communication consequences of the redesign}
+
+The redesign separates four concerns that were previously coupled in a manifest carried by a close proposal, and removes the proposer.
+
+\begin{enumerate}[leftmargin=2.0em]
+  \item \textbf{Consensus value.} The close Kudzu instance agrees on one constant-size target root $t$ together with the epoch, canonical previous-close hash, and parent-round metadata. The value size is independent of the number of epoch candidates. The root binds a canonical descriptor composed of deterministic per-candidate entries and does not bind a replica-dependent certificate representation. Every member can reconstruct the enabled tuple locally from the announcement certificate and the referenced previous close and parent.
+
+  \item \textbf{Semantic announcements.} In each close round, a close-ready member signs at most one previous-close/parent/root announcement during the announcement phase, after satisfying C0 and D3--D4. The portable semantic certificate is any $q$ matching signed announcements. A correct voter may use it only when all of those announcements belong to that voter's authenticated local pre-cutoff set $\mathcal A_{\rho,r}$. Before stabilization those local timeliness judgments may differ, but quorum intersection already makes the size-$q$ certified triple globally unique. During synchrony common cutoff makes every active-correct local set equal to one $\mathcal A_\rho$, while honest inclusion guarantees that every on-schedule active-correct announcement belongs to it. The signed quorum authorizes the round's later non-timeout votes, so those voters perform only objective certificate, reconstruction, hash, and parent checks rather than re-evaluating local D3--D4. Announcements disclosed only after a voter's cutoff are stale for that voter; after synchronization the common cutoff makes that staleness judgment common. The signed quorum is retained through $\DA$ as control metadata and does not enlarge the epoch-state payload of the close value.
+
+  \item \textbf{State reconciliation.} A lagging member sends only its current base root and an announced target root to any announcer of that target. When the responder recognizes the base, the response is only the additive canonical-entry difference $M_t\setminus M_b$. The response contains no proofs and no block bodies. Every correct semantic announcer is a potential responder, and after convergence equal candidate sets induce the same canonical state and target root; no reconciliation depends on one designated replica.
+
+  \item \textbf{Data availability.} The canonical state descriptor enumerating the deterministic entries for an announced or voted target is retained and retrievable by root. The actual candidate blocks and any valid constituent notarization certificates needed to validate those entries are retrieved independently from $\DA$. The requester validates them and recomputes the target root locally. The same layer retains the signed semantic quorum evidence and certified close-chain objects needed to reconstruct finalized close states.
+\end{enumerate}
+
+As correct replicas disseminate the same candidate information, the deterministic map $\State_e$ makes their immutable close states byte-identical. Therefore a target root learned from an announcement naturally becomes a later base root. After stabilization, correct replicas enter a close round with the same previous-close anchor and state root and, once prior close-block certificates have disseminated, the same eligible parent; K9 guarantees that this common valid parent view has an eligible extension. Their matching semantic announcements are admitted by honest inclusion and enable one common value whose later validation is objective and certificate-bound. In the steady state the common reconciliation case is an empty delta because $b=t$, or a small additive delta containing only candidates that arrived since the common base was computed.
+
+The mechanism deliberately does not attempt to derive a difference from the algebra of two cryptographic hashes. The pair $(b,t)$ names two state versions. A responder can return a difference only when it can resolve those versions from its retained snapshots or deterministic state history. Eventual convergence is the only fallback: an unrecognized base is allowed to become obsolete as ordinary dissemination advances the requester to a newer, common root, at which point the requester needs no reconciliation before validating the quorum-enabled common target.
+
+\section{End-to-end properties}
+
+\begin{theorem}[RAI properties]
+\label{thm:rai-properties}
+Under the standing safety assumptions, including the static-fault model above, and under Assumption~\ref{ass:termination} for liveness, RAI has the following properties:
+\begin{enumerate}[leftmargin=2.0em]
+  \item \textbf{slot safety:} no two slot-conflicting blocks jointly finalize, even across epochs;
+  \item \textbf{epoch completeness:} after $\CE_e$ finalizes, every epoch-$e$ block that jointly finalizes in any admissible continuation belongs to the canonical epoch-$e$ close state;
+  \item \textbf{safe reclamation:} after $\CE_e$ finalizes, omitted epoch-$e$ elections cannot produce a finalized block in any admissible continuation and may be discarded after the finalized state is reconstructed;
+  \item \textbf{compact closure:} the epoch-state component of every close value is one fixed-size hash, while state differences and object transfer are kept off the consensus path;
+  \item \textbf{epoch-close termination:} under Assumption~\ref{ass:termination}, including its synchronized common-cutoff and honest-inclusion properties, common-round pacemaker convergence, parent-evidence catch-up before C1 parent selection, sufficiently large eventual validation windows, and eventual-continuous-activity requirements, every slot election that becomes drain-relevant before closure either locally terminates or becomes irrelevant because the epoch closes first, and every epoch eventually obtains a finalized close whose bound state eventually becomes reconstructible, even if some pre-convergence base hashes cannot be reconciled by any responder; this does not by itself imply eventual decision of every logical slot; and
+  \item \textbf{proposer-free suspension robustness:} with $p\ge1$, once the canonical previous-close anchor, close readiness, close state, and the complete eligible-parent view have converged, the deciding close round still finalizes with any one correct close member silent for that round; honest inclusion ensures that the active correct announcements form the size-$q$ semantic certificate, which supplies the round's safety-sensitive authorization so later voters need not agree on replica-local D3--D4 views.
+\end{enumerate}
+\end{theorem}
+
+\begin{proof}
+Slot safety is Theorem~\ref{thm:slot-safety}. Epoch completeness and safe reclamation are Theorem~\ref{thm:epoch-safety}. Compact closure follows from the close-value format \eqref{eq:close-block} and the separation of reconciliation from $\DA$. Termination and close-state reconstructibility are Theorem~\ref{thm:termination} together with Lemma~\ref{lem:close-reconstruct}. The suspension-robust deciding round is Theorem~\ref{thm:one-suspension}; the round-scoped semantic authorization is C1--C3, with its late-finalization safety supplied by Lemmas~\ref{lem:block-close} and~\ref{lem:close-inclusion}.
+\end{proof}
+
+\section{Protocol summary}
+
+\begin{enumerate}[leftmargin=2.0em]
+  \item Account owners propose blocks for logical slots without epoch-indexing the slot number. A proposal received in eligible epoch $e$ enters $\SE(s,e)$, the conjunction of ordinary Kudzu instances on $\C_{e-1}$ and $\C_{e-2}$.
+
+  \item A block becomes jointly notarized only when the same block is notarized in both constituents. A timeout in either constituent, or incompatible constituent notarizations, makes the election objectively dead. Joint finalization requires finalization in both constituents.
+
+  \item R1 carries pending same-slot locks through the immediately following epoch, while R2 requires reconstructed close history through epoch $e-2$ before a non-timeout first vote in epoch $e$. Together with close completeness, these rules prevent cross-epoch slot conflicts.
+
+  \item Epoch admission is objective: each admitted election has a finite activation witness that remains verifiable after the freeze. Correct replicas first-vote only elections whose activation witnesses prove admission. At $T_e$, the admitted set is frozen and no new epoch-$e$ non-timeout first votes are issued. Correct replicas continue draining the finite admitted set, using timeout first votes for newly encountered admitted elections.
+
+  \item After $T_e$, a replica becomes close-ready for semantic announcement only after every epoch-$e$ election in which it non-timeout-first-voted, and every otherwise visible required election, locally terminates. Because D1 forbids new epoch-$e$ non-timeout first votes after $T_e$, any such first vote necessarily predates every later C1 signature by that replica. Close readiness gates C1 announcements; it does not gate later voting on a value already authorized by a semantic announcement certificate accepted as timely by that voter.
+
+  \item Before participating in epoch-$e$ close rounds, C0 requires a correct replica to reconstruct the canonical previous close $\CE_{e-1}$ and fixes $h_{e-1}=\hash(\CE_{e-1})$. Each close round then has an announcement phase followed by the Kudzu voting phase. A close-ready replica deterministically maps its current candidate set through $\State_e$, so equal candidate sets yield byte-identical target descriptors and roots, and signs at most one semantic announcement for its current previous-close/parent/root triple after satisfying C0 and D3--D4. Announcements first disclosed after the round cutoff are stale and cannot enable that round. Announcements are not Kudzu votes.
+
+  \item Any $q$ matching signed semantic announcements form a portable $\ACert_\rho(h_{e-1},P,t)$. A correct replica may use that certificate only when all constituent announcements belong to its authenticated local pre-cutoff set $\mathcal A_{\rho,r}$. This local definition makes C2 meaningful even before synchrony. In a stabilized round, common cutoff makes all active-correct local sets equal to one $\mathcal A_\rho$, and honest inclusion ensures that every on-schedule active-correct announcement is in that common set. The signer quorum carries the safety-sensitive target judgment and is retained through $\DA$ for later validation, while later catch-up does not require replaying any cutoff transcript. The existence of two different size-$q$ semantic certificates is impossible by quorum intersection and the one-C1-signature rule, even before the local cutoff views have converged. A sufficiently late synchronized round also has enough reconstruction/validation slack before the first-vote deadline. There is no proposer.
+
+  \item Every correct close member participates in the voting phase. With no certificate timely in its own authenticated admission set it first-votes timeout. With a locally timely certificate it may non-timeout-first-vote the unique certifiable enabled value after verifying the certificate, reconstructing the previous close, target, and parent, and checking their objective hashes and structure, even if it did not announce that parent/root pair itself. Second-look notarization and final voting remain bound to the same certificate and do not re-run D3--D4 against the voter's local election view.
+
+  \item A voter with base root $b$ may send $(b,t)$ to any announcer of $t$. If the responder recognizes both states and the base candidate set is a subset of the target candidate set, it returns only the additive canonical-entry difference. The response contains no proofs and no data objects; the root-addressed target descriptor and referenced candidate/certificate objects come from $\DA$ and are validated locally.
+
+  \item If nobody recognizes $b$, there is no alternate reconciliation protocol. Ordinary dissemination advances the replica's state; eventually correct replicas converge to a common immutable state and parent view, K9 supplies a common eligible extension, and matching round-scoped announcements enable the common target with no reconciliation delta.
+
+  \item Close rounds run as consecutive proposer-free Kudzu slots on $\C_{e-2}$ until a non-timeout close-round block finalizes explicitly or implicitly. Timeout certificates advance the close chain but are not epoch closes. Every certified non-timeout close block has retrievable size-$q$ semantic announcement evidence for its uniquely enabled previous-close/parent/root triple by Lemma~\ref{lem:close-acert}; a correct signer of the block's notarization certificate checked that evidence's timeliness during the live round. The canonical $\CE_e$ is the earliest non-timeout close-round block on the finalized chain that is explicitly or implicitly finalized. K8 supplies its own notarization certificate when finality is implicit, its associated portable semantic announcement quorum supplies the late-finalization blocker argument, and Lemma~\ref{lem:close-reconstruct} gives eventual reconstruction of its bound state.
+
+  \item Epoch $e+1$ slot elections may run concurrently with draining and closing epoch $e$ once their replicas satisfy R2, which requires reconstructed finalized close history only through epoch $e-1$. They do not globally wait for $\CE_e$, although R1 can make a replica abstain from a new non-timeout first vote for the same logical slot until its epoch-$e$ pending lock is handed off through reconstructed $M_e$.
+\end{enumerate}
+
+\section{Discussion}
+
+The semantic-announcement construction deliberately distinguishes four notions that are easy to conflate. First, C0 fixes the canonical previous-close anchor for epoch $e$. Second, the target root is a constant-size consensus commitment to immutable close-state membership and deterministic identifying/election metadata, with no certificate-representation choice inside the root. Third, the $q$ signed C1 messages are portable semantic evidence that a quorum of replicas made the safety-sensitive C0 and D3--D4 judgment before the round's Kudzu vote. Fourth, \emph{timeliness} is a live-round fact supplied by the authenticated relay rather than by the signatures alone. In every execution a correct voter evaluates timeliness against its own authenticated pre-cutoff set $\mathcal A_{\rho,r}$, so C2 remains defined even if pre-GST relay views differ. Safety does not require those views to agree: any two size-$q$ semantic certificates would intersect in a correct signer, so the certifiable previous-close/parent/root triple is globally unique. During synchrony, common cutoff strengthens the relay by making all active-correct local sets equal to one $\mathcal A_\rho$, preventing a Byzantine last announcement from being timely at only some active correct voters; honest inclusion ensures that on-schedule active-correct announcements belong to that common set. Safety after catch-up requires the portable semantic quorum and a certified close block; it does not require replaying a cutoff transcript. Liveness during the live round additionally requires common cutoff, honest inclusion, and a sufficiently large eventual reconstruction/validation window before first voting.
+
+This separation is what permits later voters to avoid re-running a replica-local D4 predicate. Re-running it would allow newly learned election state to split the validity judgment after the round had already selected one candidate value. Instead, C3 freezes the certificate-bound authorization for that round, while Lemma~\ref{lem:block-close} proves that any block which actually finalizes later had an honest blocker inside the announcing quorum before the semantic signature was issued. The $T_e$ ordering is essential to that proof: without the D1 fence against new non-timeout epoch-$e$ first votes after $T_e$, quorum membership in a future finalization certificate would not imply that the blocker vote predated the C1 signature. The explicit activation witness together with D0 makes both the finite admitted set and the meaning of ``visible'' objective, and closes the safety implication from an honest non-timeout first vote to D3 coverage of that election. The continuation-quantified form of close inclusion is what makes post-close lock release and garbage collection irreversible safety steps rather than claims only about one completed execution.
+
+The previous-close hash is signed as part of C1 rather than inferred only from the epoch number. This closes the gap between uniqueness of a parent/root pair and uniqueness of the full close value. C0 makes the anchor canonical before a correct replica participates, while collision resistance binds the previous-close and parent hashes to their canonical objects. Similarly, the close-state root excludes mutable finalization status and any non-canonical choice among equivalent certificate witnesses. The deterministic entry map therefore makes candidate-set convergence sufficient for root convergence, while the retained root-addressed state descriptor makes the committed membership enumerable during catch-up.
+
+The termination argument is separated from ordinary Kudzu proposer liveness. RAI relies on K4 only while draining the two leader-based constituent instances of each slot election. A synchronized proposer-free close round is handled directly. If no semantic certificate is timely in the common admission view, correct timeout first votes alone meet the threshold. On a no-close branch, drain progress yields continuous close readiness; state convergence gives a common immutable target, while the explicit parent-evidence catch-up assumption ensures that certified close blocks and timeout-supported advance facts from prior rounds are common before a later synchronized C1 parent selection can depend on them. Together with K9, this yields a common eligible parent rather than merely a locally valid one; K9 also ensures that once that parent is accepted for the deciding round, later valid evidence cannot revoke its eligibility for that same round. The strengthened pacemaker assumption repeatedly co-locates the continuously active correct members in a common round, honest inclusion puts their matching announcements into the common admission set, and the eventual validation-window condition lets all of them validate the same unique enabled value before first voting. K5 then converts their matching first votes into slow finality. Lemma~\ref{lem:close-reconstruct} closes the induction by showing that a finalized close eventually becomes reconstructible and can serve as the C0 anchor for the next epoch.
+
+The assumptions remain intentionally modular. K9 is an explicit close-parent extendability and current-round parent-validity monotonicity obligation of the Kudzu parent machinery. The authenticated relay supplies a local pre-cutoff set in every execution; the synchronized common-cutoff/honest-inclusion property---which makes those local sets identical and includes on-schedule correct announcements---is stronger than bare authenticated point-to-point partial synchrony. The baseline liveness theorem additionally assumes common-round pacemaker convergence, explicit parent-evidence catch-up before later C1 parent selection, an eventual validation window large enough for the finite deciding-round workload, and eventual continuous activity of correct replicas. The safety proof does not rely on synchronized cutoff equality, but it does use a static fault assignment so that a correct quorum blocker, semantic signer, or R1 lock holder does not later become Byzantine in an admissible continuation. The liveness theorem is therefore conditional on those stated properties rather than silently deriving them from partial synchrony alone. The stronger $\Diamond$-synchronous$^{-1}$ property still requires a corresponding suspension-tolerant progress theorem for the ordinary Kudzu slot-election and draining stages.
+
+\end{document}

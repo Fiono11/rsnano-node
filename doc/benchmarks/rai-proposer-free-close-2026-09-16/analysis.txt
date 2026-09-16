@@ -1,0 +1,461 @@
+====================================================================================================
+base1.combined.log
+BENCHMARK: {'published_blocks': 45000, 'confirmed_blocks': 42570, 'confirmed_nonforks': 42557, 'confirmed_forks': 13, 'duration_seconds': 60.04048, 'confirmation_rate_cps': 709.0216467290068, 'average_confirmation_ms': 383.45245841961474, 'average_nonfork_confirmation_ms': 383.1555151866438, 'average_fork_confirmation_ms': 1355.5303942307694}
+epoch 0: drains=4 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[15595] discarded=[73, 73, 73, 73, 73, 73]
+  drain reached at t=8.1..8.1s (spread 0.04s); closed at t=10.8..12.1s; close after last drain: first 2.68s last 3.98s
+  per PR (drain t, close t, round): PR0=(  -,  12.1,r0), PR1=(  8.1,  11.0,r0), PR2=(  8.1,  10.9,r0), PR3=(  8.1,  10.9,r0), PR4=(  -,  10.8,r0), PR5=(  8.1,  12.0,r0)
+epoch 1: drains=6 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[15177] discarded=[256, 257, 262, 299, 318, 322]
+  drain reached at t=16.0..16.1s (spread 0.12s); closed at t=21.3..21.6s; close after last drain: first 5.23s last 5.55s
+  per PR (drain t, close t, round): PR0=( 16.0,  21.5,r0), PR1=( 16.1,  21.4,r0), PR2=( 16.0,  21.4,r0), PR3=( 16.0,  21.3,r0), PR4=( 16.1,  21.4,r0), PR5=( 16.0,  21.6,r0)
+epoch 2: drains=6 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[15061] discarded=[70, 87, 100, 106, 111, 130]
+  drain reached at t=23.9..24.0s (spread 0.13s); closed at t=28.1..28.3s; close after last drain: first 4.08s last 4.29s
+  per PR (drain t, close t, round): PR0=( 24.0,  28.2,r0), PR1=( 24.0,  28.1,r0), PR2=( 23.9,  28.2,r0), PR3=( 24.0,  28.2,r0), PR4=( 24.0,  28.1,r0), PR5=( 24.0,  28.3,r0)
+drain_wait events: 15  members_changed: 14  reconcile: 24  solicit: 26  close_wait polls: 0
+per-epoch latency (publication -> PR0 websocket outcome):
+  epoch 0 forked=False terminated n=14651 mean/p95/max    200/   436/  2178 ms   finalized n=14576 mean/p95/max    243/   537/  2276 ms
+  epoch 0 forked=True  terminated n=  739 mean/p95/max   1634/  2457/  5422 ms   finalized n=    5 mean/p95/max   1448/  2270/  2270 ms
+  epoch 1 forked=False terminated n=14355 mean/p95/max    191/   404/  2210 ms   finalized n=14093 mean/p95/max    224/   434/  2391 ms
+  epoch 1 forked=True  terminated n=  875 mean/p95/max   2159/  5904/ 11899 ms   finalized n=    4 mean/p95/max   1141/  2180/  2180 ms
+  epoch 2 forked=False terminated n=14042 mean/p95/max    405/   591/  8323 ms   finalized n=13852 mean/p95/max    462/   699/  2342 ms
+  epoch 2 forked=True  terminated n=  848 mean/p95/max   2336/  5913/  6934 ms   finalized n=    4 mean/p95/max   1197/  1242/  1242 ms
+non-fork time series (5 s windows by finalization receipt time; blocks/s = finalizations per second; latency = publication->finalization):
+   t(s) phase            pub/s term/s  fin/s  fin mean  fin p95~  1st->fin pubcohort
+      0 epoch 0              0   1777   1766       298       557       111       298
+      5 epoch 0              0   1764   1754       191      1262        90       193
+     10 epoch 1              0   1824   1828       220       432        98       214
+     15 closing 1            0   1742   1682       418       988       177       429
+     20 epoch 2              0   1512   1480       444       940       191       442
+     25 closing 2            0     21      0         -         -         -         -
+
+====================================================================================================
+base2.combined.log
+BENCHMARK: {'published_blocks': 45000, 'confirmed_blocks': 42745, 'confirmed_nonforks': 42737, 'confirmed_forks': 8, 'duration_seconds': 60.083950708, 'confirmation_rate_cps': 711.421261357047, 'average_confirmation_ms': 279.66062223116154, 'average_nonfork_confirmation_ms': 279.52397426656063, 'average_fork_confirmation_ms': 1009.651130125}
+epoch 0: drains=6 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[15578] discarded=[96, 96, 96, 96, 96, 96]
+  drain reached at t=8.1..8.1s (spread 0.08s); closed at t=10.8..11.9s; close after last drain: first 2.66s last 3.81s
+  per PR (drain t, close t, round): PR0=(  8.1,  10.9,r0), PR1=(  8.1,  10.8,r0), PR2=(  8.1,  10.8,r0), PR3=(  8.1,  11.9,r0), PR4=(  8.1,  10.8,r0), PR5=(  8.1,  11.0,r0)
+epoch 1: drains=6 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[15314] discarded=[194, 194, 194, 195, 196, 196]
+  drain reached at t=16.0..16.1s (spread 0.13s); closed at t=24.6..24.9s; close after last drain: first 8.45s last 8.72s
+  per PR (drain t, close t, round): PR0=( 16.0,  24.7,r0), PR1=( 16.0,  24.8,r0), PR2=( 16.0,  24.6,r0), PR3=( 16.1,  24.9,r0), PR4=( 16.1,  24.7,r0), PR5=( 16.0,  24.6,r0)
+epoch 2: drains=6 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[15057] discarded=[52, 62, 62, 75, 82, 83]
+  drain reached at t=24.6..24.9s (spread 0.28s); closed at t=25.4..25.6s; close after last drain: first 0.51s last 0.68s
+  per PR (drain t, close t, round): PR0=( 24.8,  25.5,r0), PR1=( 24.9,  25.6,r0), PR2=( 24.6,  25.4,r0), PR3=( 24.9,  25.5,r0), PR4=( 24.8,  25.5,r0), PR5=( 24.7,  25.5,r0)
+drain_wait events: 16  members_changed: 12  reconcile: 17  solicit: 26  close_wait polls: 0
+per-epoch latency (publication -> PR0 websocket outcome):
+  epoch 0 forked=False terminated n=14655 mean/p95/max    215/   534/   877 ms   finalized n=14520 mean/p95/max    252/   662/  1051 ms
+  epoch 0 forked=True  terminated n=  730 mean/p95/max   1753/  2552/  2802 ms   finalized n=    2 mean/p95/max    907/  1215/  1215 ms
+  epoch 1 forked=False terminated n=14438 mean/p95/max    139/   268/  2173 ms   finalized n=14260 mean/p95/max    162/   304/  2192 ms
+  epoch 1 forked=True  terminated n=  733 mean/p95/max   1897/  2431/  6177 ms   finalized n=    5 mean/p95/max    947/  1698/  1698 ms
+  epoch 2 forked=False terminated n=13986 mean/p95/max    248/   393/  5594 ms   finalized n=13957 mean/p95/max    274/   459/  2397 ms
+  epoch 2 forked=True  terminated n=  867 mean/p95/max   2307/  5898/ 11413 ms   finalized n=    1 mean/p95/max   1259/  1259/  1259 ms
+non-fork time series (5 s windows by finalization receipt time; blocks/s = finalizations per second; latency = publication->finalization):
+   t(s) phase            pub/s term/s  fin/s  fin mean  fin p95~  1st->fin pubcohort
+      0 epoch 0              0   1761   1761       318       768       134       317
+      5 epoch 0              0   1846   1818       153       902        76       152
+     10 epoch 1              0   1807   1806       161       328        90       162
+     15 closing 1            0   1733   1682       264       619       109       269
+     20 closing 1            0   1469   1481       260       399       116       256
+
+====================================================================================================
+base3.combined.log
+BENCHMARK: {'published_blocks': 45000, 'confirmed_blocks': 42660, 'confirmed_nonforks': 42656, 'confirmed_forks': 4, 'duration_seconds': 60.027549542, 'confirmation_rate_cps': 710.6736877565143, 'average_confirmation_ms': 325.18064354988275, 'average_nonfork_confirmation_ms': 324.97980071591337, 'average_fork_confirmation_ms': 2466.968625}
+epoch 0: drains=5 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[15608] discarded=[190, 190, 190, 190, 190, 190]
+  drain reached at t=8.0..8.1s (spread 0.10s); closed at t=11.1..12.5s; close after last drain: first 3.00s last 4.40s
+  per PR (drain t, close t, round): PR0=(  8.0,  11.1,r0), PR1=(  8.1,  11.2,r0), PR2=(  8.1,  11.1,r0), PR3=(  8.0,  11.3,r0), PR4=(  8.1,  12.5,r0), PR5=(  -,  11.1,r0)
+epoch 1: drains=6 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[15122] discarded=[116, 117, 118, 122, 122, 126]
+  drain reached at t=16.0..16.1s (spread 0.05s); closed at t=24.4..71.9s; close after last drain: first 8.36s last 55.86s
+  per PR (drain t, close t, round): PR0=( 16.1,  24.4,r0), PR1=( 16.0,  71.9,r0), PR2=( 16.0,  24.5,r0), PR3=( 16.0,  24.5,r0), PR4=( 16.1,  24.5,r0), PR5=( 16.0,  24.5,r0)
+epoch 2: drains=6 closes=4 hashes=1 rounds=[0, 0, 0, 0] blocks=[15146] discarded=[12, 14, 26, 92]
+  drain reached at t=24.5..72.0s (spread 47.48s); closed at t=30.9..72.5s; close after last drain: first -41.04s last 0.50s
+  per PR (drain t, close t, round): PR0=( 24.5,  30.9,r0), PR1=( 72.0,  72.5,r0), PR3=( 24.6,  30.9,r0), PR5=( 24.6,  30.9,r0)
+drain_wait events: 17  members_changed: 13  reconcile: 43  solicit: 31  close_wait polls: 0
+per-epoch latency (publication -> PR0 websocket outcome):
+  epoch 0 forked=False terminated n=14723 mean/p95/max    163/   386/  2086 ms   finalized n=14509 mean/p95/max    184/   407/  2117 ms
+  epoch 0 forked=True  terminated n=  779 mean/p95/max   1743/  2422/  5414 ms   finalized n=    0 mean/p95/max      -/     -/     - ms
+  epoch 1 forked=False terminated n=14211 mean/p95/max    244/   400/  2315 ms   finalized n=14094 mean/p95/max    287/   517/  2315 ms
+  epoch 1 forked=True  terminated n=  794 mean/p95/max   1856/  2643/  6754 ms   finalized n=    4 mean/p95/max   2467/  2660/  2660 ms
+  epoch 2 forked=False terminated n=14073 mean/p95/max    301/   505/  2695 ms   finalized n=14053 mean/p95/max    338/   582/  2696 ms
+  epoch 2 forked=True  terminated n=  842 mean/p95/max   2578/  6200/ 12194 ms   finalized n=    0 mean/p95/max      -/     -/     - ms
+non-fork time series (5 s windows by finalization receipt time; blocks/s = finalizations per second; latency = publication->finalization):
+   t(s) phase            pub/s term/s  fin/s  fin mean  fin p95~  1st->fin pubcohort
+      0 epoch 0              0   1803   1802       212       442        71       213
+      5 epoch 0              0   1803   1756       186       982        83       192
+     10 epoch 1              0   1730   1731       301       555       139       299
+     15 closing 1            0   1860   1826       367      1198       148       369
+     20 closing 1            0   1405   1416       277       438       104       272
+
+====================================================================================================
+new2.combined.log
+BENCHMARK: {'published_blocks': 45000, 'confirmed_blocks': 42468, 'confirmed_nonforks': 42463, 'confirmed_forks': 5, 'duration_seconds': 60.041413584, 'confirmation_rate_cps': 707.3117947262486, 'average_confirmation_ms': 373.67619692278896, 'average_nonfork_confirmation_ms': 373.58923914250056, 'average_fork_confirmation_ms': 1112.1738418}
+epoch 0: drains=4 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[15766] discarded=[138, 138, 138, 138, 138, 138]
+  drain reached at t=8.3..8.3s (spread 0.08s); closed at t=17.1..17.4s; close after last drain: first 8.76s last 9.06s
+  per PR (drain t, close t, round): PR0=(  8.3,  17.3,r0), PR1=(  8.3,  17.2,r0), PR2=(  8.3,  17.2,r0), PR3=(  -,  17.1,r0), PR4=(  8.3,  17.4,r0), PR5=(  -,  17.1,r0)
+epoch 1: drains=6 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[18867] discarded=[519, 525, 526, 528, 552, 555]
+  drain reached at t=17.8..18.4s (spread 0.54s); closed at t=27.8..27.9s; close after last drain: first 9.48s last 9.58s
+  per PR (drain t, close t, round): PR0=( 18.2,  27.9,r0), PR1=( 17.8,  27.9,r0), PR2=( 18.2,  27.9,r0), PR3=( 18.2,  27.8,r0), PR4=( 18.4,  27.9,r0), PR5=( 17.8,  27.9,r0)
+epoch 2: drains=6 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[11689] discarded=[218, 338, 344, 412, 461, 506]
+  drain reached at t=27.9..28.0s (spread 0.08s); closed at t=34.2..34.3s; close after last drain: first 6.20s last 6.28s
+  per PR (drain t, close t, round): PR0=( 28.0,  34.2,r0), PR1=( 28.0,  34.3,r0), PR2=( 28.0,  34.3,r0), PR3=( 27.9,  34.2,r0), PR4=( 28.0,  34.2,r0), PR5=( 28.0,  34.3,r0)
+drain_wait events: 17  members_changed: 10  reconcile: 17  solicit: 29  close_wait polls: 0
+per-epoch latency (publication -> PR0 websocket outcome):
+  epoch 0 forked=False terminated n=14707 mean/p95/max    127/   277/   570 ms   finalized n=14543 mean/p95/max    141/   296/   570 ms
+  epoch 0 forked=True  terminated n=  749 mean/p95/max   1881/  2303/  5439 ms   finalized n=    0 mean/p95/max      -/     -/     - ms
+  epoch 1 forked=False terminated n=18039 mean/p95/max    236/   506/  5507 ms   finalized n=17229 mean/p95/max    247/   507/  2321 ms
+  epoch 1 forked=True  terminated n= 1005 mean/p95/max   2049/  2981/  7505 ms   finalized n=    5 mean/p95/max   1104/  1391/  1391 ms
+  epoch 2 forked=False terminated n=11370 mean/p95/max    901/  5448/  7011 ms   finalized n=10691 mean/p95/max    689/   985/  3384 ms
+  epoch 2 forked=True  terminated n=  631 mean/p95/max   2898/  6731/ 12929 ms   finalized n=    0 mean/p95/max      -/     -/     - ms
+non-fork time series (5 s windows by finalization receipt time; blocks/s = finalizations per second; latency = publication->finalization):
+   t(s) phase            pub/s term/s  fin/s  fin mean  fin p95~  1st->fin pubcohort
+      0 epoch 0              0   1734   1729       160       310        59       159
+      5 epoch 0              0   1785   1755       170       767        83       172
+     10 closing 0            0   1774   1758       153       278        79       166
+     15 epoch 1              0   1738   1565       503      1892       212       552
+     20 closing 1            0   1792   1685       652      3383       249       625
+
+====================================================================================================
+new3.combined.log
+BENCHMARK: {'published_blocks': 45000, 'confirmed_blocks': 42566, 'confirmed_nonforks': 42559, 'confirmed_forks': 7, 'duration_seconds': 60.088516833, 'confirmation_rate_cps': 708.3882619086911, 'average_confirmation_ms': 318.59457485648164, 'average_nonfork_confirmation_ms': 318.37214444961114, 'average_fork_confirmation_ms': 1670.9396728571428}
+epoch 0: drains=4 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[15705] discarded=[131, 131, 131, 131, 131, 131]
+  drain reached at t=8.0..8.1s (spread 0.09s); closed at t=10.8..10.9s; close after last drain: first 2.63s last 2.75s
+  per PR (drain t, close t, round): PR0=(  -,  10.8,r0), PR1=(  8.0,  10.8,r0), PR2=(  -,  10.8,r0), PR3=(  8.0,  10.9,r0), PR4=(  8.1,  10.8,r0), PR5=(  8.1,  10.8,r0)
+epoch 1: drains=6 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[15089] discarded=[129, 129, 132, 133, 137, 143]
+  drain reached at t=15.9..16.0s (spread 0.13s); closed at t=19.2..19.5s; close after last drain: first 3.18s last 3.50s
+  per PR (drain t, close t, round): PR0=( 16.0,  19.5,r0), PR1=( 16.0,  19.2,r0), PR2=( 16.0,  19.2,r0), PR3=( 15.9,  19.2,r0), PR4=( 15.9,  19.2,r0), PR5=( 15.9,  19.3,r0)
+epoch 2: drains=6 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[15191] discarded=[12, 14, 19, 24, 30, 69]
+  drain reached at t=23.7..23.9s (spread 0.14s); closed at t=26.2..26.4s; close after last drain: first 2.34s last 2.50s
+  per PR (drain t, close t, round): PR0=( 23.7,  26.3,r0), PR1=( 23.8,  26.4,r0), PR2=( 23.8,  26.3,r0), PR3=( 23.8,  26.3,r0), PR4=( 23.8,  26.2,r0), PR5=( 23.9,  26.2,r0)
+drain_wait events: 16  members_changed: 19  reconcile: 21  solicit: 27  close_wait polls: 0
+per-epoch latency (publication -> PR0 websocket outcome):
+  epoch 0 forked=False terminated n=14710 mean/p95/max    151/   298/  2094 ms   finalized n=14575 mean/p95/max    166/   322/  2135 ms
+  epoch 0 forked=True  terminated n=  792 mean/p95/max   1805/  2460/  5728 ms   finalized n=    0 mean/p95/max      -/     -/     - ms
+  epoch 1 forked=False terminated n=14162 mean/p95/max    203/   353/  2330 ms   finalized n=13963 mean/p95/max    226/   386/  2790 ms
+  epoch 1 forked=True  terminated n=  802 mean/p95/max   1757/  2495/  6274 ms   finalized n=    6 mean/p95/max   1597/  2278/  2278 ms
+  epoch 2 forked=False terminated n=14069 mean/p95/max    353/   629/  5750 ms   finalized n=14021 mean/p95/max    417/   877/  2416 ms
+  epoch 2 forked=True  terminated n=  849 mean/p95/max   2303/  5934/  6678 ms   finalized n=    1 mean/p95/max   1822/  1822/  1822 ms
+non-fork time series (5 s windows by finalization receipt time; blocks/s = finalizations per second; latency = publication->finalization):
+   t(s) phase            pub/s term/s  fin/s  fin mean  fin p95~  1st->fin pubcohort
+      0 epoch 0              0   1788   1784       188       341        62       194
+      5 epoch 0              0   1811   1781       172      1150        82       173
+     10 epoch 1              0   1808   1811       225      2790        99       219
+     15 closing 1            0   1601   1421       305      1284       124       412
+     20 epoch 2              0   1581   1714       468       951       186       378
+
+====================================================================================================
+new4.combined.log
+BENCHMARK: {'published_blocks': 45000, 'confirmed_blocks': 42665, 'confirmed_nonforks': 42655, 'confirmed_forks': 10, 'duration_seconds': 60.037527, 'confirmation_rate_cps': 710.6388642556847, 'average_confirmation_ms': 339.23650230219147, 'average_nonfork_confirmation_ms': 338.970081966147, 'average_fork_confirmation_ms': 1475.6524457}
+epoch 0: drains=6 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[15646] discarded=[197, 197, 197, 197, 197, 197]
+  drain reached at t=8.2..8.3s (spread 0.10s); closed at t=10.9..12.0s; close after last drain: first 2.63s last 3.71s
+  per PR (drain t, close t, round): PR0=(  8.2,  10.9,r0), PR1=(  8.2,  12.0,r0), PR2=(  8.3,  11.8,r0), PR3=(  8.2,  10.9,r0), PR4=(  8.2,  11.0,r0), PR5=(  8.2,  10.9,r0)
+epoch 1: drains=6 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[15150] discarded=[282, 285, 286, 316, 319, 349]
+  drain reached at t=16.0..16.2s (spread 0.18s); closed at t=21.5..23.4s; close after last drain: first 5.33s last 7.25s
+  per PR (drain t, close t, round): PR0=( 16.0,  21.8,r0), PR1=( 16.1,  23.4,r0), PR2=( 16.2,  21.9,r0), PR3=( 16.1,  21.5,r0), PR4=( 16.1,  21.5,r0), PR5=( 16.1,  21.6,r0)
+epoch 2: drains=6 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[15093] discarded=[145, 161, 162, 178, 194, 207]
+  drain reached at t=23.9..24.3s (spread 0.35s); closed at t=26.5..26.8s; close after last drain: first 2.25s last 2.50s
+  per PR (drain t, close t, round): PR0=( 24.0,  26.5,r0), PR1=( 24.3,  26.6,r0), PR2=( 23.9,  26.8,r0), PR3=( 24.0,  26.6,r0), PR4=( 23.9,  26.6,r0), PR5=( 24.0,  26.5,r0)
+drain_wait events: 13  members_changed: 9  reconcile: 15  solicit: 30  close_wait polls: 0
+per-epoch latency (publication -> PR0 websocket outcome):
+  epoch 0 forked=False terminated n=14658 mean/p95/max    156/   376/  2091 ms   finalized n=14463 mean/p95/max    177/   409/  2135 ms
+  epoch 0 forked=True  terminated n=  811 mean/p95/max   1784/  2449/  5229 ms   finalized n=    6 mean/p95/max   1645/  2295/  2295 ms
+  epoch 1 forked=False terminated n=14387 mean/p95/max    168/   286/  5311 ms   finalized n=14121 mean/p95/max    195/   329/  1564 ms
+  epoch 1 forked=True  terminated n=  822 mean/p95/max   2099/  5670/  6256 ms   finalized n=    3 mean/p95/max   1054/  1874/  1874 ms
+  epoch 2 forked=False terminated n=14157 mean/p95/max    397/   656/  5886 ms   finalized n=13993 mean/p95/max    438/   743/  2533 ms
+  epoch 2 forked=True  terminated n=  874 mean/p95/max   2647/  7095/ 12497 ms   finalized n=    1 mean/p95/max   1278/  1278/  1278 ms
+non-fork time series (5 s windows by finalization receipt time; blocks/s = finalizations per second; latency = publication->finalization):
+   t(s) phase            pub/s term/s  fin/s  fin mean  fin p95~  1st->fin pubcohort
+      0 epoch 0              0   1719   1710       209       451        71       212
+      5 epoch 0              0   1854   1821       155       462        79       149
+     10 epoch 1              0   1778   1767       189       323        90       195
+     15 closing 1            0   1804   1743       388       978       123       387
+     20 epoch 2+s            0   1502   1489       434       775       126       441
+     25 after close 2        0     22      0         -         -         -         -
+
+====================================================================================================
+new8.combined.log
+BENCHMARK: {'published_blocks': 45000, 'confirmed_blocks': 42732, 'confirmed_nonforks': 42697, 'confirmed_forks': 35, 'duration_seconds': 60.039573666, 'confirmation_rate_cps': 711.7305702022138, 'average_confirmation_ms': 317.71017418316484, 'average_nonfork_confirmation_ms': 317.4413663065789, 'average_fork_confirmation_ms': 645.6327429428571}
+epoch 0: drains=4 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[15565] discarded=[94, 94, 94, 94, 94, 94]
+  drain reached at t=8.0..8.1s (spread 0.07s); closed at t=9.7..9.8s; close after last drain: first 1.62s last 1.75s
+  per PR (drain t, close t, round): PR0=(  8.1,   9.8,r0), PR1=(  8.0,   9.7,r0), PR2=(  -,   9.8,r0), PR3=(  8.0,   9.8,r0), PR4=(  -,   9.8,r0), PR5=(  8.1,   9.7,r0)
+epoch 1: drains=6 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[15047] discarded=[246, 246, 246, 246, 246, 246]
+  drain reached at t=15.8..15.9s (spread 0.08s); closed at t=23.2..23.5s; close after last drain: first 7.36s last 7.61s
+  per PR (drain t, close t, round): PR0=( 15.8,  23.3,r0), PR1=( 15.8,  23.5,r0), PR2=( 15.8,  23.3,r0), PR3=( 15.8,  23.4,r0), PR4=( 15.9,  23.4,r0), PR5=( 15.8,  23.2,r0)
+epoch 2: drains=6 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[15120] discarded=[9, 9, 9, 9, 9, 11]
+  drain reached at t=24.0..24.0s (spread 0.03s); closed at t=24.7..24.7s; close after last drain: first 0.66s last 0.73s
+  per PR (drain t, close t, round): PR0=( 24.0,  24.7,r0), PR1=( 24.0,  24.7,r0), PR2=( 24.0,  24.7,r0), PR3=( 24.0,  24.7,r0), PR4=( 24.0,  24.7,r0), PR5=( 24.0,  24.7,r0)
+drain_wait events: 14  members_changed: 14  reconcile: 20  solicit: 22  close_wait polls: 0
+per-epoch latency (publication -> PR0 websocket outcome):
+  epoch 0 forked=False terminated n=14551 mean/p95/max    193/   386/  2221 ms   finalized n=14444 mean/p95/max    220/   460/  2221 ms
+  epoch 0 forked=True  terminated n=  785 mean/p95/max    605/  1108/  1475 ms   finalized n=    2 mean/p95/max    575/   818/   818 ms
+  epoch 1 forked=False terminated n=14321 mean/p95/max    183/   391/  2129 ms   finalized n=14095 mean/p95/max    208/   458/  2165 ms
+  epoch 1 forked=True  terminated n=  751 mean/p95/max    635/  1218/  2558 ms   finalized n=   14 mean/p95/max    642/   917/   917 ms
+  epoch 2 forked=False terminated n=14165 mean/p95/max    300/   531/  7962 ms   finalized n=14158 mean/p95/max    343/   567/  2410 ms
+  epoch 2 forked=True  terminated n=  773 mean/p95/max    843/  1298/ 11231 ms   finalized n=   19 mean/p95/max    592/   885/   885 ms
+non-fork time series (5 s windows by finalization receipt time; blocks/s = finalizations per second; latency = publication->finalization):
+   t(s) phase            pub/s term/s  fin/s  fin mean  fin p95~  1st->fin pubcohort
+      0 epoch 0              0   1728   1687       231       468        85       245
+      5 epoch 0              0   1844   1833       220      1217        96       235
+     10 epoch 1              0   1831   1840       190       560        94       159
+     15 closing 1            0   1732   1704       300       816       142       314
+     20 closing 1            0   1472   1475       366       641       169       362
+
+====================================================================================================
+new9.combined.log
+BENCHMARK: {'published_blocks': 45000, 'confirmed_blocks': 42752, 'confirmed_nonforks': 42733, 'confirmed_forks': 19, 'duration_seconds': 60.012591334, 'confirmation_rate_cps': 712.3838356198252, 'average_confirmation_ms': 304.3390147777414, 'average_nonfork_confirmation_ms': 302.121519578616, 'average_fork_confirmation_ms': 5291.719138157895}
+epoch 0: drains=1 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[15589] discarded=[39, 39, 39, 39, 39, 39]
+  drain reached at t=7.9..7.9s (spread 0.00s); closed at t=12.6..12.8s; close after last drain: first 4.76s last 4.90s
+  per PR (drain t, close t, round): PR0=(  -,  12.7,r0), PR1=(  7.9,  12.7,r0), PR2=(  -,  12.7,r0), PR3=(  -,  12.7,r0), PR4=(  -,  12.6,r0), PR5=(  -,  12.8,r0)
+epoch 1: drains=5 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[15283] discarded=[166, 166, 168, 168, 168, 169]
+  drain reached at t=15.8..15.9s (spread 0.07s); closed at t=18.5..18.7s; close after last drain: first 2.60s last 2.81s
+  per PR (drain t, close t, round): PR0=( 15.8,  18.5,r0), PR1=( 15.8,  18.7,r0), PR2=( 15.9,  18.6,r0), PR3=(  -,  18.5,r0), PR4=( 15.8,  18.6,r0), PR5=( 15.9,  18.7,r0)
+epoch 2: drains=6 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[15054] discarded=[13, 14, 14, 14, 16, 39]
+  drain reached at t=23.7..23.9s (spread 0.14s); closed at t=24.2..24.4s; close after last drain: first 0.37s last 0.56s
+  per PR (drain t, close t, round): PR0=( 23.7,  24.3,r0), PR1=( 23.8,  24.3,r0), PR2=( 23.9,  24.4,r0), PR3=( 23.8,  24.3,r0), PR4=( 23.9,  24.2,r0), PR5=( 23.8,  24.3,r0)
+drain_wait events: 13  members_changed: 6  reconcile: 11  solicit: 21  close_wait polls: 0
+per-epoch latency (publication -> PR0 websocket outcome):
+  epoch 0 forked=False terminated n=14495 mean/p95/max    213/   533/   890 ms   finalized n=14450 mean/p95/max    236/   577/   899 ms
+  epoch 0 forked=True  terminated n=  724 mean/p95/max    719/  1536/  2659 ms   finalized n=    0 mean/p95/max      -/     -/     - ms
+  epoch 1 forked=False terminated n=14399 mean/p95/max    154/   321/  1652 ms   finalized n=14172 mean/p95/max    177/   346/  1653 ms
+  epoch 1 forked=True  terminated n=  768 mean/p95/max    649/  1164/  5569 ms   finalized n=    5 mean/p95/max    900/   920/   920 ms
+  epoch 2 forked=False terminated n=14112 mean/p95/max    289/   480/  5861 ms   finalized n=14111 mean/p95/max    337/   580/  2783 ms
+  epoch 2 forked=True  terminated n=  744 mean/p95/max    882/  1505/ 11665 ms   finalized n=    6 mean/p95/max    914/  1005/  1005 ms
+non-fork time series (5 s windows by finalization receipt time; blocks/s = finalizations per second; latency = publication->finalization):
+   t(s) phase            pub/s term/s  fin/s  fin mean  fin p95~  1st->fin pubcohort
+      0 epoch 0              0   1744   1736       293       630        90       298
+      5 epoch 0              0   1872   1872       154       718        83       138
+     10 closing 0            0   1790   1790       185       400        90       186
+     15 closing 1            0   1694   1649       310       980       161       337
+     20 epoch 2              0   1501   1501       329       498       123       302
+
+====================================================================================================
+new10.combined.log
+BENCHMARK: {'published_blocks': 45000, 'confirmed_blocks': 42709, 'confirmed_nonforks': 42702, 'confirmed_forks': 7, 'duration_seconds': 60.066993208, 'confirmation_rate_cps': 711.022771726017, 'average_confirmation_ms': 383.56759444318527, 'average_nonfork_confirmation_ms': 383.41798872301064, 'average_fork_confirmation_ms': 1296.205232}
+epoch 0: drains=6 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[15484] discarded=[520, 520, 520, 520, 520, 520]
+  drain reached at t=7.8..8.0s (spread 0.23s); closed at t=10.7..10.8s; close after last drain: first 2.65s last 2.82s
+  per PR (drain t, close t, round): PR0=(  8.0,  10.7,r0), PR1=(  7.8,  10.8,r0), PR2=(  7.8,  10.8,r0), PR3=(  7.8,  10.7,r0), PR4=(  7.8,  10.7,r0), PR5=(  7.8,  10.7,r0)
+epoch 1: drains=6 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[14799] discarded=[156, 157, 180, 187, 195, 197]
+  drain reached at t=15.5..15.6s (spread 0.12s); closed at t=18.1..18.3s; close after last drain: first 2.48s last 2.69s
+  per PR (drain t, close t, round): PR0=( 15.5,  18.2,r0), PR1=( 15.6,  18.2,r0), PR2=( 15.6,  18.3,r0), PR3=( 15.5,  18.1,r0), PR4=( 15.6,  18.2,r0), PR5=( 15.5,  18.1,r0)
+epoch 2: drains=6 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[15003] discarded=[160, 163, 170, 170, 178, 200]
+  drain reached at t=23.5..23.6s (spread 0.14s); closed at t=25.9..26.0s; close after last drain: first 2.23s last 2.34s
+  per PR (drain t, close t, round): PR0=( 23.6,  25.9,r0), PR1=( 23.5,  25.9,r0), PR2=( 23.5,  26.0,r0), PR3=( 23.5,  26.0,r0), PR4=( 23.5,  25.9,r0), PR5=( 23.5,  25.9,r0)
+drain_wait events: 16  members_changed: 2  reconcile: 7  solicit: 24  close_wait polls: 0
+per-epoch latency (publication -> PR0 websocket outcome):
+  epoch 0 forked=False terminated n=14887 mean/p95/max    209/   379/   601 ms   finalized n=14390 mean/p95/max    232/   427/   894 ms
+  epoch 0 forked=True  terminated n=  792 mean/p95/max    717/  1242/  2117 ms   finalized n=    0 mean/p95/max      -/     -/     - ms
+  epoch 1 forked=False terminated n=13955 mean/p95/max    247/   458/  2404 ms   finalized n=13801 mean/p95/max    286/   552/  2405 ms
+  epoch 1 forked=True  terminated n=  791 mean/p95/max   1009/  5796/  6444 ms   finalized n=    5 mean/p95/max   1158/  1340/  1340 ms
+  epoch 2 forked=False terminated n=14256 mean/p95/max    348/   521/  5819 ms   finalized n=14046 mean/p95/max    387/   677/  2426 ms
+  epoch 2 forked=True  terminated n=  822 mean/p95/max   1269/  5843/ 11723 ms   finalized n=    2 mean/p95/max   1105/  1317/  1317 ms
+non-fork time series (5 s windows by finalization receipt time; blocks/s = finalizations per second; latency = publication->finalization):
+   t(s) phase            pub/s term/s  fin/s  fin mean  fin p95~  1st->fin pubcohort
+      0 epoch 0              0   1811   1792       233       435        93       240
+      5 epoch 0              0   1879   1796       295       876       125       296
+     10 epoch 1              0   1802   1796       238       467       119       236
+     15 closing 1            0   1773   1730       415       894       187       421
+     20 epoch 2              0   1450   1426       335       841       110       326
+     25 after close 2        0      0      0         -         -         -         -
+
+====================================================================================================
+a12.combined.log
+BENCHMARK: {'published_blocks': 45000, 'confirmed_blocks': 42560, 'confirmed_nonforks': 42554, 'confirmed_forks': 6, 'duration_seconds': 60.014108875, 'confirmation_rate_cps': 709.1665742908192, 'average_confirmation_ms': 639.5908152292293, 'average_nonfork_confirmation_ms': 639.4390306392348, 'average_fork_confirmation_ms': 1716.0977223333336}
+epoch 0: drains=6 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[15392] discarded=[169, 169, 169, 169, 169, 169]
+  drain reached at t=7.9..8.0s (spread 0.10s); closed at t=10.5..11.5s; close after last drain: first 2.46s last 3.47s
+  per PR (drain t, close t, round): PR0=(  7.9,  10.5,r0), PR1=(  7.9,  10.5,r0), PR2=(  8.0,  11.5,r0), PR3=(  7.9,  10.6,r0), PR4=(  8.0,  10.5,r0), PR5=(  8.0,  10.5,r0)
+epoch 1: drains=5 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[15152] discarded=[293, 293, 293, 297, 298, 351]
+  drain reached at t=15.8..16.0s (spread 0.22s); closed at t=19.8..21.2s; close after last drain: first 3.79s last 5.14s
+  per PR (drain t, close t, round): PR0=( 15.8,  19.9,r0), PR1=( 15.9,  20.2,r0), PR2=( 15.9,  21.2,r0), PR3=(  -,  20.0,r0), PR4=( 15.8,  19.9,r0), PR5=( 16.0,  19.8,r0)
+epoch 2: drains=4 closes=0 hashes=0 rounds=[] blocks=[] discarded=[]
+  drain reached at t=23.6..24.0s (spread 0.35s); NOT CLOSED
+  per PR (drain t, close t, round): 
+drain_wait events: 21  members_changed: 10  reconcile: 444  solicit: 33  close_wait polls: 0
+per-epoch latency (publication -> PR0 websocket outcome):
+  epoch 0 forked=False terminated n=14509 mean/p95/max    227/   524/  2283 ms   finalized n=14354 mean/p95/max    264/   611/  2384 ms
+  epoch 0 forked=True  terminated n=  752 mean/p95/max    779/  1634/  2376 ms   finalized n=    0 mean/p95/max      -/     -/     - ms
+  epoch 1 forked=False terminated n=14529 mean/p95/max    319/   528/  5645 ms   finalized n=14074 mean/p95/max    345/   559/  2478 ms
+  epoch 1 forked=True  terminated n=  817 mean/p95/max   1260/  2497/ 11275 ms   finalized n=    6 mean/p95/max   1612/  2672/  2672 ms
+  epoch 2 forked=False terminated n=14384 mean/p95/max    763/  1053/  7410 ms   finalized n=13944 mean/p95/max    872/  1281/  3010 ms
+  epoch 2 forked=True  terminated n=  920 mean/p95/max   2770/ 11685/ 19486 ms   finalized n=    0 mean/p95/max      -/     -/     - ms
+  epoch 3 forked=False terminated n=  334 mean/p95/max   1557/  6712/  6744 ms   finalized n=  182 mean/p95/max    937/  1099/  1111 ms
+  epoch 3 forked=True  terminated n=  288 mean/p95/max   6929/ 19110/ 24991 ms   finalized n=    0 mean/p95/max      -/     -/     - ms
+non-fork time series (5 s windows by finalization receipt time; blocks/s = finalizations per second; latency = publication->finalization):
+   t(s) phase            pub/s term/s  fin/s  fin mean  fin p95~  1st->fin pubcohort
+      0 epoch 0              0   1728   1708       317       714       108       323
+      5 epoch 0              0   1878   1848       261      1242       110       252
+     10 epoch 1              0   1730   1738       303       473       152       325
+     15 closing 1            0   1712   1608       836      1715       337       878
+     20 epoch 2              0   1695   1610       808      1119       403       781
+     25 after close 2        0      8      0         -         -         -         -
+
+====================================================================================================
+a14.combined.log
+BENCHMARK: {'published_blocks': 45000, 'confirmed_blocks': 42286, 'confirmed_nonforks': 42272, 'confirmed_forks': 14, 'duration_seconds': 60.019233667, 'confirmation_rate_cps': 704.540818275223, 'average_confirmation_ms': 1268.3051316333065, 'average_nonfork_confirmation_ms': 1267.9629428383328, 'average_fork_confirmation_ms': 2301.519756}
+epoch 0: drains=5 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[16001] discarded=[607, 607, 607, 607, 607, 607]
+  drain reached at t=8.3..8.7s (spread 0.35s); closed at t=19.5..66.7s; close after last drain: first 10.81s last 58.00s
+  per PR (drain t, close t, round): PR0=(  8.4,  19.9,r0), PR1=(  8.3,  19.5,r0), PR2=(  -,  19.5,r0), PR3=(  8.5,  66.7,r0), PR4=(  8.3,  19.7,r0), PR5=(  8.7,  19.7,r0)
+epoch 1: drains=6 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[22913] discarded=[6831, 6853, 6864, 6867, 6888, 6898]
+  drain reached at t=20.3..66.7s (spread 46.40s); closed at t=33.5..66.9s; close after last drain: first -33.19s last 0.14s
+  per PR (drain t, close t, round): PR0=( 20.7,  33.7,r0), PR1=( 20.3,  33.6,r0), PR2=( 20.4,  33.8,r0), PR3=( 66.7,  66.9,r0), PR4=( 20.4,  33.5,r0), PR5=( 21.0,  33.7,r0)
+epoch 2: drains=6 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[7207] discarded=[99, 145, 163, 183, 187, 295]
+  drain reached at t=33.6..66.9s (spread 33.30s); closed at t=40.2..67.6s; close after last drain: first -26.76s last 0.69s
+  per PR (drain t, close t, round): PR0=( 33.8,  40.2,r0), PR1=( 33.7,  40.3,r0), PR2=( 33.9,  40.2,r0), PR3=( 66.9,  67.6,r0), PR4=( 33.6,  40.2,r0), PR5=( 33.8,  40.2,r0)
+drain_wait events: 14  members_changed: 6  reconcile: 37  solicit: 33  close_wait polls: 0
+per-epoch latency (publication -> PR0 websocket outcome):
+  epoch 0 forked=False terminated n=15469 mean/p95/max    473/  1048/  3639 ms   finalized n=14769 mean/p95/max    508/  1055/  3417 ms
+  epoch 0 forked=True  terminated n=  796 mean/p95/max   1247/  2286/  4648 ms   finalized n=    8 mean/p95/max   1154/  1432/  1432 ms
+  epoch 1 forked=False terminated n=27800 mean/p95/max   1181/  2531/  9579 ms   finalized n=20942 mean/p95/max    960/  1535/  8142 ms
+  epoch 1 forked=True  terminated n= 1641 mean/p95/max   2713/  4309/ 16247 ms   finalized n=    6 mean/p95/max   3396/  3483/  3483 ms
+  epoch 2 forked=False terminated n= 7026 mean/p95/max   2186/  3344/ 14236 ms   finalized n= 6561 mean/p95/max   2363/  3431/  5554 ms
+  epoch 2 forked=True  terminated n=  630 mean/p95/max   6161/ 17189/ 24597 ms   finalized n=    0 mean/p95/max      -/     -/     - ms
+non-fork time series (5 s windows by finalization receipt time; blocks/s = finalizations per second; latency = publication->finalization):
+   t(s) phase            pub/s term/s  fin/s  fin mean  fin p95~  1st->fin pubcohort
+      0 epoch 0              0   1543   1508       349       799       121       440
+      5 epoch 0              0   1877   1701       730      1417       364       824
+     10 closing 0            0   1819   1808       928      7312       346       845
+     15 closing 0            0   1678   1696       847      8142       289       992
+     20 closing 1            0   2605   1301      2014      3114      1102      2358
+     25 closing 1            0    485    440      2541      5317      1254         -
+     30 closing 1            0     53      0         -         -         -         -
+
+====================================================================================================
+a17.combined.log
+BENCHMARK: {'published_blocks': 45000, 'confirmed_blocks': 42599, 'confirmed_nonforks': 42591, 'confirmed_forks': 8, 'duration_seconds': 60.008052709, 'confirmation_rate_cps': 709.8880579674436, 'average_confirmation_ms': 949.5038884447288, 'average_nonfork_confirmation_ms': 949.4491805991407, 'average_fork_confirmation_ms': 1240.761619875}
+epoch 0: drains=3 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[15642] discarded=[133, 133, 133, 133, 133, 133]
+  drain reached at t=8.0..8.1s (spread 0.09s); closed at t=16.1..68.3s; close after last drain: first 8.02s last 60.25s
+  per PR (drain t, close t, round): PR0=(  -,  16.4,r0), PR1=(  8.1,  16.1,r0), PR2=(  8.0,  16.3,r0), PR3=(  8.0,  16.2,r0), PR4=(  -,  68.3,r0), PR5=(  -,  16.3,r0)
+epoch 1: drains=6 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[17567] discarded=[9800, 9800, 9801, 9808, 9860, 10025]
+  drain reached at t=16.9..68.4s (spread 51.41s); closed at t=34.1..69.8s; close after last drain: first -34.24s last 1.46s
+  per PR (drain t, close t, round): PR0=( 17.1,  34.2,r0), PR1=( 16.9,  34.1,r0), PR2=( 17.1,  34.3,r0), PR3=( 17.2,  34.1,r0), PR4=( 68.4,  69.8,r0), PR5=( 17.2,  34.2,r0)
+epoch 2: drains=6 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[12536] discarded=[33, 51, 81, 86, 117, 135]
+  drain reached at t=34.2..69.9s (spread 35.66s); closed at t=40.6..70.0s; close after last drain: first -29.32s last 0.15s
+  per PR (drain t, close t, round): PR0=( 34.4,  40.6,r0), PR1=( 34.2,  40.6,r0), PR2=( 34.4,  40.6,r0), PR3=( 34.2,  40.6,r0), PR4=( 69.9,  70.0,r0), PR5=( 34.4,  40.7,r0)
+drain_wait events: 12  members_changed: 7  reconcile: 35  solicit: 35  close_wait polls: 0
+per-epoch latency (publication -> PR0 websocket outcome):
+  epoch 0 forked=False terminated n=14608 mean/p95/max    286/   582/  2577 ms   finalized n=14469 mean/p95/max    342/   735/  2625 ms
+  epoch 0 forked=True  terminated n=  784 mean/p95/max    853/  1453/  2967 ms   finalized n=    6 mean/p95/max   1253/  1387/  1387 ms
+  epoch 1 forked=False terminated n=25499 mean/p95/max   1220/  4733/ 15433 ms   finalized n=16284 mean/p95/max    409/   875/  2925 ms
+  epoch 1 forked=True  terminated n= 1594 mean/p95/max   2257/  5775/ 11064 ms   finalized n=    2 mean/p95/max    927/   934/   934 ms
+  epoch 2 forked=False terminated n=11899 mean/p95/max   1526/  3084/  9288 ms   finalized n=11838 mean/p95/max   1904/  3580/  7120 ms
+  epoch 2 forked=True  terminated n=  808 mean/p95/max   3948/  6958/ 19776 ms   finalized n=   11 mean/p95/max  47531/ 50340/ 50340 ms
+non-fork time series (5 s windows by finalization receipt time; blocks/s = finalizations per second; latency = publication->finalization):
+   t(s) phase            pub/s term/s  fin/s  fin mean  fin p95~  1st->fin pubcohort
+      0 epoch 0              0   1789   1779       338       761       142       348
+      5 epoch 0              0   1794   1765       361      1729       130       361
+     10 closing 0            0   1750   1737       305       530       114       313
+     15 closing 1            0   1989   1452       848      1557       441      1206
+     20 closing 1            0   2586   1498      1933      3610      1168      2206
+     25 closing 1            0    302    288      3252      5417      1565         -
+     30 closing 1            0    192      0         -         -         -         -
+
+====================================================================================================
+a19.combined.log
+BENCHMARK: {'published_blocks': 45000, 'confirmed_blocks': 42651, 'confirmed_nonforks': 42628, 'confirmed_forks': 23, 'duration_seconds': 60.035566458, 'confirmation_rate_cps': 710.4288760203173, 'average_confirmation_ms': 531.2509730216642, 'average_nonfork_confirmation_ms': 530.9193049915079, 'average_fork_confirmation_ms': 1145.9616160434782}
+epoch 0: drains=6 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[15402] discarded=[433, 433, 434, 434, 434, 434]
+  drain reached at t=7.9..8.1s (spread 0.26s); closed at t=10.7..10.9s; close after last drain: first 2.59s last 2.73s
+  per PR (drain t, close t, round): PR0=(  7.9,  10.8,r0), PR1=(  8.1,  10.9,r0), PR2=(  7.9,  10.8,r0), PR3=(  8.0,  10.7,r0), PR4=(  7.9,  10.7,r0), PR5=(  7.9,  10.9,r0)
+epoch 1: drains=1 closes=5 hashes=1 rounds=[0, 0, 0, 0, 0] blocks=[14798] discarded=[162, 162, 162, 192, 193]
+  drain reached at t=15.8..15.8s (spread 0.00s); closed at t=24.3..24.4s; close after last drain: first 8.54s last 8.64s
+  per PR (drain t, close t, round): PR0=(  -,  24.3,r0), PR2=( 15.8,  24.4,r0), PR3=(  -,  24.4,r0), PR4=(  -,  24.3,r0), PR5=(  -,  24.4,r0)
+epoch 2: drains=1 closes=5 hashes=1 rounds=[0, 0, 0, 0, 0] blocks=[15451] discarded=[91, 93, 96, 100, 120]
+  drain reached at t=24.5..24.5s (spread 0.00s); closed at t=31.0..31.1s; close after last drain: first 6.51s last 6.62s
+  per PR (drain t, close t, round): PR0=( 24.5,  31.1,r0), PR2=(  -,  31.0,r0), PR3=(  -,  31.0,r0), PR4=(  -,  31.1,r0), PR5=(  -,  31.0,r0)
+drain_wait events: 5  members_changed: 6  reconcile: 146  solicit: 19  close_wait polls: 0
+per-epoch latency (publication -> PR0 websocket outcome):
+  epoch 0 forked=False terminated n=14787 mean/p95/max    244/   478/  2368 ms   finalized n=14344 mean/p95/max    279/   551/  2521 ms
+  epoch 0 forked=True  terminated n=  810 mean/p95/max    789/  1556/  5033 ms   finalized n=    5 mean/p95/max   1159/  1406/  1406 ms
+  epoch 1 forked=False terminated n=14153 mean/p95/max    253/   405/  2440 ms   finalized n=13881 mean/p95/max    300/   593/  2481 ms
+  epoch 1 forked=True  terminated n=  714 mean/p95/max    805/  1402/  6484 ms   finalized n=   15 mean/p95/max    833/  1253/  1253 ms
+  epoch 2 forked=False terminated n=14535 mean/p95/max    557/   766/  6165 ms   finalized n=14403 mean/p95/max    620/   841/  2681 ms
+  epoch 2 forked=True  terminated n=  800 mean/p95/max   1811/  2873/  6986 ms   finalized n=    3 mean/p95/max   1938/  2262/  2262 ms
+  epoch 3 forked=False terminated n=    0 mean/p95/max      -/     -/     - ms   finalized n=    0 mean/p95/max      -/     -/     - ms
+  epoch 3 forked=True  terminated n=    9 mean/p95/max  12040/ 12651/ 12651 ms   finalized n=    0 mean/p95/max      -/     -/     - ms
+non-fork time series (5 s windows by finalization receipt time; blocks/s = finalizations per second; latency = publication->finalization):
+   t(s) phase            pub/s term/s  fin/s  fin mean  fin p95~  1st->fin pubcohort
+      0 epoch 0              0   1786   1715       294       579       131       309
+      5 epoch 0              0   1839   1813       276       668       127       263
+     10 epoch 1              0   1863   1859       302       598       170       298
+     15 closing 1            0   1717   1634       562      1858       224       572
+     20 closing 1            0   1491   1504       620       793       186       623
+
+====================================================================================================
+a20.combined.log
+BENCHMARK: {'published_blocks': 45000, 'confirmed_blocks': 42729, 'confirmed_nonforks': 42721, 'confirmed_forks': 8, 'duration_seconds': 60.015353167, 'confirmation_rate_cps': 711.9678173200343, 'average_confirmation_ms': 468.5993912269887, 'average_nonfork_confirmation_ms': 468.45914088380414, 'average_fork_confirmation_ms': 1217.553755125}
+epoch 0: drains=5 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[15635] discarded=[89, 89, 89, 89, 89, 89]
+  drain reached at t=7.9..8.0s (spread 0.08s); closed at t=9.7..9.8s; close after last drain: first 1.66s last 1.82s
+  per PR (drain t, close t, round): PR0=(  8.0,   9.8,r0), PR1=(  -,   9.7,r0), PR2=(  8.0,   9.7,r0), PR3=(  7.9,   9.8,r0), PR4=(  8.0,   9.7,r0), PR5=(  8.0,   9.7,r0)
+epoch 1: drains=6 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[15203] discarded=[8, 8, 8, 8, 8, 8]
+  drain reached at t=15.9..15.9s (spread 0.03s); closed at t=17.5..18.1s; close after last drain: first 1.54s last 2.15s
+  per PR (drain t, close t, round): PR0=( 15.9,  17.5,r0), PR1=( 15.9,  18.1,r0), PR2=( 15.9,  17.5,r0), PR3=( 15.9,  17.6,r0), PR4=( 15.9,  17.5,r0), PR5=( 15.9,  17.5,r0)
+epoch 2: drains=4 closes=5 hashes=1 rounds=[0, 0, 0, 0, 0] blocks=[15026] discarded=[14, 29, 39, 65, 73]
+  drain reached at t=23.9..23.9s (spread 0.02s); closed at t=24.7..24.7s; close after last drain: first 0.82s last 0.84s
+  per PR (drain t, close t, round): PR1=( 23.9,  24.7,r0), PR2=( 23.9,  24.7,r0), PR3=(  -,  24.7,r0), PR4=(  -,  24.7,r0), PR5=( 23.9,  24.7,r0)
+drain_wait events: 9  members_changed: 19  reconcile: 17  solicit: 16  close_wait polls: 0
+per-epoch latency (publication -> PR0 websocket outcome):
+  epoch 0 forked=False terminated n=14638 mean/p95/max    326/   769/  1137 ms   finalized n=14523 mean/p95/max    394/   963/  1545 ms
+  epoch 0 forked=True  terminated n=  706 mean/p95/max    973/  1755/  2424 ms   finalized n=    0 mean/p95/max      -/     -/     - ms
+  epoch 1 forked=False terminated n=14179 mean/p95/max    203/   366/  1361 ms   finalized n=14166 mean/p95/max    237/   425/   698 ms
+  epoch 1 forked=True  terminated n=  771 mean/p95/max    723/  1115/  1737 ms   finalized n=    4 mean/p95/max   1398/  1910/  1910 ms
+  epoch 2 forked=False terminated n=14034 mean/p95/max    379/   605/  2695 ms   finalized n=14032 mean/p95/max    467/   779/  2702 ms
+  epoch 2 forked=True  terminated n=  880 mean/p95/max   1528/  6305/ 10666 ms   finalized n=    4 mean/p95/max    848/   867/   867 ms
+non-fork time series (5 s windows by finalization receipt time; blocks/s = finalizations per second; latency = publication->finalization):
+   t(s) phase            pub/s term/s  fin/s  fin mean  fin p95~  1st->fin pubcohort
+      0 epoch 0              0   1706   1682       424      1027       178       447
+      5 epoch 0              0   1892   1885       295       826       107       265
+     10 epoch 1              0   1800   1782       246       384       106       245
+     15 closing 1            0   1715   1724       422       828       247       432
+     20 epoch 2              0   1458   1471       470       694       200       468
+
+====================================================================================================
+a21.combined.log
+BENCHMARK: {'published_blocks': 45000, 'confirmed_blocks': 42513, 'confirmed_nonforks': 42494, 'confirmed_forks': 19, 'duration_seconds': 60.100336042, 'confirmation_rate_cps': 707.3670930939651, 'average_confirmation_ms': 484.8367536184696, 'average_nonfork_confirmation_ms': 483.7108350148491, 'average_fork_confirmation_ms': 3002.983340052632}
+epoch 0: drains=5 closes=5 hashes=1 rounds=[0, 0, 0, 0, 0] blocks=[15639] discarded=[138, 138, 138, 138, 138]
+  drain reached at t=8.1..8.1s (spread 0.07s); closed at t=13.0..13.4s; close after last drain: first 4.90s last 5.28s
+  per PR (drain t, close t, round): PR0=(  8.1,  13.1,r0), PR1=(  8.1,  13.1,r0), PR2=(  8.1,  13.4,r0), PR3=(  -,  13.0,r0), PR4=(  8.1,  13.0,r0)
+epoch 1: drains=6 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[14999] discarded=[220, 223, 224, 243, 248, 252]
+  drain reached at t=15.8..15.9s (spread 0.12s); closed at t=18.5..18.5s; close after last drain: first 2.57s last 2.60s
+  per PR (drain t, close t, round): PR0=( 15.9,  18.5,r0), PR1=( 15.8,  18.5,r0), PR2=( 15.8,  18.5,r0), PR3=( 15.9,  18.5,r0), PR4=( 15.9,  18.5,r0), PR5=( 15.9,  18.5,r0)
+epoch 2: drains=5 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[14814] discarded=[359, 363, 363, 376, 379, 417]
+  drain reached at t=23.7..23.9s (spread 0.20s); closed at t=26.2..26.3s; close after last drain: first 2.26s last 2.36s
+  per PR (drain t, close t, round): PR0=( 23.9,  26.2,r0), PR1=( 23.8,  26.2,r0), PR2=(  -,  26.2,r0), PR3=( 23.7,  26.2,r0), PR4=( 23.8,  26.2,r0), PR5=( 23.8,  26.3,r0)
+drain_wait events: 12  members_changed: 3  reconcile: 17  solicit: 19  close_wait polls: 0
+per-epoch latency (publication -> PR0 websocket outcome):
+  epoch 0 forked=False terminated n=14602 mean/p95/max    315/   512/  2454 ms   finalized n=14397 mean/p95/max    360/   651/  2578 ms
+  epoch 0 forked=True  terminated n=  811 mean/p95/max    769/  1256/  2632 ms   finalized n=    8 mean/p95/max   1313/  1919/  1919 ms
+  epoch 1 forked=False terminated n=14200 mean/p95/max    328/   590/  5980 ms   finalized n=13888 mean/p95/max    375/   666/  2574 ms
+  epoch 1 forked=True  terminated n=  831 mean/p95/max   1055/  1762/  7271 ms   finalized n=    6 mean/p95/max   1351/  1810/  1810 ms
+  epoch 2 forked=False terminated n=14287 mean/p95/max    429/   614/  6165 ms   finalized n=13886 mean/p95/max    473/   693/  2519 ms
+  epoch 2 forked=True  terminated n=  819 mean/p95/max   1666/  6202/ 11963 ms   finalized n=    4 mean/p95/max   6346/ 11645/ 11645 ms
+non-fork time series (5 s windows by finalization receipt time; blocks/s = finalizations per second; latency = publication->finalization):
+   t(s) phase            pub/s term/s  fin/s  fin mean  fin p95~  1st->fin pubcohort
+      0 epoch 0              0   1761   1747       304       553       141       350
+      5 epoch 0              0   1803   1745       407      2279       259       387
+     10 closing 0            0   1706   1726       345       622       170       334
+     15 closing 1            0   1872   1795       461      1369       201       469
+     20 epoch 2              0   1543   1487       504       710       195       493
+
+====================================================================================================
+a22.combined.log
+BENCHMARK: {'published_blocks': 45000, 'confirmed_blocks': 42598, 'confirmed_nonforks': 42588, 'confirmed_forks': 10, 'duration_seconds': 60.075005291, 'confirmation_rate_cps': 709.0802538203309, 'average_confirmation_ms': 485.4213475656838, 'average_nonfork_confirmation_ms': 485.2527651905936, 'average_fork_confirmation_ms': 1203.3799666}
+epoch 0: drains=6 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[15504] discarded=[266, 266, 266, 266, 266, 266]
+  drain reached at t=8.0..8.1s (spread 0.11s); closed at t=10.0..10.3s; close after last drain: first 1.94s last 2.24s
+  per PR (drain t, close t, round): PR0=(  8.0,  10.1,r0), PR1=(  8.1,  10.3,r0), PR2=(  8.1,  10.0,r0), PR3=(  8.0,  10.1,r0), PR4=(  8.0,  10.1,r0), PR5=(  8.0,  10.2,r0)
+epoch 1: drains=5 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[15012] discarded=[456, 456, 456, 457, 457, 457]
+  drain reached at t=15.7..16.0s (spread 0.22s); closed at t=18.7..20.7s; close after last drain: first 2.74s last 4.73s
+  per PR (drain t, close t, round): PR0=( 15.8,  18.7,r0), PR1=( 15.9,  20.7,r0), PR2=( 15.7,  18.9,r0), PR3=(  -,  18.9,r0), PR4=( 15.8,  18.9,r0), PR5=( 16.0,  18.7,r0)
+epoch 2: drains=4 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[14996] discarded=[310, 310, 310, 315, 327, 329]
+  drain reached at t=23.6..23.8s (spread 0.24s); closed at t=26.1..26.2s; close after last drain: first 2.29s last 2.41s
+  per PR (drain t, close t, round): PR0=( 23.8,  26.2,r0), PR1=( 23.7,  26.1,r0), PR2=(  -,  26.2,r0), PR3=( 23.7,  26.1,r0), PR4=( 23.6,  26.1,r0), PR5=(  -,  26.2,r0)
+drain_wait events: 11  members_changed: 3  reconcile: 10  solicit: 22  close_wait polls: 0
+per-epoch latency (publication -> PR0 websocket outcome):
+  epoch 0 forked=False terminated n=14710 mean/p95/max    221/   462/  2077 ms   finalized n=14365 mean/p95/max    239/   499/   698 ms
+  epoch 0 forked=True  terminated n=  787 mean/p95/max    711/  1374/  2629 ms   finalized n=    1 mean/p95/max    244/   244/   244 ms
+  epoch 1 forked=False terminated n=14408 mean/p95/max    233/   412/  2403 ms   finalized n=13967 mean/p95/max    267/   446/  2435 ms
+  epoch 1 forked=True  terminated n=  746 mean/p95/max    802/  1393/  2909 ms   finalized n=    7 mean/p95/max    916/  1275/  1275 ms
+  epoch 2 forked=False terminated n=14320 mean/p95/max    516/   784/  6087 ms   finalized n=13979 mean/p95/max    589/   885/  3022 ms
+  epoch 2 forked=True  terminated n=  798 mean/p95/max   1643/  2616/ 12165 ms   finalized n=    2 mean/p95/max   1709/  2225/  2225 ms
+non-fork time series (5 s windows by finalization receipt time; blocks/s = finalizations per second; latency = publication->finalization):
+   t(s) phase            pub/s term/s  fin/s  fin mean  fin p95~  1st->fin pubcohort
+      0 epoch 0              0   1729   1712       288       533        88       289
+      5 epoch 0              0   1873   1806       201      1415        98       222
+     10 epoch 1              0   1827   1820       274      2281       126       251
+     15 closing 1            0   1750   1655       504      1444       231       527
+     20 epoch 2              0   1567   1524       610       922       200       610
+     25 after close 2        0      1      0         -         -         -         -
+

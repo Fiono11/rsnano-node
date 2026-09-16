@@ -7,9 +7,9 @@ use serde::{Deserialize, Serialize};
 
 /// A digest-only close statement or one page of a membership digest tree.
 /// Vote kinds 0..=4 carry only a digest and 6 acknowledges a persisted close.
-/// Kind 8 announces a drained replica's membership: its tree root, member
-/// count and a set sketch from which a peer decodes the differing members in
-/// one step. Kind 9 requests one page of a view named by its root, answered by
+/// Kind 8 announces a drained replica's close value: the parent and
+/// membership root it would vote for, the member count and a set sketch from
+/// which a peer decodes the differing members in one step. Kind 9 requests one page of a view named by its root, answered by
 /// kind 5 (the 256 level-1 digests, or one bucket's leaf digests) or kind 7
 /// (the members of one two-byte prefix); pages are the fallback when a sketch
 /// does not decode. Pages never enter a vote tally.
@@ -127,9 +127,10 @@ impl EpochClose {
             && self.page_fields_clear()
             && self.signature_valid()
     }
-    /// Readiness announcement: the root and member count of the announcer's
-    /// membership plus its sketch, from which a peer decodes the members on
-    /// either side only without either side sending its whole membership.
+    /// Readiness announcement: the close parent and membership root the
+    /// announcer would vote for, its member count and its sketch, from which
+    /// a peer decodes the members on either side only without either side
+    /// sending its whole membership.
     pub fn valid_announcement(&self) -> bool {
         self.kind == 8
             && self.hashes.is_empty()
@@ -139,7 +140,6 @@ impl EpochClose {
             && self.pages == 0
             && self.base.is_zero()
             && self.removed.is_empty()
-            && self.parent.is_zero()
             && self.signature_valid()
     }
     /// Request for one page of the view whose root is `state`.
@@ -296,8 +296,12 @@ mod tests {
         assert!(!changed.valid_announcement(), "the sketch must be hex");
         changed = announcement.clone();
         changed.parent = 1.into();
+        assert!(!changed.valid_announcement(), "the parent is signed");
         changed.sign(&PrivateKey::from(1));
-        assert!(!changed.valid_announcement());
+        assert!(
+            changed.valid_announcement(),
+            "a close parent may be announced"
+        );
         changed = announcement.clone();
         changed.hashes.push(1.into());
         changed.sign(&PrivateKey::from(1));

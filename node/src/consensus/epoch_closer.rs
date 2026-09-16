@@ -1,7 +1,9 @@
-//! Leaderless Kudzu close rounds: every drained replica votes for the
-//! membership root it announced once enough weight announced the same one, so
-//! no replica's proposal is ever waited for. Voting epochs and canonical ledger
-//! epochs are independent.
+//! Proposer-free Kudzu close rounds: a drained replica announces the parent
+//! and membership root it would close on, and once a quorum announced the
+//! same pair every replica that holds that membership FIRST-votes the value
+//! it names, whether or not it is the replica's own. The announcing quorum
+//! carries the D3/D4 judgment, so a member learned after the vote never
+//! withdraws it. Voting epochs and canonical ledger epochs are independent.
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
     sync::{Arc, Mutex, atomic::Ordering},
@@ -81,11 +83,11 @@ const SOLICIT_INTERVAL: Duration = Duration::from_secs(10);
 /// Spacing of solicitations for members named by a peer's leaf page. These name
 /// exactly what is missing, so they are few.
 const RECONCILE_INTERVAL: Duration = RETRANSMIT;
-/// A drained replica votes for its announced root only once every
-/// representative announced the same one, or after this long with a
-/// certificate-weight majority: a candidate is immutable, so one voted while
-/// memberships still differ is signed by nobody who learns one more member
-/// afterwards.
+/// The announced value is voted once every representative announced the same
+/// one, or after this long once certificate weight has: the announcement
+/// phase of a round. A replica holding more members than the announced value
+/// still signs it, so the wait only gives late certificates a chance to enter
+/// the close instead of being discarded with it.
 const AGREEMENT_TIMEOUT: Duration = Duration::from_secs(6);
 static DROPPED_CLOSE_PACKETS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
@@ -179,9 +181,9 @@ struct View {
     /// Live root and page count of the last assembly attempt, so the whole
     /// membership is not copied again while nothing changed.
     attempted: Option<(BlockHash, usize)>,
-    /// Whether this view is the live membership minus droppable members, for
-    /// the live root and droppable count it was last checked against.
-    subset: Option<(BlockHash, usize, bool)>,
+    /// Whether every member of this view is held here, for the live root it
+    /// was last checked against.
+    subset: Option<(BlockHash, bool)>,
 }
 impl View {
     /// The sketch decoded against the live membership named by `root`.
@@ -257,11 +259,6 @@ struct State {
     pages_out: VecDeque<(ChannelId, EpochClose)>,
     /// Members held by peers but not here, with the last solicitation.
     reconcile_targets: HashMap<BlockHash, (Root, Option<Instant>)>,
-    /// Local members a close may omit: their root carries a second
-    /// certificate (a timeout or another notarized block), so no block of
-    /// that root can ever be finalized. Certificates only accumulate, so the
-    /// set only grows.
-    droppable: HashSet<BlockHash>,
 }
 impl State {
     fn new(epoch: u64, weights: RepWeights, archive: Vec<EpochClose>) -> Self {
@@ -303,7 +300,6 @@ impl State {
             views: Default::default(),
             pages_out: Default::default(),
             reconcile_targets: Default::default(),
-            droppable: HashSet::new(),
         }
     }
     /// One request's worth of recovery targets, rotating through the list so
@@ -381,64 +377,66 @@ impl State {
         self.trie.root()
     }
 
-    /// Weight whose announced membership root equals ours, counting our own
-    /// keys, and whether that is every representative.
-    fn agreement(&mut self, keys: &[PublicKey]) -> (bool, Amount) {
-        let root = self.root();
-        let mut agreeing = 0u128;
-        let mut all = true;
+    /// The parent/root pair that certificate weight announced, if any, and
+    /// whether every representative announced it. Our own keys count through
+    /// our announcement only: an unready replica attests nothing, and two
+    /// pairs cannot both reach certificate weight.
+    fn enabled(&self) -> Option<(BlockHash, BlockHash, bool)> {
+        let mut announced: HashMap<(BlockHash, BlockHash), u128> = HashMap::new();
+        let mut voting = 0u128;
         for (rep, weight) in self.weights.iter() {
             if weight.is_zero() {
                 continue;
             }
-            let agrees = keys.contains(rep)
-                || self
-                    .announcements
-                    .get(rep)
-                    .is_some_and(|(announcement, _)| announcement.state == root);
-            if agrees {
-                agreeing = agreeing.saturating_add(weight.number());
-            } else {
-                all = false;
+            voting = voting.saturating_add(weight.number());
+            if let Some((announcement, _)) = self.announcements.get(rep) {
+                let entry = announced
+                    .entry((announcement.parent, announcement.state))
+                    .or_default();
+                *entry = entry.saturating_add(weight.number());
             }
         }
-        (all, Amount::raw(agreeing))
+        let ((parent, state), weight) = announced.into_iter().max_by_key(|(_, w)| *w)?;
+        (Amount::raw(weight) >= KudzuThresholds::new(self.total).certificate).then_some((
+            parent,
+            state,
+            weight == voting,
+        ))
     }
-    /// Whether the agreement wait has expired since this replica became ready.
+    /// Whether the announcement phase has expired since this replica became
+    /// ready.
     fn agreement_expired(&self, now: Instant) -> bool {
         self.ready
             && self
                 .ready_since
                 .is_some_and(|since| now.duration_since(since) >= AGREEMENT_TIMEOUT)
     }
-    /// A FIRST vote for our announced root is due once every representative
-    /// announced it, or after `AGREEMENT_TIMEOUT` once enough weight to certify
-    /// it has.
-    fn proposal_due(&mut self, keys: &[PublicKey], now: Instant) -> bool {
-        if !self.ready {
-            return false;
-        }
-        let (all, agreeing) = self.agreement(keys);
-        all || (self.agreement_expired(now)
-            && agreeing >= KudzuThresholds::new(self.total).certificate)
+    /// The value whose FIRST vote is due: the announced pair once every
+    /// representative announced it, or after `AGREEMENT_TIMEOUT` once
+    /// certificate weight has.
+    fn due(&self, now: Instant) -> Option<(BlockHash, BlockHash)> {
+        let (parent, state, all) = self.enabled()?;
+        (all || self.agreement_expired(now)).then_some((parent, state))
     }
 
-    /// Announce the live membership once its root changes. Announcements are
-    /// retransmitted with the close history until the epoch closes.
+    /// Announce the close value this replica would vote for, the current
+    /// parent and live membership root, once either changes. Announcements
+    /// are retransmitted with the close history until the epoch closes.
     fn announce(&mut self, keys: &[PrivateKey], out: &mut Vec<EpochClose>) {
         if !self.ready || keys.is_empty() {
             return;
         }
         let root = self.root();
+        let parent = self.parent;
         if self
             .local_announcements
             .first()
-            .is_some_and(|announcement| announcement.state == root)
+            .is_some_and(|announcement| announcement.state == root && announcement.parent == parent)
         {
             return;
         }
         self.announcement_seq += 1;
-        let mut announcement = self.template(self.announcement_seq, BlockHash::ZERO, root);
+        let mut announcement = self.template(self.announcement_seq, parent, root);
         announcement.kind = 8;
         announcement.set_sketch(&self.trie.sketch().to_bytes());
         self.local_announcements.clear();
@@ -965,61 +963,40 @@ impl State {
             && (self.certified(id, VoteKind::First)
                 || (self.certified(id, VoteKind::Notarize) && self.certified(id, VoteKind::Final)))
     }
-    /// Local members that active views omit and are not yet known droppable;
-    /// the caller decides droppability from the certificates it holds.
-    fn omitted_members(&self) -> Vec<BlockHash> {
-        let mut omitted = BTreeSet::new();
-        for view in self.views.values() {
-            omitted.extend(
-                view.only_mine
-                    .iter()
-                    .filter(|member| !self.droppable.contains(member))
-                    .copied(),
-            );
-        }
-        omitted.into_iter().collect()
-    }
-    /// Whether the view named by `state` is the live membership minus
-    /// droppable members only: signing it omits nothing that could still be
-    /// finalized, so a certificate learned after the vote never invalidates a
-    /// candidate already voted for.
-    fn subset_of_membership(&mut self, state: BlockHash) -> bool {
+    /// Whether every member of the announced view named by `state` is held
+    /// here: its sketch decoded against the live membership with nothing on
+    /// the announcer's side only, and the live membership without the members
+    /// it omits has that root. Omitting them is the announcing quorum's D4
+    /// judgment, not this replica's: a member it never saw cannot be finalized
+    /// once that quorum closed without it.
+    fn holds_members(&mut self, state: BlockHash) -> bool {
         let root = self.root();
-        let droppable_count = self.droppable.len();
         let Some(view) = self.views.get_mut(&state) else {
             return false;
         };
-        if let Some((checked_root, checked_count, result)) = view.subset {
-            if checked_root == root && checked_count == droppable_count {
+        if let Some((checked_root, result)) = view.subset {
+            if checked_root == root {
                 return result;
             }
         }
-        let result = view.decoded(root)
-            && view.only_theirs.is_empty()
-            && !view.only_mine.is_empty()
-            && view
-                .only_mine
-                .iter()
-                .all(|member| self.droppable.contains(member))
-            && {
-                let excluded: HashSet<_> = view.only_mine.iter().copied().collect();
-                self.trie.without(&excluded).root() == state
-            };
+        let result = view.decoded(root) && view.only_theirs.is_empty() && {
+            let excluded: HashSet<_> = view.only_mine.iter().copied().collect();
+            self.trie.without(&excluded).root() == state
+        };
         let view = self.views.get_mut(&state).unwrap();
-        view.subset = Some((root, droppable_count, result));
+        view.subset = Some((root, result));
         result
     }
-    /// Signable: the candidate's root is the live membership, or the live
-    /// membership minus droppable members, which covers both object validity
-    /// and D4; and a parent, if any, is a notarized earlier-round candidate
-    /// whose membership this replica held.
+    /// Signable: every member of the candidate's root is held here, so its
+    /// entries verify locally; and a parent, if any, is a notarized
+    /// earlier-round candidate whose membership this replica held.
     fn signable(&mut self, id: BlockHash) -> bool {
         let root = self.root();
         let Some(c) = self.candidates.get(&id) else {
             return false;
         };
         let state = c.header.state;
-        if !self.well_formed(id) || (state != root && !self.subset_of_membership(state)) {
+        if !self.well_formed(id) || (state != root && !self.holds_members(state)) {
             return false;
         }
         let Some(c) = self.candidates.get(&id) else {
@@ -1069,14 +1046,6 @@ impl State {
         if self.ready && self.ready_since.is_none() {
             self.ready_since = Some(now);
         }
-        let public_keys: Vec<_> = keys.iter().map(|key| key.public_key()).collect();
-        let due = self.proposal_due(&public_keys, now);
-        // Round timeouts keep the rounds rotating even while no membership has
-        // enough support to be proposed; reconciliation continues meanwhile.
-        if !self.round_timer_armed && (due || self.agreement_expired(now)) {
-            self.arm_round_timer();
-        }
-        self.announce(keys, &mut out);
         // A finalized candidate closes the epoch: with the live membership when
         // it is the proposed one, otherwise once its view is reconstructed.
         let root = self.root();
@@ -1095,12 +1064,13 @@ impl State {
                 return (out, Some(members));
             }
         }
-        if !self.ready || self.has_finalized_close() {
+        // Readiness gates announcing only; every draining replica votes.
+        if !self.draining || self.has_finalized_close() {
             return (out, None);
         }
         self.rounds.entry(self.round).or_default();
         // A certificate can arrive after we entered this round. Re-evaluate the
-        // parent before proposing so that certificate arrival order does not
+        // parent before announcing so that certificate arrival order does not
         // permanently split otherwise identical snapshots into separate chains.
         // Prefer the newest certified round, then the smallest candidate ID.
         if let Some(id) = self
@@ -1117,46 +1087,44 @@ impl State {
         {
             self.parent = id;
         }
-        // Every replica votes FIRST for its own candidate, and only the root it
-        // announced: a member learned since would make the candidate unsignable
-        // for everyone else, so it is announced first and voted once agreed on
-        // as well. Replicas holding the same membership and parent create the
-        // same candidate, so their votes tally together without a proposer.
-        let announced = self
-            .local_announcements
-            .first()
-            .is_some_and(|announcement| announcement.state == root);
-        for key in keys {
-            if !due
-                || !announced
-                || self
-                    .rounds
-                    .get(&self.round)
-                    .and_then(|round| round.signers.get(&key.public_key()))
-                    .is_some_and(|signer| signer.first.is_some())
-            {
-                continue;
-            }
-            let proposal = self.template(self.round, self.parent, root);
+        self.announce(keys, &mut out);
+        let due = self.due(now);
+        // Round timeouts keep the rounds rotating even while no value has
+        // enough support to be voted; reconciliation continues meanwhile.
+        if !self.round_timer_armed && (due.is_some() || self.agreement_expired(now)) {
+            self.arm_round_timer();
+        }
+        // The FIRST vote goes to the value the announcing quorum enabled,
+        // whether or not it is this replica's own: replicas holding that
+        // membership create the same candidate, so their votes tally without
+        // a proposer, and a replica holding more members signs it as well. A
+        // value the quorum did not enable is reached only through the second
+        // look, so a Byzantine member cannot split the correct first votes.
+        if let Some((parent, state)) = due {
+            let proposal = self.template(self.round, parent, state);
             let id = proposal.candidate_id();
             self.candidates.entry(id).or_insert_with(|| Candidate {
                 header: proposal.clone(),
                 sources: Vec::new(),
             });
-            let signer = self
-                .rounds
-                .get_mut(&self.round)
-                .unwrap()
-                .signers
-                .entry(key.public_key())
-                .or_default();
-            if signer.first.is_none() {
-                signer.first = Some(id);
-                signer.notarized.insert(id);
-                debug_trace(
-                    || serde_json::json!({"type":"own_candidate","epoch":self.epoch,"round":self.round,"id":id,"parent":proposal.parent,"state":proposal.state,"members":proposal.members,"rep":key.public_key()}),
-                );
-                self.sign(proposal.clone(), key, 0, &mut out);
+            if self.signable(id) {
+                for key in keys {
+                    let signer = self
+                        .rounds
+                        .get_mut(&self.round)
+                        .unwrap()
+                        .signers
+                        .entry(key.public_key())
+                        .or_default();
+                    if signer.first.is_none() {
+                        signer.first = Some(id);
+                        signer.notarized.insert(id);
+                        debug_trace(
+                            || serde_json::json!({"type":"enabled_candidate","epoch":self.epoch,"round":self.round,"id":id,"parent":proposal.parent,"state":proposal.state,"own":proposal.state == root,"rep":key.public_key()}),
+                        );
+                        self.sign(proposal.clone(), key, 0, &mut out);
+                    }
+                }
             }
         }
         let current: Vec<_> = self
@@ -1165,28 +1133,20 @@ impl State {
             .filter(|(_, c)| c.header.round == self.round)
             .map(|(id, c)| (*id, c.header.clone()))
             .collect();
-        let signable: Vec<_> = current
-            .into_iter()
-            .filter(|(id, _)| self.signable(*id))
-            .collect();
-        for (id, p) in &signable {
-            // A FIRST vote goes only to this replica's own value: the candidate
-            // that carries its live root and parent. Any other candidate,
-            // including one that omits droppable members, is reached through the
-            // second look, so a value that only a Byzantine member formed can
-            // never split the first votes of the correct replicas.
-            let own = p.state == root && p.parent == self.parent;
+        for (id, p) in &current {
+            // Notarizing another value on second look needs its members held
+            // here. A FINAL vote is bound to the FIRST vote only: the
+            // authorization a quorum gave that value is not withdrawn by a
+            // member this replica learned since.
+            let signable = self.signable(*id);
             for key in keys {
                 let r = self.rounds.get_mut(&self.round).unwrap();
                 let second = r.tally.second_look(id);
                 let notarized = r.certificate(*id, VoteKind::Notarize);
                 let signer = r.signers.entry(key.public_key()).or_default();
                 let mut action = None;
-                if signer.first.is_none() && own {
-                    signer.first = Some(*id);
-                    signer.notarized.insert(*id);
-                    action = Some(0);
-                } else if second
+                if second
+                    && signable
                     && signer.first.is_some()
                     && !signer.notarized.contains(id)
                     && signer.final_vote.is_none()
@@ -1445,24 +1405,6 @@ impl EpochCloser {
         if state.has_finalized_close() {
             self.generators.seal_epoch(state.epoch);
         }
-        // Droppability is read from the container before `drive` runs under
-        // its lock: a member whose root has a timeout certificate or another
-        // notarized block can never be finalized, so a close may omit it.
-        for member in state.omitted_members() {
-            let droppable = self
-                .aec
-                .election_for_block(&member)
-                .is_some_and(|election| {
-                    election.is_timed_out()
-                        || election.candidate_blocks().keys().any(|hash| {
-                            *hash != member
-                                && election.has_kudzu_certificate(*hash, VoteKind::Notarize)
-                        })
-                });
-            if droppable {
-                state.droppable.insert(member);
-            }
-        }
         // Readiness only matters while draining, so the container is scanned
         // only then; before that the tick must not stall vote application.
         let mut pending_targets = Vec::new();
@@ -1550,8 +1492,7 @@ impl EpochCloser {
             }
         }
         if state.ready && cycle {
-            let public_keys: Vec<_> = keys.iter().map(|k| k.public_key()).collect();
-            let (agreed, agreeing) = state.agreement(&public_keys);
+            let enabled = state.enabled();
             let root = state.root();
             eprintln!(
                 "EPOCH_CLOSE_PROGRESS {}",
@@ -1561,12 +1502,10 @@ impl EpochCloser {
                     "state":root,
                     "parent":state.parent,
                     "ready_for_ms":state.ready_since.map(|since| since.elapsed().as_millis()),
-                    "agreed":agreed,
-                    "agreeing_weight":agreeing,
-                    "announcements":state.announcements.iter().map(|(rep, (a, _))| serde_json::json!({"rep":rep,"members":a.members,"state":a.state})).collect::<Vec<_>>(),
+                    "enabled":enabled.map(|(parent, state, all)| serde_json::json!({"parent":parent,"state":state,"all":all})),
+                    "announcements":state.announcements.iter().map(|(rep, (a, _))| serde_json::json!({"rep":rep,"members":a.members,"parent":a.parent,"state":a.state})).collect::<Vec<_>>(),
                     "views":state.views.iter().map(|(root, v)| serde_json::json!({"state":root,"decoded":v.decoded_for.is_some(),"sketch_failed":v.sketch_failed,"only_mine":v.only_mine.len(),"only_theirs":v.only_theirs.len(),"level2":v.level2.len(),"leaves":v.leaves.len()})).collect::<Vec<_>>(),
                     "reconcile_targets":state.reconcile_targets.len(),
-                    "droppable":state.droppable.len(),
                     "round_timer_armed":state.round_timer_armed,
                     "recovering":recovering,
                     "candidates":state.candidates.iter().map(|(id,c)| serde_json::json!({"id":id,"round":c.header.round,"state":c.header.state,"members":c.header.members})).collect::<Vec<_>>(),
@@ -2055,25 +1994,32 @@ mod tests {
     }
 
     #[test]
-    fn agreement_counts_our_keys_and_matching_announcements() {
+    fn the_enabled_value_needs_certificate_weight_and_counts_only_announcements() {
         let ledger = Ledger::new_null();
         let mut s = ready_state(&ledger);
         let root = s.root();
-        let mine = PrivateKey::from(1).public_key();
-        assert_eq!(s.agreement(&[mine]), (false, Amount::raw(100)));
+        assert_eq!(s.enabled(), None);
         let mut announcement = s.template(1, BlockHash::ZERO, root);
         announcement.kind = 8;
         announcement.set_sketch(&s.trie.sketch().to_bytes());
-        for i in 2..=5 {
+        for i in 2..=4 {
             announcement.sign(&PrivateKey::from(i));
             s.receive_announcement(announcement.clone(), ChannelId::from(i as usize));
         }
-        assert_eq!(s.agreement(&[mine]), (false, Amount::raw(500)));
-        assert!(!s.proposal_due(&[mine], Instant::now()));
+        assert_eq!(
+            s.enabled(),
+            None,
+            "three of six are below certificate weight"
+        );
+        announcement.sign(&PrivateKey::from(5));
+        s.receive_announcement(announcement.clone(), ChannelId::from(5));
+        assert_eq!(s.enabled(), Some((BlockHash::ZERO, root, false)));
+        assert_eq!(s.due(Instant::now()), None);
         s.ready_since = Some(Instant::now() - AGREEMENT_TIMEOUT);
-        assert!(
-            s.proposal_due(&[mine], Instant::now()),
-            "certificate weight suffices after the agreement timeout"
+        assert_eq!(
+            s.due(Instant::now()),
+            Some((BlockHash::ZERO, root)),
+            "certificate weight suffices after the announcement phase"
         );
         let mut stale = announcement.clone();
         stale.state = 9.into();
@@ -2082,18 +2028,26 @@ mod tests {
         s.receive_announcement(stale, ChannelId::from(6));
         announcement.sign(&PrivateKey::from(6));
         s.receive_announcement(announcement.clone(), ChannelId::from(6));
-        assert_eq!(s.agreement(&[mine]), (true, Amount::raw(600)));
+        assert_eq!(
+            s.enabled(),
+            Some((BlockHash::ZERO, root, false)),
+            "our own weight counts only through our announcement"
+        );
+        let mut out = Vec::new();
+        s.announce(&[PrivateKey::from(1)], &mut out);
+        assert_eq!(s.enabled(), Some((BlockHash::ZERO, root, true)));
         let mut older = announcement.clone();
         older.state = 9.into();
         older.round = 0;
         older.sign(&PrivateKey::from(6));
         s.receive_announcement(older, ChannelId::from(6));
-        assert!(
-            s.agreement(&[mine]).0,
+        assert_eq!(
+            s.enabled().map(|(_, _, all)| all),
+            Some(true),
             "an older sequence does not replace a newer one"
         );
         s.ready_since = None;
-        assert!(s.proposal_due(&[mine], Instant::now()));
+        assert_eq!(s.due(Instant::now()), Some((BlockHash::ZERO, root)));
     }
 
     #[test]
@@ -2158,20 +2112,36 @@ mod tests {
     }
 
     #[test]
-    fn d3_blocks_non_timeout_votes_until_ready() {
+    fn an_unready_replica_votes_the_enabled_value_but_announces_nothing() {
         let ledger = Ledger::new_null();
-        let mut s = state();
-        s.sync_membership(&ledger);
+        let mut s = ready_state(&ledger);
         let key = PrivateKey::from(1);
-        let root = s.root();
-        let mut p = s.template(0, BlockHash::ZERO, root);
-        p.sign(&key);
-        s.receive(p);
-        assert!(s.drive(&[key]).0.is_empty());
+        let (out, _) = s.drive(&[key.clone()]);
+        let announced = out[0].clone();
+        // A late election opens after the announcement: D3 no longer holds.
+        s.ready = false;
+        for i in 2..=6 {
+            let mut announcement = announced.clone();
+            announcement.sign(&PrivateKey::from(i));
+            s.receive_announcement(announcement, ChannelId::from(i as usize));
+        }
+        let (out, _) = s.drive(&[key.clone()]);
+        assert_eq!(
+            out.iter().map(|p| p.kind).collect::<Vec<_>>(),
+            vec![0],
+            "the quorum carries the readiness judgment, so the vote is cast"
+        );
+        ledger.record_epoch_block(0, rsnano_types::SavedBlock::new_test_instance().into());
+        s.sync_membership(&ledger);
+        let (out, _) = s.drive(&[key]);
+        assert!(
+            out.is_empty(),
+            "an unready replica announces no new root and never votes twice"
+        );
     }
 
     #[test]
-    fn d4_rejects_a_candidate_missing_a_local_member_until_it_matches_again() {
+    fn a_candidate_nobody_announced_is_unsignable_once_the_membership_grows() {
         let ledger = Ledger::new_null();
         let mut s = ready_state(&ledger);
         let root = s.root();
@@ -2183,7 +2153,10 @@ mod tests {
         let block: rsnano_types::Block = rsnano_types::SavedBlock::new_test_instance().into();
         ledger.record_epoch_block(0, block);
         s.sync_membership(&ledger);
-        assert!(!s.signable(id), "the candidate omits a local member");
+        assert!(
+            !s.signable(id),
+            "no announced view names the members the candidate omits"
+        );
         assert!(
             s.drive(&[PrivateKey::from(1)])
                 .0
@@ -2193,7 +2166,7 @@ mod tests {
     }
 
     #[test]
-    fn a_candidate_omitting_only_droppable_members_is_signable() {
+    fn a_quorum_enabled_subset_gets_this_replicas_first_vote() {
         let ledger_mine = Ledger::new_null();
         let ledger_theirs = Ledger::new_null();
         let mut lattice = rsnano_ledger::test_helpers::UnsavedBlockLatticeBuilder::new();
@@ -2208,46 +2181,28 @@ mod tests {
         let their_root = theirs.root();
         let mut out = Vec::new();
         theirs.announce(&[PrivateKey::from(2)], &mut out);
-        mine.receive_announcement(out[0].clone(), ChannelId::from(2));
+        for i in 2..=6 {
+            let mut announcement = out[0].clone();
+            announcement.sign(&PrivateKey::from(i));
+            mine.receive_announcement(announcement, ChannelId::from(i as usize));
+        }
         mine.active_views();
         mine.decode_sketches(|hashes| unknown_members(&ledger_mine, hashes));
-        assert_eq!(mine.omitted_members(), vec![extra.hash()]);
-        let mut candidate = mine.template(0, BlockHash::ZERO, their_root);
-        candidate.sign(&PrivateKey::from(2));
-        let id = candidate.candidate_id();
-        mine.receive(candidate);
-        assert!(
-            !mine.signable(id),
-            "the omitted member could still be finalized"
-        );
-        mine.droppable.insert(extra.hash());
-        assert!(
-            mine.signable(id),
-            "a root with a second certificate can be omitted"
-        );
-        assert!(mine.omitted_members().is_empty());
         let (out, _) = mine.drive(&[PrivateKey::from(1)]);
-        assert!(
-            !out.iter().any(|p| p.kind == 0 && p.state == their_root),
-            "a FIRST vote goes only to the replica's own value"
+        assert_eq!(
+            out.iter().map(|p| p.kind).collect::<Vec<_>>(),
+            vec![8],
+            "our own root is announced while the phase lasts"
         );
-        // With f+p+1 first votes the smaller membership gets a second look,
-        // once this replica has first-voted: here by timing out the round.
-        for i in 3..=4 {
-            let mut vote = mine.template(0, BlockHash::ZERO, their_root);
-            vote.sign(&PrivateKey::from(i));
-            mine.receive(vote);
-        }
-        mine.arm_round_timer();
-        mine.rounds.get_mut(&0).unwrap().started = Instant::now() - round_timeout(0);
+        assert_eq!(mine.enabled(), Some((BlockHash::ZERO, their_root, false)));
+        mine.ready_since = Some(Instant::now() - AGREEMENT_TIMEOUT);
         let (out, _) = mine.drive(&[PrivateKey::from(1)]);
-        assert_eq!(out.iter().map(|p| p.kind).collect::<Vec<_>>(), vec![3]);
-        let (out, _) = mine.drive(&[PrivateKey::from(1)]);
-        assert!(
-            out.iter().any(|p| p.kind == 1 && p.state == their_root),
-            "the replica notarizes the smaller membership on second look"
+        assert_eq!(
+            out.iter().map(|p| (p.kind, p.state)).collect::<Vec<_>>(),
+            vec![(0, their_root)],
+            "the FIRST vote adopts the enabled value that omits a member held here"
         );
-        // Finalized, the close is assembled without the droppable member.
+        // Finalized, the close is assembled without the omitted member.
         for i in 2..=6 {
             let mut vote = mine.template(0, BlockHash::ZERO, their_root);
             vote.sign(&PrivateKey::from(i));
@@ -2255,13 +2210,49 @@ mod tests {
         }
         let (_, decision) = mine.drive(&[PrivateKey::from(1)]);
         assert_eq!(decision, Some(vec![shared.hash()]));
-        // A view with members this replica lacks is never a subset.
+        // A view with members this replica lacks is never held.
         let mut lagging = ready_state(&ledger_theirs);
         let announcement = mine.local_announcements[0].clone();
         lagging.receive_announcement(announcement, ChannelId::from(1));
         lagging.active_views();
         lagging.decode_sketches(|hashes| unknown_members(&ledger_theirs, hashes));
-        assert!(!lagging.subset_of_membership(mine.root()));
+        assert!(!lagging.holds_members(mine.root()));
+    }
+
+    #[test]
+    fn a_member_learned_after_first_does_not_withdraw_the_final_vote() {
+        let ledger = Ledger::new_null();
+        let mut s = ready_state(&ledger);
+        let key = PrivateKey::from(1);
+        let (out, _) = s.drive(&[key.clone()]);
+        let announced = out[0].clone();
+        for i in 1..=6 {
+            let mut announcement = announced.clone();
+            announcement.sign(&PrivateKey::from(i));
+            s.receive_announcement(announcement, ChannelId::from(i as usize));
+        }
+        let (out, _) = s.drive(&[key.clone()]);
+        assert_eq!(out.iter().map(|p| p.kind).collect::<Vec<_>>(), vec![0]);
+        let candidate = out[0].clone();
+        ledger.record_epoch_block(0, rsnano_types::SavedBlock::new_test_instance().into());
+        s.sync_membership(&ledger);
+        assert!(!s.signable(candidate.candidate_id()));
+        // Notarized by certificate weight, short of a fast certificate.
+        for i in 2..=4 {
+            let mut vote = candidate.clone();
+            vote.sign(&PrivateKey::from(i));
+            s.receive(vote);
+        }
+        let (out, _) = s.drive(&[key]);
+        assert!(
+            out.iter()
+                .any(|p| p.kind == 2 && p.candidate_id() == candidate.candidate_id()),
+            "the FINAL vote follows the FIRST vote, not the current membership"
+        );
+        assert!(
+            out.iter().any(|p| p.kind == 8 && p.state == s.root()),
+            "the grown membership is announced for a later round"
+        );
     }
 
     #[test]
@@ -2272,9 +2263,12 @@ mod tests {
         let mut parent = s.template(0, BlockHash::ZERO, 77.into());
         parent.sign(&PrivateKey::from(1));
         let parent_id = parent.candidate_id();
+        // Notarized by certificate weight, short of a fast certificate.
         for i in 1..=6 {
-            parent.sign(&PrivateKey::from(i));
-            s.receive(parent.clone());
+            if i <= 4 {
+                parent.sign(&PrivateKey::from(i));
+                s.receive(parent.clone());
+            }
             let mut timeout = s.template(0, BlockHash::ZERO, BlockHash::ZERO);
             timeout.kind = 4;
             timeout.sign(&PrivateKey::from(i));
@@ -2291,6 +2285,13 @@ mod tests {
         );
         s.held_roots.insert(77.into());
         assert!(s.signable(child_id));
+        s.enter_round(1);
+        let (out, _) = s.drive(&[PrivateKey::from(1)]);
+        assert_eq!(
+            out.iter().map(|p| (p.kind, p.parent)).collect::<Vec<_>>(),
+            vec![(8, parent_id)],
+            "the announcement names the notarized parent this replica extends"
+        );
     }
 
     #[test]
@@ -2645,6 +2646,7 @@ mod tests {
 
     fn ready_state(ledger: &Ledger) -> State {
         let mut s = state();
+        s.draining = true;
         s.ready = true;
         s.sync_membership(ledger);
         s

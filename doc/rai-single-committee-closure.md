@@ -21,9 +21,12 @@ An empty epoch has a valid, epoch-specific root.
 The signed close header includes the epoch, close round, round parent,
 previous finalized close identity, and target root. The epoch-close identity is
 `Blake2b("RAI-CLOSE" || epoch_le_u64 || previous_close || target_root)`.
-Each close round chooses the next representative in public-key order. Its
-leader's authenticated FIRST statement proposes the target; followers first-vote
-only after reconstructing it. A new round requires a timeout certificate for the
+Close rounds have no proposer. A drained replica announces the parent and
+membership root it would close on; once certificate weight announced the same
+pair, every draining replica that holds that membership FIRST-votes the value
+it names, whether or not the pair is its own (rule C2 of `rai_protocol.tex`).
+Replicas holding the same pair create the same candidate, so their votes tally
+without a proposer. A new round requires a timeout certificate for the
 previous round. In particular, a notarized ancestor is not silently selected as
 the finalized target when a descendant finalizes: doing so could omit candidates
 added in the descendant. Reconstructed parent states must be subsets of children.
@@ -59,19 +62,27 @@ fetches the differing pages, solicits the members it lacks, excludes the members
 absent from the fetched leaves, and applies the close once the assembled root
 matches. There is no full-list transfer and no delta against a shared base.
 
-Signing needs no membership scan: a proposal is signable exactly when its root
-equals the live root (object validity and D4 in one comparison); a child
-proposal is signable when this replica held its notarized parent's root, since
-members are only added. The drain check reads a per-epoch index of undecided
-elections instead of scanning every election of the epoch.
+Signing needs no membership scan: a candidate is signable when its root equals
+the live root, or when the announced view with that root decoded against the
+live membership names nothing this replica lacks, so every entry verifies
+locally; a child candidate is signable when this replica held its notarized
+parent's root, since members are only added. D3 and D4 are the announcers'
+judgment: an announcement is made only when drained and names the full live
+membership, and a quorum of them authorizes the value for the round. A voter
+does not re-run them (rule C3): a FINAL vote follows the FIRST vote even when a
+member arrived since, because a member the announcing quorum never saw cannot
+be finalized once that quorum closed without it. The drain check reads a
+per-epoch index of undecided elections instead of scanning every election of
+the epoch.
 
-The round leader proposes only once every representative announced the root it
-holds itself, or six seconds after its own drain once representatives holding
-certificate weight have; a fresh snapshot that differs from the announced root
-is announced instead of proposed. Round 0 is timed from the moment a proposal
-became due on each replica rather than from the drain start, so followers do not
-FIRST-timeout a round before its proposal can exist; later rounds are timed from
-their timeout certificate as before. After the six-second wait the round timer
+The announced value is voted only once every representative announced the same
+pair, or six seconds after this replica's own drain once certificate weight
+has: the announcement phase of a round, which gives late certificates a chance
+to enter the close instead of being discarded with it. A fresh snapshot that
+differs from the announced root is announced instead of voted. Round 0 is timed
+from the moment the vote became due on each replica rather than from the drain
+start, so nobody FIRST-timeouts a round before its value can exist; later
+rounds are timed from their timeout certificate as before. After the six-second wait the round timer
 is armed even without certificate-weight agreement, so rounds keep rotating
 while reconciliation continues. Close statements, announcements and pages use
 their own outbound traffic class (`TrafficType::EpochClose`): on the shared
