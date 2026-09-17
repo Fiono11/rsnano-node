@@ -5,14 +5,26 @@ use rsnano_types::{
 };
 use serde::{Deserialize, Serialize};
 
+/// One signature of a close announcement, carried by an assembler proposal as
+/// part of the semantic announcement certificate (rule C2).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloseSigner {
+    pub voter: PublicKey,
+    pub signature: Signature,
+}
+
 /// A digest-only close statement or one page of a membership digest tree.
 /// Vote kinds 0..=4 carry only a digest and 6 acknowledges a persisted close.
-/// Kind 8 announces a drained replica's close value: the parent and
-/// membership root it would vote for, the member count and a set sketch from
-/// which a peer decodes the differing members in one step. Kind 9 requests one page of a view named by its root, answered by
-/// kind 5 (the 256 level-1 digests, or one bucket's leaf digests) or kind 7
-/// (the members of one two-byte prefix); pages are the fallback when a sketch
-/// does not decode. Pages never enter a vote tally.
+/// Kind 8 announces a drained replica's membership root, member count and a
+/// set sketch from which a peer decodes the differing members in one step.
+/// Kind 10 is the close announcement of rule C1 (previous close and target
+/// root, no parent) and kind 11 the close assembler's proposal of rule C2: the
+/// certified target paired with a ParentOK parent, carrying the announcement
+/// signatures that certify the target. Kind 9 requests one page of a view
+/// named by its root, answered by kind 5 (the 256 level-1 digests, or one
+/// bucket's leaf digests) or kind 7 (the members of one two-byte prefix);
+/// pages are the fallback when a sketch does not decode. Pages never enter a
+/// vote tally.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EpochClose {
     pub epoch: u64,
@@ -43,6 +55,11 @@ pub struct EpochClose {
     /// Hex-encoded membership sketch of an announcement, empty otherwise.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub sketch: String,
+    /// The announcement signatures certifying a proposal's target, empty
+    /// otherwise. Not covered by the assembler's signature: any quorum of
+    /// valid announcements for the pair is equivalent.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub certificate: Vec<CloseSigner>,
 }
 impl EpochClose {
     pub const PAGE_SIZE: usize = 512;
@@ -53,6 +70,8 @@ impl EpochClose {
     pub const LEVEL1_PAGE: u16 = 3;
     /// Serialized size of a membership sketch (192 cells of 44 bytes).
     pub const SKETCH_BYTES: usize = 192 * 44;
+    /// Announcement signatures a proposal may carry.
+    pub const CERTIFICATE_MAX: usize = 64;
     pub fn sketch_bytes(&self) -> Option<Vec<u8>> {
         decode_hex(&self.sketch)
     }
@@ -105,11 +124,13 @@ impl EpochClose {
             && self.removed.is_empty()
             && self.parent.is_zero()
             && self.sketch.is_empty()
+            && self.certificate.is_empty()
     }
     pub fn valid_vote(&self) -> bool {
         self.kind <= 4
             && self.hashes.is_empty()
             && self.sketch.is_empty()
+            && self.certificate.is_empty()
             && self.base.is_zero()
             && self.removed.is_empty()
             && self.pages == 0
@@ -134,6 +155,7 @@ impl EpochClose {
     pub fn valid_announcement(&self) -> bool {
         self.kind == 8
             && self.hashes.is_empty()
+            && self.certificate.is_empty()
             && self.sketch.len() == Self::SKETCH_BYTES * 2
             && self.sketch_bytes().is_some()
             && self.page == 0
@@ -142,11 +164,50 @@ impl EpochClose {
             && self.removed.is_empty()
             && self.signature_valid()
     }
-    /// Close announcement (rule C1): the one previous-close/parent/root pair
-    /// a close-ready replica signs in a close round. Never a consensus vote;
-    /// a quorum of matching announcements enables the value for the round.
+    /// Close announcement (rule C1): the one previous-close/root pair a
+    /// close-ready replica signs in a close round. It names no parent and no
+    /// member count, so a proposal can carry it as a bare signature. Never a
+    /// consensus vote; a quorum of matching announcements certifies the
+    /// target for the round.
     pub fn valid_commitment(&self) -> bool {
         self.kind == 10
+            && self.hashes.is_empty()
+            && self.sketch.is_empty()
+            && self.certificate.is_empty()
+            && self.page == 0
+            && self.pages == 0
+            && self.base.is_zero()
+            && self.removed.is_empty()
+            && self.parent.is_zero()
+            && self.members == 0
+            && !self.state.is_zero()
+            && self.signature_valid()
+    }
+    /// The announcement a signer of this proposal's certificate signed: the
+    /// proposal's epoch, round, previous close and target root.
+    pub fn commitment_of(&self, signer: &CloseSigner) -> EpochClose {
+        EpochClose {
+            kind: 10,
+            parent: BlockHash::ZERO,
+            members: 0,
+            voter: signer.voter,
+            signature: signer.signature.clone(),
+            page: 0,
+            pages: 0,
+            hashes: vec![],
+            base: BlockHash::ZERO,
+            removed: vec![],
+            sketch: String::new(),
+            certificate: vec![],
+            ..self.clone()
+        }
+    }
+    /// Close assembler proposal (rule C2): the round assembler's signature on
+    /// the exact round-scoped value it publishes, the certified target root
+    /// paired with the parent it selected, together with the announcement
+    /// signatures certifying that target. Never a consensus vote.
+    pub fn valid_proposal(&self) -> bool {
+        self.kind == 11
             && self.hashes.is_empty()
             && self.sketch.is_empty()
             && self.page == 0
@@ -154,6 +215,7 @@ impl EpochClose {
             && self.base.is_zero()
             && self.removed.is_empty()
             && !self.state.is_zero()
+            && self.certificate.len() <= Self::CERTIFICATE_MAX
             && self.signature_valid()
     }
     /// Request for one page of the view whose root is `state`.
@@ -210,10 +272,11 @@ impl EpochClose {
     pub fn deserialize(payload: &[u8]) -> Result<Self, DeserializationError> {
         let value: Self =
             serde_json::from_slice(payload).map_err(|_| DeserializationError::InvalidData)?;
-        if value.kind > 10
+        if value.kind > 11
             || !value.removed.is_empty()
             || value.hashes.len() > Self::PAGE_SIZE
             || value.sketch.len() > Self::SKETCH_BYTES * 2
+            || value.certificate.len() > Self::CERTIFICATE_MAX
         {
             return Err(DeserializationError::InvalidData);
         }
@@ -270,6 +333,7 @@ mod tests {
             removed: vec![],
             members: 0,
             sketch: String::new(),
+            certificate: vec![],
         }
     }
 
@@ -282,15 +346,92 @@ mod tests {
     }
 
     #[test]
-    fn commitment_binds_round_parent_and_root_and_never_votes() {
+    fn commitment_binds_round_and_root_and_never_votes() {
         let mut commitment = packet(10);
         commitment.round = 2;
-        commitment.parent = 5.into();
         commitment.sign(&PrivateKey::from(1));
         assert!(commitment.valid_commitment());
         assert!(!commitment.valid_vote());
         assert!(!commitment.valid_announcement());
+        assert!(!commitment.valid_proposal());
         crate::assert_deserializable(&crate::Message::EpochClose(commitment.clone()));
+        for (field, change) in [
+            (
+                "round",
+                Box::new(|p: &mut EpochClose| p.round = 3) as Box<dyn Fn(&mut EpochClose)>,
+            ),
+            ("state", Box::new(|p: &mut EpochClose| p.state = 4.into())),
+            (
+                "previous close",
+                Box::new(|p: &mut EpochClose| p.previous_close = 1.into()),
+            ),
+        ] {
+            let mut changed = commitment.clone();
+            change(&mut changed);
+            assert!(!changed.valid_commitment(), "the {field} is signed");
+        }
+        let mut with_parent = commitment.clone();
+        with_parent.parent = 5.into();
+        with_parent.sign(&PrivateKey::from(1));
+        assert!(
+            !with_parent.valid_commitment(),
+            "an announcement carries no parent"
+        );
+        let mut counted = commitment.clone();
+        counted.members = 3;
+        counted.sign(&PrivateKey::from(1));
+        assert!(
+            !counted.valid_commitment(),
+            "an announcement carries no member count"
+        );
+        let mut empty = commitment.clone();
+        empty.state = BlockHash::ZERO;
+        empty.sign(&PrivateKey::from(1));
+        assert!(!empty.valid_commitment(), "a commitment names a root");
+        let mut vote = commitment.clone();
+        vote.kind = 0;
+        vote.sign(&PrivateKey::from(1));
+        assert!(!vote.valid_commitment());
+    }
+
+    #[test]
+    fn proposal_binds_the_value_and_carries_the_announcement_signatures() {
+        let mut commitment = packet(10);
+        commitment.round = 2;
+        let certificate: Vec<_> = (1..=4)
+            .map(|i| {
+                commitment.sign(&PrivateKey::from(i));
+                CloseSigner {
+                    voter: commitment.voter,
+                    signature: commitment.signature.clone(),
+                }
+            })
+            .collect();
+        let mut proposal = packet(11);
+        proposal.round = 2;
+        proposal.parent = 5.into();
+        proposal.members = 9;
+        proposal.certificate = certificate.clone();
+        proposal.sign(&PrivateKey::from(6));
+        assert!(proposal.valid_proposal());
+        assert!(!proposal.valid_vote());
+        assert!(!proposal.valid_commitment());
+        crate::assert_deserializable(&crate::Message::EpochClose(proposal.clone()));
+        for signer in &certificate {
+            assert!(
+                proposal.commitment_of(signer).valid_commitment(),
+                "each carried signature is a valid announcement of the target"
+            );
+        }
+        let mut other_target = proposal.clone();
+        other_target.state = 4.into();
+        other_target.sign(&PrivateKey::from(6));
+        assert!(
+            !other_target
+                .commitment_of(&certificate[0])
+                .valid_commitment(),
+            "the signatures certify this target only"
+        );
         for (field, change) in [
             (
                 "round",
@@ -303,18 +444,25 @@ mod tests {
                 Box::new(|p: &mut EpochClose| p.previous_close = 1.into()),
             ),
         ] {
-            let mut changed = commitment.clone();
+            let mut changed = proposal.clone();
             change(&mut changed);
-            assert!(!changed.valid_commitment(), "the {field} is signed");
+            assert!(!changed.valid_proposal(), "the {field} is signed");
         }
-        let mut empty = commitment.clone();
-        empty.state = BlockHash::ZERO;
-        empty.sign(&PrivateKey::from(1));
-        assert!(!empty.valid_commitment(), "a commitment names a root");
-        let mut vote = commitment.clone();
-        vote.kind = 0;
-        vote.sign(&PrivateKey::from(1));
-        assert!(!vote.valid_commitment());
+        let mut stripped = proposal.clone();
+        stripped.certificate.clear();
+        assert!(
+            stripped.valid_proposal(),
+            "the certificate is evidence, not part of the envelope"
+        );
+        let mut oversized = proposal.clone();
+        oversized.certificate = vec![certificate[0].clone(); EpochClose::CERTIFICATE_MAX + 1];
+        assert!(!oversized.valid_proposal());
+        let mut bytes = Vec::new();
+        oversized.serialize(&mut bytes).unwrap();
+        assert!(
+            EpochClose::deserialize(&bytes).is_err(),
+            "an oversized certificate is rejected on the wire"
+        );
     }
 
     #[test]

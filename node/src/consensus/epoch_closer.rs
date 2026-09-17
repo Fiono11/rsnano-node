@@ -1,9 +1,14 @@
-//! Proposer-free Kudzu close rounds: a drained replica announces the parent
-//! and membership root it would close on, and once a quorum announced the
-//! same pair every replica that holds that membership FIRST-votes the value
-//! it names, whether or not it is the replica's own. The announcing quorum
-//! carries the D3/D4 judgment, so a member learned after the vote never
-//! withdraws it. Voting epochs and canonical ledger epochs are independent.
+//! Kudzu close rounds with a rotating close assembler (RAI.tex A0, C0-C4): a
+//! drained replica announces its membership sketch for reconciliation and,
+//! once close-ready, signs one announcement per round naming the previous
+//! close and its membership root (C1). The round's assembler pairs the root a
+//! quorum announced with a ParentOK parent from its validated close cache and
+//! publishes the signed value (C2); a replica FIRST-votes or notarizes it only
+//! after checking the assembler's signature, the announcement certificate,
+//! its own previous close, ParentOK and that it holds the target's members.
+//! The announcing quorum carries the D3/D4 judgment, so a member learned
+//! after the vote never withdraws it. Voting epochs and canonical ledger
+//! epochs are independent.
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
     sync::{Arc, Mutex, atomic::Ordering},
@@ -11,7 +16,7 @@ use std::{
 };
 
 use rsnano_ledger::{AnySet, Ledger, MembershipSketch, MembershipTrie, RepWeights};
-use rsnano_messages::{EpochClose, Message};
+use rsnano_messages::{CloseSigner, EpochClose, Message};
 use rsnano_network::{ChannelId, TrafficType};
 use rsnano_types::{
     Amount, BlockHash, ElectionId, PrivateKey, PublicKey, Root, Signature, Vote, VoteKind,
@@ -90,6 +95,10 @@ const RECONCILE_INTERVAL: Duration = RETRANSMIT;
 /// late certificates a chance to enter the close instead of being discarded
 /// with it.
 const AGREEMENT_TIMEOUT: Duration = Duration::from_secs(6);
+/// Proposals stored per round. A correct assembler signs one value per round;
+/// an equivocating one may pair the certified target with several parents,
+/// and a bounded number of them can still be notarized on second look.
+const PROPOSALS_PER_ROUND: usize = 8;
 static DROPPED_CLOSE_PACKETS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// The first-vote budget of a close round doubles every round without bound
@@ -115,6 +124,8 @@ struct Signer {
     notarized: HashSet<BlockHash>,
     final_vote: Option<BlockHash>,
     timeout: bool,
+    /// This key, as the round's assembler, signed its one proposal.
+    proposed: bool,
 }
 struct Round {
     tally: KudzuVotes,
@@ -170,6 +181,10 @@ struct Candidate {
     /// Channels that delivered votes for it, asked for the sketch and pages of
     /// its view when it finalizes with a root this replica never held.
     sources: Vec<ChannelId>,
+    /// The round assembler's signed proposal of this value (C2(a)), with the
+    /// announcements certifying its target; retained and rebroadcast so a
+    /// second-look replica can run the same checks.
+    proposal: Option<EpochClose>,
 }
 
 /// What this replica has learned about a membership named by its root: the
@@ -233,7 +248,6 @@ struct State {
     local_first: Arc<Vec<ElectionId>>,
     epoch: u64,
     round: u64,
-    parent: BlockHash,
     previous_close: BlockHash,
     ready: bool,
     rounds: BTreeMap<u64, Round>,
@@ -285,7 +299,6 @@ impl State {
             local_first: Arc::new(Vec::new()),
             epoch,
             round: 0,
-            parent: BlockHash::ZERO,
             previous_close: BlockHash::ZERO,
             ready: false,
             rounds: Default::default(),
@@ -386,27 +399,69 @@ impl State {
         self.trie.root()
     }
 
-    /// The parent/root pair that certificate weight committed to in the
-    /// current round, if any: the value whose FIRST vote is due. Our own keys
-    /// count through our commitment only, so an unready replica attests
-    /// nothing; each representative commits once per round, so two pairs
-    /// cannot both reach certificate weight in one round (Lemma 12).
-    fn enabled(&self) -> Option<(BlockHash, BlockHash)> {
-        let round = self.rounds.get(&self.round)?;
-        let mut committed: HashMap<(BlockHash, BlockHash), u128> = HashMap::new();
-        for (rep, commitment) in &round.commitments {
-            let weight = self.weights.weight(rep);
-            if weight.is_zero() {
-                continue;
-            }
-            let entry = committed
-                .entry((commitment.parent, commitment.state))
-                .or_default();
-            *entry = entry.saturating_add(weight.number());
+    /// The close assembler of `round` (rule A0): the committee in public key
+    /// order, round-robin from a start the epoch fixes. The role only decides
+    /// who publishes the round's value; every voter checks it independently.
+    fn assembler(&self, round: u64) -> Option<PublicKey> {
+        let committee: BTreeSet<_> = self
+            .weights
+            .iter()
+            .filter(|(_, weight)| !weight.is_zero())
+            .map(|(rep, _)| *rep)
+            .collect();
+        let n = committee.len() as u64;
+        if n == 0 {
+            return None;
         }
-        let ((parent, state), weight) = committed.into_iter().max_by_key(|(_, w)| *w)?;
-        (Amount::raw(weight) >= KudzuThresholds::new(self.total).certificate)
-            .then_some((parent, state))
+        let position = (round % n + self.epoch % n) % n;
+        committee.iter().nth(position as usize).copied()
+    }
+    /// Announcement weight `state` collected in `round`.
+    fn announced_weight(&self, round: u64, state: BlockHash) -> Amount {
+        let Some(round) = self.rounds.get(&round) else {
+            return Amount::raw(0);
+        };
+        Amount::raw(
+            round
+                .commitments
+                .values()
+                .filter(|commitment| commitment.state == state)
+                .fold(0u128, |sum, commitment| {
+                    sum.saturating_add(self.weights.weight(&commitment.voter).number())
+                }),
+        )
+    }
+    /// C2(b): certificate weight of the announcements of `round` names
+    /// `state`. Our own keys count through our announcement only, so an
+    /// unready replica attests nothing.
+    fn certified_target(&self, round: u64, state: BlockHash) -> bool {
+        self.announced_weight(round, state) >= KudzuThresholds::new(self.total).certificate
+    }
+    /// The target root certified in the current round, if any: the round's
+    /// unique certifiable pair (Lemma 12), since each representative
+    /// announces once per round.
+    fn enabled(&self) -> Option<BlockHash> {
+        let round = self.rounds.get(&self.round)?;
+        round
+            .commitments
+            .values()
+            .map(|commitment| commitment.state)
+            .find(|state| self.certified_target(self.round, *state))
+    }
+    /// The K9 selector: the notarized candidate of the newest round with a
+    /// timeout certificate for every later round, smallest candidate id
+    /// first; without one, the genesis position. A voter never recomputes
+    /// it; it checks ParentOK for the parent the assembler named.
+    fn select_parent(&self) -> BlockHash {
+        self.candidates
+            .iter()
+            .filter(|(id, c)| {
+                c.header.round < self.round
+                    && self.certified(**id, VoteKind::Notarize)
+                    && self.timed_out(c.header.round + 1..self.round)
+            })
+            .min_by_key(|(id, c)| (std::cmp::Reverse(c.header.round), **id))
+            .map_or(BlockHash::ZERO, |(id, _)| *id)
     }
     /// Whether the round-0 announcement phase has expired since this replica
     /// became ready.
@@ -416,23 +471,22 @@ impl State {
                 .ready_since
                 .is_some_and(|since| now.duration_since(since) >= AGREEMENT_TIMEOUT)
     }
-    /// Every representative's sketch names the pair this replica would commit
-    /// to.
+    /// Every representative's sketch names the root this replica would
+    /// announce.
     fn converged(&mut self) -> bool {
         let root = self.root();
-        let parent = self.parent;
         self.weights
             .iter()
             .filter(|(_, weight)| !weight.is_zero())
             .all(|(rep, _)| {
                 self.announcements
                     .get(rep)
-                    .is_some_and(|(a, _)| a.state == root && a.parent == parent)
+                    .is_some_and(|(a, _)| a.state == root)
             })
     }
     /// Whether the announcement phase of the current round has ended for this
     /// replica (rule C1): it is close-ready and either every representative's
-    /// sketch names its pair, or the phase expired, `AGREEMENT_TIMEOUT` after
+    /// sketch names its root, or the phase expired, `AGREEMENT_TIMEOUT` after
     /// readiness in round 0 and half the first-vote budget after entry in
     /// later rounds, so that the commitment precedes any FIRST timeout.
     fn commit_due(&mut self, now: Instant) -> bool {
@@ -450,13 +504,15 @@ impl State {
             .get(&self.round)
             .is_some_and(|round| now.duration_since(round.started) >= budget)
     }
-    /// Sign this replica's one commitment of the current round: the parent it
-    /// extends and its live membership root. A changed membership is never
-    /// committed again in the same round; the next round commits it.
+    /// Sign this replica's one announcement of the current round (C1): the
+    /// previous close and its live membership root, no parent. A changed
+    /// membership is never announced again in the same round; the next round
+    /// announces it.
     fn commit(&mut self, keys: &[PrivateKey], out: &mut Vec<EpochClose>) {
         let root = self.root();
-        let mut commitment = self.template(self.round, self.parent, root);
+        let mut commitment = self.template(self.round, BlockHash::ZERO, root);
         commitment.kind = 10;
+        commitment.members = 0;
         for key in keys {
             let round = self.rounds.entry(self.round).or_default();
             if round.commitments.contains_key(&key.public_key()) {
@@ -468,7 +524,7 @@ impl State {
                 .insert(key.public_key(), commitment.clone());
             self.local_commitments.push(commitment.clone());
             debug_trace(
-                || serde_json::json!({"type":"commitment","epoch":self.epoch,"round":self.round,"parent":commitment.parent,"state":commitment.state,"rep":key.public_key()}),
+                || serde_json::json!({"type":"commitment","epoch":self.epoch,"round":self.round,"state":commitment.state,"rep":key.public_key()}),
             );
             out.push(commitment.clone());
         }
@@ -490,26 +546,117 @@ impl State {
             .entry(p.voter)
             .or_insert(p);
     }
+    /// Assembly (rule C2): when one of `keys` is the current round's
+    /// assembler and announcement weight certified a target, pair the target
+    /// with the parent the K9 selector picks from the validated close cache,
+    /// sign the one proposal of the round and publish it with the
+    /// announcements that certify the target. The assembler need not hold
+    /// the target's members itself; as a voter it checks that like anyone.
+    fn propose(&mut self, keys: &[PrivateKey], out: &mut Vec<EpochClose>) {
+        let Some(assembler) = self.assembler(self.round) else {
+            return;
+        };
+        let Some(key) = keys.iter().find(|key| key.public_key() == assembler) else {
+            return;
+        };
+        let Some(state) = self.enabled() else {
+            return;
+        };
+        let round = self.rounds.entry(self.round).or_default();
+        let signer = round.signers.entry(assembler).or_default();
+        if signer.proposed {
+            return;
+        }
+        signer.proposed = true;
+        // The heaviest announcements first, so a bounded certificate still
+        // carries certificate weight.
+        let mut certifying: Vec<_> = round
+            .commitments
+            .values()
+            .filter(|commitment| commitment.state == state)
+            .collect();
+        certifying.sort_by_key(|commitment| {
+            (
+                std::cmp::Reverse(self.weights.weight(&commitment.voter)),
+                commitment.voter,
+            )
+        });
+        let certificate = certifying
+            .into_iter()
+            .take(EpochClose::CERTIFICATE_MAX)
+            .map(|commitment| CloseSigner {
+                voter: commitment.voter,
+                signature: commitment.signature.clone(),
+            })
+            .collect();
+        let parent = self.select_parent();
+        let mut proposal = self.template(self.round, parent, state);
+        proposal.kind = 11;
+        proposal.certificate = certificate;
+        proposal.sign(key);
+        debug_trace(
+            || serde_json::json!({"type":"proposal","epoch":self.epoch,"round":self.round,"id":proposal.candidate_id(),"parent":parent,"state":state,"rep":assembler}),
+        );
+        self.receive_proposal(proposal.clone());
+        out.push(proposal);
+    }
+    /// Store the round assembler's proposal (C2(a), with C2(c) for the
+    /// previous close) and the announcements it carries. A proposal by anyone
+    /// but the round's assembler is ignored, as is any beyond the
+    /// equivocation bound of a round; the first proposal of a value is kept.
+    fn receive_proposal(&mut self, p: EpochClose) {
+        if p.epoch != self.epoch
+            || p.previous_close != self.previous_close
+            || p.round > self.round + FUTURE_ROUNDS
+            || self.assembler(p.round) != Some(p.voter)
+            || !p.valid_proposal()
+        {
+            return;
+        }
+        for signer in &p.certificate {
+            self.receive_commitment(p.commitment_of(signer));
+        }
+        let id = p.candidate_id();
+        if !self.candidates.contains_key(&id)
+            && self
+                .candidates
+                .values()
+                .filter(|c| c.header.round == p.round && c.proposal.is_some())
+                .count()
+                >= PROPOSALS_PER_ROUND
+        {
+            return;
+        }
+        let mut header = p.clone();
+        header.certificate.clear();
+        let candidate = self.candidates.entry(id).or_insert_with(|| Candidate {
+            header,
+            sources: Vec::new(),
+            proposal: None,
+        });
+        if candidate.proposal.is_none() {
+            candidate.proposal = Some(p);
+        }
+    }
 
-    /// Announce the membership sketch this replica would commit to, the
-    /// current parent and live membership root, once either changes, so peers
-    /// can reconcile towards it. Sketches never enable a value; they are
-    /// retransmitted with the close history until the epoch closes.
+    /// Announce the membership sketch this replica would commit to, its live
+    /// membership root, once it changes, so peers can reconcile towards it.
+    /// Sketches never certify a value; they are retransmitted with the close
+    /// history until the epoch closes.
     fn announce(&mut self, keys: &[PrivateKey], out: &mut Vec<EpochClose>) {
         if !self.ready || keys.is_empty() {
             return;
         }
         let root = self.root();
-        let parent = self.parent;
         if self
             .local_announcements
             .first()
-            .is_some_and(|announcement| announcement.state == root && announcement.parent == parent)
+            .is_some_and(|announcement| announcement.state == root)
         {
             return;
         }
         self.announcement_seq += 1;
-        let mut announcement = self.template(self.announcement_seq, parent, root);
+        let mut announcement = self.template(self.announcement_seq, BlockHash::ZERO, root);
         announcement.kind = 8;
         announcement.set_sketch(&self.trie.sketch().to_bytes());
         self.local_announcements.clear();
@@ -803,6 +950,7 @@ impl State {
                 removed: vec![],
                 members: 0,
                 sketch: String::new(),
+                certificate: vec![],
             };
             request.sign(key);
             requests.push((source, request));
@@ -889,6 +1037,8 @@ impl State {
             .extend(self.local_announcements.iter().cloned());
         self.retransmit
             .extend(self.local_commitments.iter().cloned());
+        self.retransmit
+            .extend(self.candidates.values().filter_map(|c| c.proposal.clone()));
         self.retransmit.extend(
             self.rounds
                 .values()
@@ -964,6 +1114,7 @@ impl State {
             removed: vec![],
             members: self.trie.len() as u64,
             sketch: String::new(),
+            certificate: vec![],
         }
     }
     /// Votes and receipts. Pages and requests have their own entry points.
@@ -1001,6 +1152,7 @@ impl State {
                 .or_insert_with(|| Candidate {
                     header: p.clone(),
                     sources: Vec::new(),
+                    proposal: None,
                 });
         }
     }
@@ -1032,9 +1184,7 @@ impl State {
     /// round timed out, or a notarized candidate of an earlier round with a
     /// timeout certificate for every round skipped between them. The parent's
     /// own round needs no timeout, and its ancestry is not re-validated: its
-    /// notarization certificate has a correct signer that checked it. Any
-    /// representative may vote a candidate into existence; a quorum decides,
-    /// not a proposer.
+    /// notarization certificate has a correct signer that checked it.
     fn well_formed(&self, id: BlockHash) -> bool {
         let Some(c) = self.candidates.get(&id) else {
             return false;
@@ -1102,15 +1252,21 @@ impl State {
         view.subset = Some((root, result));
         result
     }
-    /// Signable, and complete once notarized: ParentOK holds and every member
-    /// of the candidate's root is held here, so its entries verify locally.
-    fn signable(&mut self, id: BlockHash) -> bool {
+    /// C2(a)-(e) for a candidate: the round assembler proposed it, its target
+    /// is certified by announcement weight in its round, ParentOK holds and
+    /// every member of the target is held here, so its entries verify
+    /// locally; (c) held when the proposal was stored. Such a candidate takes
+    /// a FIRST vote or a second-look share, and is complete once notarized.
+    fn complete(&mut self, id: BlockHash) -> bool {
         let root = self.root();
         let Some(c) = self.candidates.get(&id) else {
             return false;
         };
-        let state = c.header.state;
-        self.well_formed(id) && (state == root || self.holds_members(state))
+        let (round, state) = (c.header.round, c.header.state);
+        c.proposal.is_some()
+            && self.certified_target(round, state)
+            && self.well_formed(id)
+            && (state == root || self.holds_members(state))
     }
     fn sign(&mut self, mut p: EpochClose, key: &PrivateKey, k: u8, out: &mut Vec<EpochClose>) {
         p.kind = k;
@@ -1118,6 +1274,7 @@ impl State {
         p.page = 0;
         p.hashes.clear();
         p.sketch.clear();
+        p.certificate.clear();
         p.base = BlockHash::ZERO;
         p.removed.clear();
         if matches!(k, 3 | 4) {
@@ -1162,49 +1319,35 @@ impl State {
             return (out, None);
         }
         self.rounds.entry(self.round).or_default();
-        // A certificate can arrive after we entered this round. Re-evaluate the
-        // parent before announcing so that certificate arrival order does not
-        // permanently split otherwise identical snapshots into separate chains.
-        // The parent is the notarized candidate of the newest round with a
-        // timeout certificate for every later round, smallest candidate ID
-        // first; without one, the genesis position.
-        if let Some(id) = self
-            .candidates
-            .iter()
-            .filter(|(id, c)| {
-                c.header.round < self.round
-                    && self.certified(**id, VoteKind::Notarize)
-                    && self.timed_out(c.header.round + 1..self.round)
-            })
-            .min_by_key(|(id, c)| (std::cmp::Reverse(c.header.round), **id))
-            .map(|(id, _)| *id)
-        {
-            self.parent = id;
-        }
         self.announce(keys, &mut out);
         if self.commit_due(now) {
             self.commit(keys, &mut out);
         }
-        let due = self.enabled();
-        // Round timeouts keep the rounds rotating even while no value has
-        // enough support to be voted; reconciliation continues meanwhile.
-        if !self.round_timer_armed && (due.is_some() || self.agreement_expired(now)) {
+        // Round timeouts keep the rounds rotating even while no target has
+        // certificate support or the assembler stays silent; reconciliation
+        // continues meanwhile.
+        if !self.round_timer_armed && (self.enabled().is_some() || self.agreement_expired(now)) {
             self.arm_round_timer();
         }
-        // The FIRST vote goes to the value the committing quorum enabled,
-        // whether or not it is this replica's own: replicas holding that
-        // membership create the same candidate, so their votes tally without
-        // a proposer, and a replica holding more members signs it as well. A
-        // value the quorum did not enable is reached only through the second
-        // look, so a Byzantine member cannot split the correct first votes.
-        if let Some((parent, state)) = due {
-            let proposal = self.template(self.round, parent, state);
-            let id = proposal.candidate_id();
-            self.candidates.entry(id).or_insert_with(|| Candidate {
-                header: proposal.clone(),
-                sources: Vec::new(),
-            });
-            if self.signable(id) {
+        self.propose(keys, &mut out);
+        let timed = self.round_timed_out();
+        let current: Vec<_> = self
+            .candidates
+            .iter()
+            .filter(|(_, c)| c.header.round == self.round)
+            .map(|(id, c)| (*id, c.header.clone()))
+            .collect();
+        // The FIRST vote goes to the first proposal of the round whose checks
+        // C2(a)-(e) complete before the deadline, whether or not its target is
+        // this replica's own root: a replica holding more members votes it as
+        // well. Past the deadline the vote is a timeout below. With a correct
+        // assembler there is one proposal, so a Byzantine member cannot split
+        // the correct first votes.
+        if !timed {
+            for (id, p) in &current {
+                if !self.complete(*id) {
+                    continue;
+                }
                 for key in keys {
                     let signer = self
                         .rounds
@@ -1214,28 +1357,22 @@ impl State {
                         .entry(key.public_key())
                         .or_default();
                     if signer.first.is_none() {
-                        signer.first = Some(id);
-                        signer.notarized.insert(id);
+                        signer.first = Some(*id);
+                        signer.notarized.insert(*id);
                         debug_trace(
-                            || serde_json::json!({"type":"enabled_candidate","epoch":self.epoch,"round":self.round,"id":id,"parent":proposal.parent,"state":proposal.state,"own":proposal.state == root,"rep":key.public_key()}),
+                            || serde_json::json!({"type":"first_vote","epoch":self.epoch,"round":self.round,"id":id,"parent":p.parent,"state":p.state,"own":p.state == root,"rep":key.public_key()}),
                         );
-                        self.sign(proposal.clone(), key, 0, &mut out);
+                        self.sign(p.clone(), key, 0, &mut out);
                     }
                 }
             }
         }
-        let current: Vec<_> = self
-            .candidates
-            .iter()
-            .filter(|(_, c)| c.header.round == self.round)
-            .map(|(id, c)| (*id, c.header.clone()))
-            .collect();
         for (id, p) in &current {
-            // Notarizing another value on second look needs its members held
-            // here. A FINAL vote is bound to the FIRST vote only: the
-            // authorization a quorum gave that value is not withdrawn by a
-            // member this replica learned since.
-            let signable = self.signable(*id);
+            // A second-look share re-runs C2(a)-(e) (C3). A FINAL vote is
+            // bound to the FIRST vote only (FV): the authorization a quorum
+            // gave that value is not withdrawn by a member this replica
+            // learned since.
+            let signable = self.complete(*id);
             for key in keys {
                 let r = self.rounds.get_mut(&self.round).unwrap();
                 let second = r.tally.second_look(id);
@@ -1265,15 +1402,15 @@ impl State {
                 }
             }
         }
-        // A complete candidate, notarized and signable here, exits the round
-        // without a timeout certificate: the next round extends it as parent
-        // and a finalized descendant finalizes it implicitly. Otherwise a
-        // notarized value short of its FINAL quorum, with too few FIRST
-        // timeouts to trigger timeout shares, would stall the epoch for good.
-        // No share follows the exit.
+        // A complete candidate, notarized with its checks passed here, exits
+        // the round without a timeout certificate (X1): the next round extends
+        // it as parent and a finalized descendant finalizes it implicitly.
+        // Otherwise a notarized value short of its FINAL quorum, with too few
+        // FIRST timeouts to trigger timeout shares, would stall the epoch for
+        // good. No share follows the exit.
         if current
             .iter()
-            .any(|(id, _)| self.certified(*id, VoteKind::Notarize) && self.signable(*id))
+            .any(|(id, _)| self.certified(*id, VoteKind::Notarize) && self.complete(*id))
         {
             debug_trace(
                 || serde_json::json!({"type":"round_complete","epoch":self.epoch,"round":self.round}),
@@ -1461,6 +1598,7 @@ impl EpochCloser {
                 7 => state.receive_leaf_page(p, missing_members),
                 8 => state.receive_announcement(p, channel),
                 10 => state.receive_commitment(p),
+                11 => state.receive_proposal(p),
                 9 => {
                     if let Some(key) = &signing_key {
                         state.serve_request(p, channel, key);
@@ -1613,11 +1751,12 @@ impl EpochCloser {
                     "rep": keys.first().map(|k| k.public_key()), "epoch":state.epoch, "round":state.round,
                     "members":state.trie.len(),
                     "state":root,
-                    "parent":state.parent,
+                    "assembler":state.assembler(state.round),
                     "ready_for_ms":state.ready_since.map(|since| since.elapsed().as_millis()),
-                    "enabled":enabled.map(|(parent, state)| serde_json::json!({"parent":parent,"state":state})),
-                    "announcements":state.announcements.iter().map(|(rep, (a, _))| serde_json::json!({"rep":rep,"members":a.members,"parent":a.parent,"state":a.state})).collect::<Vec<_>>(),
-                    "commitments":state.rounds.get(&state.round).map(|r| r.commitments.iter().map(|(rep, c)| serde_json::json!({"rep":rep,"parent":c.parent,"state":c.state})).collect::<Vec<_>>()).unwrap_or_default(),
+                    "enabled":enabled,
+                    "announcements":state.announcements.iter().map(|(rep, (a, _))| serde_json::json!({"rep":rep,"members":a.members,"state":a.state})).collect::<Vec<_>>(),
+                    "commitments":state.rounds.get(&state.round).map(|r| r.commitments.iter().map(|(rep, c)| serde_json::json!({"rep":rep,"state":c.state})).collect::<Vec<_>>()).unwrap_or_default(),
+                    "proposals":state.candidates.values().filter_map(|c| c.proposal.as_ref()).map(|p| serde_json::json!({"round":p.round,"parent":p.parent,"state":p.state,"rep":p.voter})).collect::<Vec<_>>(),
                     "views":state.views.iter().map(|(root, v)| serde_json::json!({"state":root,"decoded":v.decoded_for.is_some(),"sketch_failed":v.sketch_failed,"only_mine":v.only_mine.len(),"only_theirs":v.only_theirs.len(),"level2":v.level2.len(),"leaves":v.leaves.len()})).collect::<Vec<_>>(),
                     "reconcile_targets":state.reconcile_targets.len(),
                     "round_timer_armed":state.round_timer_armed,
@@ -1769,7 +1908,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn leaderless_close_with_one_silent_member() {
+    fn the_round_assembler_closes_with_one_silent_member() {
         let ledger = Ledger::new_null();
         let mut replicas: Vec<_> = (0..6).map(|_| ready_state(&ledger)).collect();
         let keys = sorted_keys();
@@ -1797,17 +1936,23 @@ mod tests {
         assert!(decisions.iter().all(|d| d.as_ref() == Some(&vec![])));
         assert!(
             replicas[..5].iter().all(|r| r.round == 0),
-            "five identical candidates certify in round 0 without a proposer"
+            "the assembler's value certifies in round 0"
         );
+        assert_eq!(replicas[0].candidates.len(), 1, "one proposal per round");
+        let candidate = replicas[1].candidates.values().next().unwrap();
         assert_eq!(
-            replicas[0].candidates.len(),
-            1,
-            "replicas with the same membership and parent create the same candidate"
+            candidate.proposal.as_ref().map(|p| p.voter),
+            Some(keys[0].public_key()),
+            "the round-0 assembler is the first committee member"
+        );
+        assert!(
+            candidate.proposal.as_ref().unwrap().certificate.len() >= 4,
+            "the proposal carries the announcements certifying its target"
         );
     }
 
     #[test]
-    fn first_proposal_waits_until_every_representative_announces_the_same_root() {
+    fn nothing_is_proposed_until_every_representative_announces_the_same_root() {
         let ledgers: Vec<_> = (0..6).map(|_| Ledger::new_null()).collect();
         let extra: rsnano_types::Block = rsnano_types::SavedBlock::new_test_instance().into();
         ledgers[3].record_epoch_block(0, extra.clone());
@@ -1847,7 +1992,8 @@ mod tests {
             ledger.record_epoch_block(0, extra.clone());
         }
         let mut decisions = vec![None; 6];
-        for _ in 0..4 {
+        // Announce, commit, propose, vote, finalize: one exchange each.
+        for _ in 0..5 {
             for (i, decision) in round(&mut replicas).into_iter().enumerate() {
                 if decision.is_some() {
                     decisions[i] = decision;
@@ -1891,23 +2037,215 @@ mod tests {
             vec![10],
             "every sketch names our pair, so the round-0 commitment is signed"
         );
-        assert!(!s.round_timer_armed, "one commitment enables nothing");
+        assert!(!s.round_timer_armed, "one commitment certifies nothing");
         let root = s.root();
-        commit(&mut s, 2..=6, BlockHash::ZERO, root);
+        commit(&mut s, 2..=6, root);
         let (out, _) = s.drive(&[key.clone()]);
         assert!(
             s.round_timer_armed,
-            "the timer starts when the vote becomes due"
+            "the timer starts when the target is certified"
         );
         assert!(!s.round_timed_out(), "and not from the stale drain start");
+        assert!(
+            out.is_empty(),
+            "nothing is voted until the assembler proposes"
+        );
+        let proposal = propose(&mut s, BlockHash::ZERO, root);
+        let (out, _) = s.drive(&[key.clone()]);
         assert_eq!(
             out.iter().map(|p| p.kind).collect::<Vec<_>>(),
             vec![0],
-            "the replica votes FIRST for the committed root"
+            "the replica votes FIRST for the assembler's value"
         );
+        assert_eq!(out[0].candidate_id(), proposal.candidate_id());
         assert_eq!(out[0].state, s.root());
         s.rounds.get_mut(&0).unwrap().started = Instant::now() - round_timeout(0);
         assert!(s.round_timed_out());
+        let late = s.drive(&[key]).0;
+        assert_eq!(
+            late.iter().map(|p| p.kind).collect::<Vec<_>>(),
+            Vec::<u8>::new(),
+            "one FIRST vote per round"
+        );
+    }
+
+    #[test]
+    fn the_assembler_rotates_through_the_committee_by_round_and_epoch() {
+        let mut s = state();
+        let order = [4, 3, 5, 6, 2, 1].map(|i| PrivateKey::from(i).public_key());
+        for round in 0..12u64 {
+            assert_eq!(
+                s.assembler(round),
+                Some(order[round as usize % 6]),
+                "round {round}"
+            );
+        }
+        s.epoch = 1;
+        assert_eq!(s.assembler(0), Some(order[1]), "the epoch shifts the start");
+        assert_eq!(s.assembler(5), Some(order[0]));
+        let mut empty = State::new(0, RepWeights::default(), vec![]);
+        assert_eq!(empty.assembler(0), None);
+        assert!(empty.enabled().is_none());
+    }
+
+    #[test]
+    fn the_assembler_proposes_once_per_round_with_the_certifying_announcements() {
+        let ledger = Ledger::new_null();
+        let mut s = ready_state(&ledger);
+        let key = assembler_key(&s);
+        s.ready_since = Some(Instant::now() - AGREEMENT_TIMEOUT);
+        let root = s.root();
+        let (out, _) = s.drive(&[key.clone()]);
+        assert_eq!(
+            out.iter().map(|p| p.kind).collect::<Vec<_>>(),
+            vec![8, 10],
+            "no proposal while the target is uncertified"
+        );
+        commit(&mut s, 1..=6, root);
+        let (out, _) = s.drive(&[key.clone()]);
+        assert_eq!(
+            out.iter().map(|p| p.kind).collect::<Vec<_>>(),
+            vec![11, 0],
+            "the assembler proposes and votes its own value"
+        );
+        let proposal = &out[0];
+        assert!(proposal.valid_proposal());
+        assert_eq!(proposal.voter, key.public_key());
+        assert_eq!((proposal.parent, proposal.state), (BlockHash::ZERO, root));
+        assert!(proposal.certificate.len() >= 4);
+        assert!(
+            proposal
+                .certificate
+                .iter()
+                .all(|signer| proposal.commitment_of(signer).valid_commitment())
+        );
+        assert_eq!(out[1].candidate_id(), proposal.candidate_id());
+        assert!(
+            s.drive(&[key]).0.is_empty(),
+            "one proposal and one FIRST vote per round"
+        );
+    }
+
+    #[test]
+    fn a_proposal_needs_the_round_assembler_and_a_certified_target() {
+        let ledger = Ledger::new_null();
+        let mut s = ready_state(&ledger);
+        let root = s.root();
+        let mut forged = s.template(0, BlockHash::ZERO, root);
+        forged.kind = 11;
+        forged.sign(&PrivateKey::from(1));
+        s.receive_proposal(forged);
+        assert!(
+            s.candidates.is_empty(),
+            "key 1 is not the round-0 assembler"
+        );
+        let bare = propose(&mut s, BlockHash::ZERO, root);
+        let id = bare.candidate_id();
+        assert!(s.candidates[&id].proposal.is_some());
+        assert!(!s.complete(id), "no announcement certifies the target");
+        assert!(
+            s.drive(&[PrivateKey::from(1)])
+                .0
+                .iter()
+                .all(|p| p.kind == 8)
+        );
+        // The proposal itself carries the announcements a voter missed.
+        let mut other = state();
+        other.sync_membership(&ledger);
+        commit(&mut other, 2..=5, root);
+        let carried = propose(&mut other, BlockHash::ZERO, root);
+        assert_eq!(carried.certificate.len(), 4);
+        s.receive_proposal(carried);
+        assert_eq!(s.rounds[&0].commitments.len(), 4);
+        assert!(s.complete(id));
+        let (out, _) = s.drive(&[PrivateKey::from(1)]);
+        assert!(out.iter().any(|p| p.kind == 0 && p.candidate_id() == id));
+        // A proposal whose round is another assembler's is ignored as well.
+        let mut wrong_round = s.template(1, BlockHash::ZERO, root);
+        wrong_round.kind = 11;
+        wrong_round.sign(&assembler_key(&s));
+        s.receive_proposal(wrong_round);
+        assert!(s.candidates.values().all(|c| c.header.round == 0));
+    }
+
+    #[test]
+    fn an_equivocating_assembler_stores_a_bounded_number_of_proposals() {
+        let ledger = Ledger::new_null();
+        let mut s = ready_state(&ledger);
+        let root = s.root();
+        commit(&mut s, 1..=6, root);
+        for parent in 1..=(PROPOSALS_PER_ROUND as u64 + 4) {
+            propose(&mut s, parent.into(), root);
+        }
+        assert_eq!(s.candidates.len(), PROPOSALS_PER_ROUND);
+        // A value voted into existence can still get its proposal attached.
+        let mut vote = s.template(0, 99.into(), root);
+        vote.sign(&PrivateKey::from(2));
+        let id = vote.candidate_id();
+        s.receive(vote);
+        assert!(s.candidates[&id].proposal.is_none());
+        propose(&mut s, 99.into(), root);
+        assert!(s.candidates[&id].proposal.is_some());
+        s.queue_retransmission();
+        assert_eq!(
+            s.retransmit.iter().filter(|p| p.kind == 11).count(),
+            PROPOSALS_PER_ROUND + 1,
+            "held proposals are rebroadcast with the close history"
+        );
+    }
+
+    #[test]
+    fn a_silent_assembler_costs_one_round_and_the_next_assembler_closes() {
+        let ledger = Ledger::new_null();
+        let mut replicas: Vec<_> = (0..6).map(|_| ready_state(&ledger)).collect();
+        let keys = sorted_keys();
+        for replica in &mut replicas {
+            replica.ready_since = Some(Instant::now() - AGREEMENT_TIMEOUT);
+        }
+        assert_eq!(replicas[1].assembler(0), Some(keys[0].public_key()));
+        let mut decisions = vec![None; 6];
+        for _ in 0..16 {
+            let mut packets = Vec::new();
+            // The round-0 assembler (replica 0) never drives.
+            for i in 1..6 {
+                match replicas[i].round {
+                    0 if replicas[i].round_timer_armed => {
+                        replicas[i].rounds.get_mut(&0).unwrap().started =
+                            Instant::now() - round_timeout(0);
+                    }
+                    1 => {
+                        replicas[i].rounds.get_mut(&1).unwrap().started =
+                            Instant::now() - round_timeout(1) / 2;
+                    }
+                    _ => {}
+                }
+                let (out, decision) = replicas[i].drive(&[keys[i].clone()]);
+                if decision.is_some() {
+                    decisions[i] = decision;
+                }
+                packets.extend(out);
+            }
+            exchange(&mut replicas, packets);
+        }
+        assert!(
+            decisions[1..].iter().all(|d| d.as_ref() == Some(&vec![])),
+            "every active replica closes: {decisions:?}"
+        );
+        let replica = &replicas[1];
+        assert!(replica.rounds[&0].certificate(BlockHash::ZERO, VoteKind::Timeout));
+        assert!(
+            replica.candidates.values().all(|c| c.header.round == 1),
+            "no value was proposed in round 0"
+        );
+        let decided = replica.decision().unwrap();
+        assert_eq!(
+            replica.candidates[&decided]
+                .proposal
+                .as_ref()
+                .map(|p| p.voter),
+            Some(keys[1].public_key()),
+            "the round-1 assembler proposed the close"
+        );
     }
 
     #[test]
@@ -2127,7 +2465,7 @@ mod tests {
         let mut s = ready_state(&ledger);
         let root = s.root();
         assert_eq!(s.enabled(), None);
-        commit(&mut s, 2..=4, BlockHash::ZERO, root);
+        commit(&mut s, 2..=4, root);
         assert_eq!(
             s.enabled(),
             None,
@@ -2135,6 +2473,7 @@ mod tests {
         );
         let mut later = s.template(1, BlockHash::ZERO, root);
         later.kind = 10;
+        later.members = 0;
         later.sign(&PrivateKey::from(5));
         s.receive_commitment(later);
         assert_eq!(
@@ -2144,14 +2483,17 @@ mod tests {
         );
         let mut second = s.template(0, BlockHash::ZERO, 9.into());
         second.kind = 10;
+        second.members = 0;
         second.sign(&PrivateKey::from(2));
         s.receive_commitment(second);
-        commit(&mut s, 5..=5, BlockHash::ZERO, root);
+        commit(&mut s, 5..=5, root);
         assert_eq!(
             s.enabled(),
-            Some((BlockHash::ZERO, root)),
-            "a second pair from one representative in the round is ignored"
+            Some(root),
+            "a second root from one representative in the round is ignored"
         );
+        assert!(s.certified_target(0, root));
+        assert!(!s.certified_target(1, root));
         let mut out = Vec::new();
         s.commit(&[PrivateKey::from(1)], &mut out);
         assert_eq!(out.len(), 1);
@@ -2252,14 +2594,15 @@ mod tests {
             "a second pair is never signed in the same round"
         );
         assert_eq!(s.local_commitments.len(), 1);
-        commit(&mut s, 2..=6, BlockHash::ZERO, committed);
+        commit(&mut s, 2..=6, committed);
+        propose(&mut s, BlockHash::ZERO, committed);
         s.active_views();
         s.decode_sketches(|hashes| unknown_members(&ledger, hashes));
         let (out, _) = s.drive(&[key]);
         assert_eq!(
             out.iter().map(|p| (p.kind, p.state)).collect::<Vec<_>>(),
             vec![(0, committed)],
-            "the committed pair is voted although the membership grew since"
+            "the certified root is voted although the membership grew since"
         );
     }
 
@@ -2272,7 +2615,8 @@ mod tests {
         let announced = out[0].clone();
         // A late election opens after the announcement: D3 no longer holds.
         s.ready = false;
-        commit(&mut s, 2..=6, announced.parent, announced.state);
+        commit(&mut s, 2..=6, announced.state);
+        propose(&mut s, BlockHash::ZERO, announced.state);
         let (out, _) = s.drive(&[key.clone()]);
         assert_eq!(
             out.iter().map(|p| p.kind).collect::<Vec<_>>(),
@@ -2289,20 +2633,18 @@ mod tests {
     }
 
     #[test]
-    fn a_candidate_nobody_announced_is_unsignable_once_the_membership_grows() {
+    fn a_candidate_nobody_announced_is_incomplete_once_the_membership_grows() {
         let ledger = Ledger::new_null();
         let mut s = ready_state(&ledger);
         let root = s.root();
-        let mut p = s.template(0, BlockHash::ZERO, root);
-        p.sign(&PrivateKey::from(2));
-        let id = p.candidate_id();
-        s.receive(p);
-        assert!(s.signable(id));
+        commit(&mut s, 1..=6, root);
+        let id = propose(&mut s, BlockHash::ZERO, root).candidate_id();
+        assert!(s.complete(id));
         let block: rsnano_types::Block = rsnano_types::SavedBlock::new_test_instance().into();
         ledger.record_epoch_block(0, block);
         s.sync_membership(&ledger);
         assert!(
-            !s.signable(id),
+            !s.complete(id),
             "no announced view names the members the candidate omits"
         );
         assert!(
@@ -2342,15 +2684,16 @@ mod tests {
             vec![8],
             "our own root is announced while the phase lasts"
         );
-        assert_eq!(mine.enabled(), None, "sketches enable nothing");
-        commit(&mut mine, 2..=6, BlockHash::ZERO, their_root);
-        assert_eq!(mine.enabled(), Some((BlockHash::ZERO, their_root)));
+        assert_eq!(mine.enabled(), None, "sketches certify nothing");
+        commit(&mut mine, 2..=6, their_root);
+        assert_eq!(mine.enabled(), Some(their_root));
+        propose(&mut mine, BlockHash::ZERO, their_root);
         mine.ready_since = Some(Instant::now() - AGREEMENT_TIMEOUT);
         let (out, _) = mine.drive(&[PrivateKey::from(1)]);
         assert_eq!(
             out.iter().map(|p| (p.kind, p.state)).collect::<Vec<_>>(),
             vec![(10, mine.root()), (0, their_root)],
-            "our own pair is committed, and the FIRST vote adopts the enabled value \
+            "our own root is announced, and the FIRST vote adopts the certified value \
              that omits a member held here"
         );
         // Finalized, the close is assembled without the omitted member.
@@ -2377,13 +2720,14 @@ mod tests {
         let key = PrivateKey::from(1);
         let (out, _) = s.drive(&[key.clone()]);
         let announced = out[0].clone();
-        commit(&mut s, 1..=6, announced.parent, announced.state);
+        commit(&mut s, 1..=6, announced.state);
+        propose(&mut s, BlockHash::ZERO, announced.state);
         let (out, _) = s.drive(&[key.clone()]);
         assert_eq!(out.iter().map(|p| p.kind).collect::<Vec<_>>(), vec![0]);
         let candidate = out[0].clone();
         ledger.record_epoch_block(0, rsnano_types::SavedBlock::new_test_instance().into());
         s.sync_membership(&ledger);
-        assert!(!s.signable(candidate.candidate_id()));
+        assert!(!s.complete(candidate.candidate_id()));
         // Notarized by certificate weight, short of a fast certificate.
         for i in 2..=4 {
             let mut vote = candidate.clone();
@@ -2410,19 +2754,22 @@ mod tests {
         let mut parent = s.template(0, BlockHash::ZERO, 77.into());
         let parent_id = parent.candidate_id();
         s.round = 2;
-        let mut child = s.template(2, parent_id, root);
-        child.sign(&PrivateKey::from(2));
-        let child_id = child.candidate_id();
-        s.receive(child);
-        assert!(!s.signable(child_id), "the parent is unknown");
+        commit(&mut s, 1..=6, root);
+        let child_id = propose(&mut s, parent_id, root).candidate_id();
+        assert!(!s.complete(child_id), "the parent is unknown");
         // Notarized by certificate weight, short of a fast certificate.
         for i in 1..=4 {
             parent.sign(&PrivateKey::from(i));
             s.receive(parent.clone());
         }
         assert!(
-            !s.signable(child_id),
+            !s.complete(child_id),
             "the skipped round 1 has no timeout certificate"
+        );
+        assert_eq!(
+            s.select_parent(),
+            BlockHash::ZERO,
+            "the selector skips only timed-out rounds as well"
         );
         for i in 1..=4 {
             let mut timeout = s.template(1, BlockHash::ZERO, BlockHash::ZERO);
@@ -2431,15 +2778,20 @@ mod tests {
             s.receive(timeout);
         }
         assert!(
-            s.signable(child_id),
+            s.complete(child_id),
             "the parent's own round needs no timeout and its membership need not be held"
+        );
+        assert_eq!(
+            s.select_parent(),
+            parent_id,
+            "the selector picks the notarized parent an assembler extends"
         );
         s.enter_round(2);
         let (out, _) = s.drive(&[PrivateKey::from(1)]);
         assert_eq!(
             out.iter().map(|p| (p.kind, p.parent)).collect::<Vec<_>>(),
-            vec![(8, parent_id)],
-            "the announcement names the notarized parent this replica extends"
+            vec![(8, BlockHash::ZERO), (0, parent_id)],
+            "the announcement carries no parent; the complete child takes the FIRST vote"
         );
     }
 
@@ -2450,7 +2802,8 @@ mod tests {
         let key = PrivateKey::from(1);
         let (out, _) = s.drive(&[key.clone()]);
         let announced = out[0].clone();
-        commit(&mut s, 1..=6, announced.parent, announced.state);
+        commit(&mut s, 1..=6, announced.state);
+        propose(&mut s, BlockHash::ZERO, announced.state);
         let (out, _) = s.drive(&[key.clone()]);
         let candidate = out[0].clone();
         assert_eq!(candidate.kind, 0);
@@ -2468,11 +2821,15 @@ mod tests {
         );
         assert_eq!(s.round, 1);
         assert!(s.round_timer_armed);
-        let (out, _) = s.drive(&[key]);
         assert_eq!(
-            out.iter().map(|p| (p.kind, p.parent)).collect::<Vec<_>>(),
-            vec![(8, candidate.candidate_id())],
+            s.select_parent(),
+            candidate.candidate_id(),
             "round 1 extends the notarized candidate"
+        );
+        let (out, _) = s.drive(&[key]);
+        assert!(
+            out.is_empty(),
+            "the unchanged root is not announced again; round 1 waits for its assembler"
         );
         assert!(
             !s.rounds[&0].certificate(BlockHash::ZERO, VoteKind::Timeout),
@@ -2946,19 +3303,50 @@ mod tests {
             .collect()
     }
 
-    /// Round commitments of representatives `reps` for `(parent, state)`.
-    fn commit(
-        s: &mut State,
-        reps: std::ops::RangeInclusive<u64>,
-        parent: BlockHash,
-        state: BlockHash,
-    ) {
-        let mut commitment = s.template(s.round, parent, state);
+    /// Round announcements of representatives `reps` for `state`.
+    fn commit(s: &mut State, reps: std::ops::RangeInclusive<u64>, state: BlockHash) {
+        let mut commitment = s.template(s.round, BlockHash::ZERO, state);
         commitment.kind = 10;
+        commitment.members = 0;
         for i in reps {
             commitment.sign(&PrivateKey::from(i));
             s.receive_commitment(commitment.clone());
         }
+    }
+
+    /// The key of the current round's assembler.
+    fn assembler_key(s: &State) -> PrivateKey {
+        (1..=6)
+            .map(PrivateKey::from)
+            .find(|key| Some(key.public_key()) == s.assembler(s.round))
+            .unwrap()
+    }
+
+    /// The assembler's proposal of `(parent, state)` for the current round,
+    /// carrying the announcements `s` holds for the target, delivered to `s`.
+    fn propose(s: &mut State, parent: BlockHash, state: BlockHash) -> EpochClose {
+        let key = assembler_key(s);
+        let certificate = s
+            .rounds
+            .get(&s.round)
+            .map(|round| {
+                round
+                    .commitments
+                    .values()
+                    .filter(|c| c.state == state)
+                    .map(|c| CloseSigner {
+                        voter: c.voter,
+                        signature: c.signature.clone(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut proposal = s.template(s.round, parent, state);
+        proposal.kind = 11;
+        proposal.certificate = certificate;
+        proposal.sign(&key);
+        s.receive_proposal(proposal.clone());
+        proposal
     }
 
     fn sorted_keys() -> Vec<PrivateKey> {
@@ -2974,6 +3362,8 @@ mod tests {
                     replica.receive_announcement(packet.clone(), ChannelId::LOOPBACK);
                 } else if packet.kind == 10 {
                     replica.receive_commitment(packet.clone());
+                } else if packet.kind == 11 {
+                    replica.receive_proposal(packet.clone());
                 } else {
                     replica.receive(packet.clone());
                 }
