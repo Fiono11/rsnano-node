@@ -562,24 +562,34 @@ impl ActiveElectionsContainer {
     }
 
     #[cfg(feature = "rai_protocol")]
+    /// Erase every election of a closed epoch, as the legacy protocol erases
+    /// an election once it has ended: after the close no vote can be signed
+    /// in the epoch and the membership is persisted, so the elections would
+    /// only grow every scan and the memory. The block tree keeps the close
+    /// members' certificates and the vote generators their signed votes,
+    /// which is what a lagging peer's recovery request is answered from.
+    /// Returns how many elections were not members of the close.
     pub(crate) fn discard_closed_epoch(&mut self, epoch: u64, hashes: &[BlockHash]) -> usize {
         self.assert_epoch_close(epoch, hashes);
-        let removed = self.roots.drain_filter(|entry| {
-            entry.election.epoch == epoch
-                && !entry
-                    .election
-                    .candidate_blocks()
-                    .keys()
-                    .any(|hash| hashes.binary_search(hash).is_ok())
-        });
-        self.block_tree.close_epoch(epoch, hashes);
-        self.certificate_recovery.retain(|id, _| id.epoch != epoch);
-        self.roots.retire_epoch(epoch);
-        let count = removed.len();
-        for entry in removed {
+        let mut omitted = 0;
+        // Finalized elections ended at their finalization; the rest end now.
+        for id in self.roots.ids_of_epoch(epoch) {
+            let Some(entry) = self.roots.erase_id(&id) else {
+                continue;
+            };
+            if !entry
+                .election
+                .candidate_blocks()
+                .keys()
+                .any(|hash| hashes.binary_search(hash).is_ok())
+            {
+                omitted += 1;
+            }
             self.cleanup_election(entry);
         }
-        count
+        self.block_tree.close_epoch(epoch, hashes);
+        self.certificate_recovery.retain(|id, _| id.epoch != epoch);
+        omitted
     }
 
     /// Take elections this node has no vote left for out of the scheduler
@@ -951,7 +961,12 @@ impl ActiveElectionsContainer {
         let mut accepted = Vec::new();
         let epoch = args.vote.epoch;
         if let Some(ledger) = &self.epoch_source {
-            if epoch > ledger.current_epoch() {
+            if epoch > ledger.current_epoch()
+                || epoch
+                    < ledger
+                        .closed_epoch_count
+                        .load(std::sync::atomic::Ordering::Acquire)
+            {
                 return (entries, accepted);
             }
         }
@@ -1017,13 +1032,25 @@ impl ActiveElectionsContainer {
     ) -> rustc_hash::FxHashMap<BlockHash, Result<(), VoteError>> {
         #[cfg(feature = "rai_protocol")]
         {
+            // A closed epoch's elections are erased; a late vote for one
+            // neither reopens it nor recovers certificates for it.
+            let closed = self.epoch_source.as_ref().map_or(0, |ledger| {
+                ledger
+                    .closed_epoch_count
+                    .load(std::sync::atomic::Ordering::Acquire)
+            });
             for hash in args.vote.filtered_blocks() {
-                // Late same/later-epoch votes cannot open an earlier election.
-                // Avoid ledger lookups under the AEC lock for this common case.
+                if args.vote.epoch < closed {
+                    continue;
+                }
+                // A vote for a block finalized in this or an earlier epoch is
+                // late: its election ended at finalization and is not
+                // reopened. Avoid ledger lookups under the AEC lock for this
+                // common case.
                 if self
                     .confirmed_epoch_by_hash
                     .get(hash)
-                    .is_some_and(|epoch| args.vote.epoch > *epoch)
+                    .is_some_and(|epoch| args.vote.epoch >= *epoch)
                 {
                     continue;
                 }
@@ -1200,11 +1227,14 @@ impl ActiveElectionsContainer {
             let confirmed_election =
                 election.into_confirmed_election(now, ConfirmationType::ActiveConfirmedQuorum);
             #[cfg(feature = "rai_protocol")]
-            {
-                let id = election.id();
-                self.roots.track_time_transition(&id);
-            }
+            let id = election.id();
             self.notify(AecFact::ElectionConfirmed(confirmed_election));
+            // Confirmed, the election ends at once under RAI; the legacy
+            // container erases it on its next tick.
+            #[cfg(feature = "rai_protocol")]
+            if let Some(entry) = self.roots.erase_id(&id) {
+                self.cleanup_election(entry);
+            }
         }
     }
 
@@ -1380,16 +1410,7 @@ mod tests {
         });
 
         assert_eq!(result.get(&block_hash), Some(&Ok(())));
-
-        #[cfg(not(feature = "rai_protocol"))]
         assert!(container.election_for_block(&block_hash).is_none());
-        #[cfg(feature = "rai_protocol")]
-        assert!(
-            container
-                .election_for_block(&block_hash)
-                .unwrap()
-                .is_confirmed()
-        );
     }
 
     #[test]
@@ -1469,7 +1490,7 @@ mod rai_tests {
     use rsnano_types::{BlockPriority, PrivateKey, Vote, VoteDelivery};
 
     #[test]
-    fn confirmation_after_activation_still_expires_on_next_tick() {
+    fn confirmation_after_activation_ends_the_election() {
         use crate::consensus::election::ElectionState;
 
         for force in [false, true] {
@@ -1517,16 +1538,15 @@ mod rai_tests {
                 );
             }
 
-            assert_eq!(
-                aec.election_for_block(&block.hash()).unwrap().state(),
-                ElectionState::Confirmed
-            );
+            // A finalized election is settled and ends at once, as in the
+            // legacy protocol; only its certificate remains.
+            assert!(aec.election_for_block(&block.hash()).is_none());
+            assert_eq!(aec.len(), 0);
             aec.transition_time(now);
-            assert_eq!(
-                aec.election_for_block(&block.hash()).unwrap().state(),
-                ElectionState::ExpiredConfirmed
-            );
-            assert_eq!(aec.len(), 1);
+            assert_eq!(aec.len(), 0);
+            if !force {
+                assert!(aec.recently_confirmed.hash_exists(&block.hash()));
+            }
         }
     }
 
@@ -1575,35 +1595,6 @@ mod rai_tests {
         add(&mut aec, 5, VoteKind::FirstTimeout);
         add(&mut aec, 6, VoteKind::FirstTimeout);
         assert!(aec.pending_epoch_drain(1, &[]).is_empty());
-    }
-
-    #[test]
-    fn epoch_close_discards_only_omitted_epoch_elections() {
-        let mut aec = ActiveElectionsContainer::default();
-        let block = SavedBlock::new_test_instance();
-        let now = Timestamp::new_test_instance();
-        for epoch in [0, 1] {
-            aec.insert_in_epoch(
-                AecInsertRequest::new_manual(block.clone(), Default::default()),
-                now,
-                epoch,
-            )
-            .unwrap();
-        }
-        assert_eq!(aec.discard_closed_epoch(0, &[]), 1);
-        assert_eq!(aec.count_by_behavior(ElectionBehavior::Manual), 1);
-        assert!(
-            aec.election_for_id(&rsnano_types::ElectionId::new(block.qualified_root(), 0))
-                .is_none()
-        );
-        assert!(
-            aec.election_for_id(&rsnano_types::ElectionId::new(block.qualified_root(), 1))
-                .is_some()
-        );
-        assert_eq!(aec.discard_closed_epoch(1, &[block.hash()]), 0);
-        assert_eq!(aec.count_by_behavior(ElectionBehavior::Manual), 1);
-        assert_eq!(aec.discard_closed_epoch(1, &[]), 1);
-        assert_eq!(aec.count_by_behavior(ElectionBehavior::Manual), 0);
     }
 
     #[test]
@@ -1714,11 +1705,17 @@ mod rai_tests {
             .get(&block.hash()),
             Some(&Ok(()))
         );
-        assert_eq!(aec.len(), 2);
+        // The epoch-1 election finalized and ended; the epoch-0 one goes on.
+        assert_eq!(aec.len(), 1);
         assert!(
             aec.election_for_id(&rsnano_types::ElectionId::new(block.qualified_root(), 1))
-                .unwrap()
-                .is_confirmed()
+                .is_none()
+        );
+        assert!(
+            aec.block_tree
+                .for_root(&block.qualified_root())
+                .iter()
+                .any(|e| e.epoch == 1 && e.finalized)
         );
         let other = aec.election_for_block(&block.hash()).unwrap();
         assert_eq!(other.epoch, 0);
@@ -1861,6 +1858,48 @@ mod notarized_admission_tests {
     }
 
     #[test]
+    fn epoch_close_erases_every_election_of_the_epoch_and_counts_the_omitted() {
+        let mut aec = ActiveElectionsContainer::default();
+        let block = SavedBlock::new_test_instance();
+        let now = Timestamp::new_test_instance();
+        for epoch in [0, 1] {
+            aec.insert_in_epoch(
+                AecInsertRequest::new_manual(block.clone(), Default::default()),
+                now,
+                epoch,
+            )
+            .unwrap();
+        }
+        assert_eq!(
+            aec.discard_closed_epoch(0, &[]),
+            1,
+            "omitted from the close"
+        );
+        assert_eq!(aec.count_by_behavior(ElectionBehavior::Manual), 1);
+        assert!(
+            aec.election_for_id(&rsnano_types::ElectionId::new(block.qualified_root(), 0))
+                .is_none()
+        );
+        assert!(
+            aec.election_for_id(&rsnano_types::ElectionId::new(block.qualified_root(), 1))
+                .is_some()
+        );
+        // A member's election is erased as well; only its certificates stay.
+        for rep in 1..=4 {
+            apply_in_epoch(&mut aec, rep, block.hash(), VoteKind::First, 1);
+        }
+        assert_eq!(aec.discard_closed_epoch(1, &[block.hash()]), 0, "a member");
+        assert_eq!(aec.count_by_behavior(ElectionBehavior::Manual), 0);
+        assert!(aec.election_for_block(&block.hash()).is_none());
+        assert_eq!(
+            aec.block_tree.root_of(&block.hash()),
+            Some(&block.qualified_root()),
+            "the block tree keeps the member's certificate"
+        );
+        assert!(aec.roots.ids_of_epoch(1).is_empty());
+    }
+
+    #[test]
     fn unsettled_index_holds_decided_elections_until_they_settle() {
         let mut aec = ActiveElectionsContainer::default();
         let now = Timestamp::new_test_instance();
@@ -1996,8 +2035,12 @@ mod notarized_admission_tests {
                 assert_eq!(ledger.epoch_close_candidate(1), vec![block.hash()]);
             }
 
-            // Late, newly accepted evidence cannot resurrect closed candidates.
-            apply_in_epoch(&mut aec, 5, block.hash(), VoteKind::Final, epoch);
+            // Late evidence for a closed epoch is refused and cannot
+            // resurrect closed candidates.
+            assert_eq!(
+                try_apply_in_epoch(&mut aec, 5, block.hash(), VoteKind::Final, epoch),
+                Err(VoteError::Late)
+            );
             assert!(ledger.epoch_close_candidate(epoch).is_empty());
         }
         assert_eq!(aec.terminated_elections.len(), 2);
@@ -2101,6 +2144,16 @@ mod notarized_admission_tests {
         kind: VoteKind,
         epoch: u64,
     ) {
+        assert_eq!(try_apply_in_epoch(aec, rep, hash, kind, epoch), Ok(()));
+    }
+
+    fn try_apply_in_epoch(
+        aec: &mut ActiveElectionsContainer,
+        rep: u64,
+        hash: BlockHash,
+        kind: VoteKind,
+        epoch: u64,
+    ) -> Result<(), VoteError> {
         let mut weights = RepWeights::default();
         for rep in 1..=6 {
             weights.put(PrivateKey::from(rep).public_key(), Amount::raw(100));
@@ -2119,15 +2172,13 @@ mod notarized_admission_tests {
             None,
         )
         .into();
-        assert_eq!(
-            aec.apply_vote(ApplyVoteArgs {
-                vote: &vote,
-                rep_weights: &weights,
-                quorum_snapshot: &quorum,
-                now: Timestamp::new_test_instance()
-            })[&hash],
-            Ok(())
-        );
+        aec.apply_vote(ApplyVoteArgs {
+            vote: &vote,
+            rep_weights: &weights,
+            quorum_snapshot: &quorum,
+            now: Timestamp::new_test_instance(),
+        })[&hash]
+            .clone()
     }
 
     #[test]
@@ -2461,10 +2512,10 @@ mod notarized_admission_tests {
             apply(&mut aec, rep, block.hash(), VoteKind::Final);
         }
         assert!(
-            aec.election_for_block(&block.hash())
-                .unwrap()
-                .is_confirmed()
+            aec.election_for_block(&block.hash()).is_none(),
+            "finalized, the election ends"
         );
+        assert_eq!(aec.len(), 0);
         assert_eq!(aec.vacancy(), capacity);
     }
 

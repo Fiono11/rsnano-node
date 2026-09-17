@@ -39,8 +39,6 @@ impl<'a> ApplyVoteHelper<'a> {
                 .election_for_epoch_mut(block_hash, self.args.vote.epoch)
             {
                 #[cfg(feature = "rai_protocol")]
-                let was_confirmed = election.is_confirmed();
-                #[cfg(feature = "rai_protocol")]
                 let was_ready = election.can_notarize(block_hash);
                 {
                     let mut apply_to_election = ApplyVoteToElectionHelper {
@@ -158,19 +156,11 @@ impl<'a> ApplyVoteHelper<'a> {
                 if timed_out && !confirmed {
                     self.roots.retire_unfinalizable(&root);
                 }
-                #[cfg(feature = "rai_protocol")]
-                if confirmed && !was_confirmed {
-                    self.roots.retire_finalized(&root);
-                    // Keep authenticated evidence and routes, but perform the legacy
-                    // completion notifications/admission accounting exactly once.
-                    let entry = self.roots.get_id(&root).unwrap();
-                    result.confirmed.push(Entry {
-                        root: entry.root.clone(),
-                        election: entry.election.clone(),
-                        priority: entry.priority,
-                    });
-                }
-                #[cfg(not(feature = "rai_protocol"))]
+                // A finalized election is settled: no other certificate can
+                // exist anywhere, so it ends here as in the legacy protocol.
+                // Its certificate stays in the block tree and its votes in the
+                // generators' archive, which answer a lagging peer's request
+                // with final votes.
                 if confirmed {
                     if let Some(entry) = self.roots.erase_id(&root) {
                         result.confirmed.push(entry);
@@ -543,10 +533,8 @@ mod tests {
 
     #[cfg(feature = "rai_protocol")]
     #[test]
-    fn accepted_late_vote_preserves_expired_confirmation_without_repeating_completion() {
-        use crate::consensus::election::ElectionState;
+    fn a_late_vote_after_confirmation_is_late_and_does_not_repeat_completion() {
         use rsnano_types::VoteKind;
-
         let mut fixture = Fixture::default();
         fixture.add_active_election();
         let rep = PrivateKey::from(1);
@@ -579,40 +567,20 @@ mod tests {
         let first = apply(&mut fixture, VoteKind::First);
         assert_eq!(first.per_block[&fixture.block_hash], Ok(()));
         assert_eq!(first.confirmed.len(), 1);
-        fixture.roots.transition_time(now);
-        assert_eq!(
+        // Finalized, the election ended at once.
+        assert!(
             fixture
                 .roots
                 .election_for_block(&fixture.block_hash)
-                .unwrap()
-                .state(),
-            ElectionState::ExpiredConfirmed
+                .is_none()
         );
+        assert_eq!(fixture.roots.len(), 0);
+        assert!(fixture.recently_confirmed.hash_exists(&fixture.block_hash));
 
-        // A different vote kind is newly accepted after the expiry timer was
-        // removed. Retained certificates must not reactivate the timer or scheduler.
         let late = apply(&mut fixture, VoteKind::Final);
-        assert_eq!(late.per_block[&fixture.block_hash], Ok(()));
+        assert_eq!(late.per_block[&fixture.block_hash], Err(VoteError::Late));
         assert!(late.confirmed.is_empty());
-        assert_eq!(fixture.roots.round_robin().count(), 0);
-        assert_eq!(
-            fixture
-                .roots
-                .election_for_block(&fixture.block_hash)
-                .unwrap()
-                .state(),
-            ElectionState::ExpiredConfirmed
-        );
-        fixture.roots.transition_time(now);
-        assert_eq!(
-            fixture
-                .roots
-                .election_for_block(&fixture.block_hash)
-                .unwrap()
-                .state(),
-            ElectionState::ExpiredConfirmed
-        );
-        assert_eq!(fixture.roots.len(), 1);
+        assert_eq!(fixture.roots.len(), 0);
     }
 
     // Test helpers:

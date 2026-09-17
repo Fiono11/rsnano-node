@@ -38,10 +38,12 @@ impl SettleTime {
         self.samples += 1;
     }
 
+    #[cfg(test)]
     pub fn mean(&self) -> Duration {
         Duration::from_nanos(self.mean_ns as u64)
     }
 
+    #[cfg(test)]
     pub fn samples(&self) -> u64 {
         self.samples
     }

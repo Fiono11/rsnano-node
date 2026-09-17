@@ -23,3 +23,53 @@
   drain reached at t=26.7..26.7s (spread 0.07s); closed at t=30.3..30.4s; close after last drain: first 3.56s last 3.70s
   epoch 0 forked=False terminated n=24312 mean/p95/max    141/   330/   562 ms   finalized n=24043 mean/p95/max    160/   352/   618 ms
   epoch 1 forked=False terminated n=23488 mean/p95/max    488/   764/  7460 ms   finalized n=23469 mean/p95/max    569/   961/  2743 ms
+== three15k1 (3 epochs x 15k)
+epoch 0: drains=6 closes=6 hashes=1 rounds=[1, 1, 1, 1, 1, 1] blocks=[15665] discarded=[160, 160, 160, 160, 160, 160]
+  drain reached at t=8.0..8.1s (spread 0.06s); closed at t=14.8..15.2s; close after last drain: first 6.76s last 7.12s
+epoch 1: drains=6 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[15061] discarded=[375, 384, 396, 406, 432, 444]
+  drain reached at t=15.9..16.1s (spread 0.21s); closed at t=21.7..21.9s; close after last drain: first 5.55s last 5.82s
+epoch 2: drains=6 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[14948] discarded=[388, 399, 403, 411, 416, 441]
+  drain reached at t=23.7..23.9s (spread 0.20s); closed at t=27.1..27.4s; close after last drain: first 3.25s last 3.50s
+  epoch 0 forked=False terminated n=14749 mean/p95/max    417/   787/  2642 ms   finalized n=14493 mean/p95/max    464/   944/  2820 ms
+  epoch 1 forked=False terminated n=14518 mean/p95/max    352/   613/  8467 ms   finalized n=13919 mean/p95/max    367/   710/  2500 ms
+  epoch 2 forked=False terminated n=14273 mean/p95/max    846/  1163/  7749 ms   finalized n=13758 mean/p95/max    930/  1386/  3289 ms
+== three15k2 (3 epochs x 15k)
+epoch 0: drains=6 closes=6 hashes=1 rounds=[1, 1, 1, 1, 1, 1] blocks=[15538] discarded=[129, 129, 129, 129, 129, 129]
+  drain reached at t=7.9..8.0s (spread 0.04s); closed at t=13.7..16.5s; close after last drain: first 5.70s last 8.52s
+epoch 1: drains=6 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[15020] discarded=[2171, 2171, 2171, 2171, 2171, 2175]
+  drain reached at t=15.7..17.5s (spread 1.73s); closed at t=22.2..26.0s; close after last drain: first 4.76s last 8.51s
+epoch 2: drains=4 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[14008] discarded=[1270, 1271, 1273, 1274, 1275, 1303]
+  drain reached at t=23.4..26.3s (spread 2.89s); closed at t=28.4..28.6s; close after last drain: first 2.16s last 2.31s
+  epoch 0 forked=False terminated n=14571 mean/p95/max    253/   509/  2249 ms   finalized n=14404 mean/p95/max    288/   574/  2220 ms
+  epoch 1 forked=False terminated n=16282 mean/p95/max    456/  1951/  6547 ms   finalized n=14146 mean/p95/max    329/   543/  2373 ms
+  epoch 2 forked=False terminated n=14223 mean/p95/max   1179/  1810/  4303 ms   finalized n=12702 mean/p95/max   1319/  2096/  4375 ms
+== three15k-r1500 (3 epochs x 15k; erase2-* = elections erased at finalization and close)
+epoch 0: drains=6 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[15448] discarded=[45, 45, 45, 45, 45, 45]
+  drain reached at t=10.7..10.8s (spread 0.08s); closed at t=12.4..12.5s; close after last drain: first 1.65s last 1.71s
+epoch 1: drains=6 closes=4 hashes=1 rounds=[0, 0, 0, 0] blocks=[15296] discarded=[59, 59, 59, 59]
+  drain reached at t=21.4..21.6s (spread 0.17s); closed at t=24.9..25.0s; close after last drain: first 3.32s last 3.42s
+epoch 2: drains=3 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[14910] discarded=[7, 7, 9, 11, 22, 33]
+  drain reached at t=32.1..32.3s (spread 0.28s); closed at t=33.9..34.0s; close after last drain: first 1.53s last 1.70s
+  epoch 0 forked=False terminated n=14437 mean/p95/max     92/   144/  2121 ms   finalized n=14374 mean/p95/max    108/   172/  2161 ms
+  epoch 1 forked=False terminated n=14392 mean/p95/max    131/   426/   767 ms   finalized n=14343 mean/p95/max    154/   477/  1163 ms
+  epoch 2 forked=False terminated n=14068 mean/p95/max    250/   477/  2240 ms   finalized n=14068 mean/p95/max    282/   517/  2308 ms
+== erase2-r2000 (3 epochs x 15k; erase2-* = elections erased at finalization and close)
+epoch 0: drains=5 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[15499] discarded=[39, 39, 39, 39, 39, 39]
+  drain reached at t=7.9..7.9s (spread 0.04s); closed at t=10.0..15.7s; close after last drain: first 2.06s last 7.76s
+epoch 1: drains=6 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[15458] discarded=[1020, 1020, 1020, 1020, 1020, 1020]
+  drain reached at t=15.9..16.6s (spread 0.66s); closed at t=24.6..25.0s; close after last drain: first 8.04s last 8.43s
+epoch 2: drains=6 closes=6 hashes=1 rounds=[1, 1, 1, 1, 1, 1] blocks=[15086] discarded=[83, 88, 91, 99, 124, 136]
+  drain reached at t=24.7..25.1s (spread 0.46s); closed at t=29.4..29.6s; close after last drain: first 4.29s last 4.41s
+  epoch 0 forked=False terminated n=14476 mean/p95/max    139/   254/   343 ms   finalized n=14423 mean/p95/max    160/   295/   399 ms
+  epoch 1 forked=False terminated n=15344 mean/p95/max    369/  1267/  2327 ms   finalized n=14239 mean/p95/max    325/   673/  2772 ms
+  epoch 2 forked=False terminated n=14168 mean/p95/max   1151/  1659/  9286 ms   finalized n=13883 mean/p95/max   1254/  1840/  2407 ms
+== erase2-r1500 (3 epochs x 15k; erase2-* = elections erased at finalization and close)
+epoch 0: drains=6 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[15523] discarded=[46, 46, 46, 46, 46, 46]
+  drain reached at t=10.4..10.4s (spread 0.06s); closed at t=12.1..12.1s; close after last drain: first 1.63s last 1.71s
+epoch 1: drains=6 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[15010] discarded=[74, 76, 88, 110, 110, 123]
+  drain reached at t=20.8..20.9s (spread 0.08s); closed at t=24.4..25.0s; close after last drain: first 3.52s last 4.15s
+epoch 2: drains=5 closes=6 hashes=1 rounds=[0, 0, 0, 0, 0, 0] blocks=[14990] discarded=[148, 148, 148, 148, 148, 154]
+  drain reached at t=31.3..31.5s (spread 0.15s); closed at t=33.8..33.9s; close after last drain: first 2.29s last 2.45s
+  epoch 0 forked=False terminated n=14467 mean/p95/max    105/   283/   413 ms   finalized n=14400 mean/p95/max    122/   334/   691 ms
+  epoch 1 forked=False terminated n=14156 mean/p95/max     98/   146/  5221 ms   finalized n=14019 mean/p95/max    104/   160/   496 ms
+  epoch 2 forked=False terminated n=14192 mean/p95/max     97/   150/   424 ms   finalized n=14052 mean/p95/max    114/   172/   669 ms

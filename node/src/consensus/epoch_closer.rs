@@ -215,6 +215,10 @@ struct State {
     ready_traced: bool,
     /// When this replica first completed its drain.
     ready_since: Option<Instant>,
+    /// When this replica began draining `epoch`. The drain's timeout votes
+    /// and second looks create certificates, so a solicitation answered
+    /// before it may have missed them: such elections are asked once more.
+    drain_since: Option<Instant>,
     /// Round 0 is timed from this replica's own readiness, not from the drain
     /// start; later rounds from their entry.
     round_timer_armed: bool,
@@ -267,6 +271,7 @@ impl State {
             recovery_cursor: 0,
             ready_traced: false,
             ready_since: None,
+            drain_since: None,
             round_timer_armed: false,
             trie: MembershipTrie::new(epoch),
             log: Vec::new(),
@@ -298,6 +303,12 @@ impl State {
         for (hash, root, since_start) in unsettled {
             live.insert(*hash);
             match self.unsettled.get(hash) {
+                Some(asked) if self.drain_since.is_some_and(|drain| *asked < drain) => {
+                    // Answered before the drain began: ask once more.
+                    self.unsettled.insert(*hash, now);
+                    requests.push((*hash, *root));
+                    settled = false;
+                }
                 Some(asked) => {
                     if now.duration_since(*asked) < reply_wait {
                         settled = false;
@@ -1009,11 +1020,10 @@ impl EpochCloser {
         self.reps.lock().unwrap().rep_priv_keys(&mut keys);
         let mut phase_ms: BTreeMap<&str, u128> = BTreeMap::new();
         let mut phase = Instant::now();
-        let mut lap =
-            |name: &'static str, phase: &mut Instant, phase_ms: &mut BTreeMap<&str, u128>| {
-                phase_ms.insert(name, phase.elapsed().as_millis());
-                *phase = Instant::now();
-            };
+        let lap = |name: &'static str, phase: &mut Instant, phase_ms: &mut BTreeMap<&str, u128>| {
+            phase_ms.insert(name, phase.elapsed().as_millis());
+            *phase = Instant::now();
+        };
         lap("keys", &mut phase, &mut phase_ms);
         for p in incoming {
             if p.kind == EpochClose::PROPOSAL {
@@ -1047,6 +1057,7 @@ impl EpochCloser {
                 }
                 state.local_first = Arc::new(self.generators.begin_drain(state.epoch));
                 state.draining = true;
+                state.drain_since = Some(Instant::now());
                 state.enter_round(0);
                 debug_trace(
                     || serde_json::json!({"type":"drain_start","epoch":state.epoch,"local_first":state.local_first.len()}),
@@ -2196,8 +2207,11 @@ mod tests {
             s.settle(&[], threshold, REPLY_WAIT, t2).0,
             "nothing decided is nothing to settle"
         );
-        // Once the close is due, nothing waits for the threshold.
+        // Once the close is due, nothing waits for the threshold, and an
+        // election answered before the drain began is asked once more.
         let mut s = state();
+        s.unsettled.insert(overdue.0, t0 - Duration::from_secs(5));
+        s.drain_since = Some(t0 - Duration::from_secs(1));
         let (settled, requests) = s.settle(
             &listed(Duration::from_millis(100)),
             Duration::ZERO,

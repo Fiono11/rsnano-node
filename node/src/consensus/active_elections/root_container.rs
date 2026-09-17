@@ -65,6 +65,9 @@ pub(crate) struct RootContainer {
     #[cfg(feature = "rai_protocol")]
     pending_time_transitions: FxHashSet<ElectionId>,
     epochs_by_root: FxHashMap<QualifiedRoot, BTreeSet<u64>>,
+    /// Elections per epoch, so closing an epoch touches only its elections.
+    #[cfg(feature = "rai_protocol")]
+    ids_by_epoch: FxHashMap<u64, FxHashSet<ElectionId>>,
     /// Elections without an outcome yet, per epoch, so a drain check costs
     /// only the undecided elections rather than every election of the epoch.
     #[cfg(feature = "rai_protocol")]
@@ -109,6 +112,8 @@ impl RootContainer {
             pending_time_transitions: Default::default(),
             epochs_by_root: Default::default(),
             #[cfg(feature = "rai_protocol")]
+            ids_by_epoch: Default::default(),
+            #[cfg(feature = "rai_protocol")]
             undecided: Default::default(),
             #[cfg(feature = "rai_protocol")]
             unsettled: Default::default(),
@@ -144,6 +149,11 @@ impl RootContainer {
             .entry(entry.root.clone())
             .or_default()
             .insert(root.epoch);
+        #[cfg(feature = "rai_protocol")]
+        self.ids_by_epoch
+            .entry(root.epoch)
+            .or_default()
+            .insert(root.clone());
         #[cfg(feature = "rai_protocol")]
         if !Self::decided(&entry.election) {
             self.undecided
@@ -328,20 +338,15 @@ impl RootContainer {
             .collect()
     }
 
-    /// Take every election of a sealed epoch out of the scheduler buckets: no
-    /// vote can be signed there any more, so they would only lengthen every
-    /// round-robin scan. Their evidence stays addressable by root.
+    /// The elections of `epoch`.
     #[cfg(feature = "rai_protocol")]
-    pub fn retire_epoch(&mut self, epoch: u64) {
-        let ids: Vec<_> = self
-            .by_root
-            .keys()
-            .filter(|id| id.epoch == epoch)
+    pub fn ids_of_epoch(&self, epoch: u64) -> Vec<ElectionId> {
+        self.ids_by_epoch
+            .get(&epoch)
+            .into_iter()
+            .flatten()
             .cloned()
-            .collect();
-        for id in &ids {
-            self.retire_finalized(id);
-        }
+            .collect()
     }
 
     pub fn ids_for_root(&self, root: &QualifiedRoot) -> Vec<ElectionId> {
@@ -498,6 +503,12 @@ impl RootContainer {
             self.mark_decided(root);
             self.mark_settled(root);
             self.recovery.remove(root);
+            if let Some(ids) = self.ids_by_epoch.get_mut(&root.epoch) {
+                ids.remove(root);
+                if ids.is_empty() {
+                    self.ids_by_epoch.remove(&root.epoch);
+                }
+            }
         }
         if let Some(epochs) = self.epochs_by_root.get_mut(&root.root) {
             epochs.remove(&root.epoch);
@@ -531,6 +542,7 @@ impl RootContainer {
             self.pending_time_transitions.clear();
             self.undecided.clear();
             self.unsettled.clear();
+            self.ids_by_epoch.clear();
             self.recovery.clear();
         }
         self.capacity_released_ids.clear();
@@ -750,11 +762,14 @@ mod rai_timer_tests {
                     .is_some()
             );
         }
-        // Epoch retirement must not reintroduce already expired history.
-        roots.retire_epoch(0);
-        assert!(roots.pending_time_transitions.is_empty());
-        roots.transition_time(Timestamp::new_test_instance() + Duration::from_secs(60));
-        assert_eq!(roots.len(), 128);
+        // Closing the epoch names every election of it, whatever its state.
+        let ids = roots.ids_of_epoch(0);
+        assert_eq!(ids.len(), 128);
+        for id in &ids {
+            roots.erase_id(id);
+        }
+        assert!(roots.ids_of_epoch(0).is_empty());
+        assert_eq!(roots.len(), 0);
     }
 
     #[test]
