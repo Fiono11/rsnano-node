@@ -181,11 +181,7 @@ mod tests {
         let initial_key = PrivateKey::from(1);
         accounts.add_unopened(initial_key.clone());
         accounts.add_unopened(PrivateKey::from(2));
-        accounts.set_account_state(
-            initial_key.account(),
-            Amount::nano(1),
-            BlockHash::from(1),
-        );
+        accounts.set_account_state(initial_key.account(), Amount::nano(1), BlockHash::from(1));
         let mut logic = SpamLogic::new(
             accounts,
             SpamSpec {
