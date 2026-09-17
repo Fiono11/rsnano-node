@@ -32,6 +32,8 @@ pub enum StatType {
     Telemetry,
     VoteGenerator,
     VoteGeneratorFinal,
+    VoteGeneratorNotar,
+    VoteGeneratorTimeout,
     VoteCache,
     VoteCacheProcessor,
     Hinting,
@@ -162,6 +164,8 @@ pub enum DetailType {
     // election specific
     GenerateVoteNormal,
     GenerateVoteFinal,
+    GenerateVoteNotar,
+    GenerateVoteTimeout,
     ConfirmationRequest,
 
     // election types
@@ -331,6 +335,9 @@ pub enum DetailType {
     // election_state
     Passive,
     Active,
+    Terminated,
+    TimedOut,
+    Settled,
     ExpiredConfirmed,
     ExpiredUnconfirmed,
     Cancelled,
@@ -383,6 +390,8 @@ pub enum Sample {
     RepResponseTime,
     VoteGeneratorFinalHashes,
     VoteGeneratorHashes,
+    VoteGeneratorNotarHashes,
+    VoteGeneratorTimeoutHashes,
 }
 
 impl Sample {

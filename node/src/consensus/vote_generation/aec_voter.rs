@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
-use rsnano_nullable_clock::SteadyClock;
+use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_types::NetworkType;
 use rsnano_utils::{
     CancellationToken,
@@ -63,24 +63,37 @@ impl ContainerInfoProvider for AecVoter {
     }
 }
 
+impl AecVoter {
+    /// Collect all vote targets in a single lock acquisition, iterating all
+    /// elections in round-robin order across buckets
+    fn collect_targets(&self, now: Timestamp) -> Vec<VoteTarget> {
+        let scheduler = &self.scheduler;
+        if cfg!(feature = "rai_protocol") {
+            self.aec
+                .kudzu_votes_due()
+                .into_iter()
+                .filter(|target| scheduler.can_vote(target, now))
+                .collect()
+        } else {
+            self.aec.round_robin(|iter| {
+                iter.filter_map(|e| {
+                    let target = vote_target(e);
+                    if scheduler.can_vote(&target, now) {
+                        Some(target)
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+            })
+        }
+    }
+}
+
 impl Tickable for AecVoter {
     fn tick(&mut self, cancel_token: &CancellationToken) {
         let now = self.clock.now();
-        let scheduler = &self.scheduler;
-
-        // Collect all vote targets in a single lock acquisition, iterating all
-        // elections in round-robin order across buckets
-        let targets: Vec<VoteTarget> = self.aec.round_robin(|iter| {
-            iter.filter_map(|e| {
-                let target = vote_target(e);
-                if scheduler.can_vote(&target, now) {
-                    Some(target)
-                } else {
-                    None
-                }
-            })
-            .collect()
-        });
+        let targets = self.collect_targets(now);
 
         let mut vote_queue = Vec::new();
         let mut skip_non_final = false;
@@ -100,12 +113,15 @@ impl Tickable for AecVoter {
             vote_queue.push(target);
 
             if cancel_token.is_cancelled() {
-                self.flush(&mut vote_queue);
-                return;
+                break;
             }
         }
 
         self.scheduler.cleanup(now);
+        if cfg!(feature = "rai_protocol") {
+            // Record the decisions before the generators pick them up
+            self.aec.mark_kudzu_voted(&vote_queue);
+        }
         self.flush(&mut vote_queue);
     }
 }

@@ -13,7 +13,7 @@ use rsnano_ledger::{AnySet, Ledger};
 use rsnano_messages::{ConfirmAck, Message};
 use rsnano_network::{Channel, ChannelId, TrafficType};
 use rsnano_nullable_clock::SteadyClock;
-use rsnano_types::{BlockHash, Root, SavedBlock, UnixMillisTimestamp, Vote};
+use rsnano_types::{BlockHash, Root, SavedBlock, Vote, VoteKind};
 use rsnano_utils::{
     container_info::ContainerInfo,
     stats::{DetailType, Direction, Sample, StatType, Stats},
@@ -47,7 +47,7 @@ impl VoteGenerator {
         ledger: Arc<Ledger>,
         wallet_reps: Arc<Mutex<WalletRepresentatives>>,
         history: Arc<LocalVoteHistory>,
-        is_final: bool,
+        kind: VoteKind,
         stats: Arc<Stats>,
         message_sender: MessageSender,
         voting_delay: Duration,
@@ -66,7 +66,7 @@ impl VoteGenerator {
                 candidates: Default::default(),
                 next_broadcast: Instant::now(),
             }),
-            is_final,
+            kind,
             stopped: AtomicBool::new(false),
             stats: Arc::clone(&stats),
             vote_broadcaster,
@@ -83,7 +83,7 @@ impl VoteGenerator {
             vote_generation_queue: ProcessingQueue::new(
                 Arc::clone(&stats),
                 shared_state_clone.stat_type(),
-                Self::thread_name(is_final),
+                Self::thread_name(kind),
                 1,         // single threaded
                 1024 * 32, // max queue size
                 256,       // max batch size,
@@ -95,11 +95,12 @@ impl VoteGenerator {
         }
     }
 
-    fn thread_name(is_final: bool) -> String {
-        if is_final {
-            "Voting final".to_owned()
-        } else {
-            "Voting".to_owned()
+    fn thread_name(kind: VoteKind) -> String {
+        match kind {
+            VoteKind::First => "Voting".to_owned(),
+            VoteKind::Final => "Voting final".to_owned(),
+            VoteKind::Notar => "Voting notar".to_owned(),
+            VoteKind::Timeout => "Voting timeout".to_owned(),
         }
     }
 
@@ -107,7 +108,7 @@ impl VoteGenerator {
         let shared_state_clone = Arc::clone(&self.shared_state);
         *self.thread.lock().unwrap() = Some(
             thread::Builder::new()
-                .name(Self::thread_name(self.shared_state.is_final))
+                .name(Self::thread_name(self.shared_state.kind))
                 .spawn(move || shared_state_clone.run())
                 .unwrap(),
         );
@@ -146,7 +147,7 @@ impl VoteGenerator {
                         && (!any.is_forked(&block.qualified_root()) || {
                             // For now allow final votes, until we include final voted fronties in
                             // the preproposals!
-                            self.shared_state.is_final
+                            self.shared_state.kind.is_final()
                         })
                 }
                 #[cfg(not(feature = "ledger_snapshots"))]
@@ -222,7 +223,7 @@ struct SharedState {
     wallet_reps: Arc<Mutex<WalletRepresentatives>>,
     history: Arc<LocalVoteHistory>,
     message_sender: Mutex<MessageSender>,
-    is_final: bool,
+    kind: VoteKind,
     condition: Condvar,
     stopped: AtomicBool,
     queues: Mutex<Queues>,
@@ -271,7 +272,8 @@ impl SharedState {
             let spacing = self.spacing.lock().unwrap();
             while let Some((root, hash)) = queues.candidates.pop_front() {
                 if !roots.contains(&root) {
-                    if spacing.votable(&root, &hash, self.clock.now()) {
+                    if self.skips_ledger_checks() || spacing.votable(&root, &hash, self.clock.now())
+                    {
                         roots.push(root);
                         hashes.push(hash);
                     } else {
@@ -290,10 +292,11 @@ impl SharedState {
             self.vote(&hashes, &roots, |generated_vote| {
                 self.stats
                     .inc(self.stat_type(), DetailType::GeneratorBroadcasts);
-                let sample = if self.is_final {
-                    Sample::VoteGeneratorFinalHashes
-                } else {
-                    Sample::VoteGeneratorHashes
+                let sample = match self.kind {
+                    VoteKind::First => Sample::VoteGeneratorHashes,
+                    VoteKind::Final => Sample::VoteGeneratorFinalHashes,
+                    VoteKind::Notar => Sample::VoteGeneratorNotarHashes,
+                    VoteKind::Timeout => Sample::VoteGeneratorTimeoutHashes,
                 };
                 self.stats.sample(
                     sample,
@@ -322,20 +325,9 @@ impl SharedState {
 
         let mut votes = Vec::new();
         for rep_key in rep_keys.drain(..) {
-            let timestamp = if self.is_final {
-                Vote::TIMESTAMP_MAX
-            } else {
-                UnixMillisTimestamp::now()
-            };
-            let duration = if self.is_final {
-                Vote::DURATION_MAX
-            } else {
-                0x9 /*8192ms*/
-            };
-            votes.push(Arc::new(Vote::new(
+            votes.push(Arc::new(Vote::new_of_kind(
                 &rep_key,
-                timestamp,
-                duration,
+                self.kind,
                 hashes.to_vec(),
             )));
         }
@@ -402,8 +394,19 @@ impl SharedState {
             .inc(self.stat_type(), DetailType::GeneratorReplies);
     }
 
+    /// Kudzu notarization and timeout votes may go to blocks which are not in
+    /// our ledger (a second look at a fork), so they bypass the ledger checks
+    /// and the vote spacing. The election already checked that we hold the block.
+    fn skips_ledger_checks(&self) -> bool {
+        matches!(self.kind, VoteKind::Notar | VoteKind::Timeout)
+    }
+
     fn process_batch(&self, batch: VecDeque<(Root, BlockHash)>) {
-        let verified = self.ledger.verify_votes(batch, self.is_final);
+        let verified = if self.skips_ledger_checks() {
+            batch
+        } else {
+            self.ledger.verify_votes(batch, self.kind.is_final())
+        };
 
         // Submit verified candidates to the main processing thread
         if !verified.is_empty() {
@@ -420,10 +423,11 @@ impl SharedState {
     }
 
     fn stat_type(&self) -> StatType {
-        if self.is_final {
-            StatType::VoteGeneratorFinal
-        } else {
-            StatType::VoteGenerator
+        match self.kind {
+            VoteKind::First => StatType::VoteGenerator,
+            VoteKind::Final => StatType::VoteGeneratorFinal,
+            VoteKind::Notar => StatType::VoteGeneratorNotar,
+            VoteKind::Timeout => StatType::VoteGeneratorTimeout,
         }
     }
 }

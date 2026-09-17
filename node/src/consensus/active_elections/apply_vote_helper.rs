@@ -7,14 +7,14 @@ use super::{
     AecFact, ApplyVoteArgs,
     recently_confirmed_cache::RecentlyConfirmedCache,
     root_container::{Entry, RootContainer},
-    stats::VoteCounter,
+    stats::AecStats,
 };
-use crate::consensus::election::{ConfirmationType, Election, VoteSummary};
+use crate::consensus::election::{ConfirmationType, Election, KudzuThresholds, VoteSummary};
 
 pub(super) struct ApplyVoteHelper<'a> {
     pub args: &'a ApplyVoteArgs<'a>,
     pub recently_confirmed: &'a mut RecentlyConfirmedCache,
-    pub vote_counter: &'a mut VoteCounter,
+    pub stats: &'a mut AecStats,
     pub observer: &'a Option<Sender<AecFact>>,
     pub roots: &'a mut RootContainer,
 }
@@ -33,7 +33,7 @@ impl<'a> ApplyVoteHelper<'a> {
                     let mut apply_to_election = ApplyVoteToElectionHelper {
                         args: self.args,
                         recently_confirmed: self.recently_confirmed,
-                        vote_counter: self.vote_counter,
+                        stats: self.stats,
                         observer: self.observer,
                         election,
                         block_hash,
@@ -70,7 +70,7 @@ pub(crate) struct ApplyVoteResult {
 struct ApplyVoteToElectionHelper<'a> {
     pub args: &'a ApplyVoteArgs<'a>,
     pub recently_confirmed: &'a mut RecentlyConfirmedCache,
-    pub vote_counter: &'a mut VoteCounter,
+    pub stats: &'a mut AecStats,
     pub observer: &'a Option<Sender<AecFact>>,
     pub election: &'a mut Election,
     pub block_hash: &'a BlockHash,
@@ -80,6 +80,10 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
     pub fn apply_vote(&mut self) -> Result<(), VoteError> {
         if self.election.is_confirmed() {
             return Err(VoteError::Late);
+        }
+
+        if cfg!(feature = "rai_protocol") {
+            return self.apply_kudzu_vote();
         }
 
         let rep_weight = self.args.rep_weights.weight(&self.args.vote.voter);
@@ -110,6 +114,22 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
         last_vote.vote_received.elapsed(self.args.now) < cooldown
     }
 
+    /// Kudzu: every (representative, kind, hash) is counted once, there is no
+    /// timestamp ordering and no cooldown
+    fn apply_kudzu_vote(&mut self) -> Result<(), VoteError> {
+        let vote = &self.args.vote;
+        self.election.add_kudzu_vote(
+            vote.voter,
+            *self.block_hash,
+            vote.kind(),
+            vote.timestamp(),
+            self.args.now,
+        )?;
+        self.stats.vote_counter.count(vote.delivery);
+        self.confirm_if_quorum();
+        Ok(())
+    }
+
     fn add_vote(&mut self) {
         self.election.add_vote(
             self.args.vote.voter,
@@ -117,21 +137,39 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
             self.args.vote.timestamp(),
             self.args.now,
         );
-        self.vote_counter.count(self.args.vote.delivery);
+        self.stats.vote_counter.count(self.args.vote.delivery);
         self.confirm_if_quorum();
     }
 
     pub fn confirm_if_quorum(&mut self) {
         let old_winner = self.election.winner().hash();
 
-        self.election.update_tallies(
-            self.args.rep_weights,
-            self.args.quorum_snapshot.quorum_delta,
-        );
+        if cfg!(feature = "rai_protocol") {
+            let old_state = self.election.state();
+            self.election.update_kudzu_tallies(
+                self.args.rep_weights,
+                KudzuThresholds::from_quorum(self.args.quorum_snapshot),
+            );
+            self.stats.kudzu_transition(
+                old_state,
+                self.election.state(),
+                self.election.certificates(),
+            );
+        } else {
+            self.election.update_tallies(
+                self.args.rep_weights,
+                self.args.quorum_snapshot.quorum_delta,
+            );
+        }
 
         self.notify_winner_changed(old_winner);
 
-        if self.election.is_final() && self.election.is_confirmed() {
+        let confirmed = if cfg!(feature = "rai_protocol") {
+            self.election.is_confirmed()
+        } else {
+            self.election.is_final() && self.election.is_confirmed()
+        };
+        if confirmed {
             self.election_got_confirmed();
         }
     }
@@ -184,7 +222,7 @@ mod tests {
     use rsnano_nullable_clock::Timestamp;
     use rsnano_types::{
         Block, BlockPriority, PrivateKey, QualifiedRoot, SavedBlock, StateBlockArgs,
-        UnixMillisTimestamp, Vote,
+        UnixMillisTimestamp, Vote, VoteKind,
     };
     use rsnano_utils::sync::backpressure_channel::channel;
     use std::time::Duration;
@@ -224,6 +262,9 @@ mod tests {
         );
     }
 
+    /// Legacy replay rule: Kudzu counts every (representative, kind, hash) once
+    /// regardless of the timestamp
+    #[cfg(not(feature = "rai_protocol"))]
     #[test]
     fn ignore_vote_with_lower_timestamp() {
         let mut fixture = FixtureForElection::default();
@@ -234,6 +275,8 @@ mod tests {
         assert_eq!(result, Err(VoteError::Replay));
     }
 
+    /// Kudzu votes are one-shot, so there is nothing to cool down
+    #[cfg(not(feature = "rai_protocol"))]
     #[test]
     fn cool_down_live_vote() {
         let mut fixture = FixtureForElection::default();
@@ -244,6 +287,8 @@ mod tests {
         assert_eq!(result, Err(VoteError::Ignored));
     }
 
+    /// Legacy cooldown rule, Kudzu votes are one-shot
+    #[cfg(not(feature = "rai_protocol"))]
     #[test]
     fn dont_cool_down_when_enough_space_between_votes() {
         let mut fixture = FixtureForElection::default();
@@ -254,6 +299,8 @@ mod tests {
         assert_eq!(result, Ok(()));
     }
 
+    /// Legacy cooldown rule, Kudzu votes are one-shot
+    #[cfg(not(feature = "rai_protocol"))]
     #[test]
     fn dont_cool_down_when_vote_comes_from_cache() {
         let mut fixture = FixtureForElection::default();
@@ -265,6 +312,8 @@ mod tests {
         assert_eq!(result, Ok(()));
     }
 
+    /// Legacy cooldown rule, Kudzu votes are one-shot
+    #[cfg(not(feature = "rai_protocol"))]
     #[test]
     fn dont_cool_down_when_switched_to_final_vote() {
         let mut fixture = FixtureForElection::default();
@@ -311,12 +360,116 @@ mod tests {
         fixture.apply_vote(vote).unwrap();
 
         assert_eq!(fixture.election.winner().hash(), fork.hash());
-        assert_eq!(fixture.events.len(), 1);
+        // Kudzu: the fork also gets fast finalized by that single vote
+        let expected_events = if cfg!(feature = "rai_protocol") { 2 } else { 1 };
+        assert_eq!(fixture.events.len(), expected_events);
         let AecFact::WinnerChanged(old_winner, new_winner) = &fixture.events[0] else {
             panic!("not a winner changed event");
         };
         assert_eq!(old_winner, &block.hash());
         assert_eq!(new_winner, &fork);
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    mod kudzu {
+        use super::*;
+        use crate::consensus::election::ElectionState;
+
+        #[test]
+        fn same_kind_and_hash_is_a_replay_regardless_of_timestamp_and_cooldown() {
+            let mut fixture = FixtureForElection::default();
+            fixture.add_processed_vote(UnixMillisTimestamp::new(2000), Duration::ZERO);
+
+            let result =
+                fixture.apply_vote_from(VoteDelivery::Direct, UnixMillisTimestamp::new(1000));
+
+            assert_eq!(result, Err(VoteError::Replay));
+        }
+
+        #[test]
+        fn a_later_vote_of_another_kind_is_not_cooled_down() {
+            let mut fixture = FixtureForElection::default();
+            fixture.add_processed_vote(UnixMillisTimestamp::new(1000), Duration::ZERO);
+
+            let result = fixture.apply_final_vote_from(VoteDelivery::Direct);
+
+            assert_eq!(result, Ok(()));
+        }
+
+        #[test]
+        fn first_votes_alone_fast_finalize() {
+            let mut fixture = FixtureForElection::default();
+            // 90% of the online weight of 100M nano is above the fast threshold (81%)
+            fixture
+                .rep_weights
+                .put(fixture.rep1_key.public_key(), Amount::nano(90_000_000));
+
+            fixture
+                .apply_vote_from(VoteDelivery::Direct, UnixMillisTimestamp::new(1000))
+                .unwrap();
+
+            assert_eq!(fixture.election.state(), ElectionState::Confirmed);
+            assert_eq!(
+                fixture.election.certificates().fast,
+                Some(fixture.block.hash())
+            );
+            assert!(matches!(
+                fixture.events.last(),
+                Some(AecFact::ElectionConfirmed(_))
+            ));
+        }
+
+        #[test]
+        fn notarization_certificate_terminates_without_confirming() {
+            let mut fixture = FixtureForElection::default();
+            // 70% is a notarization certificate but not a fast certificate
+            fixture
+                .rep_weights
+                .put(fixture.rep1_key.public_key(), Amount::nano(70_000_000));
+
+            fixture
+                .apply_vote_from(VoteDelivery::Direct, UnixMillisTimestamp::new(1000))
+                .unwrap();
+
+            assert!(fixture.election.state().is_terminated());
+            assert!(!fixture.election.is_confirmed());
+            assert!(fixture.election.is_final());
+            assert!(fixture.events.is_empty());
+
+            fixture.apply_final_vote_from(VoteDelivery::Direct).unwrap();
+            assert_eq!(fixture.election.state(), ElectionState::Confirmed);
+            assert!(matches!(
+                fixture.events.last(),
+                Some(AecFact::ElectionConfirmed(_))
+            ));
+        }
+
+        #[test]
+        fn vote_kinds_are_tallied_separately() {
+            let mut fixture = FixtureForElection::default();
+            fixture
+                .rep_weights
+                .put(fixture.rep1_key.public_key(), Amount::nano(10_000_000));
+            let hash = fixture.block.hash();
+
+            let notar = ReceivedVote::new(
+                Vote::new_of_kind(&fixture.rep1_key, VoteKind::Notar, vec![hash]).into(),
+                VoteDelivery::Direct,
+                None,
+            );
+            fixture.apply_vote(notar).unwrap();
+            let timeout = ReceivedVote::new(
+                Vote::new_of_kind(&fixture.rep1_key, VoteKind::Timeout, vec![hash]).into(),
+                VoteDelivery::Direct,
+                None,
+            );
+            fixture.apply_vote(timeout).unwrap();
+
+            let votes = fixture.election.kudzu_votes();
+            assert_eq!(votes.notar_tallies().get(&hash), Amount::nano(10_000_000));
+            assert_eq!(votes.first_tallies().get(&hash), Amount::ZERO);
+            assert_eq!(votes.timeout_weight(), Amount::nano(10_000_000));
+        }
     }
 
     #[test]
@@ -395,12 +548,12 @@ mod tests {
                 now: Timestamp::new_test_instance(),
             };
 
-            let mut vote_counter = VoteCounter::default();
+            let mut stats = AecStats::default();
 
             let mut helper = ApplyVoteHelper {
                 args: &args,
                 recently_confirmed: &mut self.recently_confirmed,
-                vote_counter: &mut vote_counter,
+                stats: &mut stats,
                 observer: &None,
                 roots: &mut self.roots,
             };
@@ -428,12 +581,24 @@ mod tests {
 
     impl FixtureForElection {
         fn add_processed_vote(&mut self, created: UnixMillisTimestamp, received_ago: Duration) {
-            self.election.add_vote(
-                self.rep1_key.public_key(),
-                self.block.hash(),
-                created,
-                self.now - received_ago,
-            );
+            if cfg!(feature = "rai_protocol") {
+                self.election
+                    .add_kudzu_vote(
+                        self.rep1_key.public_key(),
+                        self.block.hash(),
+                        VoteKind::First,
+                        created,
+                        self.now - received_ago,
+                    )
+                    .unwrap();
+            } else {
+                self.election.add_vote(
+                    self.rep1_key.public_key(),
+                    self.block.hash(),
+                    created,
+                    self.now - received_ago,
+                );
+            }
         }
 
         fn apply_vote_from(
@@ -465,7 +630,7 @@ mod tests {
 
             let quorum_snapshot = QuorumSnapshot::new_test_instance();
             let mut recently_confirmed = RecentlyConfirmedCache::default();
-            let mut vote_counter = VoteCounter::default();
+            let mut stats = AecStats::default();
             let (tx, rx) = channel(1024);
 
             let result = {
@@ -477,7 +642,7 @@ mod tests {
                         now: Timestamp::new_test_instance(),
                     },
                     recently_confirmed: &mut recently_confirmed,
-                    vote_counter: &mut vote_counter,
+                    stats: &mut stats,
                     observer: &Some(tx),
                     election: &mut self.election,
                     block_hash: &vote.hashes[0],

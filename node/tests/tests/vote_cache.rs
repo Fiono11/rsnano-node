@@ -139,6 +139,13 @@ fn vote_cache_multiple_votes() {
     node.vote_processor_queue
         .enqueue(vote2, None, VoteDelivery::Direct, None);
 
+    if cfg!(feature = "rai_protocol") {
+        // The cached genesis vote lets the hinted scheduler start an election
+        // and its replay fast finalizes the block right away
+        assert_timely2(|| node.block_confirmed(&send1.hash()));
+        return;
+    }
+
     assert_timely_eq2(|| node.vote_cache.vote_count(&send1.hash()), 2);
     assert_eq!(1, node.vote_cache.len());
     start_election(&node, &send1.hash());

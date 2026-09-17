@@ -1,11 +1,12 @@
-use std::{cmp::max, collections::HashMap, time::Duration};
+use std::{cmp::max, collections::HashMap, mem::size_of, time::Duration};
 
 use strum::EnumCount;
 
 use rsnano_ledger::RepWeights;
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{
-    Amount, Block, BlockHash, PublicKey, QualifiedRoot, SavedBlock, TimePriority, VoteError,
+    Account, Amount, Block, BlockHash, PublicKey, QualifiedRoot, SavedBlock, TimePriority,
+    VoteError, VoteKind,
 };
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -18,9 +19,11 @@ use crate::{
         AecSnapshot, ElectionCandidateSource,
         election::{
             AddForkResult, ConfirmationType, ConfirmedElection, Election, ElectionBehavior,
+            LocalSlotState, VoteType,
         },
         election_schedulers::priority::bucket_count,
         filtered_vote::FilteredVote,
+        vote_generation::VoteTarget,
     },
     representatives::QuorumSnapshot,
 };
@@ -45,6 +48,12 @@ pub(crate) struct ActiveElectionsContainer {
     max_elections: usize,
     max_elections_per_bucket: usize,
     stats: AecStats,
+    /// Kudzu: what this node voted per slot (account height). Shared by all
+    /// elections at that height and dropped once the height is finalized.
+    slots: HashMap<(Account, u64), LocalSlotState>,
+    /// Kudzu: exit final votes of elections which were finalized and erased
+    /// before the voter could pick them up (line 11 still applies)
+    pending_kudzu_votes: Vec<VoteTarget>,
 }
 
 impl ActiveElectionsContainer {
@@ -60,7 +69,68 @@ impl ActiveElectionsContainer {
             max_elections: config.max_elections,
             max_elections_per_bucket: max(config.max_elections / bucket_count(), 1),
             stats: Default::default(),
+            slots: HashMap::new(),
+            pending_kudzu_votes: Vec::new(),
         }
+    }
+
+    /// Kudzu: the votes to broadcast now for all elections, in round robin order
+    pub fn kudzu_votes_due(&self) -> Vec<VoteTarget> {
+        let mut targets = self.pending_kudzu_votes.clone();
+        for election in self.roots.round_robin().map(|e| &e.election) {
+            let slot = self.slots.get(&election.slot());
+            let due = match slot {
+                Some(slot) => election.kudzu_votes_due(slot),
+                None => election.kudzu_votes_due(&LocalSlotState::default()),
+            };
+            targets.extend(due.into_iter().map(|(hash, kind)| VoteTarget {
+                root: election.qualified_root().clone(),
+                winner: hash,
+                vote_type: VoteType::from(kind),
+            }));
+        }
+        targets
+    }
+
+    /// Kudzu: record the votes that were handed to the vote generators
+    pub fn mark_kudzu_voted(&mut self, targets: &[VoteTarget]) {
+        for target in targets {
+            self.pending_kudzu_votes.retain(|pending| pending != target);
+            let Some(election) = self.roots.election_for_root(&target.root) else {
+                continue;
+            };
+            self.slots
+                .entry(election.slot())
+                .or_default()
+                .mark_voted(target.winner, VoteKind::from(target.vote_type));
+        }
+    }
+
+    /// Kudzu: an election is erased as soon as it is finalized. Its exit final
+    /// vote is kept so that the voter still broadcasts it.
+    fn keep_exit_final_vote(&mut self, election: &Election) {
+        // Only explicitly finalized elections: an implicitly finalized block is
+        // already cemented, and its slot state has been dropped.
+        if !cfg!(feature = "rai_protocol") || !election.certificates().is_finalized() {
+            return;
+        }
+        let slot = self.slots.entry(election.slot()).or_default();
+        if let Some((hash, kind)) = election.kudzu_final_vote_due(slot) {
+            slot.mark_voted(hash, kind);
+            self.pending_kudzu_votes.push(VoteTarget {
+                root: election.qualified_root().clone(),
+                winner: hash,
+                vote_type: VoteType::from(kind),
+            });
+        }
+    }
+
+    pub fn slot_state(&self, slot: &(Account, u64)) -> Option<&LocalSlotState> {
+        self.slots.get(slot)
+    }
+
+    pub fn slot_count(&self) -> usize {
+        self.slots.len()
     }
 
     pub fn set_observer(&mut self, observer: Sender<AecFact>) {
@@ -369,6 +439,7 @@ impl ActiveElectionsContainer {
 
     fn cleanup_election(&mut self, entry: Entry) {
         let election = &entry.election;
+        self.keep_exit_final_vote(election);
 
         // Keep track of election count by election type
         *self.count_by_behavior_mut(election.behavior()) -= 1;
@@ -430,6 +501,8 @@ impl ActiveElectionsContainer {
 
     fn block_confirmed(&mut self, block: SavedBlock, election: ConfirmedElection) {
         self.stats.block_confirmations[election.confirmation_type as usize] += 1;
+        // The height is finalized, nothing will be voted for it any more
+        self.slots.remove(&(block.account(), block.height()));
         self.notify(AecFact::BlockConfirmed(block, election));
     }
 
@@ -444,7 +517,7 @@ impl ActiveElectionsContainer {
         let mut apply_helper = ApplyVoteHelper {
             args: &args,
             recently_confirmed: &mut self.recently_confirmed,
-            vote_counter: &mut self.stats.vote_counter,
+            stats: &mut self.stats,
             observer: &self.observer,
             roots: &mut self.roots,
         };
@@ -533,6 +606,11 @@ impl ContainerInfoProvider for ActiveElectionsContainer {
     fn container_info(&self) -> ContainerInfo {
         ContainerInfo::builder()
             .leaf("roots", self.roots.len(), RootContainer::ELEMENT_SIZE)
+            .leaf(
+                "slots",
+                self.slot_count(),
+                size_of::<((Account, u64), LocalSlotState)>(),
+            )
             .leaf(
                 "normal",
                 self.count_by_behavior(ElectionBehavior::Priority),
@@ -672,6 +750,108 @@ mod tests {
 
         assert_eq!(container.info(start).stale, 0);
         assert_eq!(container.info(start + Duration::from_secs(60)).stale, 1);
+    }
+
+    #[test]
+    fn kudzu_first_vote_is_due_for_a_new_election_and_recorded_per_slot() {
+        let mut container = ActiveElectionsContainer::default();
+        let block = SavedBlock::new_test_instance();
+        let request =
+            AecInsertRequest::new_priority(block.clone(), BlockPriority::new_test_instance());
+        container
+            .insert(request, Timestamp::new_test_instance())
+            .unwrap();
+
+        let due = container.kudzu_votes_due();
+        assert_eq!(
+            due,
+            vec![VoteTarget {
+                root: block.qualified_root(),
+                winner: block.hash(),
+                vote_type: VoteType::NonFinal,
+            }]
+        );
+
+        container.mark_kudzu_voted(&due);
+        let slot = container
+            .slot_state(&(block.account(), block.height()))
+            .unwrap();
+        assert_eq!(slot.first_voted, Some(block.hash()));
+        assert_eq!(container.slot_count(), 1);
+
+        // Nothing new is decided, the first vote is only re-broadcast
+        assert_eq!(container.kudzu_votes_due(), due);
+    }
+
+    #[test]
+    fn kudzu_slot_state_is_dropped_when_the_height_is_confirmed() {
+        let mut container = ActiveElectionsContainer::default();
+        let block = SavedBlock::new_test_instance();
+        let request =
+            AecInsertRequest::new_priority(block.clone(), BlockPriority::new_test_instance());
+        let now = Timestamp::new_test_instance();
+        container.insert(request, now).unwrap();
+        let due = container.kudzu_votes_due();
+        container.mark_kudzu_voted(&due);
+        assert_eq!(container.slot_count(), 1);
+
+        container.confirm_dependent_elections(vec![(block, None)], now);
+
+        assert_eq!(container.slot_count(), 0);
+    }
+
+    /// Legacy never confirms on a non-final vote, so this only applies to Kudzu
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn kudzu_exit_final_vote_of_a_fast_finalized_election_is_kept() {
+        let mut container = ActiveElectionsContainer::default();
+        let block = SavedBlock::new_test_instance();
+        let block_hash = block.hash();
+        let root = block.qualified_root();
+        let request = AecInsertRequest::new_priority(block, BlockPriority::new_test_instance());
+        let now = Timestamp::new_test_instance();
+        container.insert(request, now).unwrap();
+        let first = container.kudzu_votes_due();
+        container.mark_kudzu_voted(&first);
+
+        // A single first vote with all the weight fast finalizes and erases the election
+        let rep_key = PrivateKey::from(1);
+        let mut rep_weights = RepWeights::default();
+        rep_weights.put(rep_key.public_key(), Amount::MAX);
+        let vote = Arc::new(Vote::new(
+            &rep_key,
+            rsnano_types::UnixMillisTimestamp::new(1000),
+            0,
+            vec![block_hash],
+        ));
+        let received = ReceivedVote::new(vote, VoteDelivery::Direct, None);
+        container.apply_vote(ApplyVoteArgs {
+            vote: &received.into(),
+            rep_weights: &rep_weights,
+            quorum_snapshot: &QuorumSnapshot::new_test_instance(),
+            now,
+        });
+        assert!(container.election_for_block(&block_hash).is_none());
+
+        let expected = VoteTarget {
+            root,
+            winner: block_hash,
+            vote_type: VoteType::Final,
+        };
+        assert_eq!(container.kudzu_votes_due(), vec![expected.clone()]);
+        container.mark_kudzu_voted(&[expected]);
+        assert!(container.kudzu_votes_due().is_empty());
+    }
+
+    #[test]
+    fn kudzu_votes_for_unknown_roots_are_not_recorded() {
+        let mut container = ActiveElectionsContainer::default();
+        container.mark_kudzu_voted(&[VoteTarget {
+            root: QualifiedRoot::new_test_instance(),
+            winner: BlockHash::from(1),
+            vote_type: VoteType::NonFinal,
+        }]);
+        assert_eq!(container.slot_count(), 0);
     }
 
     fn test_final_vote(rep_key: &PrivateKey, block_hash: BlockHash) -> ReceivedVote {

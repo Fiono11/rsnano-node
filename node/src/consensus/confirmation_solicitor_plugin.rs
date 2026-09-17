@@ -47,7 +47,7 @@ impl AecTickerPlugin for ConfirmationSolicitorPlugin {
          */
         let elections: Vec<_> = aec.round_robin(|elections_iter| {
             elections_iter
-                .filter(|e| e.state() == ElectionState::Active)
+                .filter(|e| Self::should_solicit(e.state()))
                 .cloned()
                 .collect()
         });
@@ -66,5 +66,18 @@ impl AecTickerPlugin for ConfirmationSolicitorPlugin {
 
     fn as_any(&self) -> &dyn Any {
         self
+    }
+}
+
+impl ConfirmationSolicitorPlugin {
+    fn should_solicit(state: ElectionState) -> bool {
+        match state {
+            ElectionState::Active => true,
+            // Kudzu: a terminated election still has to collect final votes
+            ElectionState::Terminated | ElectionState::TimedOut | ElectionState::Settled => {
+                cfg!(feature = "rai_protocol")
+            }
+            _ => false,
+        }
     }
 }

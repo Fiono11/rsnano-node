@@ -1,3 +1,6 @@
+// Some tests only exist for the legacy voting rules
+#![cfg_attr(feature = "rai_protocol", allow(unused_imports))]
+
 use std::sync::Arc;
 
 use rsnano_ledger::{
@@ -12,6 +15,8 @@ use rsnano_types::{
 };
 use test_helpers::{System, assert_timely_eq2, assert_timely2, start_elections};
 
+/// Legacy vote cooldown, Kudzu votes are one-shot
+#[cfg(not(feature = "rai_protocol"))]
 mod votes {
     use super::*;
     use rsnano_ledger::test_helpers::UnsavedBlockLatticeBuilder;

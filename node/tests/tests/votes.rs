@@ -1,3 +1,6 @@
+// Some tests only exist for the legacy voting rules
+#![cfg_attr(feature = "rai_protocol", allow(unused_imports))]
+
 use std::{sync::Arc, time::Duration};
 
 use rsnano_ledger::{
@@ -48,13 +51,15 @@ fn check_signature() {
             .vote_blocking(&received_vote2.clone().into())
             .is_ok()
     );
-    assert_eq!(
-        Err(VoteError::Replay),
-        node.vote_processor.vote_blocking(&received_vote2.into())
-    );
+    // Kudzu: the single vote fast finalizes the block, so the replay is late
+    assert!(matches!(
+        node.vote_processor.vote_blocking(&received_vote2.into()),
+        Err(VoteError::Replay) | Err(VoteError::Late)
+    ));
 }
 
-// The voting cooldown is respected
+// The voting cooldown is respected (legacy only: Kudzu votes are one-shot)
+#[cfg(not(feature = "rai_protocol"))]
 #[test]
 fn add_cooldown() {
     let mut system = System::new();

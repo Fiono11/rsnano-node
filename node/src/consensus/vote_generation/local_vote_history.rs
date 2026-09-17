@@ -57,18 +57,27 @@ impl LocalVoteHistory {
         let mut add_vote = true;
         let mut remove_root = false;
         let mut ids_to_delete = Vec::new();
-        // Erase any vote that is not for this hash, or duplicate by account, and if new timestamp is higher
+        // Erase any vote that is not for this hash, or duplicate by account, and if new timestamp is higher.
+        // Kudzu: a representative legitimately holds votes of several kinds for
+        // several blocks of one root, so only the same (hash, kind) is replaced.
         if let Some(ids) = data.history_by_root.get_mut(root) {
             for &i in ids.iter() {
                 let current = &data.history[&i];
-                if &current.hash != hash
-                    || (vote.voter == current.vote.voter
-                        && current.vote.timestamp() <= vote.timestamp())
+                let other_hash = &current.hash != hash;
+                let same_voter = vote.voter == current.vote.voter;
+                if cfg!(feature = "rai_protocol") {
+                    if other_hash || !same_voter || current.vote.kind() != vote.kind() {
+                        continue;
+                    }
+                    if current.vote.timestamp() <= vote.timestamp() {
+                        ids_to_delete.push(i);
+                    } else {
+                        add_vote = false;
+                    }
+                } else if other_hash || (same_voter && current.vote.timestamp() <= vote.timestamp())
                 {
                     ids_to_delete.push(i);
-                } else if vote.voter == current.vote.voter
-                    && current.vote.timestamp() > vote.timestamp()
-                {
+                } else if same_voter && current.vote.timestamp() > vote.timestamp() {
                     add_vote = false;
                 }
             }
@@ -257,6 +266,8 @@ mod tests {
         assert!(Arc::ptr_eq(&votes[0], &vote2) || Arc::ptr_eq(&votes[1], &vote2));
     }
 
+    /// Kudzu keeps the votes for the other blocks of a root, see `kudzu_keeps_votes_per_hash_and_kind`
+    #[cfg(not(feature = "rai_protocol"))]
     #[test]
     fn basic2() {
         let history = LocalVoteHistory::with_max_cache(256);
@@ -276,5 +287,51 @@ mod tests {
         let votes = history.votes(&root, &BlockHash::from(3), false);
         assert_eq!(votes.len(), 1);
         assert!(Arc::ptr_eq(&votes[0], &vote3));
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn kudzu_keeps_votes_per_hash_and_kind() {
+        use rsnano_types::VoteKind;
+
+        let history = LocalVoteHistory::with_max_cache(256);
+        let root = Root::from(1);
+        let key = PrivateKey::from(1);
+        let hash_a = BlockHash::from(2);
+        let hash_b = BlockHash::from(3);
+        let first = Arc::new(Vote::new_of_kind_at(
+            &key,
+            VoteKind::First,
+            UnixMillisTimestamp::new(1000),
+            vec![hash_a],
+        ));
+        let notar = Arc::new(Vote::new_of_kind_at(
+            &key,
+            VoteKind::Notar,
+            UnixMillisTimestamp::new(2000),
+            vec![hash_b],
+        ));
+        let final_ = Arc::new(Vote::new_of_kind(&key, VoteKind::Final, vec![hash_a]));
+
+        history.add(&root, &hash_a, &first);
+        history.add(&root, &hash_b, &notar);
+        history.add(&root, &hash_a, &final_);
+        assert_eq!(history.size(), 3);
+        assert_eq!(history.votes(&root, &hash_a, false).len(), 2);
+        assert_eq!(history.votes(&root, &hash_a, true).len(), 1);
+        assert_eq!(history.votes(&root, &hash_b, false).len(), 1);
+
+        // A newer vote of the same kind for the same hash replaces the old one
+        let newer_first = Arc::new(Vote::new_of_kind_at(
+            &key,
+            VoteKind::First,
+            UnixMillisTimestamp::new(3000),
+            vec![hash_a],
+        ));
+        history.add(&root, &hash_a, &newer_first);
+        assert_eq!(history.size(), 3);
+        let votes = history.votes(&root, &hash_a, false);
+        assert!(votes.iter().any(|v| Arc::ptr_eq(v, &newer_first)));
+        assert!(!votes.iter().any(|v| Arc::ptr_eq(v, &first)));
     }
 }

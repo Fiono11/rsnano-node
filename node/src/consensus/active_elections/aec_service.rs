@@ -16,7 +16,8 @@ use super::{
 };
 use crate::consensus::{
     ElectionCandidateSource,
-    election::{ConfirmedElection, Election, ElectionBehavior, ElectionState},
+    election::{ConfirmedElection, Election, ElectionBehavior, ElectionState, LocalSlotState},
+    vote_generation::VoteTarget,
 };
 
 pub struct AecService {
@@ -105,6 +106,15 @@ impl AecService {
         f(&mut guard.iter_round_robin())
     }
 
+    /// Kudzu: the votes to broadcast now, see Protocol 1
+    pub(crate) fn kudzu_votes_due(&self) -> Vec<VoteTarget> {
+        self.aec.read().unwrap().kudzu_votes_due()
+    }
+
+    pub fn slot_state(&self, slot: &(Account, u64)) -> Option<LocalSlotState> {
+        self.aec.read().unwrap().slot_state(slot).cloned()
+    }
+
     // --- Write forwarding ---
 
     pub fn set_observer(&self, observer: Sender<AecFact>) {
@@ -128,6 +138,11 @@ impl AecService {
 
     pub fn transition_time(&self, now: Timestamp) {
         self.aec.write().unwrap().transition_time(now)
+    }
+
+    /// Kudzu: record the votes that were handed to the vote generators
+    pub(crate) fn mark_kudzu_voted(&self, targets: &[VoteTarget]) {
+        self.aec.write().unwrap().mark_kudzu_voted(targets)
     }
 
     pub fn transition_active(&self, block_hash: &BlockHash) -> bool {

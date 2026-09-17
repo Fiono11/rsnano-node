@@ -7,9 +7,11 @@ use std::{
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{BlockHash, QualifiedRoot};
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
+use strum::EnumCount;
 
 use crate::consensus::election::{Election, VoteType};
 
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct VoteTarget {
     pub root: QualifiedRoot,
     pub winner: BlockHash,
@@ -24,16 +26,18 @@ pub(crate) fn vote_target(e: &Election) -> VoteTarget {
     }
 }
 
+/// Votes are recorded per (root, block hash), so a vote for a different block
+/// of the same root is never delayed
+type RecordKey = (QualifiedRoot, BlockHash);
+
 pub(crate) struct VotingScheduler {
-    records: HashMap<QualifiedRoot, VoteRecord>,
-    expiry_queue: VecDeque<(Timestamp, QualifiedRoot)>,
+    records: HashMap<RecordKey, VoteRecord>,
+    expiry_queue: VecDeque<(Timestamp, RecordKey)>,
     interval: Duration,
 }
 
 struct VoteRecord {
-    last_non_final: Option<Timestamp>,
-    last_final: Option<Timestamp>,
-    last_voted_winner: BlockHash,
+    last_by_type: [Option<Timestamp>; VoteType::COUNT],
     last_voted: Timestamp,
 }
 
@@ -46,63 +50,46 @@ impl VotingScheduler {
         }
     }
 
-    /// Returns true if enough time has passed since the last vote for this election,
-    /// or if the winner has changed since the last vote.
+    /// Returns true if enough time has passed since the last vote of this type
+    /// for this block, or if the block was never voted for.
     pub fn can_vote(&self, target: &VoteTarget, now: Timestamp) -> bool {
-        let Some(record) = self.records.get(&target.root) else {
+        let Some(record) = self.records.get(&(target.root.clone(), target.winner)) else {
             return true;
         };
 
-        if record.last_voted_winner != target.winner {
-            return true;
-        }
-
-        let last = match target.vote_type {
-            VoteType::NonFinal => record.last_non_final,
-            VoteType::Final => record.last_final,
-        };
-
-        match last {
+        match record.last_by_type[target.vote_type as usize] {
             None => true,
             Some(ts) => now >= ts + self.interval,
         }
     }
 
     pub fn mark_voted(&mut self, target: &VoteTarget, now: Timestamp) {
-        let record = self
-            .records
-            .entry(target.root.clone())
-            .or_insert(VoteRecord {
-                last_non_final: None,
-                last_final: None,
-                last_voted_winner: BlockHash::ZERO,
-                last_voted: now,
-            });
+        let key = (target.root.clone(), target.winner);
+        let record = self.records.entry(key.clone()).or_insert(VoteRecord {
+            last_by_type: [None; VoteType::COUNT],
+            last_voted: now,
+        });
 
         debug_assert!(now >= record.last_voted);
 
-        match target.vote_type {
-            VoteType::NonFinal => record.last_non_final = Some(now),
-            VoteType::Final => record.last_final = Some(now),
-        }
-        record.last_voted_winner = target.winner;
+        record.last_by_type[target.vote_type as usize] = Some(now);
         record.last_voted = now;
 
-        self.expiry_queue.push_back((now, target.root.clone()));
+        self.expiry_queue.push_back((now, key));
     }
 
     /// Remove entries whose most recent vote is older than the interval.
     /// Called once per tick to bound memory usage.
     pub fn cleanup(&mut self, now: Timestamp) {
-        while let Some(&(ts, ref root)) = self.expiry_queue.front() {
+        while let Some(&(ts, ref key)) = self.expiry_queue.front() {
             if now < ts + self.interval {
                 break;
             }
-            let root = root.clone();
+            let key = key.clone();
             self.expiry_queue.pop_front();
-            if let Some(record) = self.records.get(&root) {
+            if let Some(record) = self.records.get(&key) {
                 if record.last_voted == ts {
-                    self.records.remove(&root);
+                    self.records.remove(&key);
                 }
             }
         }
@@ -116,7 +103,7 @@ impl ContainerInfoProvider for VotingScheduler {
             (
                 "expiry_queue",
                 self.expiry_queue.len(),
-                size_of::<(Timestamp, QualifiedRoot)>(),
+                size_of::<(Timestamp, RecordKey)>(),
             ),
         ]
         .into()

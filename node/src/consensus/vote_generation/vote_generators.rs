@@ -7,7 +7,7 @@ use rsnano_ledger::Ledger;
 use rsnano_network::{Channel, ChannelId};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
-use rsnano_types::{BlockHash, NetworkType, Root, SavedBlock};
+use rsnano_types::{BlockHash, NetworkType, Root, SavedBlock, VoteKind};
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{DetailType, StatType, Stats},
@@ -29,8 +29,9 @@ pub struct VoteGenerationEvent {
 }
 
 pub struct VoteGenerators {
-    non_final_vote_generator: VoteGenerator,
-    final_vote_generator: VoteGenerator,
+    /// One generator per vote type. Legacy needs non-final and final votes,
+    /// the Kudzu rules additionally need notarization and timeout votes.
+    generators: Vec<(VoteType, VoteGenerator)>,
     vote_listener: OutputListenerMt<VoteGenerationEvent>,
     voting_delay: Duration,
     wallet_reps: Arc<Mutex<WalletRepresentatives>>,
@@ -58,35 +59,38 @@ impl VoteGenerators {
     ) -> Self {
         let voting_delay = Self::voting_delay_for(network_params.network.current_network);
 
-        let non_final_vote_generator = VoteGenerator::new(
-            ledger.clone(),
-            wallet_reps.clone(),
-            history.clone(),
-            false, //none-final
-            stats.clone(),
-            message_sender.clone(),
-            voting_delay,
-            config.vote_generator_delay,
-            vote_broadcaster.clone(),
-            clock.clone(),
-        );
+        let vote_types = if cfg!(feature = "rai_protocol") {
+            vec![
+                VoteType::NonFinal,
+                VoteType::Final,
+                VoteType::Notar,
+                VoteType::Timeout,
+            ]
+        } else {
+            vec![VoteType::NonFinal, VoteType::Final]
+        };
 
-        let final_vote_generator = VoteGenerator::new(
-            ledger,
-            wallet_reps.clone(),
-            history,
-            true, //final
-            stats.clone(),
-            message_sender.clone(),
-            voting_delay,
-            config.vote_generator_delay,
-            vote_broadcaster,
-            clock,
-        );
+        let generators = vote_types
+            .into_iter()
+            .map(|vote_type| {
+                let generator = VoteGenerator::new(
+                    ledger.clone(),
+                    wallet_reps.clone(),
+                    history.clone(),
+                    VoteKind::from(vote_type),
+                    stats.clone(),
+                    message_sender.clone(),
+                    voting_delay,
+                    config.vote_generator_delay,
+                    vote_broadcaster.clone(),
+                    clock.clone(),
+                );
+                (vote_type, generator)
+            })
+            .collect();
 
         Self {
-            non_final_vote_generator,
-            final_vote_generator,
+            generators,
             vote_listener: OutputListenerMt::new(),
             voting_delay,
             wallet_reps,
@@ -122,13 +126,23 @@ impl VoteGenerators {
     }
 
     pub fn start(&self) {
-        self.non_final_vote_generator.start();
-        self.final_vote_generator.start();
+        for (_, generator) in &self.generators {
+            generator.start();
+        }
     }
 
     pub fn stop(&self) {
-        self.non_final_vote_generator.stop();
-        self.final_vote_generator.stop();
+        for (_, generator) in &self.generators {
+            generator.stop();
+        }
+    }
+
+    fn generator(&self, vote_type: VoteType) -> &VoteGenerator {
+        self.generators
+            .iter()
+            .find(|(t, _)| *t == vote_type)
+            .map(|(_, g)| g)
+            .unwrap_or_else(|| panic!("no vote generator for {:?}", vote_type))
     }
 
     pub fn track(&self) -> Arc<OutputTrackerMt<VoteGenerationEvent>> {
@@ -136,18 +150,14 @@ impl VoteGenerators {
     }
 
     pub fn generate_vote(&self, root: &Root, hash: &BlockHash, vote_type: VoteType) {
-        match vote_type {
-            VoteType::NonFinal => {
-                self.stats
-                    .inc(StatType::Election, DetailType::GenerateVoteNormal);
-                self.non_final_vote_generator.add(root, hash);
-            }
-            VoteType::Final => {
-                self.stats
-                    .inc(StatType::Election, DetailType::GenerateVoteFinal);
-                self.final_vote_generator.add(root, hash);
-            }
-        }
+        let detail = match vote_type {
+            VoteType::NonFinal => DetailType::GenerateVoteNormal,
+            VoteType::Final => DetailType::GenerateVoteFinal,
+            VoteType::Notar => DetailType::GenerateVoteNotar,
+            VoteType::Timeout => DetailType::GenerateVoteTimeout,
+        };
+        self.stats.inc(StatType::Election, detail);
+        self.generator(vote_type).add(root, hash);
     }
 
     pub(crate) fn generate_votes(
@@ -164,10 +174,7 @@ impl VoteGenerators {
             });
         }
 
-        match vote_type {
-            VoteType::NonFinal => self.non_final_vote_generator.generate(blocks, channel),
-            VoteType::Final => self.final_vote_generator.generate(blocks, channel),
-        }
+        self.generator(vote_type).generate(blocks, channel)
     }
 
     pub fn voting_enabled(&self) -> bool {
@@ -177,9 +184,16 @@ impl VoteGenerators {
 
 impl ContainerInfoProvider for VoteGenerators {
     fn container_info(&self) -> ContainerInfo {
-        ContainerInfo::builder()
-            .node("non_final", self.non_final_vote_generator.container_info())
-            .node("final", self.final_vote_generator.container_info())
-            .finish()
+        let mut builder = ContainerInfo::builder();
+        for (vote_type, generator) in &self.generators {
+            let name = match vote_type {
+                VoteType::NonFinal => "non_final",
+                VoteType::Final => "final",
+                VoteType::Notar => "notar",
+                VoteType::Timeout => "timeout",
+            };
+            builder = builder.node(name, generator.container_info());
+        }
+        builder.finish()
     }
 }

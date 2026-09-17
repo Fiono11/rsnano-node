@@ -6,6 +6,8 @@ edition = "2024"
 
 [features]
 output_tracking = []
+# Kudzu voting rules (Protocol 1) instead of the legacy tally-based election
+rai_protocol = []
 banano = [
 	"rsnano_types/banano",
 	"rsnano_store_lmdb/banano",

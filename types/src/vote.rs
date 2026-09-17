@@ -6,6 +6,60 @@ use super::{
 };
 use crate::{DeserializationError, SignatureError};
 
+/// Kudzu vote kinds. A kind is carried in the 4 duration bits of the vote
+/// timestamp, so the wire format and the signed payload stay unchanged.
+/// Every legacy non-final vote reads as a First vote.
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Hash, EnumCount, EnumIter)]
+pub enum VoteKind {
+    /// FirstVote: the one-shot vote for the block proposed at this slot. Contains a notarization vote.
+    First,
+    /// NotarVote: cast on a second look or after a timeout termination
+    Notar,
+    /// NotarVote for the timeout block
+    Timeout,
+    /// FinalVote
+    Final,
+}
+
+impl VoteKind {
+    const NOTAR_BITS: u8 = 0xD;
+    const TIMEOUT_BITS: u8 = 0xE;
+
+    pub fn duration_bits(self) -> u8 {
+        match self {
+            VoteKind::First => 0x9, /*8192ms, the legacy non-final duration*/
+            VoteKind::Notar => Self::NOTAR_BITS,
+            VoteKind::Timeout => Self::TIMEOUT_BITS,
+            VoteKind::Final => Vote::DURATION_MAX,
+        }
+    }
+
+    fn from_timestamp(timestamp: VoteTimestamp) -> Self {
+        if timestamp.is_final() {
+            VoteKind::Final
+        } else {
+            match timestamp.duration_bits() {
+                Self::NOTAR_BITS => VoteKind::Notar,
+                Self::TIMEOUT_BITS => VoteKind::Timeout,
+                _ => VoteKind::First,
+            }
+        }
+    }
+
+    pub fn is_final(self) -> bool {
+        self == VoteKind::Final
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            VoteKind::First => "first",
+            VoteKind::Notar => "notar",
+            VoteKind::Timeout => "timeout",
+            VoteKind::Final => "final",
+        }
+    }
+}
+
 #[derive(Copy, Clone, PartialEq, Eq, Debug, EnumCount, EnumIter)]
 pub enum VoteDelivery {
     Direct,
@@ -89,6 +143,24 @@ impl Vote {
         Self::new(key, Self::TIMESTAMP_MAX, Self::DURATION_MAX, hashes)
     }
 
+    pub fn new_of_kind(key: &PrivateKey, kind: VoteKind, hashes: Vec<BlockHash>) -> Self {
+        Self::new_of_kind_at(key, kind, UnixMillisTimestamp::now(), hashes)
+    }
+
+    pub fn new_of_kind_at(
+        key: &PrivateKey,
+        kind: VoteKind,
+        timestamp: UnixMillisTimestamp,
+        hashes: Vec<BlockHash>,
+    ) -> Self {
+        let timestamp = if kind.is_final() {
+            Self::TIMESTAMP_MAX
+        } else {
+            timestamp
+        };
+        Self::new(key, timestamp, kind.duration_bits(), hashes)
+    }
+
     pub fn new(
         priv_key: &PrivateKey,
         timestamp: UnixMillisTimestamp,
@@ -124,6 +196,10 @@ impl Vote {
 
     pub fn is_final(&self) -> bool {
         self.timestamp.is_final()
+    }
+
+    pub fn kind(&self) -> VoteKind {
+        VoteKind::from_timestamp(self.timestamp)
     }
 
     pub fn duration_bits(&self) -> u8 {
@@ -242,6 +318,45 @@ impl TestVoteBuilder {
             Vote::new_final(&self.key, self.hashes)
         } else {
             Vote::new(&self.key, self.timestamp, self.duration, self.hashes)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use strum::IntoEnumIterator;
+
+    #[test]
+    fn legacy_votes_read_as_first_and_final_kinds() {
+        let non_final = Vote::build_test_instance().finish();
+        assert_eq!(non_final.kind(), VoteKind::First);
+
+        let legacy_generator_vote = Vote::new(
+            &PrivateKey::from(1),
+            UnixMillisTimestamp::new(1000),
+            0x9,
+            vec![BlockHash::from(1)],
+        );
+        assert_eq!(legacy_generator_vote.kind(), VoteKind::First);
+
+        let final_vote = Vote::build_test_instance().final_vote().finish();
+        assert_eq!(final_vote.kind(), VoteKind::Final);
+    }
+
+    #[test]
+    fn kind_survives_serialization_and_signing() {
+        for kind in VoteKind::iter() {
+            let vote = Vote::new_of_kind(&PrivateKey::from(1), kind, vec![BlockHash::from(1)]);
+            assert_eq!(vote.kind(), kind);
+            assert_eq!(vote.is_final(), kind.is_final());
+            assert!(vote.validate().is_ok());
+
+            let mut bytes = Vec::new();
+            vote.serialize(&mut bytes).unwrap();
+            let deserialized = Vote::deserialize(&bytes).unwrap();
+            assert_eq!(deserialized.kind(), kind);
+            assert_eq!(deserialized, vote);
         }
     }
 }

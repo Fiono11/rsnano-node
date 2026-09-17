@@ -1,9 +1,24 @@
 use std::{sync::Arc, time::Duration};
 
 use rsnano_ledger::test_helpers::UnsavedBlockLatticeBuilder;
-use rsnano_node::{config::NodeConfig, consensus::ReceivedVote};
+use rsnano_node::{
+    Node,
+    config::NodeConfig,
+    consensus::{ReceivedVote, election::KudzuThresholds},
+};
 use rsnano_types::{Amount, DEV_GENESIS_KEY, PrivateKey, Vote, VoteDelivery};
 use test_helpers::{System, assert_timely2};
+
+/// The weight a final vote needs to confirm a block: the legacy quorum, or the
+/// Kudzu finalization certificate
+fn confirmation_threshold(node: &Node) -> Amount {
+    let quorum = node.rep_tracker.quorum_snapshot();
+    if cfg!(feature = "rai_protocol") {
+        KudzuThresholds::from_quorum(&quorum).certificate
+    } else {
+        quorum.quorum_delta
+    }
+}
 
 // checks that block cannot be confirmed if there is no enough votes to reach quorum
 #[test]
@@ -24,7 +39,7 @@ fn quorum_minimum_confirm_fail() {
     let key = PrivateKey::new();
     let send1 = lattice.genesis().send(
         &key,
-        Amount::MAX - (node1.rep_tracker.quorum_snapshot().quorum_delta - Amount::raw(1)),
+        Amount::MAX - (confirmation_threshold(&node1) - Amount::raw(1)),
     );
 
     node1.process(send1.clone());
@@ -63,10 +78,9 @@ fn quorum_minimum_confirm_success() {
     let key1 = PrivateKey::new();
 
     // Only minimum quorum remains
-    let send1 = lattice.genesis().send(
-        &key1,
-        Amount::MAX - node1.rep_tracker.quorum_snapshot().quorum_delta,
-    );
+    let send1 = lattice
+        .genesis()
+        .send(&key1, Amount::MAX - confirmation_threshold(&node1));
 
     node1.process(send1.clone());
     assert_timely2(|| node1.is_active_root(&send1.qualified_root()));
@@ -94,14 +108,14 @@ fn quorum_minimum_flip_fail() {
     let key1 = PrivateKey::new();
     let send1 = lattice.genesis().send(
         &key1,
-        Amount::MAX - (node1.rep_tracker.quorum_snapshot().quorum_delta - Amount::raw(1)),
+        Amount::MAX - (confirmation_threshold(&node1) - Amount::raw(1)),
     );
 
     let mut fork_lattice = UnsavedBlockLatticeBuilder::new();
     let key2 = PrivateKey::new();
     let send2 = fork_lattice.genesis().send(
         &key2,
-        Amount::MAX - (node1.rep_tracker.quorum_snapshot().quorum_delta - Amount::raw(1)),
+        Amount::MAX - (confirmation_threshold(&node1) - Amount::raw(1)),
     );
 
     // Process send1 and wait until its election appears
@@ -138,17 +152,15 @@ fn quorum_minimum_flip_success() {
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let key1 = PrivateKey::new();
-    let send1 = lattice.genesis().send(
-        &key1,
-        Amount::MAX - node1.rep_tracker.quorum_snapshot().quorum_delta,
-    );
+    let send1 = lattice
+        .genesis()
+        .send(&key1, Amount::MAX - confirmation_threshold(&node1));
 
     let mut fork_lattice = UnsavedBlockLatticeBuilder::new();
     let key2 = PrivateKey::new();
-    let send2 = fork_lattice.genesis().send(
-        &key2,
-        Amount::MAX - node1.rep_tracker.quorum_snapshot().quorum_delta,
-    );
+    let send2 = fork_lattice
+        .genesis()
+        .send(&key2, Amount::MAX - confirmation_threshold(&node1));
 
     // Process send1 and wait until its election appears
     node1.process_active(send1.clone());

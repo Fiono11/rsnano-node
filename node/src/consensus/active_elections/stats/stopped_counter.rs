@@ -26,9 +26,11 @@ impl StoppedCounter {
         }
         self.by_state[election.state() as usize] += 1;
         match election.state() {
-            ElectionState::Passive | ElectionState::Active => {
-                self.dropped[election.behavior() as usize] += 1
-            }
+            ElectionState::Passive
+            | ElectionState::Active
+            | ElectionState::Terminated
+            | ElectionState::TimedOut
+            | ElectionState::Settled => self.dropped[election.behavior() as usize] += 1,
             ElectionState::Confirmed | ElectionState::ExpiredConfirmed => {
                 self.confirmed[election.behavior() as usize] += 1
             }

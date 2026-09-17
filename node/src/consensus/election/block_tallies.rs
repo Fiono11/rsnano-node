@@ -69,16 +69,21 @@ impl BlockTallies {
     }
 
     pub fn calculate<'a, 'b>(&'a mut self, votes: impl IntoIterator<Item = &'b VoteSummary>) {
+        self.calculate_from(votes.into_iter().map(|v| (v.hash, v.weight)));
+    }
+
+    /// Recalculates the tallies from (block hash, weight) pairs
+    pub fn calculate_from(&mut self, votes: impl IntoIterator<Item = (BlockHash, Amount)>) {
         self.len = 0;
 
-        for vote in votes.into_iter() {
+        for (hash, weight) in votes.into_iter() {
             if let Some((_, tally)) = self.tallies[..self.len]
                 .iter_mut()
-                .find(|(hash, _)| *hash == vote.hash)
+                .find(|(h, _)| *h == hash)
             {
-                *tally += vote.weight;
+                *tally += weight;
             } else {
-                self.insert_unsorted(vote.hash, vote.weight);
+                self.insert_unsorted(hash, weight);
             }
         }
 
