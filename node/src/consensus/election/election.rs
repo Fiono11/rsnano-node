@@ -25,6 +25,9 @@ pub enum VoteType {
 pub struct Election {
     #[cfg(feature = "rai_protocol")]
     pub(crate) first_vote_observed: Option<Timestamp>,
+    /// When this election was first seen settled here.
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) settled_at: Option<Timestamp>,
     #[cfg(feature = "rai_protocol")]
     pub(super) kudzu: super::kudzu::KudzuVotes,
     qualified_root: QualifiedRoot,
@@ -65,6 +68,8 @@ impl Election {
             kudzu: Default::default(),
             #[cfg(feature = "rai_protocol")]
             first_vote_observed: None,
+            #[cfg(feature = "rai_protocol")]
+            settled_at: None,
             qualified_root: block.qualified_root(),
             epoch: 0,
             votes: FxHashMap::default(),
@@ -224,6 +229,17 @@ impl Election {
     pub fn is_timed_out(&self) -> bool {
         self.kudzu
             .has_certificate(self.winner.hash(), rsnano_types::VoteKind::Timeout)
+    }
+
+    /// Every certificate of this election has been collected here, or can be
+    /// proved not to exist anywhere: finalized, or a value's FINAL weight
+    /// leaves no room for another certificate (see `KudzuVotes::settled`).
+    /// Timed-out and stuck elections never settle this way; the closer
+    /// settles them after one post-termination solicitation of every
+    /// representative.
+    #[cfg(feature = "rai_protocol")]
+    pub fn is_settled(&self) -> bool {
+        self.is_confirmed() || self.kudzu.settled()
     }
 
     #[cfg(feature = "rai_protocol")]

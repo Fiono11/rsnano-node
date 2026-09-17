@@ -195,6 +195,23 @@ impl KudzuVotes {
         tally.copied().unwrap_or_default() >= required
     }
 
+    /// No further certificate can form in this election, at any replica:
+    /// either a fast certificate exists, or one value's FINAL weight exceeds
+    /// what a certificate leaves. A FINAL voter has issued no share for any
+    /// other value and issues none after (FV, X1), so every other value,
+    /// timeout included, is short of certificate weight for good.
+    pub fn settled(&self) -> bool {
+        let Some(t) = self.thresholds else {
+            return false;
+        };
+        if t.total.is_zero() {
+            return false;
+        }
+        let bound = Amount::raw(t.total.number() - t.certificate.number());
+        self.first_tallies.values().any(|tally| *tally >= t.fast)
+            || self.final_tallies.values().any(|tally| *tally > bound)
+    }
+
     pub fn second_look(&self, hash: &BlockHash) -> bool {
         self.thresholds.is_some_and(|t| {
             !t.total.is_zero()
@@ -428,6 +445,48 @@ mod tests {
         assert_eq!(e.kudzu.notar_tallies.get(&a), Some(&Amount::raw(40)));
         assert_eq!(e.kudzu.notar_tallies.get(&b), Some(&Amount::raw(40)));
         assert!(!e.is_confirmed());
+    }
+
+    #[test]
+    fn an_election_settles_once_no_other_certificate_can_form() {
+        let (mut e, a, b) = election();
+        let weights = weights(&[(1, 38), (2, 1), (3, 24), (4, 37)]);
+        for rep in 1..=3 {
+            vote(&mut e, rep, a, VoteKind::First).unwrap();
+        }
+        e.update_kudzu_tallies(&weights, Amount::raw(100));
+        assert!(e.has_quorum(), "notarized");
+        assert!(!e.is_confirmed());
+        assert!(
+            !e.is_settled(),
+            "a notarized value can still be joined by a sibling or a timeout"
+        );
+        vote(&mut e, 1, a, VoteKind::Final).unwrap();
+        e.update_kudzu_tallies(&weights, Amount::raw(100));
+        assert!(
+            !e.is_settled(),
+            "38% FINAL leaves certificate weight to others"
+        );
+        vote(&mut e, 2, a, VoteKind::Final).unwrap();
+        e.update_kudzu_tallies(&weights, Amount::raw(100));
+        assert!(e.is_settled(), "39% FINAL voters never share another value");
+        assert!(!e.is_confirmed(), "settled before finalized");
+        let (mut e, _, b2) = election();
+        for rep in [1, 3, 4] {
+            vote(&mut e, rep, b2, VoteKind::First).unwrap();
+        }
+        e.update_kudzu_tallies(&weights, Amount::raw(100));
+        assert!(e.is_settled(), "a fast certificate settles the election");
+        let (mut e, _, _) = election();
+        for rep in [1, 3, 4] {
+            vote(&mut e, rep, b, VoteKind::FirstTimeout).unwrap();
+        }
+        e.update_kudzu_tallies(&weights, Amount::raw(100));
+        assert!(e.is_timed_out());
+        assert!(
+            !e.is_settled(),
+            "a timed-out election never settles by tally"
+        );
     }
 
     #[test]

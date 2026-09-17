@@ -63,74 +63,62 @@ impl AecService {
     }
 
     #[cfg(feature = "rai_protocol")]
-    pub(crate) fn elections_terminated(
-        &self,
-        epoch: u64,
-        ids: &[rsnano_types::ElectionId],
-    ) -> bool {
-        let aec = self.aec.read().unwrap();
-        let pending = aec.pending_epoch_drain(epoch, ids);
-        static LAST_DIAGNOSTIC: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-        if !pending.is_empty()
-            && now > LAST_DIAGNOSTIC.load(std::sync::atomic::Ordering::Relaxed) + 5
-        {
-            LAST_DIAGNOSTIC.store(now, std::sync::atomic::Ordering::Relaxed);
-            eprintln!(
-                "EPOCH_DRAIN_WAIT {}",
-                serde_json::json!({"pid":std::process::id(),"epoch":epoch,"pending":pending.len(),"examples":pending.iter().take(8).map(|id| {
-                aec.election_for_id(id).map(|e| e.termination_diagnostic()).unwrap_or_else(|| serde_json::json!({"missing_election":true,"root":id.root,"epoch":id.epoch}))
-            }).collect::<Vec<_>>()})
-            );
-        }
-        pending.is_empty()
-    }
-    #[cfg(feature = "rai_protocol")]
-    pub(crate) fn pending_first_recovery(
-        &self,
-        targets: Vec<(rsnano_types::ElectionId, BlockHash)>,
-    ) -> Vec<(BlockHash, rsnano_types::Root)> {
-        let aec = self.aec.read().unwrap();
-        targets
-            .into_iter()
-            .filter(|(id, _)| {
-                !aec.election_for_id(id)
-                    .is_some_and(|e| e.has_quorum() || e.is_confirmed() || e.is_timed_out())
-                    && !aec
-                        .block_tree
-                        .for_root(&id.root)
-                        .iter()
-                        .any(|e| e.epoch == id.epoch)
-            })
-            .map(|(id, hash)| (hash, id.root.root))
-            .collect()
-    }
-
-    #[cfg(feature = "rai_protocol")]
     pub(crate) fn terminated_election_count(&self) -> u64 {
         self.terminated_count.load(Ordering::Acquire)
     }
 
+    /// Decided elections of `epoch` whose certificates may still be incomplete
+    /// here, for the closer's settlement outside a drain.
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn unsettled_epoch_elections(
+        &self,
+        epoch: u64,
+    ) -> (
+        Vec<(BlockHash, rsnano_types::Root, std::time::Duration)>,
+        std::time::Duration,
+    ) {
+        self.aec
+            .read()
+            .unwrap()
+            .unsettled_epoch_elections(epoch, self.clock.now())
+    }
+
     /// Keep candidate ingestion stable across D3/D4 validation and close signing.
-    /// The action receives whether every election of the epoch has an outcome
-    /// and the solicitation targets of those that have none yet.
+    /// The action receives whether every election of the epoch has an outcome,
+    /// the solicitation targets of those that have none yet, and the decided
+    /// elections whose certificates may still be incomplete here.
     #[cfg(feature = "rai_protocol")]
     pub(crate) fn with_close_readiness<T>(
         &self,
         epoch: u64,
-        ids: &[rsnano_types::ElectionId],
-        action: impl FnOnce(bool, Vec<(BlockHash, rsnano_types::Root)>) -> T,
+        local_first: &[(rsnano_types::ElectionId, BlockHash)],
+        action: impl FnOnce(
+            bool,
+            Vec<(BlockHash, rsnano_types::Root)>,
+            (
+                Vec<(BlockHash, rsnano_types::Root, std::time::Duration)>,
+                std::time::Duration,
+            ),
+        ) -> T,
     ) -> T {
         let aec = self.aec.read().unwrap();
-        let pending = aec.pending_epoch_drain(epoch, ids);
+        let pending = aec.pending_epoch_drain(epoch, local_first);
+        // An obligation whose election is gone is solicited by the block this
+        // replica voted for; peers answer with the election's certificates.
         let targets = pending
             .iter()
-            .filter_map(|id| aec.election_for_id(id))
-            .map(|e| (e.winner().hash(), e.winner().root()))
+            .filter_map(|id| {
+                aec.election_for_id(id)
+                    .map(|e| (e.winner().hash(), e.winner().root()))
+                    .or_else(|| {
+                        local_first
+                            .iter()
+                            .find(|(first, _)| first == id)
+                            .map(|(_, hash)| (*hash, id.root.root))
+                    })
+            })
             .collect();
+        let unsettled = aec.unsettled_epoch_elections(epoch, self.clock.now());
         if !pending.is_empty()
             && aec.epoch_source.as_ref().is_some_and(|l| {
                 l.draining_epoch.load(std::sync::atomic::Ordering::Acquire) == epoch
@@ -151,7 +139,7 @@ impl AecService {
                 );
             }
         }
-        action(pending.is_empty(), targets)
+        action(pending.is_empty(), targets, unsettled)
     }
 
     #[cfg(feature = "rai_protocol")]

@@ -47,15 +47,16 @@ pub struct VoteGenerators {
 
 impl VoteGenerators {
     /// Start draining `epoch` and return this replica's FIRST obligations in it.
-    /// No FIRST vote can be signed in a draining epoch any more, so the list is
+    /// No FIRST vote can be signed in a draining epoch any more, so the list of
+    /// this replica's FIRST obligations, each with the block it voted for, is
     /// frozen from here on and the closer reuses it on every tick instead of
     /// rescanning the signing state while holding its lock.
     #[cfg(feature = "rai_protocol")]
-    pub(crate) fn begin_drain(&self, epoch: u64) -> Vec<rsnano_types::ElectionId> {
+    pub(crate) fn begin_drain(&self, epoch: u64) -> Vec<(rsnano_types::ElectionId, BlockHash)> {
         let first_elections = {
             let mut state = self.vote_state.lock().unwrap();
             state.drain_through(epoch);
-            state.first_elections(epoch)
+            state.first_recovery_targets(epoch)
         };
         self.ledger
             .voting_epoch
@@ -77,29 +78,6 @@ impl VoteGenerators {
         self.vote_state.lock().unwrap().apply_close(epoch, &roots);
     }
 
-    #[cfg(feature = "rai_protocol")]
-    pub(crate) fn first_recovery_targets(
-        &self,
-        epoch: u64,
-        aec: &crate::consensus::AecService,
-    ) -> Vec<(BlockHash, Root)> {
-        let targets = self
-            .vote_state
-            .lock()
-            .unwrap()
-            .first_recovery_targets(epoch);
-        aec.pending_first_recovery(targets)
-    }
-
-    #[cfg(feature = "rai_protocol")]
-    pub(crate) fn draining_complete(&self, epoch: u64, aec: &crate::consensus::AecService) -> bool {
-        let ids = {
-            let mut state = self.vote_state.lock().unwrap();
-            state.drain_through(epoch);
-            state.first_elections(epoch)
-        };
-        aec.elections_terminated(epoch, &ids)
-    }
     #[cfg(feature = "rai_protocol")]
     pub(crate) fn notify_notarizations(
         &self,

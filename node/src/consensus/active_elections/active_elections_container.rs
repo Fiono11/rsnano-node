@@ -473,7 +473,7 @@ impl ActiveElectionsContainer {
     pub(crate) fn pending_epoch_drain(
         &self,
         epoch: u64,
-        local_first: &[rsnano_types::ElectionId],
+        local_first: &[(rsnano_types::ElectionId, BlockHash)],
     ) -> Vec<rsnano_types::ElectionId> {
         let decided = |e: &Election| e.has_quorum() || e.is_confirmed() || e.is_timed_out();
         let in_tree = |root: &QualifiedRoot| {
@@ -492,12 +492,41 @@ impl ActiveElectionsContainer {
         pending.extend(
             local_first
                 .iter()
+                .map(|(id, _)| id)
                 .filter(|id| self.election_for_id(id).is_none() && !in_tree(&id.root))
                 .cloned(),
         );
         pending.sort_unstable();
         pending.dedup();
         pending
+    }
+
+    /// Decided elections of `epoch` whose certificates may still be incomplete
+    /// here: their winner, root and the time since they started, with the
+    /// time an election is expected to need to settle. The closer solicits
+    /// each of them once it has been open longer than that, so that every
+    /// replica closes on the same members while only lost votes are asked for.
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn unsettled_epoch_elections(
+        &self,
+        epoch: u64,
+        now: Timestamp,
+    ) -> (Vec<(BlockHash, rsnano_types::Root, Duration)>, Duration) {
+        let unsettled = self
+            .roots
+            .unsettled(epoch)
+            .filter_map(|(id, _)| {
+                let election = self.election_for_id(id)?;
+                (!election.is_settled()).then(|| {
+                    (
+                        election.winner().hash(),
+                        election.winner().root(),
+                        election.start().elapsed(now),
+                    )
+                })
+            })
+            .collect();
+        (unsettled, self.roots.settle_time().threshold())
     }
 
     #[cfg(feature = "rai_protocol")]
@@ -1535,7 +1564,10 @@ mod rai_tests {
         add(&mut aec, 1, VoteKind::FirstTimeout);
         add(&mut aec, 2, VoteKind::First);
         assert_eq!(aec.pending_epoch_drain(1, &[]), vec![id.clone()]);
-        assert_eq!(aec.pending_epoch_drain(1, &[id.clone()]), vec![id.clone()]);
+        assert_eq!(
+            aec.pending_epoch_drain(1, &[(id.clone(), BlockHash::ZERO)]),
+            vec![id.clone()]
+        );
         add(&mut aec, 3, VoteKind::First);
         assert_eq!(aec.pending_epoch_drain(1, &[]), vec![id.clone()]);
         assert!(aec.pending_epoch_drain(0, &[]).is_empty());
@@ -1829,6 +1861,78 @@ mod notarized_admission_tests {
     }
 
     #[test]
+    fn unsettled_index_holds_decided_elections_until_they_settle() {
+        let mut aec = ActiveElectionsContainer::default();
+        let now = Timestamp::new_test_instance();
+        let blocks: Vec<SavedBlock> = (1..=3u64)
+            .map(|i| {
+                SavedBlock::new_test_instance_with(
+                    StateBlockArgs {
+                        previous: BlockHash::from(i),
+                        ..StateBlockArgs::new_test_instance()
+                    }
+                    .into(),
+                )
+            })
+            .collect();
+        for block in &blocks {
+            aec.insert_in_epoch(
+                AecInsertRequest::new_manual(block.clone(), Default::default()),
+                now,
+                1,
+            )
+            .unwrap();
+        }
+        let later = now + Duration::from_secs(3);
+        assert!(aec.unsettled_epoch_elections(1, later).0.is_empty());
+        // Notarized by certificate weight: decided, not settled.
+        for rep in 1..=4 {
+            apply_in_epoch(&mut aec, rep, blocks[0].hash(), VoteKind::First, 1);
+        }
+        let (unsettled, threshold) = aec.unsettled_epoch_elections(1, later);
+        assert_eq!(
+            unsettled,
+            vec![(blocks[0].hash(), blocks[0].root(), Duration::from_secs(3))],
+            "decided at its notarization"
+        );
+        // A timed-out election is decided and never settles by tally.
+        for rep in 1..=4 {
+            apply_in_epoch(&mut aec, rep, blocks[1].hash(), VoteKind::FirstTimeout, 1);
+        }
+        assert_eq!(aec.unsettled_epoch_elections(1, later).0.len(), 2);
+        // Finalization settles the first.
+        for rep in 1..=4 {
+            apply_in_epoch(&mut aec, rep, blocks[0].hash(), VoteKind::Final, 1);
+        }
+        assert_eq!(
+            aec.unsettled_epoch_elections(1, later)
+                .0
+                .iter()
+                .map(|(hash, _, _)| *hash)
+                .collect::<Vec<_>>(),
+            vec![blocks[1].hash()]
+        );
+        assert_eq!(
+            aec.roots.settle_time().samples(),
+            1,
+            "the finalized election's time from start to settlement is recorded once"
+        );
+        // A fast certificate is settled on arrival and never enters the index.
+        for rep in 1..=5 {
+            apply_in_epoch(&mut aec, rep, blocks[2].hash(), VoteKind::First, 1);
+        }
+        assert_eq!(aec.unsettled_epoch_elections(1, later).0.len(), 1);
+        assert_eq!(aec.roots.settle_time().samples(), 2);
+        assert!(aec.pending_epoch_drain(1, &[]).is_empty());
+        // Removal takes the timed-out election out of the index.
+        aec.roots.erase_id(&rsnano_types::ElectionId::new(
+            blocks[1].qualified_root(),
+            1,
+        ));
+        assert!(aec.unsettled_epoch_elections(1, later).0.is_empty());
+    }
+
+    #[test]
     fn repeated_certificates_preserve_membership_and_finalization_in_each_epoch() {
         let ledger = std::sync::Arc::new(rsnano_ledger::Ledger::new_null());
         let mut aec = ActiveElectionsContainer::default();
@@ -1851,7 +1955,10 @@ mod notarized_admission_tests {
             assert_eq!(ledger.epoch_close_candidate(epoch), vec![block.hash()]);
             let id = rsnano_types::ElectionId::new(block.qualified_root(), epoch);
             assert!(aec.terminated_elections.contains(&id));
-            assert!(aec.pending_epoch_drain(epoch, &[id]).is_empty());
+            assert!(
+                aec.pending_epoch_drain(epoch, &[(id, block.hash())])
+                    .is_empty()
+            );
             assert!(
                 !aec.election_for_id(&rsnano_types::ElectionId::new(
                     block.qualified_root(),
@@ -1946,9 +2053,10 @@ mod notarized_admission_tests {
         for rep in 1..=3 {
             apply_in_epoch(&mut aec, rep, block.hash(), VoteKind::FirstTimeout, 1);
         }
-        assert_eq!(aec.pending_epoch_drain(1, &[id.clone()]), vec![id.clone()]);
+        let obligation = [(id.clone(), block.hash())];
+        assert_eq!(aec.pending_epoch_drain(1, &obligation), vec![id.clone()]);
         apply_in_epoch(&mut aec, 4, block.hash(), VoteKind::FirstTimeout, 1);
-        assert!(aec.pending_epoch_drain(1, &[id.clone()]).is_empty());
+        assert!(aec.pending_epoch_drain(1, &obligation).is_empty());
         assert!(aec.election_for_id(&id).is_none());
         assert!(
             aec.block_tree
@@ -2052,10 +2160,11 @@ mod notarized_admission_tests {
             for rep in 1..=3 {
                 apply(&mut aec, rep, block.hash(), VoteKind::First);
             }
-            assert!(!aec.pending_epoch_drain(0, &[id.clone()]).is_empty());
+            let obligation = [(id, block.hash())];
+            assert!(!aec.pending_epoch_drain(0, &obligation).is_empty());
             assert!(!ledger.epoch_close_candidate(0).contains(&block.hash()));
             apply(&mut aec, 4, block.hash(), VoteKind::First);
-            assert!(aec.pending_epoch_drain(0, &[id]).is_empty());
+            assert!(aec.pending_epoch_drain(0, &obligation).is_empty());
             assert!(
                 !aec.election_for_block(&block.hash())
                     .unwrap()

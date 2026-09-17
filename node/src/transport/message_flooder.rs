@@ -273,14 +273,7 @@ mod tests {
             kind: 5,
             voter: 0.into(),
             signature: Default::default(),
-            page: 0,
-            pages: 1,
-            hashes: (1..=512).map(Into::into).collect(),
-            base: 1.into(),
-            removed: vec![],
-            members: 0,
-            sketch: String::new(),
-            certificate: vec![],
+            members: 512,
         });
         let expected = MessageSerializer::default().serialize(&message).to_vec();
         let count = flooder.flood_prs_and_some_non_prs(&message, TrafficType::VoteReply, 100.0);

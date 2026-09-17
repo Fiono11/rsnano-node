@@ -150,6 +150,7 @@ impl<'a> ApplyVoteHelper<'a> {
                 #[cfg(feature = "rai_protocol")]
                 if election.has_quorum() || timed_out {
                     self.roots.mark_notarized(&root);
+                    self.roots.track_settlement(&root, self.args.now);
                 }
                 // A timeout certificate ends voting here; evidence collection
                 // continues from the recovery rotation.

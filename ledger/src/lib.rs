@@ -70,13 +70,9 @@ pub enum BlockSource {
 #[cfg(feature = "rai_protocol")]
 mod epoch_closure;
 #[cfg(feature = "rai_protocol")]
-mod membership_sketch;
-#[cfg(feature = "rai_protocol")]
 mod membership_trie;
 
 #[cfg(feature = "rai_protocol")]
 pub use epoch_closure::{EpochCandidates, PendingEpochClose};
 #[cfg(feature = "rai_protocol")]
-pub use membership_sketch::{MembershipSketch, SKETCH_BYTES, SKETCH_CELLS};
-#[cfg(feature = "rai_protocol")]
-pub use membership_trie::{LEVEL1_BUCKETS, MembershipTrie, level2_entry};
+pub use membership_trie::MembershipTrie;

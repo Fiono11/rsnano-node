@@ -4,6 +4,8 @@ mod apply_vote_helper;
 mod cooldown_controller;
 mod recently_confirmed_cache;
 mod root_container;
+#[cfg(feature = "rai_protocol")]
+mod settle_time;
 mod stats;
 mod vote_router;
 

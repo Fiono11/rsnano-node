@@ -1,0 +1,25 @@
+== est1
+  drain reached at t=13.4..13.5s (spread 0.09s); closed at t=17.2..17.7s; close after last drain: first 3.67s last 4.21s
+  drain reached at t=26.6..26.8s (spread 0.26s); closed at t=28.6..28.8s; close after last drain: first 1.75s last 2.03s
+  epoch 0 forked=False terminated n=24080 mean/p95/max    227/   480/  2434 ms   finalized n=23969 mean/p95/max    257/   560/  2528 ms
+  epoch 1 forked=False terminated n=23574 mean/p95/max    574/   900/  7126 ms   finalized n=23496 mean/p95/max    628/  1008/  3092 ms
+== new1
+  drain reached at t=13.1..13.2s (spread 0.09s); closed at t=16.9..17.2s; close after last drain: first 3.67s last 3.98s
+  drain reached at t=26.4..26.5s (spread 0.09s); closed at t=28.3..28.4s; close after last drain: first 1.83s last 1.97s
+  epoch 0 forked=False terminated n=23953 mean/p95/max    230/   558/  2397 ms   finalized n=23859 mean/p95/max    267/   640/  2397 ms
+  epoch 1 forked=False terminated n=23617 mean/p95/max    330/   621/  2635 ms   finalized n=23589 mean/p95/max    380/   683/  2635 ms
+== new2
+  drain reached at t=13.3..13.5s (spread 0.18s); closed at t=16.4..19.0s; close after last drain: first 2.96s last 5.55s
+  drain reached at t=26.5..26.6s (spread 0.18s); closed at t=28.2..30.1s; close after last drain: first 1.53s last 3.48s
+  epoch 0 forked=False terminated n=24094 mean/p95/max    171/   384/   768 ms   finalized n=23973 mean/p95/max    196/   438/   817 ms
+  epoch 1 forked=False terminated n=23508 mean/p95/max    411/   662/  7154 ms   finalized n=23471 mean/p95/max    497/   881/  2889 ms
+== base1
+  drain reached at t=13.6..13.7s (spread 0.07s); closed at t=18.1..18.2s; close after last drain: first 4.46s last 4.54s
+  drain reached at t=26.8..27.0s (spread 0.11s); closed at t=28.5..28.9s; close after last drain: first 1.59s last 1.92s
+  epoch 0 forked=False terminated n=24090 mean/p95/max    176/   396/  2142 ms   finalized n=23902 mean/p95/max    198/   422/  2217 ms
+  epoch 1 forked=False terminated n=23522 mean/p95/max    564/   935/  2889 ms   finalized n=23505 mean/p95/max    643/  1011/  2889 ms
+== base2
+  drain reached at t=13.3..13.5s (spread 0.22s); closed at t=18.1..18.4s; close after last drain: first 4.58s last 4.92s
+  drain reached at t=26.7..26.7s (spread 0.07s); closed at t=30.3..30.4s; close after last drain: first 3.56s last 3.70s
+  epoch 0 forked=False terminated n=24312 mean/p95/max    141/   330/   562 ms   finalized n=24043 mean/p95/max    160/   352/   618 ms
+  epoch 1 forked=False terminated n=23488 mean/p95/max    488/   764/  7460 ms   finalized n=23469 mean/p95/max    569/   961/  2743 ms

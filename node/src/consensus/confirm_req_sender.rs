@@ -57,7 +57,9 @@ impl ConfirmReqSender {
     /// Calculates time delay between broadcasting confirmation requests
     fn confirm_req_interval(election: &Election) -> Duration {
         // A notarized or timed-out election only collects peers' other
-        // certificates; that recovery can run at a fraction of the live cadence.
+        // certificates, until it finalizes. The epoch closer solicits each
+        // such election once right after its decision; this rotation is the
+        // slow background that repairs what that reply missed.
         #[cfg(feature = "rai_protocol")]
         if election.has_quorum() || election.is_timed_out() {
             return election.base_latency() * 30;

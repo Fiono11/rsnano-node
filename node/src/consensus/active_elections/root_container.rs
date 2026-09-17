@@ -69,6 +69,14 @@ pub(crate) struct RootContainer {
     /// only the undecided elections rather than every election of the epoch.
     #[cfg(feature = "rai_protocol")]
     undecided: FxHashMap<u64, FxHashSet<ElectionId>>,
+    /// Decided elections whose certificates may still be incomplete here,
+    /// per epoch, with the time they were first decided: a close waits for
+    /// them to settle so every replica closes on the same membership.
+    #[cfg(feature = "rai_protocol")]
+    unsettled: FxHashMap<u64, FxHashMap<ElectionId, Timestamp>>,
+    /// How long elections take from start to settlement here.
+    #[cfg(feature = "rai_protocol")]
+    settle_time: super::settle_time::SettleTime,
     /// Elections this node has no vote left for (a timeout certificate, or a
     /// notarized value it can never finalize) but whose evidence peers may
     /// still ask for. They leave the scheduler buckets and rotate through the
@@ -102,6 +110,10 @@ impl RootContainer {
             epochs_by_root: Default::default(),
             #[cfg(feature = "rai_protocol")]
             undecided: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            unsettled: Default::default(),
+            #[cfg(feature = "rai_protocol")]
+            settle_time: super::settle_time::SettleTime::new(),
             #[cfg(feature = "rai_protocol")]
             recovery: Default::default(),
             vote_router: Default::default(),
@@ -171,6 +183,58 @@ impl RootContainer {
         }
     }
 
+    /// Decided elections of `epoch` not yet settled, with their decision time.
+    #[cfg(feature = "rai_protocol")]
+    pub fn unsettled(&self, epoch: u64) -> impl Iterator<Item = (&ElectionId, Timestamp)> {
+        self.unsettled
+            .get(&epoch)
+            .into_iter()
+            .flatten()
+            .map(|(id, at)| (id, *at))
+    }
+
+    /// Follow a decided election's settlement: it enters the unsettled index
+    /// when first decided and leaves it once settled, when its time from
+    /// start to settlement feeds the estimate.
+    #[cfg(feature = "rai_protocol")]
+    pub fn track_settlement(&mut self, id: &ElectionId, now: Timestamp) {
+        let Some(entry) = self.by_root.get_mut(id) else {
+            return;
+        };
+        if !Self::decided(&entry.election) {
+            return;
+        }
+        if entry.election.is_settled() {
+            if entry.election.settled_at.is_none() {
+                entry.election.settled_at = Some(now);
+                let duration = entry.election.start().elapsed(now);
+                self.settle_time.record(duration);
+            }
+            self.mark_settled(id);
+        } else {
+            self.unsettled
+                .entry(id.epoch)
+                .or_default()
+                .entry(id.clone())
+                .or_insert(now);
+        }
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn settle_time(&self) -> &super::settle_time::SettleTime {
+        &self.settle_time
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    fn mark_settled(&mut self, id: &ElectionId) {
+        if let Some(ids) = self.unsettled.get_mut(&id.epoch) {
+            ids.remove(id);
+            if ids.is_empty() {
+                self.unsettled.remove(&id.epoch);
+            }
+        }
+    }
+
     /// Release admission capacity without removing the election or its vote routes.
     /// It remains in round-robin processing for additional certificates/final votes.
     #[cfg(feature = "rai_protocol")]
@@ -203,6 +267,7 @@ impl RootContainer {
         // Confirmed -> ExpiredConfirmed transition still belongs to the next tick.
         self.track_time_transition(id);
         self.recovery.remove(id);
+        self.mark_settled(id);
         self.remove_from_buckets(id);
     }
 
@@ -431,6 +496,7 @@ impl RootContainer {
         {
             self.pending_time_transitions.remove(root);
             self.mark_decided(root);
+            self.mark_settled(root);
             self.recovery.remove(root);
         }
         if let Some(epochs) = self.epochs_by_root.get_mut(&root.root) {
@@ -464,6 +530,7 @@ impl RootContainer {
         {
             self.pending_time_transitions.clear();
             self.undecided.clear();
+            self.unsettled.clear();
             self.recovery.clear();
         }
         self.capacity_released_ids.clear();
