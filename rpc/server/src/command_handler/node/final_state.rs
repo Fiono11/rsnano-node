@@ -1,6 +1,6 @@
 use rsnano_ledger::{AnySet, ConfirmedSet};
 use rsnano_node::consensus::election::{FinalStateHash, SlotOutcome, slot_outcome};
-use rsnano_rpc_messages::FinalStateResponse;
+use rsnano_rpc_messages::{ConflictingRoot, FinalStateResponse};
 
 use crate::command_handler::RpcCommandHandler;
 
@@ -46,7 +46,10 @@ impl RpcCommandHandler {
                         hash.add(&account, election.height(), &block);
                         single_notarized += 1;
                     }
-                    SlotOutcome::Conflicting => conflicting.push(election.qualified_root().clone()),
+                    SlotOutcome::Conflicting => conflicting.push(ConflictingRoot {
+                        root: election.qualified_root().clone(),
+                        blocks: election.candidate_blocks().keys().copied().collect(),
+                    }),
                     SlotOutcome::Empty => empty += 1,
                 }
             }

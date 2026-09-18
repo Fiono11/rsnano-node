@@ -26,7 +26,14 @@ pub struct FinalStateResponse {
     pub empty: RpcU64,
     /// Settled slots with conflicting notarization certificates; their blocks
     /// are not part of the final state
-    pub conflicting: Vec<QualifiedRoot>,
+    pub conflicting: Vec<ConflictingRoot>,
+}
+
+#[derive(PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub struct ConflictingRoot {
+    pub root: QualifiedRoot,
+    /// Every candidate of the election, i.e. the blocks that are discarded
+    pub blocks: Vec<BlockHash>,
 }
 
 #[cfg(test)]
