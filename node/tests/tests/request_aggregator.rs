@@ -1,23 +1,30 @@
-use std::{
-    sync::Arc,
-    time::{Duration, Instant},
-};
+#[cfg(not(feature = "rai_protocol"))]
+use std::sync::Arc;
+#[cfg(not(feature = "rai_protocol"))]
+use std::time::{Duration, Instant};
 
-use rsnano_ledger::{AnySet, test_helpers::UnsavedBlockLatticeBuilder};
+#[cfg(not(feature = "rai_protocol"))]
+use rsnano_ledger::AnySet;
+use rsnano_ledger::test_helpers::UnsavedBlockLatticeBuilder;
 use rsnano_messages::ConfirmAck;
-use rsnano_node::{
-    config::NodeFlags,
-    consensus::{AggregatorRequest, VoteGenerationEvent},
-};
+#[cfg(not(feature = "rai_protocol"))]
+use rsnano_node::consensus::VoteGenerationEvent;
+use rsnano_node::{config::NodeFlags, consensus::AggregatorRequest};
+#[cfg(not(feature = "rai_protocol"))]
 use rsnano_output_tracker::OutputTrackerMt;
-use rsnano_types::{Amount, ConsensusEpoch, DEV_GENESIS_KEY, PrivateKey};
+#[cfg(not(feature = "rai_protocol"))]
+use rsnano_types::PrivateKey;
+use rsnano_types::{Amount, ConsensusEpoch, DEV_GENESIS_KEY};
 use rsnano_utils::stats::{DetailType, Direction, StatType};
 
-use test_helpers::{
-    System, assert_timely_eq, assert_timely_eq2, assert_timely_msg, assert_timely2,
-    make_fake_channel,
-};
+use test_helpers::{System, assert_timely_eq2, make_fake_channel};
+#[cfg(not(feature = "rai_protocol"))]
+use test_helpers::{assert_timely_eq, assert_timely_msg, assert_timely2};
 
+/// Legacy: a final vote is generated for any cemented block. Under RAI the
+/// instance of a block confirmed without a certificate keeps running and
+/// answers with its own statements instead
+#[cfg(not(feature = "rai_protocol"))]
 #[test]
 fn one() {
     let mut system = System::new();
@@ -156,6 +163,10 @@ fn one() {
     );
 }
 
+/// Legacy: a final vote is generated for any cemented block. Under RAI the
+/// instance of a block confirmed without a certificate keeps running and
+/// answers with its own statements instead
+#[cfg(not(feature = "rai_protocol"))]
 #[test]
 fn one_update() {
     let mut system = System::new();
@@ -281,6 +292,10 @@ fn one_update() {
     );
 }
 
+/// Legacy: a final vote is generated for any cemented block. Under RAI the
+/// instance of a block confirmed without a certificate keeps running and
+/// answers with its own statements instead
+#[cfg(not(feature = "rai_protocol"))]
 #[test]
 fn two() {
     let mut system = System::new();
@@ -536,6 +551,10 @@ fn channel_max_queue() {
     );
 }
 
+/// Legacy: a final vote is generated for any cemented block. Under RAI the
+/// instance of a block confirmed without a certificate keeps running and
+/// answers with its own statements instead
+#[cfg(not(feature = "rai_protocol"))]
 #[test]
 fn cannot_vote() {
     let mut system = System::new();
@@ -688,6 +707,10 @@ fn cannot_vote() {
 }
 
 /// Request for a forked open block should return vote for the correct fork alternative
+/// Legacy: a final vote for a cemented block is generated on request. Under
+/// RAI a request for a root this node holds a block for but has no instance
+/// of makes it join the instance instead
+#[cfg(not(feature = "rai_protocol"))]
 #[test]
 fn forked_open() {
     let mut system = System::new();
@@ -730,6 +753,9 @@ fn forked_open() {
 }
 
 /// Request for a conflicting epoch block should return vote for the correct alternative
+/// Legacy: a final vote is generated for a cemented block whose instance is
+/// still running here; under RAI that instance answers once it terminated
+#[cfg(not(feature = "rai_protocol"))]
 #[test]
 fn epoch_conflict() {
     let mut system = System::new();
@@ -803,6 +829,10 @@ fn epoch_conflict() {
 }
 
 // Request for multiple cemented blocks in a chain should generate votes regardless of vote spacing
+/// Legacy: a final vote is generated for any cemented block. Under RAI the
+/// instance of a block confirmed without a certificate keeps running and
+/// answers with its own statements instead
+#[cfg(not(feature = "rai_protocol"))]
 #[test]
 fn cemented_no_spacing() {
     let mut system = System::new();
@@ -846,6 +876,7 @@ fn cemented_no_spacing() {
     assert!(vote_event.blocks.iter().any(|b| b.hash() == send3.hash()));
 }
 
+#[cfg(not(feature = "rai_protocol"))]
 fn wait_vote_event(tracker: &OutputTrackerMt<VoteGenerationEvent>) -> VoteGenerationEvent {
     let start = Instant::now();
     loop {

@@ -5,7 +5,9 @@ use rsnano_types::{BlockHash, BlockPriority, ConsensusEpoch, QualifiedRoot, Time
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 use rustc_hash::FxHashMap;
 
-use super::{AecInsertRequest, vote_router::VoteRouter};
+use super::{
+    AecInsertRequest, active_elections_container::per_bucket_cap, vote_router::VoteRouter,
+};
 use crate::consensus::{
     AecSnapshot, BucketInfo,
     active_elections::aec_service::{BucketSnapshot, ElectionSnapshot},
@@ -85,7 +87,7 @@ impl RootContainer {
 
     pub fn new(max_elections: usize) -> Self {
         let bucket_count = bucket_count();
-        let max_elections_per_bucket = max_elections / bucket_count;
+        let max_elections_per_bucket = per_bucket_cap(max_elections);
         Self {
             by_root: Default::default(),
             len: 0,

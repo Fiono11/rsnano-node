@@ -135,7 +135,9 @@ fn kudzu_vote_kinds(
         if rep.final_ == Some(*hash) {
             kinds.push("final");
         }
-        if rep.timeout {
+        if rep.abstained() {
+            kinds.push("abstain");
+        } else if rep.timeout {
             kinds.push("timeout");
         }
         if !kinds.is_empty() {

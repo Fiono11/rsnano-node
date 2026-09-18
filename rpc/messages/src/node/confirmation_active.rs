@@ -18,6 +18,8 @@ pub struct ConfirmationActiveArgs {
 #[derive(PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct ConfirmationActiveResponse {
     pub confirmations: Vec<QualifiedRoot>,
+    /// RAI: the consensus epoch of each entry of `confirmations`
+    pub epochs: Vec<RpcU64>,
     pub unconfirmed: RpcU64,
     pub confirmed: RpcU64,
 }

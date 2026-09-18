@@ -23,6 +23,7 @@ use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_nullable_tcp::{TcpStream, TcpStreamFactory};
 use rsnano_nullable_tracing_subscriber::TracingInitializer;
 use rsnano_rpc_client::NanoRpcClient;
+use rsnano_rpc_messages::{AccountHistoryArgs, ProcessArgs};
 use rsnano_types::{BlockHash, NetworkType, PrivateKey, ProtocolInfo, RawKey, WalletId};
 use rsnano_websocket_messages::{BlockConfirmed, MessageEnvelope, Topic};
 
@@ -35,7 +36,8 @@ use crate::{
     high_prio_check::HighPrioCheck,
     node_lifetime::NodeLifetime,
     setup::{
-        configure_nodes, create_account_map, get_genesis_hash, peering_port, rpc_port, start_nodes,
+        configure_nodes, create_account_map, genesis_key, get_genesis_hash, peering_port, rpc_port,
+        start_nodes,
     },
     wallets_factory::create_wallets,
 };
@@ -402,6 +404,29 @@ async fn log_status(
     }
 }
 
+/// Hands the recent blocks of the genesis account, as the first PR holds them,
+/// to every other PR; a block they hold already is ignored as old
+async fn republish_genesis_chain(rpc_clients: &[NanoRpcClient]) {
+    let genesis = genesis_key().account();
+    let Ok(history) = rpc_clients[0]
+        .account_history(AccountHistoryArgs::new(genesis, 40))
+        .await
+    else {
+        return;
+    };
+    for entry in history.history.iter().rev() {
+        let Ok(info) = rpc_clients[0].block_info(entry.hash).await else {
+            continue;
+        };
+        for client in &rpc_clients[1..] {
+            let _ = client
+                .process(ProcessArgs::build(info.contents.clone()).finish())
+                .await;
+        }
+    }
+    info!("Republished the genesis chain to all PRs");
+}
+
 /// The spam only starts once every PR has seen every representative vote and
 /// is connected to it: the quorum is then the same on all PRs, and no PR starts
 /// with thresholds derived from a partial view of the network.
@@ -429,6 +454,15 @@ async fn wait_for_full_quorum(rpc_clients: &[NanoRpcClient]) -> anyhow::Result<(
             None if agree => {
                 info!("All PRs see the full quorum after {:?}", started.elapsed());
                 return Ok(());
+            }
+            // A setup block flooded to the nodes may have been lost on one of
+            // them; nothing else delivers it before the spam starts, so the
+            // genesis chain, whose sends move the representative weight the
+            // gate compares, is handed to every node again
+            _ if started.elapsed() > Duration::from_secs(10)
+                && started.elapsed().as_millis() % 5000 < 200 =>
+            {
+                republish_genesis_chain(rpc_clients).await;
             }
             _ if started.elapsed() > Duration::from_secs(120) => {
                 return Err(anyhow!(

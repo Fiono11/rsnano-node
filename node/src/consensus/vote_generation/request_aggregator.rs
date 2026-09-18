@@ -5,7 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use rsnano_ledger::{AnySet, Ledger};
+use rsnano_ledger::{AnySet, Ledger, LedgerSet};
 use rsnano_messages::{ConfirmAck, Message, Publish};
 use rsnano_network::{Channel, ChannelEvent, ChannelId, TrafficType};
 use rsnano_types::{BlockHash, ConsensusEpoch, Root, Vote, VoteKind};
@@ -21,7 +21,10 @@ use super::{
     request_aggregator_impl::{AggregateResult, RequestAggregatorImpl, search_for_block},
 };
 use crate::{
-    consensus::{AecService, election::VoteType},
+    consensus::{
+        AecService,
+        election::{ElectionId, VoteType},
+    },
     transport::MessageSender,
 };
 
@@ -288,12 +291,32 @@ impl RequestAggregatorLoop {
     }
 
     fn process(&self, any: &dyn AnySet, request: &AggregatorRequest) {
+        let mut served = HashSet::new();
         if cfg!(feature = "rai_protocol") {
             self.reply_with_fork_candidates(any, request);
-            self.reply_with_certificates(request);
+            served = self.reply_with_certificates(request);
+            self.join_requested_instances(any, request, &served);
         }
 
-        let remaining = self.aggregate(any, request);
+        let mut remaining = self.aggregate(any, request);
+        // RAI: a final vote is the exit statement of an instance, it is handed
+        // out again only if this node made it, for the epoch it made it in. A
+        // block cemented as a dependency has its instance still running here,
+        // which answers with its own statements instead; a block without any
+        // instance (genesis, a crawler's query) is answered as before.
+        if cfg!(feature = "rai_protocol") {
+            remaining.remaining_final.retain(|block| {
+                let hash = block.hash();
+                !served.contains(&hash)
+                    && self
+                        .active_elections
+                        .final_voted_in_epoch(&hash, request.epoch)
+                    || (!self.active_elections.is_finalized(&hash)
+                        && !self
+                            .active_elections
+                            .is_active_root(&block.qualified_root()))
+            });
+        }
 
         if !remaining.remaining_normal.is_empty() {
             self.stats
@@ -330,6 +353,56 @@ impl RequestAggregatorLoop {
                 DetailType::RequestsCannotVote,
                 Direction::In,
                 (remaining.remaining_final.len() - generated) as u64,
+            );
+        }
+    }
+
+    /// RAI: a request names an instance (root, epoch) the requester runs. If
+    /// this node has neither that instance nor finalized the block in that
+    /// epoch, it joins the instance with its own ledger block for the root, so
+    /// that every instance reaches the same outcome everywhere. The requester
+    /// may hold a fork this node does not: a vote for that fork cannot open
+    /// the instance here, the request can. Only blocks decided by a
+    /// certificate here or still undecided have instances to join.
+    fn join_requested_instances(
+        &self,
+        any: &dyn AnySet,
+        request: &AggregatorRequest,
+        served: &HashSet<BlockHash>,
+    ) {
+        if request.epoch > self.active_elections.current_epoch() {
+            return;
+        }
+        for (hash, root) in &request.roots_hashes {
+            if served.contains(hash) {
+                continue;
+            }
+            let Some(block) = search_for_block(any, hash, root) else {
+                continue;
+            };
+            let id = ElectionId::new(block.qualified_root(), request.epoch);
+            if self.active_elections.election(&id).is_some()
+                || self
+                    .active_elections
+                    .finalized_in_epoch(&block.hash(), request.epoch)
+            {
+                continue;
+            }
+            // A cemented block this node never decided by certificate (genesis,
+            // a crawler's query) has no instance to join
+            if any.confirmed().block_exists(&block.hash())
+                && !self.active_elections.is_finalized(&block.hash())
+            {
+                continue;
+            }
+            self.active_elections.insert_for_vote(
+                block,
+                request.epoch,
+                self.active_elections.now(),
+            );
+            self.stats.inc(
+                StatType::RequestAggregatorReplies,
+                DetailType::InstanceJoined,
             );
         }
     }
@@ -376,9 +449,17 @@ impl RequestAggregatorLoop {
     /// candidates, plus the candidate blocks. Every representative is asked, so
     /// the requester assembles the certificates from small per-election votes
     /// instead of the original batches, which cover hundreds of other roots.
-    fn reply_with_certificates(&self, request: &AggregatorRequest) {
+    /// Returns the requested hashes that were answered with evidence. The
+    /// statements of all the instances asked about are batched into one vote
+    /// per kind and representative: a statement's identity is
+    /// (representative, kind, hash), the batch is the same set of statements
+    /// and a fraction of the messages.
+    fn reply_with_certificates(&self, request: &AggregatorRequest) -> HashSet<BlockHash> {
         let mut served = HashSet::new();
-        let keys = self.vote_generators.rep_priv_keys();
+        let mut served_hashes = HashSet::new();
+        let mut batches: HashMap<VoteKind, Vec<BlockHash>> = HashMap::new();
+        let now = Instant::now();
+        let channel_id = request.channel.channel_id();
         for (hash, _) in &request.roots_hashes {
             let Some((id, evidence)) = self
                 .active_elections
@@ -386,11 +467,10 @@ impl RequestAggregatorLoop {
             else {
                 continue;
             };
+            served_hashes.insert(*hash);
             if !served.insert(id) {
                 continue;
             }
-            let now = Instant::now();
-            let channel_id = request.channel.channel_id();
             let mut sender = self.message_sender.lock().unwrap();
             let mut replies = self.evidence_replies.lock().unwrap();
             // The candidates first, so that the votes find their election
@@ -405,17 +485,28 @@ impl RequestAggregatorLoop {
                     TrafficType::BlockBroadcastInitial,
                 );
             }
-            for (kind, hashes) in &evidence.statements {
+            for (kind, hashes) in evidence.statements {
                 if !replies.should_send(
-                    (channel_id, EvidenceId::Statement(*kind, hashes.clone())),
+                    (channel_id, EvidenceId::Statement(kind, hashes.clone())),
                     now,
                 ) {
                     continue;
                 }
-                for key in &keys {
-                    let vote = Vote::new_in_epoch(key, *kind, request.epoch, hashes.clone());
-                    let ack = Message::ConfirmAck(ConfirmAck::new_with_certificate_evidence(vote));
-                    sender.try_send(&request.channel, &ack, TrafficType::Vote);
+                self.stats.inc(
+                    StatType::RequestAggregatorReplies,
+                    match kind {
+                        VoteKind::First => DetailType::EvidenceFirst,
+                        VoteKind::Notar => DetailType::EvidenceNotar,
+                        VoteKind::Timeout => DetailType::EvidenceTimeout,
+                        VoteKind::Abstain => DetailType::EvidenceAbstain,
+                        VoteKind::Final => DetailType::EvidenceFinal,
+                    },
+                );
+                let batch = batches.entry(kind).or_default();
+                for hash in hashes {
+                    if !batch.contains(&hash) {
+                        batch.push(hash);
+                    }
                 }
             }
             self.stats.inc(
@@ -423,6 +514,22 @@ impl RequestAggregatorLoop {
                 DetailType::CertificateVotes,
             );
         }
+
+        if !batches.is_empty() {
+            let keys = self.vote_generators.rep_priv_keys();
+            let mut sender = self.message_sender.lock().unwrap();
+            for (kind, hashes) in batches {
+                for chunk in hashes.chunks(Vote::MAX_HASHES) {
+                    for key in &keys {
+                        let vote = Vote::new_in_epoch(key, kind, request.epoch, chunk.to_vec());
+                        let ack =
+                            Message::ConfirmAck(ConfirmAck::new_with_certificate_evidence(vote));
+                        sender.try_send(&request.channel, &ack, TrafficType::Vote);
+                    }
+                }
+            }
+        }
+        served_hashes
     }
 
     /// Aggregate requests and send cached votes to channel.
@@ -450,7 +557,9 @@ struct EvidenceReplyCache {
 }
 
 impl EvidenceReplyCache {
-    const INTERVAL: Duration = Duration::from_secs(5);
+    /// Shorter than the solicitation round (5 s), so that every round of a
+    /// replica that still lacks the statement is answered
+    const INTERVAL: Duration = Duration::from_secs(2);
     const MAX_ENTRIES: usize = 65536;
 
     fn should_send(&mut self, key: (ChannelId, EvidenceId), now: Instant) -> bool {
@@ -483,8 +592,8 @@ mod evidence_reply_cache_tests {
         let key = (ChannelId::from(1), EvidenceId::Block(BlockHash::from(1)));
         let now = Instant::now();
         assert!(cache.should_send(key.clone(), now));
-        assert!(!cache.should_send(key.clone(), now + Duration::from_secs(4)));
-        assert!(cache.should_send(key.clone(), now + Duration::from_secs(5)));
+        assert!(!cache.should_send(key.clone(), now + Duration::from_secs(1)));
+        assert!(cache.should_send(key.clone(), now + EvidenceReplyCache::INTERVAL));
         // Other peers and other evidence are independent
         assert!(cache.should_send((ChannelId::from(2), key.1.clone()), now));
         assert!(cache.should_send((key.0, EvidenceId::Block(BlockHash::from(2))), now));

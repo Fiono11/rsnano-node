@@ -2,6 +2,7 @@ mod active_elections_container;
 mod aec_service;
 mod apply_vote_helper;
 mod cooldown_controller;
+mod epoch_states;
 mod recently_confirmed_cache;
 mod root_container;
 mod slot_states;
@@ -15,7 +16,8 @@ pub use cooldown_controller::AecCooldownReason;
 use std::{collections::HashMap, isize};
 
 use rsnano_types::{
-    Amount, Block, BlockHash, BlockPriority, QualifiedRoot, SavedBlock, TimePriority, VoteError,
+    Amount, Block, BlockHash, BlockPriority, ConsensusEpoch, QualifiedRoot, SavedBlock,
+    TimePriority, VoteError,
 };
 
 use super::{
@@ -30,6 +32,9 @@ pub struct ActiveElectionsConfig {
     pub max_elections: usize,
     /// Maximum cache size for recently_confirmed
     pub confirmation_cache: usize,
+    /// RAI: advance to the next consensus epoch once this many elections of
+    /// the current epoch have got a certificate; 0 never advances
+    pub epoch_terminated_elections: usize,
 }
 
 impl Default for ActiveElectionsConfig {
@@ -37,6 +42,7 @@ impl Default for ActiveElectionsConfig {
         Self {
             max_elections: 5000,
             confirmation_cache: 65536,
+            epoch_terminated_elections: 0,
         }
     }
 }
@@ -51,6 +57,9 @@ pub enum AecFact {
     /// Kudzu: the election holds a certificate and no longer occupies a
     /// slot in its priority bucket
     ElectionTerminated(ElectionId),
+
+    /// RAI: new elections are now started in this epoch
+    EpochAdvanced(ConsensusEpoch),
 
     BlockAddedToElection(BlockHash),
     BlockDiscarded(Block),

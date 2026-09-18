@@ -17,11 +17,15 @@ pub enum VoteKind {
     Notar,
     /// NotarVote for the timeout block
     Timeout,
+    /// RAI: the timeout vote of a replica that never proposed in this
+    /// instance and never will, it has left the instance's epoch
+    Abstain,
     /// FinalVote
     Final,
 }
 
 impl VoteKind {
+    const ABSTAIN_BITS: u8 = 0xC;
     const NOTAR_BITS: u8 = 0xD;
     const TIMEOUT_BITS: u8 = 0xE;
 
@@ -30,6 +34,7 @@ impl VoteKind {
             VoteKind::First => 0x9, /*8192ms, the legacy non-final duration*/
             VoteKind::Notar => Self::NOTAR_BITS,
             VoteKind::Timeout => Self::TIMEOUT_BITS,
+            VoteKind::Abstain => Self::ABSTAIN_BITS,
             VoteKind::Final => Vote::DURATION_MAX,
         }
     }
@@ -41,6 +46,7 @@ impl VoteKind {
             match timestamp.duration_bits() {
                 Self::NOTAR_BITS => VoteKind::Notar,
                 Self::TIMEOUT_BITS => VoteKind::Timeout,
+                Self::ABSTAIN_BITS => VoteKind::Abstain,
                 _ => VoteKind::First,
             }
         }
@@ -55,6 +61,7 @@ impl VoteKind {
             VoteKind::First => "first",
             VoteKind::Notar => "notar",
             VoteKind::Timeout => "timeout",
+            VoteKind::Abstain => "abstain",
             VoteKind::Final => "final",
         }
     }

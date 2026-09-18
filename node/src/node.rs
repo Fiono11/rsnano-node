@@ -647,6 +647,7 @@ impl Node {
             rep_tracker.clone(),
             steady_clock.clone(),
             rep_weights.clone(),
+            ledger.clone(),
         );
 
         let vote_processor = Arc::new(VoteProcessor::new(

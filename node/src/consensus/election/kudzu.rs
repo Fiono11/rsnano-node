@@ -16,6 +16,8 @@ use crate::representatives::QuorumSnapshot;
 pub struct KudzuThresholds {
     /// n: the online weight the thresholds are derived from
     pub online: Amount,
+    /// f: the weight that may be faulty
+    pub f: Amount,
     /// n − f − p: notarization, finalization and timeout certificates
     pub certificate: Amount,
     /// n − p: fast finalization certificate
@@ -33,6 +35,7 @@ impl KudzuThresholds {
         let p = percent_of(online, Self::P_PERCENT);
         Self {
             online,
+            f,
             certificate: online - f - p,
             fast: online - p,
             many: f + p + Amount::raw(1),
@@ -94,10 +97,16 @@ impl Certificates {
     }
 }
 
+/// The timeout block B_timeout (Definition 4.1): the first vote of a replica
+/// that abstains from proposing goes to it, and the timeout certificate is its
+/// notarization certificate
+pub const TIMEOUT_BLOCK: BlockHash = BlockHash::from_bytes([0xFF; 32]);
+
 /// The votes one representative has cast in one slot (Section 4.2: at most one
 /// first vote, one timeout vote, one finalization vote and three notarization votes)
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RepSlotVotes {
+    /// The first vote; `TIMEOUT_BLOCK` if the representative abstained (line 24)
     pub first: Option<BlockHash>,
     pub notar: Vec<BlockHash>,
     pub timeout: bool,
@@ -132,6 +141,16 @@ impl RepSlotVotes {
                 }
                 self.timeout = true;
             }
+            // Line 24: FirstVote(NotarVote(B_timeout)): a first vote spent on the
+            // timeout block, which is a timeout vote as well
+            VoteKind::Abstain => {
+                if self.first.is_some() || self.timeout {
+                    return Err(VoteError::Replay);
+                }
+                self.first = Some(TIMEOUT_BLOCK);
+                self.timeout = true;
+                self.ensure_notar(TIMEOUT_BLOCK);
+            }
             VoteKind::Final => {
                 if self.final_.is_some() {
                     return Err(VoteError::Replay);
@@ -156,6 +175,11 @@ impl RepSlotVotes {
         self.first == Some(*hash) || self.notar.contains(hash) || self.final_ == Some(*hash)
     }
 
+    /// RAI: the representative abstained from proposing in this instance
+    pub fn abstained(&self) -> bool {
+        self.first == Some(TIMEOUT_BLOCK)
+    }
+
     fn remove_block(&mut self, hash: &BlockHash) {
         if self.first == Some(*hash) {
             self.first = None;
@@ -175,7 +199,7 @@ pub struct SlotVotes {
     first_tallies: BlockTallies,
     notar_tallies: BlockTallies,
     final_tallies: BlockTallies,
-    /// allVotes(firstVote)
+    /// allVotes(firstVote), the abstaining first votes for the timeout block included
     all_first: Amount,
     timeout_weight: Amount,
 }
@@ -253,14 +277,16 @@ impl SlotVotes {
         self.timeout_weight
     }
 
-    /// manyVotes(firstVote): the blocks with at least f + p + 1 first votes
+    /// manyVotes(firstVote): the blocks with at least f + p + 1 first votes. The
+    /// timeout block is not looked at, its notarization is the timeout vote
+    /// (lines 32-35).
     pub fn many_votes<'a>(
         &'a self,
         thresholds: &'a KudzuThresholds,
     ) -> impl Iterator<Item = BlockHash> + 'a {
         self.first_tallies
             .iter()
-            .filter(|(_, tally)| *tally >= thresholds.many)
+            .filter(|(hash, tally)| *hash != TIMEOUT_BLOCK && *tally >= thresholds.many)
             .map(|(hash, _)| *hash)
     }
 
@@ -277,10 +303,14 @@ impl SlotVotes {
     /// Adds every certificate the current tallies support
     pub fn update_certificates(&self, thresholds: &KudzuThresholds, certs: &mut Certificates) {
         for (hash, tally) in self.notar_tallies.iter() {
-            if *tally >= thresholds.certificate && !certs.notar.contains(hash) {
+            if *hash != TIMEOUT_BLOCK
+                && *tally >= thresholds.certificate
+                && !certs.notar.contains(hash)
+            {
                 certs.notar.push(*hash);
             }
         }
+        // The notarization certificate of the timeout block
         if self.timeout_weight >= thresholds.certificate {
             certs.timeout = true;
         }
@@ -288,7 +318,7 @@ impl SlotVotes {
             certs.fast = self
                 .first_tallies
                 .iter()
-                .find(|(_, tally)| *tally >= thresholds.fast)
+                .find(|(hash, tally)| *hash != TIMEOUT_BLOCK && *tally >= thresholds.fast)
                 .map(|(hash, _)| *hash);
         }
         if certs.final_.is_none() {
@@ -317,6 +347,7 @@ impl SlotVotes {
         }
         // Weight that has not first voted yet, known or unknown. It can still first
         // vote (and thereby notarize) any block, including one we have not seen.
+        // An abstaining first vote for the timeout block counts as cast.
         let unvoted = thresholds
             .online
             .checked_sub(self.all_first)
@@ -336,10 +367,15 @@ impl SlotVotes {
     pub fn can_finalize(&self, thresholds: &KudzuThresholds, hash: &BlockHash) -> bool {
         let known: Amount = self.reps.values().map(|r| r.weight).sum();
         let unknown = thresholds.online.checked_sub(known).unwrap_or_default();
+        // A representative that timed out never casts a final vote (line 10)
         let able: Amount = self
             .reps
             .values()
-            .filter(|r| r.notar.iter().all(|h| h == hash) && r.final_.is_none_or(|h| h == *hash))
+            .filter(|r| {
+                !r.timeout
+                    && r.notar.iter().all(|h| h == hash)
+                    && r.final_.is_none_or(|h| h == *hash)
+            })
             .map(|r| r.weight)
             .sum();
         able + unknown >= thresholds.certificate
@@ -354,7 +390,8 @@ impl SlotVotes {
         let can_reach_many = self.first_tallies.get(hash) + unvoted >= thresholds.many;
         let mut result = self.notar_tallies.get(hash) + unvoted;
         if can_reach_many {
-            // Every representative that has not exited could still take a second look
+            // Every representative that has first voted and not exited could
+            // still take a second look (line 28), abstaining ones included
             result += self
                 .reps
                 .values()
@@ -376,9 +413,20 @@ pub struct LocalSlotState {
     /// The candidate hash the timeout vote was routed through
     pub timeout_voted: Option<BlockHash>,
     pub final_voted: Option<BlockHash>,
+    /// RAI: this node does not propose in this instance. The instance belongs
+    /// to an epoch this node has already left; it only casts its timeout vote
+    /// so that the instance can terminate, and collects the certificates.
+    pub stale: bool,
 }
 
 impl LocalSlotState {
+    pub fn stale() -> Self {
+        Self {
+            stale: true,
+            ..Default::default()
+        }
+    }
+
     pub fn mark_voted(&mut self, hash: BlockHash, kind: VoteKind) {
         match kind {
             VoteKind::First => self.first_voted = Some(hash),
@@ -388,8 +436,19 @@ impl LocalSlotState {
                 }
             }
             VoteKind::Timeout => self.timeout_voted = Some(hash),
+            // Line 23-25: the first vote is spent on the timeout block, `hash` is
+            // the candidate the statement is routed through
+            VoteKind::Abstain => {
+                self.first_voted = Some(TIMEOUT_BLOCK);
+                self.timeout_voted = Some(hash);
+            }
             VoteKind::Final => self.final_voted = Some(hash),
         }
+    }
+
+    /// Line 24: this node abstained from proposing in the instance
+    pub fn abstained(&self) -> bool {
+        self.first_voted == Some(TIMEOUT_BLOCK)
     }
 
     /// notarized ⊆ {hash}: the precondition for a final vote (line 11)
@@ -418,7 +477,7 @@ impl LocalSlotState {
         let mut notar = Vec::new();
         let mut final_ = Vec::new();
         for hash in candidates {
-            if self.first_voted == Some(*hash) {
+            if self.first_voted == Some(*hash) && *hash != TIMEOUT_BLOCK {
                 first.push(*hash);
             }
             if self.notar_voted.contains(hash) {
@@ -436,7 +495,7 @@ impl LocalSlotState {
             result.push((VoteKind::Notar, notar));
         }
         if self.timeout_voted.is_some() {
-            result.push((VoteKind::Timeout, vec![timeout_routing]));
+            result.push((self.timeout_kind(), vec![timeout_routing]));
         }
         if !final_.is_empty() {
             result.push((VoteKind::Final, final_));
@@ -447,11 +506,22 @@ impl LocalSlotState {
     /// Everything cast so far, for re-broadcasting
     pub fn cast_votes(&self) -> impl Iterator<Item = (BlockHash, VoteKind)> + '_ {
         self.first_voted
+            .filter(|h| *h != TIMEOUT_BLOCK)
             .map(|h| (h, VoteKind::First))
             .into_iter()
             .chain(self.notar_voted.iter().map(|h| (*h, VoteKind::Notar)))
-            .chain(self.timeout_voted.map(|h| (h, VoteKind::Timeout)))
+            .chain(self.timeout_voted.map(|h| (h, self.timeout_kind())))
             .chain(self.final_voted.map(|h| (h, VoteKind::Final)))
+    }
+
+    /// The abstaining first vote for the timeout block, or the timeout vote of
+    /// a replica that proposed
+    fn timeout_kind(&self) -> VoteKind {
+        if self.abstained() {
+            VoteKind::Abstain
+        } else {
+            VoteKind::Timeout
+        }
     }
 }
 
@@ -632,6 +702,98 @@ mod tests {
         assert!(!certs.is_finalized());
         // rep 1 exited: hash 2 can gather at most 33 + 27 = 60 < 67
         assert!(pool.is_settled(&t, &certs, &candidates));
+    }
+
+    /// RAI: a representative that abstained has left the instance and will
+    /// not first vote any more, one that merely timed out may have first
+    /// voted a block we do not hold
+    #[test]
+    fn abstained_weight_settles_a_timed_out_instance() {
+        let t = thresholds();
+        let mut pool = SlotVotes::default();
+        let mut certs = Certificates::default();
+        let weights = weights(&[(1, 30), (2, 32), (3, 38)]);
+
+        pool.add(rep(1), hash(1), VoteKind::First).unwrap();
+        pool.add(rep(2), hash(1), VoteKind::Abstain).unwrap();
+        pool.calculate(&weights);
+        pool.update_certificates(&t, &mut certs);
+        assert!(!certs.is_terminated());
+        // 38 of weight is still unknown and could notarize anything
+        assert!(!pool.is_settled(&t, &certs, &[hash(1)]));
+
+        pool.add(rep(3), hash(1), VoteKind::Timeout).unwrap();
+        pool.calculate(&weights);
+        pool.update_certificates(&t, &mut certs);
+        assert!(certs.timeout);
+        // rep 3 timed out but may have first voted a block we have not seen
+        assert!(!pool.is_settled(&t, &certs, &[hash(1)]));
+
+        let mut abstaining = SlotVotes::default();
+        abstaining.add(rep(1), hash(1), VoteKind::First).unwrap();
+        abstaining.add(rep(2), hash(1), VoteKind::Abstain).unwrap();
+        abstaining.add(rep(3), hash(1), VoteKind::Abstain).unwrap();
+        abstaining.calculate(&weights);
+        // 70 of weight left for good: hash 1 stays at 30
+        assert!(abstaining.is_settled(&t, &certs, &[hash(1)]));
+    }
+
+    /// RAI: a representative that timed out never casts a final vote
+    #[test]
+    fn timed_out_weight_cannot_finalize() {
+        let t = thresholds();
+        let mut pool = SlotVotes::default();
+        let weights = weights(&[(1, 40), (2, 27), (3, 33)]);
+        pool.add(rep(1), hash(1), VoteKind::First).unwrap();
+        pool.add(rep(2), hash(1), VoteKind::First).unwrap();
+        pool.add(rep(3), hash(1), VoteKind::Timeout).unwrap();
+        pool.calculate(&weights);
+        assert!(pool.can_finalize(&t, &hash(1)));
+
+        pool.add(rep(1), hash(1), VoteKind::Timeout).unwrap();
+        pool.calculate(&weights);
+        assert!(!pool.can_finalize(&t, &hash(1)));
+    }
+
+    /// A 3-3 fork whose representatives all timed out settles once every
+    /// representative has taken its second look at the other block (line 28)
+    #[test]
+    fn settled_once_every_representative_took_its_second_look() {
+        let t = thresholds();
+        let mut pool = SlotVotes::default();
+        let mut certs = Certificates::default();
+        let weights = weights(&[(1, 17), (2, 17), (3, 17), (4, 17), (5, 16), (6, 16)]);
+        for rep_id in 1..=3 {
+            pool.add(rep(rep_id), hash(1), VoteKind::First).unwrap();
+        }
+        for rep_id in 4..=6 {
+            pool.add(rep(rep_id), hash(2), VoteKind::First).unwrap();
+        }
+        pool.calculate(&weights);
+        pool.update_certificates(&t, &mut certs);
+        assert!(!certs.is_terminated());
+        assert!(!pool.is_settled(&t, &certs, &[hash(1), hash(2)]));
+
+        for rep_id in 1..=6 {
+            pool.add(rep(rep_id), hash(1), VoteKind::Timeout).unwrap();
+        }
+        pool.calculate(&weights);
+        pool.update_certificates(&t, &mut certs);
+        assert!(certs.timeout);
+        assert!(certs.notar.is_empty());
+        // Both blocks have many first votes, every representative still looks
+        assert!(!pool.is_settled(&t, &certs, &[hash(1), hash(2)]));
+
+        for rep_id in 1..=3 {
+            pool.add(rep(rep_id), hash(2), VoteKind::Notar).unwrap();
+        }
+        for rep_id in 4..=6 {
+            pool.add(rep(rep_id), hash(1), VoteKind::Notar).unwrap();
+        }
+        pool.calculate(&weights);
+        pool.update_certificates(&t, &mut certs);
+        assert_eq!(certs.notar.len(), 2);
+        assert!(pool.is_settled(&t, &certs, &[hash(1), hash(2)]));
     }
 
     #[test]

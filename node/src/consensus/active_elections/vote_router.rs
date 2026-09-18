@@ -63,15 +63,21 @@ impl VoteRouter {
             .map(|_| ElectionId::new(route.root.clone(), epoch))
     }
 
+    /// The elections this block is a candidate in, oldest epoch first
+    pub fn elections_of(&self, hash: &BlockHash) -> impl Iterator<Item = ElectionId> + '_ {
+        self.elections.get(hash).into_iter().flat_map(|route| {
+            route
+                .epochs
+                .iter()
+                .map(move |epoch| ElectionId::new(route.root.clone(), *epoch))
+        })
+    }
+
     /// The election of the newest epoch this block is a candidate in
     pub fn latest_election_id(&self, hash: &BlockHash) -> Option<ElectionId> {
         let route = self.elections.get(hash)?;
         let epoch = *route.epochs.last()?;
         Some(ElectionId::new(route.root.clone(), epoch))
-    }
-
-    pub fn is_active(&self, hash: &BlockHash) -> bool {
-        self.elections.contains_key(hash)
     }
 
     pub fn container_info(&self) -> ContainerInfo {
@@ -98,7 +104,6 @@ mod tests {
         router.connect(hash, epoch1.clone());
         router.connect(hash, epoch0.clone());
 
-        assert!(router.is_active(&hash));
         assert_eq!(
             router.election_id(&hash, ConsensusEpoch::ZERO),
             Some(epoch0)
@@ -112,9 +117,8 @@ mod tests {
 
         router.disconnect(&hash, ConsensusEpoch::new(1));
         assert_eq!(router.election_id(&hash, ConsensusEpoch::new(1)), None);
-        assert!(router.is_active(&hash));
+        assert!(router.latest_election_id(&hash).is_some());
         router.disconnect(&hash, ConsensusEpoch::ZERO);
-        assert!(!router.is_active(&hash));
         assert_eq!(router.latest_election_id(&hash), None);
     }
 }

@@ -127,7 +127,10 @@ impl BackpressureEventProcessor<LedgerPipelineEvent> for LedgerEventProcessor {
                     self.stats
                         .ev_blocks_rolled_back_total
                         .fetch_add(rolled_back.len() as u64, Ordering::Relaxed);
-                    {
+                    // RAI: an instance is a record of statements that every
+                    // replica keeps until it reaches its outcome, rolling a
+                    // block back does not end it
+                    if !cfg!(feature = "rai_protocol") {
                         for result in rolled_back.iter() {
                             for block in &result.rolled_back {
                                 // Stop all rolled back elections except initial

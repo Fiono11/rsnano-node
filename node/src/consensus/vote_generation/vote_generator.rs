@@ -111,6 +111,7 @@ impl VoteGenerator {
             VoteKind::Final => "Voting final".to_owned(),
             VoteKind::Notar => "Voting notar".to_owned(),
             VoteKind::Timeout => "Voting timeout".to_owned(),
+            VoteKind::Abstain => "Voting abstain".to_owned(),
         }
     }
 
@@ -328,6 +329,7 @@ impl SharedState {
                     VoteKind::Final => Sample::VoteGeneratorFinalHashes,
                     VoteKind::Notar => Sample::VoteGeneratorNotarHashes,
                     VoteKind::Timeout => Sample::VoteGeneratorTimeoutHashes,
+                    VoteKind::Abstain => Sample::VoteGeneratorAbstainHashes,
                 };
                 self.stats.sample(
                     sample,
@@ -435,9 +437,16 @@ impl SharedState {
 
     /// Kudzu notarization and timeout votes may go to blocks which are not in
     /// our ledger (a second look at a fork), so they bypass the ledger checks
-    /// and the vote spacing. The election already checked that we hold the block.
+    /// and the vote spacing. The election already checked that we hold the
+    /// block. RAI: every vote is a statement decided by an instance, the
+    /// ledger's rules for legacy votes (no non-final vote for a cemented
+    /// block, spacing per root) do not apply to any kind.
     fn skips_ledger_checks(&self) -> bool {
-        matches!(self.kind, VoteKind::Notar | VoteKind::Timeout)
+        cfg!(feature = "rai_protocol")
+            || matches!(
+                self.kind,
+                VoteKind::Notar | VoteKind::Timeout | VoteKind::Abstain
+            )
     }
 
     fn process_batch(&self, batch: VecDeque<VoteCandidate>) {
@@ -492,6 +501,7 @@ impl SharedState {
             VoteKind::Final => StatType::VoteGeneratorFinal,
             VoteKind::Notar => StatType::VoteGeneratorNotar,
             VoteKind::Timeout => StatType::VoteGeneratorTimeout,
+            VoteKind::Abstain => StatType::VoteGeneratorAbstain,
         }
     }
 }

@@ -15,7 +15,7 @@ use std::{
 };
 
 use rsnano_nullable_clock::SteadyClock;
-use rsnano_types::{Amount, BlockHash, Vote, VoteDelivery, VoteError};
+use rsnano_types::{Amount, BlockHash, ConsensusEpoch, Vote, VoteDelivery, VoteError};
 use rsnano_utils::{
     EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -151,6 +151,17 @@ impl VoteCache {
         self.blocks.lock().unwrap().vote_count(hash)
     }
 
+    /// RAI: the blocks with a cached vote of the given epoch
+    pub fn hashes_voted_in_epoch(&self, epoch: ConsensusEpoch) -> Vec<BlockHash> {
+        self.blocks
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|block| block.iter_votes().any(|vote| vote.epoch == epoch))
+            .map(|block| *block.block_hash())
+            .collect()
+    }
+
     /// Removes an entry associated with block hash, does nothing if entry does not exist
     /// return true if hash existed and was erased, false otherwise
     pub fn remove(&self, hash: &BlockHash) -> bool {
@@ -202,6 +213,13 @@ impl EventHandler<AecFact> for VoteCache {
         match event {
             AecFact::ElectionStarted(hash, _root) => self.processor.trigger(*hash),
             AecFact::BlockAddedToElection(hash) => self.processor.trigger(*hash),
+            // RAI: the votes of an epoch this node had not reached yet waited
+            // here; now they open that epoch's instances
+            AecFact::EpochAdvanced(epoch) => {
+                for hash in self.hashes_voted_in_epoch(*epoch) {
+                    self.processor.trigger(hash);
+                }
+            }
             AecFact::VoteProcessed(vote, voter_weight, results) => {
                 // Cache the votes that didn't match any election. Evidence votes are
                 // batches handed over for one election; their other hashes are not cached.
@@ -221,7 +239,7 @@ impl EventHandler<AecFact> for VoteCache {
 mod tests {
     use super::*;
     use crate::consensus::ReceivedVote;
-    use rsnano_types::{PrivateKey, QualifiedRoot, UnixMillisTimestamp};
+    use rsnano_types::{PrivateKey, QualifiedRoot, UnixMillisTimestamp, VoteKind};
 
     #[test]
     fn construction() {
@@ -260,6 +278,31 @@ mod tests {
         cache.remove(&hash1);
 
         assert_eq!(cache.len(), 0);
+    }
+
+    /// RAI: the votes of an epoch this node had not reached wait in the cache;
+    /// once the node advances they are replayed to open that epoch's instances
+    #[test]
+    fn replays_the_votes_of_the_epoch_advanced_to() {
+        let cache = make_vote_cache();
+        let rep = PrivateKey::from(1);
+        let epoch1 = ConsensusEpoch::new(1);
+        let old_hash = BlockHash::from(1);
+        let new_hash = BlockHash::from(2);
+        let old_vote = create_vote(&rep, &old_hash, 1);
+        let new_vote = Arc::new(Vote::new_in_epoch(
+            &rep,
+            VoteKind::First,
+            epoch1,
+            vec![new_hash],
+        ));
+        cache.process(old_vote, Amount::raw(7), &HashMap::new());
+        cache.process(new_vote, Amount::raw(7), &HashMap::new());
+        assert_eq!(cache.hashes_voted_in_epoch(epoch1), vec![new_hash]);
+
+        cache.handle(&AecFact::EpochAdvanced(epoch1));
+
+        assert_eq!(cache.processor.len(), 1);
     }
 
     #[test]

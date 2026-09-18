@@ -1,4 +1,8 @@
-use std::{collections::HashMap, sync::RwLock, time::Duration};
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::RwLock,
+    time::Duration,
+};
 
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_types::{
@@ -19,7 +23,7 @@ use crate::consensus::{
     ElectionCandidateSource,
     election::{
         CertificateEvidence, ConfirmedElection, Election, ElectionBehavior, ElectionId,
-        ElectionState, EpochSlot, LocalSlotState,
+        ElectionState, EpochSlot, FinalStateHash, LocalSlotState,
     },
     vote_generation::VoteTarget,
 };
@@ -81,6 +85,41 @@ impl AecService {
         self.aec.write().unwrap().set_current_epoch(epoch)
     }
 
+    /// RAI: elections of the current epoch which got a certificate so far
+    pub fn decided_in_current_epoch(&self) -> usize {
+        self.aec.read().unwrap().decided_in_current_epoch()
+    }
+
+    /// RAI: whether this block was finalized explicitly in the given epoch
+    pub fn finalized_in_epoch(&self, hash: &BlockHash, epoch: ConsensusEpoch) -> bool {
+        self.aec.read().unwrap().finalized_in_epoch(hash, epoch)
+    }
+
+    /// RAI: whether this block was finalized explicitly in any epoch
+    pub fn is_finalized(&self, hash: &BlockHash) -> bool {
+        self.aec.read().unwrap().is_finalized(hash)
+    }
+
+    /// RAI: whether this node cast its final vote for the block in the epoch
+    pub fn final_voted_in_epoch(&self, hash: &BlockHash, epoch: ConsensusEpoch) -> bool {
+        self.aec.read().unwrap().final_voted_in_epoch(hash, epoch)
+    }
+
+    /// RAI: the explicitly finalized state per epoch
+    pub fn finalized_by_epoch(&self) -> BTreeMap<ConsensusEpoch, FinalStateHash> {
+        self.aec.read().unwrap().finalized_by_epoch().clone()
+    }
+
+    /// RAI: the blocks finalized explicitly in the given epoch
+    pub fn finalized_in(&self, epoch: ConsensusEpoch) -> Vec<(Account, u64, BlockHash)> {
+        self.aec.read().unwrap().finalized_in(epoch)
+    }
+
+    /// RAI: start the instance of a block for a vote of its epoch
+    pub fn insert_for_vote(&self, block: SavedBlock, epoch: ConsensusEpoch, now: Timestamp) {
+        self.aec.write().unwrap().insert_for_vote(block, epoch, now)
+    }
+
     pub fn election_for_block(&self, block_hash: &BlockHash) -> Option<Election> {
         self.aec
             .read()
@@ -107,6 +146,14 @@ impl AecService {
 
     pub fn is_active_hash(&self, block_hash: &BlockHash) -> bool {
         self.aec.read().unwrap().is_active_hash(block_hash)
+    }
+
+    /// Whether any of the blocks is a candidate of a current election, in one
+    /// pass under the lock
+    pub fn is_any_active_hash<'a>(&self, hashes: impl Iterator<Item = &'a BlockHash>) -> bool {
+        let guard = self.aec.read().unwrap();
+        let mut hashes = hashes;
+        hashes.any(|hash| guard.is_active_hash(hash))
     }
 
     pub fn is_priority_active_hash(&self, block_hash: &BlockHash) -> bool {
@@ -190,7 +237,7 @@ impl AecService {
     }
 
     /// Kudzu: record the votes that were handed to the vote generators
-    pub(crate) fn mark_kudzu_voted(&self, targets: &[VoteTarget]) {
+    pub(crate) fn mark_kudzu_voted(&self, targets: Vec<VoteTarget>) -> Vec<VoteTarget> {
         self.aec.write().unwrap().mark_kudzu_voted(targets)
     }
 

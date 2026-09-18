@@ -56,9 +56,15 @@ impl ConfirmationSolicitor {
             let existing_vote = election.votes().get(&rep.rep_key);
             let is_final = if let Some(vote) = existing_vote {
                 // Kudzu: a representative's first vote is not enough, its second look
-                // and final vote may be missing here while its election is already terminated
+                // and final vote may be missing here while its election is already
+                // terminated; and its final vote is not enough either, the settled
+                // predicate needs its first vote (allVotes(firstVote))
                 if cfg!(feature = "rai_protocol") {
                     vote.is_final_vote()
+                        && election
+                            .kudzu_votes()
+                            .rep(&rep.rep_key)
+                            .is_some_and(|r| r.first.is_some())
                 } else {
                     !election.has_quorum() || vote.is_final_vote()
                 }

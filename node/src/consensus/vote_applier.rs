@@ -3,9 +3,9 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use rsnano_nullable_clock::SteadyClock;
+use rsnano_nullable_clock::{SteadyClock, Timestamp};
 
-use rsnano_ledger::RepWeightCache;
+use rsnano_ledger::{AnySet, Ledger, RepWeightCache};
 use rsnano_types::{Amount, BlockHash, VoteError};
 use rsnano_utils::sync::backpressure_channel::Sender;
 
@@ -19,6 +19,7 @@ pub(crate) struct VoteApplier {
     rep_tracker: Arc<RepresentativeTracker>,
     clock: Arc<SteadyClock>,
     rep_weights: Arc<RepWeightCache>,
+    ledger: Arc<Ledger>,
 }
 
 impl VoteApplier {
@@ -27,6 +28,7 @@ impl VoteApplier {
         rep_tracker: Arc<RepresentativeTracker>,
         clock: Arc<SteadyClock>,
         rep_weights: Arc<RepWeightCache>,
+        ledger: Arc<Ledger>,
     ) -> Self {
         Self {
             active_elections,
@@ -34,6 +36,7 @@ impl VoteApplier {
             rep_tracker,
             clock,
             rep_weights,
+            ledger,
         }
     }
 
@@ -63,9 +66,12 @@ impl VoteApplier {
                 .collect();
         }
 
-        let has_election = vote
-            .filtered_blocks()
-            .any(|hash| self.active_elections.is_active_hash(hash));
+        // One pass under the AEC lock for the whole vote: a batch of hundreds
+        // of hashes would otherwise take the lock once per hash, against the
+        // writers applying votes
+        let has_election = self
+            .active_elections
+            .is_any_active_hash(vote.filtered_blocks());
 
         if has_election {
             // Representative is defined as online if replying to live votes or rep_crawler queries.
@@ -74,8 +80,8 @@ impl VoteApplier {
         }
         let quorum_snapshot = self.rep_tracker.quorum_snapshot();
 
-        let results = {
-            let now = self.clock.now();
+        let now = self.clock.now();
+        let mut results = {
             let rep_weights = self.rep_weights.read();
             self.active_elections.apply_vote(ApplyVoteArgs {
                 vote,
@@ -85,8 +91,63 @@ impl VoteApplier {
             })
         };
 
+        if cfg!(feature = "rai_protocol") && self.start_instances_for_vote(vote, &results, now) {
+            let rep_weights = self.rep_weights.read();
+            let again = self.active_elections.apply_vote(ApplyVoteArgs {
+                vote,
+                rep_weights: &rep_weights,
+                quorum_snapshot: &quorum_snapshot,
+                now,
+            });
+            for (hash, result) in again {
+                if matches!(
+                    results.get(&hash),
+                    Some(Err(VoteError::Indeterminate | VoteError::Late))
+                ) {
+                    results.insert(hash, result);
+                }
+            }
+        }
+
         self.notify_vote_processed(vote, voter_weight, &results);
         results
+    }
+
+    /// RAI: a vote for a block this node holds but has no election for in the
+    /// vote's epoch starts that instance, so that every instance which exists
+    /// on some replica reaches the same outcome here. A vote of an epoch this
+    /// node has not reached yet waits in the vote cache, a final vote opens
+    /// nothing. Returns whether any election was started.
+    fn start_instances_for_vote(
+        &self,
+        vote: &FilteredVote,
+        results: &HashMap<BlockHash, Result<(), VoteError>>,
+        now: Timestamp,
+    ) -> bool {
+        let current = self.active_elections.current_epoch();
+        // A final vote is an exit statement, it does not open an instance: the
+        // representatives answer a crawler with final votes for cemented blocks
+        if vote.epoch > current || vote.is_final() {
+            return false;
+        }
+        let mut started = false;
+        for (hash, result) in results {
+            // Late: the block is cemented already, but the instance of this
+            // epoch may still have to be run here
+            if !matches!(result, Err(VoteError::Indeterminate | VoteError::Late)) {
+                continue;
+            }
+            if self.active_elections.finalized_in_epoch(hash, vote.epoch) {
+                continue;
+            }
+            let Some(block) = self.ledger.any().get_block(hash) else {
+                continue;
+            };
+            self.active_elections
+                .insert_for_vote(block, vote.epoch, now);
+            started = true;
+        }
+        started
     }
 
     fn notify_vote_processed(
@@ -145,7 +206,13 @@ mod tests {
         )
         .unwrap();
 
-        let vote_applier = VoteApplier::new(aec.clone(), rep_tracker, clock, rep_weights);
+        let vote_applier = VoteApplier::new(
+            aec.clone(),
+            rep_tracker,
+            clock,
+            rep_weights,
+            Arc::new(Ledger::new_null()),
+        );
 
         let vote = ReceivedVote::new(
             Vote::new(&rep_key, UnixMillisTimestamp::new(123), 0, vec![block_hash]).into(),

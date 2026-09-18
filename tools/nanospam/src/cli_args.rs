@@ -73,6 +73,11 @@ pub(crate) struct CliArgs {
     /// Percentage of blocks that should have forks
     #[arg(long, default_value_t = 0)]
     pub fork_percentage: usize,
+
+    /// RAI: every node advances to the next consensus epoch after this many
+    /// decided elections of the current epoch (0: a single epoch)
+    #[arg(long, default_value_t = 0)]
+    pub epoch_terminated_elections: usize,
 }
 
 impl CliArgs {

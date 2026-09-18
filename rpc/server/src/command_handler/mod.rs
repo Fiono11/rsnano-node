@@ -74,7 +74,7 @@ impl RpcCommandHandler {
             | RpcCommand::BootstrapAny(_)
             | RpcCommand::BootstrapLazy(_) => to_value(legacy_bootstrap_disabled()?),
             RpcCommand::ConfirmationActive(args) => to_value(self.confirmation_active(args)),
-            RpcCommand::FinalState => to_value(self.final_state()),
+            RpcCommand::FinalState(args) => to_value(self.final_state(args)),
             RpcCommand::ConfirmationInfo(args) => to_value(self.confirmation_info(args)?),
             RpcCommand::ConfirmationQuorum(args) => to_value(self.confirmation_quorum(args)),
             RpcCommand::Delegators(args) => to_value(self.delegators(args)),

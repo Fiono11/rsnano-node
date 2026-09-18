@@ -1,6 +1,5 @@
-use std::collections::HashMap;
-
 use rsnano_types::{Account, ConsensusEpoch};
+use rustc_hash::FxHashMap;
 
 use crate::consensus::election::{EpochSlot, LocalSlotState};
 
@@ -9,7 +8,7 @@ use crate::consensus::election::{EpochSlot, LocalSlotState};
 /// All epochs of a slot are dropped together once the height is finalized.
 #[derive(Default)]
 pub(crate) struct SlotStates {
-    by_slot: HashMap<(Account, u64), Vec<(ConsensusEpoch, LocalSlotState)>>,
+    by_slot: FxHashMap<(Account, u64), Vec<(ConsensusEpoch, LocalSlotState)>>,
     len: usize,
 }
 
@@ -39,6 +38,20 @@ impl SlotStates {
     pub fn remove_slot(&mut self, account: Account, height: u64) {
         if let Some(states) = self.by_slot.remove(&(account, height)) {
             self.len -= states.len();
+        }
+    }
+
+    /// Drop the state of one epoch of a slot
+    pub fn remove(&mut self, slot: &EpochSlot) {
+        let Some(states) = self.by_slot.get_mut(&(slot.account, slot.height)) else {
+            return;
+        };
+        if let Some(position) = states.iter().position(|(epoch, _)| *epoch == slot.epoch) {
+            states.remove(position);
+            self.len -= 1;
+        }
+        if states.is_empty() {
+            self.by_slot.remove(&(slot.account, slot.height));
         }
     }
 
@@ -78,9 +91,11 @@ mod tests {
         states.get_or_default(&next_epoch);
         assert_eq!(states.len(), 2);
 
+        states.remove(&next_epoch);
+        assert_eq!(states.len(), 1);
+        assert!(states.get(&next_epoch).is_none());
         states.remove_slot(slot.account, slot.height);
         assert_eq!(states.len(), 0);
         assert!(states.get(&slot).is_none());
-        assert!(states.get(&next_epoch).is_none());
     }
 }

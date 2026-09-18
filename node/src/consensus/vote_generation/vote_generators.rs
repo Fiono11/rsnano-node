@@ -67,6 +67,7 @@ impl VoteGenerators {
                 VoteType::Final,
                 VoteType::Notar,
                 VoteType::Timeout,
+                VoteType::Abstain,
             ]
         } else {
             vec![VoteType::NonFinal, VoteType::Final]
@@ -163,6 +164,7 @@ impl VoteGenerators {
             VoteType::Final => DetailType::GenerateVoteFinal,
             VoteType::Notar => DetailType::GenerateVoteNotar,
             VoteType::Timeout => DetailType::GenerateVoteTimeout,
+            VoteType::Abstain => DetailType::GenerateVoteAbstain,
         };
         self.stats.inc(StatType::Election, detail);
         self.generator(vote_type).add(root, hash, epoch);
@@ -208,6 +210,7 @@ impl ContainerInfoProvider for VoteGenerators {
                 VoteType::Final => "final",
                 VoteType::Notar => "notar",
                 VoteType::Timeout => "timeout",
+                VoteType::Abstain => "abstain",
             };
             builder = builder.node(name, generator.container_info());
         }

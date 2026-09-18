@@ -113,17 +113,9 @@ fn codes_kudzu() {
         node.vote_processor.vote_blocking(&vote_invalid)
     );
 
-    // No ongoing election (vote goes to vote cache)
-    assert_eq!(
-        Err(VoteError::Indeterminate),
-        node.vote_processor.vote_blocking(&vote)
-    );
-    assert_timely_eq2(|| node.vote_cache.len(), 1);
-    node.vote_cache.clear();
-
-    // First vote from an account for an ongoing election: fast finalization
-    start_election(&node, &blocks[0].hash());
-    assert_timely2(|| node.is_active_root(&blocks[0].qualified_root()));
+    // No ongoing election: the first vote of a representative for a block
+    // this node holds opens the block's instance and counts there, and with
+    // all the weight it fast finalizes the block at once
     assert_eq!(node.vote_processor.vote_blocking(&vote), Ok(()));
     assert_timely2(|| node.block_confirmed(&blocks[0].hash()));
     assert_eq!(
@@ -186,7 +178,12 @@ fn overflow() {
     let start_time = Instant::now();
     // No way to lock the processor, but queueing votes in quick succession must result in overflow
     let mut not_processed = 0;
-    const TOTAL: usize = 1000;
+    // RAI: the loopback lane, which carries the node's own votes, is deep
+    const TOTAL: usize = if cfg!(feature = "rai_protocol") {
+        20_000
+    } else {
+        1000
+    };
     for _ in 0..TOTAL {
         if !node
             .vote_processor_queue

@@ -204,6 +204,14 @@ fn vote_cache_election_start() {
     ));
     node.vote_processor_queue
         .enqueue(vote1, None, VoteDelivery::Direct, None);
+    // RAI: a first vote of a representative opens the instance of a block
+    // this node holds, whatever its weight; only the vote for the block this
+    // node lacks waits in the cache
+    if cfg!(feature = "rai_protocol") {
+        assert_timely_eq2(|| node.aec.len(), 2);
+        assert_timely_eq2(|| node.vote_cache.len(), 1);
+        return;
+    }
     assert_timely_eq2(|| node.vote_cache.len(), 3);
     assert_eq!(node.aec.len(), 0);
     assert_eq!(1, node.ledger.confirmed_count());
@@ -228,7 +236,10 @@ fn vote_cache_election_start() {
     ));
     node.vote_processor_queue
         .enqueue(vote0, None, VoteDelivery::Direct, None);
-    assert_timely_eq2(|| node.aec.len(), 0);
+    // RAI: send1 was cemented as a dependency and keeps its election until it
+    // collects the certificates of its epoch
+    let kept = if cfg!(feature = "rai_protocol") { 1 } else { 0 };
+    assert_timely_eq2(|| node.aec.len(), kept);
     assert_timely_eq2(|| node.ledger.confirmed_count(), 5);
     // Confirmation on disk may lag behind cemented_count cache
     assert_timely2(|| {
@@ -236,7 +247,7 @@ fn vote_cache_election_start() {
     });
 
     // A late block arrival also checks the inactive votes cache
-    assert_eq!(node.aec.len(), 0);
+    assert_eq!(node.aec.len(), kept);
     let send4_cache = node.vote_cache.vote_count(&send4.hash());
     assert_eq!(3, send4_cache);
     node.process_active(send3.clone());

@@ -320,12 +320,9 @@ fn duplicate_vote_detection() {
     let node0 = system.make_node();
     let node1 = system.make_node();
 
-    let vote = Vote::new(
-        &DEV_GENESIS_KEY,
-        UnixMillisTimestamp::ZERO,
-        0,
-        vec![*DEV_GENESIS_HASH],
-    );
+    // A final vote: under RAI a first vote for a cemented block would open an
+    // instance of it, which is not what is tested here
+    let vote = Vote::new_final(&DEV_GENESIS_KEY, vec![*DEV_GENESIS_HASH]);
     let message = Message::ConfirmAck(ConfirmAck::new_with_own_vote(vote));
 
     // Publish duplicate detection through TCP
@@ -488,12 +485,9 @@ fn expire_duplicate_filter() {
         })
         .finish();
 
-    let vote = Vote::new(
-        &DEV_GENESIS_KEY,
-        UnixMillisTimestamp::ZERO,
-        0,
-        vec![*DEV_GENESIS_HASH],
-    );
+    // A final vote: under RAI a first vote for a cemented block would open an
+    // instance of it, which is not what is tested here
+    let vote = Vote::new_final(&DEV_GENESIS_KEY, vec![*DEV_GENESIS_HASH]);
     let message = Message::ConfirmAck(ConfirmAck::new_with_own_vote(vote));
 
     // Publish duplicate detection through TCP

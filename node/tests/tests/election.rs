@@ -421,7 +421,13 @@ fn kudzu_own_votes_survive_a_winner_change() {
 
     let election = node2.aec.election_for_block(&send1.hash()).unwrap();
     let own = election.kudzu_votes().rep(&key.public_key()).unwrap();
-    assert_eq!(own.first, Some(fork1.hash()));
+    assert_eq!(
+        own.first,
+        Some(fork1.hash()),
+        "own votes: {own:?}, candidates: {:?}, fork1 {}",
+        election.candidate_blocks().keys().collect::<Vec<_>>(),
+        fork1.hash()
+    );
 }
 
 /// Kudzu: a request for a block we do not hold, for a root where our ledger

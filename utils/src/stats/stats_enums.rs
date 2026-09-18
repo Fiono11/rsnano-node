@@ -34,6 +34,7 @@ pub enum StatType {
     VoteGeneratorFinal,
     VoteGeneratorNotar,
     VoteGeneratorTimeout,
+    VoteGeneratorAbstain,
     VoteCache,
     VoteCacheProcessor,
     Hinting,
@@ -166,6 +167,7 @@ pub enum DetailType {
     GenerateVoteFinal,
     GenerateVoteNotar,
     GenerateVoteTimeout,
+    GenerateVoteAbstain,
     ConfirmationRequest,
 
     // election types
@@ -243,6 +245,12 @@ pub enum DetailType {
     FinalVote,
     /// Kudzu: replies carrying the retained votes of a terminated election
     CertificateVotes,
+    InstanceJoined,
+    EvidenceFirst,
+    EvidenceNotar,
+    EvidenceTimeout,
+    EvidenceAbstain,
+    EvidenceFinal,
     ForkCandidate,
 
     // duplicate
@@ -397,6 +405,7 @@ pub enum Sample {
     VoteGeneratorHashes,
     VoteGeneratorNotarHashes,
     VoteGeneratorTimeoutHashes,
+    VoteGeneratorAbstainHashes,
 }
 
 impl Sample {

@@ -83,6 +83,7 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
                 }
             }
             AecFact::ElectionTerminated(_) => self.election_schedulers.notify(),
+            AecFact::EpochAdvanced(_) => {}
             AecFact::ElectionEnded(election) => {
                 self.election_schedulers.notify();
 

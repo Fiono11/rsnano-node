@@ -124,7 +124,7 @@ impl Tickable for AecVoter {
         self.scheduler.cleanup(now);
         if cfg!(feature = "rai_protocol") {
             // Record the decisions before the generators pick them up
-            self.aec.mark_kudzu_voted(&vote_queue);
+            vote_queue = self.aec.mark_kudzu_voted(vote_queue);
         }
         self.flush(&mut vote_queue);
     }

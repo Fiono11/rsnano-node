@@ -1551,7 +1551,10 @@ fn confirm_back() {
     node.vote_processor_queue
         .enqueue(vote, None, VoteDelivery::Direct, None);
 
-    assert_timely_eq2(|| node.aec.len(), 0);
+    // RAI: the cemented dependencies keep their elections until those collect
+    // the certificates of their epoch
+    let kept = if cfg!(feature = "rai_protocol") { 2 } else { 0 };
+    assert_timely_eq2(|| node.aec.len(), kept);
 }
 
 // Test that rep_crawler removes unreachable reps from its search results.

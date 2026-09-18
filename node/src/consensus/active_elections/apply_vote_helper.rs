@@ -1,6 +1,6 @@
 use std::{collections::HashMap, ops::Deref};
 
-use rsnano_types::{Amount, BlockHash, VoteDelivery, VoteError};
+use rsnano_types::{Amount, BlockHash, ConsensusEpoch, VoteDelivery, VoteError};
 use rsnano_utils::sync::backpressure_channel::Sender;
 
 use super::{
@@ -64,11 +64,15 @@ impl<'a> ApplyVoteHelper<'a> {
                 let terminated = election.state().is_terminated();
 
                 if confirmed {
+                    if !self.roots.is_terminated(&id) {
+                        result.decided.push(id.epoch);
+                    }
                     if let Some(entry) = self.roots.erase(&id) {
                         result.confirmed.push(entry);
                     }
                 } else if terminated && !self.roots.is_terminated(&id) {
                     // Kudzu: keep the evidence, but stop taking capacity
+                    result.decided.push(id.epoch);
                     self.roots.mark_terminated(&id);
                     if let Some(observer) = self.observer {
                         observer.send(AecFact::ElectionTerminated(id)).unwrap();
@@ -91,6 +95,8 @@ impl<'a> ApplyVoteHelper<'a> {
 pub(crate) struct ApplyVoteResult {
     pub per_block: HashMap<BlockHash, Result<(), VoteError>>,
     pub confirmed: Vec<Entry>,
+    /// RAI: the epochs of the elections which got their first certificate
+    pub decided: Vec<ConsensusEpoch>,
 }
 
 struct ApplyVoteToElectionHelper<'a> {

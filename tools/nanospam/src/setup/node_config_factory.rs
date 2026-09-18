@@ -31,6 +31,9 @@ pub(crate) const NODE_CONFIG: &str = r#"
     database_backend = "DB_BACKEND"
     cps_limit = CPS_LIMIT
 
+[node.active_elections]
+    epoch_terminated_elections = EPOCH_TERMINATED_ELECTIONS
+
 [node.lmdb]
     sync = "nosync_unsafe"
 
@@ -105,6 +108,10 @@ pub(crate) fn configure_nodes(args: &CliArgs, data_dir: &Path) {
                 .replace("PRECONF_PEERS", &preconfigured_peers(args.prs, i))
                 .replace("DB_BACKEND", if args.rocksdb { "rocksdb" } else { "lmdb" })
                 .replace("CPS_LIMIT", &args.cps_limit.to_string())
+                .replace(
+                    "EPOCH_TERMINATED_ELECTIONS",
+                    &args.epoch_terminated_elections.to_string(),
+                )
                 .replace(
                     "ONLINE_WEIGHT_MINIMUM",
                     &voting_weight().number().to_string(),

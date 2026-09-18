@@ -38,8 +38,15 @@ impl VoteProcessorQueue {
                             RepTier::None => conf.max_non_pr_queue,
                         };
                         if *channel == ChannelId::LOOPBACK {
-                            // allow more votes for LOOPBACK, which comes from the vote cache!
-                            max_size * 10
+                            // allow more votes for LOOPBACK, which comes from the vote cache
+                            // and carries the node's own votes. Kudzu: an own vote is a
+                            // one-shot statement, dropping it here loses it from the
+                            // node's own instance for good, so the queue is deep.
+                            if cfg!(feature = "rai_protocol") {
+                                max_size * 256
+                            } else {
+                                max_size * 10
+                            }
                         } else {
                             max_size
                         }
