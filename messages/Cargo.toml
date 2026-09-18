@@ -6,7 +6,7 @@ edition = "2024"
 
 [features]
 # Kudzu votes are immutable: rebroadcast confirm_acks must pass the duplicate filter
-rai_protocol = []
+rai_protocol = ["rsnano_types/rai_protocol"]
 ledger_snapshots = ["rsnano_utils/ledger_snapshots"]
 banano = [
 	"rsnano_types/banano",
