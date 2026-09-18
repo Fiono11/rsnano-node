@@ -58,6 +58,11 @@ impl AccountMap {
         &self.account_states.get(&self.all_accounts[0]).unwrap().key
     }
 
+    /// The account that received the whole spam amount and funds all others
+    pub fn initial_account(&self) -> Account {
+        self.all_accounts[0]
+    }
+
     pub fn accounts(&self) -> &Vec<Account> {
         &self.all_accounts
     }

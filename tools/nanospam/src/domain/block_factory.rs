@@ -1,6 +1,6 @@
 use rand::RngExt;
 
-use rsnano_types::{Amount, Block, BlockHash, Link, PublicKey, StateBlockArgs, WorkNonce};
+use rsnano_types::{Account, Amount, Block, BlockHash, Link, PublicKey, StateBlockArgs, WorkNonce};
 
 use crate::domain::AccountMap;
 
@@ -104,6 +104,7 @@ fn create_send_or_receive_block(account_map: &mut AccountMap, is_fork: bool) -> 
     if let Some((receiver, send_hash, amount_sent)) = account_map.next_receivable() {
         let state = account_map.state(&receiver).unwrap();
         assert!(state.confirmed());
+        let is_fork = is_fork && can_fork(account_map, &receiver);
         let receive: Block = StateBlockArgs {
             key: &state.key,
             previous: state.confirmed_frontier,
@@ -138,6 +139,7 @@ fn create_send_or_receive_block(account_map: &mut AccountMap, is_fork: bool) -> 
         result
     } else if let Some(state) = account_map.random_account_that_can_send() {
         assert!(state.confirmed());
+        let is_fork = is_fork && can_fork(account_map, &state.key.account());
         let destination = account_map.random_account().unwrap();
         let new_balance: Amount = rand::rng().random_range(..state.balance.number()).into();
         let amount_sent = state.balance - new_balance;
@@ -184,6 +186,14 @@ fn create_send_or_receive_block(account_map: &mut AccountMap, is_fork: bool) -> 
     }
 }
 
+/// The initial account funds every other account with its sends. A forked
+/// root may never confirm (under Kudzu a 3-3 fork settles without a winner),
+/// which would freeze the funds and with them the whole workload, so the
+/// initial account's blocks are never forked.
+fn can_fork(account_map: &AccountMap, account: &Account) -> bool {
+    *account != account_map.initial_account()
+}
+
 fn create_change_block(account_map: &mut AccountMap) -> BlockResult {
     let Some(state) = account_map.random_account_that_can_send() else {
         return BlockResult::Waiting;
@@ -225,6 +235,32 @@ mod tests {
                 .get_receivable(&destination)
                 .is_some()
         );
+    }
+
+    /// The initial account funds the whole run, so its blocks are never forked
+    #[test]
+    fn initial_account_is_never_forked() {
+        let mut block_factory =
+            BlockFactory::new(test_account_map(), MAX_BLOCKS, SpamStrategy::SendReceive);
+        let Some(BlockResult::Block(forks)) = block_factory.create_next(true) else {
+            panic!("expected a block");
+        };
+        assert_eq!(
+            forks.block.account_field().unwrap(),
+            initial_test_key().account()
+        );
+        assert!(forks.fork.is_none());
+        block_factory.confirm(&forks.block.hash());
+
+        // The receiving account is an ordinary account and can be forked
+        let Some(BlockResult::Block(forks)) = block_factory.create_next(true) else {
+            panic!("expected a block");
+        };
+        assert_ne!(
+            forks.block.account_field().unwrap(),
+            initial_test_key().account()
+        );
+        assert!(forks.fork.is_some());
     }
 
     #[test]
