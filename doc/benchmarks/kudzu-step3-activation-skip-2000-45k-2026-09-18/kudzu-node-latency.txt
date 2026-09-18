@@ -1,0 +1,30 @@
+PR0 latency_finalization_fork        count=   262 avg= 3944.8ms p50=1251 p95=13305 p99=15891 max=16435ms
+PR0 latency_finalization_nonfork     count= 42881 avg=  124.6ms p50=106 p95=291 p99=490 max=15079ms
+PR0 latency_termination_fork         count=  2054 avg=  212.5ms p50=166 p95=460 p99=717 max=9965ms
+PR0 latency_termination_nonfork      count= 42998 avg=   96.2ms p50=84 p95=213 p99=346 max=15079ms
+PR0 confirm_ack in/out 14741/35302 scheduler activated 47616 already_active 53395 bucket dup 2 backlog activated 54157 scanned 362907 evicted 1011 over_cap 20
+PR1 latency_finalization_fork        count=   238 avg= 4039.5ms p50=1897 p95=13330 p99=15887 max=16434ms
+PR1 latency_finalization_nonfork     count= 42905 avg=  121.0ms p50=105 p95=282 p99=435 max=14975ms
+PR1 latency_termination_fork         count=  1992 avg=  191.8ms p50=165 p95=386 p99=614 max=1059ms
+PR1 latency_termination_nonfork      count= 43060 avg=   94.1ms p50=84 p95=202 p99=379 max=14975ms
+PR1 confirm_ack in/out 12492/33057 scheduler activated 47606 already_active 52745 bucket dup 0 backlog activated 54035 scanned 363669 evicted 1363 over_cap 0
+PR2 latency_finalization_fork        count=   261 avg= 3826.7ms p50=1132 p95=13306 p99=15888 max=16434ms
+PR2 latency_finalization_nonfork     count= 42882 avg=  112.5ms p50=104 p95=205 p99=396 max=15058ms
+PR2 latency_termination_fork         count=  2023 avg=  214.6ms p50=167 p95=392 p99=586 max=9953ms
+PR2 latency_termination_nonfork      count= 43029 avg=   87.0ms p50=83 p95=158 p99=244 max=15058ms
+PR2 confirm_ack in/out 13275/36148 scheduler activated 48215 already_active 52377 bucket dup 2 backlog activated 53343 scanned 363741 evicted 548 over_cap 0
+PR3 latency_finalization_fork        count=   256 avg= 3724.4ms p50=938 p95=13301 p99=15889 max=16430ms
+PR3 latency_finalization_nonfork     count= 42887 avg=  115.8ms p50=105 p95=228 p99=357 max=14931ms
+PR3 latency_termination_fork         count=  2001 avg=  211.4ms p50=165 p95=356 p99=507 max=10392ms
+PR3 latency_termination_nonfork      count= 43051 avg=   89.1ms p50=84 p95=165 p99=251 max=14931ms
+PR3 confirm_ack in/out 12735/34630 scheduler activated 47081 already_active 51513 bucket dup 3 backlog activated 52224 scanned 361618 evicted 645 over_cap 5
+PR4 latency_finalization_fork        count=   198 avg= 1144.0ms p50=211 p95=5574 p99=10587 max=15378ms
+PR4 latency_finalization_nonfork     count= 40212 avg=  772.3ms p50=298 p95=5422 p99=6023 max=15079ms
+PR4 latency_termination_fork         count=  1999 avg= 1218.6ms p50=385 p95=5556 p99=9986 max=10663ms
+PR4 latency_termination_nonfork      count= 40339 avg=  722.5ms p50=246 p95=5410 p99=5999 max=15079ms
+PR4 confirm_ack in/out 27061/23838 scheduler activated 57352 already_active 69313 bucket dup 101 backlog activated 96719 scanned 365582 evicted 14793 over_cap 171
+PR5 latency_finalization_fork        count=   263 avg= 3830.6ms p50=1059 p95=13117 p99=15881 max=16431ms
+PR5 latency_finalization_nonfork     count= 42880 avg=  115.4ms p50=105 p95=232 p99=357 max=15079ms
+PR5 latency_termination_fork         count=  2010 avg=  209.0ms p50=165 p95=386 p99=618 max=10503ms
+PR5 latency_termination_nonfork      count= 43042 avg=   89.6ms p50=83 p95=166 p99=305 max=15079ms
+PR5 confirm_ack in/out 13841/33374 scheduler activated 48041 already_active 51611 bucket dup 3 backlog activated 53283 scanned 363889 evicted 596 over_cap 1

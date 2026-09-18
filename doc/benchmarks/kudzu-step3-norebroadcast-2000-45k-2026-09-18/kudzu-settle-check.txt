@@ -1,0 +1,10 @@
+t=3s roots=2026 pending=93 inconsistent=0 cemented=['43038', '43027', '43038', '43040', '43040', '43041'] states=[{'settled': 2015}, {'active': 29, 'passive': 3, 'settled': 1952, 'terminated': 42}, {'settled': 2015}, {'settled': 2013}, {'settled': 2012, None: 1}, {'settled': 2011, 'terminated': 1}]
+t=11s roots=2011 pending=8 inconsistent=0 cemented=['43043', '43042', '43043', '43043', '43043', '43043'] states=[{'settled': 2010}, {'settled': 2010, None: 1}, {'settled': 2010}, {'settled': 2010}, {'settled': 2010}, {'settled': 2010}]
+t=38s roots=2010 pending=0 inconsistent=0 cemented=['43043', '43043', '43043', '43043', '43043', '43043'] states=[{'settled': 2010}, {'settled': 2010}, {'settled': 2010}, {'settled': 2010}, {'settled': 2010}, {'settled': 2010}]
+settle check exit=0 at 143s (settle phase 38s)
+PR0: unconfirmed roots=2010 states={'settled': 2010} with>=1 cert=2010 with 2 certs=669 no cert=0 timeout cert=325
+PR1: unconfirmed roots=2010 states={'settled': 2010} with>=1 cert=2010 with 2 certs=669 no cert=0 timeout cert=325
+PR2: unconfirmed roots=2010 states={'settled': 2010} with>=1 cert=2010 with 2 certs=669 no cert=0 timeout cert=325
+PR3: unconfirmed roots=2010 states={'settled': 2010} with>=1 cert=2010 with 2 certs=669 no cert=0 timeout cert=325
+SETTLED_CONSISTENT after 38s: 2010 roots settled identically on all PRs, cemented=['43043', '43043', '43043', '43043', '43043', '43043']
+settle check exit=0 at 143s (settle phase 38s)

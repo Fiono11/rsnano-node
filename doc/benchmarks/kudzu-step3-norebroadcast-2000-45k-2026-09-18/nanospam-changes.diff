@@ -1,0 +1,42 @@
+diff --git a/tools/nanospam/src/confirmation_receiver.rs b/tools/nanospam/src/confirmation_receiver.rs
+index 28601a10c..7ea36861d 100644
+--- a/tools/nanospam/src/confirmation_receiver.rs
++++ b/tools/nanospam/src/confirmation_receiver.rs
+@@ -6,7 +6,7 @@ use tokio_util::sync::CancellationToken;
+ 
+ use rsnano_nullable_clock::{SteadyClock, Timestamp};
+ use rsnano_websocket_client::{
+-    NanoWebSocketClient, NanoWebSocketClientFactory, SubscribeArgs, TopicSub,
++    ConfirmationSubArgs, NanoWebSocketClient, NanoWebSocketClientFactory, SubscribeArgs, TopicSub,
+ };
+ use rsnano_websocket_messages::MessageEnvelope;
+ 
+@@ -24,7 +24,11 @@ impl ConfirmationReceiver {
+ 
+         ws_client
+             .subscribe(SubscribeArgs {
+-                topic: TopicSub::Confirmation(Default::default()),
++                topic: TopicSub::Confirmation(ConfirmationSubArgs {
++                    // only the hash and the receive time are used
++                    include_block: false,
++                    ..Default::default()
++                }),
+                 ack: true,
+                 id: None,
+             })
+diff --git a/tools/nanospam/src/setup/node_config_factory.rs b/tools/nanospam/src/setup/node_config_factory.rs
+index 424a9d94a..569b958c7 100644
+--- a/tools/nanospam/src/setup/node_config_factory.rs
++++ b/tools/nanospam/src/setup/node_config_factory.rs
+@@ -34,6 +34,11 @@ pub(crate) const NODE_CONFIG: &str = r#"
+ [node.lmdb]
+     sync = "nosync_unsafe"
+ 
++[node.vote_rebroadcaster]
++    # Every PR is directly connected to every other PR and there are no
++    # non-PR nodes: a rebroadcast vote is always a duplicate at the receiver
++    enable = false
++
+ [node.network]
+     max_peers_per_ip = 256
+ 

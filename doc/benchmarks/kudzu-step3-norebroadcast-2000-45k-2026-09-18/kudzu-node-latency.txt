@@ -1,0 +1,30 @@
+PR0 latency_finalization_fork        count=   167 avg= 3359.1ms p50=822 p95=13191 p99=30173 max=30175ms
+PR0 latency_finalization_nonfork     count= 42875 avg=  144.1ms p50=109 p95=409 p99=612 max=16411ms
+PR0 latency_termination_fork         count=  1975 avg=  287.4ms p50=200 p95=499 p99=802 max=9832ms
+PR0 latency_termination_nonfork      count= 43077 avg=  105.6ms p50=88 p95=247 p99=446 max=16317ms
+PR0 confirm_ack in/out 16112/34682 confirm_req in 767 publish in 61020 dups {('filter', 'duplicate_confirm_ack_message', 'in'): 735, ('tcp_listener_rejected', 'duplicate', 'out'): 238, ('filter', 'duplicate_publish_message', 'in'): 18648, ('election_bucket', 'activate_failed_duplicate', 'in'): 93979, ('election_scheduler', 'duplicate', 'in'): 99} evicted 624 over_cap {('election_bucket', 'over_capacity', 'in'): 0} rebroadcast {('vote_rebroadcaster', 'overfill', 'in'): 19662}
+PR1 latency_finalization_fork        count=   146 avg= 2524.5ms p50=839 p95=10428 p99=30159 max=30160ms
+PR1 latency_finalization_nonfork     count= 40160 avg=  885.5ms p50=411 p95=5360 p99=5938 max=14987ms
+PR1 latency_termination_fork         count=  2061 avg= 1148.0ms p50=497 p95=5384 p99=10413 max=30124ms
+PR1 latency_termination_nonfork      count= 40286 avg=  824.9ms p50=348 p95=5347 p99=5898 max=14987ms
+PR1 confirm_ack in/out 35300/18681 confirm_req in 845 publish in 63149 dups {('tcp_listener_rejected', 'duplicate', 'out'): 252, ('election_scheduler', 'duplicate', 'in'): 3519, ('filter', 'duplicate_confirm_ack_message', 'in'): 830, ('election_bucket', 'activate_failed_duplicate', 'in'): 117565, ('filter', 'duplicate_publish_message', 'in'): 35027} evicted 12404 over_cap {('election_bucket', 'over_capacity', 'in'): 241} rebroadcast {('vote_rebroadcaster', 'overfill', 'in'): 80240}
+PR2 latency_finalization_fork        count=   174 avg= 3245.4ms p50=823 p95=13200 p99=30180 max=30182ms
+PR2 latency_finalization_nonfork     count= 42868 avg=  146.4ms p50=110 p95=389 p99=597 max=15094ms
+PR2 latency_termination_fork         count=  2030 avg=  250.0ms p50=202 p95=490 p99=685 max=5216ms
+PR2 latency_termination_nonfork      count= 43022 avg=  108.8ms p50=89 p95=279 p99=430 max=15094ms
+PR2 confirm_ack in/out 17147/34847 confirm_req in 709 publish in 61148 dups {('election_bucket', 'activate_failed_duplicate', 'in'): 94096, ('tcp_listener_rejected', 'duplicate', 'out'): 260, ('election_scheduler', 'duplicate', 'in'): 65, ('filter', 'duplicate_publish_message', 'in'): 20461, ('filter', 'duplicate_confirm_ack_message', 'in'): 745} evicted 823 over_cap {('election_bucket', 'over_capacity', 'in'): 0} rebroadcast {('vote_rebroadcaster', 'overfill', 'in'): 19191}
+PR3 latency_finalization_fork        count=   157 avg= 3519.2ms p50=1035 p95=13195 p99=30187 max=30189ms
+PR3 latency_finalization_nonfork     count= 42883 avg=  166.4ms p50=112 p95=518 p99=688 max=15131ms
+PR3 latency_termination_fork         count=  1819 avg=  322.8ms p50=219 p95=713 p99=921 max=10534ms
+PR3 latency_termination_nonfork      count= 43231 avg=  127.0ms p50=91 p95=371 p99=577 max=15037ms
+PR3 confirm_ack in/out 21069/31570 confirm_req in 841 publish in 62383 dups {('election_scheduler', 'duplicate', 'in'): 187, ('filter', 'duplicate_confirm_ack_message', 'in'): 852, ('tcp_listener_rejected', 'duplicate', 'out'): 263, ('election_bucket', 'activate_failed_duplicate', 'in'): 99357, ('filter', 'duplicate_publish_message', 'in'): 23444} evicted 1795 over_cap {('election_bucket', 'over_capacity', 'in'): 0} rebroadcast {('vote_rebroadcaster', 'overfill', 'in'): 28716}
+PR4 latency_finalization_fork        count=   164 avg= 3460.4ms p50=855 p95=12526 p99=30157 max=30157ms
+PR4 latency_finalization_nonfork     count= 42878 avg=  171.2ms p50=112 p95=543 p99=714 max=15036ms
+PR4 latency_termination_fork         count=  1997 avg=  317.5ms p50=210 p95=669 p99=976 max=10432ms
+PR4 latency_termination_nonfork      count= 43055 avg=  127.5ms p50=91 p95=364 p99=572 max=15029ms
+PR4 confirm_ack in/out 20815/31153 confirm_req in 711 publish in 61566 dups {('election_bucket', 'activate_failed_duplicate', 'in'): 99544, ('tcp_listener_rejected', 'duplicate', 'out'): 262, ('filter', 'duplicate_confirm_ack_message', 'in'): 820, ('election_scheduler', 'duplicate', 'in'): 162, ('filter', 'duplicate_publish_message', 'in'): 22047} evicted 1464 over_cap {('election_bucket', 'over_capacity', 'in'): 1} rebroadcast {('vote_rebroadcaster', 'overfill', 'in'): 26137}
+PR5 latency_finalization_fork        count=   139 avg= 4016.6ms p50=1458 p95=13557 p99=30187 max=30188ms
+PR5 latency_finalization_nonfork     count= 42902 avg=  139.0ms p50=108 p95=364 p99=603 max=14965ms
+PR5 latency_termination_fork         count=  1760 avg=  266.3ms p50=206 p95=513 p99=767 max=10317ms
+PR5 latency_termination_nonfork      count= 43291 avg=  103.2ms p50=86 p95=254 p99=421 max=14872ms
+PR5 confirm_ack in/out 16199/33913 confirm_req in 822 publish in 62137 dups {('tcp_listener_rejected', 'duplicate', 'out'): 254, ('election_bucket', 'activate_failed_duplicate', 'in'): 97251, ('election_scheduler', 'duplicate', 'in'): 65, ('filter', 'duplicate_publish_message', 'in'): 19585, ('filter', 'duplicate_confirm_ack_message', 'in'): 833} evicted 696 over_cap {('election_bucket', 'over_capacity', 'in'): 1} rebroadcast {('vote_rebroadcaster', 'overfill', 'in'): 27166}
