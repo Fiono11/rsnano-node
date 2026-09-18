@@ -10,7 +10,7 @@ use rsnano_node::{
     consensus::{AggregatorRequest, VoteGenerationEvent},
 };
 use rsnano_output_tracker::OutputTrackerMt;
-use rsnano_types::{Amount, DEV_GENESIS_KEY, PrivateKey};
+use rsnano_types::{Amount, ConsensusEpoch, DEV_GENESIS_KEY, PrivateKey};
 use rsnano_utils::stats::{DetailType, Direction, StatType};
 
 use test_helpers::{
@@ -47,6 +47,7 @@ fn one() {
     let request = AggregatorRequest {
         channel: channel.clone(),
         roots_hashes: vec![(send1.hash(), send1.root())],
+        epoch: ConsensusEpoch::ZERO,
     };
 
     node.request_aggregator.request(request.clone());
@@ -197,6 +198,7 @@ fn one_update() {
     let request1 = AggregatorRequest {
         channel: dummy_channel.clone(),
         roots_hashes: vec![(send2.hash(), send2.root())],
+        epoch: ConsensusEpoch::ZERO,
     };
     node.request_aggregator.request(request1);
 
@@ -204,6 +206,7 @@ fn one_update() {
     let request2 = AggregatorRequest {
         channel: dummy_channel.clone(),
         roots_hashes: vec![(receive1.hash(), receive1.root())],
+        epoch: ConsensusEpoch::ZERO,
     };
     node.request_aggregator.request(request2);
 
@@ -313,6 +316,7 @@ fn two() {
             (send2.hash(), send2.root()),
             (receive1.hash(), receive1.root()),
         ],
+        epoch: ConsensusEpoch::ZERO,
     };
 
     // Process both blocks
@@ -433,6 +437,7 @@ fn split() {
     let request = AggregatorRequest {
         channel: dummy_channel.clone(),
         roots_hashes,
+        epoch: ConsensusEpoch::ZERO,
     };
     node.request_aggregator.request(request);
     // In the ledger but no vote generated yet
@@ -517,6 +522,7 @@ fn channel_max_queue() {
     let request = AggregatorRequest {
         channel: channel.clone(),
         roots_hashes: vec![(send1.hash(), send1.root())],
+        epoch: ConsensusEpoch::ZERO,
     };
     node.request_aggregator.request(request.clone());
     node.request_aggregator.request(request.clone());
@@ -553,6 +559,7 @@ fn cannot_vote() {
     let request = AggregatorRequest {
         channel: dummy_channel.clone(),
         roots_hashes: vec![(send2.hash(), send2.root()), (1.into(), send2.root())],
+        epoch: ConsensusEpoch::ZERO,
     };
     node.request_aggregator.request(request.clone());
 
@@ -711,6 +718,7 @@ fn forked_open() {
     let request = AggregatorRequest {
         channel: channel.clone(),
         roots_hashes: vec![(open1.hash(), open1.root())],
+        epoch: ConsensusEpoch::ZERO,
     };
     node.request_aggregator.request(request);
 
@@ -764,6 +772,7 @@ fn epoch_conflict() {
     let request = AggregatorRequest {
         channel: channel.clone(),
         roots_hashes: vec![(epoch_open.hash(), epoch_open.root())],
+        epoch: ConsensusEpoch::ZERO,
     };
     node.request_aggregator.request(request.clone());
 
@@ -823,6 +832,7 @@ fn cemented_no_spacing() {
             (send2.hash(), send2.root()),
             (send3.hash(), send3.root()),
         ],
+        epoch: ConsensusEpoch::ZERO,
     };
 
     // Request votes for all blocks

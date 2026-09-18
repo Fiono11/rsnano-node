@@ -32,6 +32,8 @@ pub struct FinalStateResponse {
 #[derive(PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct ConflictingRoot {
     pub root: QualifiedRoot,
+    /// RAI consensus epoch of the election
+    pub epoch: RpcU64,
     /// Every candidate of the election, i.e. the blocks that are discarded
     pub blocks: Vec<BlockHash>,
 }

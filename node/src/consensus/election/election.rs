@@ -10,13 +10,13 @@ use strum_macros::{EnumCount, EnumIter};
 
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{
-    Account, Amount, Block, BlockHash, MaybeSavedBlock, PublicKey, QualifiedRoot, SavedBlock,
-    UnixMillisTimestamp, Vote, VoteError, VoteKind,
+    Account, Amount, Block, BlockHash, ConsensusEpoch, MaybeSavedBlock, PublicKey, QualifiedRoot,
+    SavedBlock, UnixMillisTimestamp, Vote, VoteError, VoteKind,
 };
 use rsnano_utils::stats::DetailType;
 
 use super::{
-    ConfirmationType, ConfirmedElection, ElectionState,
+    ConfirmationType, ConfirmedElection, ElectionId, ElectionState,
     block_tallies::BlockTallies,
     kudzu::{Certificates, KudzuThresholds, LocalSlotState, SlotVotes},
 };
@@ -55,9 +55,19 @@ impl From<VoteType> for VoteKind {
     }
 }
 
+/// Kudzu slot (account height) within one consensus epoch
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct EpochSlot {
+    pub account: Account,
+    pub height: u64,
+    pub epoch: ConsensusEpoch,
+}
+
 #[derive(Clone)]
 pub struct Election {
     qualified_root: QualifiedRoot,
+    /// RAI: the consensus epoch this election belongs to
+    epoch: ConsensusEpoch,
     winner: MaybeSavedBlock,
     state: ElectionState,
     // TODO: there can't be more than 10 blocks, so an array might be a lot faster
@@ -93,12 +103,14 @@ impl Election {
 
     pub fn new(
         block: SavedBlock,
+        epoch: ConsensusEpoch,
         behavior: ElectionBehavior,
         base_latency: Duration,
         now: Timestamp,
     ) -> Self {
         Self {
             qualified_root: block.qualified_root(),
+            epoch,
             votes: HashMap::new(),
             candidate_blocks: HashMap::from([(
                 block.hash(),
@@ -125,6 +137,7 @@ impl Election {
     pub fn new_test_instance_with(block: SavedBlock) -> Self {
         Self::new(
             block,
+            ConsensusEpoch::ZERO,
             ElectionBehavior::Priority,
             Duration::from_millis(1000),
             Timestamp::new_test_instance(),
@@ -133,6 +146,14 @@ impl Election {
 
     pub fn qualified_root(&self) -> &QualifiedRoot {
         &self.qualified_root
+    }
+
+    pub fn epoch(&self) -> ConsensusEpoch {
+        self.epoch
+    }
+
+    pub fn id(&self) -> ElectionId {
+        ElectionId::new(self.qualified_root.clone(), self.epoch)
     }
 
     pub fn behavior(&self) -> ElectionBehavior {
@@ -150,6 +171,15 @@ impl Election {
     /// The Kudzu slot this election belongs to
     pub fn slot(&self) -> (Account, u64) {
         (self.account, self.height)
+    }
+
+    /// Kudzu: the local slot state is per epoch, every epoch is its own Kudzu instance
+    pub fn epoch_slot(&self) -> EpochSlot {
+        EpochSlot {
+            account: self.account,
+            height: self.height,
+            epoch: self.epoch,
+        }
     }
 
     pub fn certificates(&self) -> &Certificates {
@@ -240,6 +270,10 @@ impl Election {
         vote_received: Timestamp,
     ) -> Result<(), VoteError> {
         debug_assert!(self.candidate_blocks.contains_key(&hash));
+        // A vote of another epoch belongs to another Kudzu instance
+        if vote.epoch != self.epoch {
+            return Err(VoteError::Indeterminate);
+        }
         self.kudzu.add(vote.voter, hash, vote.kind())?;
         self.votes.insert(
             vote.voter,

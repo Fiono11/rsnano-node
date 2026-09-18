@@ -4,6 +4,7 @@ mod apply_vote_helper;
 mod cooldown_controller;
 mod recently_confirmed_cache;
 mod root_container;
+mod slot_states;
 mod stats;
 mod vote_router;
 
@@ -19,7 +20,7 @@ use rsnano_types::{
 
 use super::{
     ReceivedVote,
-    election::{ConfirmedElection, Election, ElectionBehavior},
+    election::{ConfirmedElection, Election, ElectionBehavior, ElectionId},
 };
 use root_container::{Entry, RootContainer};
 
@@ -49,7 +50,7 @@ pub enum AecFact {
 
     /// Kudzu: the election holds a certificate and no longer occupies a
     /// slot in its priority bucket
-    ElectionTerminated(QualifiedRoot),
+    ElectionTerminated(ElectionId),
 
     BlockAddedToElection(BlockHash),
     BlockDiscarded(Block),

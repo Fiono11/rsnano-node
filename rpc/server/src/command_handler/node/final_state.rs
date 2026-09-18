@@ -48,6 +48,7 @@ impl RpcCommandHandler {
                     }
                     SlotOutcome::Conflicting => conflicting.push(ConflictingRoot {
                         root: election.qualified_root().clone(),
+                        epoch: election.epoch().as_u64().into(),
                         blocks: election.candidate_blocks().keys().copied().collect(),
                     }),
                     SlotOutcome::Empty => empty += 1,

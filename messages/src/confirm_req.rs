@@ -3,7 +3,8 @@ use anyhow::Result;
 use bitvec::prelude::BitArray;
 use num_traits::FromPrimitive;
 use rsnano_types::{
-    BlockHash, BlockType, BlockTypeId, DeserializationError, Root, serialized_block_size,
+    BlockHash, BlockType, BlockTypeId, ConsensusEpoch, DeserializationError, Root,
+    serialized_block_size,
 };
 use serde::ser::{SerializeSeq, SerializeStruct};
 use std::fmt::{Debug, Display, Write};
@@ -11,6 +12,7 @@ use std::fmt::{Debug, Display, Write};
 /*
  * Binary Format:
  * [message_header] Common message header
+ * [8 bytes (consensus epoch)] RAI protocol only: the epoch of the requester's elections
  * [N x (32 bytes (block hash) + 32 bytes (root))] Pairs of (block_hash, root)
  * - The count is determined by the header's count bits.
  *
@@ -25,6 +27,10 @@ use std::fmt::{Debug, Display, Write};
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct ConfirmReq {
     pub roots_hashes: Vec<(BlockHash, Root)>,
+    /// RAI: the consensus epoch of the elections the votes are requested for.
+    /// On the wire under the `rai_protocol` feature only; the legacy protocol
+    /// has the single implicit epoch zero.
+    pub epoch: ConsensusEpoch,
 }
 
 impl ConfirmReq {
@@ -41,11 +47,21 @@ impl ConfirmReq {
     const V2_FLAG: u16 = 0b0000_0000_0000_0001;
     // ----------------------
 
+    /// RAI: the epoch is serialized before the roots and hashes
+    const EPOCH_ON_WIRE: bool = cfg!(feature = "rai_protocol");
+
     pub fn new(roots_hashes: Vec<(BlockHash, Root)>) -> Self {
+        Self::new_in_epoch(roots_hashes, ConsensusEpoch::ZERO)
+    }
+
+    pub fn new_in_epoch(roots_hashes: Vec<(BlockHash, Root)>, epoch: ConsensusEpoch) -> Self {
         if roots_hashes.len() > u8::MAX as usize {
             panic!("roots_hashes too big");
         }
-        Self { roots_hashes }
+        Self {
+            roots_hashes,
+            epoch,
+        }
     }
 
     pub fn new_test_instance() -> Self {
@@ -132,7 +148,8 @@ impl ConfirmReq {
             Err(_) => {
                 let count = Self::count(extensions);
                 if block_type_id == BlockTypeId::NotABlock {
-                    count as usize * (BlockHash::SERIALIZED_SIZE + Root::SERIALIZED_SIZE)
+                    Self::epoch_size()
+                        + count as usize * (BlockHash::SERIALIZED_SIZE + Root::SERIALIZED_SIZE)
                 } else {
                     0
                 }
@@ -140,10 +157,21 @@ impl ConfirmReq {
         }
     }
 
+    fn epoch_size() -> usize {
+        if Self::EPOCH_ON_WIRE {
+            ConsensusEpoch::SERIALIZED_SIZE
+        } else {
+            0
+        }
+    }
+
     pub fn serialize<T>(&self, writer: &mut T) -> std::io::Result<()>
     where
         T: std::io::Write,
     {
+        if Self::EPOCH_ON_WIRE {
+            self.epoch.serialize(writer)?;
+        }
         for (hash, root) in &self.roots_hashes {
             writer.write_all(hash.as_bytes())?;
             writer.write_all(root.as_bytes())?;
@@ -152,11 +180,16 @@ impl ConfirmReq {
     }
 
     pub fn deserialize(
-        bytes: &[u8],
+        mut bytes: &[u8],
         extensions: BitArray<u16>,
     ) -> Result<Self, DeserializationError> {
+        let epoch = if Self::EPOCH_ON_WIRE {
+            ConsensusEpoch::deserialize(&mut bytes)?
+        } else {
+            ConsensusEpoch::ZERO
+        };
         let roots = Self::deserialize_roots(bytes, extensions)?;
-        Ok(Self::new(roots))
+        Ok(Self::new_in_epoch(roots, epoch))
     }
 
     fn deserialize_roots(
@@ -218,6 +251,9 @@ impl serde::Serialize for ConfirmReq {
         let mut state = serializer.serialize_struct("ConfirmReq", 6)?;
         state.serialize_field("confirm_type", "roots_hashes")?;
         state.serialize_field("roots_hashes", &SerializableRootsHashes(&self.roots_hashes))?;
+        if Self::EPOCH_ON_WIRE {
+            state.serialize_field("epoch", &self.epoch)?;
+        }
         state.end()
     }
 }
@@ -337,6 +373,17 @@ mod tests {
                 (BlockHash::from(1), Root::from(2));
                 255
             ]));
+        assert_deserializable(&confirm_req);
+    }
+
+    /// RAI: the epoch travels with the request
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn serialize_epoch() {
+        let confirm_req = Message::ConfirmReq(ConfirmReq::new_in_epoch(
+            vec![(BlockHash::from(1), Root::from(2))],
+            ConsensusEpoch::new(7),
+        ));
         assert_deserializable(&confirm_req);
     }
 

@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use rsnano_messages::{ConfirmReq, Message};
 use rsnano_network::{Channel, ChannelId, TrafficType};
-use rsnano_types::{BlockHash, Root};
+use rsnano_types::{BlockHash, ConsensusEpoch, Root};
 
 use super::election::Election;
 use crate::{representatives::PeeredRepInfo, transport::MessageFlooder};
@@ -12,7 +12,9 @@ pub struct ConfirmationSolicitor {
     /// Maximum amount of requests to be sent per election, bypassed if an existing vote is for a different hash
     max_election_requests: usize,
     representatives: Vec<PeeredRepInfo>,
-    requests: HashMap<ChannelId, (Arc<Channel>, Vec<(BlockHash, Root)>)>,
+    /// RAI: a request is for the elections of one epoch, so the requests are
+    /// bundled per channel and epoch
+    requests: HashMap<(ChannelId, ConsensusEpoch), (Arc<Channel>, Vec<(BlockHash, Root)>)>,
     prepared: bool,
     message_flooder: MessageFlooder,
 }
@@ -75,7 +77,7 @@ impl ConfirmationSolicitor {
                     if !should_drop {
                         let (_, request_queue) = self
                             .requests
-                            .entry(rep_channel.channel_id())
+                            .entry((rep_channel.channel_id(), election.epoch()))
                             .or_insert_with(|| (rep_channel, Vec::new()));
 
                         request_queue.push((winner.hash(), winner.root()));
@@ -105,19 +107,19 @@ impl ConfirmationSolicitor {
     /// Dispatch bundled requests to each channel
     pub fn flush(&mut self) {
         debug_assert!(self.prepared);
-        for (channel, requests) in self.requests.values() {
+        for ((_, epoch), (channel, requests)) in &self.requests {
             let mut roots_hashes = Vec::new();
             for root_hash in requests {
                 roots_hashes.push(*root_hash);
                 if roots_hashes.len() == ConfirmReq::HASHES_MAX {
-                    let req = Message::ConfirmReq(ConfirmReq::new(roots_hashes));
+                    let req = Message::ConfirmReq(ConfirmReq::new_in_epoch(roots_hashes, *epoch));
                     self.message_flooder
                         .try_send(channel, &req, TrafficType::ConfirmationRequests);
                     roots_hashes = Vec::new();
                 }
             }
             if !roots_hashes.is_empty() {
-                let req = Message::ConfirmReq(ConfirmReq::new(roots_hashes));
+                let req = Message::ConfirmReq(ConfirmReq::new_in_epoch(roots_hashes, *epoch));
                 self.message_flooder
                     .try_send(channel, &req, TrafficType::ConfirmationRequests);
             }

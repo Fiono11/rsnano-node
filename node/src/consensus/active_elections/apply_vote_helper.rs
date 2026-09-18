@@ -25,16 +25,27 @@ impl<'a> ApplyVoteHelper<'a> {
         // Kudzu: certificate evidence is a batch handed over for one election; its
         // other hashes are of no interest and are skipped without a result
         let evidence = self.args.vote.delivery == VoteDelivery::Evidence;
+        // RAI: a vote counts in the election of its own epoch only
+        let epoch = self.args.vote.epoch;
         for block_hash in self.args.vote.filtered_blocks() {
             // Ignore duplicate hashes (should not happen with a well-behaved voting node)
             if result.per_block.contains_key(block_hash) {
                 continue;
             }
-            if evidence && self.roots.vote_router.qualified_root(block_hash).is_none() {
+            if evidence
+                && self
+                    .roots
+                    .vote_router
+                    .election_id(block_hash, epoch)
+                    .is_none()
+            {
                 continue;
             }
 
-            if let Some(election) = self.roots.election_for_block_mut(block_hash) {
+            if let Some(election) = self
+                .roots
+                .election_for_block_in_epoch_mut(block_hash, epoch)
+            {
                 {
                     let mut apply_to_election = ApplyVoteToElectionHelper {
                         args: self.args,
@@ -48,19 +59,19 @@ impl<'a> ApplyVoteHelper<'a> {
                     result.per_block.insert(*block_hash, vote_result);
                 }
 
-                let root = election.qualified_root().clone();
+                let id = election.id();
                 let confirmed = election.is_confirmed();
                 let terminated = election.state().is_terminated();
 
                 if confirmed {
-                    if let Some(entry) = self.roots.erase(&root) {
+                    if let Some(entry) = self.roots.erase(&id) {
                         result.confirmed.push(entry);
                     }
-                } else if terminated && !self.roots.is_terminated(&root) {
+                } else if terminated && !self.roots.is_terminated(&id) {
                     // Kudzu: keep the evidence, but stop taking capacity
-                    self.roots.mark_terminated(&root);
+                    self.roots.mark_terminated(&id);
                     if let Some(observer) = self.observer {
-                        observer.send(AecFact::ElectionTerminated(root)).unwrap();
+                        observer.send(AecFact::ElectionTerminated(id)).unwrap();
                     }
                 }
             } else if self.recently_confirmed.hash_exists(block_hash) {
@@ -229,8 +240,8 @@ mod tests {
     use rsnano_ledger::RepWeights;
     use rsnano_nullable_clock::Timestamp;
     use rsnano_types::{
-        Block, BlockPriority, PrivateKey, QualifiedRoot, SavedBlock, StateBlockArgs,
-        UnixMillisTimestamp, Vote, VoteKind,
+        Block, BlockPriority, ConsensusEpoch, PrivateKey, QualifiedRoot, SavedBlock,
+        StateBlockArgs, UnixMillisTimestamp, Vote, VoteKind,
     };
     use rsnano_utils::sync::backpressure_channel::channel;
     use std::{sync::Arc, time::Duration};
@@ -523,7 +534,7 @@ mod tests {
         fn add_active_election(&mut self) {
             let election = Election::new_test_instance_with(self.block.clone());
             self.roots.insert(Entry {
-                root: self.root.clone(),
+                id: election.id(),
                 election,
                 priority: BlockPriority::new_test_instance(),
             });
@@ -670,6 +681,7 @@ mod tests {
 
             let election = Election::new(
                 block.clone(),
+                ConsensusEpoch::ZERO,
                 ElectionBehavior::Priority,
                 Duration::from_secs(1),
                 now,

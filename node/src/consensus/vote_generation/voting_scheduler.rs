@@ -5,30 +5,30 @@ use std::{
 };
 
 use rsnano_nullable_clock::Timestamp;
-use rsnano_types::{BlockHash, QualifiedRoot};
+use rsnano_types::BlockHash;
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 use strum::EnumCount;
 
-use crate::consensus::election::{Election, VoteType};
+use crate::consensus::election::{Election, ElectionId, VoteType};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct VoteTarget {
-    pub root: QualifiedRoot,
+    pub election: ElectionId,
     pub winner: BlockHash,
     pub vote_type: VoteType,
 }
 
 pub(crate) fn vote_target(e: &Election) -> VoteTarget {
     VoteTarget {
-        root: e.qualified_root().clone(),
+        election: e.id(),
         winner: e.winner().hash(),
         vote_type: e.vote_type(),
     }
 }
 
-/// Votes are recorded per (root, block hash), so a vote for a different block
-/// of the same root is never delayed
-type RecordKey = (QualifiedRoot, BlockHash);
+/// Votes are recorded per (election, block hash), so a vote for a different
+/// block of the same root is never delayed
+type RecordKey = (ElectionId, BlockHash);
 
 pub(crate) struct VotingScheduler {
     records: HashMap<RecordKey, VoteRecord>,
@@ -53,7 +53,7 @@ impl VotingScheduler {
     /// Returns true if enough time has passed since the last vote of this type
     /// for this block, or if the block was never voted for.
     pub fn can_vote(&self, target: &VoteTarget, now: Timestamp) -> bool {
-        let Some(record) = self.records.get(&(target.root.clone(), target.winner)) else {
+        let Some(record) = self.records.get(&(target.election.clone(), target.winner)) else {
             return true;
         };
 
@@ -64,7 +64,7 @@ impl VotingScheduler {
     }
 
     pub fn mark_voted(&mut self, target: &VoteTarget, now: Timestamp) {
-        let key = (target.root.clone(), target.winner);
+        let key = (target.election.clone(), target.winner);
         let record = self.records.entry(key.clone()).or_insert(VoteRecord {
             last_by_type: [None; VoteType::COUNT],
             last_voted: now,
@@ -114,7 +114,6 @@ impl ContainerInfoProvider for VotingScheduler {
 mod tests {
     use super::*;
     use rsnano_nullable_clock::Timestamp;
-    use rsnano_types::QualifiedRoot;
     use std::time::Duration;
 
     #[test]
@@ -180,7 +179,7 @@ mod tests {
 
     fn target(vote_type: VoteType) -> VoteTarget {
         VoteTarget {
-            root: QualifiedRoot::new_test_instance(),
+            election: ElectionId::new_test_instance(),
             winner: BlockHash::from(1),
             vote_type,
         }
@@ -188,7 +187,7 @@ mod tests {
 
     fn other_winner_target(vote_type: VoteType) -> VoteTarget {
         VoteTarget {
-            root: QualifiedRoot::new_test_instance(),
+            election: ElectionId::new_test_instance(),
             winner: BlockHash::from(2),
             vote_type,
         }

@@ -49,8 +49,12 @@ impl AecVoter {
     fn flush(&self, queue: &mut Vec<VoteTarget>) {
         // TODO: enqueue with one call
         for target in queue.drain(..) {
-            self.vote_generators
-                .generate_vote(&target.root.root, &target.winner, target.vote_type);
+            self.vote_generators.generate_vote(
+                &target.election.root.root,
+                &target.winner,
+                target.election.epoch,
+                target.vote_type,
+            );
         }
     }
 }

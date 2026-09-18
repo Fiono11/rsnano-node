@@ -6,8 +6,12 @@ use rsnano_node::{
     config::NodeConfig,
     consensus::{ReceivedVote, election::KudzuThresholds},
 };
+#[cfg(feature = "rai_protocol")]
+use rsnano_types::ConsensusEpoch;
 use rsnano_types::{Amount, DEV_GENESIS_KEY, PrivateKey, Vote, VoteDelivery};
-use test_helpers::{System, assert_timely, assert_timely2};
+use test_helpers::{System, assert_timely2};
+#[cfg(feature = "rai_protocol")]
+use test_helpers::{assert_timely, establish_tcp};
 
 /// The weight a final vote needs to confirm a block: the legacy quorum, or the
 /// Kudzu finalization certificate
@@ -269,6 +273,7 @@ fn kudzu_certificates_are_handed_to_a_replica_that_missed_the_votes() {
     node1.request_aggregator.request(AggregatorRequest {
         channel: channel_to_node2,
         roots_hashes: vec![(send1.hash(), send1.root())],
+        epoch: ConsensusEpoch::ZERO,
     });
     assert_timely2(|| {
         node1.get_stat(
@@ -443,7 +448,14 @@ fn kudzu_fork_candidate_is_handed_to_a_replica_that_holds_the_other_fork() {
         .config(config())
         .flags(flags.clone())
         .finish();
-    let node2 = system.build_node().config(config()).flags(flags).finish();
+    // Each node gets its own fork before they are connected, so that neither
+    // block can reach the other node first
+    let node2 = system
+        .build_node()
+        .config(config())
+        .flags(flags)
+        .disconnected()
+        .finish();
 
     let key = PrivateKey::from(42);
     let send1 = UnsavedBlockLatticeBuilder::new()
@@ -455,22 +467,17 @@ fn kudzu_fork_candidate_is_handed_to_a_replica_that_holds_the_other_fork() {
     assert_eq!(send1.root(), fork1.root());
     node1.process(send1.clone());
     node2.process(fork1.clone());
+    let channel_to_node2 = establish_tcp(&node1, &node2);
     assert_timely2(|| node1.is_active_root(&send1.qualified_root()));
     assert_timely2(|| node2.is_active_root(&fork1.qualified_root()));
     assert!(node1.block(&fork1.hash()).is_none());
 
     // node2 asks node1 about its own block; node1 does not hold it but has
     // send1 for the same root, so it answers with send1
-    let channel_to_node2 = node1
-        .network
-        .read()
-        .unwrap()
-        .find_node_id(&node2.node_id.public_key().into())
-        .unwrap()
-        .clone();
     node1.request_aggregator.request(AggregatorRequest {
         channel: channel_to_node2,
         roots_hashes: vec![(fork1.hash(), fork1.root())],
+        epoch: ConsensusEpoch::ZERO,
     });
     assert_timely2(|| {
         node1.get_stat(

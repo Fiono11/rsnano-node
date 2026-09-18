@@ -148,6 +148,7 @@ impl NetworkMessageProcessor {
                     let aggregator_req = AggregatorRequest {
                         channel: channel.clone(),
                         roots_hashes: req.roots_hashes,
+                        epoch: req.epoch,
                     };
                     self.request_aggregator.request(aggregator_req);
                 }

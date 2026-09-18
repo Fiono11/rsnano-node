@@ -5,7 +5,7 @@ use strum::EnumCount;
 use rsnano_ledger::RepWeights;
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{
-    Account, Amount, Block, BlockHash, PublicKey, QualifiedRoot, SavedBlock, TimePriority,
+    Amount, Block, BlockHash, ConsensusEpoch, PublicKey, QualifiedRoot, SavedBlock, TimePriority,
     VoteError, VoteKind,
 };
 use rsnano_utils::{
@@ -19,7 +19,7 @@ use crate::{
         AecSnapshot, ElectionCandidateSource,
         election::{
             AddForkResult, CertificateEvidence, ConfirmationType, ConfirmedElection, Election,
-            ElectionBehavior, LocalSlotState, VoteType,
+            ElectionBehavior, ElectionId, EpochSlot, LocalSlotState, VoteType,
         },
         election_schedulers::priority::bucket_count,
         filtered_vote::FilteredVote,
@@ -34,6 +34,7 @@ use super::{
     apply_vote_helper::ApplyVoteHelper,
     cooldown_controller::{AecCooldownReason, CooldownController, CooldownResult},
     recently_confirmed_cache::RecentlyConfirmedCache,
+    slot_states::SlotStates,
     stats::AecStats,
 };
 
@@ -48,12 +49,14 @@ pub(crate) struct ActiveElectionsContainer {
     max_elections: usize,
     max_elections_per_bucket: usize,
     stats: AecStats,
-    /// Kudzu: what this node voted per slot (account height). Shared by all
-    /// elections at that height and dropped once the height is finalized.
-    slots: HashMap<(Account, u64), LocalSlotState>,
+    /// Kudzu: what this node voted per slot (account height) and epoch. Shared
+    /// by all elections at that height and dropped once the height is finalized.
+    slots: SlotStates,
     /// Kudzu: exit final votes of elections which were finalized and erased
     /// before the voter could pick them up (line 11 still applies)
     pending_kudzu_votes: Vec<VoteTarget>,
+    /// RAI: the epoch new elections are started in
+    current_epoch: ConsensusEpoch,
 }
 
 impl ActiveElectionsContainer {
@@ -69,22 +72,32 @@ impl ActiveElectionsContainer {
             max_elections: config.max_elections,
             max_elections_per_bucket: max(config.max_elections / bucket_count(), 1),
             stats: Default::default(),
-            slots: HashMap::new(),
+            slots: SlotStates::default(),
             pending_kudzu_votes: Vec::new(),
+            current_epoch: ConsensusEpoch::ZERO,
         }
+    }
+
+    /// RAI: the epoch new elections are started in
+    pub fn current_epoch(&self) -> ConsensusEpoch {
+        self.current_epoch
+    }
+
+    pub fn set_current_epoch(&mut self, epoch: ConsensusEpoch) {
+        self.current_epoch = epoch;
     }
 
     /// Kudzu: the votes to broadcast now for all elections, in round robin order
     pub fn kudzu_votes_due(&self) -> Vec<VoteTarget> {
         let mut targets = self.pending_kudzu_votes.clone();
         for election in self.roots.round_robin().map(|e| &e.election) {
-            let slot = self.slots.get(&election.slot());
+            let slot = self.slots.get(&election.epoch_slot());
             let due = match slot {
                 Some(slot) => election.kudzu_votes_due(slot),
                 None => election.kudzu_votes_due(&LocalSlotState::default()),
             };
             targets.extend(due.into_iter().map(|(hash, kind)| VoteTarget {
-                root: election.qualified_root().clone(),
+                election: election.id(),
                 winner: hash,
                 vote_type: VoteType::from(kind),
             }));
@@ -96,12 +109,11 @@ impl ActiveElectionsContainer {
     pub fn mark_kudzu_voted(&mut self, targets: &[VoteTarget]) {
         for target in targets {
             self.pending_kudzu_votes.retain(|pending| pending != target);
-            let Some(election) = self.roots.election_for_root(&target.root) else {
+            let Some(election) = self.roots.election(&target.election) else {
                 continue;
             };
             self.slots
-                .entry(election.slot())
-                .or_default()
+                .get_or_default(&election.epoch_slot())
                 .mark_voted(target.winner, VoteKind::from(target.vote_type));
         }
     }
@@ -114,11 +126,11 @@ impl ActiveElectionsContainer {
         if !cfg!(feature = "rai_protocol") || !election.certificates().is_finalized() {
             return;
         }
-        let slot = self.slots.entry(election.slot()).or_default();
+        let slot = self.slots.get_or_default(&election.epoch_slot());
         if let Some((hash, kind)) = election.kudzu_final_vote_due(slot) {
             slot.mark_voted(hash, kind);
             self.pending_kudzu_votes.push(VoteTarget {
-                root: election.qualified_root().clone(),
+                election: election.id(),
                 winner: hash,
                 vote_type: VoteType::from(kind),
             });
@@ -126,24 +138,25 @@ impl ActiveElectionsContainer {
     }
 
     /// Kudzu: the signed votes behind the certificates of the election of this
-    /// block, if the election is terminated
+    /// block in the given epoch, if the election is terminated
     pub fn certificate_evidence(
         &self,
         hash: &BlockHash,
-    ) -> Option<(QualifiedRoot, CertificateEvidence)> {
-        let election = self.roots.election_for_block(hash)?;
+        epoch: ConsensusEpoch,
+    ) -> Option<(ElectionId, CertificateEvidence)> {
+        let election = self.roots.election_for_block_in_epoch(hash, epoch)?;
         let empty = LocalSlotState::default();
-        let slot = self.slots.get(&election.slot()).unwrap_or(&empty);
+        let slot = self.slots.get(&election.epoch_slot()).unwrap_or(&empty);
         let evidence = election.certificate_evidence(slot)?;
-        Some((election.qualified_root().clone(), evidence))
+        Some((election.id(), evidence))
     }
 
-    /// Kudzu: is the election of this root terminated and out of the priority buckets
-    pub fn is_terminated_root(&self, root: &QualifiedRoot) -> bool {
-        self.roots.is_terminated(root)
+    /// Kudzu: is the election terminated and out of the priority buckets
+    pub fn is_terminated(&self, id: &ElectionId) -> bool {
+        self.roots.is_terminated(id)
     }
 
-    pub fn slot_state(&self, slot: &(Account, u64)) -> Option<&LocalSlotState> {
+    pub fn slot_state(&self, slot: &EpochSlot) -> Option<&LocalSlotState> {
         self.slots.get(slot)
     }
 
@@ -171,11 +184,11 @@ impl ActiveElectionsContainer {
         self.roots.bucket_len(bucket_id)
     }
 
-    pub fn find_bucket(&self, root: &QualifiedRoot) -> Option<usize> {
-        self.roots.find_bucket(root)
+    pub fn find_bucket(&self, id: &ElectionId) -> Option<usize> {
+        self.roots.find_bucket(id)
     }
 
-    pub fn lowest_priority(&self, bucket_id: usize) -> Option<(QualifiedRoot, TimePriority)> {
+    pub fn lowest_priority(&self, bucket_id: usize) -> Option<(ElectionId, TimePriority)> {
         self.roots.lowest_priority(bucket_id)
     }
 
@@ -232,7 +245,9 @@ impl ActiveElectionsContainer {
         &mut self,
         request: &AecInsertRequest,
     ) -> Result<bool, AecInsertError> {
-        let (upgraded, previous_behavior) = self.roots.try_upgrade_to_priority_election(request);
+        let (upgraded, previous_behavior) = self
+            .roots
+            .try_upgrade_to_priority_election(request, self.current_epoch);
 
         if upgraded {
             *self.count_by_behavior_mut(previous_behavior.unwrap()) -= 1;
@@ -245,13 +260,20 @@ impl ActiveElectionsContainer {
         }
     }
 
+    /// A new block always starts an election in the current epoch
     fn insert_new_election(&mut self, request: AecInsertRequest, now: Timestamp) {
         let root = request.block.qualified_root();
         let hash = request.block.hash();
-        let election = Election::new(request.block, request.behavior, self.base_latency, now);
+        let election = Election::new(
+            request.block,
+            self.current_epoch,
+            request.behavior,
+            self.base_latency,
+            now,
+        );
 
         self.roots.insert(Entry {
-            root: root.clone(),
+            id: election.id(),
             election,
             priority: request.priority,
         });
@@ -261,8 +283,10 @@ impl ActiveElectionsContainer {
         self.notify(AecFact::ElectionStarted(hash, root));
     }
 
+    /// A fork block joins the current epoch's election of its root
     pub fn try_add_fork(&mut self, fork: &Block, fork_tally: Amount) -> bool {
-        let Some(entry) = self.roots.get_mut(&fork.qualified_root()) else {
+        let id = ElectionId::new(fork.qualified_root(), self.current_epoch);
+        let Some(entry) = self.roots.get_mut(&id) else {
             return false;
         };
 
@@ -273,7 +297,9 @@ impl ActiveElectionsContainer {
                 true
             }
             AddForkResult::Replaced(removed) => {
-                self.roots.vote_router.disconnect(&removed.hash());
+                self.roots
+                    .vote_router
+                    .disconnect(&removed.hash(), self.current_epoch);
                 self.notify(AecFact::BlockDiscarded(removed.into()));
                 self.notify(AecFact::BlockAddedToElection(fork.hash()));
                 true
@@ -286,9 +312,7 @@ impl ActiveElectionsContainer {
         };
 
         if added {
-            self.roots
-                .vote_router
-                .connect(fork.hash(), fork.qualified_root());
+            self.roots.vote_router.connect(fork.hash(), id);
             self.stats.conflicts += 1;
         }
 
@@ -319,8 +343,9 @@ impl ActiveElectionsContainer {
         self.roots.clear();
     }
 
+    /// Whether the root has an election in any epoch
     pub fn is_active_root(&self, root: &QualifiedRoot) -> bool {
-        self.roots.get(root).is_some()
+        self.roots.elections_for_root(root).next().is_some()
     }
 
     pub fn is_active_hash(&self, block_hash: &BlockHash) -> bool {
@@ -355,10 +380,21 @@ impl ActiveElectionsContainer {
         self.erase_ended_elections();
     }
 
-    pub fn election_for_root(&self, root: &QualifiedRoot) -> Option<&Election> {
-        self.roots.election_for_root(root)
+    pub fn election(&self, id: &ElectionId) -> Option<&Election> {
+        self.roots.election(id)
     }
 
+    /// The election of the newest epoch for this root
+    pub fn election_for_root(&self, root: &QualifiedRoot) -> Option<&Election> {
+        self.roots.latest_election_for_root(root)
+    }
+
+    /// The elections of all epochs for this root, ascending by epoch
+    pub fn elections_for_root(&self, root: &QualifiedRoot) -> impl Iterator<Item = &Election> {
+        self.roots.elections_for_root(root)
+    }
+
+    /// The election of the newest epoch this block is a candidate in
     pub fn election_for_block(&self, block_hash: &BlockHash) -> Option<&Election> {
         self.roots.election_for_block(block_hash)
     }
@@ -399,8 +435,8 @@ impl ActiveElectionsContainer {
                 };
 
                 any_inserted = true;
-                let root = candidate.block.qualified_root();
-                if self.find_bucket(&root) == Some(candidate.bucket_id) {
+                let id = ElectionId::new(candidate.block.qualified_root(), self.current_epoch);
+                if self.find_bucket(&id) == Some(candidate.bucket_id) {
                     self.stats.activate_failed_duplicate += 1;
                     continue;
                 }
@@ -438,7 +474,7 @@ impl ActiveElectionsContainer {
         root: &QualifiedRoot,
         voters: impl IntoIterator<Item = &'a PublicKey>,
     ) {
-        let Some(election) = self.roots.election_for_root_mut(root) else {
+        let Some(election) = self.roots.latest_election_for_root_mut(root) else {
             return;
         };
         for voter in voters {
@@ -454,8 +490,18 @@ impl ActiveElectionsContainer {
         }
     }
 
+    /// Erase the elections of all epochs of this root
     pub fn erase(&mut self, root: &QualifiedRoot) -> bool {
-        let Some(entry) = self.roots.erase(root) else {
+        let erased = self.roots.erase_root(root);
+        let any = !erased.is_empty();
+        for entry in erased {
+            self.cleanup_election(entry);
+        }
+        any
+    }
+
+    pub fn erase_election(&mut self, id: &ElectionId) -> bool {
+        let Some(entry) = self.roots.erase(id) else {
             return false;
         };
         self.cleanup_election(entry);
@@ -471,13 +517,13 @@ impl ActiveElectionsContainer {
         if cfg!(feature = "rai_protocol") {
             return false;
         }
-        let Some((root, _)) = self.lowest_priority(bucket_id) else {
+        let Some((id, _)) = self.lowest_priority(bucket_id) else {
             return false;
         };
-        if let Some(election) = self.roots.election_for_root(&root) {
+        if let Some(election) = self.roots.election(&id) {
             self.stats.evicted(election);
         }
-        self.erase(&root)
+        self.erase_election(&id)
     }
 
     fn cleanup_election(&mut self, entry: Entry) {
@@ -521,31 +567,38 @@ impl ActiveElectionsContainer {
             return source;
         }
 
-        let Some(corresponding) = self.roots.get_mut(&confirmed_block.qualified_root()) else {
+        let root = confirmed_block.qualified_root();
+        let Some(corresponding) = self.roots.latest_election_for_root_mut(&root) else {
             return ConfirmedElection::new(
                 confirmed_block.clone(),
                 ConfirmationType::InactiveConfirmationHeight,
             );
         };
 
-        if corresponding.election.winner().hash() == confirmed_block.hash() {
-            corresponding.election.force_confirm();
-            corresponding
-                .election
-                .into_confirmed_election(now, ConfirmationType::ActiveConfirmationHeight)
+        let result = if corresponding.winner().hash() == confirmed_block.hash() {
+            corresponding.force_confirm();
+            corresponding.into_confirmed_election(now, ConfirmationType::ActiveConfirmationHeight)
         } else {
-            corresponding.election.cancel();
+            corresponding.cancel();
             ConfirmedElection::new(
                 confirmed_block.clone(),
                 ConfirmationType::ActiveConfirmationHeight,
             )
+        };
+        // The height is decided, the elections of the other epochs are over too
+        let latest = corresponding.epoch();
+        for election in self.roots.elections_for_root_mut(&root) {
+            if election.epoch() != latest {
+                election.cancel();
+            }
         }
+        result
     }
 
     fn block_confirmed(&mut self, block: SavedBlock, election: ConfirmedElection) {
         self.stats.block_confirmations[election.confirmation_type as usize] += 1;
         // The height is finalized, nothing will be voted for it any more
-        self.slots.remove(&(block.account(), block.height()));
+        self.slots.remove_slot(block.account(), block.height());
         self.notify(AecFact::BlockConfirmed(block, election));
     }
 
@@ -583,8 +636,8 @@ impl ActiveElectionsContainer {
     }
 
     pub fn cancel(&mut self, root: &QualifiedRoot) {
-        if let Some(entry) = self.roots.get_mut(root) {
-            entry.election.cancel();
+        for election in self.roots.elections_for_root_mut(root) {
+            election.cancel();
         }
     }
 
@@ -653,7 +706,7 @@ impl ContainerInfoProvider for ActiveElectionsContainer {
             .leaf(
                 "slots",
                 self.slot_count(),
-                size_of::<((Account, u64), LocalSlotState)>(),
+                size_of::<(EpochSlot, LocalSlotState)>(),
             )
             .leaf(
                 "normal",
@@ -752,6 +805,99 @@ mod tests {
         assert!(container.election_for_block(&block_hash).is_none());
     }
 
+    /// RAI: the same root is contested once per epoch. A block starts its
+    /// election in the current epoch, and a vote only counts in the election
+    /// of its own epoch.
+    #[test]
+    fn one_election_per_epoch() {
+        let mut container = ActiveElectionsContainer::default();
+        let block = SavedBlock::new_test_instance();
+        let block_hash = block.hash();
+        let root = block.qualified_root();
+        let now = Timestamp::new_test_instance();
+        let epoch1 = ConsensusEpoch::new(1);
+
+        container
+            .insert(
+                AecInsertRequest::new_priority(block.clone(), BlockPriority::new_test_instance()),
+                now,
+            )
+            .unwrap();
+        container.set_current_epoch(epoch1);
+        container
+            .insert(
+                AecInsertRequest::new_priority(block, BlockPriority::new_test_instance()),
+                now,
+            )
+            .unwrap();
+
+        assert_eq!(container.len(), 2);
+        assert!(container.is_active_root(&root));
+        let epochs: Vec<_> = container
+            .elections_for_root(&root)
+            .map(|e| e.epoch())
+            .collect();
+        assert_eq!(epochs, vec![ConsensusEpoch::ZERO, epoch1]);
+        assert_eq!(
+            container.election_for_block(&block_hash).unwrap().epoch(),
+            epoch1
+        );
+        assert_eq!(
+            container
+                .election(&ElectionId::legacy(root.clone()))
+                .unwrap()
+                .epoch(),
+            ConsensusEpoch::ZERO
+        );
+
+        // A vote of an epoch without an election counts nowhere
+        let rep_key = PrivateKey::from(1);
+        let mut rep_weights = RepWeights::default();
+        rep_weights.put(rep_key.public_key(), Amount::MAX);
+        let vote = Arc::new(Vote::new_in_epoch(
+            &rep_key,
+            VoteKind::Final,
+            ConsensusEpoch::new(2),
+            vec![block_hash],
+        ));
+        let result = container.apply_vote(ApplyVoteArgs {
+            vote: &ReceivedVote::new(vote, VoteDelivery::Direct, None).into(),
+            rep_weights: &rep_weights,
+            quorum_snapshot: &QuorumSnapshot::new_test_instance(),
+            now,
+        });
+        assert_eq!(
+            result.get(&block_hash),
+            Some(&Err(VoteError::Indeterminate))
+        );
+        assert_eq!(container.len(), 2);
+
+        // A final vote in epoch 1 confirms the epoch 1 election only
+        let vote = Arc::new(Vote::new_in_epoch(
+            &rep_key,
+            VoteKind::Final,
+            epoch1,
+            vec![block_hash],
+        ));
+        let result = container.apply_vote(ApplyVoteArgs {
+            vote: &ReceivedVote::new(vote, VoteDelivery::Direct, None).into(),
+            rep_weights: &rep_weights,
+            quorum_snapshot: &QuorumSnapshot::new_test_instance(),
+            now,
+        });
+        assert_eq!(result.get(&block_hash), Some(&Ok(())));
+        assert_eq!(container.len(), 1);
+        assert_eq!(
+            container.election_for_block(&block_hash).unwrap().epoch(),
+            ConsensusEpoch::ZERO
+        );
+
+        // Erasing by root erases every epoch
+        assert!(container.erase(&root));
+        assert_eq!(container.len(), 0);
+        assert!(!container.is_active_hash(&block_hash));
+    }
+
     #[test]
     fn iter_round_robin() {
         let block_a = SavedBlock::new_test_instance_with_key(1);
@@ -810,7 +956,7 @@ mod tests {
         assert_eq!(
             due,
             vec![VoteTarget {
-                root: block.qualified_root(),
+                election: ElectionId::legacy(block.qualified_root()),
                 winner: block.hash(),
                 vote_type: VoteType::NonFinal,
             }]
@@ -818,7 +964,11 @@ mod tests {
 
         container.mark_kudzu_voted(&due);
         let slot = container
-            .slot_state(&(block.account(), block.height()))
+            .slot_state(&EpochSlot {
+                account: block.account(),
+                height: block.height(),
+                epoch: ConsensusEpoch::ZERO,
+            })
             .unwrap();
         assert_eq!(slot.first_voted, Some(block.hash()));
         assert_eq!(container.slot_count(), 1);
@@ -878,7 +1028,7 @@ mod tests {
         assert!(container.election_for_block(&block_hash).is_none());
 
         let expected = VoteTarget {
-            root,
+            election: ElectionId::legacy(root),
             winner: block_hash,
             vote_type: VoteType::Final,
         };
@@ -902,8 +1052,13 @@ mod tests {
             )
             .unwrap();
         let vacancy_before = container.vacancy();
-        assert!(!container.is_terminated_root(&root));
-        assert!(container.certificate_evidence(&block_hash).is_none());
+        let id = ElectionId::legacy(root.clone());
+        assert!(!container.is_terminated(&id));
+        assert!(
+            container
+                .certificate_evidence(&block_hash, ConsensusEpoch::ZERO)
+                .is_none()
+        );
 
         // 70%: notarization certificate, no fast finalization
         let rep_key = PrivateKey::from(1);
@@ -922,26 +1077,36 @@ mod tests {
             now,
         });
 
-        assert!(container.is_terminated_root(&root));
+        assert!(container.is_terminated(&id));
         // It no longer takes capacity but is still there and iterated
         assert_eq!(container.vacancy(), vacancy_before + 1);
         assert_eq!(container.len(), 1);
         assert_eq!(container.iter_round_robin().count(), 1);
         assert!(container.election_for_block(&block_hash).is_some());
 
-        let (served_root, evidence) = container.certificate_evidence(&block_hash).unwrap();
-        assert_eq!(served_root, root);
+        let (served, evidence) = container
+            .certificate_evidence(&block_hash, ConsensusEpoch::ZERO)
+            .unwrap();
+        assert_eq!(served, id);
+        // The election of another epoch has no evidence
+        assert!(
+            container
+                .certificate_evidence(&block_hash, ConsensusEpoch::new(1))
+                .is_none()
+        );
         // This node never voted here, so it only hands out the candidate
         assert!(evidence.statements.is_empty());
         assert_eq!(evidence.blocks.len(), 1);
         assert_eq!(evidence.blocks[0].hash(), block_hash);
 
         container.mark_kudzu_voted(&[VoteTarget {
-            root: root.clone(),
+            election: id.clone(),
             winner: block_hash,
             vote_type: VoteType::NonFinal,
         }]);
-        let (_, evidence) = container.certificate_evidence(&block_hash).unwrap();
+        let (_, evidence) = container
+            .certificate_evidence(&block_hash, ConsensusEpoch::ZERO)
+            .unwrap();
         assert_eq!(
             evidence.statements,
             vec![(VoteKind::First, vec![block_hash])]
@@ -957,7 +1122,7 @@ mod tests {
     fn kudzu_votes_for_unknown_roots_are_not_recorded() {
         let mut container = ActiveElectionsContainer::default();
         container.mark_kudzu_voted(&[VoteTarget {
-            root: QualifiedRoot::new_test_instance(),
+            election: ElectionId::new_test_instance(),
             winner: BlockHash::from(1),
             vote_type: VoteType::NonFinal,
         }]);
@@ -974,7 +1139,9 @@ mod tests {
         container
             .insert(request, Timestamp::new_test_instance())
             .unwrap();
-        let bucket = container.find_bucket(&block.qualified_root()).unwrap();
+        let bucket = container
+            .find_bucket(&ElectionId::legacy(block.qualified_root()))
+            .unwrap();
 
         let evicted = container.erase_lowest_prio_election(bucket);
 

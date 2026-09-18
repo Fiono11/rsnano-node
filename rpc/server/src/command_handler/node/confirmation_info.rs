@@ -1,10 +1,11 @@
 use crate::command_handler::RpcCommandHandler;
 use anyhow::anyhow;
 use indexmap::IndexMap;
+use rsnano_node::consensus::election::ElectionId;
 use rsnano_rpc_messages::{
     ConfirmationBlockInfoDto, ConfirmationInfoArgs, ConfirmationInfoResponse, KudzuCertificatesDto,
 };
-use rsnano_types::{Account, Amount};
+use rsnano_types::{Account, Amount, ConsensusEpoch};
 
 impl RpcCommandHandler {
     pub(crate) fn confirmation_info(
@@ -13,11 +14,14 @@ impl RpcCommandHandler {
     ) -> anyhow::Result<ConfirmationInfoResponse> {
         let include_representatives = args.representatives.unwrap_or(false.into()).inner();
         let contents = args.contents.unwrap_or(true.into()).inner();
-        let election = self
-            .node
-            .aec
-            .election_for_root(&args.root)
-            .ok_or_else(|| anyhow!("Active confirmation not found"))?;
+        let election = match args.epoch {
+            Some(epoch) => self.node.aec.election(&ElectionId::new(
+                args.root,
+                ConsensusEpoch::new(epoch.inner()),
+            )),
+            None => self.node.aec.election_for_root(&args.root),
+        }
+        .ok_or_else(|| anyhow!("Active confirmation not found"))?;
 
         let announcements = 0; // not supported in RsNano
         let voters = election.votes().len();
@@ -105,6 +109,7 @@ impl RpcCommandHandler {
             final_tally,
             blocks,
             state,
+            epoch: cfg!(feature = "rai_protocol").then(|| election.epoch().as_u64().into()),
             certificates,
         })
     }

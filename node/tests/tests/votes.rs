@@ -13,7 +13,8 @@ use rsnano_node::{
     consensus::{ReceivedVote, election::VoteType},
 };
 use rsnano_types::{
-    Amount, DEV_GENESIS_KEY, Epoch, PrivateKey, Signature, Vote, VoteDelivery, VoteError, WalletId,
+    Amount, ConsensusEpoch, DEV_GENESIS_KEY, Epoch, PrivateKey, Signature, Vote, VoteDelivery,
+    VoteError, WalletId,
 };
 use rsnano_utils::stats::{DetailType, Direction, StatType};
 use test_helpers::{System, assert_timely, assert_timely_eq2, assert_timely2, upgrade_epoch};
@@ -116,8 +117,12 @@ fn vote_generator_cache() {
         .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), true)
         .unwrap();
 
-    node.vote_generators
-        .generate_vote(&epoch1.root(), &epoch1.hash(), VoteType::NonFinal);
+    node.vote_generators.generate_vote(
+        &epoch1.root(),
+        &epoch1.hash(),
+        ConsensusEpoch::ZERO,
+        VoteType::NonFinal,
+    );
 
     // Wait until the votes are available
     assert_timely(Duration::from_secs(1), || {
@@ -323,6 +328,7 @@ fn vote_spacing_vote_generator() {
     node.vote_generators.generate_vote(
         &(*DEV_GENESIS_HASH).into(),
         &send2.hash().into(),
+        ConsensusEpoch::ZERO,
         VoteType::NonFinal,
     );
 
@@ -350,6 +356,7 @@ fn vote_spacing_vote_generator() {
     node.vote_generators.generate_vote(
         &(*DEV_GENESIS_HASH).into(),
         &send2.hash().into(),
+        ConsensusEpoch::ZERO,
         VoteType::NonFinal,
     );
 
@@ -424,6 +431,7 @@ fn vote_spacing_rapid() {
     node.vote_generators.generate_vote(
         &(*DEV_GENESIS_HASH).into(),
         &send2.hash().into(),
+        ConsensusEpoch::ZERO,
         VoteType::NonFinal,
     );
 

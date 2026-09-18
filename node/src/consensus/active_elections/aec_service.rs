@@ -2,7 +2,8 @@ use std::{collections::HashMap, sync::RwLock, time::Duration};
 
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_types::{
-    Account, Amount, Block, BlockHash, PublicKey, QualifiedRoot, SavedBlock, VoteError,
+    Account, Amount, Block, BlockHash, ConsensusEpoch, PublicKey, QualifiedRoot, SavedBlock,
+    VoteError,
 };
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -17,8 +18,8 @@ use super::{
 use crate::consensus::{
     ElectionCandidateSource,
     election::{
-        CertificateEvidence, ConfirmedElection, Election, ElectionBehavior, ElectionState,
-        LocalSlotState,
+        CertificateEvidence, ConfirmedElection, Election, ElectionBehavior, ElectionId,
+        ElectionState, EpochSlot, LocalSlotState,
     },
     vote_generation::VoteTarget,
 };
@@ -52,8 +53,32 @@ impl AecService {
         self.aec.read().unwrap().check_vacancy(source)
     }
 
+    /// The election of the newest epoch for this root
     pub fn election_for_root(&self, root: &QualifiedRoot) -> Option<Election> {
         self.aec.read().unwrap().election_for_root(root).cloned()
+    }
+
+    pub fn election(&self, id: &ElectionId) -> Option<Election> {
+        self.aec.read().unwrap().election(id).cloned()
+    }
+
+    /// The elections of all epochs for this root, ascending by epoch
+    pub fn elections_for_root(&self, root: &QualifiedRoot) -> Vec<Election> {
+        self.aec
+            .read()
+            .unwrap()
+            .elections_for_root(root)
+            .cloned()
+            .collect()
+    }
+
+    /// RAI: the epoch new elections are started in
+    pub fn current_epoch(&self) -> ConsensusEpoch {
+        self.aec.read().unwrap().current_epoch()
+    }
+
+    pub fn set_current_epoch(&self, epoch: ConsensusEpoch) {
+        self.aec.write().unwrap().set_current_epoch(epoch)
     }
 
     pub fn election_for_block(&self, block_hash: &BlockHash) -> Option<Election> {
@@ -126,15 +151,16 @@ impl AecService {
     pub fn certificate_evidence(
         &self,
         hash: &BlockHash,
-    ) -> Option<(QualifiedRoot, CertificateEvidence)> {
-        self.aec.read().unwrap().certificate_evidence(hash)
+        epoch: ConsensusEpoch,
+    ) -> Option<(ElectionId, CertificateEvidence)> {
+        self.aec.read().unwrap().certificate_evidence(hash, epoch)
     }
 
-    pub fn is_terminated_root(&self, root: &QualifiedRoot) -> bool {
-        self.aec.read().unwrap().is_terminated_root(root)
+    pub fn is_terminated(&self, id: &ElectionId) -> bool {
+        self.aec.read().unwrap().is_terminated(id)
     }
 
-    pub fn slot_state(&self, slot: &(Account, u64)) -> Option<LocalSlotState> {
+    pub fn slot_state(&self, slot: &EpochSlot) -> Option<LocalSlotState> {
         self.aec.read().unwrap().slot_state(slot).cloned()
     }
 

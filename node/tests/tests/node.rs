@@ -21,8 +21,9 @@ use rsnano_node::{
 };
 use rsnano_nullable_tcp::get_available_port;
 use rsnano_types::{
-    Account, Amount, Block, BlockHash, DEV_GENESIS_KEY, DifficultyV1, PrivateKey, PublicKey, Root,
-    Signature, StateBlockArgs, UnixMillisTimestamp, Vote, VoteDelivery, WorkRequest,
+    Account, Amount, Block, BlockHash, ConsensusEpoch, DEV_GENESIS_KEY, DifficultyV1, PrivateKey,
+    PublicKey, Root, Signature, StateBlockArgs, UnixMillisTimestamp, Vote, VoteDelivery,
+    WorkRequest,
 };
 use rsnano_utils::{
     BackpressureHandler,
@@ -133,8 +134,12 @@ fn vote_by_hash_bundle() {
 
     // Enqueue vote requests for all the blocks
     for block in &blocks {
-        node.vote_generators
-            .generate_vote(&block.root(), &block.hash(), VoteType::NonFinal);
+        node.vote_generators.generate_vote(
+            &block.root(),
+            &block.hash(),
+            ConsensusEpoch::ZERO,
+            VoteType::NonFinal,
+        );
     }
 
     let mut max_hashes = 0;

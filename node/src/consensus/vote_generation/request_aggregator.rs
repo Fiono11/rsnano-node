@@ -8,7 +8,7 @@ use std::{
 use rsnano_ledger::{AnySet, Ledger};
 use rsnano_messages::{ConfirmAck, Message, Publish};
 use rsnano_network::{Channel, ChannelEvent, ChannelId, TrafficType};
-use rsnano_types::{BlockHash, Root, Vote, VoteKind};
+use rsnano_types::{BlockHash, ConsensusEpoch, Root, Vote, VoteKind};
 use rsnano_utils::{
     EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -221,6 +221,8 @@ impl EventHandler<ChannelEvent> for RequestAggregator {
 pub struct AggregatorRequest {
     pub channel: Arc<Channel>,
     pub roots_hashes: Vec<(BlockHash, Root)>,
+    /// RAI: the epoch of the requester's elections
+    pub epoch: ConsensusEpoch,
 }
 
 pub(crate) struct RequestAggregatorState {
@@ -301,6 +303,7 @@ impl RequestAggregatorLoop {
             let generated = self.vote_generators.generate_votes(
                 &remaining.remaining_normal,
                 &request.channel,
+                request.epoch,
                 VoteType::NonFinal,
             );
             self.stats.add_dir(
@@ -319,6 +322,7 @@ impl RequestAggregatorLoop {
             let generated = self.vote_generators.generate_votes(
                 &remaining.remaining_final,
                 &request.channel,
+                request.epoch,
                 VoteType::Final,
             );
             self.stats.add_dir(
@@ -376,10 +380,13 @@ impl RequestAggregatorLoop {
         let mut served = HashSet::new();
         let keys = self.vote_generators.rep_priv_keys();
         for (hash, _) in &request.roots_hashes {
-            let Some((root, evidence)) = self.active_elections.certificate_evidence(hash) else {
+            let Some((id, evidence)) = self
+                .active_elections
+                .certificate_evidence(hash, request.epoch)
+            else {
                 continue;
             };
-            if !served.insert(root) {
+            if !served.insert(id) {
                 continue;
             }
             let now = Instant::now();
@@ -406,7 +413,7 @@ impl RequestAggregatorLoop {
                     continue;
                 }
                 for key in &keys {
-                    let vote = Vote::new_of_kind(key, *kind, hashes.clone());
+                    let vote = Vote::new_in_epoch(key, *kind, request.epoch, hashes.clone());
                     let ack = Message::ConfirmAck(ConfirmAck::new_with_certificate_evidence(vote));
                     sender.try_send(&request.channel, &ack, TrafficType::Vote);
                 }

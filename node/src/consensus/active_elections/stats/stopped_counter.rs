@@ -83,7 +83,7 @@ mod tests {
 
     use super::*;
     use rsnano_nullable_clock::Timestamp;
-    use rsnano_types::SavedBlock;
+    use rsnano_types::{ConsensusEpoch, SavedBlock};
     use std::time::Duration;
 
     #[test]
@@ -124,6 +124,7 @@ mod tests {
         let election1 = Election::new_test_instance_with(SavedBlock::new_test_instance());
         let election2 = Election::new(
             SavedBlock::new_test_receive_block(),
+            ConsensusEpoch::ZERO,
             ElectionBehavior::Optimistic,
             Duration::from_millis(1000),
             Timestamp::new_test_instance(),

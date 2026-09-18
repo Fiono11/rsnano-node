@@ -7,7 +7,9 @@ use rsnano_ledger::Ledger;
 use rsnano_network::{Channel, ChannelId};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
-use rsnano_types::{BlockHash, NetworkType, PrivateKey, Root, SavedBlock, VoteKind};
+use rsnano_types::{
+    BlockHash, ConsensusEpoch, NetworkType, PrivateKey, Root, SavedBlock, VoteKind,
+};
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{DetailType, StatType, Stats},
@@ -149,7 +151,13 @@ impl VoteGenerators {
         self.vote_listener.track()
     }
 
-    pub fn generate_vote(&self, root: &Root, hash: &BlockHash, vote_type: VoteType) {
+    pub fn generate_vote(
+        &self,
+        root: &Root,
+        hash: &BlockHash,
+        epoch: ConsensusEpoch,
+        vote_type: VoteType,
+    ) {
         let detail = match vote_type {
             VoteType::NonFinal => DetailType::GenerateVoteNormal,
             VoteType::Final => DetailType::GenerateVoteFinal,
@@ -157,13 +165,15 @@ impl VoteGenerators {
             VoteType::Timeout => DetailType::GenerateVoteTimeout,
         };
         self.stats.inc(StatType::Election, detail);
-        self.generator(vote_type).add(root, hash);
+        self.generator(vote_type).add(root, hash, epoch);
     }
 
+    /// Reply to a request for votes in the given epoch
     pub(crate) fn generate_votes(
         &self,
         blocks: &[SavedBlock],
         channel: &Arc<Channel>,
+        epoch: ConsensusEpoch,
         vote_type: VoteType,
     ) -> usize {
         if self.vote_listener.is_tracked() {
@@ -174,7 +184,7 @@ impl VoteGenerators {
             });
         }
 
-        self.generator(vote_type).generate(blocks, channel)
+        self.generator(vote_type).generate(blocks, channel, epoch)
     }
 
     pub fn voting_enabled(&self) -> bool {
