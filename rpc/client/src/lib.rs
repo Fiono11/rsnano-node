@@ -614,6 +614,10 @@ impl NanoRpcClient {
             .await
     }
 
+    pub async fn final_state(&self) -> Result<FinalStateResponse> {
+        self.request(&RpcCommand::final_state()).await
+    }
+
     pub async fn confirmation_quorum(&self) -> Result<ConfirmationQuorumResponse> {
         self.request(&RpcCommand::confirmation_quorum()).await
     }

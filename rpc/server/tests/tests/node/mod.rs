@@ -1,6 +1,7 @@
 mod block_create;
 mod confirmation_active;
 mod confirmation_info;
+mod final_state;
 mod node_id;
 mod peers;
 mod populate_backlog;

@@ -4,6 +4,7 @@ mod confirmation_active;
 mod confirmation_history;
 mod confirmation_info;
 mod confirmation_quorum;
+mod final_state;
 mod keepalive;
 #[cfg(feature = "ledger_snapshots")]
 mod ledger_snapshots;
