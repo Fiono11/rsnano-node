@@ -410,8 +410,10 @@ impl EventHandler<ChannelEvent> for RepCrawler {
 
 impl EventHandler<AecFact> for RepCrawler {
     fn handle(&self, event: &AecFact) {
+        // Kudzu: evidence is a representative's own vote handed over on request,
+        // as direct as a legacy reply
         if let AecFact::VoteProcessed(vote, ..) = event
-            && vote.delivery == VoteDelivery::Direct
+            && matches!(vote.delivery, VoteDelivery::Direct | VoteDelivery::Evidence)
             && let Some(channel_id) = vote.channel_id
             && self.process(vote)
         {

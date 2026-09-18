@@ -123,6 +123,8 @@ impl NanoSpamApp {
             high_prio_check.sync_accounts().await?;
         }
 
+        wait_for_full_quorum(&self.rpc_clients).await?;
+
         let mut tcp_writers = Vec::new();
         let mut tcp_readers = Vec::new();
 
@@ -397,5 +399,51 @@ async fn log_status(
             stats.current_cps.to_formatted_string(&Locale::en),
             stats.average_conf_time.as_millis()
         );
+    }
+}
+
+/// The spam only starts once every PR has seen every representative vote and
+/// is connected to it: the quorum is then the same on all PRs, and no PR starts
+/// with thresholds derived from a partial view of the network.
+async fn wait_for_full_quorum(rpc_clients: &[NanoRpcClient]) -> anyhow::Result<()> {
+    info!("Waiting for all PRs to see the full quorum...");
+    let started = Instant::now();
+    loop {
+        let mut online = Vec::new();
+        let mut missing = None;
+        for (i, rpc_client) in rpc_clients.iter().enumerate() {
+            let quorum = rpc_client.confirmation_quorum().await?;
+            // The configured minimum is the whole voting weight; the funds moved
+            // to the spam accounts during setup are below one representative's
+            // share, so a missing representative shows as a clearly lower stake
+            let enough = quorum.online_weight_minimum / 100 * 90;
+            let full = quorum.online_stake_total >= enough && quorum.peers_stake_total >= enough;
+            if !full {
+                missing = Some((i, quorum));
+                break;
+            }
+            online.push(quorum.online_stake_total);
+        }
+        let agree = online.windows(2).all(|w| w[0] == w[1]);
+        match missing {
+            None if agree => {
+                info!("All PRs see the full quorum after {:?}", started.elapsed());
+                return Ok(());
+            }
+            _ if started.elapsed() > Duration::from_secs(120) => {
+                return Err(anyhow!(
+                    "the PRs never saw the full quorum: {:?} / online {:?}",
+                    missing.map(|(i, q)| {
+                        format!(
+                            "PR{i} online {:?} peered {:?} of {:?}",
+                            q.online_stake_total, q.peers_stake_total, q.online_weight_minimum
+                        )
+                    }),
+                    online
+                ));
+            }
+            _ => {}
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
     }
 }

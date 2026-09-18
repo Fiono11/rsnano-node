@@ -3,8 +3,8 @@ use std::{collections::VecDeque, io::Read, sync::Arc};
 use rsnano_types::ProtocolInfo;
 
 use crate::{
-    DeserializedMessage, Message, MessageHeader, MessageType, NetworkFilter, ParseMessageError,
-    validate_header,
+    ConfirmAck, DeserializedMessage, Message, MessageHeader, MessageType, NetworkFilter,
+    ParseMessageError, validate_header,
 };
 
 pub struct MessageDeserializer {
@@ -95,7 +95,7 @@ impl MessageDeserializer {
         // TODO: don't copy buffer
         let payload_buffer: Vec<u8> = self.buffer.drain(..header.payload_length()).collect();
 
-        let digest = self.filter_duplicate_messages(header.message_type, &payload_buffer)?;
+        let digest = self.filter_duplicate_messages(&header, &payload_buffer)?;
 
         let Ok(message) = Message::deserialize(&payload_buffer, &header, digest) else {
             return Err(ParseMessageError::InvalidMessage(header.message_type));
@@ -104,15 +104,38 @@ impl MessageDeserializer {
         Ok(DeserializedMessage::new(message, header.protocol))
     }
 
+    /// Kudzu: filter epochs (seconds) a received block stays a duplicate for
+    const PUBLISH_AGE_CUTOFF: u64 = 5;
+
     /// Early filtering to not waste time deserializing duplicate blocks
     fn filter_duplicate_messages(
         &self,
-        message_type: MessageType,
+        header: &MessageHeader,
         payload_bytes: &[u8],
     ) -> Result<u128, ParseMessageError> {
+        let message_type = header.message_type;
+        // Kudzu: votes are one-shot and immutable, so a certificate handed over on
+        // request carries exactly the bytes seen before. It must not be dropped as
+        // a duplicate; the election rejects real replays. Ordinary rebroadcasts
+        // stay filtered, they are the bulk of the duplicate traffic.
+        if cfg!(feature = "rai_protocol")
+            && message_type == MessageType::ConfirmAck
+            && header.extensions[ConfirmAck::EVIDENCE_FLAG]
+        {
+            return Ok(0);
+        }
         if matches!(message_type, MessageType::Publish | MessageType::ConfirmAck) {
             if let Some(filter) = self.network_filter.as_ref() {
-                let (digest, existed) = filter.apply(payload_bytes);
+                // Kudzu: a block handed over on request (fork candidate, evidence) is
+                // byte-identical to the copy flooded before, which may have been lost.
+                // Received blocks are never re-flooded, so a short cutoff still catches
+                // one flood's fan-in and lets the re-delivery through afterwards.
+                let (digest, existed) =
+                    if cfg!(feature = "rai_protocol") && message_type == MessageType::Publish {
+                        filter.apply_with_cutoff(payload_bytes, Self::PUBLISH_AGE_CUTOFF)
+                    } else {
+                        filter.apply(payload_bytes)
+                    };
                 if existed {
                     if message_type == MessageType::ConfirmAck {
                         Err(ParseMessageError::DuplicateConfirmAckMessage)
@@ -310,6 +333,78 @@ mod tests {
                 result,
                 Some(Err(ParseMessageError::DuplicateConfirmAckMessage))
             );
+        }
+
+        /// Kudzu votes are immutable, a known vote handed over as certificate
+        /// evidence is not a duplicate; an ordinary rebroadcast still is
+        #[cfg(feature = "rai_protocol")]
+        #[test]
+        fn certificate_evidence_passes_the_duplicate_filter() {
+            let mut deserializer = create_deserializer();
+            let vote = ConfirmAck::new_test_instance().vote().clone();
+            let own = message_bytes(&Message::ConfirmAck(ConfirmAck::new_with_own_vote(
+                vote.clone(),
+            )));
+            let rebroadcast = message_bytes(&Message::ConfirmAck(
+                ConfirmAck::new_with_rebroadcasted_vote(vote.clone()),
+            ));
+            let evidence = message_bytes(&Message::ConfirmAck(
+                ConfirmAck::new_with_certificate_evidence(vote),
+            ));
+
+            deserializer.push(&own);
+            deserializer.try_deserialize();
+
+            deserializer.push(&evidence);
+            let result = deserializer.try_deserialize();
+            let Some(Ok(message)) = result else {
+                panic!("evidence was filtered: {:?}", result);
+            };
+            let Message::ConfirmAck(ack) = message.message else {
+                panic!("not a confirm ack");
+            };
+            assert!(ack.is_evidence());
+            assert!(ack.is_rebroadcasted());
+
+            deserializer.push(&evidence);
+            assert!(matches!(deserializer.try_deserialize(), Some(Ok(_))));
+
+            // Rebroadcasts and further own copies stay filtered
+            deserializer.push(&rebroadcast);
+            assert_eq!(
+                deserializer.try_deserialize(),
+                Some(Err(ParseMessageError::DuplicateConfirmAckMessage))
+            );
+            deserializer.push(&own);
+            assert_eq!(
+                deserializer.try_deserialize(),
+                Some(Err(ParseMessageError::DuplicateConfirmAckMessage))
+            );
+        }
+
+        /// A block delivered again on request passes once the short Publish
+        /// cutoff has elapsed, while the filter's own cutoff is much longer
+        #[cfg(feature = "rai_protocol")]
+        #[test]
+        fn republished_block_passes_after_the_short_cutoff() {
+            let mut filter = NetworkFilter::default();
+            filter.age_cutoff = 60;
+            let filter = Arc::new(filter);
+            let mut deserializer =
+                MessageDeserializer::with_filter(ProtocolInfo::default(), filter.clone());
+            let publish = message_bytes(&Message::Publish(Publish::new_test_instance()));
+
+            deserializer.push(&publish);
+            assert!(matches!(deserializer.try_deserialize(), Some(Ok(_))));
+            deserializer.push(&publish);
+            assert_eq!(
+                deserializer.try_deserialize(),
+                Some(Err(ParseMessageError::DuplicatePublishMessage))
+            );
+
+            filter.update(MessageDeserializer::PUBLISH_AGE_CUTOFF + 1);
+            deserializer.push(&publish);
+            assert!(matches!(deserializer.try_deserialize(), Some(Ok(_))));
         }
     }
 

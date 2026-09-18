@@ -7,7 +7,7 @@ mod handshake;
 mod high_prio_check;
 pub(crate) mod node_lifetime;
 mod setup;
-mod wallets_factory;
+pub(crate) mod wallets_factory;
 
 use crate::cli_args::CliArgs;
 use app::NanoSpamApp;

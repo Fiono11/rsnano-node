@@ -3,9 +3,13 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use rsnano_nullable_clock::Timestamp;
+
 use super::{
-    AecService, AecTickerPlugin, ConfirmationSolicitor, confirm_req_sender::ConfirmReqSender,
-    election::ElectionState, winner_block_broadcaster::WinnerBlockBroadcaster,
+    AecService, AecTickerPlugin, ConfirmationSolicitor,
+    confirm_req_sender::ConfirmReqSender,
+    election::{Election, ElectionState},
+    winner_block_broadcaster::WinnerBlockBroadcaster,
 };
 use crate::{representatives::RepresentativeTracker, transport::MessageFlooder};
 
@@ -45,9 +49,10 @@ impl AecTickerPlugin for ConfirmationSolicitorPlugin {
          * Elections extending the soft config.size limit are flushed after a certain time-to-live cutoff
          * Flushed elections are later re-activated via frontier confirmation
          */
+        let now = aec.now();
         let elections: Vec<_> = aec.round_robin(|elections_iter| {
             elections_iter
-                .filter(|e| Self::should_solicit(e.state()))
+                .filter(|e| Self::should_solicit(e, now))
                 .cloned()
                 .collect()
         });
@@ -70,12 +75,13 @@ impl AecTickerPlugin for ConfirmationSolicitorPlugin {
 }
 
 impl ConfirmationSolicitorPlugin {
-    fn should_solicit(state: ElectionState) -> bool {
-        match state {
+    fn should_solicit(election: &Election, now: Timestamp) -> bool {
+        match election.state() {
             ElectionState::Active => true,
-            // Kudzu: a terminated election still has to collect final votes
+            // Kudzu: a terminated election still collects votes and certificates
+            // until it is settled, and a settled one until it can no longer be finalized
             ElectionState::Terminated | ElectionState::TimedOut | ElectionState::Settled => {
-                cfg!(feature = "rai_protocol")
+                cfg!(feature = "rai_protocol") && election.should_solicit_evidence(now)
             }
             _ => false,
         }

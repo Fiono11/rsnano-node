@@ -9,15 +9,41 @@ use rustc_hash::FxHashMap;
 pub(crate) struct CachedVote {
     pub vote: Arc<Vote>,
     pub weight: Amount,
+    /// Kudzu: a representative legitimately holds one vote per kind for a
+    /// block (first, notarization, timeout, final); they must all be replayed
+    pub other_kinds: Vec<Arc<Vote>>,
 }
 
 impl CachedVote {
     pub fn new(vote: Arc<Vote>, weight: Amount) -> Self {
-        Self { vote, weight }
+        Self {
+            vote,
+            weight,
+            other_kinds: Vec::new(),
+        }
     }
 
     pub fn is_newer_than(&self, other: &CachedVote) -> bool {
         self.vote.timestamp() > other.vote.timestamp()
+    }
+
+    /// Kudzu: keep a vote of a kind not held yet. Returns false if that kind is
+    /// already present.
+    fn add_kind(&mut self, vote: Arc<Vote>) -> bool {
+        let kind = vote.kind();
+        if self.vote.kind() == kind || self.other_kinds.iter().any(|v| v.kind() == kind) {
+            return false;
+        }
+        self.other_kinds.push(vote);
+        true
+    }
+
+    fn is_final(&self) -> bool {
+        self.vote.is_final() || self.other_kinds.iter().any(|v| v.is_final())
+    }
+
+    fn iter(&self) -> impl Iterator<Item = &Arc<Vote>> {
+        std::iter::once(&self.vote).chain(self.other_kinds.iter())
     }
 }
 
@@ -71,7 +97,7 @@ impl VotedBlock {
     }
 
     pub fn iter_votes<'a>(&'a self) -> impl Iterator<Item = &'a Arc<Vote>> {
-        self.by_representative.values().map(|i| &i.vote)
+        self.by_representative.values().flat_map(|i| i.iter())
     }
 
     pub fn vote_count(&self) -> usize {
@@ -91,14 +117,20 @@ impl VotedBlock {
         let vote = CachedVote::new(vote, rep_weight);
 
         if let Some(existing) = self.by_representative.get_mut(&rep_key) {
-            if !vote.is_newer_than(existing) {
-                return false;
-            }
-            let old_weight = existing.weight;
-            *existing = vote;
-            if old_weight != new_weight {
-                self.remove_by_weight(&old_weight, &rep_key);
-                self.add_by_weight(new_weight, rep_key);
+            if cfg!(feature = "rai_protocol") && vote.vote.kind() != existing.vote.kind() {
+                if !existing.add_kind(vote.vote) {
+                    return false;
+                }
+            } else {
+                if !vote.is_newer_than(existing) {
+                    return false;
+                }
+                let old_weight = existing.weight;
+                *existing = vote;
+                if old_weight != new_weight {
+                    self.remove_by_weight(&old_weight, &rep_key);
+                    self.add_by_weight(new_weight, rep_key);
+                }
             }
         } else {
             if !self.can_insert(&vote) {
@@ -137,7 +169,7 @@ impl VotedBlock {
         self.final_tally = Amount::ZERO;
         for vote in self.by_representative.values() {
             self.non_final_tally = self.non_final_tally.wrapping_add(vote.weight);
-            if vote.vote.is_final() {
+            if vote.is_final() {
                 self.final_tally = self.final_tally.wrapping_add(vote.weight);
             }
         }
@@ -262,6 +294,51 @@ mod tests {
         assert_eq!(block.final_tally(), Amount::raw(10));
     }
 
+    /// Kudzu: one cached vote per kind per representative, all replayed
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn keeps_one_vote_per_kind_per_representative() {
+        use rsnano_types::VoteKind;
+
+        let hash = BlockHash::from(1);
+        let rep = PrivateKey::from(1);
+        let first = Arc::new(Vote::new_of_kind_at(
+            &rep,
+            VoteKind::First,
+            UnixMillisTimestamp::new(1000),
+            vec![hash],
+        ));
+        let timeout = Arc::new(Vote::new_of_kind_at(
+            &rep,
+            VoteKind::Timeout,
+            UnixMillisTimestamp::new(2000),
+            vec![hash],
+        ));
+        let final_ = Arc::new(Vote::new_of_kind(&rep, VoteKind::Final, vec![hash]));
+        let mut block = VotedBlock::new(
+            1,
+            hash,
+            64,
+            first.clone(),
+            Amount::raw(5),
+            Timestamp::new(1),
+        );
+
+        assert!(block.add_vote(timeout.clone(), Amount::raw(5), Timestamp::new(2)));
+        assert!(block.add_vote(final_.clone(), Amount::raw(5), Timestamp::new(3)));
+        // Another vote of a kind already held is rejected
+        assert!(!block.add_vote(timeout.clone(), Amount::raw(5), Timestamp::new(4)));
+
+        assert_eq!(block.vote_count(), 1);
+        assert_eq!(block.non_final_tally(), Amount::raw(5));
+        assert_eq!(block.final_tally(), Amount::raw(5));
+        let votes: Vec<_> = block.iter_votes().collect();
+        assert_eq!(votes.len(), 3);
+        assert!(votes.iter().any(|v| Arc::ptr_eq(v, &first)));
+        assert!(votes.iter().any(|v| Arc::ptr_eq(v, &timeout)));
+        assert!(votes.iter().any(|v| Arc::ptr_eq(v, &final_)));
+    }
+
     #[test]
     fn duplicate_vote_with_same_timestamp_is_ignored() {
         let hash = BlockHash::from(1);
@@ -305,7 +382,11 @@ mod tests {
         let changed = block.add_vote(newer_vote.clone(), Amount::raw(5), Timestamp::new(2));
 
         assert!(changed);
-        assert_eq!(block.iter_votes().collect::<Vec<_>>(), vec![&newer_vote]);
+        // Kudzu keeps the first vote next to the final vote
+        let expected_votes = if cfg!(feature = "rai_protocol") { 2 } else { 1 };
+        let votes: Vec<_> = block.iter_votes().collect();
+        assert_eq!(votes.len(), expected_votes);
+        assert!(votes.iter().any(|v| Arc::ptr_eq(v, &newer_vote)));
         assert_eq!(block.final_tally(), Amount::raw(5));
         assert_eq!(block.last_modified(), Timestamp::new(2));
     }

@@ -7,7 +7,7 @@ use rsnano_ledger::Ledger;
 use rsnano_network::{Channel, ChannelId};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
-use rsnano_types::{BlockHash, NetworkType, Root, SavedBlock, VoteKind};
+use rsnano_types::{BlockHash, NetworkType, PrivateKey, Root, SavedBlock, VoteKind};
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{DetailType, StatType, Stats},
@@ -179,6 +179,13 @@ impl VoteGenerators {
 
     pub fn voting_enabled(&self) -> bool {
         self.wallet_reps.lock().unwrap().voting_enabled()
+    }
+
+    /// The private keys of this node's voting representatives
+    pub fn rep_priv_keys(&self) -> Vec<PrivateKey> {
+        let mut keys = Vec::new();
+        self.wallet_reps.lock().unwrap().rep_priv_keys(&mut keys);
+        keys
     }
 }
 

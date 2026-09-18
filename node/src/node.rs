@@ -774,6 +774,8 @@ impl Node {
             stats.clone(),
             vote_generators.clone(),
             ledger.clone(),
+            active_elections.clone(),
+            message_sender.clone(),
         ));
 
         let backlog_scan = Arc::new(BacklogScan::new(global_config.into(), ledger.clone()));
@@ -1164,6 +1166,7 @@ impl Node {
             fork_cache: fork_cache.clone(),
             active_elections: active_elections.clone(),
             vote_cache: vote_cache.clone(),
+            message_flooder: message_flooder.clone(),
         });
 
         let aec_voter = Arc::new(Mutex::new(AecVoter::new(

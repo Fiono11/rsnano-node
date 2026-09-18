@@ -375,8 +375,15 @@ impl SharedState {
                     hashes.len() as u64,
                 );
                 self.vote(&hashes, &roots, |vote| {
-                    let confirm =
-                        Message::ConfirmAck(ConfirmAck::new_with_own_vote((*vote).clone()));
+                    // Kudzu: a reply is evidence handed over on request. The same
+                    // (immutable) vote may have been sent before and lost, so it
+                    // must not be dropped as a duplicate by the requester.
+                    let ack = if cfg!(feature = "rai_protocol") {
+                        ConfirmAck::new_with_certificate_evidence((*vote).clone())
+                    } else {
+                        ConfirmAck::new_with_own_vote((*vote).clone())
+                    };
+                    let confirm = Message::ConfirmAck(ack);
                     self.message_sender.lock().unwrap().try_send(
                         &request.channel,
                         &confirm,

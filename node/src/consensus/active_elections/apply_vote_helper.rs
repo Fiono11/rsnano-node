@@ -22,9 +22,15 @@ pub(super) struct ApplyVoteHelper<'a> {
 impl<'a> ApplyVoteHelper<'a> {
     pub fn apply_vote(&mut self) -> ApplyVoteResult {
         let mut result = ApplyVoteResult::default();
+        // Kudzu: certificate evidence is a batch handed over for one election; its
+        // other hashes are of no interest and are skipped without a result
+        let evidence = self.args.vote.delivery == VoteDelivery::Evidence;
         for block_hash in self.args.vote.filtered_blocks() {
             // Ignore duplicate hashes (should not happen with a well-behaved voting node)
             if result.per_block.contains_key(block_hash) {
+                continue;
+            }
+            if evidence && self.roots.vote_router.qualified_root(block_hash).is_none() {
                 continue;
             }
 
@@ -42,11 +48,17 @@ impl<'a> ApplyVoteHelper<'a> {
                     result.per_block.insert(*block_hash, vote_result);
                 }
 
-                if election.is_confirmed() {
-                    let root = election.qualified_root().clone();
+                let root = election.qualified_root().clone();
+                let confirmed = election.is_confirmed();
+                let terminated = election.state().is_terminated();
+
+                if confirmed {
                     if let Some(entry) = self.roots.erase(&root) {
                         result.confirmed.push(entry);
                     }
+                } else if terminated {
+                    // Kudzu: keep the evidence, but stop taking capacity
+                    self.roots.mark_terminated(&root);
                 }
             } else if self.recently_confirmed.hash_exists(block_hash) {
                 result.per_block.insert(*block_hash, Err(VoteError::Late));
@@ -118,13 +130,8 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
     /// timestamp ordering and no cooldown
     fn apply_kudzu_vote(&mut self) -> Result<(), VoteError> {
         let vote = &self.args.vote;
-        self.election.add_kudzu_vote(
-            vote.voter,
-            *self.block_hash,
-            vote.kind(),
-            vote.timestamp(),
-            self.args.now,
-        )?;
+        self.election
+            .add_kudzu_vote(&vote.vote.vote, *self.block_hash, self.args.now)?;
         self.stats.vote_counter.count(vote.delivery);
         self.confirm_if_quorum();
         Ok(())
@@ -143,6 +150,7 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
 
     pub fn confirm_if_quorum(&mut self) {
         let old_winner = self.election.winner().hash();
+        let was_in_block_tree = self.election.certificates().has_block();
 
         if cfg!(feature = "rai_protocol") {
             let old_state = self.election.state();
@@ -150,11 +158,8 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
                 self.args.rep_weights,
                 KudzuThresholds::from_quorum(self.args.quorum_snapshot),
             );
-            self.stats.kudzu_transition(
-                old_state,
-                self.election.state(),
-                self.election.certificates(),
-            );
+            self.stats
+                .kudzu_transition(old_state, self.election, was_in_block_tree, self.args.now);
         } else {
             self.election.update_tallies(
                 self.args.rep_weights,
@@ -225,7 +230,7 @@ mod tests {
         UnixMillisTimestamp, Vote, VoteKind,
     };
     use rsnano_utils::sync::backpressure_channel::channel;
-    use std::time::Duration;
+    use std::{sync::Arc, time::Duration};
 
     #[test]
     fn ignore_duplicate_block_hashes_in_vote() {
@@ -582,14 +587,14 @@ mod tests {
     impl FixtureForElection {
         fn add_processed_vote(&mut self, created: UnixMillisTimestamp, received_ago: Duration) {
             if cfg!(feature = "rai_protocol") {
+                let vote = Arc::new(Vote::new_of_kind_at(
+                    &self.rep1_key,
+                    VoteKind::First,
+                    created,
+                    vec![self.block.hash()],
+                ));
                 self.election
-                    .add_kudzu_vote(
-                        self.rep1_key.public_key(),
-                        self.block.hash(),
-                        VoteKind::First,
-                        created,
-                        self.now - received_ago,
-                    )
+                    .add_kudzu_vote(&vote, self.block.hash(), self.now - received_ago)
                     .unwrap();
             } else {
                 self.election.add_vote(

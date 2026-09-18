@@ -6,7 +6,7 @@ use rsnano_ledger::BlockSource;
 use rsnano_messages::NetworkFilter;
 use rsnano_network::ChannelId;
 use rsnano_nullable_clock::SteadyClock;
-use rsnano_types::Block;
+use rsnano_types::{Block, VoteDelivery};
 use rsnano_utils::{
     EventHandlerMut, EventHandlerRegistry,
     stats::{Sample, Stats},
@@ -113,8 +113,12 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
             }
             AecFact::WinnerChanged(previous_winner, new_winner) => {
                 debug!(from = ?previous_winner, to = ?new_winner.hash(), "Winning fork changed");
-                self.local_votes_remover
-                    .remove_local_votes(&previous_winner, &new_winner.qualified_root());
+                // Kudzu: our statements are immutable and stay in the election;
+                // legacy withdraws its votes for the previous winner to vote again
+                if !cfg!(feature = "rai_protocol") {
+                    self.local_votes_remover
+                        .remove_local_votes(&previous_winner, &new_winner.qualified_root());
+                }
 
                 // Roll back the previous winner and add the new winner to the ledger
                 self.block_processor_queue.push(BlockContext::new(
@@ -124,8 +128,11 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
                 ));
             }
             AecFact::VoteProcessed(vote, _weight, results) => {
-                self.vote_rebroadcast_queue
-                    .try_enqueue(&vote.vote, &results);
+                // Certificate evidence was requested by this node, it is not gossip
+                if vote.delivery != VoteDelivery::Evidence {
+                    self.vote_rebroadcast_queue
+                        .try_enqueue(&vote.vote, &results);
+                }
 
                 let result = aggregate_vote_results(&results);
 

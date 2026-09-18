@@ -203,8 +203,12 @@ impl EventHandler<AecFact> for VoteCache {
             AecFact::ElectionStarted(hash, _root) => self.processor.trigger(*hash),
             AecFact::BlockAddedToElection(hash) => self.processor.trigger(*hash),
             AecFact::VoteProcessed(vote, voter_weight, results) => {
-                // Cache the votes that didn't match any election
-                if vote.delivery != VoteDelivery::Replayed {
+                // Cache the votes that didn't match any election. Evidence votes are
+                // batches handed over for one election; their other hashes are not cached.
+                if !matches!(
+                    vote.delivery,
+                    VoteDelivery::Replayed | VoteDelivery::Evidence
+                ) {
                     self.process(vote.vote.clone(), *voter_weight, results);
                 }
             }

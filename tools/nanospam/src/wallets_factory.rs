@@ -14,6 +14,11 @@ use crate::{
 
 const INITIAL_AMOUNT: Amount = Amount::nano(100_000_000);
 
+/// The weight shared equally by the principal representatives; the rest funds the spam
+pub(crate) fn voting_weight() -> Amount {
+    Amount::MAX - INITIAL_AMOUNT
+}
+
 pub(crate) async fn create_wallets(
     rpc_clients: &[NanoRpcClient],
     genesis_rpc: &NanoRpcClient,
@@ -50,7 +55,7 @@ pub(crate) async fn create_wallets(
 
         // the first rpc client is the genesis client
         if i > 0 {
-            let pr_balance = (Amount::MAX - INITIAL_AMOUNT) / pr_count as u128;
+            let pr_balance = voting_weight() / pr_count as u128;
             info!(
                 "Sending Ӿ{} to PR{i} wallet {} ...",
                 pr_balance.format_balance(0),

@@ -65,6 +65,10 @@ pub enum VoteDelivery {
     Direct,
     Forwarded,
     Replayed,
+    /// Kudzu: a retained vote handed over on request as certificate evidence.
+    /// It is only applied to the active elections it names; it is neither
+    /// cached for later elections nor rebroadcast.
+    Evidence,
 }
 
 impl VoteDelivery {
@@ -73,6 +77,7 @@ impl VoteDelivery {
             VoteDelivery::Direct => "direct",
             VoteDelivery::Forwarded => "forwarded",
             VoteDelivery::Replayed => "replayed",
+            VoteDelivery::Evidence => "evidence",
         }
     }
 }

@@ -241,6 +241,9 @@ pub enum DetailType {
     OverfillHashes,
     NormalVote,
     FinalVote,
+    /// Kudzu: replies carrying the retained votes of a terminated election
+    CertificateVotes,
+    ForkCandidate,
 
     // duplicate
     DuplicatePublishMessage,

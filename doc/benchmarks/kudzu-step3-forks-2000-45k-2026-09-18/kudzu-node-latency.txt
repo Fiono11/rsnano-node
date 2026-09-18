@@ -1,0 +1,32 @@
+PR0 latency_finalization_fork        count=   127 avg=   967.5ms max=10010ms | le_50ms=0 le_100ms=0 le_200ms=6 le_500ms=49 le_1s=51 le_2s=15 le_5s=1 le_15s=5 gt_15s=0
+PR0 latency_finalization_nonfork     count= 42853 avg=   131.3ms max=15260ms | le_50ms=1957 le_100ms=19273 le_200ms=15526 le_500ms=5698 le_1s=386 le_2s=11 le_5s=0 le_15s=0 gt_15s=2
+PR0 latency_termination_fork         count=  1809 avg=   240.2ms max=10010ms | le_50ms=10 le_100ms=148 le_200ms=1210 le_500ms=369 le_1s=60 le_2s=1 le_5s=1 le_15s=10 gt_15s=0
+PR0 latency_termination_nonfork      count= 43243 avg=    99.9ms max=15185ms | le_50ms=5231 le_100ms=24784 le_200ms=10123 le_500ms=3035 le_1s=64 le_2s=4 le_5s=0 le_15s=0 gt_15s=2
+PR1 latency_finalization_fork        count=   124 avg=   628.7ms max=10372ms | le_50ms=6 le_100ms=0 le_200ms=2 le_500ms=62 le_1s=32 le_2s=20 le_5s=1 le_15s=1 gt_15s=0
+PR1 latency_finalization_nonfork     count= 42856 avg=   113.3ms max=15163ms | le_50ms=2178 le_100ms=21202 le_200ms=15913 le_500ms=3470 le_1s=90 le_2s=1 le_5s=0 le_15s=0 gt_15s=2
+PR1 latency_termination_fork         count=  1881 avg=   183.4ms max=10377ms | le_50ms=6 le_100ms=159 le_200ms=1342 le_500ms=353 le_1s=19 le_2s=0 le_5s=0 le_15s=2 gt_15s=0
+PR1 latency_termination_nonfork      count= 43171 avg=    89.1ms max=15087ms | le_50ms=6142 le_100ms=26535 le_200ms=8865 le_500ms=1614 le_1s=12 le_2s=0 le_5s=1 le_15s=0 gt_15s=2
+PR2 latency_finalization_fork        count=   133 avg=  1101.4ms max=10461ms | le_50ms=0 le_100ms=0 le_200ms=15 le_500ms=75 le_1s=33 le_2s=1 le_5s=0 le_15s=9 gt_15s=0
+PR2 latency_finalization_nonfork     count= 42847 avg=   126.2ms max=15052ms | le_50ms=2125 le_100ms=20340 le_200ms=15855 le_500ms=3569 le_1s=945 le_2s=11 le_5s=0 le_15s=1 gt_15s=1
+PR2 latency_termination_fork         count=  1855 avg=   250.5ms max=10461ms | le_50ms=5 le_100ms=154 le_200ms=1270 le_500ms=355 le_1s=58 le_2s=0 le_5s=0 le_15s=13 gt_15s=0
+PR2 latency_termination_nonfork      count= 43197 avg=   101.1ms max=14977ms | le_50ms=5812 le_100ms=25276 le_200ms=8958 le_500ms=2806 le_1s=343 le_2s=0 le_5s=0 le_15s=2 gt_15s=0
+PR3 latency_finalization_fork        count=   145 avg=  1309.2ms max=10541ms | le_50ms=0 le_100ms=0 le_200ms=14 le_500ms=38 le_1s=78 le_2s=4 le_5s=0 le_15s=11 gt_15s=0
+PR3 latency_finalization_nonfork     count= 42835 avg=   139.3ms max=15102ms | le_50ms=2418 le_100ms=19502 le_200ms=14600 le_500ms=4609 le_1s=1697 le_2s=7 le_5s=0 le_15s=1 gt_15s=1
+PR3 latency_termination_fork         count=  1969 avg=   310.3ms max=10541ms | le_50ms=3 le_100ms=204 le_200ms=1261 le_500ms=344 le_1s=134 le_2s=1 le_5s=1 le_15s=21 gt_15s=0
+PR3 latency_termination_nonfork      count= 43083 avg=   114.4ms max=15102ms | le_50ms=6276 le_100ms=23708 le_200ms=7896 le_500ms=4405 le_1s=792 le_2s=4 le_5s=0 le_15s=1 gt_15s=1
+PR4 latency_finalization_fork        count=   119 avg=   556.1ms max=2114ms | le_50ms=0 le_100ms=0 le_200ms=6 le_500ms=61 le_1s=33 le_2s=18 le_5s=1 le_15s=0 gt_15s=0
+PR4 latency_finalization_nonfork     count= 42861 avg=   121.7ms max=15102ms | le_50ms=1683 le_100ms=19592 le_200ms=16895 le_500ms=4448 le_1s=239 le_2s=2 le_5s=0 le_15s=1 gt_15s=1
+PR4 latency_termination_fork         count=  1849 avg=   210.5ms max=10394ms | le_50ms=5 le_100ms=138 le_200ms=1273 le_500ms=401 le_1s=26 le_2s=0 le_5s=0 le_15s=6 gt_15s=0
+PR4 latency_termination_nonfork      count= 43203 avg=    96.0ms max=15102ms | le_50ms=4943 le_100ms=25688 le_200ms=10332 le_500ms=2091 le_1s=147 le_2s=0 le_5s=0 le_15s=1 gt_15s=1
+PR5 latency_finalization_fork        count=   103 avg=  1023.6ms max=10550ms | le_50ms=0 le_100ms=0 le_200ms=12 le_500ms=51 le_1s=24 le_2s=10 le_5s=1 le_15s=5 gt_15s=0
+PR5 latency_finalization_nonfork     count= 42876 avg=   130.6ms max=14931ms | le_50ms=1970 le_100ms=19349 le_200ms=15458 le_500ms=5552 le_1s=527 le_2s=18 le_5s=0 le_15s=2 gt_15s=0
+PR5 latency_termination_fork         count=  1904 avg=   237.5ms max=10550ms | le_50ms=2 le_100ms=177 le_200ms=1271 le_500ms=407 le_1s=34 le_2s=1 le_5s=0 le_15s=12 gt_15s=0
+PR5 latency_termination_nonfork      count= 43147 avg=   102.6ms max=14931ms | le_50ms=5758 le_100ms=24139 le_200ms=9396 le_500ms=3629 le_1s=210 le_2s=13 le_5s=0 le_15s=2 gt_15s=0
+| PR | non-fork finalization p50 / p95 | non-fork termination p50 / p95 | fork termination p50 / p95 | fork termination p99 / max |
+|---|---|---|---|---|
+| PR0 | 101 / 356 ms | 81 / 235 ms | 151 / 442 ms | 885 / 10010 ms |
+| PR1 | 97 / 242 ms | 78 / 187 ms | 149 / 361 ms | 518 / 10377 ms |
+| PR2 | 99 / 345 ms | 80 / 285 ms | 149 / 446 ms | 769 / 10461 ms |
+| PR3 | 99 / 444 ms | 80 / 385 ms | 148 / 592 ms | 9899 / 10541 ms |
+| PR4 | 101 / 264 ms | 81 / 203 ms | 153 / 375 ms | 602 / 10394 ms |
+| PR5 | 101 / 324 ms | 80 / 262 ms | 150 / 379 ms | 698 / 10550 ms |

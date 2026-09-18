@@ -16,7 +16,10 @@ use super::{
 };
 use crate::consensus::{
     ElectionCandidateSource,
-    election::{ConfirmedElection, Election, ElectionBehavior, ElectionState, LocalSlotState},
+    election::{
+        CertificateEvidence, ConfirmedElection, Election, ElectionBehavior, ElectionState,
+        LocalSlotState,
+    },
     vote_generation::VoteTarget,
 };
 
@@ -98,6 +101,10 @@ impl AecService {
         self.aec.read().unwrap().info(now)
     }
 
+    pub fn now(&self) -> Timestamp {
+        self.clock.now()
+    }
+
     pub fn round_robin<F, T>(&self, f: F) -> T
     where
         F: FnOnce(&mut dyn Iterator<Item = &Election>) -> T,
@@ -109,6 +116,18 @@ impl AecService {
     /// Kudzu: the votes to broadcast now, see Protocol 1
     pub(crate) fn kudzu_votes_due(&self) -> Vec<VoteTarget> {
         self.aec.read().unwrap().kudzu_votes_due()
+    }
+
+    /// Kudzu: the signed votes behind the certificates of a terminated election
+    pub fn certificate_evidence(
+        &self,
+        hash: &BlockHash,
+    ) -> Option<(QualifiedRoot, CertificateEvidence)> {
+        self.aec.read().unwrap().certificate_evidence(hash)
+    }
+
+    pub fn is_terminated_root(&self, root: &QualifiedRoot) -> bool {
+        self.aec.read().unwrap().is_terminated_root(root)
     }
 
     pub fn slot_state(&self, slot: &(Account, u64)) -> Option<LocalSlotState> {

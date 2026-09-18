@@ -1,18 +1,24 @@
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 use tracing::debug;
 
 use rsnano_ledger::{BlockError, LedgerEvent, ProcessResult};
+use rsnano_messages::{Message, Publish};
+use rsnano_network::TrafficType;
 use rsnano_types::{Block, QualifiedRoot};
 use rsnano_utils::EventHandlerMut;
 
 use super::{AecService, ForkCache};
-use crate::{block_processing::LedgerPipelineEvent, consensus::vote_cache::VoteCache};
+use crate::{
+    block_processing::LedgerPipelineEvent, consensus::vote_cache::VoteCache,
+    transport::MessageFlooder,
+};
 
 pub(crate) struct AecForkInserter {
     pub(crate) fork_cache: Arc<RwLock<ForkCache>>,
     pub(crate) active_elections: Arc<AecService>,
     pub(crate) vote_cache: Arc<VoteCache>,
+    pub(crate) message_flooder: Arc<Mutex<MessageFlooder>>,
 }
 
 impl AecForkInserter {
@@ -22,6 +28,7 @@ impl AecForkInserter {
             fork_cache: Arc::new(RwLock::new(ForkCache::new())),
             active_elections: Arc::new(AecService::new_null()),
             vote_cache: Arc::new(VoteCache::new_null()),
+            message_flooder: Arc::new(Mutex::new(MessageFlooder::new_null())),
         }
     }
 
@@ -46,6 +53,16 @@ impl AecForkInserter {
 
         if added {
             debug!("Block was added to an existing election: {}", fork.hash());
+            if cfg!(feature = "rai_protocol") {
+                // Kudzu ships the payload with the votes, so every replica can take
+                // its second look. Here the candidate is flooded to the principal
+                // representatives instead; forks are rare, so this is cheap.
+                let publish = Message::Publish(Publish::new_forward(fork.clone()));
+                self.message_flooder
+                    .lock()
+                    .unwrap()
+                    .flood_prs_and_some_non_prs(&publish, TrafficType::BlockBroadcastInitial, 0.5);
+            }
         }
     }
 }

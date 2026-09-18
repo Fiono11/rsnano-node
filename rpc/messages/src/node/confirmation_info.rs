@@ -58,6 +58,28 @@ pub struct ConfirmationInfoResponse {
     pub total_tally: Amount,
     pub final_tally: Amount,
     pub blocks: IndexMap<BlockHash, ConfirmationBlockInfoDto>,
+
+    /// Kudzu election state (rai_protocol builds only)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
+
+    /// Kudzu certificates collected so far (rai_protocol builds only)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub certificates: Option<KudzuCertificatesDto>,
+}
+
+#[derive(PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub struct KudzuCertificatesDto {
+    pub notarized: Vec<BlockHash>,
+    pub timeout: bool,
+    pub timeout_tally: Amount,
+    pub certificate_threshold: Amount,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fast: Option<BlockHash>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "final")]
+    pub final_: Option<BlockHash>,
+    /// Whether a finalization certificate can still form
+    pub finalizable: bool,
 }
 
 #[derive(PartialEq, Eq, Debug, Serialize, Deserialize)]
@@ -72,6 +94,14 @@ pub struct ConfirmationBlockInfoDto {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub representatives_final: Option<IndexMap<Account, Amount>>,
+
+    /// Kudzu vote kinds each representative cast for this block, e.g. "first,final"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub representatives_kudzu: Option<IndexMap<Account, String>>,
+
+    /// Kudzu first-vote tally for this block
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_tally: Option<Amount>,
 }
 
 #[cfg(test)]
@@ -93,9 +123,13 @@ mod tests {
                     contents: None,
                     representatives: None,
                     representatives_final: None,
+                    representatives_kudzu: None,
+                    first_tally: None,
                 },
             )]
             .into(),
+            state: None,
+            certificates: None,
         };
 
         let json = serde_json::to_string(&response).unwrap();

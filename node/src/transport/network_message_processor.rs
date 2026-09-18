@@ -162,9 +162,12 @@ impl NetworkMessageProcessor {
                     );
                 }
 
-                let source = match ack.is_rebroadcasted() {
-                    true => VoteDelivery::Forwarded,
-                    false => VoteDelivery::Direct,
+                let source = if ack.is_evidence() {
+                    VoteDelivery::Evidence
+                } else if ack.is_rebroadcasted() {
+                    VoteDelivery::Forwarded
+                } else {
+                    VoteDelivery::Direct
                 };
 
                 let added = self.vote_processor_queue.enqueue(

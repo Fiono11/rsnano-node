@@ -7,7 +7,7 @@ use rsnano_node::{
     consensus::{ReceivedVote, election::KudzuThresholds},
 };
 use rsnano_types::{Amount, DEV_GENESIS_KEY, PrivateKey, Vote, VoteDelivery};
-use test_helpers::{System, assert_timely2};
+use test_helpers::{System, assert_timely, assert_timely2};
 
 /// The weight a final vote needs to confirm a block: the legacy quorum, or the
 /// Kudzu finalization certificate
@@ -180,4 +180,309 @@ fn quorum_minimum_flip_success() {
 
     // Wait for the election to be confirmed
     assert_timely2(|| node1.block_confirmed(&send2.hash()));
+}
+
+/// Kudzu: a replica that missed the votes of a terminated election obtains
+/// them from the representatives themselves, which re-sign their statements
+/// for exactly that election (Section 4.2)
+#[cfg(feature = "rai_protocol")]
+#[test]
+fn kudzu_certificates_are_handed_to_a_replica_that_missed_the_votes() {
+    use rsnano_node::{
+        config::NodeFlags,
+        consensus::{AggregatorRequest, ApplyVoteArgs, FilteredVote},
+    };
+    use rsnano_types::VoteKind;
+    use rsnano_utils::stats::Direction;
+
+    let mut system = System::new();
+    // n = MAX: the genesis representative with 70% of the supply is a
+    // notarization certificate (62%) but not a fast finalization (81%)
+    let config = || NodeConfig {
+        online_weight_minimum: Amount::MAX,
+        ..System::default_config_without_backlog_scan()
+    };
+    let flags = NodeFlags {
+        disable_rep_crawler: true,
+        ..Default::default()
+    };
+    // node1 is the genesis representative and votes
+    let node1 = system
+        .build_node()
+        .config(config())
+        .flags(flags.clone())
+        .finish();
+    node1
+        .wallets
+        .insert_adhoc2(
+            &node1.wallets.wallet_ids()[0],
+            &DEV_GENESIS_KEY.raw_key(),
+            true,
+        )
+        .unwrap();
+
+    let mut lattice = UnsavedBlockLatticeBuilder::new();
+    let key = PrivateKey::from(42);
+    let send1 = lattice.genesis().send(&key, Amount::MAX / 10 * 3);
+    node1.process(send1.clone());
+    assert_timely2(|| node1.is_active_root(&send1.qualified_root()));
+
+    // A timeout certificate rules out explicit finalization, so node1's own
+    // first vote terminates the election without finalizing it
+    let timeout_vote: FilteredVote = ReceivedVote::new(
+        Arc::new(Vote::new_of_kind(
+            &DEV_GENESIS_KEY,
+            VoteKind::Timeout,
+            vec![send1.hash()],
+        )),
+        VoteDelivery::Direct,
+        None,
+    )
+    .into();
+    node1.aec.apply_vote(ApplyVoteArgs {
+        vote: &timeout_vote,
+        rep_weights: &node1.ledger.rep_weights.read(),
+        quorum_snapshot: &node1.rep_tracker.quorum_snapshot(),
+        now: node1.steady_clock.now(),
+    });
+    assert_timely2(|| {
+        node1
+            .aec
+            .election_for_block(&send1.hash())
+            .is_some_and(|e| e.certificates().is_notarized(&send1.hash()))
+    });
+    assert!(!node1.block_confirmed(&send1.hash()));
+
+    // node2 joins afterwards, so it never saw node1's first vote broadcast
+    let node2 = system.build_node().config(config()).flags(flags).finish();
+    node2.process_active(send1.clone());
+    assert_timely2(|| node2.is_active_root(&send1.qualified_root()));
+
+    // node1 hands its re-signed statement for that election to node2 on request
+    let channel_to_node2 = node1
+        .network
+        .read()
+        .unwrap()
+        .find_node_id(&node2.node_id.public_key().into())
+        .unwrap()
+        .clone();
+    node1.request_aggregator.request(AggregatorRequest {
+        channel: channel_to_node2,
+        roots_hashes: vec![(send1.hash(), send1.root())],
+    });
+    assert_timely2(|| {
+        node1.get_stat(
+            "request_aggregator_replies",
+            "certificate_votes",
+            Direction::In,
+        ) >= 1
+    });
+    // (on the dev network node1's periodic re-broadcast may deliver the same
+    // statement first; either way node2 ends up with the certificate)
+    assert_timely2(|| {
+        node2
+            .aec
+            .election_for_block(&send1.hash())
+            .is_some_and(|e| e.certificates().is_notarized(&send1.hash()))
+    });
+    assert!(!node2.block_confirmed(&send1.hash()));
+}
+
+/// Kudzu: a replica whose election missed the final votes of a block the
+/// representatives have already cemented gets them on request (legacy final
+/// vote generation for confirmed blocks)
+#[cfg(feature = "rai_protocol")]
+#[test]
+fn kudzu_final_votes_for_a_cemented_block_are_handed_out_on_request() {
+    use rsnano_node::config::NodeFlags;
+
+    let mut system = System::new();
+    let flags = NodeFlags {
+        disable_rep_crawler: true,
+        ..Default::default()
+    };
+    let node1 = system
+        .build_node()
+        .config(System::default_config_without_backlog_scan())
+        .flags(flags.clone())
+        .finish();
+    node1
+        .wallets
+        .insert_adhoc2(
+            &node1.wallets.wallet_ids()[0],
+            &DEV_GENESIS_KEY.raw_key(),
+            true,
+        )
+        .unwrap();
+
+    let key = PrivateKey::from(42);
+    let send1 = UnsavedBlockLatticeBuilder::new()
+        .genesis()
+        .send(&key, Amount::MAX / 10 * 3);
+    node1.process(send1.clone());
+    assert_timely2(|| node1.block_confirmed(&send1.hash()));
+
+    // node2 joins afterwards, so it saw none of node1's votes
+    let node2 = system
+        .build_node()
+        .config(NodeConfig {
+            online_weight_minimum: Amount::MAX,
+            ..System::default_config_without_backlog_scan()
+        })
+        .flags(flags)
+        .finish();
+    node2.process_active(send1.clone());
+    // node2 solicits, node1 answers with its final vote for the cemented block
+    assert_timely2(|| node2.block_confirmed(&send1.hash()));
+}
+
+/// Kudzu: statements are immutable. When the notarized fork replaces our ledger
+/// block, our own first vote for the losing block stays in the election (legacy
+/// withdraws its votes to vote again)
+#[cfg(feature = "rai_protocol")]
+#[test]
+fn kudzu_own_votes_survive_a_winner_change() {
+    use rsnano_node::config::NodeFlags;
+
+    let mut system = System::new();
+    // neither node re-publishes the other's block, so each keeps its own fork
+    let flags = NodeFlags {
+        disable_rep_crawler: true,
+        disable_block_processor_republishing: true,
+        ..Default::default()
+    };
+    // n = MAX: node1's genesis representative (70 %) makes a certificate, node2's
+    // 30 % representative does not
+    let config = || NodeConfig {
+        online_weight_minimum: Amount::MAX,
+        ..System::default_config_without_backlog_scan()
+    };
+    let node1 = system
+        .build_node()
+        .config(config())
+        .flags(flags.clone())
+        .finish();
+    let node2 = system.build_node().config(config()).flags(flags).finish();
+    node1
+        .wallets
+        .insert_adhoc2(
+            &node1.wallets.wallet_ids()[0],
+            &DEV_GENESIS_KEY.raw_key(),
+            true,
+        )
+        .unwrap();
+    let key = PrivateKey::from(42);
+    let mut lattice = UnsavedBlockLatticeBuilder::new();
+    let send0 = lattice.genesis().send(&key, Amount::MAX / 10 * 3);
+    let open0 = lattice.account(&key).receive(&send0);
+    node1.process(send0.clone());
+    node1.process(open0.clone());
+    assert_timely2(|| node2.block_confirmed(&open0.hash()));
+    node2
+        .wallets
+        .insert_adhoc2(&node2.wallets.wallet_ids()[0], &key.raw_key(), true)
+        .unwrap();
+    // the key becomes a voting representative with the periodic wallet
+    // representative computation (10 s)
+    assert_timely(Duration::from_secs(20), || {
+        let mut keys = Vec::new();
+        node2.wallet_reps.lock().unwrap().rep_priv_keys(&mut keys);
+        !keys.is_empty()
+    });
+
+    // node2's ledger block is the fork; node1's block gets the certificate
+    let other = PrivateKey::from(43);
+    let mut fork_lattice = lattice.clone();
+    let send1 = lattice.genesis().send(&other, Amount::MAX / 10);
+    let fork1 = fork_lattice
+        .genesis()
+        .send(&other, Amount::MAX / 10 + Amount::raw(1));
+    assert_eq!(send1.root(), fork1.root());
+    assert_ne!(send1.hash(), fork1.hash());
+    node1.process(send1.clone());
+    node2.process(fork1.clone());
+    assert_timely2(|| {
+        node2
+            .aec
+            .election_for_block(&fork1.hash())
+            .is_some_and(|e| e.kudzu_votes().rep(&key.public_key()).is_some())
+    });
+    assert_timely2(|| {
+        node2
+            .aec
+            .election_for_block(&send1.hash())
+            .is_some_and(|e| e.winner().hash() == send1.hash())
+    });
+
+    let election = node2.aec.election_for_block(&send1.hash()).unwrap();
+    let own = election.kudzu_votes().rep(&key.public_key()).unwrap();
+    assert_eq!(own.first, Some(fork1.hash()));
+}
+
+/// Kudzu: a request for a block we do not hold, for a root where our ledger
+/// has a different successor, tells us that the requester lacks our fork
+/// candidate; it is published to the requester so that it can take its
+/// second look
+#[cfg(feature = "rai_protocol")]
+#[test]
+fn kudzu_fork_candidate_is_handed_to_a_replica_that_holds_the_other_fork() {
+    use rsnano_node::{config::NodeFlags, consensus::AggregatorRequest};
+    use rsnano_utils::stats::Direction;
+
+    let mut system = System::new();
+    let config = || NodeConfig {
+        online_weight_minimum: Amount::MAX,
+        ..System::default_config_without_backlog_scan()
+    };
+    let flags = NodeFlags {
+        disable_rep_crawler: true,
+        ..Default::default()
+    };
+    let node1 = system
+        .build_node()
+        .config(config())
+        .flags(flags.clone())
+        .finish();
+    let node2 = system.build_node().config(config()).flags(flags).finish();
+
+    let key = PrivateKey::from(42);
+    let send1 = UnsavedBlockLatticeBuilder::new()
+        .genesis()
+        .send(&key, Amount::MAX / 10 * 3);
+    let fork1 = UnsavedBlockLatticeBuilder::new()
+        .genesis()
+        .send(&key, Amount::MAX / 10 * 4);
+    assert_eq!(send1.root(), fork1.root());
+    node1.process(send1.clone());
+    node2.process(fork1.clone());
+    assert_timely2(|| node1.is_active_root(&send1.qualified_root()));
+    assert_timely2(|| node2.is_active_root(&fork1.qualified_root()));
+    assert!(node1.block(&fork1.hash()).is_none());
+
+    // node2 asks node1 about its own block; node1 does not hold it but has
+    // send1 for the same root, so it answers with send1
+    let channel_to_node2 = node1
+        .network
+        .read()
+        .unwrap()
+        .find_node_id(&node2.node_id.public_key().into())
+        .unwrap()
+        .clone();
+    node1.request_aggregator.request(AggregatorRequest {
+        channel: channel_to_node2,
+        roots_hashes: vec![(fork1.hash(), fork1.root())],
+    });
+    assert_timely2(|| {
+        node1.get_stat(
+            "request_aggregator_replies",
+            "fork_candidate",
+            Direction::In,
+        ) >= 1
+    });
+    assert_timely2(|| {
+        node2
+            .aec
+            .election_for_block(&send1.hash())
+            .is_some_and(|e| e.candidate_blocks().contains_key(&fork1.hash()))
+    });
 }

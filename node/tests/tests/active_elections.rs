@@ -296,12 +296,16 @@ fn republish_winner() {
     }
 
     assert_timely2(|| node1.aec.len() > 0);
-    assert_eq!(
-        1,
-        node2
-            .stats
-            .count(StatType::Message, DetailType::Publish, Direction::In)
-    );
+    // Legacy does not republish forks; Kudzu floods every candidate so that all
+    // replicas can take their second look
+    if !cfg!(feature = "rai_protocol") {
+        assert_eq!(
+            1,
+            node2
+                .stats
+                .count(StatType::Message, DetailType::Publish, Direction::In)
+        );
+    }
 
     // Process new fork with vote to change winner
     let mut fork_lattice = UnsavedBlockLatticeBuilder::new();

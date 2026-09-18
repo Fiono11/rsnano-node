@@ -385,11 +385,13 @@ fn two() {
         },
         0,
     );
-    // Make sure the cached vote is for both hashes
-    let vote1 = node.history.votes(&send2.root(), &send2.hash(), false);
+    // Make sure the cached vote is for both hashes. Kudzu also keeps the node's
+    // own first votes per hash, so only look at the final votes there.
+    let final_only = cfg!(feature = "rai_protocol");
+    let vote1 = node.history.votes(&send2.root(), &send2.hash(), final_only);
     let vote2 = node
         .history
-        .votes(&receive1.root(), &receive1.hash(), false);
+        .votes(&receive1.root(), &receive1.hash(), final_only);
     assert_eq!(vote1.len(), 1);
     assert_eq!(vote2.len(), 1);
     assert!(Arc::ptr_eq(&vote1[0], &vote2[0]));

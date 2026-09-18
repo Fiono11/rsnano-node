@@ -312,7 +312,7 @@ impl SlotVotes {
         if certs.is_finalized() {
             return true;
         }
-        if !certs.has_block() {
+        if !certs.is_terminated() {
             return false;
         }
         // Weight that has not first voted yet, known or unknown. It can still first
@@ -328,6 +328,21 @@ impl SlotVotes {
             .into_iter()
             .filter(|hash| !certs.is_notarized(hash))
             .all(|hash| self.max_notar_weight(hash, unvoted, thresholds) < thresholds.certificate)
+    }
+
+    /// Whether a finalization certificate for `hash` can still form: the weight
+    /// that has notarized nothing but `hash` (or nothing at all, known or
+    /// unknown) may still cast a final vote for it (Protocol 1, line 10)
+    pub fn can_finalize(&self, thresholds: &KudzuThresholds, hash: &BlockHash) -> bool {
+        let known: Amount = self.reps.values().map(|r| r.weight).sum();
+        let unknown = thresholds.online.checked_sub(known).unwrap_or_default();
+        let able: Amount = self
+            .reps
+            .values()
+            .filter(|r| r.notar.iter().all(|h| h == hash) && r.final_.is_none_or(|h| h == *hash))
+            .map(|r| r.weight)
+            .sum();
+        able + unknown >= thresholds.certificate
     }
 
     fn max_notar_weight(
@@ -388,6 +403,45 @@ impl LocalSlotState {
     /// was first voted, in which case a second look changes nothing
     pub fn looked_at(&self, hash: &BlockHash) -> bool {
         self.first_voted == Some(*hash) || self.notar_voted.contains(hash)
+    }
+
+    /// The statements this node made for the given candidates, to be re-signed
+    /// for a replica which asks for them (Section 4.2: certificates are handed
+    /// to every replica). A statement's identity is (representative, kind, hash),
+    /// so re-signing it for a subset of hashes is the same statement.
+    pub fn statements_for<'a>(
+        &self,
+        candidates: impl IntoIterator<Item = &'a BlockHash>,
+        timeout_routing: BlockHash,
+    ) -> Vec<(VoteKind, Vec<BlockHash>)> {
+        let mut first = Vec::new();
+        let mut notar = Vec::new();
+        let mut final_ = Vec::new();
+        for hash in candidates {
+            if self.first_voted == Some(*hash) {
+                first.push(*hash);
+            }
+            if self.notar_voted.contains(hash) {
+                notar.push(*hash);
+            }
+            if self.final_voted == Some(*hash) {
+                final_.push(*hash);
+            }
+        }
+        let mut result = Vec::new();
+        if !first.is_empty() {
+            result.push((VoteKind::First, first));
+        }
+        if !notar.is_empty() {
+            result.push((VoteKind::Notar, notar));
+        }
+        if self.timeout_voted.is_some() {
+            result.push((VoteKind::Timeout, vec![timeout_routing]));
+        }
+        if !final_.is_empty() {
+            result.push((VoteKind::Final, final_));
+        }
+        result
     }
 
     /// Everything cast so far, for re-broadcasting
@@ -600,6 +654,31 @@ mod tests {
         pool.update_certificates(&t, &mut certs);
         assert!(certs.is_finalized());
         assert!(pool.is_settled(&t, &certs, &[hash(1), hash(2)]));
+    }
+
+    #[test]
+    fn statements_for_an_election_cover_only_its_candidates() {
+        let mut slot = LocalSlotState::default();
+        slot.mark_voted(hash(1), VoteKind::First);
+        slot.mark_voted(hash(2), VoteKind::Notar);
+        slot.mark_voted(hash(1), VoteKind::Timeout);
+        slot.mark_voted(hash(1), VoteKind::Final);
+
+        let statements = slot.statements_for(&[hash(1), hash(2)], hash(1));
+        assert_eq!(
+            statements,
+            vec![
+                (VoteKind::First, vec![hash(1)]),
+                (VoteKind::Notar, vec![hash(2)]),
+                (VoteKind::Timeout, vec![hash(1)]),
+                (VoteKind::Final, vec![hash(1)]),
+            ]
+        );
+        // A sibling election at the same height only gets what concerns it
+        assert_eq!(
+            slot.statements_for(&[hash(3)], hash(3)),
+            vec![(VoteKind::Timeout, vec![hash(3)])]
+        );
     }
 
     #[test]

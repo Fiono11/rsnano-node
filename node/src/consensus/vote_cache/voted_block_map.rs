@@ -405,8 +405,10 @@ mod tests {
 
         let mut votes = Vec::new();
         cache.collect_votes(&mut votes, &hash);
-        assert_eq!(votes.len(), 1);
-        assert!(votes[0].is_final());
+        // Kudzu keeps the first vote next to the final vote
+        let expected_votes = if cfg!(feature = "rai_protocol") { 2 } else { 1 };
+        assert_eq!(votes.len(), expected_votes);
+        assert!(votes.iter().any(|v| v.is_final()));
     }
 
     /*
@@ -550,8 +552,9 @@ mod tests {
         cache.process(vote, Amount::raw(9), &HashMap::new(), now);
         cache.process(final_vote, Amount::raw(9), &HashMap::new(), now);
 
-        let vote = cache.get(&hash).unwrap().iter_votes().next().unwrap();
-        assert!(vote.is_final());
+        // Kudzu keeps the first vote as well, legacy replaces it
+        assert!(cache.get(&hash).unwrap().iter_votes().any(|v| v.is_final()));
+        assert_eq!(cache.get(&hash).unwrap().final_tally(), Amount::raw(9));
     }
 
     #[test]

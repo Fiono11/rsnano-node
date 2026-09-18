@@ -1,6 +1,8 @@
 use std::{
     collections::HashMap,
     fmt::Debug,
+    ops::Deref,
+    sync::Arc,
     time::{Duration, SystemTime},
 };
 
@@ -228,24 +230,39 @@ impl Election {
         );
     }
 
-    /// Adds a vote to the Kudzu vote pool. Fails on a replay of the same
+    /// Adds a signed vote to the Kudzu vote pool. Fails on a replay of the same
     /// (representative, kind, hash) or when the representative exceeded its
     /// notarization vote budget.
     pub fn add_kudzu_vote(
         &mut self,
-        voter: PublicKey,
+        vote: &Arc<Vote>,
         hash: BlockHash,
-        kind: VoteKind,
-        vote_created: UnixMillisTimestamp,
         vote_received: Timestamp,
     ) -> Result<(), VoteError> {
         debug_assert!(self.candidate_blocks.contains_key(&hash));
-        self.kudzu.add(voter, hash, kind)?;
+        self.kudzu.add(vote.voter, hash, vote.kind())?;
         self.votes.insert(
-            voter,
-            VoteSummary::new(voter, hash, vote_created, vote_received),
+            vote.voter,
+            VoteSummary::new(vote.voter, hash, vote.timestamp(), vote_received),
         );
         Ok(())
+    }
+
+    /// Kudzu: this node's statements for a terminated election, to be re-signed
+    /// for a replica which asks for them, and the candidate blocks: a replica can
+    /// only count a certificate for a block it holds, as Kudzu ships the payload
+    /// fragments inside the notarization votes.
+    pub fn certificate_evidence(&self, slot: &LocalSlotState) -> Option<CertificateEvidence> {
+        self.certificates
+            .is_terminated()
+            .then(|| CertificateEvidence {
+                statements: slot.statements_for(self.candidate_blocks.keys(), self.winner.hash()),
+                blocks: self
+                    .candidate_blocks
+                    .values()
+                    .map(|b| b.deref().clone())
+                    .collect(),
+            })
     }
 
     pub fn winner_tally(&self) -> Amount {
@@ -286,6 +303,32 @@ impl Election {
 
     pub fn base_latency(&self) -> Duration {
         self.base_latency
+    }
+
+    /// Kudzu: a terminated election asks for the certificate evidence it may be
+    /// missing, but only once it has been around for the passive period, so
+    /// that the ordinary certificate -> finalization window is never solicited.
+    /// A settled election keeps asking while its notarized block can still be
+    /// finalized: the final votes it lacks may simply have been dropped.
+    pub fn should_solicit_evidence(&self, now: Timestamp) -> bool {
+        let collecting = match self.state {
+            ElectionState::Terminated | ElectionState::TimedOut => true,
+            ElectionState::Settled => self.kudzu_can_finalize(),
+            _ => false,
+        };
+        collecting && self.base_latency * Self::PASSIVE_DURATION_FACTOR < self.start.elapsed(now)
+    }
+
+    /// Kudzu: whether a finalization certificate can still form for one of the
+    /// notarized blocks
+    pub fn kudzu_can_finalize(&self) -> bool {
+        let Some(thresholds) = &self.thresholds else {
+            return false;
+        };
+        self.certificates
+            .notar
+            .iter()
+            .any(|hash| self.kudzu.can_finalize(thresholds, hash))
     }
 
     pub fn has_quorum(&self) -> bool {
@@ -551,19 +594,17 @@ impl Election {
         let certs = &self.certificates;
         if certs.is_finalized() {
             ElectionState::Confirmed
-        } else if certs.has_block() {
-            if self
-                .kudzu
-                .is_settled(thresholds, certs, self.candidate_blocks.keys())
-            {
-                ElectionState::Settled
-            } else {
-                ElectionState::Terminated
-            }
-        } else if certs.timeout {
-            ElectionState::TimedOut
-        } else {
+        } else if !certs.is_terminated() {
             self.state
+        } else if self
+            .kudzu
+            .is_settled(thresholds, certs, self.candidate_blocks.keys())
+        {
+            ElectionState::Settled
+        } else if certs.has_block() {
+            ElectionState::Terminated
+        } else {
+            ElectionState::TimedOut
         }
     }
 
@@ -640,6 +681,14 @@ impl Election {
             votes,
         }
     }
+}
+
+/// Kudzu: what a replica hands out for a terminated election
+#[derive(Clone, Debug)]
+pub struct CertificateEvidence {
+    /// The node's own statements, by kind, to be signed by each of its representatives
+    pub statements: Vec<(VoteKind, Vec<BlockHash>)>,
+    pub blocks: Vec<Block>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -927,6 +976,72 @@ mod tests {
     }
 
     #[test]
+    fn three_three_fork_terminates_with_one_certificate_and_a_timeout_certificate() {
+        let (mut election, block, fork) = election_with_fork();
+        let weights = weights(&[(1, 40), (2, 40), (3, 40), (4, 40), (5, 40), (6, 40)]);
+        let thresholds = KudzuThresholds::new(Amount::raw(240));
+        first_votes(&mut election, block, &[1, 2, 3]);
+        first_votes(&mut election, fork, &[4, 5, 6]);
+        election.update_kudzu_tallies(&weights, thresholds);
+        assert!(!election.certificates().is_terminated());
+
+        // The fork holders take a second look at the block, everybody times out
+        for rep in 4..=6 {
+            vote(&mut election, rep, block, VoteKind::Notar);
+        }
+        for rep in 1..=6 {
+            vote(&mut election, rep, block, VoteKind::Timeout);
+        }
+        election.update_kudzu_tallies(&weights, thresholds);
+        assert_eq!(election.certificates().notar, vec![block]);
+        assert!(election.certificates().timeout);
+        assert!(!election.is_confirmed());
+        // The block holders could still take a second look at the fork
+        assert_eq!(election.state(), ElectionState::Terminated);
+
+        // Once they exited with their final votes nothing can change
+        for rep in 1..=3 {
+            vote(&mut election, rep, block, VoteKind::Final);
+        }
+        election.update_kudzu_tallies(&weights, thresholds);
+        assert!(!election.is_confirmed());
+        assert_eq!(election.state(), ElectionState::Settled);
+        // Everybody but the block holders notarized the fork, no final certificate can form
+        assert!(!election.kudzu_can_finalize());
+    }
+
+    #[test]
+    fn settled_four_two_fork_can_still_be_finalized_by_the_missing_final_votes() {
+        let (mut election, block, fork) = election_with_fork();
+        let weights = weights(&[(1, 40), (2, 40), (3, 40), (4, 40), (5, 40), (6, 40)]);
+        let thresholds = KudzuThresholds::new(Amount::raw(240));
+        first_votes(&mut election, block, &[1, 2, 3, 4]);
+        first_votes(&mut election, fork, &[5, 6]);
+        for rep in 5..=6 {
+            vote(&mut election, rep, block, VoteKind::Notar);
+        }
+        // Only two of the four final votes arrived here
+        for rep in 1..=2 {
+            vote(&mut election, rep, block, VoteKind::Final);
+        }
+        election.update_kudzu_tallies(&weights, thresholds);
+        assert_eq!(election.state(), ElectionState::Settled);
+        assert!(!election.is_confirmed());
+
+        // Representatives 3 and 4 notarized nothing but the block, so their
+        // final votes can still finalize it and the election keeps asking
+        assert!(election.kudzu_can_finalize());
+        let later = election.start() + election.base_latency() * 10;
+        assert!(election.should_solicit_evidence(later));
+
+        for rep in 3..=4 {
+            vote(&mut election, rep, block, VoteKind::Final);
+        }
+        election.update_kudzu_tallies(&weights, thresholds);
+        assert!(election.is_confirmed());
+    }
+
+    #[test]
     fn settled_once_no_other_notarization_certificate_can_form() {
         let (mut election, block, fork) = election_with_fork();
         let weights = weights(&[(1, 40), (2, 27), (3, 33)]);
@@ -1021,13 +1136,13 @@ mod tests {
         hash: BlockHash,
         kind: VoteKind,
     ) -> Result<(), VoteError> {
-        election.add_kudzu_vote(
-            PrivateKey::from(rep).public_key(),
-            hash,
+        let vote = Arc::new(Vote::new_of_kind_at(
+            &PrivateKey::from(rep),
             kind,
             UnixMillisTimestamp::new(1000),
-            Timestamp::new_test_instance(),
-        )
+            vec![hash],
+        ));
+        election.add_kudzu_vote(&vote, hash, Timestamp::new_test_instance())
     }
 
     fn vote(election: &mut Election, rep: u64, hash: BlockHash, kind: VoteKind) {

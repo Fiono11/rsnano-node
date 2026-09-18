@@ -18,8 +18,8 @@ use crate::{
     consensus::{
         AecSnapshot, ElectionCandidateSource,
         election::{
-            AddForkResult, ConfirmationType, ConfirmedElection, Election, ElectionBehavior,
-            LocalSlotState, VoteType,
+            AddForkResult, CertificateEvidence, ConfirmationType, ConfirmedElection, Election,
+            ElectionBehavior, LocalSlotState, VoteType,
         },
         election_schedulers::priority::bucket_count,
         filtered_vote::FilteredVote,
@@ -123,6 +123,24 @@ impl ActiveElectionsContainer {
                 vote_type: VoteType::from(kind),
             });
         }
+    }
+
+    /// Kudzu: the signed votes behind the certificates of the election of this
+    /// block, if the election is terminated
+    pub fn certificate_evidence(
+        &self,
+        hash: &BlockHash,
+    ) -> Option<(QualifiedRoot, CertificateEvidence)> {
+        let election = self.roots.election_for_block(hash)?;
+        let empty = LocalSlotState::default();
+        let slot = self.slots.get(&election.slot()).unwrap_or(&empty);
+        let evidence = election.certificate_evidence(slot)?;
+        Some((election.qualified_root().clone(), evidence))
+    }
+
+    /// Kudzu: is the election of this root terminated and out of the priority buckets
+    pub fn is_terminated_root(&self, root: &QualifiedRoot) -> bool {
+        self.roots.is_terminated(root)
     }
 
     pub fn slot_state(&self, slot: &(Account, u64)) -> Option<&LocalSlotState> {
@@ -283,7 +301,7 @@ impl ActiveElectionsContainer {
         if self.cooldown.is_cooling_down() {
             return 0;
         }
-        let current_size = self.roots.len() as i64;
+        let current_size = self.roots.active_len() as i64;
         self.max_elections as i64 - current_size
     }
 
@@ -355,7 +373,7 @@ impl ActiveElectionsContainer {
             any_inserted = false;
             for bucket_index in (0..self.roots.bucket_count()).rev() {
                 let bucket = &self.roots.bucket_infos()[bucket_index];
-                let bucket_vacancy = if self.len() >= self.max_elections {
+                let bucket_vacancy = if self.roots.active_len() >= self.max_elections {
                     0
                 } else {
                     self.max_elections_per_bucket as isize - bucket.election_count as isize
@@ -377,8 +395,13 @@ impl ActiveElectionsContainer {
                 }
 
                 if self.bucket_len(candidate.bucket_id) >= self.max_elections_per_bucket {
-                    self.erase_lowest_prio_election(candidate.bucket_id);
-                    self.stats.replaced += 1;
+                    if self.erase_lowest_prio_election(candidate.bucket_id) {
+                        self.stats.replaced += 1;
+                    } else {
+                        // Kudzu: every election of the bucket holds votes and will
+                        // terminate shortly; the bucket temporarily exceeds its cap
+                        self.stats.over_capacity += 1;
+                    }
                 }
 
                 // TODO: Don't hard code priority election!
@@ -430,11 +453,20 @@ impl ActiveElectionsContainer {
         true
     }
 
-    pub fn erase_lowest_prio_election(&mut self, bucket_id: usize) {
-        let Some((root, _)) = self.lowest_priority(bucket_id) else {
-            return;
+    /// Returns false if nothing could be evicted
+    pub fn erase_lowest_prio_election(&mut self, bucket_id: usize) -> bool {
+        let root = if cfg!(feature = "rai_protocol") {
+            self.roots.lowest_priority_without_votes(bucket_id)
+        } else {
+            self.lowest_priority(bucket_id).map(|(root, _)| root)
         };
-        self.erase(&root);
+        let Some(root) = root else {
+            return false;
+        };
+        if let Some(election) = self.roots.election_for_root(&root) {
+            self.stats.evicted(election);
+        }
+        self.erase(&root)
     }
 
     fn cleanup_election(&mut self, entry: Entry) {
@@ -606,6 +638,7 @@ impl ContainerInfoProvider for ActiveElectionsContainer {
     fn container_info(&self) -> ContainerInfo {
         ContainerInfo::builder()
             .leaf("roots", self.roots.len(), RootContainer::ELEMENT_SIZE)
+            .leaf("terminated", self.roots.terminated_len(), 0)
             .leaf(
                 "slots",
                 self.slot_count(),
@@ -841,6 +874,72 @@ mod tests {
         assert_eq!(container.kudzu_votes_due(), vec![expected.clone()]);
         container.mark_kudzu_voted(&[expected]);
         assert!(container.kudzu_votes_due().is_empty());
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn terminated_election_leaves_the_buckets_and_hands_out_its_votes() {
+        let mut container = ActiveElectionsContainer::default();
+        let block = SavedBlock::new_test_instance();
+        let block_hash = block.hash();
+        let root = block.qualified_root();
+        let now = Timestamp::new_test_instance();
+        container
+            .insert(
+                AecInsertRequest::new_priority(block, BlockPriority::new_test_instance()),
+                now,
+            )
+            .unwrap();
+        let vacancy_before = container.vacancy();
+        assert!(!container.is_terminated_root(&root));
+        assert!(container.certificate_evidence(&block_hash).is_none());
+
+        // 70%: notarization certificate, no fast finalization
+        let rep_key = PrivateKey::from(1);
+        let mut rep_weights = RepWeights::default();
+        rep_weights.put(rep_key.public_key(), Amount::nano(70_000_000));
+        let vote = Arc::new(Vote::new(
+            &rep_key,
+            rsnano_types::UnixMillisTimestamp::new(1000),
+            0,
+            vec![block_hash],
+        ));
+        container.apply_vote(ApplyVoteArgs {
+            vote: &ReceivedVote::new(vote.clone(), VoteDelivery::Direct, None).into(),
+            rep_weights: &rep_weights,
+            quorum_snapshot: &QuorumSnapshot::new_test_instance(),
+            now,
+        });
+
+        assert!(container.is_terminated_root(&root));
+        // It no longer takes capacity but is still there and iterated
+        assert_eq!(container.vacancy(), vacancy_before + 1);
+        assert_eq!(container.len(), 1);
+        assert_eq!(container.iter_round_robin().count(), 1);
+        assert!(container.election_for_block(&block_hash).is_some());
+
+        let (served_root, evidence) = container.certificate_evidence(&block_hash).unwrap();
+        assert_eq!(served_root, root);
+        // This node never voted here, so it only hands out the candidate
+        assert!(evidence.statements.is_empty());
+        assert_eq!(evidence.blocks.len(), 1);
+        assert_eq!(evidence.blocks[0].hash(), block_hash);
+
+        container.mark_kudzu_voted(&[VoteTarget {
+            root: root.clone(),
+            winner: block_hash,
+            vote_type: VoteType::NonFinal,
+        }]);
+        let (_, evidence) = container.certificate_evidence(&block_hash).unwrap();
+        assert_eq!(
+            evidence.statements,
+            vec![(VoteKind::First, vec![block_hash])]
+        );
+
+        // Erasing it keeps the accounting consistent
+        assert!(container.erase(&root));
+        assert_eq!(container.len(), 0);
+        assert_eq!(container.vacancy(), vacancy_before + 1);
     }
 
     #[test]

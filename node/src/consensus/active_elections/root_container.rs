@@ -56,6 +56,9 @@ pub(crate) struct RootContainer {
     by_root: FxHashMap<QualifiedRoot, Entry>,
     buckets: Vec<BTreeSet<BucketEntry>>,
     bucket_infos: Vec<BucketInfo>,
+    /// Kudzu: terminated elections leave their priority bucket. They keep
+    /// their certificates available, take no capacity and are never evicted.
+    terminated: BTreeSet<BucketEntry>,
     pub vote_router: VoteRouter,
     max_elections_per_bucket: usize,
 }
@@ -77,8 +80,50 @@ impl RootContainer {
             vote_router: Default::default(),
             buckets: vec![BTreeSet::new(); bucket_count],
             bucket_infos: vec![BucketInfo::new(max_elections_per_bucket); bucket_count],
+            terminated: BTreeSet::new(),
             max_elections_per_bucket,
         }
+    }
+
+    /// Kudzu: move a terminated election out of its priority bucket
+    pub fn mark_terminated(&mut self, root: &QualifiedRoot) {
+        let Some(entry) = self.by_root.get(root) else {
+            return;
+        };
+        let bucket_entry = BucketEntry {
+            root: root.clone(),
+            priority: entry.priority,
+        };
+        let bucket_index = entry.bucket();
+        if self.buckets[bucket_index].remove(&bucket_entry) {
+            self.update_bucket_info(bucket_index);
+            self.terminated.insert(bucket_entry);
+        }
+    }
+
+    pub fn is_terminated(&self, root: &QualifiedRoot) -> bool {
+        self.by_root.get(root).is_some_and(|entry| {
+            self.terminated.contains(&BucketEntry {
+                root: root.clone(),
+                priority: entry.priority,
+            })
+        })
+    }
+
+    /// Elections which still take capacity in the priority buckets
+    pub fn active_len(&self) -> usize {
+        self.by_root.len() - self.terminated.len()
+    }
+
+    pub fn terminated_len(&self) -> usize {
+        self.terminated.len()
+    }
+
+    fn update_bucket_info(&mut self, bucket_index: usize) {
+        let bucket = &self.buckets[bucket_index];
+        let info = &mut self.bucket_infos[bucket_index];
+        info.election_count = bucket.len();
+        info.lowest_priority = bucket.last().map(|i| i.priority).unwrap_or_default();
     }
 
     pub fn insert(&mut self, entry: Entry) {
@@ -151,6 +196,15 @@ impl RootContainer {
             return (false, Some(previous_behavior));
         }
 
+        let bucket_entry = BucketEntry {
+            root: root.clone(),
+            priority,
+        };
+        if self.terminated.contains(&bucket_entry) {
+            // Not in any priority bucket, nothing to move
+            return (true, Some(previous_behavior));
+        }
+
         let old_bucket_index = bucket_index(previous_behavior, priority.balance);
         let old_bucket = &mut self.buckets[old_bucket_index];
         old_bucket.remove(&BucketEntry {
@@ -202,21 +256,22 @@ impl RootContainer {
         let erased = self.by_root.remove(root);
         if let Some(entry) = &erased {
             self.vote_router.disconnect_election(&entry.election);
-            let bucket = &mut self.buckets[entry.bucket()];
-            bucket.remove(&BucketEntry {
+            let bucket_entry = BucketEntry {
                 root: entry.root.clone(),
                 priority: entry.priority,
-            });
-
-            let bucket_info = &mut self.bucket_infos[entry.bucket()];
-            bucket_info.election_count = bucket.len();
-            bucket_info.lowest_priority = bucket.last().map(|i| i.priority).unwrap_or_default();
+            };
+            if !self.terminated.remove(&bucket_entry) {
+                let bucket_index = entry.bucket();
+                self.buckets[bucket_index].remove(&bucket_entry);
+                self.update_bucket_info(bucket_index);
+            }
         }
         erased
     }
 
     pub fn clear(&mut self) {
         self.by_root.clear();
+        self.terminated.clear();
         for bucket in self.buckets.iter_mut() {
             bucket.clear();
         }
@@ -249,6 +304,21 @@ impl RootContainer {
         self.buckets[bucket_id]
             .last()
             .map(|i| (i.root.clone(), i.priority.time))
+    }
+
+    /// Kudzu: the lowest priority election of the bucket which has not received
+    /// any vote yet. Votes are one-shot, so an election holding votes must not
+    /// be evicted; it would lose evidence that can only be recovered on request.
+    pub fn lowest_priority_without_votes(&self, bucket_id: usize) -> Option<QualifiedRoot> {
+        self.buckets[bucket_id]
+            .iter()
+            .rev()
+            .find(|entry| {
+                self.by_root
+                    .get(&entry.root)
+                    .is_some_and(|e| e.election.vote_count() == 0)
+            })
+            .map(|entry| entry.root.clone())
     }
 
     pub fn find_bucket(&self, root: &QualifiedRoot) -> Option<usize> {
@@ -320,6 +390,10 @@ impl<'a> RoundRobinIterator<'a> {
             if !bucket.is_empty() {
                 bucket_iters.push(bucket.iter())
             }
+        }
+        // Terminated elections come last: they only re-broadcast and collect evidence
+        if !aec.terminated.is_empty() {
+            bucket_iters.push(aec.terminated.iter());
         }
         Self {
             roots: aec,

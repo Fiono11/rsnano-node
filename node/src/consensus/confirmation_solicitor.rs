@@ -43,6 +43,9 @@ impl ConfirmationSolicitor {
         let mut rep_request_count = 0;
         let winner = election.winner();
         let mut to_remove = Vec::new();
+        // Kudzu: a terminated election asks every representative whose statements
+        // it does not hold in full; each answers with its own small re-signed votes
+        let terminated = cfg!(feature = "rai_protocol") && election.state().is_terminated();
         for rep in &self.representatives {
             if rep_request_count >= self.max_election_requests {
                 break;
@@ -50,7 +53,13 @@ impl ConfirmationSolicitor {
             let mut full_queue = false;
             let existing_vote = election.votes().get(&rep.rep_key);
             let is_final = if let Some(vote) = existing_vote {
-                !election.has_quorum() || vote.is_final_vote()
+                // Kudzu: a representative's first vote is not enough, its second look
+                // and final vote may be missing here while its election is already terminated
+                if cfg!(feature = "rai_protocol") {
+                    vote.is_final_vote()
+                } else {
+                    !election.has_quorum() || vote.is_final_vote()
+                }
             } else {
                 false
             };
@@ -71,7 +80,7 @@ impl ConfirmationSolicitor {
 
                         request_queue.push((winner.hash(), winner.root()));
 
-                        if !different_hash {
+                        if !different_hash || terminated {
                             rep_request_count += 1;
                         }
                         added = true;
