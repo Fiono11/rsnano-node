@@ -283,6 +283,8 @@ pub enum DetailType {
     ActivateFailed,
     ActivateSkip,
     ActivateFull,
+    /// The next unconfirmed block already has an election
+    AlreadyActive,
 
     // active
     Insert,

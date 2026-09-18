@@ -327,6 +327,17 @@ impl ActiveElectionsContainer {
         self.roots.vote_router.is_active(block_hash)
     }
 
+    /// Whether the block has an election that a priority activation could not
+    /// upgrade any further, see `Election::maybe_upgrade_to`
+    pub fn is_priority_active_hash(&self, block_hash: &BlockHash) -> bool {
+        self.roots.election_for_block(block_hash).is_some_and(|e| {
+            matches!(
+                e.behavior(),
+                ElectionBehavior::Priority | ElectionBehavior::Manual
+            )
+        })
+    }
+
     pub fn was_recently_confirmed(&self, block_hash: &BlockHash) -> bool {
         self.recently_confirmed.hash_exists(block_hash)
     }
@@ -951,6 +962,33 @@ mod tests {
             vote_type: VoteType::NonFinal,
         }]);
         assert_eq!(container.slot_count(), 0);
+    }
+
+    #[test]
+    fn priority_active_hash_only_for_elections_that_cannot_be_upgraded() {
+        let mut container = ActiveElectionsContainer::default();
+        let now = Timestamp::new_test_instance();
+        let priority = SavedBlock::new_test_instance_with_key(1);
+        let hinted = SavedBlock::new_test_instance_with_key(2);
+        container
+            .insert(
+                AecInsertRequest::new_priority(
+                    priority.clone(),
+                    BlockPriority::new_test_instance(),
+                ),
+                now,
+            )
+            .unwrap();
+        container
+            .insert(
+                AecInsertRequest::new_hinted(hinted.clone(), BlockPriority::new_test_instance()),
+                now,
+            )
+            .unwrap();
+
+        assert!(container.is_priority_active_hash(&priority.hash()));
+        assert!(!container.is_priority_active_hash(&hinted.hash()));
+        assert!(!container.is_priority_active_hash(&BlockHash::from(3)));
     }
 
     fn test_final_vote(rep_key: &PrivateKey, block_hash: BlockHash) -> ReceivedVote {

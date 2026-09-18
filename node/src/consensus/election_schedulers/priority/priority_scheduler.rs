@@ -125,6 +125,17 @@ impl PriorityScheduler {
             }
         };
 
+        // The backlog scan and the confirmation hooks re-activate every unconfirmed
+        // frontier while its election is still running (under Kudzu until it is
+        // finalized). The AEC rejects such a block as a duplicate only after the
+        // block read, the dependency check and the bucket insert below. Hinted and
+        // optimistic elections are still inserted: the AEC upgrades them to priority.
+        if self.aec.is_priority_active_hash(&next_unconfirmed_hash) {
+            self.stats
+                .inc(StatType::ElectionScheduler, DetailType::AlreadyActive);
+            return;
+        }
+
         let Some(block) = any.get_block(&next_unconfirmed_hash) else {
             return;
         };

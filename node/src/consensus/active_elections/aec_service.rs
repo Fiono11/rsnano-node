@@ -84,6 +84,10 @@ impl AecService {
         self.aec.read().unwrap().is_active_hash(block_hash)
     }
 
+    pub fn is_priority_active_hash(&self, block_hash: &BlockHash) -> bool {
+        self.aec.read().unwrap().is_priority_active_hash(block_hash)
+    }
+
     pub fn was_recently_confirmed(&self, block_hash: &BlockHash) -> bool {
         self.aec.read().unwrap().was_recently_confirmed(block_hash)
     }
