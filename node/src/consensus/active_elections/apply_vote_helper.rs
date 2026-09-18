@@ -56,9 +56,12 @@ impl<'a> ApplyVoteHelper<'a> {
                     if let Some(entry) = self.roots.erase(&root) {
                         result.confirmed.push(entry);
                     }
-                } else if terminated {
+                } else if terminated && !self.roots.is_terminated(&root) {
                     // Kudzu: keep the evidence, but stop taking capacity
                     self.roots.mark_terminated(&root);
+                    if let Some(observer) = self.observer {
+                        observer.send(AecFact::ElectionTerminated(root)).unwrap();
+                    }
                 }
             } else if self.recently_confirmed.hash_exists(block_hash) {
                 result.per_block.insert(*block_hash, Err(VoteError::Late));

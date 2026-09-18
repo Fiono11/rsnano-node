@@ -306,21 +306,6 @@ impl RootContainer {
             .map(|i| (i.root.clone(), i.priority.time))
     }
 
-    /// Kudzu: the lowest priority election of the bucket which has not received
-    /// any vote yet. Votes are one-shot, so an election holding votes must not
-    /// be evicted; it would lose evidence that can only be recovered on request.
-    pub fn lowest_priority_without_votes(&self, bucket_id: usize) -> Option<QualifiedRoot> {
-        self.buckets[bucket_id]
-            .iter()
-            .rev()
-            .find(|entry| {
-                self.by_root
-                    .get(&entry.root)
-                    .is_some_and(|e| e.election.vote_count() == 0)
-            })
-            .map(|entry| entry.root.clone())
-    }
-
     pub fn find_bucket(&self, root: &QualifiedRoot) -> Option<usize> {
         self.by_root.get(root).map(|i| i.bucket())
     }

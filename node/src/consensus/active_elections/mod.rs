@@ -47,6 +47,10 @@ pub enum AecFact {
     /// Ended ether confirmed or unconfirmed
     ElectionEnded(Election),
 
+    /// Kudzu: the election holds a certificate and no longer occupies a
+    /// slot in its priority bucket
+    ElectionTerminated(QualifiedRoot),
+
     BlockAddedToElection(BlockHash),
     BlockDiscarded(Block),
     BlockConfirmed(SavedBlock, ConfirmedElection),

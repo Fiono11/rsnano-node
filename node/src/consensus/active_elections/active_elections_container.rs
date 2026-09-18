@@ -409,8 +409,6 @@ impl ActiveElectionsContainer {
                     if self.erase_lowest_prio_election(candidate.bucket_id) {
                         self.stats.replaced += 1;
                     } else {
-                        // Kudzu: every election of the bucket holds votes and will
-                        // terminate shortly; the bucket temporarily exceeds its cap
                         self.stats.over_capacity += 1;
                     }
                 }
@@ -466,12 +464,14 @@ impl ActiveElectionsContainer {
 
     /// Returns false if nothing could be evicted
     pub fn erase_lowest_prio_election(&mut self, bucket_id: usize) -> bool {
-        let root = if cfg!(feature = "rai_protocol") {
-            self.roots.lowest_priority_without_votes(bucket_id)
-        } else {
-            self.lowest_priority(bucket_id).map(|(root, _)| root)
-        };
-        let Some(root) = root else {
+        // Kudzu: an election leaves the AEC only when it is finalized. Votes are
+        // one-shot, so an evicted election would lose evidence, and the backlog scan
+        // brings an evicted block back only seconds later. Candidates wait in the
+        // scheduler instead, see `Bucket::available`.
+        if cfg!(feature = "rai_protocol") {
+            return false;
+        }
+        let Some((root, _)) = self.lowest_priority(bucket_id) else {
             return false;
         };
         if let Some(election) = self.roots.election_for_root(&root) {
@@ -962,6 +962,24 @@ mod tests {
             vote_type: VoteType::NonFinal,
         }]);
         assert_eq!(container.slot_count(), 0);
+    }
+
+    /// Kudzu: a running election is never evicted for a higher priority block
+    #[test]
+    fn evict_lowest_priority_election() {
+        let mut container = ActiveElectionsContainer::default();
+        let block = SavedBlock::new_test_instance();
+        let request =
+            AecInsertRequest::new_priority(block.clone(), BlockPriority::new_test_instance());
+        container
+            .insert(request, Timestamp::new_test_instance())
+            .unwrap();
+        let bucket = container.find_bucket(&block.qualified_root()).unwrap();
+
+        let evicted = container.erase_lowest_prio_election(bucket);
+
+        assert_eq!(evicted, !cfg!(feature = "rai_protocol"));
+        assert_eq!(container.len(), if evicted { 0 } else { 1 });
     }
 
     #[test]

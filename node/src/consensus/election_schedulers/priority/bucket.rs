@@ -77,7 +77,12 @@ impl Bucket {
             return false;
         };
 
-        vacancy > 0 || highest_block.priority.time > lowest_priority
+        if vacancy > 0 {
+            return true;
+        }
+        // Kudzu: an election leaves the AEC only when it is finalized, so a higher
+        // priority block cannot replace a running election; it waits here for a slot
+        !cfg!(feature = "rai_protocol") && highest_block.priority.time > lowest_priority
     }
 
     pub fn activate(
@@ -144,6 +149,23 @@ mod tests {
         assert_eq!(bucket.len(), 1);
         assert_eq!(bucket.contains(&block.hash()), true);
         assert!(bucket.available(100, TimePriority::new(123)));
+    }
+
+    /// With a full AEC bucket a higher priority block replaces the lowest running
+    /// election (legacy) or waits for a slot (Kudzu: elections are never evicted)
+    #[test]
+    fn full_aec_bucket_priority_override() {
+        let mut fixture = create_fixture();
+        let bucket = &mut fixture.bucket;
+        bucket
+            .insert(test_priority(1000), SavedBlock::new_test_instance())
+            .unwrap();
+
+        let higher = TimePriority::new(900);
+        let lower = TimePriority::new(1100);
+        assert!(!bucket.available(0, higher));
+        assert_eq!(bucket.available(0, lower), !cfg!(feature = "rai_protocol"));
+        assert!(bucket.available(1, higher));
     }
 
     #[test]
