@@ -8,7 +8,7 @@ use std::{
 use rsnano_ledger::{AnySet, Ledger, LedgerSet};
 use rsnano_messages::{ConfirmAck, Message, Publish};
 use rsnano_network::{Channel, ChannelEvent, ChannelId, TrafficType};
-use rsnano_types::{BlockHash, ConsensusEpoch, Root, Vote, VoteKind};
+use rsnano_types::{Block, BlockHash, ConsensusEpoch, Root, Vote, VoteKind};
 use rsnano_utils::{
     EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -419,29 +419,45 @@ impl RequestAggregatorLoop {
             let Some(block) = search_for_block(any, hash, root) else {
                 continue;
             };
-            let key = (
-                request.channel.channel_id(),
-                EvidenceId::Block(block.hash()),
-            );
-            if !self
-                .evidence_replies
-                .lock()
-                .unwrap()
-                .should_send(key, Instant::now())
-            {
-                continue;
-            }
-            let publish = Message::Publish(Publish::new_forward(block.into()));
-            self.message_sender.lock().unwrap().try_send(
+            let mut sender = self.message_sender.lock().unwrap();
+            let mut replies = self.evidence_replies.lock().unwrap();
+            if Self::publish_evidence_block(
+                &mut sender,
+                &mut replies,
                 &request.channel,
-                &publish,
-                TrafficType::BlockBroadcastInitial,
-            );
-            self.stats.inc(
-                StatType::RequestAggregatorReplies,
-                DetailType::ForkCandidate,
-            );
+                block.into(),
+                Instant::now(),
+            ) {
+                self.stats.inc(
+                    StatType::RequestAggregatorReplies,
+                    DetailType::ForkCandidate,
+                );
+            }
         }
+    }
+
+    /// Kudzu: a block sent as evidence (a fork candidate, a certificate's
+    /// block) goes on the reply queue the request was admitted against, not
+    /// on the initial broadcast queue the publishing load fills up; and it
+    /// counts as sent only once it is queued, so that the next request is
+    /// answered if this one was dropped. Returns whether it was queued.
+    fn publish_evidence_block(
+        sender: &mut MessageSender,
+        replies: &mut EvidenceReplyCache,
+        channel: &Channel,
+        block: Block,
+        now: Instant,
+    ) -> bool {
+        let key = (channel.channel_id(), EvidenceId::Block(block.hash()));
+        if !replies.should_send(key.clone(), now) {
+            return false;
+        }
+        let publish = Message::Publish(Publish::new_evidence(block));
+        let sent = sender.try_send(channel, &publish, TrafficType::VoteReply);
+        if !sent {
+            replies.forget(&key);
+        }
+        sent
     }
 
     /// Kudzu: a request for a block of a terminated election is answered with
@@ -475,14 +491,12 @@ impl RequestAggregatorLoop {
             let mut replies = self.evidence_replies.lock().unwrap();
             // The candidates first, so that the votes find their election
             for block in evidence.blocks {
-                if !replies.should_send((channel_id, EvidenceId::Block(block.hash())), now) {
-                    continue;
-                }
-                let publish = Message::Publish(Publish::new_forward(block));
-                sender.try_send(
+                Self::publish_evidence_block(
+                    &mut sender,
+                    &mut replies,
                     &request.channel,
-                    &publish,
-                    TrafficType::BlockBroadcastInitial,
+                    block,
+                    now,
                 );
             }
             for (kind, hashes) in evidence.statements {
@@ -580,6 +594,11 @@ impl EvidenceReplyCache {
         }
         due
     }
+
+    /// The evidence was not sent after all: the next request gets it
+    fn forget(&mut self, key: &(ChannelId, EvidenceId)) {
+        self.sent.remove(key);
+    }
 }
 
 #[cfg(test)]
@@ -597,5 +616,15 @@ mod evidence_reply_cache_tests {
         // Other peers and other evidence are independent
         assert!(cache.should_send((ChannelId::from(2), key.1.clone()), now));
         assert!(cache.should_send((key.0, EvidenceId::Block(BlockHash::from(2))), now));
+    }
+
+    #[test]
+    fn forgotten_evidence_is_due_again() {
+        let mut cache = EvidenceReplyCache::default();
+        let key = (ChannelId::from(1), EvidenceId::Block(BlockHash::from(1)));
+        let now = Instant::now();
+        assert!(cache.should_send(key.clone(), now));
+        cache.forget(&key);
+        assert!(cache.should_send(key.clone(), now));
     }
 }

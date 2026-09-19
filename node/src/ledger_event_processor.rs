@@ -87,6 +87,12 @@ impl BackpressureEventProcessor<LedgerPipelineEvent> for LedgerEventProcessor {
         };
 
         self.stats.processed.fetch_add(1, Ordering::Relaxed);
+        // The fork cache is filled before the plugins run: an election the
+        // fork inserter finds nothing for yet takes its forks from the cache
+        // when it starts, and it may start while the plugins still run
+        if let LedgerPipelineEvent::Ledger(LedgerEvent::BlocksProcessed(results)) = &event {
+            self.fork_cache_updater.update(results);
+        }
         self.plugins.handle(&event);
 
         match event {
@@ -100,7 +106,6 @@ impl BackpressureEventProcessor<LedgerPipelineEvent> for LedgerEventProcessor {
                         .fetch_add(results.len() as u64, Ordering::Relaxed);
 
                     self.confirming_set.requeue_blocks(&results);
-                    self.fork_cache_updater.update(&results);
                     if let Some(sender) = &self.node_event_sender {
                         sender.send(NodeEvent::BlocksProcessed(results)).unwrap();
                     }

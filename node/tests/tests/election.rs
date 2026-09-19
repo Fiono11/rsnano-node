@@ -642,7 +642,8 @@ fn late_notarized_blocks_of_a_closed_epoch_are_rolled_back() {
         ConsensusEpoch::ZERO,
         vec![send2.hash()],
     ));
-    node.vote_processor
+    let _ = node
+        .vote_processor
         .vote_blocking(&FilteredVote::from(ReceivedVote::new(
             Arc::new(Vote::new_in_epoch(
                 &DEV_GENESIS_KEY,

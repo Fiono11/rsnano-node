@@ -41,13 +41,30 @@ is the same code with the epochs ended by count.
   instances of the drain skew were still terminating on the other PRs, whose values moved
   on and abstained at the 5 s timeout. Waiting for settlement alone is worse (attempt 20):
   settlement can take 10 s, and the next epoch can not be left before the close.
+- **The fork stall, found and fixed** (diagnostic runs 22–33 in `attempts/`, 6 s epochs):
+  nanospam sends a fork to every second node, so each half of the PRs proposes a
+  different block for the root and needs the other candidate to take its second look.
+  Under load that candidate took 5–10 s to arrive on some PR: (1) the fork-candidate
+  reply went on the 64-slot `BlockBroadcastInitial` queue the 2000 bps flood fills, and the
+  reply cache counted it as sent even when dropped, so the next request got nothing for
+  2 s; (2) an instance not yet terminated was re-solicited only every 5 × base latency
+  (5 s); (3) a re-delivered block is byte-identical to the flooded copy and fell to the 5 s
+  publish duplicate cutoff whenever the first sighting was wasted — the fork cache was
+  filled *after* the fork inserter ran, so an election started in between missed it;
+  (4) a representative's epoch-e+1 first vote replaced its cached epoch-e first vote for
+  the same block, so a replica that got the block late never opened the epoch-e instance.
+  Now: evidence blocks go on the reply queue, flagged `is_evidence` in the Publish header
+  and exempt from the duplicate filter, recorded only when queued; an unterminated
+  instance is re-solicited every base latency; the fork cache is filled before the
+  plugins run; cached statements are keyed by (kind, epoch). Fork termination max fell
+  from 7.2 s to 0.36–0.49 s, and every instance of an epoch terminates within its drain.
 - Support: the dependency gate on first votes (a block is proposed only once its
   dependencies are finalized), the vote cache replayed when a block arrives, the winner
   re-broadcast to every PR lacking a vote, solicitation urgencies (`Now` while draining),
   slot states outliving their elections (dropped per epoch once the next epoch is agreed),
   `WalletRepsChecker` every 500 ms under RAI.
 
-Earlier attempts of the day are in `attempts/` (gitignored, 23 of them): the epoch 0 timer
+Earlier attempts of the day are in `attempts/` (gitignored, 33 of them): the epoch 0 timer
 started during setup; the closed-at-agreement discard raced with the next epoch's
 re-decision (two PRs rolled back what four had cemented); a certificate arriving before
 the PR knew its own value never agreed; cached votes for blocks not yet held were never
@@ -56,51 +73,40 @@ a full-list `EpochEntries` reconciliation, rejected for scale and removed.
 
 ## Results
 
-`kudzu-run.log` is the run with the proposal rule above. Per epoch, identical on all six
-PRs (`SETTLED_CONSISTENT after 0s`, `CLOSED_CONSISTENT after 0s`), every PR's own final
-value equal to the finalized one, every close in round 0:
+`kudzu-run.log` is the run with everything above. Per epoch, identical on all six PRs
+(`SETTLED_CONSISTENT after 0s`, `CLOSED_CONSISTENT after 0s`), every PR's own final value
+equal to the finalized one, every close in round 0 within ~1.2 s of the epoch's end (the
+fourth epoch holds the 58 blocks confirmed after publishing ended):
 
-| Epoch | State hash | Finalized | Single | Conflicting | Ended → left | Closed (round) |
-|---|---|---|---|---|---|---|
-| 0 | `4198E227…` | 14,783 | 0 | 359 | T0+8.00 → +8.19…8.30 s | +8.90 s (0) |
-| 1 | `2031AD44…` | 14,759 | 0 | 443 | +16.00 → +16.13…16.30 s | +17.09 s (0) |
-| 2 | `3FCB5FC1…` | 13,974 | 327 | 407 | +24.00 → +24.02…24.30 s | +25.51 s (0) |
+| Epoch | State hash | Finalized | Conflicting | Ended → left (all PRs) | Closed |
+|---|---|---|---|---|---|
+| 0 | `2C211AC8…` | 14,565 | 450 | T0+8.01 → +8.21…8.32 s | +9.01 s (round 0) |
+| 1 | `C6C4CD67…` | 14,625 | 511 | +16.00 → +16.18…16.40 s | +17.15 s (0) |
+| 2 | `C983B3E2…` | 14,499 | 342 | +24.00 → +24.17…24.36 s | +25.47…25.54 s (0) |
+| 3 | `ED60BBDF…` | 58 | 2 | +32.06 → +32.15 s | +32.21…32.27 s (0) |
 
 nanospam status lines with ≥ 1000 cps (23 s):
 
-| Metric | step 3 (2 epochs by count) | first run (proposal at once) | **this run** | count, 3 × 15k (sibling) |
-|---|---|---|---|---|
-| Confirmation rate | 1854 cps | 1864 cps | **1858 cps** | 1859 cps |
-| Median of the per-second averages | 96 ms | 103 ms | **98 ms** | 105 ms |
-| Average confirmation time, cps-weighted | 104 ms | 190 ms | **159 ms** | 200 ms |
-| Switch seconds (0→1, 1→2) | 146 ms | 237 ms, 165 ms | **127 ms, 1201 ms** | 176 ms, 157 ms |
-| Worst second | 171 ms | 1349 ms (T0+21 s) | **1201 ms** (T0+17 s) | 1915 ms (T0+22 s) |
-| Closes (round) | 0, 0 | 1, 1, 1 | **0, 0, 0** | 0, 1, 0 |
-| Cemented on every PR | 42,855 | 43,786 | 43,517 | 43,307 |
+| Metric | step 3 (2 epochs by count) | proposal at once | proposal rule only | **this run** | count, 3 × 15k (sibling) |
+|---|---|---|---|---|---|
+| Confirmation rate | 1854 cps | 1864 cps | 1858 cps | **1853 cps** | 1861 cps |
+| Median of the per-second averages | 96 ms | 103 ms | 98 ms | **98 ms** | 102 ms |
+| Average confirmation time, cps-weighted | 104 ms | 190 ms | 159 ms | **148 ms** | 188 ms |
+| Switch seconds (0→1, 1→2) | 146 ms | 237, 165 ms | 127, 1201 ms | **132, 944 ms** | 148, 1569 ms |
+| Closes (round) | 0, 0 | 1, 1, 1 | 0, 0, 0 | **0, 0, 0, 0** | 0, 0, 0 |
+| Close after the epoch ended | 4.5 s, 0.2 s | 7.5, 6.1 s | 0.9, 1.1, 1.5 s | **1.0, 1.2, 1.5, 0.2 s** | 1.0, 1.1, 0.1 s |
+| Cemented on every PR | 42,855 | 43,786 | 43,517 | 43,748 | 43,371 |
 
-Node side, per PR: non-fork finalization p50 87–89 ms, p95 112–115 ms, p99 123–153 ms;
-3 epochs ended, left and closed; 3–4 close rounds entered; 670–2,111 instances started
-for a vote; 4 PRs left one epoch on the quorum-ahead rule; 0 discarded; 1,032–1,238 fork
-rollbacks (the losing forks).
+Node side, per PR: non-fork finalization p50 84–86 ms, p95 119–125 ms, p99 141–244 ms;
+fork termination p50 128–130 ms, p99 299–408 ms, max 355–489 ms; 4–5 close rounds
+entered; 1,343–2,714 instances started for a vote; 0 discarded; 981–1,276 fork rollbacks.
 
-## The second with a ~1.2–1.9 s average
+With 6 s epochs (attempt 33, the same code) the four closes land 0.6–1.2 s after each
+epoch ends, the drains take 120–250 ms and the worst second is 767 ms; before the fork
+fix, the same configuration stalled the pipeline for 4 s (attempt 23).
 
-Every run of this record has one such second, covering the blocks published in the last
-second of epoch 1, confirmed ~1.5 s late; the 0→1 switch costs 110–240 ms. Findings from
-the diagnostic runs in `attempts/` (22: AEC lock timings, 23: 6 s epochs):
+## Open: the second switch
 
-- Not the AEC lock: no tick held it over 30 ms, the vote-cache replay on advance is
-  instant (255–722 hashes), dropping an epoch's slot states takes 4–8 ms.
-- The PRs that leave an epoch on the quorum-ahead rule (a certificate's weight already
-  left) do so with instances still unterminated: blocks in flight at the boundary land in
-  epoch e on some PRs and in e+1 on the others, so the e-instances of the former get no
-  votes from the latter and terminate only on the timeout path. Their epoch value moves
-  until then, and their close round is entered late. With 8 s epochs it is a second of
-  latency; with 6 s epochs (attempt 23) epoch 0's close took 9.6 s — the followers' abstains
-  came 4 s late, round 1 closed at once — and epoch 1, ended at +12 s, could not be left
-  before that: 4 s at 0 cps, then catch-up at 3–5 s latency.
-- The close of epoch e must finish well within the duration of e+1, or the sequential
-  rules stall the pipeline. Proposing only when settled (attempt 20) made it worse for
-  the same reason.
-
-Not fixed: the boundary handling of in-flight blocks is the next thing to look at.
+The 0→1 switch costs ~150 ms of average latency; every later switch costs 0.6–1.6 s in
+one second (blocks published around the boundary). Not the AEC lock (attempt 22), not
+the drain (180–400 ms at both switches), not stuck instances any more. Undiagnosed.

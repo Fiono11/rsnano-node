@@ -4,7 +4,7 @@ use rsnano_types::ProtocolInfo;
 
 use crate::{
     ConfirmAck, DeserializedMessage, Message, MessageHeader, MessageType, NetworkFilter,
-    ParseMessageError, validate_header,
+    ParseMessageError, Publish, validate_header,
 };
 
 pub struct MessageDeserializer {
@@ -121,6 +121,15 @@ impl MessageDeserializer {
         if cfg!(feature = "rai_protocol")
             && message_type == MessageType::ConfirmAck
             && header.extensions[ConfirmAck::EVIDENCE_FLAG]
+        {
+            return Ok(0);
+        }
+        // Kudzu: a block handed over on request (a fork candidate, the block
+        // of a certificate) is byte-identical to the copy flooded before,
+        // which may have been lost; it is not filtered either
+        if cfg!(feature = "rai_protocol")
+            && message_type == MessageType::Publish
+            && Publish::is_evidence(header.extensions)
         {
             return Ok(0);
         }

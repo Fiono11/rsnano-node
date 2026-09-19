@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, sync::Arc};
 
-use rsnano_types::{Amount, BlockHash, PublicKey, Vote};
+use rsnano_types::{Amount, BlockHash, ConsensusEpoch, PublicKey, Vote, VoteKind};
 
 use rsnano_nullable_clock::Timestamp;
 use rustc_hash::FxHashMap;
@@ -9,9 +9,18 @@ use rustc_hash::FxHashMap;
 pub(crate) struct CachedVote {
     pub vote: Arc<Vote>,
     pub weight: Amount,
-    /// Kudzu: a representative legitimately holds one vote per kind for a
-    /// block (first, notarization, timeout, final); they must all be replayed
+    /// Kudzu: a representative legitimately holds one vote per statement
+    /// for a block (first, notarization, timeout, final, in each epoch's
+    /// instance); they must all be replayed
     pub other_kinds: Vec<Arc<Vote>>,
+}
+
+/// Kudzu: what makes a representative's vote for a block a statement of
+/// its own: its kind and, RAI, the instance (epoch) it is cast in. A first
+/// vote of epoch e+1 does not supersede the one of epoch e: a replica that
+/// gets the block late needs the epoch e vote to open that instance still.
+fn statement(vote: &Vote) -> (VoteKind, ConsensusEpoch) {
+    (vote.kind(), vote.epoch)
 }
 
 impl CachedVote {
@@ -27,15 +36,18 @@ impl CachedVote {
         self.vote.timestamp() > other.vote.timestamp()
     }
 
-    /// Kudzu: keep a vote of a kind not held yet. Returns false if that kind is
+    /// Kudzu: keep a statement not held yet. Returns false if it is
     /// already present.
     fn add_kind(&mut self, vote: Arc<Vote>) -> bool {
-        let kind = vote.kind();
-        if self.vote.kind() == kind || self.other_kinds.iter().any(|v| v.kind() == kind) {
+        if self.holds(&vote) {
             return false;
         }
         self.other_kinds.push(vote);
         true
+    }
+
+    fn holds(&self, vote: &Vote) -> bool {
+        self.iter().any(|v| statement(v) == statement(vote))
     }
 
     fn is_final(&self) -> bool {
@@ -117,10 +129,14 @@ impl VotedBlock {
         let vote = CachedVote::new(vote, rep_weight);
 
         if let Some(existing) = self.by_representative.get_mut(&rep_key) {
-            if cfg!(feature = "rai_protocol") && vote.vote.kind() != existing.vote.kind() {
-                if !existing.add_kind(vote.vote) {
-                    return false;
-                }
+            if cfg!(feature = "rai_protocol") && !existing.holds(&vote.vote) {
+                existing.add_kind(vote.vote);
+            } else if cfg!(feature = "rai_protocol")
+                && statement(&existing.vote) != statement(&vote.vote)
+            {
+                // Kudzu: a statement held next to the first one is one-shot,
+                // a repeated one is a duplicate
+                return false;
             } else {
                 if !vote.is_newer_than(existing) {
                     return false;
@@ -328,15 +344,26 @@ mod tests {
         assert!(block.add_vote(final_.clone(), Amount::raw(5), Timestamp::new(3)));
         // Another vote of a kind already held is rejected
         assert!(!block.add_vote(timeout.clone(), Amount::raw(5), Timestamp::new(4)));
+        // RAI: a first vote of another epoch is a statement of its own, it
+        // does not replace the one of the first epoch
+        let first_next_epoch = Arc::new(Vote::new_in_epoch(
+            &rep,
+            VoteKind::First,
+            ConsensusEpoch::new(1),
+            vec![hash],
+        ));
+        assert!(block.add_vote(first_next_epoch.clone(), Amount::raw(5), Timestamp::new(5)));
+        assert!(!block.add_vote(first_next_epoch.clone(), Amount::raw(5), Timestamp::new(6)));
 
         assert_eq!(block.vote_count(), 1);
         assert_eq!(block.non_final_tally(), Amount::raw(5));
         assert_eq!(block.final_tally(), Amount::raw(5));
         let votes: Vec<_> = block.iter_votes().collect();
-        assert_eq!(votes.len(), 3);
+        assert_eq!(votes.len(), 4);
         assert!(votes.iter().any(|v| Arc::ptr_eq(v, &first)));
         assert!(votes.iter().any(|v| Arc::ptr_eq(v, &timeout)));
         assert!(votes.iter().any(|v| Arc::ptr_eq(v, &final_)));
+        assert!(votes.iter().any(|v| Arc::ptr_eq(v, &first_next_epoch)));
     }
 
     #[test]

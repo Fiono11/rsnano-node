@@ -73,6 +73,14 @@ impl ConfirmReqSender {
             Urgency::Now => Duration::ZERO,
             Urgency::Soon => election.base_latency(),
             Urgency::Slow => election.base_latency() * 10,
+            // Kudzu: an instance without a certificate yet is waiting for a
+            // missing candidate or statement; a reply dropped under load is
+            // asked for again after one base latency, not five
+            Urgency::Normal
+                if cfg!(feature = "rai_protocol") && !election.state().is_terminated() =>
+            {
+                election.base_latency()
+            }
             Urgency::Normal => match election.behavior() {
                 ElectionBehavior::Priority
                 | ElectionBehavior::Manual
