@@ -413,7 +413,7 @@ impl ActiveElectionsContainer {
         if self.try_upgrade_priority_election(&request)? {
             return Ok(());
         }
-        if self.runs_in_earlier_epoch(&request.block.hash()) {
+        if self.has_earlier_instance(&request.block.hash()) {
             return Err(AecInsertError::Duplicate);
         }
 
@@ -570,30 +570,25 @@ impl ActiveElectionsContainer {
     }
 
     /// Whether the block is a candidate of an election of the current epoch.
-    /// RAI: or of an instance of an earlier epoch which still runs; one that
-    /// ended undecided does not stop the schedulers from proposing the block
-    /// again in the current epoch.
+    /// RAI: or of an instance of an earlier epoch, which keeps the schedulers
+    /// from proposing the block again.
     pub fn is_active_hash(&self, block_hash: &BlockHash) -> bool {
         self.roots
             .vote_router
             .election_id(block_hash, self.current_epoch)
             .is_some()
-            || self.runs_in_earlier_epoch(block_hash)
+            || self.has_earlier_instance(block_hash)
     }
 
-    /// RAI: whether an instance of an earlier epoch still runs for the block.
-    /// It decides the block within the epoch it was proposed in; only a block
-    /// whose earlier instance ended undecided is proposed again in the current
-    /// epoch.
-    pub fn runs_in_earlier_epoch(&self, block_hash: &BlockHash) -> bool {
+    /// RAI: whether the block has an instance of an earlier epoch. A block is
+    /// proposed once: an instance that still runs decides it within the epoch
+    /// it was proposed in, and one that ended undecided leaves it undecided.
+    /// Only a vote of another replica opens an instance of a later epoch.
+    pub fn has_earlier_instance(&self, block_hash: &BlockHash) -> bool {
         self.roots
             .vote_router
             .elections_of(block_hash)
-            .filter(|id| id.epoch < self.current_epoch)
-            .any(|id| {
-                !self.roots.is_terminated(&id)
-                    && self.roots.election(&id).is_some_and(|e| !e.is_confirmed())
-            })
+            .any(|id| id.epoch < self.current_epoch)
     }
 
     /// Whether the block has an election that a priority activation could not
@@ -607,7 +602,7 @@ impl ActiveElectionsContainer {
                     ElectionBehavior::Priority | ElectionBehavior::Manual
                 )
             })
-            || self.runs_in_earlier_epoch(block_hash)
+            || self.has_earlier_instance(block_hash)
     }
 
     pub fn was_recently_confirmed(&self, block_hash: &BlockHash) -> bool {
@@ -1115,8 +1110,9 @@ mod tests {
 
     /// RAI: the same root is contested once per epoch. A block starts its
     /// election in the current epoch, and a vote only counts in the election
-    /// of its own epoch. While the instance of an earlier epoch still runs the
-    /// block is not proposed again; once it ended undecided it is.
+    /// of its own epoch. This node proposes a block once: with an instance of
+    /// an earlier epoch, running or ended undecided, the block is not proposed
+    /// again; only a vote of another replica opens the instance of a later epoch.
     #[cfg(feature = "rai_protocol")]
     #[test]
     fn one_election_per_epoch() {
@@ -1148,7 +1144,7 @@ mod tests {
         assert!(container.is_priority_active_hash(&block_hash));
         assert_eq!(container.len(), 1);
 
-        // The epoch 0 instance times out: undecided, the block is proposed again
+        // The epoch 0 instance times out: undecided, and still not proposed again
         let vote = Arc::new(Vote::new_in_epoch(
             &rep_key,
             VoteKind::Abstain,
@@ -1161,13 +1157,17 @@ mod tests {
             quorum_snapshot: &QuorumSnapshot::new_test_instance(),
             now,
         });
-        assert!(!container.is_active_hash(&block_hash));
-        container
-            .insert(
-                AecInsertRequest::new_priority(block, BlockPriority::new_test_instance()),
+        assert!(container.is_active_hash(&block_hash));
+        assert_eq!(
+            container.insert(
+                AecInsertRequest::new_priority(block.clone(), BlockPriority::new_test_instance()),
                 now,
-            )
-            .unwrap();
+            ),
+            Err(AecInsertError::Duplicate)
+        );
+        assert_eq!(container.len(), 1);
+        // A vote of epoch 1 opens that instance
+        container.insert_for_vote(block, epoch1, now);
 
         assert_eq!(container.len(), 2);
         assert!(container.is_active_root(&root));
@@ -1233,6 +1233,48 @@ mod tests {
         assert!(!container.is_active_hash(&block_hash));
     }
 
+    /// left undecided
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn keeps_an_undecided_block_undecided_without_reproposing() {
+        let mut container = ActiveElectionsContainer::default();
+        let block = SavedBlock::new_test_instance();
+        let block_hash = block.hash();
+        let now = Timestamp::new_test_instance();
+        let rep_key = PrivateKey::from(1);
+        let mut rep_weights = RepWeights::default();
+        rep_weights.put(rep_key.public_key(), Amount::MAX);
+
+        container
+            .insert(
+                AecInsertRequest::new_priority(block.clone(), BlockPriority::new_test_instance()),
+                now,
+            )
+            .unwrap();
+        let vote = Arc::new(Vote::new_in_epoch(
+            &rep_key,
+            VoteKind::Abstain,
+            ConsensusEpoch::ZERO,
+            vec![block_hash],
+        ));
+        container.apply_vote(ApplyVoteArgs {
+            vote: &ReceivedVote::new(vote, VoteDelivery::Direct, None).into(),
+            rep_weights: &rep_weights,
+            quorum_snapshot: &QuorumSnapshot::new_test_instance(),
+            now,
+        });
+        container.set_current_epoch(ConsensusEpoch::new(1));
+
+        assert!(container.is_active_hash(&block_hash));
+        assert_eq!(
+            container.insert(
+                AecInsertRequest::new_priority(block, BlockPriority::new_test_instance()),
+                now,
+            ),
+            Err(AecInsertError::Duplicate)
+        );
+        assert_eq!(container.len(), 1);
+    }
     /// RAI: after enough decided elections the epoch advances; the undecided
     /// elections of the old epoch are started again in the new one and the
     /// finalized blocks are recorded per epoch

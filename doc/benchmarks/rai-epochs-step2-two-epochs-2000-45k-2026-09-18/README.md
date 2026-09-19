@@ -31,7 +31,9 @@ per-epoch final-state hashes (`final_state` RPC) are identical on all PRs.
    - a vote of an epoch the node has not reached yet is never `Late`: it waits in the vote
      cache and is replayed when the node advances (`AecFact::EpochAdvanced`);
    - a block whose instance of an earlier epoch still runs is not proposed again in the
-     current epoch (scheduler gate and `insert`); one whose instance ended undecided is;
+     current epoch (scheduler gate and `insert`); one whose instance ended undecided was,
+     in this run, proposed again by the backlog scan — the rule was changed right after
+     this run, see `../rai-epochs-step2-no-repropose-2000-45k-2026-09-19`;
    - fork candidates join the instances of every epoch; instances survive rollbacks and the
      cementing of their dependency; the aggregator hands out certificate evidence from the
      `EpochStates` record after the election is gone, and a final vote only if this node
