@@ -129,6 +129,17 @@ impl AecService {
         self.aec.read().unwrap().epoch_state(epoch)
     }
 
+    /// RAI: the setup is over, epoch 0 starts now
+    pub fn start_epochs(&self) {
+        let now = self.clock.now();
+        self.aec.write().unwrap().start_epochs(now)
+    }
+
+    /// RAI: whether the epochs have started
+    pub fn epochs_started(&self) -> bool {
+        self.aec.read().unwrap().epochs_started()
+    }
+
     /// RAI: end the current epoch now; it is left once it has drained
     pub fn leave_epoch(&self) {
         let now = self.clock.now();
@@ -138,6 +149,11 @@ impl AecService {
     /// RAI: the current epoch's duration has ended and its instances drain
     pub fn is_draining(&self) -> bool {
         self.aec.read().unwrap().is_draining()
+    }
+
+    /// RAI: the epoch whose instances are draining, if any
+    pub fn draining_epoch(&self) -> Option<ConsensusEpoch> {
+        self.aec.read().unwrap().draining_epoch()
     }
 
     /// RAI: the close rounds to solicit evidence for now
@@ -219,9 +235,13 @@ impl AecService {
         f(&mut guard.iter_round_robin())
     }
 
-    /// Kudzu: the votes to broadcast now, see Protocol 1
-    pub(crate) fn kudzu_votes_due(&self) -> Vec<VoteTarget> {
-        self.aec.read().unwrap().kudzu_votes_due()
+    /// Kudzu: the votes to broadcast now, see Protocol 1; `proposal_valid`
+    /// tells whether a block may be first voted
+    pub(crate) fn kudzu_votes_due(
+        &self,
+        proposal_valid: impl Fn(&BlockHash) -> bool,
+    ) -> Vec<VoteTarget> {
+        self.aec.read().unwrap().kudzu_votes_due(proposal_valid)
     }
 
     /// Kudzu: the signed votes behind the certificates of a terminated election

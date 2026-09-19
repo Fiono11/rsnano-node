@@ -1,7 +1,8 @@
 use std::{sync::Arc, time::Duration};
 
+use rsnano_ledger::{AnySet, Ledger};
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
-use rsnano_types::NetworkType;
+use rsnano_types::{BlockHash, NetworkType};
 use rsnano_utils::{
     CancellationToken,
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -23,6 +24,7 @@ pub(crate) struct AecVoter {
     clock: Arc<SteadyClock>,
     cps_limiter: CpsLimiter,
     scheduler: VotingScheduler,
+    ledger: Arc<Ledger>,
 }
 
 impl AecVoter {
@@ -32,6 +34,7 @@ impl AecVoter {
         clock: Arc<SteadyClock>,
         network: NetworkType,
         cps_limiter: CpsLimiter,
+        ledger: Arc<Ledger>,
     ) -> Self {
         let vote_broadcast_interval = match network {
             NetworkType::NanoDevNetwork => Duration::from_millis(500),
@@ -43,6 +46,7 @@ impl AecVoter {
             clock,
             cps_limiter,
             scheduler: VotingScheduler::new(vote_broadcast_interval),
+            ledger,
         }
     }
 
@@ -73,8 +77,15 @@ impl AecVoter {
     fn collect_targets(&self, now: Timestamp) -> Vec<VoteTarget> {
         let scheduler = &self.scheduler;
         if cfg!(feature = "rai_protocol") {
+            // RAI: a block is a valid proposal once its dependencies are
+            // finalized here (the previous block, the source of a receive)
+            let any = self.ledger.any();
+            let proposal_valid = |hash: &BlockHash| {
+                any.get_block(hash)
+                    .is_some_and(|block| any.dependencies_confirmed(&block))
+            };
             self.aec
-                .kudzu_votes_due()
+                .kudzu_votes_due(proposal_valid)
                 .into_iter()
                 .filter(|target| scheduler.can_vote(target, now))
                 .collect()

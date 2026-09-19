@@ -61,8 +61,8 @@ impl RpcCommandHandler {
             .node
             .aec
             .finalized_by_epoch()
-            .into_iter()
-            .map(|(epoch, hash)| (epoch, EpochState::with_finalized(&hash)))
+            .into_keys()
+            .map(|epoch| (epoch, self.node.aec.epoch_state(epoch)))
             .collect();
         // Elections of the epoch that are not settled although their block
         // is cemented; they are still collecting the certificates of the epoch
@@ -97,12 +97,9 @@ impl RpcCommandHandler {
                 .unwrap_or_default();
             let cemented = conf.height >= election.height;
             let outcome = slot_outcome(election.state, &election.certificates);
-            epochs.entry(election.epoch).or_default().add_election(
-                &election.account,
-                election.height,
-                election.state,
-                &election.certificates,
-            );
+            if !epochs.contains_key(&election.epoch) {
+                epochs.insert(election.epoch, self.node.aec.epoch_state(election.epoch));
+            }
             match outcome {
                 SlotOutcome::Pending => {
                     if cemented {

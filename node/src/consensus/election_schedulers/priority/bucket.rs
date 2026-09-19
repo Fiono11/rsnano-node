@@ -37,6 +37,10 @@ impl Bucket {
         self.block_queue.contains(hash)
     }
 
+    pub fn remove(&mut self, hash: &BlockHash) -> bool {
+        self.block_queue.remove(hash)
+    }
+
     pub fn len(&self) -> usize {
         self.block_queue.len()
     }

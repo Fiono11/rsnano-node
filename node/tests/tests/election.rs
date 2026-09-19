@@ -529,6 +529,8 @@ fn epoch_close_election_finalizes_the_epoch_state() {
         .unwrap();
     // node2 has no representative: it only collects the certificates
     let node2 = system.build_node().config(config()).finish();
+    node1.aec.start_epochs();
+    node2.aec.start_epochs();
     assert!(node1.aec.epoch_closes().is_empty());
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
@@ -571,4 +573,94 @@ fn epoch_close_election_finalizes_the_epoch_state() {
     let close2 = node2.aec.epoch_closes().remove(0);
     assert_eq!(close2.closed, close.closed);
     assert_eq!(close2.value, close.value);
+}
+
+/// RAI: the only discard: a block notarized in an epoch after the epoch was
+/// closed is not in the value finalized, it is rolled back. This node has no
+/// representative; the genesis representative's votes decide everything.
+#[cfg(feature = "rai_protocol")]
+#[test]
+fn late_notarized_blocks_of_a_closed_epoch_are_rolled_back() {
+    use rsnano_node::consensus::{ActiveElectionsConfig, ApplyVoteArgs, FilteredVote};
+    use rsnano_types::VoteKind;
+
+    let mut system = System::new();
+    let config = NodeConfig {
+        online_weight_minimum: Amount::MAX,
+        active_elections: ActiveElectionsConfig {
+            epoch_terminated_elections: 1,
+            ..Default::default()
+        },
+        ..System::default_config_without_backlog_scan()
+    };
+    let node = system.build_node().config(config).finish();
+    node.aec.start_epochs();
+    let mut lattice = UnsavedBlockLatticeBuilder::new();
+    let send1 = lattice
+        .genesis()
+        .send(&PrivateKey::from(42), Amount::raw(1));
+    let send2 = lattice
+        .genesis()
+        .send(&PrivateKey::from(43), Amount::raw(1));
+    let apply = |vote: Vote| {
+        node.aec.apply_vote(ApplyVoteArgs {
+            vote: &FilteredVote::from(ReceivedVote::new(
+                Arc::new(vote),
+                VoteDelivery::Direct,
+                None,
+            )),
+            rep_weights: &node.ledger.rep_weights.read(),
+            quorum_snapshot: &node.rep_tracker.quorum_snapshot(),
+            now: node.steady_clock.now(),
+        });
+    };
+
+    // send1 is finalized in epoch 0, which ends and is closed
+    node.process_active(send1.clone());
+    assert_timely2(|| node.is_active_root(&send1.qualified_root()));
+    apply(Vote::new_final(&DEV_GENESIS_KEY, vec![send1.hash()]));
+    assert_timely2(|| node.aec.current_epoch() == ConsensusEpoch::new(1));
+    let value = node
+        .aec
+        .epoch_state(ConsensusEpoch::ZERO)
+        .close_value(ConsensusEpoch::ZERO);
+    apply(Vote::new_in_epoch(
+        &DEV_GENESIS_KEY,
+        VoteKind::First,
+        ConsensusEpoch::close_round(ConsensusEpoch::ZERO, 0),
+        vec![value],
+    ));
+    assert_timely2(|| node.aec.epoch_closes()[0].closed == Some((0, value)));
+
+    // send2 arrives from the network afterwards, with a vote of epoch 0 from
+    // a peer still in it: an instance of epoch 0 opened after the close
+    node.process_active(send2.clone());
+    assert_timely2(|| node.block(&send2.hash()).is_some());
+    apply(Vote::new_in_epoch(
+        &DEV_GENESIS_KEY,
+        VoteKind::Notar,
+        ConsensusEpoch::ZERO,
+        vec![send2.hash()],
+    ));
+    node.vote_processor
+        .vote_blocking(&FilteredVote::from(ReceivedVote::new(
+            Arc::new(Vote::new_in_epoch(
+                &DEV_GENESIS_KEY,
+                VoteKind::First,
+                ConsensusEpoch::ZERO,
+                vec![send2.hash()],
+            )),
+            VoteDelivery::Direct,
+            None,
+        )));
+    // Notarized late: rolled back and discarded, the epoch's value stays
+    assert_timely2(|| node.block(&send2.hash()).is_none());
+    assert!(!node.is_active_root(&send2.qualified_root()));
+    assert_eq!(
+        node.aec
+            .epoch_state(ConsensusEpoch::ZERO)
+            .close_value(ConsensusEpoch::ZERO),
+        value
+    );
+    assert!(node.block(&send1.hash()).is_some());
 }

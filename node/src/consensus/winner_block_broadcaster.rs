@@ -79,8 +79,14 @@ impl WinnerBlockBroadcaster {
             return;
         }
 
-        // Maximum amount of directed broadcasts to be sent per election
-        let max_election_broadcasts = max(self.network.read().unwrap().fanout(1.0) / 2, 1);
+        // Maximum amount of directed broadcasts to be sent per election.
+        // RAI: every representative without a vote for the winner gets it: a
+        // replica that missed the block cannot take part in the instance
+        let max_election_broadcasts = if cfg!(feature = "rai_protocol") {
+            usize::MAX
+        } else {
+            max(self.network.read().unwrap().fanout(1.0) / 2, 1)
+        };
 
         if !self.rebroadcast_limiter.try_consume(1) {
             return;
@@ -138,8 +144,11 @@ impl BroadcastTracker {
     pub fn new(network: NetworkType) -> Self {
         Self {
             last_broadcasts: BoundedHashMap::new(1024 * 32),
+            // RAI: a representative without the block is asked about the
+            // instance every second and gets the block at the same pace
             broadcast_interval: match network {
                 NetworkType::NanoDevNetwork => Duration::from_millis(500),
+                _ if cfg!(feature = "rai_protocol") => Duration::from_secs(1),
                 _ => Duration::from_secs(150),
             },
             broadcast_initial: 0,

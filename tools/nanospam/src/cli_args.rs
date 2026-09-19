@@ -76,8 +76,13 @@ pub(crate) struct CliArgs {
 
     /// RAI: every node advances to the next consensus epoch after this many
     /// decided elections of the current epoch (0: a single epoch)
-    #[arg(long, default_value_t = 0)]
+    #[arg(long, default_value_t = 0, conflicts_with = "epoch_duration_ms")]
     pub epoch_terminated_elections: usize,
+
+    /// RAI: every node ends its consensus epoch this long after the epoch's
+    /// first election (0: no time limit)
+    #[arg(long, default_value_t = 0)]
+    pub epoch_duration_ms: u64,
 }
 
 impl CliArgs {

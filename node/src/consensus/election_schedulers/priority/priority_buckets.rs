@@ -42,6 +42,10 @@ impl PriorityBuckets {
         self.buckets.iter().any(|b| b.contains(hash))
     }
 
+    pub fn remove(&mut self, hash: &BlockHash) -> bool {
+        self.buckets.iter_mut().any(|b| b.remove(hash))
+    }
+
     pub fn insert(
         &mut self,
         priority: BlockPriority,

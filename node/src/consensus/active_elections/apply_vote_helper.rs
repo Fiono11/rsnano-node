@@ -1,10 +1,14 @@
-use std::{collections::HashMap, ops::Deref};
+use std::{
+    collections::{BTreeMap, HashMap},
+    ops::Deref,
+};
 
 use rsnano_types::{Amount, BlockHash, ConsensusEpoch, VoteDelivery, VoteError};
 use rsnano_utils::sync::backpressure_channel::Sender;
 
 use super::{
     AecFact, ApplyVoteArgs,
+    epoch_close::{EpochClose, is_late},
     recently_confirmed_cache::RecentlyConfirmedCache,
     root_container::{Entry, RootContainer},
     stats::AecStats,
@@ -17,6 +21,8 @@ pub(super) struct ApplyVoteHelper<'a> {
     pub stats: &'a mut AecStats,
     pub observer: &'a Option<Sender<AecFact>>,
     pub roots: &'a mut RootContainer,
+    /// RAI: the close elections, to tell the late instances of a closed epoch
+    pub closes: &'a BTreeMap<ConsensusEpoch, EpochClose>,
 }
 
 impl<'a> ApplyVoteHelper<'a> {
@@ -54,6 +60,7 @@ impl<'a> ApplyVoteHelper<'a> {
                         observer: self.observer,
                         election,
                         block_hash,
+                        closes: self.closes,
                     };
                     let vote_result = apply_to_election.apply_vote();
                     result.per_block.insert(*block_hash, vote_result);
@@ -106,6 +113,7 @@ struct ApplyVoteToElectionHelper<'a> {
     pub observer: &'a Option<Sender<AecFact>>,
     pub election: &'a mut Election,
     pub block_hash: &'a BlockHash,
+    pub closes: &'a BTreeMap<ConsensusEpoch, EpochClose>,
 }
 
 impl<'a> ApplyVoteToElectionHelper<'a> {
@@ -210,6 +218,10 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
     }
 
     fn election_got_confirmed(&mut self) {
+        // RAI: a late instance of a closed epoch is discarded, not confirmed
+        if is_late(self.closes, self.election) {
+            return;
+        }
         self.insert_recently_confirmed();
 
         let confirmed_election = self
@@ -581,6 +593,7 @@ mod tests {
                 stats: &mut stats,
                 observer: &None,
                 roots: &mut self.roots,
+                closes: &BTreeMap::new(),
             };
 
             let result = helper.apply_vote();
@@ -670,6 +683,7 @@ mod tests {
                     stats: &mut stats,
                     observer: &Some(tx),
                     election: &mut self.election,
+                    closes: &BTreeMap::new(),
                     block_hash: &vote.hashes[0],
                 }
                 .apply_vote()

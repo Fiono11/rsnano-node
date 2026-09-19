@@ -14,6 +14,7 @@ use std::{
     time::Duration,
 };
 
+use rsnano_ledger::LedgerEvent;
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{Amount, BlockHash, ConsensusEpoch, Vote, VoteDelivery, VoteError};
 use rsnano_utils::{
@@ -23,7 +24,10 @@ use rsnano_utils::{
     thread_factory::ThreadFactory,
 };
 
-use crate::consensus::{AecFact, VoteProcessorQueue};
+use crate::{
+    block_processing::LedgerPipelineEvent,
+    consensus::{AecFact, VoteProcessorQueue},
+};
 use stats::VoteCacheStats;
 use vote_cache_processor::VoteCacheProcessor;
 use voted_block_map::VotedBlockMap;
@@ -210,6 +214,28 @@ impl ContainerInfoProvider for VoteCache {
 impl StatsSource for VoteCache {
     fn collect_stats(&self, result: &mut StatsCollection) {
         self.stats.collect_stats(result)
+    }
+}
+
+/// RAI: a block with cached votes joins its instances as soon as the node
+/// holds it: the votes were cached because the block was not there yet, and
+/// the node may not start an election of its own for it (its epoch drains,
+/// or the block has an instance of an earlier epoch already)
+impl EventHandler<LedgerPipelineEvent> for VoteCache {
+    fn handle(&self, event: &LedgerPipelineEvent) {
+        if !cfg!(feature = "rai_protocol") {
+            return;
+        }
+        if let LedgerPipelineEvent::Ledger(LedgerEvent::BlocksProcessed(results)) = event {
+            for result in results {
+                if result.status.is_ok() {
+                    let hash = result.block.hash();
+                    if self.contains(&hash) {
+                        self.processor.trigger(hash);
+                    }
+                }
+            }
+        }
     }
 }
 

@@ -43,6 +43,10 @@ pub(crate) struct AecStats {
     pub close_rounds: u64,
     /// RAI: epochs closed by a certificate of their close election
     pub epochs_closed: u64,
+    /// RAI: epochs left while still draining because a certificate quorum was ahead
+    pub epochs_left_behind: u64,
+    /// RAI: instances erased at their epoch's close for lack of a block in the state
+    pub discarded_instances: u64,
     /// Kudzu: elections which collected a timeout certificate before any notarization certificate
     pub timed_out: u64,
     /// Kudzu: elections which became settled before they were finalized
@@ -212,6 +216,12 @@ impl StatsSource for AecStats {
         result.insert(AEC_STAT_KEY, "started_for_vote", self.started_for_vote);
         result.insert(AEC_STAT_KEY, "close_rounds", self.close_rounds);
         result.insert(AEC_STAT_KEY, "epochs_closed", self.epochs_closed);
+        result.insert(AEC_STAT_KEY, "epochs_left_behind", self.epochs_left_behind);
+        result.insert(
+            AEC_STAT_KEY,
+            "discarded_instances",
+            self.discarded_instances,
+        );
         result.insert(AEC_STAT_KEY, "timed_out", self.timed_out);
         result.insert(AEC_STAT_KEY, "settled", self.settled);
         result.insert(AEC_STAT_KEY, "finalized_fast", self.finalized_fast);

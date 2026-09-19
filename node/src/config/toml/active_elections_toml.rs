@@ -11,6 +11,8 @@ pub struct ActiveElectionsToml {
     pub bootstrap_stale_threshold: Option<usize>,
     /// RAI: advance the consensus epoch after this many decided elections; 0 never
     pub epoch_terminated_elections: Option<usize>,
+    /// RAI: end an epoch this long after its first election; 0 never
+    pub epoch_duration_ms: Option<u64>,
     /// RAI: a replica abstains in a round of an epoch's close election after
     /// waiting this long for a valid proposal
     pub close_round_timeout_ms: Option<u64>,
@@ -28,6 +30,7 @@ impl From<&NodeConfig> for ActiveElectionsToml {
             confirmation_cache: Some(config.active_elections.confirmation_cache),
             bootstrap_stale_threshold: Some(config.bootstrap_stale_threshold.as_secs() as usize),
             epoch_terminated_elections: Some(config.active_elections.epoch_terminated_elections),
+            epoch_duration_ms: Some(config.active_elections.epoch_duration.as_millis() as u64),
             close_round_timeout_ms: Some(
                 config.active_elections.close_round_timeout.as_millis() as u64
             ),
@@ -53,6 +56,7 @@ mod tests {
         );
         assert_eq!(toml.bootstrap_stale_threshold, Some(42));
         assert_eq!(toml.epoch_terminated_elections, Some(0));
+        assert_eq!(toml.epoch_duration_ms, Some(0));
         assert_eq!(toml.close_round_timeout_ms, Some(5000));
     }
 }

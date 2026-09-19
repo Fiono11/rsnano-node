@@ -188,6 +188,13 @@ impl ElectionSchedulers {
         self.manual.contains(hash) || self.priority.contains(hash)
     }
 
+    /// RAI: a block discarded at its epoch's close is taken out of the
+    /// priority scheduler, so that it is neither proposed again nor kept
+    /// from being rolled back
+    pub fn remove(&self, hash: &BlockHash) -> bool {
+        self.priority.remove(hash)
+    }
+
     pub fn track_notify(&self) -> Arc<OutputTrackerMt<()>> {
         self.notify_listener.track()
     }

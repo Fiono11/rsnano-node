@@ -41,6 +41,16 @@ impl SlotStates {
         }
     }
 
+    /// RAI: drop the states of every slot in one epoch
+    pub fn remove_epoch(&mut self, epoch: ConsensusEpoch) {
+        self.by_slot.retain(|_, states| {
+            let before = states.len();
+            states.retain(|(e, _)| *e != epoch);
+            self.len -= before - states.len();
+            !states.is_empty()
+        });
+    }
+
     /// Drop the state of one epoch of a slot
     pub fn remove(&mut self, slot: &EpochSlot) {
         let Some(states) = self.by_slot.get_mut(&(slot.account, slot.height)) else {
@@ -97,5 +107,26 @@ mod tests {
         states.remove_slot(slot.account, slot.height);
         assert_eq!(states.len(), 0);
         assert!(states.get(&slot).is_none());
+    }
+
+    #[test]
+    fn states_of_an_epoch_are_dropped_together() {
+        let mut states = SlotStates::default();
+        let slot = |account: u64, epoch: u64| EpochSlot {
+            account: Account::from(account),
+            height: 1,
+            epoch: ConsensusEpoch::new(epoch),
+        };
+        states.get_or_default(&slot(1, 0));
+        states.get_or_default(&slot(1, 1));
+        states.get_or_default(&slot(2, 0));
+        assert_eq!(states.len(), 3);
+
+        states.remove_epoch(ConsensusEpoch::ZERO);
+
+        assert_eq!(states.len(), 1);
+        assert!(states.get(&slot(1, 0)).is_none());
+        assert!(states.get(&slot(2, 0)).is_none());
+        assert!(states.get(&slot(1, 1)).is_some());
     }
 }

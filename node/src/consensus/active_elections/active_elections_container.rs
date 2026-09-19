@@ -39,7 +39,7 @@ use super::{
     RootContainer,
     apply_vote_helper::ApplyVoteHelper,
     cooldown_controller::{AecCooldownReason, CooldownController, CooldownResult},
-    epoch_close::{CloseEvent, EpochClose, EpochCloseInfo},
+    epoch_close::{CloseEvent, EpochClose, EpochCloseInfo, is_late},
     epoch_states::{EpochStates, FinalizedInstance},
     recently_confirmed_cache::RecentlyConfirmedCache,
     slot_states::SlotStates,
@@ -85,6 +85,19 @@ pub(crate) struct ActiveElectionsContainer {
     decided_in_current_epoch: usize,
     /// RAI: `decided_in_current_epoch` at which the epoch advances; 0 never
     epoch_terminated_elections: usize,
+    /// RAI: how long an epoch lasts from its first election; zero: no time limit
+    epoch_duration: Duration,
+    /// RAI: the epochs have started: until then, during the setup of a run,
+    /// no epoch ends and no epoch of another replica is followed
+    epochs_started: bool,
+    /// RAI: when the epochs started, the origin the epoch boundaries are
+    /// aligned to on every replica
+    epoch_origin: Option<Timestamp>,
+    /// RAI: when the current epoch ends by time: the next boundary after
+    /// its first election; None while it has none
+    epoch_ends_at: Option<Timestamp>,
+    /// RAI: when the drain was last reported
+    drain_logged: Option<Timestamp>,
     /// RAI: what each epoch finalized explicitly
     epoch_states: EpochStates,
     /// RAI: the newest epoch each representative was seen voting in
@@ -120,6 +133,11 @@ impl ActiveElectionsContainer {
             draining: false,
             decided_in_current_epoch: 0,
             epoch_terminated_elections: config.epoch_terminated_elections,
+            epoch_duration: config.epoch_duration,
+            epochs_started: false,
+            epoch_origin: None,
+            epoch_ends_at: None,
+            drain_logged: None,
             epoch_states: EpochStates::default(),
             rep_epochs: HashMap::new(),
             epoch_voters: BTreeMap::new(),
@@ -129,16 +147,51 @@ impl ActiveElectionsContainer {
         }
     }
 
+    /// RAI: whether epochs end at all on this node, by count or by time
+    fn epochs_end(&self) -> bool {
+        self.epochs_started
+            && (self.epoch_terminated_elections > 0 || !self.epoch_duration.is_zero())
+    }
+
+    /// RAI: the setup of a run is over: epoch 0 starts now, at the same time
+    /// on every replica, with the voting weights as they are now
+    pub fn start_epochs(&mut self, now: Timestamp) {
+        if self.epochs_started {
+            return;
+        }
+        self.epochs_started = true;
+        self.epoch_origin = Some(now);
+        self.epoch_ends_at = self.next_boundary(now);
+        self.decided_in_current_epoch = 0;
+        if cfg!(feature = "rai_protocol") {
+            eprintln!(
+                "EPOCH_START t={} epoch={} elections={}",
+                unix_ms(),
+                self.current_epoch,
+                self.roots.len()
+            );
+        }
+    }
+
+    /// RAI: whether the epochs have started
+    pub fn epochs_started(&self) -> bool {
+        self.epochs_started
+    }
+
     /// RAI: a vote of an epoch ahead of this node. Once more than f of the
     /// weight votes in a later epoch at least one correct representative has
     /// reached the epoch's end, and this node ends its epoch at once instead
     /// of finishing its own count: the blocks in flight during the switch get
-    /// their decision as soon as every replica is in the same epoch.
+    /// their decision as soon as every replica is in the same epoch. Once a
+    /// certificate quorum is ahead, the epoch's close has started on the
+    /// network and this node leaves the epoch at once, drained or not: its
+    /// remaining instances run on, while waiting for them would leave it
+    /// behind by every block published meanwhile.
     fn observe_epoch(&mut self, args: &ApplyVoteArgs) {
         let vote = &args.vote;
         // A close vote for an epoch is cast by a replica which has left it
         let epoch = vote.epoch.required_epoch();
-        if self.epoch_terminated_elections == 0 || epoch <= self.current_epoch {
+        if !self.epochs_end() || epoch <= self.current_epoch {
             return;
         }
         self.rep_epochs.insert(vote.voter, epoch);
@@ -154,6 +207,16 @@ impl ActiveElectionsContainer {
             self.stats.epochs_followed += 1;
             self.end_epoch(args.now);
         }
+        if ahead >= thresholds.certificate && self.draining {
+            self.stats.epochs_left_behind += 1;
+            self.draining = false;
+            self.advance_epoch(args.now);
+        }
+    }
+
+    /// RAI: the epoch whose instances are draining, if any
+    pub fn draining_epoch(&self) -> Option<ConsensusEpoch> {
+        self.draining.then_some(self.current_epoch)
     }
 
     /// RAI: the representatives this node votes with
@@ -169,6 +232,7 @@ impl ActiveElectionsContainer {
     /// RAI: end the current epoch now, whatever its count; it is left once
     /// its instances have drained
     pub fn leave_epoch(&mut self, now: Timestamp) {
+        self.start_epochs(now);
         self.end_epoch(now);
     }
 
@@ -214,11 +278,36 @@ impl ActiveElectionsContainer {
             .iter()
             .filter(|epoch| **epoch == self.current_epoch)
             .count();
-        if self.epoch_terminated_elections > 0
+        if self.epochs_started
+            && self.epoch_terminated_elections > 0
             && self.decided_in_current_epoch >= self.epoch_terminated_elections
             && !self.draining
         {
             self.end_epoch(args.now);
+        }
+    }
+
+    /// RAI: the epoch boundaries are the multiples of the epoch duration
+    /// from the start of the epochs, the same instants on every replica;
+    /// the next one after `now`
+    fn next_boundary(&self, now: Timestamp) -> Option<Timestamp> {
+        if self.epoch_duration.is_zero() {
+            return None;
+        }
+        let origin = self.epoch_origin?;
+        let passed = origin.elapsed(now).as_nanos() / self.epoch_duration.as_nanos();
+        let next = self.epoch_duration.as_nanos() * (passed + 1);
+        Some(origin + Duration::from_nanos(next as u64))
+    }
+
+    /// RAI: an epoch with a time limit ends at the first boundary after its
+    /// first election; an epoch without elections never ends by time
+    fn end_epoch_by_time(&mut self, now: Timestamp) {
+        if !self.epochs_started || self.draining {
+            return;
+        }
+        if self.epoch_ends_at.is_some_and(|ends_at| now >= ends_at) {
+            self.end_epoch(now);
         }
     }
 
@@ -273,21 +362,15 @@ impl ActiveElectionsContainer {
     /// open that instance here.
     /// The close election of the epoch left is created; it takes part only
     /// once every instance of the epoch has terminated and settled here (see
-    /// `tick_closes`). Its rounds are led, in public key order, by the
-    /// representatives which voted in the epoch: every replica saw the same
-    /// ones vote, while the ledger's weights also name representatives which
-    /// never vote.
+    /// `tick_closes`). Its rounds are led by the representatives which voted
+    /// in the epoch or in the one after it (see `close_leaders`).
     fn advance_epoch(&mut self, now: Timestamp) {
         let left = self.current_epoch;
         self.current_epoch = self.current_epoch.next();
         self.decided_in_current_epoch = 0;
+        self.epoch_ends_at = None;
         self.stats.epochs_advanced += 1;
-        let leaders = self
-            .epoch_voters
-            .remove(&left)
-            .unwrap_or_default()
-            .into_iter()
-            .collect();
+        let leaders = self.close_leaders(left);
         self.closes.insert(
             left,
             EpochClose::new(left, leaders, self.close_round_timeout),
@@ -307,19 +390,60 @@ impl ActiveElectionsContainer {
 
     /// RAI: the final state of an epoch as it stands on this node
     pub fn epoch_state(&self, epoch: ConsensusEpoch) -> EpochState {
+        let closed_at = self.closes.get(&epoch).and_then(|close| close.closed_at());
+        self.epoch_state_before(epoch, closed_at).0
+    }
+
+    /// RAI: the epoch's state without the instances opened at or after the
+    /// cutoff, and the terminated ones among those late instances: an
+    /// instance of a closed epoch opened after the certificate was seen has
+    /// no block in the value finalized, what it notarizes is discarded
+    fn epoch_state_before(
+        &self,
+        epoch: ConsensusEpoch,
+        cutoff: Option<Timestamp>,
+    ) -> (EpochState, Vec<ElectionId>) {
         let finalized = self.epoch_states.by_epoch().get(&epoch);
-        let mut state = EpochState::with_finalized(finalized.unwrap_or(&FinalStateHash::default()));
+        let mut state = EpochState::with_finalized(
+            finalized.unwrap_or(&FinalStateHash::default()),
+            self.epoch_states.finalized_count(epoch),
+        );
+        let mut late = Vec::new();
         for election in self.roots.iter().map(|entry| &entry.election) {
-            if election.epoch() == epoch {
-                state.add_election(
-                    &election.account(),
-                    election.height(),
-                    election.state(),
-                    election.certificates(),
-                );
+            if election.epoch() != epoch {
+                continue;
+            }
+            if cutoff.is_some_and(|cutoff| election.start() >= cutoff) {
+                if election.certificates().has_block() {
+                    late.push(election.id());
+                }
+                continue;
+            }
+            state.add_election(
+                &election.account(),
+                election.height(),
+                election.state(),
+                election.certificates(),
+            );
+        }
+        (state, late)
+    }
+
+    /// RAI: the leaders of the rounds of an epoch's close election, in public
+    /// key order: the representatives seen voting in the epoch or in the one
+    /// after it. Every replica saw the same ones vote, while the ledger's
+    /// weights also name representatives which never vote; and one which
+    /// voted in the epoch with a weight it has since passed on (the genesis
+    /// representative funding the others) leads a round that times out, not
+    /// every round.
+    fn close_leaders(&self, epoch: ConsensusEpoch) -> Vec<PublicKey> {
+        let mut leaders: BTreeSet<PublicKey> = BTreeSet::new();
+        for epoch in [epoch, epoch.next()] {
+            if let Some(voters) = self.epoch_voters.get(&epoch) {
+                leaders.extend(voters.iter().copied());
             }
         }
-        state
+        leaders.into_iter().collect()
     }
 
     /// RAI: drive the close elections: each attests the state of its epoch
@@ -331,23 +455,89 @@ impl ActiveElectionsContainer {
     /// closed: the epochs close one after the other. The votes of the other
     /// replicas are collected all the while.
     fn tick_closes(&mut self, now: Timestamp) {
+        // A closed epoch is still followed until this node agrees with the
+        // value: its instances may settle only after the certificate came
         let epochs: Vec<_> = self
             .closes
             .values()
-            .filter(|close| !close.is_closed())
+            .filter(|close| !close.is_agreed())
             .map(|close| close.epoch())
             .collect();
         for epoch in epochs {
             let state = self.epoch_state(epoch);
             let previous_closed = self.previous_epoch_closed(epoch);
+            let leaders = self.close_leaders(epoch);
             let close = self.closes.get_mut(&epoch).unwrap();
             close.set_state(&state);
+            close.set_leaders(leaders);
             if previous_closed {
                 close.tick(now);
+            }
+            if close.is_closed() {
+                self.epoch_voters.remove(&epoch);
             }
             let events = close.take_events();
             self.log_close_events(epoch, events);
         }
+        self.discard_late_instances();
+        self.log_drain_wait(now);
+    }
+
+    /// RAI: the only discard: an instance of a closed epoch opened after
+    /// the certificate was seen here got a notarization certificate. Its
+    /// blocks are in this node's ledger and not in the value finalized:
+    /// rolled back, the instance erased.
+    fn discard_late_instances(&mut self) {
+        let closed: Vec<_> = self
+            .closes
+            .values()
+            .filter_map(|close| Some((close.epoch(), close.closed_at()?)))
+            .collect();
+        for (epoch, closed_at) in closed {
+            let (_, late) = self.epoch_state_before(epoch, Some(closed_at));
+            // erasing a late instance discards it, see `cleanup_election`
+            for id in late {
+                self.erase_election(&id);
+            }
+        }
+    }
+
+    /// RAI: what an ending epoch's drain is waiting for, once a second
+    fn log_drain_wait(&mut self, now: Timestamp) {
+        if !cfg!(feature = "rai_protocol") || !self.draining {
+            return;
+        }
+        if self
+            .drain_logged
+            .is_some_and(|last| last.elapsed(now) < Duration::from_secs(1))
+        {
+            return;
+        }
+        self.drain_logged = Some(now);
+        let waiting: Vec<_> = self
+            .roots
+            .iter()
+            .map(|entry| &entry.election)
+            .filter(|e| e.epoch() == self.current_epoch && !e.state().is_terminated())
+            .take(3)
+            .map(|e| {
+                format!(
+                    "{}:{}:{}:{}",
+                    e.qualified_root().root,
+                    e.state().as_str(),
+                    e.block_count(),
+                    e.kudzu_votes().len()
+                )
+            })
+            .collect();
+        eprintln!(
+            "EPOCH_DRAIN_WAIT t={} epoch={} unterminated={} previous_closed={} first={:?}",
+            unix_ms(),
+            self.current_epoch,
+            self.epoch_state(self.current_epoch).unterminated,
+            self.previous_epoch_closed(self.current_epoch),
+            waiting
+        );
     }
 
     fn log_close_events(&mut self, epoch: ConsensusEpoch, events: Vec<CloseEvent>) {
@@ -356,6 +546,13 @@ impl ActiveElectionsContainer {
                 CloseEvent::Ready(_) => {}
                 CloseEvent::RoundEntered { .. } => self.stats.close_rounds += 1,
                 CloseEvent::Closed { .. } => self.stats.epochs_closed += 1,
+                CloseEvent::Agreed(_) => {
+                    // The epoch before this one is decided for good: no
+                    // instance of it is voted in again
+                    if let Some(previous) = epoch.as_u64().checked_sub(1) {
+                        self.slots.remove_epoch(ConsensusEpoch::new(previous));
+                    }
+                }
             }
             if !cfg!(feature = "rai_protocol") {
                 continue;
@@ -392,6 +589,14 @@ impl ActiveElectionsContainer {
                         own
                     );
                 }
+                CloseEvent::Agreed(value) => {
+                    eprintln!(
+                        "EPOCH_AGREED t={} epoch={} value={}",
+                        unix_ms(),
+                        epoch,
+                        value
+                    );
+                }
             }
         }
     }
@@ -417,6 +622,7 @@ impl ActiveElectionsContainer {
                     round,
                     args.rep_weights,
                     &thresholds,
+                    args.now,
                 ),
                 None if epoch >= self.current_epoch => Err(VoteError::Indeterminate),
                 None => Err(VoteError::Late),
@@ -490,8 +696,10 @@ impl ActiveElectionsContainer {
         self.current_epoch = epoch;
     }
 
-    /// Kudzu: the votes to broadcast now for all elections, in round robin order
-    pub fn kudzu_votes_due(&self) -> Vec<VoteTarget> {
+    /// Kudzu: the votes to broadcast now for all elections, in round robin
+    /// order. `proposal_valid` tells whether a block may be first voted
+    /// (its dependencies are finalized).
+    pub fn kudzu_votes_due(&self, proposal_valid: impl Fn(&BlockHash) -> bool) -> Vec<VoteTarget> {
         let mut targets = self.pending_kudzu_votes.clone();
         let empty = LocalSlotState::default();
         for election in self.roots.round_robin().map(|e| &e.election) {
@@ -502,7 +710,7 @@ impl ActiveElectionsContainer {
             let due = if election.state() == ElectionState::Settled {
                 election.kudzu_final_vote_due(slot).into_iter().collect()
             } else {
-                election.kudzu_votes_due(slot)
+                election.kudzu_votes_due(slot, &proposal_valid)
             };
             targets.extend(due.into_iter().map(|(hash, kind)| VoteTarget {
                 election: election.id(),
@@ -740,6 +948,9 @@ impl ActiveElectionsContainer {
     ) {
         let root = request.block.qualified_root();
         let hash = request.block.hash();
+        if epoch == self.current_epoch && self.epoch_ends_at.is_none() {
+            self.epoch_ends_at = self.next_boundary(now);
+        }
         let election = Election::new(
             request.block,
             epoch,
@@ -887,6 +1098,7 @@ impl ActiveElectionsContainer {
             entry.election.transition_time(now);
         }
         self.erase_ended_elections();
+        self.end_epoch_by_time(now);
         self.try_advance_epoch(now);
         self.tick_closes(now);
     }
@@ -1049,7 +1261,17 @@ impl ActiveElectionsContainer {
     fn cleanup_election(&mut self, entry: Entry) {
         let election = &entry.election;
         self.keep_exit_final_vote(election);
-        if let Some(finalized) = election.certificates().finalized() {
+        if is_late(&self.closes, election) && election.certificates().has_block() {
+            self.stats.discarded_instances += 1;
+            self.notify(AecFact::LateBlocksDiscarded {
+                epoch: election.epoch(),
+                hashes: election.certificates().notar.clone(),
+            });
+            // The blocks are rolled back: the root's instances of the other
+            // epochs (the scheduler proposes a block in the current epoch)
+            // would keep candidates no replica holds
+            self.erase(election.qualified_root());
+        } else if let Some(finalized) = election.certificates().finalized() {
             let slot = self
                 .slots
                 .get(&election.epoch_slot())
@@ -1062,10 +1284,16 @@ impl ActiveElectionsContainer {
                 epoch: election.epoch(),
                 winner: finalized,
                 candidates: election.candidate_blocks().keys().copied().collect(),
+                notarized: election.certificates().notar.clone(),
                 slot,
             });
         }
-        if cfg!(feature = "rai_protocol") {
+        // RAI: the slot state outlives the election. This node's statements
+        // in the epoch's instance are one-shot; an instance for the slot may
+        // be started again in that epoch (a vote for a block republished after
+        // a discard, a rolled back dependent), and it must find them. The
+        // states of an epoch go once the epoch after it is decided.
+        if !cfg!(feature = "rai_protocol") {
             self.slots.remove(&election.epoch_slot());
         }
 
@@ -1164,6 +1392,9 @@ impl ActiveElectionsContainer {
         &mut self,
         args: ApplyVoteArgs<'a>,
     ) -> HashMap<BlockHash, Result<(), VoteError>> {
+        // The epoch's end is due at the same instant on every replica, and
+        // checked on every vote, not only on the ticks
+        self.end_epoch_by_time(args.now);
         if let Some((epoch, round)) = args.vote.epoch.as_close_round() {
             // Following the voter into its epoch first opens the close here
             self.observe_epoch(&args);
@@ -1181,6 +1412,7 @@ impl ActiveElectionsContainer {
             stats: &mut self.stats,
             observer: &self.observer,
             roots: &mut self.roots,
+            closes: &self.closes,
         };
         let result = apply_helper.apply_vote();
         for entry in result.confirmed {
@@ -1580,6 +1812,7 @@ mod tests {
         let decided = SavedBlock::new_test_instance_with_key(1);
         let undecided = SavedBlock::new_test_instance_with_key(2);
         let now = Timestamp::new_test_instance();
+        container.start_epochs(now);
         for block in [&decided, &undecided] {
             container
                 .insert(
@@ -1626,7 +1859,7 @@ mod tests {
         );
         assert!(container.election_for_block(&decided.hash()).is_none());
         // This node keeps voting in the running instance
-        let due = container.kudzu_votes_due();
+        let due = container.kudzu_votes_due(|_| true);
         assert!(due.contains(&VoteTarget {
             election: ElectionId::legacy(undecided.qualified_root()),
             winner: undecided.hash(),
@@ -1667,8 +1900,66 @@ mod tests {
         assert_eq!(container.len(), 2);
     }
 
+    /// RAI: epoch 0 starts when the setup is over and the epochs end at the
+    /// multiples of the duration from then on, the same instants on every
+    /// replica; an epoch without elections does not end by time, one with
+    /// elections ends at the first boundary after its first election
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn epoch_ends_by_time() {
+        let mut container = ActiveElectionsContainer::new(
+            ActiveElectionsConfig {
+                epoch_duration: Duration::from_secs(8),
+                ..Default::default()
+            },
+            Duration::from_secs(1),
+        );
+        let start = Timestamp::new_test_instance();
+        let at = |secs: u64| start + Duration::from_secs(secs);
+        // The setup: nothing ends before the epochs start
+        container.transition_time(at(100));
+        assert!(!container.is_draining());
+        assert!(!container.epochs_started());
+
+        container.start_epochs(at(100));
+        container.transition_time(at(107));
+        assert!(!container.is_draining());
+        let block = SavedBlock::new_test_instance();
+        container
+            .insert(
+                AecInsertRequest::new_priority(block.clone(), BlockPriority::new_test_instance()),
+                at(107),
+            )
+            .unwrap();
+        container.transition_time(at(108));
+        assert!(container.is_draining());
+        assert_eq!(container.current_epoch(), ConsensusEpoch::ZERO);
+
+        // Terminated: left; the next epoch ends at the boundary after its
+        // first election (the boundaries are at 100 + 8k)
+        container.erase(&block.qualified_root());
+        container.transition_time(at(108));
+        assert_eq!(container.current_epoch(), ConsensusEpoch::new(1));
+        container.transition_time(at(200));
+        assert!(!container.is_draining());
+        container
+            .insert(
+                AecInsertRequest::new_priority(
+                    SavedBlock::new_test_instance_with_key(2),
+                    BlockPriority::new_test_instance(),
+                ),
+                at(201),
+            )
+            .unwrap();
+        container.transition_time(at(203));
+        assert!(!container.is_draining());
+        container.transition_time(at(204));
+        assert!(container.is_draining());
+    }
+
     /// RAI: once more than f of the weight votes in a later epoch this node
-    /// ends its epoch without finishing its own count
+    /// ends its epoch without finishing its own count; once a certificate
+    /// quorum is ahead it leaves the epoch at once, its open instances run on
     #[cfg(feature = "rai_protocol")]
     #[test]
     fn follows_the_representatives_into_the_next_epoch() {
@@ -1681,6 +1972,7 @@ mod tests {
         );
         let block = SavedBlock::new_test_instance();
         let now = Timestamp::new_test_instance();
+        container.start_epochs(now);
         container
             .insert(
                 AecInsertRequest::new_priority(block.clone(), BlockPriority::new_test_instance()),
@@ -1688,29 +1980,151 @@ mod tests {
             )
             .unwrap();
 
-        let rep_key = PrivateKey::from(1);
+        // The test quorum is 100M: f = 19M, a certificate 62M
+        let small_rep = PrivateKey::from(1);
+        let big_rep = PrivateKey::from(2);
         let mut rep_weights = RepWeights::default();
-        rep_weights.put(rep_key.public_key(), Amount::MAX);
+        rep_weights.put(small_rep.public_key(), Amount::nano(30_000_000));
+        rep_weights.put(big_rep.public_key(), Amount::nano(70_000_000));
         let epoch1 = ConsensusEpoch::new(1);
-        let vote = Arc::new(Vote::new_in_epoch(
-            &rep_key,
-            VoteKind::First,
-            epoch1,
-            vec![block.hash()],
-        ));
+        let vote_ahead = |rep: &PrivateKey| {
+            let vote = Arc::new(Vote::new_in_epoch(
+                rep,
+                VoteKind::First,
+                epoch1,
+                vec![block.hash()],
+            ));
+            FilteredVote::from(ReceivedVote::new(vote, VoteDelivery::Direct, None))
+        };
         container.apply_vote(ApplyVoteArgs {
-            vote: &ReceivedVote::new(vote, VoteDelivery::Direct, None).into(),
+            vote: &vote_ahead(&small_rep),
             rep_weights: &rep_weights,
             quorum_snapshot: &QuorumSnapshot::new_test_instance(),
             now,
         });
 
-        // The open instance keeps the epoch from being left until it settles
+        // More than f ahead: the epoch ends, the open instance keeps it from
+        // being left until it terminates
         assert!(container.is_draining());
+        assert_eq!(container.draining_epoch(), Some(ConsensusEpoch::ZERO));
         assert_eq!(container.current_epoch(), ConsensusEpoch::ZERO);
-        assert!(container.erase(&block.qualified_root()));
         container.transition_time(now);
+        assert_eq!(container.current_epoch(), ConsensusEpoch::ZERO);
+
+        // A certificate quorum ahead: left at once, the instance runs on
+        container.apply_vote(ApplyVoteArgs {
+            vote: &vote_ahead(&big_rep),
+            rep_weights: &rep_weights,
+            quorum_snapshot: &QuorumSnapshot::new_test_instance(),
+            now,
+        });
         assert_eq!(container.current_epoch(), epoch1);
+        assert!(!container.is_draining());
+        assert_eq!(container.draining_epoch(), None);
+        assert!(
+            container
+                .election(&ElectionId::legacy(block.qualified_root()))
+                .is_some()
+        );
+        assert_eq!(container.epoch_closes().len(), 1);
+    }
+
+    /// RAI: the only discard: an instance of a closed epoch opened after the
+    /// certificate was seen here is late, it has no block in the value
+    /// finalized. It does not count in the epoch's state, and once it gets
+    /// notarized its blocks are discarded and it is erased.
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn discards_the_late_notarized_instances_of_a_closed_epoch() {
+        let mut container = ActiveElectionsContainer::new(
+            ActiveElectionsConfig {
+                epoch_terminated_elections: 1,
+                ..Default::default()
+            },
+            Duration::from_secs(1),
+        );
+        let rep_key = PrivateKey::from(1);
+        let mut rep_weights = RepWeights::default();
+        rep_weights.put(rep_key.public_key(), Amount::MAX);
+        let now = Timestamp::new_test_instance();
+        container.start_epochs(now);
+        let decided = SavedBlock::new_test_instance_with_key(1);
+        container
+            .insert(
+                AecInsertRequest::new_priority(decided.clone(), BlockPriority::new_test_instance()),
+                now,
+            )
+            .unwrap();
+        let apply = |container: &mut ActiveElectionsContainer, vote: Vote, at: Timestamp| {
+            container.apply_vote(ApplyVoteArgs {
+                vote: &ReceivedVote::new(Arc::new(vote), VoteDelivery::Direct, None).into(),
+                rep_weights: &rep_weights,
+                quorum_snapshot: &QuorumSnapshot::new_test_instance(),
+                now: at,
+            });
+        };
+        apply(
+            &mut container,
+            Vote::new_final(&rep_key, vec![decided.hash()]),
+            now,
+        );
+        assert_eq!(container.current_epoch(), ConsensusEpoch::new(1));
+        let value = container.epoch_closes()[0].value.unwrap();
+        let closed_at = now + Duration::from_secs(1);
+        apply(
+            &mut container,
+            Vote::new_in_epoch(
+                &rep_key,
+                VoteKind::First,
+                ConsensusEpoch::close_round(ConsensusEpoch::ZERO, 0),
+                vec![value],
+            ),
+            closed_at,
+        );
+        assert_eq!(container.epoch_closes()[0].closed, Some((0, value)));
+
+        // An instance of epoch 0 opened after the close, for a peer still in
+        // it, next to the instance of the current epoch the scheduler started
+        let late = SavedBlock::new_test_instance_with_key(2);
+        let later = closed_at + Duration::from_secs(1);
+        container
+            .insert(
+                AecInsertRequest::new_priority(late.clone(), BlockPriority::new_test_instance()),
+                later,
+            )
+            .unwrap();
+        container.insert_for_vote(late.clone(), ConsensusEpoch::ZERO, later);
+        assert_eq!(container.len(), 2);
+        // Not in the state: this node still attests the value finalized
+        assert_eq!(
+            container
+                .epoch_state(ConsensusEpoch::ZERO)
+                .close_value(ConsensusEpoch::ZERO),
+            value
+        );
+
+        // Notarized: discarded
+        apply(
+            &mut container,
+            Vote::new_in_epoch(
+                &rep_key,
+                VoteKind::Notar,
+                ConsensusEpoch::ZERO,
+                vec![late.hash()],
+            ),
+            later,
+        );
+        container.transition_time(later);
+        // Both instances of the root are gone
+        assert!(container.election_for_block(&late.hash()).is_none());
+        assert_eq!(container.len(), 0);
+        assert_eq!(container.stats.discarded_instances, 1);
+        assert_eq!(
+            container
+                .epoch_state(ConsensusEpoch::ZERO)
+                .close_value(ConsensusEpoch::ZERO),
+            value
+        );
     }
 
     /// RAI: a vote for a block without an instance in the vote's epoch starts
@@ -1737,7 +2151,7 @@ mod tests {
             ElectionState::Active
         );
         assert_eq!(container.len(), 2);
-        let due = container.kudzu_votes_due();
+        let due = container.kudzu_votes_due(|_| true);
         assert!(due.contains(&VoteTarget {
             election: stale,
             winner: block.hash(),
@@ -1771,6 +2185,7 @@ mod tests {
         container.set_local_representatives(vec![rep_key.public_key()]);
         let block = SavedBlock::new_test_instance();
         let now = Timestamp::new_test_instance();
+        container.start_epochs(now);
         container
             .insert(
                 AecInsertRequest::new_priority(block.clone(), BlockPriority::new_test_instance()),
@@ -1808,7 +2223,7 @@ mod tests {
             winner: value,
             vote_type: VoteType::NonFinal,
         };
-        let due = container.kudzu_votes_due();
+        let due = container.kudzu_votes_due(|_| true);
         assert!(due.contains(&proposal));
         assert_eq!(
             container.mark_kudzu_voted(vec![proposal.clone()]),
@@ -1836,7 +2251,7 @@ mod tests {
         assert_eq!(closes[0].closed, Some((0, value)));
         // The exit final vote is cast, then nothing more
         let close_votes: Vec<_> = container
-            .kudzu_votes_due()
+            .kudzu_votes_due(|_| true)
             .into_iter()
             .filter(|target| target.election.epoch.is_close_round())
             .collect();
@@ -1868,6 +2283,7 @@ mod tests {
         rep_weights.put(rep_key.public_key(), Amount::MAX);
         container.set_local_representatives(vec![rep_key.public_key()]);
         let now = Timestamp::new_test_instance();
+        container.start_epochs(now);
         // One decided election per epoch: epoch 0 is left, epoch 1 ends
         for (key, epoch) in [(1, ConsensusEpoch::ZERO), (2, ConsensusEpoch::new(1))] {
             let block = SavedBlock::new_test_instance_with_key(key);
@@ -1901,7 +2317,7 @@ mod tests {
         assert!(closes[0].started);
         let close_votes = |container: &ActiveElectionsContainer| -> Vec<VoteTarget> {
             container
-                .kudzu_votes_due()
+                .kudzu_votes_due(|_| true)
                 .into_iter()
                 .filter(|target| target.election.epoch.is_close_round())
                 .collect()
@@ -1952,6 +2368,7 @@ mod tests {
         let mut rep_weights = RepWeights::default();
         rep_weights.put(rep_key.public_key(), Amount::MAX);
         let now = Timestamp::new_test_instance();
+        container.start_epochs(now);
         let value = BlockHash::from(7);
         let close_vote = |round: ConsensusEpoch| {
             let vote = Arc::new(Vote::new_in_epoch(
@@ -1991,7 +2408,7 @@ mod tests {
         assert_eq!(container.epoch_closes()[0].closed, Some((0, value)));
         assert_ne!(container.epoch_closes()[0].value, Some(value));
         // Nothing is voted or solicited in a closed epoch
-        assert!(container.kudzu_votes_due().is_empty());
+        assert!(container.kudzu_votes_due(|_| true).is_empty());
         assert!(container.close_solicitations(now).is_empty());
     }
 
@@ -2049,7 +2466,7 @@ mod tests {
             .insert(request, Timestamp::new_test_instance())
             .unwrap();
 
-        let due = container.kudzu_votes_due();
+        let due = container.kudzu_votes_due(|_| true);
         assert_eq!(
             due,
             vec![VoteTarget {
@@ -2071,7 +2488,7 @@ mod tests {
         assert_eq!(container.slot_count(), 1);
 
         // Nothing new is decided, the first vote is only re-broadcast
-        assert_eq!(container.kudzu_votes_due(), due);
+        assert_eq!(container.kudzu_votes_due(|_| true), due);
     }
 
     #[test]
@@ -2082,19 +2499,21 @@ mod tests {
             AecInsertRequest::new_priority(block.clone(), BlockPriority::new_test_instance());
         let now = Timestamp::new_test_instance();
         container.insert(request, now).unwrap();
-        let due = container.kudzu_votes_due();
+        let due = container.kudzu_votes_due(|_| true);
         container.mark_kudzu_voted(due.clone());
         assert_eq!(container.slot_count(), 1);
 
         container.confirm_dependent_elections(vec![(block.clone(), None)], now);
 
-        // RAI: the instance keeps running until it reaches its outcome, its
-        // slot state goes when the election does
+        // RAI: the instance keeps running until it reaches its outcome, and
+        // its slot state outlives it: it goes once the next epoch is decided
         if cfg!(feature = "rai_protocol") {
             assert_eq!(container.slot_count(), 1);
             container.erase(&block.qualified_root());
+            assert_eq!(container.slot_count(), 1);
+        } else {
+            assert_eq!(container.slot_count(), 0);
         }
-        assert_eq!(container.slot_count(), 0);
     }
 
     /// Legacy never confirms on a non-final vote, so this only applies to Kudzu
@@ -2108,7 +2527,7 @@ mod tests {
         let request = AecInsertRequest::new_priority(block, BlockPriority::new_test_instance());
         let now = Timestamp::new_test_instance();
         container.insert(request, now).unwrap();
-        let first = container.kudzu_votes_due();
+        let first = container.kudzu_votes_due(|_| true);
         container.mark_kudzu_voted(first.clone());
 
         // A single first vote with all the weight fast finalizes and erases the election
@@ -2135,9 +2554,9 @@ mod tests {
             winner: block_hash,
             vote_type: VoteType::Final,
         };
-        assert_eq!(container.kudzu_votes_due(), vec![expected.clone()]);
+        assert_eq!(container.kudzu_votes_due(|_| true), vec![expected.clone()]);
         container.mark_kudzu_voted(vec![expected]);
-        assert!(container.kudzu_votes_due().is_empty());
+        assert!(container.kudzu_votes_due(|_| true).is_empty());
     }
 
     #[cfg(feature = "rai_protocol")]

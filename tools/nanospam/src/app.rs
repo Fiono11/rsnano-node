@@ -127,6 +127,15 @@ impl NanoSpamApp {
 
         wait_for_full_quorum(&self.rpc_clients).await?;
 
+        // RAI: the setup is over and every PR holds its share of the weight:
+        // epoch 0 starts now on every PR
+        if self.args.epoch_duration_ms > 0 || self.args.epoch_terminated_elections > 0 {
+            for rpc_client in &self.rpc_clients {
+                rpc_client.epoch_start().await?;
+            }
+            info!("Started the epochs on every PR");
+        }
+
         let mut tcp_writers = Vec::new();
         let mut tcp_readers = Vec::new();
 

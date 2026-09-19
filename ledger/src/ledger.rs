@@ -527,6 +527,33 @@ impl Ledger {
     where
         T: IntoIterator<Item = &'a BlockHash>,
     {
+        self.roll_back_batch_impl(targets, max_rollbacks, true)
+    }
+
+    /// RAI: rolls the blocks back whatever the node still holds of them: a
+    /// block discarded at its epoch's close goes, the votes still arriving for
+    /// it or a scheduler that re-queued it notwithstanding. The caller has
+    /// made sure the block is not finalized and has no election.
+    pub fn roll_back_batch_unchecked<'a, T>(
+        &self,
+        targets: T,
+        max_rollbacks: usize,
+    ) -> RollbackResults
+    where
+        T: IntoIterator<Item = &'a BlockHash>,
+    {
+        self.roll_back_batch_impl(targets, max_rollbacks, false)
+    }
+
+    fn roll_back_batch_impl<'a, T>(
+        &self,
+        targets: T,
+        max_rollbacks: usize,
+        checked: bool,
+    ) -> RollbackResults
+    where
+        T: IntoIterator<Item = &'a BlockHash>,
+    {
         self.stats
             .inc(StatType::BoundedBacklog, DetailType::PerformingRollbacks);
 
@@ -538,7 +565,7 @@ impl Ledger {
 
             for hash in targets {
                 // Skip the rollback if the block is being used by the node, this should be race free as it's checked while holding the ledger write lock
-                if !can_roll_back(hash) {
+                if checked && !can_roll_back(hash) {
                     self.stats
                         .inc(StatType::BoundedBacklog, DetailType::RollbackSkipped);
                     results.push(RollbackResult {

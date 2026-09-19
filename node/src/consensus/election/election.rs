@@ -358,16 +358,24 @@ impl Election {
     /// that the ordinary certificate -> finalization window is never solicited.
     /// A settled election keeps asking while its notarized block can still be
     /// finalized: the final votes it lacks may simply have been dropped. Either
-    /// stops once nothing new has arrived for a while.
-    pub fn should_solicit_evidence(&self, now: Timestamp) -> bool {
+    /// stops once nothing new has arrived for a while. RAI: an instance of an
+    /// epoch this node has left asks at once, its epoch's close waits for it;
+    /// and one settled without a block keeps asking (slowly, see the
+    /// solicitor) so that a replica which missed the instance learns of it
+    /// and its state agrees.
+    pub fn should_solicit_evidence(&self, now: Timestamp, epoch_left: bool) -> bool {
         let collecting = match self.state {
             ElectionState::Terminated | ElectionState::TimedOut => true,
             ElectionState::Settled => {
-                self.kudzu_can_finalize() && self.last_vote.elapsed(now) < Self::EVIDENCE_WINDOW
+                (epoch_left && !self.certificates.finalized().is_some())
+                    || (self.kudzu_can_finalize()
+                        && self.last_vote.elapsed(now) < Self::EVIDENCE_WINDOW)
             }
             _ => false,
         };
-        collecting && self.base_latency * Self::PASSIVE_DURATION_FACTOR < self.start.elapsed(now)
+        collecting
+            && (epoch_left
+                || self.base_latency * Self::PASSIVE_DURATION_FACTOR < self.start.elapsed(now))
     }
 
     /// Kudzu: whether a finalization certificate can still form for one of the
@@ -650,7 +658,15 @@ impl Election {
     /// Protocol 1 for this node's representatives: the votes to broadcast now,
     /// given what was already cast for this slot. Previously cast votes are
     /// included so that they get re-broadcast until the election is finalized.
-    pub fn kudzu_votes_due(&self, slot: &LocalSlotState) -> Vec<(BlockHash, VoteKind)> {
+    /// `proposal_valid` tells whether the winner is a valid proposal here
+    /// (line 18): under RAI a block whose dependencies are not finalized yet
+    /// is not first voted; a replica that lags cements them later and votes
+    /// then, or never does, which the others' certificate does not need.
+    pub fn kudzu_votes_due(
+        &self,
+        slot: &LocalSlotState,
+        proposal_valid: impl Fn(&BlockHash) -> bool,
+    ) -> Vec<(BlockHash, VoteKind)> {
         let finalized = self.is_confirmed();
         if self.state.has_ended() && !finalized {
             return Vec::new();
@@ -664,10 +680,12 @@ impl Election {
         };
 
         // Lines 18–21: first vote for the valid proposal, i.e. our ledger block
+        // whose dependencies are finalized
         if !finalized
             && !slot.stale
             && slot.first_voted.is_none()
             && matches!(self.winner, MaybeSavedBlock::Saved(_))
+            && proposal_valid(&winner)
         {
             due.push((winner, VoteKind::First));
         }
@@ -869,14 +887,14 @@ mod tests {
         let mut slot = LocalSlotState::default();
 
         assert_eq!(
-            election.kudzu_votes_due(&slot),
+            election.kudzu_votes_due(&slot, |_| true),
             vec![(block, VoteKind::First)]
         );
 
         slot.mark_voted(block, VoteKind::First);
         // The first vote is re-broadcast but not decided again
         assert_eq!(
-            election.kudzu_votes_due(&slot),
+            election.kudzu_votes_due(&slot, |_| true),
             vec![(block, VoteKind::First)]
         );
     }
@@ -895,13 +913,13 @@ mod tests {
         assert_eq!(election.certificates().notar, vec![block]);
         assert_eq!(election.winner_tally(), Amount::raw(67));
         assert_eq!(
-            election.kudzu_votes_due(&slot),
+            election.kudzu_votes_due(&slot, |_| true),
             vec![(block, VoteKind::First), (block, VoteKind::Final)]
         );
 
         slot.mark_voted(block, VoteKind::Final);
         assert_eq!(
-            election.kudzu_votes_due(&slot),
+            election.kudzu_votes_due(&slot, |_| true),
             vec![(block, VoteKind::First), (block, VoteKind::Final)]
         );
     }
@@ -918,7 +936,7 @@ mod tests {
         assert!(election.certificates().final_.is_none());
         // Line 11 still applies at exit: replicas which missed a first vote need it
         assert_eq!(
-            election.kudzu_votes_due(&LocalSlotState::default()),
+            election.kudzu_votes_due(&LocalSlotState::default(), |_| true),
             vec![(block, VoteKind::Final)]
         );
     }
@@ -953,7 +971,7 @@ mod tests {
         election.update_kudzu_tallies(&weights, thresholds());
         assert_eq!(election.state(), ElectionState::Passive);
         assert_eq!(
-            election.kudzu_votes_due(&slot),
+            election.kudzu_votes_due(&slot, |_| true),
             vec![(block, VoteKind::First), (fork, VoteKind::Notar)]
         );
 
@@ -965,7 +983,7 @@ mod tests {
         assert_eq!(election.winner().hash(), fork);
         // notarized = {block, fork} ⊄ {fork}: no final vote
         assert_eq!(
-            election.kudzu_votes_due(&slot),
+            election.kudzu_votes_due(&slot, |_| true),
             vec![(block, VoteKind::First), (fork, VoteKind::Notar)]
         );
     }
@@ -976,7 +994,7 @@ mod tests {
         first_votes(&mut election, fork, &[2, 3]);
         election.update_kudzu_tallies(&weights(&[(1, 40), (2, 27), (3, 33)]), thresholds());
 
-        let due = election.kudzu_votes_due(&LocalSlotState::default());
+        let due = election.kudzu_votes_due(&LocalSlotState::default(), |_| true);
         assert!(!due.iter().any(|(_, kind)| *kind == VoteKind::Notar));
     }
 
@@ -993,13 +1011,13 @@ mod tests {
         let weights = weights(&[(1, 40), (2, 27), (3, 33)]);
         election.update_kudzu_tallies(&weights, thresholds());
 
-        let due = election.kudzu_votes_due(&slot);
+        let due = election.kudzu_votes_due(&slot, |_| true);
         assert!(due.contains(&(block, VoteKind::Timeout)));
 
         slot.mark_voted(block, VoteKind::Timeout);
         assert!(
             election
-                .kudzu_votes_due(&slot)
+                .kudzu_votes_due(&slot, |_| true)
                 .contains(&(block, VoteKind::Timeout))
         );
     }
@@ -1023,7 +1041,7 @@ mod tests {
         assert!(election.state().is_terminated());
 
         // Lines 28–35 no longer run: no timeout vote from us even if the rule holds
-        let due = election.kudzu_votes_due(&slot);
+        let due = election.kudzu_votes_due(&slot, |_| true);
         assert_eq!(due, vec![(block, VoteKind::First)]);
 
         // A late notarization certificate still puts the block into the tree
@@ -1037,7 +1055,7 @@ mod tests {
         assert!(!election.certificates().explicit_finalization_possible());
         assert!(
             !election
-                .kudzu_votes_due(&slot)
+                .kudzu_votes_due(&slot, |_| true)
                 .contains(&(block, VoteKind::Final))
         );
     }
@@ -1116,11 +1134,15 @@ mod tests {
         // final votes can still finalize it and the election keeps asking
         assert!(election.kudzu_can_finalize());
         let later = election.start() + election.base_latency() * 10;
-        assert!(election.should_solicit_evidence(later));
-        // but not for good: the final votes may have been cast in another
+        assert!(election.should_solicit_evidence(later, false));
+        // but not before the passive period, unless its epoch was left
+        let early = election.start() + election.base_latency();
+        assert!(!election.should_solicit_evidence(early, false));
+        assert!(election.should_solicit_evidence(early, true));
+        // and not for good: the final votes may have been cast in another
         // epoch's instance and never come
         let much_later = election.start() + Election::EVIDENCE_WINDOW + Duration::from_secs(1);
-        assert!(!election.should_solicit_evidence(much_later));
+        assert!(!election.should_solicit_evidence(much_later, false));
 
         for rep in 3..=4 {
             vote(&mut election, rep, block, VoteKind::Final);
@@ -1188,13 +1210,13 @@ mod tests {
         let (mut election, block, _) = election_with_fork();
         let mut slot = LocalSlotState::stale();
         assert_eq!(
-            election.kudzu_votes_due(&slot),
+            election.kudzu_votes_due(&slot, |_| true),
             vec![(block, VoteKind::Abstain)]
         );
         slot.mark_voted(block, VoteKind::Abstain);
         assert!(slot.abstained());
         assert_eq!(
-            election.kudzu_votes_due(&slot),
+            election.kudzu_votes_due(&slot, |_| true),
             vec![(block, VoteKind::Abstain)]
         );
 
@@ -1204,13 +1226,13 @@ mod tests {
         assert!(election.has_quorum());
         assert_eq!(election.kudzu_final_vote_due(&slot), None);
         assert_eq!(
-            election.kudzu_votes_due(&slot),
+            election.kudzu_votes_due(&slot, |_| true),
             vec![(block, VoteKind::Abstain), (block, VoteKind::Notar)]
         );
         slot.mark_voted(block, VoteKind::Notar);
         // Re-broadcast in the order cast
         assert_eq!(
-            election.kudzu_votes_due(&slot),
+            election.kudzu_votes_due(&slot, |_| true),
             vec![(block, VoteKind::Notar), (block, VoteKind::Abstain)]
         );
     }

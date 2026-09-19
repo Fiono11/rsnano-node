@@ -17,6 +17,8 @@ pub(crate) struct FinalizedInstance {
     pub epoch: ConsensusEpoch,
     pub winner: BlockHash,
     pub candidates: Vec<BlockHash>,
+    /// The candidates with a notarization certificate, the winner included
+    pub notarized: Vec<BlockHash>,
     pub slot: LocalSlotState,
 }
 
@@ -36,7 +38,10 @@ impl FinalizedInstance {
 /// epoch's record of them.
 #[derive(Default)]
 pub(crate) struct EpochStates {
+    /// The hash of every block notarized in the finalized instances of the epoch
     by_epoch: BTreeMap<ConsensusEpoch, FinalStateHash>,
+    /// The finalized instances per epoch
+    count_by_epoch: BTreeMap<ConsensusEpoch, u64>,
     /// The finalized instances each candidate block took part in, by epoch.
     /// A block decided while the epoch changed can be finalized in both.
     instances: HashMap<BlockHash, Vec<Arc<FinalizedInstance>>>,
@@ -48,11 +53,11 @@ impl EpochStates {
         if self.instance(&instance.winner, instance.epoch).is_some() {
             return;
         }
-        self.by_epoch.entry(instance.epoch).or_default().add(
-            &instance.account,
-            instance.height,
-            &instance.winner,
-        );
+        let hash = self.by_epoch.entry(instance.epoch).or_default();
+        for block in &instance.notarized {
+            hash.add(&instance.account, instance.height, block);
+        }
+        *self.count_by_epoch.entry(instance.epoch).or_default() += 1;
         let instance = Arc::new(instance);
         for candidate in &instance.candidates {
             self.instances
@@ -95,6 +100,11 @@ impl EpochStates {
     /// The explicitly finalized state per epoch
     pub fn by_epoch(&self) -> &BTreeMap<ConsensusEpoch, FinalStateHash> {
         &self.by_epoch
+    }
+
+    /// The instances finalized in the epoch
+    pub fn finalized_count(&self, epoch: ConsensusEpoch) -> u64 {
+        self.count_by_epoch.get(&epoch).copied().unwrap_or(0)
     }
 
     /// The blocks finalized in the given epoch, as (account, height, hash)
@@ -214,6 +224,7 @@ mod tests {
             epoch,
             winner,
             candidates: candidates.to_vec(),
+            notarized: vec![winner],
             slot,
         }
     }

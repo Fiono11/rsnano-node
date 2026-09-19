@@ -384,6 +384,9 @@ impl NodeConfig {
             if let Some(count) = i.epoch_terminated_elections {
                 self.active_elections.epoch_terminated_elections = count;
             }
+            if let Some(ms) = i.epoch_duration_ms {
+                self.active_elections.epoch_duration = Duration::from_millis(ms);
+            }
             if let Some(ms) = i.close_round_timeout_ms {
                 self.active_elections.close_round_timeout = Duration::from_millis(ms);
             }

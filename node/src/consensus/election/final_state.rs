@@ -84,13 +84,14 @@ impl FinalStateHash {
     }
 }
 
-/// RAI: the final state of one consensus epoch on this node: the hash of
-/// the blocks finalized by a certificate of the epoch and of its settled
-/// single notarization certificates, and how many of its instances are
+/// RAI: the state of one consensus epoch on this node: the hash of every
+/// block notarized or finalized in an instance of the epoch (both blocks
+/// of a conflicting slot included), and how many of its instances are
 /// still open
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct EpochState {
     pub hash: FinalStateHash,
+    /// Instances finalized by a certificate of the epoch
     pub finalized: u64,
     pub single_notarized: u64,
     /// Instances that are not settled: a notarization certificate can still form
@@ -102,15 +103,18 @@ pub struct EpochState {
 }
 
 impl EpochState {
-    pub fn with_finalized(finalized: &FinalStateHash) -> Self {
+    /// Starts from the instances finalized in the epoch, which left the
+    /// AEC: the hash of everything they notarized, and how many they are
+    pub fn with_finalized(finalized: &FinalStateHash, instances: u64) -> Self {
         Self {
             hash: finalized.clone(),
-            finalized: finalized.entries(),
+            finalized: instances,
             ..Default::default()
         }
     }
 
-    /// Counts one of the epoch's instances
+    /// Counts one of the epoch's running instances: every block it
+    /// notarized enters the state
     pub fn add_election(
         &mut self,
         account: &Account,
@@ -121,17 +125,17 @@ impl EpochState {
         if !state.is_terminated() {
             self.unterminated += 1;
         }
-        self.add(account, height, slot_outcome(state, certificates));
+        for block in &certificates.notar {
+            self.hash.add(account, height, block);
+        }
+        self.add(slot_outcome(state, certificates));
     }
 
     /// Counts the outcome of one of the epoch's instances
-    pub fn add(&mut self, account: &Account, height: u64, outcome: SlotOutcome) {
+    pub fn add(&mut self, outcome: SlotOutcome) {
         match outcome {
             SlotOutcome::Pending => self.pending += 1,
-            SlotOutcome::Single(block) => {
-                self.hash.add(account, height, &block);
-                self.single_notarized += 1;
-            }
+            SlotOutcome::Single(_) => self.single_notarized += 1,
             SlotOutcome::Conflicting => self.conflicting += 1,
             SlotOutcome::Empty => self.empty += 1,
         }
@@ -166,11 +170,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn epoch_state_counts_outcomes_and_derives_its_close_value() {
+    fn epoch_state_hashes_every_notarized_block_and_derives_its_close_value() {
         let account = Account::from(1);
         let mut finalized = FinalStateHash::default();
         finalized.add(&account, 1, &BlockHash::from(1));
-        let mut state = EpochState::with_finalized(&finalized);
+        let mut state = EpochState::with_finalized(&finalized, 1);
         assert_eq!(state.finalized, 1);
         assert!(state.is_settled());
         let empty_value = EpochState::default().close_value(ConsensusEpoch::ZERO);
@@ -180,33 +184,38 @@ mod tests {
             EpochState::default().close_value(ConsensusEpoch::new(1))
         );
 
-        state.add(&account, 2, SlotOutcome::Pending);
+        // No certificate yet: nothing in the state, the epoch is not terminated
+        state.add_election(&account, 2, ElectionState::Active, &Certificates::default());
         assert!(!state.is_settled());
-        assert!(state.is_terminated());
-        let before = state.close_value(ConsensusEpoch::ZERO);
-        state.add(&account, 3, SlotOutcome::Empty);
-        state.add(&account, 4, SlotOutcome::Conflicting);
-        // Only entries of the state change the value
-        assert_eq!(state.close_value(ConsensusEpoch::ZERO), before);
-        state.add(&account, 2, SlotOutcome::Single(BlockHash::from(2)));
-        assert_ne!(state.close_value(ConsensusEpoch::ZERO), before);
-        assert_eq!(state.pending, 1);
-        assert_eq!(state.single_notarized, 1);
-        assert_eq!(state.empty, 1);
-        assert_eq!(state.conflicting, 1);
-        assert_eq!(state.hash.entries(), 2);
-
-        // Terminated but not settled: a certificate, and another may still form
-        let mut certs = Certificates::default();
-        certs.notar = vec![BlockHash::from(5)];
-        state.add_election(&account, 5, ElectionState::Terminated, &certs);
-        assert!(state.is_terminated());
-        assert!(!state.is_settled());
-        assert_eq!(state.pending, 2);
-        state.add_election(&account, 6, ElectionState::Active, &Certificates::default());
         assert!(!state.is_terminated());
         assert_eq!(state.unterminated, 1);
-        assert_eq!(state.pending, 3);
+        assert_eq!(state.pending, 1);
+        let before = state.close_value(ConsensusEpoch::ZERO);
+
+        // A timeout certificate alone: terminated, nothing in the state
+        let timeout = Certificates {
+            timeout: true,
+            ..Default::default()
+        };
+        state.add_election(&account, 3, ElectionState::Settled, &timeout);
+        assert_eq!(state.close_value(ConsensusEpoch::ZERO), before);
+        assert_eq!(state.empty, 1);
+
+        // Both blocks of a conflicting slot are in the state
+        let mut conflicting = Certificates::default();
+        conflicting.notar = vec![BlockHash::from(4), BlockHash::from(5)];
+        state.add_election(&account, 4, ElectionState::Settled, &conflicting);
+        assert_ne!(state.close_value(ConsensusEpoch::ZERO), before);
+        assert_eq!(state.conflicting, 1);
+        assert_eq!(state.hash.entries(), 3);
+
+        // Terminated but not settled: in the state, the epoch is terminated
+        let mut single = Certificates::default();
+        single.notar = vec![BlockHash::from(6)];
+        state.add_election(&account, 5, ElectionState::Terminated, &single);
+        assert_eq!(state.pending, 2);
+        assert_eq!(state.hash.entries(), 4);
+        assert!(!state.is_terminated());
     }
 
     #[test]

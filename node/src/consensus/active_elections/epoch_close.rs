@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{collections::BTreeMap, time::Duration};
 
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{
@@ -8,9 +8,19 @@ use rsnano_types::{
 use rustc_hash::FxHashMap;
 
 use crate::consensus::election::{
-    CertificateEvidence, Certificates, ElectionId, ElectionState, EpochState, KudzuThresholds,
-    LocalSlotState, SlotVotes, TIMEOUT_BLOCK, kudzu_state,
+    CertificateEvidence, Certificates, Election, ElectionId, ElectionState, EpochState,
+    KudzuThresholds, LocalSlotState, SlotVotes, TIMEOUT_BLOCK, kudzu_state,
 };
+
+/// RAI: an instance of a closed epoch opened after the close certificate was
+/// seen is late: no block of it is in the value finalized, what it decides
+/// is discarded instead of recorded
+pub(super) fn is_late(closes: &BTreeMap<ConsensusEpoch, EpochClose>, election: &Election) -> bool {
+    closes
+        .get(&election.epoch())
+        .and_then(|close| close.closed_at())
+        .is_some_and(|closed_at| election.start() >= closed_at)
+}
 
 /// RAI: the close election of one consensus epoch, a multi-round Kudzu
 /// instance on the epoch's final state. Every round is a Kudzu slot
@@ -29,8 +39,8 @@ use crate::consensus::election::{
 pub(crate) struct EpochClose {
     epoch: ConsensusEpoch,
     root: QualifiedRoot,
-    /// The principal representatives in public key order; the leader of
-    /// round r is the one at (epoch + r) mod n
+    /// The representatives which took part in the epoch, in public key
+    /// order; the leader of round r is the one at (epoch + r) mod n
     leaders: Vec<PublicKey>,
     rounds: Vec<CloseRound>,
     /// The round this replica is in
@@ -46,6 +56,12 @@ pub(crate) struct EpochClose {
     validated: Vec<BlockHash>,
     /// The round whose certificate closed the epoch, and the value
     closed: Option<(u32, BlockHash)>,
+    /// When the certificate was seen here: an instance of the epoch opened
+    /// later is late, its blocks are not in the value finalized
+    closed_at: Option<Timestamp>,
+    /// This replica's own value is the finalized one: the epoch's state is
+    /// decided here, the instances without a block in it can be discarded
+    agreed: bool,
     /// Δ_timeout of Protocol 1, line 22
     round_timeout: Duration,
     events: Vec<CloseEvent>,
@@ -86,7 +102,7 @@ impl Default for CloseRound {
 /// What happened in the close election, for the log
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum CloseEvent {
-    /// Every instance of the epoch settled, this replica attests the value
+    /// Every instance of the epoch terminated, this replica attests the value
     Ready(BlockHash),
     /// This replica entered a round led by the given representative
     RoundEntered {
@@ -99,6 +115,9 @@ pub(crate) enum CloseEvent {
         value: BlockHash,
         own: bool,
     },
+    /// This replica's own value is the finalized one, at the close or once
+    /// its instances settled later: the epoch is decided here
+    Agreed(BlockHash),
 }
 
 /// The close election as seen from outside
@@ -135,6 +154,8 @@ impl EpochClose {
             own: None,
             validated: Vec::new(),
             closed: None,
+            closed_at: None,
+            agreed: false,
             round_timeout,
             events: Vec::new(),
         }
@@ -173,6 +194,28 @@ impl EpochClose {
         self.closed.is_some()
     }
 
+    /// The finalized value is this replica's own
+    pub fn is_agreed(&self) -> bool {
+        self.agreed
+    }
+
+    /// When the certificate closing the epoch was seen here
+    pub fn closed_at(&self) -> Option<Timestamp> {
+        self.closed_at
+    }
+
+    fn check_agreed(&mut self) {
+        if self.agreed {
+            return;
+        }
+        if let Some((_, value)) = self.closed
+            && self.own == Some(value)
+        {
+            self.agreed = true;
+            self.events.push(CloseEvent::Agreed(value));
+        }
+    }
+
     pub fn info(&self) -> EpochCloseInfo {
         EpochCloseInfo {
             epoch: self.epoch,
@@ -188,13 +231,27 @@ impl EpochClose {
         std::mem::take(&mut self.events)
     }
 
-    /// The epoch's state as this replica sees it now
+    /// The representatives seen taking part, as the leaders of the rounds
+    /// to come: a representative which stopped voting leads a round which
+    /// times out, one seen since leads a round of its own
+    pub fn set_leaders(&mut self, leaders: Vec<PublicKey>) {
+        self.leaders = leaders;
+    }
+
+    /// The epoch's state as this replica sees it now: the blocks notarized
+    /// or finalized in the epoch's instances. It takes part once every
+    /// instance of the epoch has terminated, and its value follows the state
+    /// while instances of the epoch still open and terminate, before and
+    /// after the close: the value finalized may differ from the final one.
+    /// Once the epoch is closed, instances still without a certificate do
+    /// not matter: if the state without them is the value finalized, this
+    /// replica agrees.
     pub fn set_state(&mut self, state: &EpochState) {
-        self.ready = state.is_settled();
-        if !self.ready {
+        let value = state.close_value(self.epoch);
+        self.ready = state.is_terminated();
+        if !self.ready && self.closed.is_none_or(|(_, closed)| closed != value) {
             return;
         }
-        let value = state.close_value(self.epoch);
         if self.own != Some(value) {
             self.own = Some(value);
             self.events.push(CloseEvent::Ready(value));
@@ -202,6 +259,7 @@ impl EpochClose {
         if !self.validated.contains(&value) {
             self.validated.push(value);
         }
+        self.check_agreed();
     }
 
     /// Protocol 1, lines 2–13: enter the rounds this replica is due in and
@@ -245,6 +303,7 @@ impl EpochClose {
         round: u32,
         rep_weights: &FxHashMap<PublicKey, Amount>,
         thresholds: &KudzuThresholds,
+        now: Timestamp,
     ) -> Result<(), VoteError> {
         if self.closed.is_some() {
             return Err(VoteError::Late);
@@ -275,11 +334,13 @@ impl EpochClose {
         );
         if let Some(value) = slot.certificates.finalized() {
             self.closed = Some((round as u32, value));
+            self.closed_at = Some(now);
             self.events.push(CloseEvent::Closed {
                 round: round as u32,
                 value,
                 own: self.own == Some(value),
             });
+            self.check_agreed();
         }
         Ok(())
     }
@@ -568,11 +629,14 @@ mod tests {
             vote(&mut close, rep, value(1), VoteKind::First, 0).unwrap();
         }
         assert_eq!(close.closed, Some((0, value(1))));
-        assert!(close.take_events().contains(&CloseEvent::Closed {
+        let events = close.take_events();
+        assert!(events.contains(&CloseEvent::Closed {
             round: 0,
             value: value(1),
             own: true
         }));
+        assert!(events.contains(&CloseEvent::Agreed(value(1))));
+        assert!(close.is_agreed());
         assert_eq!(
             close.votes_due(&[FOLLOWER]),
             vec![(0, value(1), VoteKind::Final)]
@@ -830,6 +894,65 @@ mod tests {
         assert!(close.certificate_evidence(1).is_none());
     }
 
+    /// The certificate may arrive before this replica's instances settled:
+    /// it agrees once its own value turns out to be the finalized one
+    #[test]
+    fn agrees_once_its_own_value_is_the_finalized_one() {
+        let mut close = close_election();
+        for rep in 0..5 {
+            vote(&mut close, rep, value(1), VoteKind::First, 0).unwrap();
+        }
+        assert!(close.is_closed());
+        assert!(!close.is_agreed());
+        assert!(close.take_events().contains(&CloseEvent::Closed {
+            round: 0,
+            value: value(1),
+            own: false
+        }));
+        // An instance without a certificate keeps the replica from taking part
+        let mut unterminated = state(2);
+        unterminated.add_election(
+            &Account::from(3),
+            1,
+            ElectionState::Active,
+            &Certificates::default(),
+        );
+        close.set_state(&unterminated);
+        assert!(!close.is_agreed());
+        close.set_state(&state(2));
+        assert!(!close.is_agreed());
+        // Still without a certificate here, but the state without that
+        // instance is the finalized one: agreed, the instance is undecided
+        let mut agreeing = state(1);
+        agreeing.add_election(
+            &Account::from(3),
+            1,
+            ElectionState::Active,
+            &Certificates::default(),
+        );
+        close.set_state(&agreeing);
+        assert!(close.is_agreed());
+        assert_eq!(
+            close.take_events(),
+            vec![
+                CloseEvent::Ready(value(2)),
+                CloseEvent::Ready(value(1)),
+                CloseEvent::Agreed(value(1))
+            ]
+        );
+    }
+
+    #[test]
+    fn leaders_follow_the_representatives_seen() {
+        let mut close = EpochClose::new(ConsensusEpoch::ZERO, vec![key(5)], TIMEOUT);
+        assert_eq!(close.leader(0), Some(key(5)));
+        assert_eq!(close.leader(1), Some(key(5)));
+        close.set_leaders(keys());
+        assert_eq!(close.leader(1), Some(key(1)));
+        close.set_leaders(Vec::new());
+        assert_eq!(close.leader(1), None);
+    }
+
     #[test]
     fn root_and_id_are_per_epoch_and_round() {
         let close = EpochClose::new(ConsensusEpoch::new(3), keys(), TIMEOUT);
@@ -901,6 +1024,14 @@ mod tests {
         kind: VoteKind,
         round: u32,
     ) -> Result<(), VoteError> {
-        close.apply_vote(key(rep), value, kind, round, &weights(), &thresholds())
+        close.apply_vote(
+            key(rep),
+            value,
+            kind,
+            round,
+            &weights(),
+            &thresholds(),
+            t(0),
+        )
     }
 }

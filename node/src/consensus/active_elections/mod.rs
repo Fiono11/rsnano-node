@@ -37,6 +37,9 @@ pub struct ActiveElectionsConfig {
     /// RAI: advance to the next consensus epoch once this many elections of
     /// the current epoch have got a certificate; 0 never advances
     pub epoch_terminated_elections: usize,
+    /// RAI: an epoch ends this long after its first election started; zero
+    /// never ends an epoch by time
+    pub epoch_duration: Duration,
     /// RAI: Δ_timeout of a round of an epoch's close election: a replica
     /// abstains once it waited this long for a valid proposal
     pub close_round_timeout: Duration,
@@ -48,6 +51,7 @@ impl Default for ActiveElectionsConfig {
             max_elections: 5000,
             confirmation_cache: 65536,
             epoch_terminated_elections: 0,
+            epoch_duration: Duration::ZERO,
             close_round_timeout: Duration::from_secs(5),
         }
     }
@@ -66,6 +70,14 @@ pub enum AecFact {
 
     /// RAI: new elections are now started in this epoch
     EpochAdvanced(ConsensusEpoch),
+
+    /// RAI: instances of a closed epoch opened after its certificate was
+    /// seen got notarized: their blocks are not in the value finalized and
+    /// are discarded, rolled back from the ledger
+    LateBlocksDiscarded {
+        epoch: ConsensusEpoch,
+        hashes: Vec<BlockHash>,
+    },
 
     BlockAddedToElection(BlockHash),
     BlockDiscarded(Block),

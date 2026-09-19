@@ -681,6 +681,7 @@ impl Node {
             steady_clock.clone(),
         ));
         ledger_event_handlers.add(election_schedulers.clone());
+        ledger_event_handlers.add(vote_cache.clone());
 
         let mut bootstrap_sender = MessageSender::new_with_buffer_size(
             stats.clone(),
@@ -1094,9 +1095,11 @@ impl Node {
         let mut wallet_reps_checker = WalletRepsChecker::new(wallet_reps.clone());
         wallet_reps_checker.add_consumer(vote_rebroadcast_queue.clone());
         wallet_reps_checker.add_consumer(active_elections.clone());
+        // RAI: the AEC must know the node's representatives as soon as they
+        // are in the wallet: it leads close rounds with them
         ticker_pool.insert(
             wallet_reps_checker,
-            if is_dev_network {
+            if is_dev_network || cfg!(feature = "rai_protocol") {
                 Duration::from_millis(500)
             } else {
                 Duration::from_secs(60)
@@ -1177,6 +1180,7 @@ impl Node {
             steady_clock.clone(),
             current_network,
             cps_limiter,
+            ledger.clone(),
         )));
 
         // With ledger_snapshots we never vote for forked blocks!
@@ -1213,6 +1217,8 @@ impl Node {
             stats: stats.clone(),
             winner_block_broadcaster: winner_block_broadcaster.clone(),
             bootstrapper: bootstrapper.clone(),
+            ledger: ledger.clone(),
+            vote_cache: vote_cache.clone(),
             plugins: aec_event_handlers,
         };
 
@@ -1705,7 +1711,14 @@ mod tests {
         assert_ticker::<NodeMonitor>(&node, node.config.monitor.interval);
         assert_ticker::<WalletBackup>(&node, Duration::from_secs(60 * 5));
         assert_ticker::<ReceivableSearch>(&node, Duration::from_secs(5));
-        assert_ticker::<WalletRepsChecker>(&node, Duration::from_secs(60));
+        assert_ticker::<WalletRepsChecker>(
+            &node,
+            if cfg!(feature = "rai_protocol") {
+                Duration::from_millis(500)
+            } else {
+                Duration::from_secs(60)
+            },
+        );
         assert_ticker::<BlockRateCalculator>(&node, Duration::from_millis(500));
         assert_ticker::<UncheckedBlockReenqueuer>(&node, Duration::from_secs(1));
         assert_ticker::<LocalRepsComputation>(&node, Duration::from_secs(10));
