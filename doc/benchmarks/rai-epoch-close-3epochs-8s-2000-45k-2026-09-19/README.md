@@ -34,13 +34,20 @@ is the same code with the epochs ended by count.
   all e instances terminated; e−1 must be closed; e+1 starts when e starts closing; a PR
   starts a new instance of e only while in e or for a vote of e; the finalized-vs-final
   hash reconciliation is deferred.
+- **The leader proposes once its value can be trusted**: at once if every instance of
+  the epoch has settled here (the value is final but for a late instance), otherwise once
+  the value has stood for 1 s (`EpochClose::PROPOSAL_DELAY`). A value proposed the instant
+  the round is entered lost round 0 in every close of the first run of this record: the
+  instances of the drain skew were still terminating on the other PRs, whose values moved
+  on and abstained at the 5 s timeout. Waiting for settlement alone is worse (attempt 20):
+  settlement can take 10 s, and the next epoch can not be left before the close.
 - Support: the dependency gate on first votes (a block is proposed only once its
   dependencies are finalized), the vote cache replayed when a block arrives, the winner
   re-broadcast to every PR lacking a vote, solicitation urgencies (`Now` while draining),
   slot states outliving their elections (dropped per epoch once the next epoch is agreed),
   `WalletRepsChecker` every 500 ms under RAI.
 
-Seventeen earlier attempts of the day are in `attempts/` (gitignored): the epoch 0 timer
+Earlier attempts of the day are in `attempts/` (gitignored, 23 of them): the epoch 0 timer
 started during setup; the closed-at-agreement discard raced with the next epoch's
 re-decision (two PRs rolled back what four had cemented); a certificate arriving before
 the PR knew its own value never agreed; cached votes for blocks not yet held were never
@@ -49,40 +56,51 @@ a full-list `EpochEntries` reconciliation, rejected for scale and removed.
 
 ## Results
 
-Per epoch, identical on all six PRs (`SETTLED_CONSISTENT after 0s`,
-`CLOSED_CONSISTENT after 0s`), every PR's own final value equal to the finalized one:
+`kudzu-run.log` is the run with the proposal rule above. Per epoch, identical on all six
+PRs (`SETTLED_CONSISTENT after 0s`, `CLOSED_CONSISTENT after 0s`), every PR's own final
+value equal to the finalized one, every close in round 0:
 
-| Epoch | State hash | Finalized | Single | Conflicting | Ended → left | Values converged | Closed (round) |
-|---|---|---|---|---|---|---|---|
-| 0 | `3A66C92B…` | 14,801 | 0 | 284 | T0+8.00 → +8.24…8.50 s | +8.75 s | +15.50 s (1) |
-| 1 | `20A500E5…` | 14,875 | 0 | 302 | +16.00 → +16.18…16.38 s | +16.53 s | +22.13 s (1) |
-| 2 | `2905179B…` | 14,109 | 376 | 305 | +24.00 → +24.10…24.33 s | ~+24.5 s | round 1 |
-
-Every close took a second round: the round-0 leader proposes the value it holds when it
-enters the round (right after leaving), while the instances opened during the 250–500 ms
-drain skew still terminate on the other PRs — three distinct values were seen in the first
-half second of every close, all converging to one value within ~0.5 s. The followers
-abstain at the 5 s round timeout, and round 1's leader proposes the converged value, which finalizes at once. The close therefore costs one round timeout per
-epoch (5–7 s after the epoch is left) but never a wrong value. The step-3 run closed in
-round 0 because its values agreed at once; run-to-run.
+| Epoch | State hash | Finalized | Single | Conflicting | Ended → left | Closed (round) |
+|---|---|---|---|---|---|---|
+| 0 | `4198E227…` | 14,783 | 0 | 359 | T0+8.00 → +8.19…8.30 s | +8.90 s (0) |
+| 1 | `2031AD44…` | 14,759 | 0 | 443 | +16.00 → +16.13…16.30 s | +17.09 s (0) |
+| 2 | `3FCB5FC1…` | 13,974 | 327 | 407 | +24.00 → +24.02…24.30 s | +25.51 s (0) |
 
 nanospam status lines with ≥ 1000 cps (23 s):
 
-| Metric | step 3 (2 epochs by count) | **timed, 3 × 8 s** | count, 3 × 15k (sibling) |
-|---|---|---|---|
-| Confirmation rate | 1854 cps | **1864 cps** | 1859 cps |
-| Median of the per-second averages | 96 ms | **103 ms** | 105 ms |
-| Average confirmation time, cps-weighted | 104 ms | **190 ms** | 200 ms |
-| Switch seconds | 146 ms | **237 ms, 165 ms** | 176 ms, 157 ms |
-| Worst second | 171 ms | **1349 ms** (T0+21 s) | 1915 ms (T0+22 s) |
-| Cemented on every PR | 42,855 | 43,786 | 43,307 |
-| Settle phase | 6 s | 0 s | 6 s |
+| Metric | step 3 (2 epochs by count) | first run (proposal at once) | **this run** | count, 3 × 15k (sibling) |
+|---|---|---|---|---|
+| Confirmation rate | 1854 cps | 1864 cps | **1858 cps** | 1859 cps |
+| Median of the per-second averages | 96 ms | 103 ms | **98 ms** | 105 ms |
+| Average confirmation time, cps-weighted | 104 ms | 190 ms | **159 ms** | 200 ms |
+| Switch seconds (0→1, 1→2) | 146 ms | 237 ms, 165 ms | **127 ms, 1201 ms** | 176 ms, 157 ms |
+| Worst second | 171 ms | 1349 ms (T0+21 s) | **1201 ms** (T0+17 s) | 1915 ms (T0+22 s) |
+| Closes (round) | 0, 0 | 1, 1, 1 | **0, 0, 0** | 0, 1, 0 |
+| Cemented on every PR | 42,855 | 43,786 | 43,517 | 43,307 |
 
-Node side, per PR: non-fork finalization p50 89–91 ms, p95 118–126 ms, p99 129–270 ms;
-3 epochs ended, left and closed; 6–7 close rounds entered; 1,144–1,671 instances started
-for a vote; 0 discarded; 1,018–1,113 fork rollbacks (the losing forks).
+Node side, per PR: non-fork finalization p50 87–89 ms, p95 112–115 ms, p99 123–153 ms;
+3 epochs ended, left and closed; 3–4 close rounds entered; 670–2,111 instances started
+for a vote; 4 PRs left one epoch on the quorum-ahead rule; 0 discarded; 1,032–1,238 fork
+rollbacks (the losing forks).
 
-**Open**: both runs have one second with a ~1.3–1.9 s average about 21–22 s after T0, i.e.
-around the round-0 timeout and round-1 close of epoch 1's close election (the switch
-seconds themselves cost 160–240 ms). Epoch 0's close, which also went to round 1, shows
-no such second. Not diagnosed.
+## The second with a ~1.2–1.9 s average
+
+Every run of this record has one such second, covering the blocks published in the last
+second of epoch 1, confirmed ~1.5 s late; the 0→1 switch costs 110–240 ms. Findings from
+the diagnostic runs in `attempts/` (22: AEC lock timings, 23: 6 s epochs):
+
+- Not the AEC lock: no tick held it over 30 ms, the vote-cache replay on advance is
+  instant (255–722 hashes), dropping an epoch's slot states takes 4–8 ms.
+- The PRs that leave an epoch on the quorum-ahead rule (a certificate's weight already
+  left) do so with instances still unterminated: blocks in flight at the boundary land in
+  epoch e on some PRs and in e+1 on the others, so the e-instances of the former get no
+  votes from the latter and terminate only on the timeout path. Their epoch value moves
+  until then, and their close round is entered late. With 8 s epochs it is a second of
+  latency; with 6 s epochs (attempt 23) epoch 0's close took 9.6 s — the followers' abstains
+  came 4 s late, round 1 closed at once — and epoch 1, ended at +12 s, could not be left
+  before that: 4 s at 0 cps, then catch-up at 3–5 s latency.
+- The close of epoch e must finish well within the duration of e+1, or the sequential
+  rules stall the pipeline. Proposing only when settled (attempt 20) made it worse for
+  the same reason.
+
+Not fixed: the boundary handling of in-flight blocks is the next thing to look at.

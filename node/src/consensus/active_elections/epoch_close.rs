@@ -51,6 +51,20 @@ pub(crate) struct EpochClose {
     /// The value this replica attests: the hash of the epoch's state as it
     /// stands, kept while not ready so that its statements stay routable
     own: Option<BlockHash>,
+    /// Every instance of the epoch has settled here: the own value can not
+    /// change any more (but for a late instance). An instance terminated by
+    /// a timeout certificate is notarized later on, and a value proposed
+    /// before that sees the followers abstain once theirs moved on: a round
+    /// timeout lost. Settlement can take long, though (the stragglers'
+    /// first votes are solicited), and the epoch after can not be left
+    /// before the close: a leader whose instances are not settled proposes
+    /// once its value has stood for `PROPOSAL_DELAY`, the followers' values
+    /// catch up in that time as a rule.
+    settled: bool,
+    /// The own value as of the last tick and since when it stands
+    own_since: Option<(BlockHash, Timestamp)>,
+    /// The own value has stood for `PROPOSAL_DELAY`
+    own_stable: bool,
     /// The values which were this replica's own at some point: the payloads
     /// it validated (Section 4.3, the correctness predicate of the tree)
     validated: Vec<BlockHash>,
@@ -142,6 +156,9 @@ impl EpochClose {
     const MAX_CANDIDATES: usize = 64;
     /// Rounds behind the current one which are still solicited
     const SOLICITED_ROUNDS: usize = 3;
+    /// How long a leader's own value must stand before it proposes it while
+    /// its instances are not settled
+    pub const PROPOSAL_DELAY: Duration = Duration::from_secs(1);
 
     pub fn new(epoch: ConsensusEpoch, leaders: Vec<PublicKey>, round_timeout: Duration) -> Self {
         Self {
@@ -152,6 +169,9 @@ impl EpochClose {
             current: 0,
             ready: false,
             own: None,
+            settled: false,
+            own_since: None,
+            own_stable: false,
             validated: Vec::new(),
             closed: None,
             closed_at: None,
@@ -249,6 +269,7 @@ impl EpochClose {
     pub fn set_state(&mut self, state: &EpochState) {
         let value = state.close_value(self.epoch);
         self.ready = state.is_terminated();
+        self.settled = state.is_settled();
         if !self.ready && self.closed.is_none_or(|(_, closed)| closed != value) {
             return;
         }
@@ -267,6 +288,14 @@ impl EpochClose {
     pub fn tick(&mut self, now: Timestamp) {
         if !self.ready || self.closed.is_some() {
             return;
+        }
+        if let Some(own) = self.own {
+            let since = match self.own_since {
+                Some((value, since)) if value == own => since,
+                _ => now,
+            };
+            self.own_since = Some((own, since));
+            self.own_stable = since.elapsed(now) >= Self::PROPOSAL_DELAY;
         }
         loop {
             let round = self.current;
@@ -443,11 +472,15 @@ impl EpochClose {
 
     /// The valid proposal of the round's leader (Section 4.6): its first
     /// vote, for this replica's own value, chained to the earlier rounds.
-    /// If this node leads the round, its own value is the proposal.
+    /// If this node leads the round, its own value is the proposal, once
+    /// its instances settled or the value stood for `PROPOSAL_DELAY`.
     fn valid_proposal(&self, round: usize, local_reps: &[PublicKey]) -> Option<BlockHash> {
         let own = self.own?;
         let leader = self.leader(round as u32)?;
         let proposal = if local_reps.contains(&leader) {
+            if !self.settled && !self.own_stable {
+                return None;
+            }
             own
         } else {
             self.rounds[round].votes.rep(&leader)?.first?
@@ -529,6 +562,7 @@ impl EpochClose {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::consensus::election::SlotOutcome;
     use rsnano_types::Account;
 
     #[test]
@@ -564,6 +598,49 @@ mod tests {
         assert_eq!(close.info().round, 0);
         assert!(close.info().ready);
         assert!(close.info().started);
+    }
+
+    /// A terminated instance can still be notarized: a leader whose
+    /// instances are not settled waits for its value to stand for a while,
+    /// the followers' values catch up in the meantime
+    #[test]
+    fn unsettled_leader_proposes_once_its_value_stood_for_a_while() {
+        let mut close = close_election();
+        let mut unsettled = state(1);
+        unsettled.add(SlotOutcome::Pending);
+        close.set_state(&unsettled);
+        close.tick(t(0));
+        assert!(close.info().started);
+        assert_eq!(close.votes_due(&[LEADER]), vec![]);
+
+        // The value changed: the wait starts over
+        let mut changed = state(2);
+        changed.add(SlotOutcome::Pending);
+        close.set_state(&changed);
+        close.tick(t(0) + EpochClose::PROPOSAL_DELAY);
+        assert_eq!(close.votes_due(&[LEADER]), vec![]);
+        close.tick(t(0) + EpochClose::PROPOSAL_DELAY * 2);
+        assert_eq!(
+            close.votes_due(&[LEADER]),
+            vec![(0, value(2), VoteKind::First)]
+        );
+    }
+
+    #[test]
+    fn unsettled_leader_proposes_at_once_when_its_instances_settle() {
+        let mut close = close_election();
+        let mut unsettled = state(1);
+        unsettled.add(SlotOutcome::Pending);
+        close.set_state(&unsettled);
+        close.tick(t(0));
+        assert_eq!(close.votes_due(&[LEADER]), vec![]);
+
+        close.set_state(&state(1));
+        close.tick(t(0) + Duration::from_millis(1));
+        assert_eq!(
+            close.votes_due(&[LEADER]),
+            vec![(0, value(1), VoteKind::First)]
+        );
     }
 
     #[test]
