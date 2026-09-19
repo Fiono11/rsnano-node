@@ -499,3 +499,76 @@ fn kudzu_fork_candidate_is_handed_to_a_replica_that_holds_the_other_fork() {
             .is_some_and(|e| e.candidate_blocks().contains_key(&fork1.hash()))
     });
 }
+
+/// RAI: once a node has left an epoch, the epoch's close election runs on
+/// the epoch's final state. The genesis representative is the only principal
+/// representative: it leads round 0, its first vote proposes the state it
+/// attests, and that vote fast finalizes the value.
+#[cfg(feature = "rai_protocol")]
+#[test]
+fn epoch_close_election_finalizes_the_epoch_state() {
+    use rsnano_node::consensus::ActiveElectionsConfig;
+
+    let mut system = System::new();
+    let config = || NodeConfig {
+        online_weight_minimum: Amount::MAX,
+        active_elections: ActiveElectionsConfig {
+            epoch_terminated_elections: 1,
+            ..Default::default()
+        },
+        ..System::default_config_without_backlog_scan()
+    };
+    let node1 = system.build_node().config(config()).finish();
+    node1
+        .wallets
+        .insert_adhoc2(
+            &node1.wallets.wallet_ids()[0],
+            &DEV_GENESIS_KEY.raw_key(),
+            true,
+        )
+        .unwrap();
+    // node2 has no representative: it only collects the certificates
+    let node2 = system.build_node().config(config()).finish();
+    assert!(node1.aec.epoch_closes().is_empty());
+
+    let mut lattice = UnsavedBlockLatticeBuilder::new();
+    let send1 = lattice
+        .genesis()
+        .send(&PrivateKey::from(42), Amount::raw(1));
+    node1.process(send1.clone());
+    node2.process(send1.clone());
+    assert_timely2(|| node1.block_confirmed(&send1.hash()));
+
+    // The decided election ends epoch 0; its close election finalizes the
+    // state with the one finalized block
+    assert_timely2(|| node1.aec.current_epoch() == ConsensusEpoch::new(1));
+    assert_timely(Duration::from_secs(10), || {
+        node1
+            .aec
+            .epoch_closes()
+            .first()
+            .is_some_and(|close| close.closed.is_some())
+    });
+    let close = node1.aec.epoch_closes().remove(0);
+    assert_eq!(close.epoch, ConsensusEpoch::ZERO);
+    assert!(close.ready);
+    let state = node1.aec.epoch_state(ConsensusEpoch::ZERO);
+    assert_eq!(state.finalized, 1);
+    assert_eq!(close.value, Some(state.close_value(ConsensusEpoch::ZERO)));
+    assert_eq!(close.closed, Some((0, close.value.unwrap())));
+    assert_eq!(close.round, 0);
+    // The current epoch is not closed
+    assert_eq!(node1.aec.epoch_closes().len(), 1);
+
+    // node2 attests the same state and holds the certificate node1's vote formed
+    assert_timely(Duration::from_secs(10), || {
+        node2
+            .aec
+            .epoch_closes()
+            .first()
+            .is_some_and(|close| close.closed.is_some())
+    });
+    let close2 = node2.aec.epoch_closes().remove(0);
+    assert_eq!(close2.closed, close.closed);
+    assert_eq!(close2.value, close.value);
+}

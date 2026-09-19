@@ -29,6 +29,8 @@ pub(crate) struct AecStats {
     pub over_capacity: u64,
     /// Kudzu: elections which collected a notarization certificate
     pub terminated: u64,
+    /// RAI: epochs whose duration ended, by count or by following
+    pub epochs_ended: u64,
     /// RAI: epoch advances
     pub epochs_advanced: u64,
     /// RAI: epoch advances made to follow the representatives already ahead
@@ -37,6 +39,10 @@ pub(crate) struct AecStats {
     pub stale_started: u64,
     /// RAI: elections of the current epoch started for a vote rather than a block
     pub started_for_vote: u64,
+    /// RAI: rounds of the close elections this node entered
+    pub close_rounds: u64,
+    /// RAI: epochs closed by a certificate of their close election
+    pub epochs_closed: u64,
     /// Kudzu: elections which collected a timeout certificate before any notarization certificate
     pub timed_out: u64,
     /// Kudzu: elections which became settled before they were finalized
@@ -199,10 +205,13 @@ impl StatsSource for AecStats {
         result.insert(AEC_STAT_KEY, "block_conflict", self.conflicts);
         result.insert(AEC_STAT_KEY, "started", self.started);
         result.insert(AEC_STAT_KEY, "terminated", self.terminated);
+        result.insert(AEC_STAT_KEY, "epochs_ended", self.epochs_ended);
         result.insert(AEC_STAT_KEY, "epochs_advanced", self.epochs_advanced);
         result.insert(AEC_STAT_KEY, "epochs_followed", self.epochs_followed);
         result.insert(AEC_STAT_KEY, "stale_started", self.stale_started);
         result.insert(AEC_STAT_KEY, "started_for_vote", self.started_for_vote);
+        result.insert(AEC_STAT_KEY, "close_rounds", self.close_rounds);
+        result.insert(AEC_STAT_KEY, "epochs_closed", self.epochs_closed);
         result.insert(AEC_STAT_KEY, "timed_out", self.timed_out);
         result.insert(AEC_STAT_KEY, "settled", self.settled);
         result.insert(AEC_STAT_KEY, "finalized_fast", self.finalized_fast);

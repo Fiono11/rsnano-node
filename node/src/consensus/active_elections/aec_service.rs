@@ -17,15 +17,19 @@ use rsnano_utils::{
 
 use super::{
     ActiveElectionsConfig, ActiveElectionsContainer, ActiveElectionsInfo, AecCooldownReason,
-    AecFact, AecInsertError, AecInsertRequest, ApplyVoteArgs,
+    AecFact, AecInsertError, AecInsertRequest, ApplyVoteArgs, EpochCloseInfo,
 };
-use crate::consensus::{
-    ElectionCandidateSource,
-    election::{
-        CertificateEvidence, ConfirmedElection, Election, ElectionBehavior, ElectionId,
-        ElectionState, EpochSlot, FinalStateHash, LocalSlotState,
+use crate::{
+    consensus::{
+        ElectionCandidateSource,
+        election::{
+            CertificateEvidence, ConfirmedElection, Election, ElectionBehavior, ElectionId,
+            ElectionState, EpochSlot, EpochState, FinalStateHash, LocalSlotState,
+        },
+        vote_generation::VoteTarget,
+        vote_rebroadcast::WalletRepsConsumer,
     },
-    vote_generation::VoteTarget,
+    wallets::WalletRepresentatives,
 };
 
 pub struct AecService {
@@ -113,6 +117,32 @@ impl AecService {
     /// RAI: the blocks finalized explicitly in the given epoch
     pub fn finalized_in(&self, epoch: ConsensusEpoch) -> Vec<(Account, u64, BlockHash)> {
         self.aec.read().unwrap().finalized_in(epoch)
+    }
+
+    /// RAI: the close elections of the epochs this node has left
+    pub fn epoch_closes(&self) -> Vec<EpochCloseInfo> {
+        self.aec.read().unwrap().epoch_closes()
+    }
+
+    /// RAI: the final state of an epoch as it stands on this node
+    pub fn epoch_state(&self, epoch: ConsensusEpoch) -> EpochState {
+        self.aec.read().unwrap().epoch_state(epoch)
+    }
+
+    /// RAI: end the current epoch now; it is left once it has drained
+    pub fn leave_epoch(&self) {
+        let now = self.clock.now();
+        self.aec.write().unwrap().leave_epoch(now)
+    }
+
+    /// RAI: the current epoch's duration has ended and its instances drain
+    pub fn is_draining(&self) -> bool {
+        self.aec.read().unwrap().is_draining()
+    }
+
+    /// RAI: the close rounds to solicit evidence for now
+    pub(crate) fn close_solicitations(&self, now: Timestamp) -> Vec<(ElectionId, BlockHash)> {
+        self.aec.write().unwrap().close_solicitations(now)
     }
 
     /// RAI: start the instance of a block for a vote of its epoch
@@ -319,6 +349,15 @@ impl AecService {
 impl StatsSource for AecService {
     fn collect_stats(&self, result: &mut StatsCollection) {
         self.aec.read().unwrap().collect_stats(result)
+    }
+}
+
+impl WalletRepsConsumer for AecService {
+    fn update_wallet_reps(&self, reps: &WalletRepresentatives) {
+        self.aec
+            .write()
+            .unwrap()
+            .set_local_representatives(reps.rep_pub_keys().collect());
     }
 }
 

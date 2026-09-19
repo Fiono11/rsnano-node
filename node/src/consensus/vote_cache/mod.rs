@@ -151,13 +151,18 @@ impl VoteCache {
         self.blocks.lock().unwrap().vote_count(hash)
     }
 
-    /// RAI: the blocks with a cached vote of the given epoch
+    /// RAI: the blocks with a cached vote that needs the node to be in the
+    /// given epoch: a vote of that epoch or of the close of the epoch before
     pub fn hashes_voted_in_epoch(&self, epoch: ConsensusEpoch) -> Vec<BlockHash> {
         self.blocks
             .lock()
             .unwrap()
             .iter()
-            .filter(|block| block.iter_votes().any(|vote| vote.epoch == epoch))
+            .filter(|block| {
+                block
+                    .iter_votes()
+                    .any(|vote| vote.epoch.required_epoch() == epoch)
+            })
             .map(|block| *block.block_hash())
             .collect()
     }

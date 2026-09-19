@@ -1093,6 +1093,7 @@ impl Node {
 
         let mut wallet_reps_checker = WalletRepsChecker::new(wallet_reps.clone());
         wallet_reps_checker.add_consumer(vote_rebroadcast_queue.clone());
+        wallet_reps_checker.add_consumer(active_elections.clone());
         ticker_pool.insert(
             wallet_reps_checker,
             if is_dev_network {

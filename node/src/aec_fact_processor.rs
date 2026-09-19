@@ -83,7 +83,8 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
                 }
             }
             AecFact::ElectionTerminated(_) => self.election_schedulers.notify(),
-            AecFact::EpochAdvanced(_) => {}
+            // RAI: the blocks held back while the epoch drained start now
+            AecFact::EpochAdvanced(_) => self.election_schedulers.notify(),
             AecFact::ElectionEnded(election) => {
                 self.election_schedulers.notify();
 

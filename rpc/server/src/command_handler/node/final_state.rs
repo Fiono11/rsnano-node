@@ -2,10 +2,11 @@ use std::collections::BTreeMap;
 
 use rsnano_ledger::{AnySet, ConfirmedSet};
 use rsnano_node::consensus::election::{
-    Certificates, ElectionState, FinalStateHash, SlotOutcome, slot_outcome,
+    Certificates, ElectionState, EpochState, FinalStateHash, SlotOutcome, slot_outcome,
 };
 use rsnano_rpc_messages::{
-    ConflictingRoot, EpochFinalState, FinalStateArgs, FinalStateEntry, FinalStateResponse,
+    ConflictingRoot, EpochCloseState, EpochFinalState, FinalStateArgs, FinalStateEntry,
+    FinalStateResponse,
 };
 use rsnano_types::{Account, BlockHash, ConsensusEpoch, QualifiedRoot};
 
@@ -20,18 +21,6 @@ struct ElectionView {
     state: ElectionState,
     certificates: Certificates,
     candidates: Vec<BlockHash>,
-}
-
-/// RAI: the outcome of one epoch's elections on this node, see `EpochFinalState`
-#[derive(Default)]
-struct EpochOutcome {
-    hash: FinalStateHash,
-    finalized: u64,
-    single_notarized: u64,
-    pending: u64,
-    cemented_undecided: u64,
-    empty: u64,
-    conflicting: u64,
 }
 
 impl RpcCommandHandler {
@@ -68,22 +57,22 @@ impl RpcCommandHandler {
         let mut pending = 0;
         let mut empty = 0;
         let mut conflicting = Vec::new();
-        let mut epochs: BTreeMap<ConsensusEpoch, EpochOutcome> = self
+        let mut epochs: BTreeMap<ConsensusEpoch, EpochState> = self
             .node
             .aec
             .finalized_by_epoch()
             .into_iter()
-            .map(|(epoch, hash)| {
-                let finalized = hash.entries();
-                (
-                    epoch,
-                    EpochOutcome {
-                        hash,
-                        finalized,
-                        ..Default::default()
-                    },
-                )
-            })
+            .map(|(epoch, hash)| (epoch, EpochState::with_finalized(&hash)))
+            .collect();
+        // Elections of the epoch that are not settled although their block
+        // is cemented; they are still collecting the certificates of the epoch
+        let mut cemented_undecided: BTreeMap<ConsensusEpoch, u64> = BTreeMap::new();
+        let closes: BTreeMap<_, _> = self
+            .node
+            .aec
+            .epoch_closes()
+            .into_iter()
+            .map(|close| (close.epoch, close))
             .collect();
         // The AEC lock is held while the elections are copied out and released
         // before anything else of the node is asked: a second read of the lock
@@ -107,21 +96,23 @@ impl RpcCommandHandler {
                 .get_conf_info(&election.account)
                 .unwrap_or_default();
             let cemented = conf.height >= election.height;
-            let outcome = epochs.entry(election.epoch).or_default();
-            match slot_outcome(election.state, &election.certificates) {
+            let outcome = slot_outcome(election.state, &election.certificates);
+            epochs.entry(election.epoch).or_default().add_election(
+                &election.account,
+                election.height,
+                election.state,
+                &election.certificates,
+            );
+            match outcome {
                 SlotOutcome::Pending => {
                     if cemented {
-                        outcome.cemented_undecided += 1;
-                    } else {
-                        outcome.pending += 1;
+                        *cemented_undecided.entry(election.epoch).or_default() += 1;
                     }
                     pending += 1;
                     all_settled = false;
                     all_terminated &= election.state.is_terminated();
                 }
                 SlotOutcome::Single(block) => {
-                    outcome.hash.add(&election.account, election.height, &block);
-                    outcome.single_notarized += 1;
                     if listed == Some(election.epoch)
                         && let Some(entries) = entries.as_mut()
                     {
@@ -143,18 +134,12 @@ impl RpcCommandHandler {
                     hash.add(&election.account, election.height, &block);
                     single_notarized += 1;
                 }
-                SlotOutcome::Conflicting => {
-                    outcome.conflicting += 1;
-                    conflicting.push(ConflictingRoot {
-                        root: election.root.clone(),
-                        epoch: election.epoch.as_u64().into(),
-                        blocks: election.candidates.clone(),
-                    })
-                }
-                SlotOutcome::Empty => {
-                    outcome.empty += 1;
-                    empty += 1;
-                }
+                SlotOutcome::Conflicting => conflicting.push(ConflictingRoot {
+                    root: election.root.clone(),
+                    epoch: election.epoch.as_u64().into(),
+                    blocks: election.candidates.clone(),
+                }),
+                SlotOutcome::Empty => empty += 1,
             }
         }
 
@@ -168,17 +153,29 @@ impl RpcCommandHandler {
             empty: empty.into(),
             conflicting,
             entries,
+            current_epoch: self.node.aec.current_epoch().as_u64().into(),
             epochs: epochs
                 .into_iter()
-                .map(|(epoch, o)| EpochFinalState {
-                    epoch: epoch.as_u64().into(),
-                    hash: o.hash.value(),
-                    finalized: o.finalized.into(),
-                    single_notarized: o.single_notarized.into(),
-                    pending: o.pending.into(),
-                    cemented_undecided: o.cemented_undecided.into(),
-                    empty: o.empty.into(),
-                    conflicting: o.conflicting.into(),
+                .map(|(epoch, state)| {
+                    let cemented_undecided = cemented_undecided.get(&epoch).copied().unwrap_or(0);
+                    EpochFinalState {
+                        epoch: epoch.as_u64().into(),
+                        hash: state.hash.value(),
+                        finalized: state.finalized.into(),
+                        single_notarized: state.single_notarized.into(),
+                        pending: (state.pending - cemented_undecided).into(),
+                        cemented_undecided: cemented_undecided.into(),
+                        empty: state.empty.into(),
+                        conflicting: state.conflicting.into(),
+                        close: closes.get(&epoch).map(|close| EpochCloseState {
+                            ready: close.ready.into(),
+                            value: close.value,
+                            started: close.started.into(),
+                            round: (close.round as u64).into(),
+                            closed_value: close.closed.map(|(_, value)| value),
+                            closed_round: close.closed.map(|(round, _)| (round as u64).into()),
+                        }),
+                    }
                 })
                 .collect(),
         }

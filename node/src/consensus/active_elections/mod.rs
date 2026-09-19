@@ -2,6 +2,7 @@ mod active_elections_container;
 mod aec_service;
 mod apply_vote_helper;
 mod cooldown_controller;
+mod epoch_close;
 mod epoch_states;
 mod recently_confirmed_cache;
 mod root_container;
@@ -12,8 +13,9 @@ mod vote_router;
 pub use active_elections_container::*;
 pub use aec_service::{AecService, AecSnapshot, BucketSnapshot};
 pub use cooldown_controller::AecCooldownReason;
+pub use epoch_close::EpochCloseInfo;
 
-use std::{collections::HashMap, isize};
+use std::{collections::HashMap, isize, time::Duration};
 
 use rsnano_types::{
     Amount, Block, BlockHash, BlockPriority, ConsensusEpoch, QualifiedRoot, SavedBlock,
@@ -35,6 +37,9 @@ pub struct ActiveElectionsConfig {
     /// RAI: advance to the next consensus epoch once this many elections of
     /// the current epoch have got a certificate; 0 never advances
     pub epoch_terminated_elections: usize,
+    /// RAI: Δ_timeout of a round of an epoch's close election: a replica
+    /// abstains once it waited this long for a valid proposal
+    pub close_round_timeout: Duration,
 }
 
 impl Default for ActiveElectionsConfig {
@@ -43,6 +48,7 @@ impl Default for ActiveElectionsConfig {
             max_elections: 5000,
             confirmation_cache: 65536,
             epoch_terminated_elections: 0,
+            close_round_timeout: Duration::from_secs(5),
         }
     }
 }
@@ -79,6 +85,9 @@ pub enum AecFact {
 pub enum AecInsertError {
     Stopped,
     Duplicate,
+    /// RAI: the current epoch has ended and drains; new elections start
+    /// once the next epoch has started
+    Draining,
 
     /// This block or a fork got recently confirmed, so there is no need for a new election.
     RecentlyConfirmed,

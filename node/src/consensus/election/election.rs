@@ -18,7 +18,7 @@ use rsnano_utils::stats::DetailType;
 use super::{
     ConfirmationType, ConfirmedElection, ElectionId, ElectionState,
     block_tallies::BlockTallies,
-    kudzu::{Certificates, KudzuThresholds, LocalSlotState, SlotVotes},
+    kudzu::{Certificates, KudzuThresholds, LocalSlotState, SlotVotes, kudzu_state},
 };
 use rustc_hash::FxHashMap;
 
@@ -631,7 +631,13 @@ impl Election {
 
         self.update_winner_tally();
         self.has_quorum = self.certificates.is_notarized(&self.winner.hash());
-        self.state = self.kudzu_state(&thresholds);
+        self.state = kudzu_state(
+            self.state,
+            &self.kudzu,
+            &self.certificates,
+            &thresholds,
+            self.candidate_blocks.keys(),
+        );
     }
 
     /// Line 11: the final vote to cast at exit, if any
@@ -639,24 +645,6 @@ impl Election {
         let winner = self.winner.hash();
         (self.kudzu_is_final() && slot.final_voted.is_none() && slot.notarized_only(&winner))
             .then_some((winner, VoteKind::Final))
-    }
-
-    fn kudzu_state(&self, thresholds: &KudzuThresholds) -> ElectionState {
-        let certs = &self.certificates;
-        if certs.is_finalized() {
-            ElectionState::Confirmed
-        } else if !certs.is_terminated() {
-            self.state
-        } else if self
-            .kudzu
-            .is_settled(thresholds, certs, self.candidate_blocks.keys())
-        {
-            ElectionState::Settled
-        } else if certs.has_block() {
-            ElectionState::Terminated
-        } else {
-            ElectionState::TimedOut
-        }
     }
 
     /// Protocol 1 for this node's representatives: the votes to broadcast now,

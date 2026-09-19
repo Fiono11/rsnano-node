@@ -31,6 +31,44 @@ impl ConsensusEpoch {
         Self(self.0 + 1)
     }
 
+    /// RAI: the Kudzu instance of round `round` of the close election of
+    /// `epoch`. A close round is an instance like any other; it is told apart
+    /// from the epochs of the block elections by the top bit.
+    pub const fn close_round(epoch: ConsensusEpoch, round: u32) -> Self {
+        assert!(epoch.0 < Self::CLOSE_FLAG >> Self::ROUND_BITS);
+        assert!(round < 1 << Self::ROUND_BITS);
+        Self(Self::CLOSE_FLAG | (epoch.0 << Self::ROUND_BITS) | round as u64)
+    }
+
+    /// RAI: whether this is a close round rather than an epoch
+    pub const fn is_close_round(&self) -> bool {
+        self.0 & Self::CLOSE_FLAG != 0
+    }
+
+    /// RAI: the epoch and round of a close round
+    pub const fn as_close_round(&self) -> Option<(ConsensusEpoch, u32)> {
+        if !self.is_close_round() {
+            return None;
+        }
+        let bits = self.0 & !Self::CLOSE_FLAG;
+        Some((
+            ConsensusEpoch(bits >> Self::ROUND_BITS),
+            (bits & ((1 << Self::ROUND_BITS) - 1)) as u32,
+        ))
+    }
+
+    /// RAI: the epoch a replica must at least be in to vote in this instance:
+    /// the instance's epoch, or the one after the epoch a close round closes
+    pub fn required_epoch(&self) -> ConsensusEpoch {
+        match self.as_close_round() {
+            Some((epoch, _)) => epoch.next(),
+            None => *self,
+        }
+    }
+
+    const CLOSE_FLAG: u64 = 1 << 63;
+    const ROUND_BITS: u32 = 16;
+
     pub fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
         writer.write_all(&self.0.to_le_bytes())
     }
@@ -69,5 +107,27 @@ mod tests {
             epoch
         );
         assert_eq!(ConsensusEpoch::ZERO.next(), ConsensusEpoch::new(1));
+    }
+
+    #[test]
+    fn close_round_encoding() {
+        let epoch = ConsensusEpoch::new(5);
+        let round = ConsensusEpoch::close_round(epoch, 3);
+        assert!(round.is_close_round());
+        assert!(!epoch.is_close_round());
+        assert_eq!(round.as_close_round(), Some((epoch, 3)));
+        assert_eq!(epoch.as_close_round(), None);
+        assert_eq!(round.required_epoch(), ConsensusEpoch::new(6));
+        assert_eq!(epoch.required_epoch(), epoch);
+        assert_ne!(
+            ConsensusEpoch::close_round(epoch, 0),
+            ConsensusEpoch::close_round(epoch, 1)
+        );
+        assert_ne!(
+            ConsensusEpoch::close_round(epoch, 0),
+            ConsensusEpoch::close_round(ConsensusEpoch::new(6), 0)
+        );
+        // A close round sorts after every epoch, a lagging node caches its votes
+        assert!(round > ConsensusEpoch::new(u64::MAX >> 1));
     }
 }

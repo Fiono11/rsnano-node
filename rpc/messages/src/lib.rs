@@ -80,6 +80,7 @@ pub enum RpcCommand {
     Successors(ChainArgs),
     ConfirmationActive(ConfirmationActiveArgs),
     FinalState(FinalStateArgs),
+    EpochAdvance,
     ConfirmationQuorum(ConfirmationQuorumArgs),
     WorkValidate(WorkValidateArgs),
     AccountHistory(AccountHistoryArgs),

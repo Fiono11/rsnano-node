@@ -110,6 +110,25 @@ impl ConfirmationSolicitor {
         added
     }
 
+    /// RAI: ask every representative for its statements in an instance which
+    /// has no election here: a round of an epoch's close election
+    pub fn add_request(&mut self, epoch: ConsensusEpoch, hash: BlockHash, root: Root) {
+        debug_assert!(self.prepared);
+        for rep in &self.representatives {
+            let Some(channel) = self.message_flooder.channel(rep.channel_id) else {
+                continue;
+            };
+            if channel.should_drop(TrafficType::ConfirmationRequests) {
+                continue;
+            }
+            let (_, request_queue) = self
+                .requests
+                .entry((channel.channel_id(), epoch))
+                .or_insert_with(|| (channel, Vec::new()));
+            request_queue.push((hash, root));
+        }
+    }
+
     /// Dispatch bundled requests to each channel
     pub fn flush(&mut self) {
         debug_assert!(self.prepared);

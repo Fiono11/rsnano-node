@@ -41,6 +41,8 @@ pub struct FinalStateResponse {
     /// Settled slots with conflicting notarization certificates; their blocks
     /// are not part of the final state
     pub conflicting: Vec<ConflictingRoot>,
+    /// RAI: the consensus epoch new elections are started in
+    pub current_epoch: RpcU64,
     /// RAI: the final state of every consensus epoch this node took part in
     pub epochs: Vec<EpochFinalState>,
     /// RAI: the entries of the requested epoch's state
@@ -74,6 +76,29 @@ pub struct EpochFinalState {
     pub cemented_undecided: RpcU64,
     pub empty: RpcU64,
     pub conflicting: RpcU64,
+    /// The close election of the epoch, once this node has left the epoch
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub close: Option<EpochCloseState>,
+}
+
+/// RAI: the close election of one epoch as seen by this node
+#[derive(PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub struct EpochCloseState {
+    /// Every instance of the epoch settled here: the node attests `value`
+    pub ready: RpcBool,
+    /// The value this node attests, derived from `hash`
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<BlockHash>,
+    /// This node takes part: it is ready and the epoch before is closed
+    pub started: RpcBool,
+    /// The round this node is in
+    pub round: RpcU64,
+    /// The value a certificate of the close election finalized
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub closed_value: Option<BlockHash>,
+    /// The round that finalized it
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub closed_round: Option<RpcU64>,
 }
 
 #[derive(PartialEq, Eq, Debug, Serialize, Deserialize)]

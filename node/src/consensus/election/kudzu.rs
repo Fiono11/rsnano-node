@@ -3,7 +3,7 @@ use std::{cmp::max, collections::HashMap};
 use rsnano_types::{Amount, BlockHash, PublicKey, VoteError, VoteKind};
 use rustc_hash::FxHashMap;
 
-use super::block_tallies::BlockTallies;
+use super::{ElectionState, block_tallies::BlockTallies};
 use crate::representatives::QuorumSnapshot;
 
 /// Weight thresholds of the Kudzu voting rules for one election.
@@ -94,6 +94,29 @@ impl Certificates {
     /// can be (fast) finalized explicitly, only implicitly through a descendant.
     pub fn explicit_finalization_possible(&self) -> bool {
         !self.timeout
+    }
+}
+
+/// The state of a Kudzu instance given its certificates and votes: finalized,
+/// or terminated by a block in the tree or a timeout certificate, and settled
+/// once no further notarization certificate can form
+pub fn kudzu_state<'a>(
+    current: ElectionState,
+    votes: &SlotVotes,
+    certs: &Certificates,
+    thresholds: &KudzuThresholds,
+    candidates: impl IntoIterator<Item = &'a BlockHash>,
+) -> ElectionState {
+    if certs.is_finalized() {
+        ElectionState::Confirmed
+    } else if !certs.is_terminated() {
+        current
+    } else if votes.is_settled(thresholds, certs, candidates) {
+        ElectionState::Settled
+    } else if certs.has_block() {
+        ElectionState::Terminated
+    } else {
+        ElectionState::TimedOut
     }
 }
 
