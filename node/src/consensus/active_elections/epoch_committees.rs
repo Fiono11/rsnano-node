@@ -22,6 +22,9 @@ pub(crate) struct EpochCommittees {
     derived: BTreeMap<ConsensusEpoch, Arc<Committee>>,
     /// The weights as of the frontiers counted so far
     weights: CommitteeWeights,
+    /// The frontiers of epochs agreed on before the epoch before them: the
+    /// weights are cumulative, so they wait for their turn
+    pending: BTreeMap<ConsensusEpoch, Vec<AccountFrontier>>,
 }
 
 impl EpochCommittees {
@@ -38,20 +41,37 @@ impl EpochCommittees {
         self.genesis.is_some()
     }
 
-    /// The frontiers the epoch finalized: the committee it derives. None
-    /// without a genesis committee, or if the epoch derived one already.
+    /// The frontiers the epoch finalized: the committee it derives, and
+    /// those of the epochs after it which waited for it. None without a
+    /// genesis committee, if the epoch derived one already, or while the
+    /// epoch before it has not: the weights are cumulative, so a replica
+    /// which agrees on an epoch before the one before it derives nothing
+    /// until then, rather than a committee the others do not hold.
     pub fn derive(
         &mut self,
         epoch: ConsensusEpoch,
         frontiers: Vec<AccountFrontier>,
-    ) -> Option<Arc<Committee>> {
+    ) -> Vec<(ConsensusEpoch, Arc<Committee>)> {
         if !self.started() || self.derived.contains_key(&epoch) {
-            return None;
+            return Vec::new();
         }
-        self.weights.count_all(frontiers);
-        let committee = Arc::new(self.weights.committee());
-        self.derived.insert(epoch, committee.clone());
-        Some(committee)
+        self.pending.insert(epoch, frontiers);
+        let mut derived = Vec::new();
+        loop {
+            let next = self
+                .derived
+                .keys()
+                .next_back()
+                .map_or(ConsensusEpoch::ZERO, |last| last.next());
+            let Some(frontiers) = self.pending.remove(&next) else {
+                break;
+            };
+            self.weights.count_all(frontiers);
+            let committee = Arc::new(self.weights.committee());
+            self.derived.insert(next, committee.clone());
+            derived.push((next, committee));
+        }
+        derived
     }
 
     /// The committee the instances of an epoch are counted in: the one
@@ -176,13 +196,14 @@ mod tests {
         assert!(
             committees
                 .derive(ConsensusEpoch::ZERO, vec![frontier(1, 2, 2, 100)])
-                .is_none()
+                .is_empty()
         );
         let genesis = committees.start(vec![frontier(1, 1, 1, 100), frontier(2, 1, 2, 100)]);
 
         // Epoch 0 finalized a change of account 1 to representative 2
-        let derived = committees
+        let (_, derived) = committees
             .derive(ConsensusEpoch::ZERO, vec![frontier(1, 2, 2, 100)])
+            .pop()
             .unwrap();
         assert_eq!(derived.weight(&rep(1)), Amount::ZERO);
         assert_eq!(derived.weight(&rep(2)), Amount::raw(200));
@@ -190,7 +211,7 @@ mod tests {
         assert!(
             committees
                 .derive(ConsensusEpoch::ZERO, vec![frontier(1, 3, 1, 100)])
-                .is_none()
+                .is_empty()
         );
 
         // Epoch 2 counts in it, joint with the genesis committee while
@@ -213,13 +234,44 @@ mod tests {
         let epoch3 = ConsensusEpoch::new(3);
         assert!(committees.for_epoch(epoch3, true).is_none());
         assert!(committees.for_epoch(epoch3, false).is_none());
-        committees
-            .derive(ConsensusEpoch::new(1), vec![frontier(2, 2, 1, 50)])
-            .unwrap();
+        assert_eq!(
+            committees
+                .derive(ConsensusEpoch::new(1), vec![frontier(2, 2, 1, 50)])
+                .len(),
+            1
+        );
         let joint = committees.for_epoch(epoch3, false).unwrap();
         assert_eq!(joint.primary().weight(&rep(1)), Amount::raw(50));
         assert_eq!(joint.primary().weight(&rep(2)), Amount::raw(100));
         assert_eq!(joint.iter().nth(1).unwrap(), &derived);
+    }
+
+    /// The weights are cumulative: an epoch agreed on before the epoch
+    /// before it waits, and both derive once the earlier one is in
+    #[test]
+    fn an_epoch_agreed_out_of_order_waits_for_the_one_before() {
+        let mut committees = EpochCommittees::default();
+        committees.start(vec![frontier(1, 1, 1, 100), frontier(2, 1, 2, 100)]);
+        // Epoch 1 agreed first: account 2 moves to representative 1
+        assert!(
+            committees
+                .derive(ConsensusEpoch::new(1), vec![frontier(2, 2, 1, 100)])
+                .is_empty()
+        );
+        assert!(committees.committee(ConsensusEpoch::new(3)).is_none());
+        // Epoch 0 then: account 1 moves to representative 2, and both derive
+        let derived = committees.derive(ConsensusEpoch::ZERO, vec![frontier(1, 2, 2, 100)]);
+        assert_eq!(
+            derived.iter().map(|(e, _)| *e).collect::<Vec<_>>(),
+            vec![ConsensusEpoch::ZERO, ConsensusEpoch::new(1)]
+        );
+        let c0 = committees.committee(ConsensusEpoch::new(2)).unwrap();
+        let c1 = committees.committee(ConsensusEpoch::new(3)).unwrap();
+        assert_eq!(c0.weight(&rep(1)), Amount::ZERO);
+        assert_eq!(c0.weight(&rep(2)), Amount::raw(200));
+        // C(1) counts epoch 0's move too: what a replica deriving in order holds
+        assert_eq!(c1.weight(&rep(1)), Amount::raw(100));
+        assert_eq!(c1.weight(&rep(2)), Amount::raw(100));
     }
 
     #[test]

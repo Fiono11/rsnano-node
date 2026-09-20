@@ -186,7 +186,7 @@ impl RpcCommandHandler {
                         hash: state.hash.value(),
                         finalized: state.finalized.into(),
                         single_notarized: state.single_notarized.into(),
-                        pending: (state.pending - cemented_undecided).into(),
+                        pending: state.pending.saturating_sub(cemented_undecided).into(),
                         cemented_undecided: cemented_undecided.into(),
                         empty: state.empty.into(),
                         conflicting: state.conflicting.into(),

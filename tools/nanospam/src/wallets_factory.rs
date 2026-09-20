@@ -21,15 +21,20 @@ pub(crate) fn voting_weight() -> Amount {
     Amount::MAX - INITIAL_AMOUNT
 }
 
+/// `total_prs` counts every principal representative, the offline and
+/// Byzantine ones included: each holds an equal share of the voting weight in
+/// the ledger, whether or not it runs a node. `rpc_clients` are the nodes that
+/// do run, which get a wallet.
 pub(crate) async fn create_wallets(
     rpc_clients: &[NanoRpcClient],
     genesis_rpc: &NanoRpcClient,
     account_map: &mut AccountMap,
     representatives: &Representatives,
+    total_prs: usize,
 ) -> WalletId {
     let mut genesis_wallet = WalletId::ZERO;
     let genesis_key = genesis_key();
-    let pr_count = rpc_clients.len();
+    let pr_count = total_prs;
     for (i, rpc_client) in rpc_clients.iter().enumerate() {
         info!("Creating wallet...");
         let resp = rpc_client.wallet_create(None).await.unwrap();
@@ -99,6 +104,46 @@ pub(crate) async fn create_wallets(
                 "********************************************************************************"
             );
         }
+    }
+
+    // The representatives without a node: funded the same way, but nanospam
+    // has to create their receive block, since no wallet will
+    for i in rpc_clients.len()..total_prs {
+        let pr_key = pr_key(i);
+        let pr_balance = voting_weight() / pr_count as u128;
+        info!(
+            "Sending \u{04FE}{} to PR{i} (no node) {} ...",
+            pr_balance.format_balance(0),
+            pr_key.account().encode_account()
+        );
+        let send_hash = genesis_rpc
+            .send(SendArgs {
+                wallet: genesis_wallet,
+                source: genesis_key.account(),
+                destination: pr_key.account(),
+                amount: pr_balance,
+                work: Some(WorkNonce::new(0)),
+                id: None,
+            })
+            .await
+            .unwrap()
+            .block;
+        wait_until_confirmed(genesis_rpc, send_hash).await;
+
+        let receive: Block = StateBlockArgs {
+            key: &pr_key,
+            previous: BlockHash::ZERO,
+            // A representative votes with its own weight
+            representative: pr_key.public_key(),
+            balance: pr_balance,
+            link: send_hash.into(),
+            work: 0.into(),
+        }
+        .into();
+        let receive_hash = receive.hash();
+        genesis_rpc.process(JsonBlock::from(receive)).await.unwrap();
+        wait_until_confirmed(genesis_rpc, receive_hash).await;
+        info!("DONE");
     }
 
     info!("Sending initial spam amount...");

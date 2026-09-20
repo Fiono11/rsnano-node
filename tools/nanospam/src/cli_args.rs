@@ -1,3 +1,4 @@
+use anyhow::anyhow;
 use clap::Parser;
 
 use rsnano_types::PublicKey;
@@ -89,6 +90,18 @@ pub(crate) struct CliArgs {
     /// first election (0: no time limit)
     #[arg(long, default_value_t = 0)]
     pub epoch_duration_ms: u64,
+
+    /// RAI: f, the Byzantine weight. This many principal representatives do
+    /// not run a node; nanospam votes with their key at random instead, so
+    /// they hold their share of the weight and do not follow the protocol
+    #[arg(long, default_value_t = 0)]
+    pub byzantine: usize,
+
+    /// RAI: p, the weight the fast path may do without. This many principal
+    /// representatives do not run a node and never vote; they still hold
+    /// their share of the weight in the ledger
+    #[arg(long, default_value_t = 0)]
+    pub offline: usize,
 }
 
 impl CliArgs {
@@ -108,6 +121,25 @@ impl CliArgs {
     pub(crate) fn representatives(&self) -> Representatives {
         let reps: Vec<PublicKey> = (0..self.prs).map(|i| pr_key(i).public_key()).collect();
         Representatives::new(reps)
+    }
+
+    /// The representatives running a node, which nanospam talks to. The roles
+    /// are taken from the end, so PR0 - the genesis representative, which
+    /// funds the run and serves nanospam's RPC - is always honest: the last
+    /// `byzantine` are Byzantine, the `offline` before them are offline.
+    pub(crate) fn honest_prs(&self) -> usize {
+        self.prs - self.byzantine - self.offline
+    }
+
+    pub(crate) fn validate(&self) -> anyhow::Result<()> {
+        if self.byzantine + self.offline >= self.prs {
+            return Err(anyhow!(
+                "{} of {} representatives would run no node; at least one must",
+                self.byzantine + self.offline,
+                self.prs
+            ));
+        }
+        Ok(())
     }
 
     pub(crate) fn high_prio_check(&self) -> bool {

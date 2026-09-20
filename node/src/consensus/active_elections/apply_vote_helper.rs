@@ -9,7 +9,7 @@ use rsnano_utils::sync::backpressure_channel::Sender;
 
 use super::{
     AecFact, ApplyVoteArgs,
-    epoch_close::{EpochClose, is_late},
+    epoch_close::{AgreedContent, EpochClose, is_late},
     epoch_committees::{EpochCommittees, live_committees},
     recently_confirmed_cache::RecentlyConfirmedCache,
     root_container::{Entry, RootContainer},
@@ -23,10 +23,12 @@ pub(super) struct ApplyVoteHelper<'a> {
     pub stats: &'a mut AecStats,
     pub observer: &'a Option<Sender<AecFact>>,
     pub roots: &'a mut RootContainer,
-    /// RAI: the close elections, to tell the late instances of a closed epoch
+    /// RAI: the close elections, for the committee phase of each epoch
     pub closes: &'a BTreeMap<ConsensusEpoch, EpochClose>,
     /// RAI: the committees the instances of each epoch are counted in
     pub committees: &'a EpochCommittees,
+    /// RAI: the content of the agreed epochs, to tell the late instances
+    pub agreed: &'a AgreedContent,
 }
 
 impl<'a> ApplyVoteHelper<'a> {
@@ -67,6 +69,7 @@ impl<'a> ApplyVoteHelper<'a> {
                         block_hash,
                         closes: self.closes,
                         committees: self.committees,
+                        agreed: self.agreed,
                     };
                     let vote_result = apply_to_election.apply_vote();
                     result.per_block.insert(*block_hash, vote_result);
@@ -134,6 +137,7 @@ struct ApplyVoteToElectionHelper<'a> {
     pub block_hash: &'a BlockHash,
     pub closes: &'a BTreeMap<ConsensusEpoch, EpochClose>,
     pub committees: &'a EpochCommittees,
+    pub agreed: &'a AgreedContent,
 }
 
 impl<'a> ApplyVoteToElectionHelper<'a> {
@@ -213,7 +217,7 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
                 self.stats,
                 self.observer,
                 self.recently_confirmed,
-                self.closes,
+                self.agreed,
             );
             return;
         }
@@ -230,7 +234,7 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
                 self.args.now,
                 self.observer,
                 self.recently_confirmed,
-                self.closes,
+                self.agreed,
             );
         }
     }
@@ -274,7 +278,7 @@ pub(super) fn count_kudzu_election(
     stats: &mut AecStats,
     observer: &Option<Sender<AecFact>>,
     recently_confirmed: &mut RecentlyConfirmedCache,
-    closes: &BTreeMap<ConsensusEpoch, EpochClose>,
+    agreed: &AgreedContent,
 ) {
     let old_winner = election.winner().hash();
     let was_in_block_tree = election.certificates().has_block();
@@ -283,7 +287,7 @@ pub(super) fn count_kudzu_election(
     stats.kudzu_transition(old_state, election, was_in_block_tree, now);
     notify_winner_changed(election, old_winner, observer);
     if election.is_confirmed() {
-        election_got_confirmed(election, now, observer, recently_confirmed, closes);
+        election_got_confirmed(election, now, observer, recently_confirmed, agreed);
     }
 }
 
@@ -305,10 +309,10 @@ fn election_got_confirmed(
     now: Timestamp,
     observer: &Option<Sender<AecFact>>,
     recently_confirmed: &mut RecentlyConfirmedCache,
-    closes: &BTreeMap<ConsensusEpoch, EpochClose>,
+    agreed: &AgreedContent,
 ) {
-    // RAI: a late instance of a closed epoch is discarded, not confirmed
-    if is_late(closes, election) {
+    // RAI: a late instance of an agreed epoch is discarded, not confirmed
+    if is_late(agreed, election) {
         return;
     }
     recently_confirmed.put(election.qualified_root().clone(), election.winner().hash());
@@ -675,6 +679,7 @@ mod tests {
                 roots: &mut self.roots,
                 closes: &BTreeMap::new(),
                 committees: &EpochCommittees::default(),
+                agreed: &BTreeMap::new(),
             };
 
             let result = helper.apply_vote();
@@ -767,6 +772,7 @@ mod tests {
                     closes: &BTreeMap::new(),
                     block_hash: &vote.hashes[0],
                     committees: &EpochCommittees::default(),
+                    agreed: &BTreeMap::new(),
                 }
                 .apply_vote()
             };

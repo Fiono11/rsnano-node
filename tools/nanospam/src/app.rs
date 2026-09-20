@@ -28,6 +28,7 @@ use rsnano_types::{BlockHash, NetworkType, PrivateKey, ProtocolInfo, RawKey, Wal
 use rsnano_websocket_messages::{BlockConfirmed, MessageEnvelope, Topic};
 
 use crate::{
+    byzantine::{RecentBlocks, byzantine_keys, run_byzantine},
     cli_args::CliArgs,
     confirmation_receiver::ConfirmationReceiver,
     domain::{BlockResult, Forks, spam_logic::SpamLogic},
@@ -81,7 +82,9 @@ impl NanoSpamApp {
             configure_nodes(&self.args, &data_dir);
         }
 
-        for i in 0..self.args.prs {
+        // Only the representatives that run a node have an RPC; the offline and
+        // Byzantine ones exist in the ledger only
+        for i in 0..self.args.honest_prs() {
             let rpc_client =
                 NanoRpcClient::new(format!("http://[::1]:{}", rpc_port(i)).parse().unwrap());
             self.rpc_clients.push(rpc_client);
@@ -103,6 +106,7 @@ impl NanoSpamApp {
                 genesis_rpc,
                 &mut account_map,
                 &representatives,
+                self.args.prs,
             )
             .await
         } else {
@@ -132,7 +136,14 @@ impl NanoSpamApp {
             high_prio_check.sync_accounts().await?;
         }
 
-        wait_for_full_quorum(&self.rpc_clients).await?;
+        // With representatives that never vote, the weight a node can see is
+        // only the honest share of the configured minimum
+        wait_for_full_quorum(
+            &self.rpc_clients,
+            self.args.honest_prs() as u128,
+            self.args.prs as u128,
+        )
+        .await?;
 
         // RAI: the setup is over and every PR holds its share of the weight:
         // epoch 0 starts now on every PR. Its genesis committee is the
@@ -148,7 +159,7 @@ impl NanoSpamApp {
         let mut tcp_writers = Vec::new();
         let mut tcp_readers = Vec::new();
 
-        for node_index in 0..self.args.prs {
+        for node_index in 0..self.args.honest_prs() {
             let peer_addr = SocketAddrV6::new(Ipv6Addr::LOCALHOST, peering_port(node_index), 0, 0);
             info!(?peer_addr, "Connecting to node PR{node_index}...");
             let mut node_writers = Vec::with_capacity(CONNECTIONS_PER_NODE);
@@ -166,6 +177,7 @@ impl NanoSpamApp {
             tcp_readers.push(node_readers);
         }
 
+        let recent_blocks = RecentBlocks::default();
         let tx_forks_clone = tx_blocks.clone();
         let cancel_block_creation = CancellationToken::new();
         let cancel_block_creation2 = cancel_block_creation.clone();
@@ -200,6 +212,18 @@ impl NanoSpamApp {
                     protocol,
                     cancel_nanospam.clone(),
                 ));
+                if self.args.byzantine > 0 {
+                    scope.spawn(run_byzantine(
+                        byzantine_keys(self.args.prs, self.args.byzantine),
+                        self.args.honest_prs(),
+                        protocol,
+                        genesis_hash,
+                        recent_blocks.clone(),
+                        cancel_nanospam.clone(),
+                        &self.tcp_stream_factory,
+                    ));
+                }
+
                 scope.spawn(publish_blocks(
                     rx_blocks,
                     tcp_writers,
@@ -208,6 +232,7 @@ impl NanoSpamApp {
                     cancel_nanospam,
                     self.args.drop_probability(),
                     &self.clock,
+                    recent_blocks.clone(),
                 ));
 
                 if !self.args.no_republish {
@@ -265,6 +290,7 @@ async fn publish_blocks(
     cancel_token: CancellationToken,
     drop_probability: f64,
     clock: &SteadyClock,
+    recent_blocks: RecentBlocks,
 ) {
     let mut serializer = MessageSerializer::new(protocol);
     let mut fork_serializer = MessageSerializer::new(protocol);
@@ -272,6 +298,8 @@ async fn publish_blocks(
     while let Some(forks) = rx_blocks.recv().await {
         let block = forks.block.clone();
         let hash = block.hash();
+        // What the Byzantine representatives vote about
+        recent_blocks.push(hash);
         let publish = Message::Publish(Publish::new_from_originator(block));
         let buffer = serializer.serialize(&publish);
         let mut fork_buffer = None;
@@ -476,7 +504,11 @@ async fn wait_for_equal_ledgers(rpc_clients: &[NanoRpcClient]) -> anyhow::Result
     }
 }
 
-async fn wait_for_full_quorum(rpc_clients: &[NanoRpcClient]) -> anyhow::Result<()> {
+async fn wait_for_full_quorum(
+    rpc_clients: &[NanoRpcClient],
+    honest_prs: u128,
+    total_prs: u128,
+) -> anyhow::Result<()> {
     info!("Waiting for all PRs to see the full quorum...");
     let started = Instant::now();
     loop {
@@ -487,7 +519,7 @@ async fn wait_for_full_quorum(rpc_clients: &[NanoRpcClient]) -> anyhow::Result<(
             // The configured minimum is the whole voting weight; the funds moved
             // to the spam accounts during setup are below one representative's
             // share, so a missing representative shows as a clearly lower stake
-            let enough = quorum.online_weight_minimum / 100 * 90;
+            let enough = quorum.online_weight_minimum / 100 * 90 / total_prs * honest_prs;
             let full = quorum.online_stake_total >= enough && quorum.peers_stake_total >= enough;
             if !full {
                 missing = Some((i, quorum));

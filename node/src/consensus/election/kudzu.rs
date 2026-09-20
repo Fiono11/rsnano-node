@@ -265,12 +265,20 @@ impl CommitteeTallies {
         self.first_tallies.get(hash) >= self.thresholds().many
     }
 
-    /// Protocol 1, line 32: allVotes(firstVote) − maxVotes(firstVote) ≥ f + p + 1
+    /// Protocol 1, line 32: allVotes(firstVote) − maxVotes(firstVote) ≥ f + p + 1.
+    /// maxVotes is the most first votes on a *non-timeout* block (Section
+    /// 4.7: "1, 2, 3, 4 first votes on B1, B2, B3, B_timeout: allVotes = 10,
+    /// maxVotes = 3"). Counting the timeout block deadlocked a slot where more
+    /// representatives abstained than proposed, short of a certificate either
+    /// way: the proposers never timed out, because the abstains were the
+    /// maximum they were measured against.
     fn should_timeout(&self) -> bool {
         let max_votes = self
             .first_tallies
-            .winner()
+            .iter()
+            .filter(|(hash, _)| *hash != TIMEOUT_BLOCK)
             .map(|(_, tally)| *tally)
+            .max()
             .unwrap_or_default();
         self.all_first - max_votes >= self.thresholds().many
     }
@@ -300,14 +308,24 @@ impl CommitteeTallies {
         certs: &Certificates,
         candidates: impl IntoIterator<Item = &'a BlockHash>,
     ) -> bool {
-        // Weight that has not first voted yet, known or unknown. It can still first
-        // vote (and thereby notarize) any block, including one we have not seen.
-        // An abstaining first vote for the timeout block counts as cast.
-        let unvoted = self
+        // Weight that may still first vote (and thereby notarize) any block,
+        // including one we have not seen: representatives never heard from,
+        // and those known without a first vote which have not exited. An
+        // abstaining first vote for the timeout block counts as cast; a
+        // final vote without a first vote (line 11, for a block in the tree
+        // this replica never proposed) is an exit, nothing follows it.
+        let known: Amount = reps.keys().map(|voter| self.committee.weight(voter)).sum();
+        let unknown = self
             .thresholds()
             .online
-            .checked_sub(self.all_first)
+            .checked_sub(known)
             .unwrap_or_default();
+        let idle: Amount = reps
+            .iter()
+            .filter(|(_, r)| r.first.is_none() && r.final_.is_none())
+            .map(|(voter, _)| self.committee.weight(voter))
+            .sum();
+        let unvoted = unknown + idle;
         if unvoted >= self.thresholds().many {
             return false;
         }
@@ -347,8 +365,21 @@ impl CommitteeTallies {
         hash: &BlockHash,
         unvoted: Amount,
     ) -> Amount {
+        // Any representative that may still first vote may first vote this
+        // block, so the block may still reach many first votes
         let can_reach_many = self.first_tallies.get(hash) + unvoted >= self.thresholds().many;
-        let mut result = self.notar_tallies.get(hash) + unvoted;
+        // Of that weight, what notarized the block already (a notarization
+        // vote without a first vote: not an honest one) is in the tally and
+        // does not count twice
+        let notarized_without_first: Amount = reps
+            .iter()
+            .filter(|(_, r)| r.first.is_none() && r.final_.is_none() && r.notar.contains(hash))
+            .map(|(voter, _)| self.committee.weight(voter))
+            .sum();
+        let could_first_vote = unvoted
+            .checked_sub(notarized_without_first)
+            .unwrap_or_default();
+        let mut result = self.notar_tallies.get(hash) + could_first_vote;
         if can_reach_many {
             // Every representative that has first voted and not exited could
             // still take a second look (line 28), abstaining ones included
@@ -451,7 +482,7 @@ impl SlotVotes {
     }
 
     /// Protocol 1, line 32: allVotes(firstVote) − maxVotes(firstVote) ≥ f + p + 1
-    /// in some committee
+    /// in some committee, maxVotes over the non-timeout blocks
     pub fn should_timeout(&self) -> bool {
         self.tallies.iter().any(|t| t.should_timeout())
     }
@@ -752,6 +783,35 @@ mod tests {
 
         pool.calculate(&committees(&[(1, 40), (2, 25), (3, 13)]));
         assert!(!pool.should_timeout());
+    }
+
+    /// The split that deadlocked a run with one representative silent: three
+    /// abstained (52 of 100), two proposed (32), neither side a certificate.
+    /// The abstains are the most first votes of all, but maxVotes counts the
+    /// non-timeout blocks only, so the proposers time out and the timeout
+    /// certificate forms.
+    #[test]
+    fn proposers_time_out_when_the_abstains_outnumber_them() {
+        let mut pool = SlotVotes::default();
+        let mut certs = Certificates::default();
+        let committees = committees(&[(1, 20), (2, 16), (3, 16), (4, 16), (5, 16), (6, 16)]);
+        pool.add(rep(1), hash(1), VoteKind::Abstain).unwrap();
+        pool.add(rep(2), hash(1), VoteKind::Abstain).unwrap();
+        pool.add(rep(3), hash(1), VoteKind::Abstain).unwrap();
+        pool.add(rep(4), hash(1), VoteKind::First).unwrap();
+        pool.add(rep(5), hash(1), VoteKind::First).unwrap();
+        pool.calculate(&committees);
+        pool.update_certificates(&mut certs);
+        assert!(!certs.is_terminated());
+        // allVotes 84 − maxVotes 32 = 52 ≥ 39
+        assert!(pool.should_timeout());
+
+        pool.add(rep(4), hash(1), VoteKind::Timeout).unwrap();
+        pool.add(rep(5), hash(1), VoteKind::Timeout).unwrap();
+        pool.calculate(&committees);
+        pool.update_certificates(&mut certs);
+        assert!(certs.timeout);
+        assert!(certs.is_terminated());
     }
 
     #[test]
@@ -1102,6 +1162,69 @@ mod tests {
         // Settled: in the own committee rep 1 exited and rep 3 alone can
         // not notarize hash 2, whatever the previous committee allows
         assert!(open.is_settled(&open_certs, &candidates));
+    }
+
+    /// A fork with one candidate notarized, the other short of a certificate,
+    /// where a representative final voted the loser without a first vote:
+    /// its weight is in the loser's tally already and does not count as
+    /// weight that could still notarize it. Only a Byzantine representative
+    /// does that; the instance settled nowhere until it was counted once.
+    #[test]
+    fn settled_when_the_only_weight_left_already_notarized_the_loser() {
+        let mut pool = SlotVotes::default();
+        let mut certs = Certificates::default();
+        let committees = committees(&[(1, 20), (2, 16), (3, 16), (4, 16), (5, 16), (6, 16)]);
+        let (winner, loser) = (hash(1), hash(2));
+        for rep_id in 1..=3 {
+            pool.add(rep(rep_id), winner, VoteKind::First).unwrap();
+            pool.add(rep(rep_id), winner, VoteKind::Final).unwrap();
+        }
+        for rep_id in 4..=5 {
+            pool.add(rep(rep_id), loser, VoteKind::First).unwrap();
+            pool.add(rep(rep_id), winner, VoteKind::Notar).unwrap();
+        }
+        pool.add(rep(6), loser, VoteKind::Final).unwrap();
+        pool.add(rep(6), loser, VoteKind::Timeout).unwrap();
+        pool.calculate(&committees);
+        pool.update_certificates(&mut certs);
+        assert_eq!(certs.notar, vec![winner]);
+        assert!(!certs.is_finalized());
+        // The loser holds 48: reps 4 and 5 first voted it, rep 6 final voted
+        // it. Rep 6 never first voted, but it can not add its 16 again.
+        assert!(pool.is_settled(&certs, &[winner, loser]));
+    }
+
+    /// A representative that final voted the winner without a first vote
+    /// (line 11: the block was in its tree, it never proposed in this
+    /// instance) has exited: its weight can not first vote the loser any
+    /// more. Counting it kept a fork instance unsettled for good.
+    #[test]
+    fn settled_when_the_weight_without_a_first_vote_has_exited() {
+        let mut pool = SlotVotes::default();
+        let mut certs = Certificates::default();
+        let committees = committees(&[(1, 16), (2, 16), (3, 20), (4, 16), (5, 16), (6, 16)]);
+        let (winner, loser) = (hash(1), hash(2));
+        // Reps 1 and 5 first voted the loser, then notarized the winner
+        for rep_id in [1, 5] {
+            pool.add(rep(rep_id), loser, VoteKind::First).unwrap();
+            pool.add(rep(rep_id), winner, VoteKind::Notar).unwrap();
+        }
+        // Reps 2 and 4 first voted the winner and exited
+        for rep_id in [2, 4] {
+            pool.add(rep(rep_id), winner, VoteKind::First).unwrap();
+            pool.add(rep(rep_id), winner, VoteKind::Final).unwrap();
+        }
+        // Rep 3 exited with a final vote for the winner, without a first vote
+        pool.add(rep(3), winner, VoteKind::Final).unwrap();
+        // Rep 6 first voted the winner and timed out
+        pool.add(rep(6), winner, VoteKind::First).unwrap();
+        pool.add(rep(6), winner, VoteKind::Timeout).unwrap();
+        pool.calculate(&committees);
+        pool.update_certificates(&mut certs);
+        assert_eq!(certs.notar, vec![winner]);
+        // The loser holds 32 of first votes; rep 3's 20 can not join them,
+        // and 32 is short of many, so nobody takes a second look at it
+        assert!(pool.is_settled(&certs, &[winner, loser]));
     }
 
     /*

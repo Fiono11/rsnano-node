@@ -18,7 +18,8 @@ import json
 import sys
 import urllib.request
 
-PORTS = [17076 + 10 * i for i in range(6)]
+# The nodes running: PRS in the environment, six by default
+PORTS = [17076 + 10 * i for i in range(int(__import__("os").environ.get("PRS", "6")))]
 
 
 def rpc(port, body):

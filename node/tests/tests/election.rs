@@ -575,13 +575,17 @@ fn epoch_close_election_finalizes_the_epoch_state() {
     assert_eq!(close2.value, close.value);
 }
 
-/// RAI: the only discard: a block notarized in an epoch after the epoch was
-/// closed is not in the value finalized, it is rolled back. This node has no
+/// RAI: the only discard: once this node agreed on an epoch's value, an
+/// instance of the epoch which notarizes a block the value does not hold is
+/// late - the block is rolled back and the instance erased - and no instance
+/// of the epoch is started for a vote any more. This node has no
 /// representative; the genesis representative's votes decide everything.
 #[cfg(feature = "rai_protocol")]
 #[test]
-fn late_notarized_blocks_of_a_closed_epoch_are_rolled_back() {
-    use rsnano_node::consensus::{ActiveElectionsConfig, ApplyVoteArgs, FilteredVote};
+fn late_notarized_blocks_of_an_agreed_epoch_are_rolled_back() {
+    use rsnano_node::consensus::{
+        ActiveElectionsConfig, ApplyVoteArgs, FilteredVote, election::ElectionId,
+    };
     use rsnano_types::VoteKind;
 
     let mut system = System::new();
@@ -602,6 +606,15 @@ fn late_notarized_blocks_of_a_closed_epoch_are_rolled_back() {
     let send2 = lattice
         .genesis()
         .send(&PrivateKey::from(43), Amount::raw(1));
+    // send3 follows send1 like send2 does: the slot's block once send2 is gone
+    let mut other_lattice = UnsavedBlockLatticeBuilder::new();
+    other_lattice
+        .genesis()
+        .send(&PrivateKey::from(42), Amount::raw(1));
+    let send3 = other_lattice
+        .genesis()
+        .send(&PrivateKey::from(44), Amount::raw(1));
+    assert_eq!(send3.previous(), send1.hash());
     let apply = |vote: Vote| {
         node.aec.apply_vote(ApplyVoteArgs {
             vote: &FilteredVote::from(ReceivedVote::new(
@@ -614,12 +627,45 @@ fn late_notarized_blocks_of_a_closed_epoch_are_rolled_back() {
             now: node.steady_clock.now(),
         });
     };
+    // Through the vote processor: a vote for a block without an instance in
+    // its epoch starts that instance
+    let vote_blocking = |vote: Vote| {
+        let _ = node
+            .vote_processor
+            .vote_blocking(&FilteredVote::from(ReceivedVote::new(
+                Arc::new(vote),
+                VoteDelivery::Direct,
+                None,
+            )));
+    };
 
-    // send1 is finalized in epoch 0, which ends and is closed
+    // send1 is finalized in epoch 0, which ends
     node.process_active(send1.clone());
     assert_timely2(|| node.is_active_root(&send1.qualified_root()));
     apply(Vote::new_final(&DEV_GENESIS_KEY, vec![send1.hash()]));
     assert_timely2(|| node.aec.current_epoch() == ConsensusEpoch::new(1));
+
+    // send2 arrives from the network with a timeout vote of epoch 0 from a
+    // peer still in it: an instance of epoch 0 opened before the close,
+    // terminated without a block. Not late: the epoch is not agreed yet.
+    node.process_active(send2.clone());
+    assert_timely2(|| node.block(&send2.hash()).is_some());
+    vote_blocking(Vote::new_in_epoch(
+        &DEV_GENESIS_KEY,
+        VoteKind::Timeout,
+        ConsensusEpoch::ZERO,
+        vec![send2.hash()],
+    ));
+    assert_timely2(|| {
+        node.aec
+            .election(&ElectionId::new(
+                send2.qualified_root(),
+                ConsensusEpoch::ZERO,
+            ))
+            .is_some()
+    });
+
+    // Epoch 0 closes on the value with send1 alone, and this node agrees
     let value = node
         .aec
         .epoch_state(ConsensusEpoch::ZERO)
@@ -632,29 +678,14 @@ fn late_notarized_blocks_of_a_closed_epoch_are_rolled_back() {
     ));
     assert_timely2(|| node.aec.epoch_closes()[0].closed == Some((0, value)));
 
-    // send2 arrives from the network afterwards, with a vote of epoch 0 from
-    // a peer still in it: an instance of epoch 0 opened after the close
-    node.process_active(send2.clone());
-    assert_timely2(|| node.block(&send2.hash()).is_some());
+    // The instance notarizes send2, which the agreed value does not hold:
+    // late, rolled back and discarded; the epoch's value stays
     apply(Vote::new_in_epoch(
         &DEV_GENESIS_KEY,
         VoteKind::Notar,
         ConsensusEpoch::ZERO,
         vec![send2.hash()],
     ));
-    let _ = node
-        .vote_processor
-        .vote_blocking(&FilteredVote::from(ReceivedVote::new(
-            Arc::new(Vote::new_in_epoch(
-                &DEV_GENESIS_KEY,
-                VoteKind::First,
-                ConsensusEpoch::ZERO,
-                vec![send2.hash()],
-            )),
-            VoteDelivery::Direct,
-            None,
-        )));
-    // Notarized late: rolled back and discarded, the epoch's value stays
     assert_timely2(|| node.block(&send2.hash()).is_none());
     assert!(!node.is_active_root(&send2.qualified_root()));
     assert_eq!(
@@ -664,4 +695,25 @@ fn late_notarized_blocks_of_a_closed_epoch_are_rolled_back() {
         value
     );
     assert!(node.block(&send1.hash()).is_some());
+
+    // A vote of the agreed epoch for a block without an instance starts
+    // nothing: the epoch is decided for good, the block stays for the
+    // current epoch to decide
+    node.process_active(send3.clone());
+    assert_timely2(|| node.block(&send3.hash()).is_some());
+    vote_blocking(Vote::new_in_epoch(
+        &DEV_GENESIS_KEY,
+        VoteKind::First,
+        ConsensusEpoch::ZERO,
+        vec![send3.hash()],
+    ));
+    assert!(
+        node.aec
+            .election(&ElectionId::new(
+                send3.qualified_root(),
+                ConsensusEpoch::ZERO
+            ))
+            .is_none()
+    );
+    assert!(node.block(&send3.hash()).is_some());
 }

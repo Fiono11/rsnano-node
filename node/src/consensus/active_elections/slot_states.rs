@@ -1,5 +1,5 @@
 use rsnano_types::{Account, ConsensusEpoch};
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::consensus::election::{EpochSlot, LocalSlotState};
 
@@ -41,9 +41,13 @@ impl SlotStates {
         }
     }
 
-    /// RAI: drop the states of every slot in one epoch
-    pub fn remove_epoch(&mut self, epoch: ConsensusEpoch) {
-        self.by_slot.retain(|_, states| {
+    /// RAI: drop the states of one epoch but for the slots named: those
+    /// with an instance still in the AEC, which votes with them
+    pub fn remove_epoch_except(&mut self, epoch: ConsensusEpoch, keep: &FxHashSet<(Account, u64)>) {
+        self.by_slot.retain(|slot, states| {
+            if keep.contains(slot) {
+                return true;
+            }
             let before = states.len();
             states.retain(|(e, _)| *e != epoch);
             self.len -= before - states.len();
@@ -109,8 +113,10 @@ mod tests {
         assert!(states.get(&slot).is_none());
     }
 
+    /// RAI: the states of an agreed epoch go, but for the slots with an
+    /// instance still in the AEC
     #[test]
-    fn states_of_an_epoch_are_dropped_together() {
+    fn states_of_an_epoch_are_dropped_but_for_the_live_slots() {
         let mut states = SlotStates::default();
         let slot = |account: u64, epoch: u64| EpochSlot {
             account: Account::from(account),
@@ -120,13 +126,20 @@ mod tests {
         states.get_or_default(&slot(1, 0));
         states.get_or_default(&slot(1, 1));
         states.get_or_default(&slot(2, 0));
-        assert_eq!(states.len(), 3);
+        states.get_or_default(&slot(3, 0));
+        assert_eq!(states.len(), 4);
 
-        states.remove_epoch(ConsensusEpoch::ZERO);
+        let live = FxHashSet::from_iter([(Account::from(3), 1)]);
+        states.remove_epoch_except(ConsensusEpoch::ZERO, &live);
 
-        assert_eq!(states.len(), 1);
+        assert_eq!(states.len(), 2);
         assert!(states.get(&slot(1, 0)).is_none());
         assert!(states.get(&slot(2, 0)).is_none());
+        assert!(states.get(&slot(3, 0)).is_some());
         assert!(states.get(&slot(1, 1)).is_some());
+
+        states.remove_epoch_except(ConsensusEpoch::ZERO, &FxHashSet::default());
+        assert_eq!(states.len(), 1);
+        assert!(states.get(&slot(3, 0)).is_none());
     }
 }

@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex, mpsc::SyncSender};
 
 use tracing::debug;
 
-use rsnano_ledger::{BlockSource, Ledger, RollbackError};
+use rsnano_ledger::{BlockSource, Ledger, LedgerSet, RollbackError};
 use rsnano_messages::NetworkFilter;
 use rsnano_network::ChannelId;
 use rsnano_nullable_clock::SteadyClock;
@@ -168,6 +168,13 @@ impl AecFactProcessor {
     /// seen are not in the value finalized: rolled back from the ledger,
     /// together with what was built on them
     fn discard_late_blocks(&mut self, epoch: ConsensusEpoch, hashes: Vec<BlockHash>) {
+        // What is cemented is finalized: never rolled back, whatever a late
+        // instance of an earlier epoch notarized
+        let confirmed = self.ledger.confirmed();
+        let (cemented, hashes): (Vec<BlockHash>, Vec<BlockHash>) = hashes
+            .into_iter()
+            .partition(|hash| confirmed.block_exists(hash));
+        drop(confirmed);
         // The backlog scan re-queues an unconfirmed block without an election
         // for a new election: taken out before it is proposed again
         for hash in &hashes {
@@ -192,14 +199,18 @@ impl AecFactProcessor {
                 }
             }
         }
+        // The hashes are listed: the run's safety check reads them to prove
+        // that nothing discarded was ever finalized
         eprintln!(
-            "EPOCH_DISCARDED epoch={} candidates={} rolled_back={} not_held={} failed={} {:?}",
+            "EPOCH_DISCARDED epoch={} candidates={} rolled_back={} not_held={} cemented_kept={} failed={} {:?} hashes={:?}",
             epoch,
             hashes.len(),
             rolled_back,
             not_held,
+            cemented.len(),
             failed.len(),
-            failed.iter().take(3).collect::<Vec<_>>()
+            failed.iter().take(3).collect::<Vec<_>>(),
+            hashes.iter().map(|h| h.to_string()).collect::<Vec<_>>()
         );
     }
 

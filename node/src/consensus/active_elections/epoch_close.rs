@@ -1,9 +1,12 @@
-use std::{collections::BTreeMap, time::Duration};
+use std::{
+    collections::{BTreeMap, HashSet},
+    time::Duration,
+};
 
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{
-    Blake2HashBuilder, BlockHash, ConsensusEpoch, PublicKey, QualifiedRoot, Root, VoteError,
-    VoteKind,
+    Account, Blake2HashBuilder, BlockHash, ConsensusEpoch, PublicKey, QualifiedRoot, Root,
+    VoteError, VoteKind,
 };
 
 use crate::consensus::election::{
@@ -11,14 +14,23 @@ use crate::consensus::election::{
     LocalSlotState, SlotVotes, TIMEOUT_BLOCK, kudzu_state,
 };
 
-/// RAI: an instance of a closed epoch opened after the close certificate was
-/// seen is late: no block of it is in the value finalized, what it decides
-/// is discarded instead of recorded
-pub(super) fn is_late(closes: &BTreeMap<ConsensusEpoch, EpochClose>, election: &Election) -> bool {
-    closes
-        .get(&election.epoch())
-        .and_then(|close| close.closed_at())
-        .is_some_and(|closed_at| election.start() >= closed_at)
+/// RAI: the content of an epoch's value as this node agreed on it: every
+/// (account, height, block) the value hashed. The same on every replica
+/// that agreed, unlike the instant the certificate was seen here.
+pub(super) type AgreedContent = BTreeMap<ConsensusEpoch, HashSet<(Account, u64, BlockHash)>>;
+
+/// RAI: an instance of an agreed epoch that notarized a block the agreed
+/// value does not hold is late: what it decides is discarded instead of
+/// recorded. Until this node agrees, nothing of the epoch is late: an
+/// instance it lacks may be part of the value finalized.
+pub(super) fn is_late(agreed: &AgreedContent, election: &Election) -> bool {
+    agreed.get(&election.epoch()).is_some_and(|content| {
+        election
+            .certificates()
+            .notar
+            .iter()
+            .any(|block| !content.contains(&(election.account(), election.height(), *block)))
+    })
 }
 
 /// RAI: the close election of one consensus epoch, a multi-round Kudzu
@@ -50,6 +62,10 @@ pub(crate) struct EpochClose {
     /// The value this replica attests: the hash of the epoch's state as it
     /// stands, kept while not ready so that its statements stay routable
     own: Option<BlockHash>,
+    /// The hash of the epoch's state with every instance counted, the ones
+    /// opened after the close was seen here included: a replica that lacked
+    /// blocks at the close agrees with the value finalized once they came
+    own_all: Option<BlockHash>,
     /// Every instance of the epoch has settled here: the own value can not
     /// change any more (but for a late instance). An instance terminated by
     /// a timeout certificate is notarized later on, and a value proposed
@@ -69,8 +85,8 @@ pub(crate) struct EpochClose {
     validated: Vec<BlockHash>,
     /// The round whose certificate closed the epoch, and the value
     closed: Option<(u32, BlockHash)>,
-    /// When the certificate was seen here: an instance of the epoch opened
-    /// later is late, its blocks are not in the value finalized
+    /// When the certificate was seen here: the value attested counts the
+    /// instances opened before, so that it stands still and can agree
     closed_at: Option<Timestamp>,
     /// This replica's own value is the finalized one: the epoch's state is
     /// decided here, the instances without a block in it can be discarded
@@ -169,6 +185,7 @@ impl EpochClose {
             current: 0,
             ready: false,
             own: None,
+            own_all: None,
             settled: false,
             own_since: None,
             own_stable: false,
@@ -224,16 +241,25 @@ impl EpochClose {
         self.closed_at
     }
 
+    /// The finalized value is one of this replica's: the one it attests, or
+    /// the state with every instance counted
     fn check_agreed(&mut self) {
         if self.agreed {
             return;
         }
         if let Some((_, value)) = self.closed
-            && self.own == Some(value)
+            && (self.own == Some(value) || self.own_all == Some(value))
         {
             self.agreed = true;
             self.events.push(CloseEvent::Agreed(value));
         }
+    }
+
+    /// The hash of the epoch's state with every instance counted, the
+    /// alternative this replica may agree with
+    pub fn set_alternative(&mut self, value: BlockHash) {
+        self.own_all = Some(value);
+        self.check_agreed();
     }
 
     pub fn info(&self) -> EpochCloseInfo {

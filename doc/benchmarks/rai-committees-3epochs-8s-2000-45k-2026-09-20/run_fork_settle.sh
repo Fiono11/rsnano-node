@@ -1,10 +1,23 @@
 #!/bin/zsh
 # 45k/2000 bps/5% forks; terminates when all PRs have settled all elections identically
+#   run_fork_settle.sh <out.log> [extra nanospam args...]
+# NODES: the representatives running a node (6; 5 with --byzantine 1 or --offline 1),
+# which the checkers query
 set -u
 REPO=/Users/ruimorais/rsnano-node
 export PATH=$REPO/target/release:$PATH
 OUT=$1
-SNAP=$1.snap
+shift
+SNAP=$OUT.snap
+NODES=${NODES:-6}
+export PRS=$NODES
+LAST=$((NODES - 1))
+# Attempts before giving up on a run whose confirmations stall below 40k: a
+# fork on one of the first blocks freezes nanospam's account graph. One for a
+# run with faulty representatives, where a stall is the result.
+RESTARTS=${RESTARTS:-3}
+# How long the settle check waits for every PR to settle every epoch
+SETTLE_DEADLINE=${SETTLE_DEADLINE:-240}
 : > "$SNAP"
 DATA=$HOME/NanoSpam
 S=/Users/ruimorais/rsnano-node/doc/benchmarks/rai-committees-3epochs-8s-2000-45k-2026-09-20
@@ -16,17 +29,18 @@ for attempt in {1..12}; do
 done
 
 which rsnano
-for attempt in 1 2 3; do
+for attempt in $(seq 1 $RESTARTS); do
   rm -rf "$DATA"; mkdir -p "$DATA"
   START=$(date +%s)
-  caffeinate -i nanospam --prs 6 --no-prio --blocks 45000 --accounts 45000 --rate 2000 --fork-percentage 5 --epoch-duration-ms 8000 --no-kill > "$OUT" 2>&1 &
+  caffeinate -i nanospam --prs 6 --no-prio --blocks 45000 --accounts 45000 --rate 2000 --fork-percentage 5 --epoch-duration-ms 8000 --no-kill "$@" > "$OUT" 2>&1 &
   NSPID=$!
   # publishing is over once nanospam reports no confirmations for fifteen
-  # consecutive seconds (an epoch switch may stall confirmations for a few)
-  until [ "$(grep -a -c '| 0 cps |' "$OUT")" -ge 15 ]; do
+  # *consecutive* seconds (an epoch switch may stall confirmations for a few)
+  zeros() { local n=$(grep -a -c "cps |" "$OUT"); [ "$n" -ge 15 ] && [ "$(grep -a "cps |" "$OUT" | tail -15 | grep -a -c '| 0 cps |')" -ge 15 ]; }
+  until zeros; do
     if grep -a -q "never saw the full quorum\|^Error" "$OUT"; then
       echo "nanospam aborted: $(grep -a 'never saw\|^Error' "$OUT" | head -1 | cut -c1-200)" | tee -a "$SNAP"
-      for i in 0 1 2 3 4 5; do
+      for i in $(seq 0 $LAST); do
         port=$((17076+10*i))
         echo "=== PR$i confirmation_quorum ===" >> "$SNAP"
         curl -sg -m 5 -d '{"action":"confirmation_quorum","peer_details":"true"}' "http://[::1]:$port" >> "$SNAP"; echo >> "$SNAP"
@@ -48,11 +62,11 @@ for attempt in 1 2 3; do
   kill $NSPID 2>/dev/null; pkill -f "rsnano --network test"; sleep 3; pkill -9 -f "rsnano --network test"; pkill -f nanospam; sleep 2
 done
 echo "publishing done after $((PUB_END-START))s" | tee -a "$SNAP"
-python3 $S/settle_check.py 5 240 2>&1 | tee -a "$SNAP"
+python3 $S/settle_check.py 5 $SETTLE_DEADLINE 2>&1 | tee -a "$SNAP"
 SETTLE_EXIT=${pipestatus[1]}
 echo "settle check exit=$SETTLE_EXIT at $(( $(date +%s) - START ))s (settle phase $(( $(date +%s) - PUB_END ))s)" | tee -a "$SNAP"
 
-for i in 0 1 2 3 4 5; do
+for i in $(seq 0 $LAST); do
   port=$((17076+10*i))
   echo "=== PR$i block_count ===" >> "$SNAP"
   curl -sg -d '{"action":"block_count"}' "http://[::1]:$port" >> "$SNAP"; echo >> "$SNAP"

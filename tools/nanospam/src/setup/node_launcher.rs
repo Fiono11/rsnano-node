@@ -65,7 +65,7 @@ pub(crate) async fn start_nodes(
         // Send keepalives so that nano_node connects (their preconfigured peers don't allow ports)!
         info!("Sending keepalives...");
         for (i, rpc_client) in rpc_clients.iter().enumerate() {
-            for k in 0..args.prs {
+            for k in 0..args.honest_prs() {
                 if k != i {
                     rpc_client.keepalive("::1", peering_port(k)).await.unwrap();
                 }

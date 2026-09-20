@@ -2,7 +2,7 @@ import json, sys, urllib.request, collections
 def rpc(port, body):
     req = urllib.request.Request(f"http://[::1]:{port}", data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
     return json.loads(urllib.request.urlopen(req, timeout=30).read())
-ports = [17076 + 10*i for i in range(6)]
+ports = [17076 + 10*i for i in range(int(__import__("os").environ.get("PRS", "6")))]
 per_pr = {}; details = {}
 for i, port in enumerate(ports):
     active = rpc(port, {"action": "confirmation_active"})

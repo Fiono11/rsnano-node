@@ -86,7 +86,9 @@ pub(crate) fn configure_nodes(args: &CliArgs, data_dir: &Path) {
         }
     }
 
-    for i in 0..args.prs {
+    // Only the representatives that run a node need a config; the offline and
+    // Byzantine ones hold weight in the ledger without a process
+    for i in 0..args.honest_prs() {
         info!("********************************************************************************");
         info!("Setting up node PR{i}...");
 
@@ -106,7 +108,7 @@ pub(crate) fn configure_nodes(args: &CliArgs, data_dir: &Path) {
             let node_config = NODE_CONFIG
                 .replace("PEERING_PORT", &peering_port(i).to_string())
                 .replace("WS_PORT", &websocket_port(i).to_string())
-                .replace("PRECONF_PEERS", &preconfigured_peers(args.prs, i))
+                .replace("PRECONF_PEERS", &preconfigured_peers(args.honest_prs(), i))
                 .replace("DB_BACKEND", if args.rocksdb { "rocksdb" } else { "lmdb" })
                 .replace("CPS_LIMIT", &args.cps_limit.to_string())
                 .replace(

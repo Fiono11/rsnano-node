@@ -21,7 +21,14 @@ import sys
 import time
 import urllib.request
 
-PORTS = [17076 + 10 * i for i in range(6)]
+# The nodes running: PRS in the environment, six by default
+PORTS = [17076 + 10 * i for i in range(int(__import__("os").environ.get("PRS", "6")))]
+# A Byzantine representative that first voted the winner of a fork and never
+# exits may, by Kudzu's rules, still take a second look at the loser: such an
+# instance never settles, on any PR. With ALLOW_PENDING set, pending instances
+# that are identical on every PR and unchanged over three samples do not hold
+# the run back; the closes and the safety checks decide it.
+ALLOW_PENDING = __import__("os").environ.get("ALLOW_PENDING") == "1"
 POLL = float(sys.argv[1]) if len(sys.argv) > 1 else 5.0
 DEADLINE = float(sys.argv[2]) if len(sys.argv) > 2 else 60.0
 
@@ -226,6 +233,7 @@ def close_snapshot():
 
 
 start = time.time()
+stable_samples = []
 while True:
     per_pr, counts = snapshot()
     epochs, open_by_epoch, inconsistent = check(per_pr)
@@ -235,16 +243,36 @@ while True:
     print(f"t={elapsed:.0f}s epochs={epochs} open={ {e: v for e, v in open_by_epoch.items()} } inconsistent={inconsistent} cemented={cemented}", flush=True)
     for epoch in epochs:
         print(f"  epoch {epoch}: " + " | ".join(summarize(view, epoch) for view in per_pr), flush=True)
-    if total_open == 0:
+    if ALLOW_PENDING and total_open > 0:
+        # pending counts unchanged on every PR three samples in a row, and the
+        # same state hash per epoch: what is left is held by a faulty
+        # representative, not by disagreement. Whether such an instance counts
+        # as settled on a PR depends on which of the faulty votes reached it
+        # (a final vote is an exit), so the counts need not be equal.
+        stable_samples.append(dict(open_by_epoch))
+        stable_samples = stable_samples[-3:]
+        if len(stable_samples) == 3 and stable_samples[0] == stable_samples[1] == stable_samples[2]:
+            differing = [e for e in epochs if len({v[e]["hash"] for v in per_pr if e in v}) > 1]
+            if differing:
+                print(f"INCONSISTENT (with pending: {differing})")
+                for epoch in differing:
+                    diff_entries(epoch)
+                    diagnose(epoch)
+                sys.exit(2)
+            print(f"SETTLED_WITH_PENDING after {elapsed:.0f}s: pending {open_by_epoch} stable on every PR, epochs {epochs} hash identically, cemented={cemented}")
+            sys.exit(wait_for_close(close_snapshot))
+    if total_open == 0 and not inconsistent:
+        print(f"SETTLED_CONSISTENT after {elapsed:.0f}s: epochs {epochs} identical on all PRs, cemented={cemented}")
+        sys.exit(wait_for_close(close_snapshot))
+    if elapsed > DEADLINE:
+        # a PR still missing blocks the others finalized is not settled, not
+        # inconsistent: only a difference that lasts is
         if inconsistent:
             print("INCONSISTENT")
             for epoch in inconsistent:
                 diff_entries(epoch)
                 diagnose(epoch)
             sys.exit(2)
-        print(f"SETTLED_CONSISTENT after {elapsed:.0f}s: epochs {epochs} identical on all PRs, cemented={cemented}")
-        sys.exit(wait_for_close(close_snapshot))
-    if elapsed > DEADLINE:
         print("TIMEOUT")
         for epoch in epochs:
             if sum(open_by_epoch[epoch]) > 0:

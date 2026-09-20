@@ -86,17 +86,99 @@ Steady-state throughput and latency are at the step-4 level. The 1→2 switch is
 a joint phase (epoch 2 counted jointly for ~1 s until epoch 1 closed) and its seconds are worse
 than in the step-4 run in both runs; two runs against one, so this is a hint, not a measurement.
 
+## Faulty representatives (2026-09-20, later the same day)
+
+nanospam got two options, combinable: `--offline p` (the last *p* PRs are funded but run no
+node and never vote: p of the thresholds) and `--byzantine f` (the last *f* PRs run no node
+either; nanospam holds their keys and votes with them at random - any kind, any epoch 0-3,
+1-3 recently published hashes, 8 votes per 50 ms: f). PR0, the genesis representative, is
+always honest. Every check takes the node count from `PRS`.
+
+`--offline 1` passed every check at once. `--byzantine 1` stalled the run outright and, once
+that was fixed, kept turning up latent bugs of the Kudzu rules that six equal honest
+representatives had masked - with six, every split has a ≥ 62 % side; with five voters it
+does not:
+
+1. **`maxVotes` counted the timeout block.** A 3-abstain / 2-propose split (52 % / 32 %)
+   deadlocked: the proposers never timed out because `allVotes − maxVotes` was measured
+   against the abstains. Kudzu §4.7 defines maxVotes over non-timeout blocks. Fixed in
+   `should_timeout`.
+2. **A representative's weight counted twice in the settled predicate.** A final vote without
+   a first vote (the Byzantine rep's) put its weight into the loser's tally *and* into the
+   "weight that may still first vote it"; a notarized fork never settled anywhere. Fixed in
+   `max_notar_weight`.
+3. **An exited representative counted as able to first vote.** A final vote without a first
+   vote (Kudzu line 11, legitimate for an honest replica whose first vote went to another
+   epoch's instance of the same block) is an exit; its weight can not first vote the loser
+   any more. Fixed in `is_settled`: what may still first vote is the unknown weight plus the
+   known representatives with neither a first vote nor a final one.
+
+And the rules that changed, all four the user's choice after the diagnosis:
+
+- **Late by content, not by time.** An instance of an *agreed* epoch that notarizes a block
+  the agreed value does not hold is late. The content is the set of (account, height, block)
+  the value hashed, snapshotted when this node agrees - identical on every agreeing replica,
+  unlike the instant the close certificate was seen here, which made the same instance late on
+  one PR and timely on another (363 late discards in one run, 43 rolling back blocks the other
+  PRs held as decided; nine attested values in one close). Until a node agrees nothing is
+  late: an instance it lacks may be part of the value.
+- **No instance of an agreed epoch is started for a vote**; such a vote is late, not cached.
+- **Slot states of an epoch go when it is agreed** (but for the slots with a live instance,
+  which go with their election), not two closes later: a re-opened instance had found no
+  state and a node had voted first *and* abstain in one instance.
+- **A late instance never discards a block finalized in another epoch** (`finalized_kept`), nor
+  a cemented one (`cemented_kept` in `EPOCH_DISCARDED`, which now lists the hashes so that S5
+  can read them).
+- **Committees derive in epoch order**: a replica that agreed on epoch e+1 before epoch e (its
+  own value differed there for a while) derived C(e+1) without e's frontiers - a digest the
+  others did not hold. Out-of-order agreements wait.
+
+What a Byzantine representative can still do, by the rules: keep a fork instance unsettled
+for good, by first voting the winner and never exiting (it may take a second look at the
+loser, so no replica can call the instance settled); and get a fork's *loser* single-notarized
+in a second epoch's instance with three honest first votes and its own. Neither touches the
+ledger (S1 holds, S5 holds), both pollute that epoch's state. The settle check therefore
+accepts pending instances that are identical and stable on every PR (`ALLOW_PENDING`), and
+S2 reports rather than fails. Open: whether an epoch's state should exclude a single-notarized
+block at a slot finalized differently in another epoch; and one `--offline 1` run whose
+epoch-0 drain waited ~60 s on two fork instances, not reproduced in four further runs.
+
+One more rule came out of verifying the four: **a replica agrees on either of two values** -
+the one it attests (the instances opened before it saw the close certificate, which stands
+still once the epoch is closed) or the state with every instance counted. Judging lateness by
+content alone had removed the cutoff from the attested value, and an honest run then never
+agreed on an epoch: a node's value kept moving with the instances straddling the switch. The
+frozen value lets those nodes agree; the all-instances value lets a node that lacked blocks
+at the close agree once they came. Whichever matches is the agreed content.
+
+The double finalization S3 reports, 0 in every honest run, is routine under a Byzantine
+representative (700-1300 blocks per run): its votes open a block's instance in every epoch.
+
+### Verification (every check, `run_faulty.sh`, after all fixes)
+
+| run | settle | close | committees | safety | discards | rate / median (busy s) |
+|---|---|---|---|---|---|---|
+| honest, 6 PRs | consistent, all epochs | consistent | consistent | SAFE, S3 = 0 | 0 | 1872 cps / 110 ms |
+| `--offline 1` | consistent | consistent | consistent | SAFE, S3 = 0 | 0 | 2001 cps / 111 ms |
+| `--byzantine 1` | pending stable on every PR after 132 s | consistent, 18 epochs | consistent | SAFE, S3 = 1233 | 155, none of a finalized block | 3305 cps / 518 ms, seconds of 6-27 s |
+
+The Byzantine run degrades hard (its votes open a block's instance in every epoch and split the
+honest nodes at every boundary) but neither the ledger nor the committees diverge.
+
 ## Tooling
 
 - `committee_check.py`: over `final_state`, per PR, the committees known (`derived_by`, digest,
   n, members' weights); `COMMITTEES_CONSISTENT` or `_INCONSISTENT` / `_MISSING` (a PR in epoch
   e+2 without C(e)).
 - `safety_check.py`: the invariants over the union of what every PR reports, so a violation
-  every PR shares still fails: S1 no two conflicting blocks finalized across all epochs, S2 no
-  finalized block beside a different settled-single one at its slot, S3 blocks finalized in
-  more than one epoch (reported, not failed: the code tolerates it, the workload never produced
-  one), S4 every finalized block cemented at its height on every PR (sampled), S5 no block
-  discarded as late was finalized. The other checks compare the PRs with each other.
+  every PR shares still fails: S1 no two conflicting blocks finalized across all epochs, S4
+  every finalized block cemented at its height on every PR (sampled), S5 no block discarded as
+  late was finalized. Reported, not failed: S2 a slot finalized one way and single-notarized
+  another in some epoch, S3 blocks finalized in more than one epoch. The other checks compare
+  the PRs with each other.
+- `run_faulty.sh`: the verification driver for the faulty-representative options: every check
+  on `--byzantine 1`, the honest run and `--offline 1`; on a failed check the open instances are
+  dumped from every PR into `compare/<run>.open` before the nodes are torn down.
 - `run_fork_settle.sh`: as before, plus the committee and safety checks; on a failed check the nodes are
   kept running for a post-mortem over RPC (clean up by hand: `pkill -f "rsnano --network test";
   rm -rf ~/NanoSpam`).
