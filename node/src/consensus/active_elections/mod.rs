@@ -43,7 +43,9 @@ pub struct ActiveElectionsConfig {
     /// never ends an epoch by time
     pub epoch_duration: Duration,
     /// RAI: Δ_timeout of a round of an epoch's close election: a replica
-    /// abstains once it waited this long for a valid proposal
+    /// abstains once it waited this long for a valid proposal. A round led
+    /// by a representative which does not propose costs this long; a leader
+    /// proposes within `EpochClose::PROPOSAL_DELAY` of getting ready
     pub close_round_timeout: Duration,
 }
 
@@ -54,7 +56,7 @@ impl Default for ActiveElectionsConfig {
             confirmation_cache: 65536,
             epoch_terminated_elections: 0,
             epoch_duration: Duration::ZERO,
-            close_round_timeout: Duration::from_secs(5),
+            close_round_timeout: Duration::from_secs(2),
         }
     }
 }

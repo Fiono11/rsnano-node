@@ -292,9 +292,15 @@ impl EpochClose {
     /// Once the epoch is closed, instances still without a certificate do
     /// not matter: if the state without them is the value finalized, this
     /// replica agrees.
+    ///
+    /// Once ready, a replica stays ready: an instance of the epoch opened
+    /// for a vote after this replica left the epoch (a straggler's, or a
+    /// faulty representative's) ends by a timeout and adds nothing to the
+    /// value, and the close must not wait for it - a faulty representative
+    /// can open such instances without end.
     pub fn set_state(&mut self, state: &EpochState) {
         let value = state.close_value(self.epoch);
-        self.ready = state.is_terminated();
+        self.ready |= state.is_terminated();
         self.settled = state.is_settled();
         if !self.ready && self.closed.is_none_or(|(_, closed)| closed != value) {
             return;
@@ -670,6 +676,32 @@ mod tests {
             close.votes_due(&[LEADER]),
             vec![(0, value(2), VoteKind::First)]
         );
+    }
+
+    /// An instance of the epoch opened after this replica got ready (a vote
+    /// of a straggler, or of a faulty representative which never stops)
+    /// does not stop the close: the rounds go on, the leader proposes
+    #[test]
+    fn an_instance_opened_after_the_replica_got_ready_does_not_stop_the_close() {
+        let mut close = close_election();
+        close.set_state(&state(1));
+        close.tick(t(0));
+        close.take_events();
+
+        let mut reopened = state(1);
+        reopened.unterminated += 1;
+        reopened.pending += 1;
+        close.set_state(&reopened);
+        close.tick(t(0) + EpochClose::PROPOSAL_DELAY);
+        assert_eq!(close.take_events(), vec![]);
+        assert_eq!(
+            close.votes_due(&[LEADER]),
+            vec![(0, value(1), VoteKind::First)]
+        );
+
+        // A follower's round times out as usual
+        close.tick(t(0) + TIMEOUT);
+        assert!(close.round(0).timed_out);
     }
 
     #[test]

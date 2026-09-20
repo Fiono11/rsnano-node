@@ -57,6 +57,6 @@ mod tests {
         assert_eq!(toml.bootstrap_stale_threshold, Some(42));
         assert_eq!(toml.epoch_terminated_elections, Some(0));
         assert_eq!(toml.epoch_duration_ms, Some(0));
-        assert_eq!(toml.close_round_timeout_ms, Some(5000));
+        assert_eq!(toml.close_round_timeout_ms, Some(2000));
     }
 }

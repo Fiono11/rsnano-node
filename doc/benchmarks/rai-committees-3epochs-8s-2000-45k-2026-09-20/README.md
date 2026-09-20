@@ -165,6 +165,81 @@ representative (700-1300 blocks per run): its votes open a block's instance in e
 The Byzantine run degrades hard (its votes open a block's instance in every epoch and split the
 honest nodes at every boundary) but neither the ledger nor the committees diverge.
 
+### Where the Byzantine run's time goes (2026-09-20, evening)
+
+`drain_check.py` over a fresh `--byzantine 1` run on the build above: the epochs' drains and
+closes against the per-second confirmations. **41 of the 50 confirming seconds were inside a
+drain** (an ended epoch some PR had not left yet): 692 cps at a 7.7 s median inside, 1356 cps
+at 112 ms outside. Epoch 0, before any close is pending, ran at honest speed (2091 cps /
+106 ms); the vote traffic was ~10 % above honest. The cost is not the Byzantine votes, it is
+what they do to the epoch *close*, behind which the epoch pipeline is serialized: no election
+starts while an ended epoch drains (`insert` → `Draining`), a node leaves an ended epoch only
+once the epoch before is closed (`try_advance_epoch`), and a close only ticks once the one
+before it closed (`tick_closes`). The drain-wait lines said it directly:
+`unterminated=0 previous_closed=false`.
+
+| epoch | drain | close rounds | close took | instances at end (min..max over PRs) |
+|---|---|---|---|---|
+| 0 | 6.2 s | 0, 1 | 14.3 s | 1043..1044 |
+| 1 | 6.8 s | 0, 1, 2, 3 | 23.2 s | 1462..2437 |
+| 2 | 16.5 s | 0, 1 | 26.0 s | 2570..6456 |
+| 3 | 11.3 s | 0 | 12.7 s | 3485..9216 |
+
+Three things made the closes slow, all found in the close event lines:
+
+1. **The close froze whenever the epoch reopened.** `EpochClose::set_state` set `ready =
+   state.is_terminated()` on every tick, and `tick` returns while not ready: a Byzantine vote
+   of the closed epoch opens a stale instance (~1300 per node per run), the epoch has an
+   unterminated instance again, and until its timeout certificate the close neither proposed
+   nor advanced its round timeout. Honest-led rounds passed without a proposal (epoch 1's
+   round 0: all five PRs ready with the same value, no close for 7 s). **Fix:** once ready, a
+   replica stays ready - such an instance ends by a timeout and adds nothing to the value.
+2. **The Byzantine representative leads rounds.** The leaders are the epoch's voters, in key
+   order; a round it leads costs the full `close_round_timeout` of 5 s (7-9 s observed, with
+   the freeze). Kudzu is safe under any timeout, only liveness depends on it: **the default is
+   now 2 s**, above the leader's 1 s `PROPOSAL_DELAY`.
+3. **The Byzantine representative extended the ended epoch.** During the drain it votes
+   `First, epoch e` for fresh blocks; `insert_for_vote` started those in the ending epoch
+   (`started_for_vote`, not stale) and the draining replicas *proposed* in them - their ledger
+   block, dependencies finalized - so with three draining replicas plus the Byzantine share
+   each one got a notarization certificate. The drain grew one instance at a time, and the
+   leader's value changed every 0.3 s (DFECF273 → 3C1C8E5D → … over 5 s), so its 1 s
+   stability wait never elapsed. **Fix:** no new election starts in an ended epoch - an
+   instance opened for a vote while the epoch drains abstains like one of an epoch already
+   left; the block is decided in the next epoch.
+
+Two amplifiers, not causes: the **priority scheduler spun** (`election_scheduler.loop`
+1.5M-4.4M per node against 34k-38k honest) whenever `check_vacancy` said yes and `refill`
+inserted nothing - the container at its cap of 5000 (two PRs sat at 6398 active) or cooling
+down (`active_elections.cooldown` fired 1-9 times per run); **fix:** `check_vacancy` mirrors
+`refill`'s guards, the scheduler sleeps until `AecFact::Recovered` or the next block. And
+`bootstrap_stale` at ~11k per node was the settle phase, not the run: elections older than
+the 60 s threshold, after publishing ended - left alone.
+
+With all fixes the Byzantine run's per-epoch medians are 112, 116, 120 ms (honest: 104, 107,
+109 ms); `election_scheduler.loop` is back at 29k-36k per node in both runs, and
+`started_for_vote` fell from 8k-12k to 2k-4k per node (the ended epoch no longer takes fresh
+blocks). Every check passed on both: settled (with the pending instances the Byzantine
+representative keeps open, stable on every PR), closed, committees consistent, SAFE, no
+discards. Epoch 1's close still took 11 s over four rounds - a leader's proposal is only
+first-voted by the replicas whose value it is, and the instances the Byzantine representative
+opens still land differently on each; the two-value rule catches most of it, not all.
+
+Not done: decoupling the next epoch's start from the previous close. Epoch e+2 counts in
+C(e), derived from epoch e's agreed state, so its instances could only pool votes until the
+close anyway; the lag of two epochs is the slack, and the fixes above are what keep a close
+inside it. Nor a budget for vote-started stale instances: at ~26 per second against 2000
+elections per second they cost ~1 %, once they no longer freeze the close.
+
+| run | drain windows | closes (rounds) | busy rate / median | seconds ≥ 1 s | settle phase |
+|---|---|---|---|---|---|
+| byzantine, before | 41 of 50 s | 14.3, 23.2, 26.0, 12.7 s (2, 4, 2, 1) | 3329 cps / 136 ms | 5 of 12 | 132 s, 18 epochs |
+| byzantine, fixes 1+2 + scheduler cap | 18 of 62 s | 9.8, 12.6, 8.7, 4.8 s (2, 3, 3, 2) | 3161 cps / 118 ms | 4 of 13 | 10 s, 6 epochs |
+| byzantine, all fixes | **9 of 31 s** | **5.5, 11.4, 6.3, 1.3 s (2, 4, 2, 2)** | **2452 cps / 115 ms** | **2 of 17 (max 1.6 s)** | 10 s, 4 epochs |
+| honest, before (run 4) | 3 of 26 s | 2.0, 3.0, 2.3 s (2, 2, 1) | 1883 cps / 105 ms | 1 of 22 | 0 s |
+| honest, fixes 1+2 + scheduler cap | 3 of 23 s | 1.7, 1.7, 0.7 s (2, 2, 1) | 1831 cps / 108 ms | 0 of 23 | 0 s |
+| honest, all fixes | 3 of 42 s | 2.1, 2.3, 1.2, 0.2 s (2, 2, 1, 1) | 1928 cps / 108 ms | 0 of 21 (max 512 ms) | 1 s |
+
 ## Tooling
 
 - `committee_check.py`: over `final_state`, per PR, the committees known (`derived_by`, digest,
@@ -176,6 +251,9 @@ honest nodes at every boundary) but neither the ledger nor the committees diverg
   late was finalized. Reported, not failed: S2 a slot finalized one way and single-notarized
   another in some epoch, S3 blocks finalized in more than one epoch. The other checks compare
   the PRs with each other.
+- `drain_check.py`: where a run's time goes - per epoch the drain (ended → last PR left), the
+  close's rounds and duration, the spread of instance counts over the PRs; the per-second
+  confirmations inside the drain windows against outside; the busy seconds per epoch.
 - `run_faulty.sh`: the verification driver for the faulty-representative options: every check
   on `--byzantine 1`, the honest run and `--offline 1`; on a failed check the open instances are
   dumped from every PR into `compare/<run>.open` before the nodes are torn down.

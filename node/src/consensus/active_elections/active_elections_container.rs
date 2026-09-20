@@ -960,7 +960,14 @@ impl ActiveElectionsContainer {
             self.stats.agreed_epoch_refused += 1;
             return;
         }
-        if epoch < self.current_epoch {
+        // No new election starts in an ended epoch: in an instance of an
+        // epoch this node has left, or of the one it is draining, it does
+        // not propose, it abstains, and the block is decided in the next
+        // epoch. A faulty representative could otherwise extend the drain
+        // without end, a fresh block at a time, and with the votes of the
+        // replicas still draining notarize each one: the epoch's value would
+        // never stand still for its close
+        if epoch < self.current_epoch || self.draining {
             let slot = EpochSlot {
                 account: block.account(),
                 height: block.height(),
@@ -1155,11 +1162,20 @@ impl ActiveElectionsContainer {
         self.roots.round_robin().map(|i| &i.election)
     }
 
+    /// Whether the source has a candidate `refill` would take. False while
+    /// the container cools down, while the ended epoch drains and while the
+    /// container is at its cap: `refill` would insert nothing then, and the
+    /// scheduler would call it again at once, without end. The scheduler is
+    /// woken when the cooldown is over (`AecFact::Recovered`) and on every
+    /// block enqueued
     pub fn check_vacancy<T>(&self, source: &T) -> bool
     where
         T: ElectionCandidateSource,
     {
-        if self.draining {
+        if self.cooldown.is_cooling_down()
+            || self.draining
+            || self.roots.active_len() >= self.max_elections
+        {
             return false;
         }
         let bucket_infos = self.roots.bucket_infos();
@@ -1927,7 +1943,10 @@ fn unix_ms() -> u128 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::consensus::ReceivedVote;
+    use crate::consensus::{
+        ReceivedVote,
+        active_elections::{BucketInfo, ElectionCandidate},
+    };
     use rsnano_types::{PrivateKey, TimePriority, Vote, VoteDelivery};
     use std::sync::Arc;
 
@@ -1953,6 +1972,44 @@ mod tests {
             .unwrap();
 
         assert_eq!(container.len(), 1);
+    }
+
+    /// The scheduler asks before every refill: at the cap there is no
+    /// vacancy, whatever the source holds
+    #[test]
+    fn no_vacancy_at_the_cap() {
+        let mut container = ActiveElectionsContainer::new(
+            ActiveElectionsConfig {
+                max_elections: 2,
+                ..Default::default()
+            },
+            Duration::from_secs(1),
+        );
+        let now = Timestamp::new_test_instance();
+        assert!(container.check_vacancy(&AlwaysAvailable));
+        for key in 1..=2 {
+            container
+                .insert(
+                    AecInsertRequest::new_priority(
+                        SavedBlock::new_test_instance_with_key(key),
+                        BlockPriority::new_test_instance(),
+                    ),
+                    now,
+                )
+                .unwrap();
+        }
+        assert!(!container.check_vacancy(&AlwaysAvailable));
+    }
+
+    /// Nor while the container cools down: `refill` inserts nothing then
+    #[test]
+    fn no_vacancy_while_cooling_down() {
+        let mut container = ActiveElectionsContainer::default();
+        assert!(container.check_vacancy(&AlwaysAvailable));
+        container.set_cooldown(true, AecCooldownReason::AecFactQueueFull);
+        assert!(!container.check_vacancy(&AlwaysAvailable));
+        container.set_cooldown(false, AecCooldownReason::AecFactQueueFull);
+        assert!(container.check_vacancy(&AlwaysAvailable));
     }
 
     #[test]
@@ -2112,6 +2169,64 @@ mod tests {
         assert!(container.erase(&root));
         assert_eq!(container.len(), 0);
         assert!(!container.is_active_hash(&block_hash));
+    }
+
+    /// The ended epoch drains: a vote of the epoch for a block without an
+    /// instance opens one, but this node does not propose in it any more, it
+    /// abstains - the block is for the next epoch
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn does_not_propose_in_an_instance_opened_for_a_vote_while_draining() {
+        let mut container = ActiveElectionsContainer::new(
+            ActiveElectionsConfig {
+                epoch_terminated_elections: 1,
+                ..Default::default()
+            },
+            Duration::from_secs(1),
+        );
+        let decided = SavedBlock::new_test_instance_with_key(1);
+        let undecided = SavedBlock::new_test_instance_with_key(2);
+        let fresh = SavedBlock::new_test_instance_with_key(3);
+        let now = Timestamp::new_test_instance();
+        container.start_epochs(now);
+        for block in [&decided, &undecided] {
+            container
+                .insert(
+                    AecInsertRequest::new_priority(
+                        block.clone(),
+                        BlockPriority::new_test_instance(),
+                    ),
+                    now,
+                )
+                .unwrap();
+        }
+        let rep_key = PrivateKey::from(1);
+        let mut rep_weights = RepWeights::default();
+        rep_weights.put(rep_key.public_key(), Amount::MAX);
+        container.apply_vote(ApplyVoteArgs {
+            vote: &test_final_vote(&rep_key, decided.hash()).into(),
+            rep_weights: &rep_weights,
+            quorum_snapshot: &QuorumSnapshot::new_test_instance(),
+            now,
+        });
+        container.transition_time(now);
+        assert!(container.is_draining());
+        assert_eq!(container.current_epoch(), ConsensusEpoch::ZERO);
+
+        container.insert_for_vote(fresh.clone(), ConsensusEpoch::ZERO, now);
+        assert_eq!(container.stats.stale_started, 1);
+        assert_eq!(container.stats.started_for_vote, 0);
+        let due = container.kudzu_votes_due(|_| true);
+        assert!(due.contains(&VoteTarget {
+            election: ElectionId::legacy(fresh.qualified_root()),
+            winner: fresh.hash(),
+            vote_type: VoteType::Abstain,
+        }));
+        assert!(!due.contains(&VoteTarget {
+            election: ElectionId::legacy(fresh.qualified_root()),
+            winner: fresh.hash(),
+            vote_type: VoteType::NonFinal,
+        }));
     }
 
     /// left undecided
@@ -3336,6 +3451,24 @@ mod tests {
         assert!(container.is_priority_active_hash(&priority.hash()));
         assert!(!container.is_priority_active_hash(&hinted.hash()));
         assert!(!container.is_priority_active_hash(&BlockHash::from(3)));
+    }
+
+    /// A candidate source which always has a block to schedule
+    struct AlwaysAvailable;
+
+    impl ElectionCandidateSource for AlwaysAvailable {
+        fn should_schedule(&self, _buckets: &[BucketInfo]) -> bool {
+            true
+        }
+
+        fn next_candidate(
+            &mut self,
+            _bucket_id: usize,
+            _vacancy: isize,
+            _lowest_priority: TimePriority,
+        ) -> Option<ElectionCandidate> {
+            None
+        }
     }
 
     fn test_final_vote(rep_key: &PrivateKey, block_hash: BlockHash) -> ReceivedVote {
