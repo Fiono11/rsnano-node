@@ -260,3 +260,148 @@ elections per second they cost ~1 %, once they no longer freeze the close.
 - `run_fork_settle.sh`: as before, plus the committee and safety checks; on a failed check the nodes are
   kept running for a post-mortem over RPC (clean up by hand: `pkill -f "rsnano --network test";
   rm -rf ~/NanoSpam`).
+
+## RAI vs legacy matrix (2026-09-20, evening, commit e534921cc)
+
+Six runs of the same branch, one nanospam binary (this branch) driving every run so the
+workload, the setup ledger and the metrics are identical; only the node binary changes:
+`--features rai_protocol` (RAI) against the same commit without the feature (legacy, the
+develop code paths). The legacy runs use `run_compare.sh` (equal-conditions harness, no
+checkers: legacy has no RAI RPC fields), the RAI fork-0 run too; the RAI fork-5, Byzantine
+and offline runs use `run_fork_settle.sh` with the settle, committee and safety checks. All
+at 45k blocks, 45k accounts, 2000 bps, 6 PRs, no priority; RAI with 8 s epochs. Run order
+A, C, B, D, E, F so the fork-0 and fork-5 pairs sit adjacent in time. Machine quiet
+throughout (one idle-gate wait of 10 s before F for a Cursor Helper at 56 %). Statistics
+over the seconds at ≥ 1000 cps (`summarize.py`), the drain and close columns from
+`drain_check.py`, the verdicts from the `.snap` files.
+
+| run | build | faults | rate | median | seconds ≥ 1 s | finished | drain windows | closes (rounds) | verdicts |
+|---|---|---|---|---|---|---|---|---|---|
+| A | legacy | fork 0 | 1983 cps | 191 ms | 0 of 22 (max 258 ms) | 45000 in 23.6 s | – | – | – |
+| C | RAI | fork 0 | **2028 cps** | **97 ms** | 0 of 21 (max 542 ms) | 45000 in 22.9 s | 2 of 21 s | 0.9, 1.2, 0.4 s (2, 2, 1) | – (no checkers) |
+| B | legacy | fork 5 | 1777 cps | 296 ms | 0 of 22 busy; **41 of 90 overall (max 72.6 s)** | **no**: collapsed at ~40k, stalled at 44 993 | – | – | – |
+| D | RAI | fork 5 | **1878 cps** | **106 ms** | 0 of 22 (max 602 ms) | 42 900 cemented (all 6 PRs), rest are the losing forks | 2 of 23 s | 1.9, 2.1, 2.7 s (1, 2, 3) | SETTLED_CONSISTENT (6 s), CLOSED_CONSISTENT, COMMITTEES_CONSISTENT, SAFE, discarded 0 |
+| E | RAI | fork 5, byzantine 1 | 1862 cps | 108 ms | 0 of 23 (max 439 ms) | 42 846 cemented (5 PRs) | 2 of 22 s | 1.1, 1.0, 0.6 s (2, 1, 2) | SETTLED_CONSISTENT (0 s), CLOSED_CONSISTENT, COMMITTEES_CONSISTENT, SAFE, discarded 0 |
+| F | RAI | fork 5, offline 1 | 1998 cps | 109 ms | 0 of 21 (max 496 ms) | 42 790 cemented (5 PRs) | 2 of 22 s | 1.1, 1.3, 0.5 s (1, 2, 2) | SETTLED_CONSISTENT (0 s), CLOSED_CONSISTENT, COMMITTEES_CONSISTENT, SAFE, discarded 0 |
+
+nanospam's own headlines for the two runs that published all 45 000 without forks: legacy
+1908 cps / 198 ms average, RAI 1965 cps / 138 ms average. The fork runs never print one:
+nanospam counts the ~2100 losing fork blocks among its 45 000, and those are never confirmed,
+so `run_fork_settle.sh` ends them on 15 consecutive seconds without a confirmation.
+
+**Throughput: RAI wins in both pairs.** Without forks the rates are within noise (2028 against
+1983 cps, +2 %) and the RAI median latency is half the legacy one (97 against 191 ms). With
+5 % forks RAI keeps 1878 cps at 106 ms while legacy runs at 1777 cps and 296 ms for as long
+as it runs at all.
+
+**Fork handling: RAI, by a wide margin.** The legacy build ran twice under forks and both
+times ran at ~1500 cps up to ~40k blocks, then collapsed to a trickle of 0-400 cps with
+confirmation latencies of 8-72 s: the first attempt hit the 90 s hard timeout (exit 4, no data
+point, `legacy-fork5-attempt1-discarded.log`), the second ended by the stall rule
+seven blocks short of 45 000 with every PR at 45 063 of 45 065 cemented, and 41 of its 90
+status seconds above 1 s. The RAI fork-5 run settled every one of its 42 900 non-fork blocks
+identically on all six PRs, closed all three epochs identically, kept the committees
+consistent and passed the safety invariants, with no second above 1 s.
+
+**The RAI overhead does not differ between fork 0 and fork 5 - there is none against
+legacy in either.** Going from fork 0 to fork 5 costs RAI 7 % of rate (2028 → 1878 cps) and
+9 % of median latency (97 → 106 ms); it costs legacy 10 % of rate (1983 → 1777 cps), 55 % of
+median latency (191 → 296 ms) and the end of the run. The RAI advantage grows with forks:
++2 % rate / −49 % latency at fork 0, +6 % / −64 % at fork 5 over the seconds legacy still ran.
+
+**Faulty representatives cost little.** With one Byzantine or one offline representative out
+of six the rate stays within 1-6 % of the honest fork-5 run (1862 and 1998 against 1878 cps)
+and the median within 3 ms; every check passes and nothing is discarded.
+
+Two observations, neither a failure:
+
+- In D, `drain_check.py` reports epoch 1's close as 27.5 s. The close event lines show all
+  six PRs at `EPOCH_CLOSED`/`EPOCH_AGREED` within 2.1 s of the epoch's end; a seventh
+  `EPOCH_AGREED` came 27.5 s after the end from the one PR (PR0) that the first settle
+  snapshot shows with two epoch-1 instances still open and a different epoch-1 final-state
+  hash (18A7A72D against 73CEDAB6), which resolved within 5 s of the settle check. The
+  table's 2.1 s is the network's close; the script takes the last agreed line.
+- Every RAI run has one spike of 440-600 ms in the second an epoch ends (the drain), the
+  fork-0 run included; legacy fork 0 has none but sits at 191 ms throughout.
+
+Logs in `attempts/matrix-2026-09-20/` (gitignored): `legacy-fork0.log`, `rai-fork0.log`,
+`legacy-fork5.log` (+ `legacy-fork5-attempt1-discarded.log`), `rai-fork5.log`, `rai-byz.log`,
+`rai-off.log`, and the `.snap` files of the last three.
+
+## Two faulty representatives (2026-09-20, night, commit e534921cc)
+
+Two more RAI runs with the matrix's values (45k blocks, 45k accounts, 2000 bps, 6 PRs, no
+priority, 5 % forks, 8 s epochs), both with two of the six representatives at fault:
+G `--byzantine 1 --offline 1` (PR5 votes at random with its key, PR4 runs no node) and
+H `--offline 2` (PR4 and PR5 run no node). nanospam funds each PR with the same 40 M and the
+4.2 % remainder lands on one honest PR (PR1 in G, PR3 in H), so the faulty pair holds
+2 × 16.0 % = 32 % of the genesis committee and the honest four 68.2 % in both runs: at the
+edge of f < n/3, and well over the f = 19 % the Kudzu thresholds are set for (certificate
+62 %, fast 81 %, second look / timeout 38 %). `run_fork_settle.sh` with `NODES=4 RESTARTS=1
+ALLOW_PENDING=1 SETTLE_DEADLINE=480`, machine quiet, same binaries as the matrix.
+
+| run | build | faults | rate | median | seconds ≥ 1 s | finished | drain windows | closes (rounds) | verdicts |
+|---|---|---|---|---|---|---|---|---|---|
+| D | RAI | fork 5 | 1878 cps | 106 ms | 0 of 22 (max 602 ms) | 42 900 cemented (all 6 PRs) | 2 of 23 s | 1.9, 2.1, 2.7 s (1, 2, 3) | SETTLED_CONSISTENT, CLOSED_CONSISTENT, COMMITTEES_CONSISTENT, SAFE, discarded 0 |
+| E | RAI | fork 5, byzantine 1 | 1862 cps | 108 ms | 0 of 23 (max 439 ms) | 42 846 cemented (5 PRs) | 2 of 22 s | 1.1, 1.0, 0.6 s (2, 1, 2) | all consistent, SAFE, discarded 0 |
+| F | RAI | fork 5, offline 1 | 1998 cps | 109 ms | 0 of 21 (max 496 ms) | 42 790 cemented (5 PRs) | 2 of 22 s | 1.1, 1.3, 0.5 s (1, 2, 2) | all consistent, SAFE, discarded 0 |
+| G | RAI | fork 5, byzantine 1 + offline 1 | 2144 cps | 190 ms | 0 of 6 (max 200 ms) | **no**: 13 824 confirmed, stalled at the end of epoch 0 | epoch 0's drain never completed (750 unterminated after 17 s) | none | checks not run (see below); no close, no discard |
+| H | RAI | fork 5, offline 2 | 2175 cps | 184 ms | 0 of 6 (max 197 ms) | **no**: 13 911 confirmed, stalled at the end of epoch 0 | epoch 0's drain never completed (759 unterminated after 18 s) | none | checks not run (see below); no close, no discard |
+
+The G/H rates are over six busy seconds and include the ramp-up second at 3500 cps; the
+steady seconds ran at 1750-1930 cps in both, i.e. at the matrix's rate.
+
+**Neither run stayed live past epoch 0.** Both confirmed at full rate for the 8 s of epoch 0
+(the fork-free blocks: 68.2 % honest weight clears the 62 % certificate whenever all four
+honest votes are in) and stopped in the second the epoch ended: `EPOCH_ENDED` at 8.0 s with
+1163 (G) / 996 (H) instances, 958 / 972 of them active, then `EPOCH_DRAIN_WAIT` once a second
+on every PR with the unterminated count going 928 → 760 → 750 (G) and 952 → 787 → 759 (H)
+and staying there until the harness gave up 15 s later. No `EPOCH_CLOSED`, `EPOCH_AGREED` or
+`EPOCH_DISCARDED` line: the close of epoch 0 never began, because the drain it waits for
+never ended. So the answer to "at which epoch and why" is: epoch 0, and the elections, not
+the close and not the committee weights (only the genesis committee ever existed; its shares
+are the ones above, identical on all four PRs; `committee_check` could not run).
+
+**What is stuck: the fork elections, every one of them.** Every election the drain lines
+show is `active:2:4`: state active, two blocks in the tree, four representatives' Kudzu
+votes. 5 % of ~13.9k blocks is ~700 forks; 750-760 unterminated is those plus a few dozen
+single-block stragglers that appeared in the first drain lines (`active:1:1`, `active:1:2`)
+and cleared. In H the four votes are the four honest PRs (there is no other voter), so
+this is not the Byzantine PR's doing: it is the thresholds. nanospam sends the fork block
+to every second node (`tools/nanospam/src/app.rs`, "send fork to every second node"), so
+with four nodes the first votes split exactly 2-2: PR0 + PR2 on the fork (32 %), PR1 + PR3
+on the original (36.2 %). That is below the 62 % notarization certificate for either block, below
+the 38 % `many` a replica needs to take a second look at the other block (`has_many` in
+`kudzu.rs`) and below the 38 % gap `should_timeout` needs (`all_first − max ≥ many`), so no
+replica ever switches, times out or abstains: the slot can neither finalize nor be
+abandoned, and the drain waits for it forever. With one faulty representative (E, F) the
+same 2-2 split has five voters, 3-2 or 2-3, the minority side sees ≥ 38 % on the other
+block, takes the second look and the slot finalizes. The Byzantine vote in G is
+irrelevant to this (random votes cannot lift a block over 62 % of which the honest hold
+at most 36 %); G and H stall for the same reason. The 2-2 split is the reading of the
+drain lines (two blocks, four votes, nothing terminates); the per-representative vote kinds
+that would confirm it are the RPC post-mortem the harness did not leave room for (below).
+
+**Latency at the edge.** The non-fork blocks confirmed at 184-190 ms median against
+106-109 ms in D/E/F: with 68.2 % honest weight the 81 % fast path is out of reach, so every
+block takes the two-round path (notarization, then final votes) and needs every one of the
+four honest votes, i.e. the slowest honest voter sets the latency. E and F, with 84 % honest,
+still had the fast path.
+
+**Not a safety question.** Nothing was finalized twice, discarded or closed; the
+`safety_check` could not run because the nodes were gone (next paragraph), but the event log
+holds no `EPOCH_DISCARDED` and no close, and the four PRs report the same unterminated
+count on every drain line.
+
+**Harness gap, for the next such run.** `run_fork_settle.sh`'s stall rule (confirmed < 40k
+after 15 zero seconds) kills the nodes before the settle check runs, so under `RESTARTS=1` a
+run that stalls on its faults, which is the expected result here, ends with the nodes dead
+and the three checks failing on `Connection refused` (the `.snap` files hold only those
+tracebacks). The "nodes kept running" branch is only reached by a run that got past 40k.
+The post-mortem over RPC that would show the vote kinds per representative on a stuck
+fork (`confirmation_active`) is therefore missing; the drain lines above are the
+evidence. To get it, run nanospam by hand with the same arguments and query PR0 while
+it sits in the drain, or make the stall rule skip the kill when `RESTARTS=1`.
+
+Logs in `attempts/2026-09-20-two-faults/` (gitignored): `rai-byz1-off1.log`, `rai-off2.log`,
+their `.snap` files (tracebacks only) and the two wrapper logs.
