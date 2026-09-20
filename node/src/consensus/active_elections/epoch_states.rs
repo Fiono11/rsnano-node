@@ -3,7 +3,9 @@ use std::{
     sync::Arc,
 };
 
-use rsnano_types::{Account, BlockHash, ConsensusEpoch, QualifiedRoot, VoteKind};
+use rsnano_types::{
+    Account, Amount, BlockHash, ConsensusEpoch, PublicKey, QualifiedRoot, VoteKind,
+};
 
 use crate::consensus::election::{FinalStateHash, LocalSlotState};
 
@@ -17,9 +19,26 @@ pub(crate) struct FinalizedInstance {
     pub epoch: ConsensusEpoch,
     pub winner: BlockHash,
     pub candidates: Vec<BlockHash>,
-    /// The candidates with a notarization certificate, the winner included
-    pub notarized: Vec<BlockHash>,
+    /// The representative and balance of the winner: what the committee
+    /// derived from the epoch counts. None for a legacy block.
+    pub delegation: Option<Delegation>,
     pub slot: LocalSlotState,
+}
+
+/// RAI: what a block delegates: its balance to its representative
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Delegation {
+    pub hash: BlockHash,
+    pub representative: PublicKey,
+    pub balance: Amount,
+}
+
+/// RAI: a block finalized in an instance of an epoch, with what it delegates
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FinalizedBlock {
+    pub account: Account,
+    pub height: u64,
+    pub delegation: Delegation,
 }
 
 impl FinalizedInstance {
@@ -38,7 +57,12 @@ impl FinalizedInstance {
 /// epoch's record of them.
 #[derive(Default)]
 pub(crate) struct EpochStates {
-    /// The hash of every block notarized in the finalized instances of the epoch
+    /// The hash of the winner of every instance finalized in the epoch. The
+    /// winner only: a losing candidate's notarization certificate races the
+    /// finalization certificate, and the instance is erased the moment it
+    /// finalizes, so whether the loser was notarized by then differs from
+    /// replica to replica. The value the close agrees on must not depend on
+    /// that; the loser is not what the epoch decided anyway.
     by_epoch: BTreeMap<ConsensusEpoch, FinalStateHash>,
     /// The finalized instances per epoch
     count_by_epoch: BTreeMap<ConsensusEpoch, u64>,
@@ -54,9 +78,7 @@ impl EpochStates {
             return;
         }
         let hash = self.by_epoch.entry(instance.epoch).or_default();
-        for block in &instance.notarized {
-            hash.add(&instance.account, instance.height, block);
-        }
+        hash.add(&instance.account, instance.height, &instance.winner);
         *self.count_by_epoch.entry(instance.epoch).or_default() += 1;
         let instance = Arc::new(instance);
         for candidate in &instance.candidates {
@@ -105,6 +127,28 @@ impl EpochStates {
     /// The instances finalized in the epoch
     pub fn finalized_count(&self, epoch: ConsensusEpoch) -> u64 {
         self.count_by_epoch.get(&epoch).copied().unwrap_or(0)
+    }
+
+    /// The winner of every instance finalized in the given epoch, with what
+    /// it delegates: what the epoch's state hashes for these instances
+    pub fn finalized_blocks_in(&self, epoch: ConsensusEpoch) -> Vec<FinalizedBlock> {
+        let mut seen: Vec<FinalizedBlock> = Vec::new();
+        for instances in self.instances.values() {
+            for instance in instances.iter().filter(|i| i.epoch == epoch) {
+                let Some(delegation) = instance.delegation else {
+                    continue;
+                };
+                let entry = FinalizedBlock {
+                    account: instance.account,
+                    height: instance.height,
+                    delegation,
+                };
+                if !seen.contains(&entry) {
+                    seen.push(entry);
+                }
+            }
+        }
+        seen
     }
 
     /// The blocks finalized in the given epoch, as (account, height, hash)
@@ -206,6 +250,40 @@ mod tests {
         assert_eq!(states.by_epoch()[&epoch1].entries(), 2);
     }
 
+    /// The value the close agrees on hashes what the epoch decided: the
+    /// winner, whether or not the losing candidate got a notarization
+    /// certificate before the instance was erased
+    #[test]
+    fn epoch_hash_covers_the_winner_only() {
+        let account = Account::from(1);
+        let winner = BlockHash::from(1);
+        let loser = BlockHash::from(2);
+        let mut with_loser = EpochStates::default();
+        with_loser.record_finalized(instance(
+            &account,
+            ConsensusEpoch::ZERO,
+            winner,
+            &[winner, loser],
+            LocalSlotState::default(),
+        ));
+        let mut winner_only = EpochStates::default();
+        winner_only.record_finalized(instance(
+            &account,
+            ConsensusEpoch::ZERO,
+            winner,
+            &[winner],
+            LocalSlotState::default(),
+        ));
+        assert_eq!(
+            with_loser.by_epoch()[&ConsensusEpoch::ZERO],
+            winner_only.by_epoch()[&ConsensusEpoch::ZERO]
+        );
+        let blocks = with_loser.finalized_blocks_in(ConsensusEpoch::ZERO);
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].delegation.hash, winner);
+        assert_eq!(blocks[0].height, 1);
+    }
+
     /*
      * Test helpers
      */
@@ -224,7 +302,11 @@ mod tests {
             epoch,
             winner,
             candidates: candidates.to_vec(),
-            notarized: vec![winner],
+            delegation: Some(Delegation {
+                hash: winner,
+                representative: PublicKey::from(7),
+                balance: Amount::raw(10),
+            }),
             slot,
         }
     }

@@ -96,8 +96,15 @@ impl NanoSpamApp {
             }
         }
 
+        let representatives = self.args.representatives();
         let genesis_wallet_id = if self.args.set_up_new_nodes() {
-            create_wallets(&self.rpc_clients, genesis_rpc, &mut account_map).await
+            create_wallets(
+                &self.rpc_clients,
+                genesis_rpc,
+                &mut account_map,
+                &representatives,
+            )
+            .await
         } else {
             WalletId::ZERO
         };
@@ -109,7 +116,7 @@ impl NanoSpamApp {
         let logic = Mutex::new(SpamLogic::new(account_map, self.args.spam_spec()?));
 
         let (tx_blocks, rx_blocks) = mpsc::channel::<Forks>(MAX_BUFFERED_BLOCKS);
-        let mut high_prio_check = HighPrioCheck::new(genesis_rpc, &logic);
+        let mut high_prio_check = HighPrioCheck::new(genesis_rpc, &logic, representatives);
 
         if self.args.set_up_new_nodes() {
             high_prio_check
@@ -128,8 +135,10 @@ impl NanoSpamApp {
         wait_for_full_quorum(&self.rpc_clients).await?;
 
         // RAI: the setup is over and every PR holds its share of the weight:
-        // epoch 0 starts now on every PR
+        // epoch 0 starts now on every PR. Its genesis committee is the
+        // ledger as it stands, so every PR must hold the same ledger first.
         if self.args.epoch_duration_ms > 0 || self.args.epoch_terminated_elections > 0 {
+            wait_for_equal_ledgers(&self.rpc_clients).await?;
             for rpc_client in &self.rpc_clients {
                 rpc_client.epoch_start().await?;
             }
@@ -439,6 +448,34 @@ async fn republish_genesis_chain(rpc_clients: &[NanoRpcClient]) {
 /// The spam only starts once every PR has seen every representative vote and
 /// is connected to it: the quorum is then the same on all PRs, and no PR starts
 /// with thresholds derived from a partial view of the network.
+/// RAI: every PR holds the same, fully cemented ledger: the genesis
+/// committee each derives from it at the start of the epochs is the same
+async fn wait_for_equal_ledgers(rpc_clients: &[NanoRpcClient]) -> anyhow::Result<()> {
+    info!("Waiting for all PRs to hold the same cemented ledger...");
+    let started = Instant::now();
+    loop {
+        let mut counts = Vec::new();
+        for rpc_client in rpc_clients {
+            let count = rpc_client.block_count().await?;
+            counts.push((count.count.inner(), count.cemented.inner()));
+        }
+        let equal = counts.windows(2).all(|w| w[0] == w[1]);
+        let cemented = counts.iter().all(|(count, cemented)| count == cemented);
+        if equal && cemented {
+            info!(
+                "All PRs hold the same ledger of {} blocks after {:?}",
+                counts[0].0,
+                started.elapsed()
+            );
+            return Ok(());
+        }
+        if started.elapsed() > Duration::from_secs(120) {
+            return Err(anyhow!("the PRs never held the same ledger: {counts:?}"));
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+}
+
 async fn wait_for_full_quorum(rpc_clients: &[NanoRpcClient]) -> anyhow::Result<()> {
     info!("Waiting for all PRs to see the full quorum...");
     let started = Instant::now();

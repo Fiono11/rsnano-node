@@ -1,9 +1,8 @@
-use std::{cmp::max, collections::HashMap};
+use std::{cmp::max, collections::HashMap, sync::Arc};
 
 use rsnano_types::{Amount, BlockHash, PublicKey, VoteError, VoteKind};
-use rustc_hash::FxHashMap;
 
-use super::{ElectionState, block_tallies::BlockTallies};
+use super::{Committee, Committees, ElectionState, block_tallies::BlockTallies};
 use crate::representatives::QuorumSnapshot;
 
 /// Weight thresholds of the Kudzu voting rules for one election.
@@ -104,14 +103,13 @@ pub fn kudzu_state<'a>(
     current: ElectionState,
     votes: &SlotVotes,
     certs: &Certificates,
-    thresholds: &KudzuThresholds,
-    candidates: impl IntoIterator<Item = &'a BlockHash>,
+    candidates: impl IntoIterator<Item = &'a BlockHash> + Clone,
 ) -> ElectionState {
     if certs.is_finalized() {
         ElectionState::Confirmed
     } else if !certs.is_terminated() {
         current
-    } else if votes.is_settled(thresholds, certs, candidates) {
+    } else if votes.is_settled(certs, candidates) {
         ElectionState::Settled
     } else if certs.has_block() {
         ElectionState::Terminated
@@ -134,7 +132,6 @@ pub struct RepSlotVotes {
     pub notar: Vec<BlockHash>,
     pub timeout: bool,
     pub final_: Option<BlockHash>,
-    pub weight: Amount,
 }
 
 impl RepSlotVotes {
@@ -215,16 +212,154 @@ impl RepSlotVotes {
 }
 
 /// The vote pool of one election (Section 4.2), plus the weighted tallies
-/// derived from it
+/// derived from it in each committee the instance is counted in
 #[derive(Clone, Default)]
 pub struct SlotVotes {
     reps: HashMap<PublicKey, RepSlotVotes>,
+    /// One per committee, the instance's own committee first
+    tallies: Vec<CommitteeTallies>,
+}
+
+/// The tallies of the vote pool in one committee
+#[derive(Clone)]
+struct CommitteeTallies {
+    committee: Arc<Committee>,
     first_tallies: BlockTallies,
     notar_tallies: BlockTallies,
     final_tallies: BlockTallies,
     /// allVotes(firstVote), the abstaining first votes for the timeout block included
     all_first: Amount,
     timeout_weight: Amount,
+}
+
+impl CommitteeTallies {
+    fn calculate(committee: Arc<Committee>, reps: &HashMap<PublicKey, RepSlotVotes>) -> Self {
+        let weighted = || {
+            reps.iter()
+                .map(|(voter, rep)| (rep, committee.weight(voter)))
+        };
+        let mut first_tallies = BlockTallies::new();
+        first_tallies.calculate_from(weighted().filter_map(|(r, w)| r.first.map(|h| (h, w))));
+        let mut notar_tallies = BlockTallies::new();
+        notar_tallies
+            .calculate_from(weighted().flat_map(|(r, w)| r.notar.iter().map(move |h| (*h, w))));
+        let mut final_tallies = BlockTallies::new();
+        final_tallies.calculate_from(weighted().filter_map(|(r, w)| r.final_.map(|h| (h, w))));
+        let all_first = first_tallies.sum();
+        let timeout_weight = weighted().filter(|(r, _)| r.timeout).map(|(_, w)| w).sum();
+        Self {
+            committee,
+            first_tallies,
+            notar_tallies,
+            final_tallies,
+            all_first,
+            timeout_weight,
+        }
+    }
+
+    fn thresholds(&self) -> &KudzuThresholds {
+        self.committee.thresholds()
+    }
+
+    fn has_many(&self, hash: &BlockHash) -> bool {
+        self.first_tallies.get(hash) >= self.thresholds().many
+    }
+
+    /// Protocol 1, line 32: allVotes(firstVote) − maxVotes(firstVote) ≥ f + p + 1
+    fn should_timeout(&self) -> bool {
+        let max_votes = self
+            .first_tallies
+            .winner()
+            .map(|(_, tally)| *tally)
+            .unwrap_or_default();
+        self.all_first - max_votes >= self.thresholds().many
+    }
+
+    fn notarizes(&self, hash: &BlockHash) -> bool {
+        self.notar_tallies.get(hash) >= self.thresholds().certificate
+    }
+
+    fn times_out(&self) -> bool {
+        self.timeout_weight >= self.thresholds().certificate
+    }
+
+    fn fast_finalizes(&self, hash: &BlockHash) -> bool {
+        self.first_tallies.get(hash) >= self.thresholds().fast
+    }
+
+    fn finalizes(&self, hash: &BlockHash) -> bool {
+        self.final_tallies.get(hash) >= self.thresholds().certificate
+    }
+
+    /// Whether no further notarization certificate can form in this
+    /// committee, conservatively: a representative that exited silently is
+    /// still counted as able to vote
+    fn is_settled<'a>(
+        &self,
+        reps: &HashMap<PublicKey, RepSlotVotes>,
+        certs: &Certificates,
+        candidates: impl IntoIterator<Item = &'a BlockHash>,
+    ) -> bool {
+        // Weight that has not first voted yet, known or unknown. It can still first
+        // vote (and thereby notarize) any block, including one we have not seen.
+        // An abstaining first vote for the timeout block counts as cast.
+        let unvoted = self
+            .thresholds()
+            .online
+            .checked_sub(self.all_first)
+            .unwrap_or_default();
+        if unvoted >= self.thresholds().many {
+            return false;
+        }
+        candidates
+            .into_iter()
+            .filter(|hash| !certs.is_notarized(hash))
+            .all(|hash| self.max_notar_weight(reps, hash, unvoted) < self.thresholds().certificate)
+    }
+
+    /// Whether a finalization certificate for `hash` can still form in this
+    /// committee: the weight that has notarized nothing but `hash` (or
+    /// nothing at all, known or unknown) may still cast a final vote for it
+    /// (Protocol 1, line 10)
+    fn can_finalize(&self, reps: &HashMap<PublicKey, RepSlotVotes>, hash: &BlockHash) -> bool {
+        let known: Amount = reps.keys().map(|voter| self.committee.weight(voter)).sum();
+        let unknown = self
+            .thresholds()
+            .online
+            .checked_sub(known)
+            .unwrap_or_default();
+        // A representative that timed out never casts a final vote (line 10)
+        let able: Amount = reps
+            .iter()
+            .filter(|(_, r)| {
+                !r.timeout
+                    && r.notar.iter().all(|h| h == hash)
+                    && r.final_.is_none_or(|h| h == *hash)
+            })
+            .map(|(voter, _)| self.committee.weight(voter))
+            .sum();
+        able + unknown >= self.thresholds().certificate
+    }
+
+    fn max_notar_weight(
+        &self,
+        reps: &HashMap<PublicKey, RepSlotVotes>,
+        hash: &BlockHash,
+        unvoted: Amount,
+    ) -> Amount {
+        let can_reach_many = self.first_tallies.get(hash) + unvoted >= self.thresholds().many;
+        let mut result = self.notar_tallies.get(hash) + unvoted;
+        if can_reach_many {
+            // Every representative that has first voted and not exited could
+            // still take a second look (line 28), abstaining ones included
+            result += reps
+                .iter()
+                .filter(|(_, r)| r.first.is_some() && r.final_.is_none() && !r.notar.contains(hash))
+                .map(|(voter, _)| self.committee.weight(voter))
+                .sum();
+        }
+        result
+    }
 }
 
 impl SlotVotes {
@@ -257,110 +392,116 @@ impl SlotVotes {
         for rep in self.reps.values_mut() {
             rep.remove_block(hash);
         }
-        self.first_tallies.remove(hash);
-        self.notar_tallies.remove(hash);
-        self.final_tallies.remove(hash);
+        for tallies in &mut self.tallies {
+            tallies.first_tallies.remove(hash);
+            tallies.notar_tallies.remove(hash);
+            tallies.final_tallies.remove(hash);
+        }
     }
 
-    /// Recalculate all tallies with the given representative weights
-    pub fn calculate(&mut self, rep_weights: &FxHashMap<PublicKey, Amount>) {
-        for (voter, rep) in self.reps.iter_mut() {
-            rep.weight = rep_weights.get(voter).copied().unwrap_or_default();
-        }
-        let reps = self.reps.values();
-        self.first_tallies
-            .calculate_from(reps.clone().filter_map(|r| r.first.map(|h| (h, r.weight))));
-        self.notar_tallies.calculate_from(
-            reps.clone()
-                .flat_map(|r| r.notar.iter().map(move |h| (*h, r.weight))),
-        );
-        self.final_tallies
-            .calculate_from(reps.clone().filter_map(|r| r.final_.map(|h| (h, r.weight))));
-        self.all_first = self.first_tallies.sum();
-        self.timeout_weight = reps.filter(|r| r.timeout).map(|r| r.weight).sum();
+    /// Recalculate all tallies in the given committees
+    pub fn calculate(&mut self, committees: &Committees) {
+        self.tallies = committees
+            .iter()
+            .map(|committee| CommitteeTallies::calculate(committee.clone(), &self.reps))
+            .collect();
+    }
+
+    /// The tallies in the instance's own committee
+    fn primary(&self) -> Option<&CommitteeTallies> {
+        self.tallies.first()
     }
 
     pub fn first_tallies(&self) -> &BlockTallies {
-        &self.first_tallies
+        self.primary()
+            .map_or(&BlockTallies::EMPTY, |t| &t.first_tallies)
     }
 
     pub fn notar_tallies(&self) -> &BlockTallies {
-        &self.notar_tallies
+        self.primary()
+            .map_or(&BlockTallies::EMPTY, |t| &t.notar_tallies)
     }
 
     pub fn final_tallies(&self) -> &BlockTallies {
-        &self.final_tallies
+        self.primary()
+            .map_or(&BlockTallies::EMPTY, |t| &t.final_tallies)
     }
 
     pub fn all_first(&self) -> Amount {
-        self.all_first
+        self.primary().map_or(Amount::ZERO, |t| t.all_first)
     }
 
     pub fn timeout_weight(&self) -> Amount {
-        self.timeout_weight
+        self.primary().map_or(Amount::ZERO, |t| t.timeout_weight)
     }
 
-    /// manyVotes(firstVote): the blocks with at least f + p + 1 first votes. The
-    /// timeout block is not looked at, its notarization is the timeout vote
-    /// (lines 32-35).
-    pub fn many_votes<'a>(
-        &'a self,
-        thresholds: &'a KudzuThresholds,
-    ) -> impl Iterator<Item = BlockHash> + 'a {
-        self.first_tallies
-            .iter()
-            .filter(|(hash, tally)| *hash != TIMEOUT_BLOCK && *tally >= thresholds.many)
-            .map(|(hash, _)| *hash)
+    /// manyVotes(firstVote): the blocks with at least f + p + 1 first votes in
+    /// some committee. The timeout block is not looked at, its notarization is
+    /// the timeout vote (lines 32-35).
+    pub fn many_votes(&self) -> Vec<BlockHash> {
+        let mut result = Vec::new();
+        for tallies in &self.tallies {
+            for (hash, _) in tallies.first_tallies.iter() {
+                if *hash != TIMEOUT_BLOCK && tallies.has_many(hash) && !result.contains(hash) {
+                    result.push(*hash);
+                }
+            }
+        }
+        result
     }
 
     /// Protocol 1, line 32: allVotes(firstVote) − maxVotes(firstVote) ≥ f + p + 1
-    pub fn should_timeout(&self, thresholds: &KudzuThresholds) -> bool {
-        let max_votes = self
-            .first_tallies
-            .winner()
-            .map(|(_, tally)| *tally)
-            .unwrap_or_default();
-        self.all_first - max_votes >= thresholds.many
+    /// in some committee
+    pub fn should_timeout(&self) -> bool {
+        self.tallies.iter().any(|t| t.should_timeout())
     }
 
-    /// Adds every certificate the current tallies support
-    pub fn update_certificates(&self, thresholds: &KudzuThresholds, certs: &mut Certificates) {
-        for (hash, tally) in self.notar_tallies.iter() {
+    /// Adds every certificate the current tallies support: a notarization or
+    /// finalization certificate in every committee, a timeout certificate in
+    /// one of them
+    pub fn update_certificates(&self, certs: &mut Certificates) {
+        let Some(primary) = self.primary() else {
+            return;
+        };
+        for (hash, _) in primary.notar_tallies.iter() {
             if *hash != TIMEOUT_BLOCK
-                && *tally >= thresholds.certificate
+                && self.tallies.iter().all(|t| t.notarizes(hash))
                 && !certs.notar.contains(hash)
             {
                 certs.notar.push(*hash);
             }
         }
         // The notarization certificate of the timeout block
-        if self.timeout_weight >= thresholds.certificate {
+        if self.tallies.iter().any(|t| t.times_out()) {
             certs.timeout = true;
         }
         if certs.fast.is_none() {
-            certs.fast = self
+            certs.fast = primary
                 .first_tallies
                 .iter()
-                .find(|(hash, tally)| *hash != TIMEOUT_BLOCK && *tally >= thresholds.fast)
+                .find(|(hash, _)| {
+                    *hash != TIMEOUT_BLOCK && self.tallies.iter().all(|t| t.fast_finalizes(hash))
+                })
                 .map(|(hash, _)| *hash);
         }
         if certs.final_.is_none() {
-            certs.final_ = self
+            certs.final_ = primary
                 .final_tallies
                 .iter()
-                .find(|(_, tally)| *tally >= thresholds.certificate)
+                .find(|(hash, _)| self.tallies.iter().all(|t| t.finalizes(hash)))
                 .map(|(hash, _)| *hash);
         }
     }
 
-    /// An election is settled when no further notarization certificate can form.
-    /// This is a conservative, locally provable check: a representative that exited
-    /// silently is still counted as able to vote.
+    /// An election is settled when no further notarization certificate can
+    /// form: a certificate needs every committee, so it is enough that one
+    /// of them can not produce it any more. This is a conservative, locally
+    /// provable check: a representative that exited silently is still
+    /// counted as able to vote.
     pub fn is_settled<'a>(
         &self,
-        thresholds: &KudzuThresholds,
         certs: &Certificates,
-        candidates: impl IntoIterator<Item = &'a BlockHash>,
+        candidates: impl IntoIterator<Item = &'a BlockHash> + Clone,
     ) -> bool {
         if certs.is_finalized() {
             return true;
@@ -368,61 +509,19 @@ impl SlotVotes {
         if !certs.is_terminated() {
             return false;
         }
-        // Weight that has not first voted yet, known or unknown. It can still first
-        // vote (and thereby notarize) any block, including one we have not seen.
-        // An abstaining first vote for the timeout block counts as cast.
-        let unvoted = thresholds
-            .online
-            .checked_sub(self.all_first)
-            .unwrap_or_default();
-        if unvoted >= thresholds.many {
-            return false;
-        }
-        candidates
-            .into_iter()
-            .filter(|hash| !certs.is_notarized(hash))
-            .all(|hash| self.max_notar_weight(hash, unvoted, thresholds) < thresholds.certificate)
+        self.tallies
+            .iter()
+            .any(|t| t.is_settled(&self.reps, certs, candidates.clone()))
     }
 
-    /// Whether a finalization certificate for `hash` can still form: the weight
-    /// that has notarized nothing but `hash` (or nothing at all, known or
-    /// unknown) may still cast a final vote for it (Protocol 1, line 10)
-    pub fn can_finalize(&self, thresholds: &KudzuThresholds, hash: &BlockHash) -> bool {
-        let known: Amount = self.reps.values().map(|r| r.weight).sum();
-        let unknown = thresholds.online.checked_sub(known).unwrap_or_default();
-        // A representative that timed out never casts a final vote (line 10)
-        let able: Amount = self
-            .reps
-            .values()
-            .filter(|r| {
-                !r.timeout
-                    && r.notar.iter().all(|h| h == hash)
-                    && r.final_.is_none_or(|h| h == *hash)
-            })
-            .map(|r| r.weight)
-            .sum();
-        able + unknown >= thresholds.certificate
-    }
-
-    fn max_notar_weight(
-        &self,
-        hash: &BlockHash,
-        unvoted: Amount,
-        thresholds: &KudzuThresholds,
-    ) -> Amount {
-        let can_reach_many = self.first_tallies.get(hash) + unvoted >= thresholds.many;
-        let mut result = self.notar_tallies.get(hash) + unvoted;
-        if can_reach_many {
-            // Every representative that has first voted and not exited could
-            // still take a second look (line 28), abstaining ones included
-            result += self
-                .reps
-                .values()
-                .filter(|r| r.first.is_some() && r.final_.is_none() && !r.notar.contains(hash))
-                .map(|r| r.weight)
-                .sum();
-        }
-        result
+    /// Whether a finalization certificate for `hash` can still form: in
+    /// every committee (Protocol 1, line 10)
+    pub fn can_finalize(&self, hash: &BlockHash) -> bool {
+        !self.tallies.is_empty()
+            && self
+                .tallies
+                .iter()
+                .all(|t| t.can_finalize(&self.reps, hash))
     }
 }
 
@@ -552,6 +651,7 @@ impl LocalSlotState {
 mod tests {
     use super::*;
     use rsnano_types::PrivateKey;
+    use rustc_hash::FxHashMap;
 
     #[test]
     fn thresholds_from_online_weight() {
@@ -594,7 +694,7 @@ mod tests {
             pool.add(rep(1), hash(2), VoteKind::First),
             Err(VoteError::Replay)
         );
-        pool.calculate(&weights(&[(1, 10)]));
+        pool.calculate(&committees(&[(1, 10)]));
         assert_eq!(pool.first_tallies().get(&hash(1)), Amount::raw(10));
         assert_eq!(pool.notar_tallies().get(&hash(1)), Amount::raw(10));
         assert_eq!(pool.all_first(), Amount::raw(10));
@@ -629,7 +729,7 @@ mod tests {
             pool.add(rep(1), hash(1), VoteKind::Final),
             Err(VoteError::Replay)
         );
-        pool.calculate(&weights(&[(1, 10)]));
+        pool.calculate(&committees(&[(1, 10)]));
         assert_eq!(pool.timeout_weight(), Amount::raw(10));
         assert_eq!(pool.final_tallies().get(&hash(1)), Amount::raw(10));
         // A final vote supplies notarization weight but is not a first vote
@@ -640,59 +740,56 @@ mod tests {
     #[test]
     fn many_votes_and_timeout_rule() {
         // f + p + 1 = 39 of 100
-        let t = thresholds();
         let mut pool = SlotVotes::default();
         pool.add(rep(1), hash(1), VoteKind::First).unwrap();
         pool.add(rep(2), hash(2), VoteKind::First).unwrap();
         pool.add(rep(3), hash(3), VoteKind::First).unwrap();
-        pool.calculate(&weights(&[(1, 40), (2, 25), (3, 14)]));
+        pool.calculate(&committees(&[(1, 40), (2, 25), (3, 14)]));
 
-        assert_eq!(pool.many_votes(&t).collect::<Vec<_>>(), vec![hash(1)]);
+        assert_eq!(pool.many_votes(), vec![hash(1)]);
         // allVotes − maxVotes = 79 − 40 = 39 ≥ 39
-        assert!(pool.should_timeout(&t));
+        assert!(pool.should_timeout());
 
-        pool.calculate(&weights(&[(1, 40), (2, 25), (3, 13)]));
-        assert!(!pool.should_timeout(&t));
+        pool.calculate(&committees(&[(1, 40), (2, 25), (3, 13)]));
+        assert!(!pool.should_timeout());
     }
 
     #[test]
     fn certificates_form_at_their_thresholds_and_never_disappear() {
-        let t = thresholds();
         let mut pool = SlotVotes::default();
         let mut certs = Certificates::default();
 
         pool.add(rep(1), hash(1), VoteKind::First).unwrap();
         pool.add(rep(2), hash(1), VoteKind::First).unwrap();
-        pool.calculate(&weights(&[(1, 50), (2, 17), (3, 20)]));
-        pool.update_certificates(&t, &mut certs);
+        pool.calculate(&committees(&[(1, 50), (2, 17), (3, 20)]));
+        pool.update_certificates(&mut certs);
         assert_eq!(certs.notar, vec![hash(1)]);
         assert!(certs.is_terminated());
         assert!(!certs.is_finalized());
 
         pool.add(rep(3), hash(1), VoteKind::First).unwrap();
-        pool.calculate(&weights(&[(1, 50), (2, 17), (3, 20)]));
-        pool.update_certificates(&t, &mut certs);
+        pool.calculate(&committees(&[(1, 50), (2, 17), (3, 20)]));
+        pool.update_certificates(&mut certs);
         assert_eq!(certs.fast, Some(hash(1)));
         assert_eq!(certs.finalized(), Some(hash(1)));
 
         // Weights dropping does not revoke a certificate
-        pool.calculate(&weights(&[(1, 1), (2, 1), (3, 1)]));
-        pool.update_certificates(&t, &mut certs);
+        pool.calculate(&committees(&[(1, 1), (2, 1), (3, 1)]));
+        pool.update_certificates(&mut certs);
         assert_eq!(certs.notar, vec![hash(1)]);
         assert_eq!(certs.fast, Some(hash(1)));
     }
 
     #[test]
     fn final_and_timeout_certificates() {
-        let t = thresholds();
         let mut pool = SlotVotes::default();
         let mut certs = Certificates::default();
         pool.add(rep(1), hash(1), VoteKind::Final).unwrap();
         pool.add(rep(2), hash(1), VoteKind::Final).unwrap();
         pool.add(rep(1), hash(1), VoteKind::Timeout).unwrap();
         pool.add(rep(2), hash(1), VoteKind::Timeout).unwrap();
-        pool.calculate(&weights(&[(1, 50), (2, 17)]));
-        pool.update_certificates(&t, &mut certs);
+        pool.calculate(&committees(&[(1, 50), (2, 17)]));
+        pool.update_certificates(&mut certs);
         assert_eq!(certs.final_, Some(hash(1)));
         assert!(certs.timeout);
         assert!(!certs.explicit_finalization_possible());
@@ -700,31 +797,30 @@ mod tests {
 
     #[test]
     fn settled_when_no_other_candidate_can_be_notarized() {
-        let t = thresholds();
         let mut pool = SlotVotes::default();
         let mut certs = Certificates::default();
         let candidates = [hash(1), hash(2)];
-        let weights = weights(&[(1, 40), (2, 27), (3, 33)]);
+        let committees = committees(&[(1, 40), (2, 27), (3, 33)]);
 
         pool.add(rep(1), hash(1), VoteKind::First).unwrap();
         pool.add(rep(2), hash(1), VoteKind::Notar).unwrap();
-        pool.calculate(&weights);
-        pool.update_certificates(&t, &mut certs);
+        pool.calculate(&committees);
+        pool.update_certificates(&mut certs);
         assert!(certs.is_notarized(&hash(1)));
         // 60 of weight has not first voted yet and could notarize anything
-        assert!(!pool.is_settled(&t, &certs, &candidates));
+        assert!(!pool.is_settled(&certs, &candidates));
 
         pool.add(rep(3), hash(2), VoteKind::First).unwrap();
-        pool.calculate(&weights);
+        pool.calculate(&committees);
         // hash 2 can still reach f + p + 1 first votes, so rep 1 could take a second look
-        assert!(!pool.is_settled(&t, &certs, &candidates));
+        assert!(!pool.is_settled(&certs, &candidates));
 
         pool.add(rep(1), hash(1), VoteKind::Final).unwrap();
-        pool.calculate(&weights);
-        pool.update_certificates(&t, &mut certs);
+        pool.calculate(&committees);
+        pool.update_certificates(&mut certs);
         assert!(!certs.is_finalized());
         // rep 1 exited: hash 2 can gather at most 33 + 27 = 60 < 67
-        assert!(pool.is_settled(&t, &certs, &candidates));
+        assert!(pool.is_settled(&certs, &candidates));
     }
 
     /// RAI: a representative that abstained has left the instance and will
@@ -732,80 +828,77 @@ mod tests {
     /// voted a block we do not hold
     #[test]
     fn abstained_weight_settles_a_timed_out_instance() {
-        let t = thresholds();
         let mut pool = SlotVotes::default();
         let mut certs = Certificates::default();
-        let weights = weights(&[(1, 30), (2, 32), (3, 38)]);
+        let committees = committees(&[(1, 30), (2, 32), (3, 38)]);
 
         pool.add(rep(1), hash(1), VoteKind::First).unwrap();
         pool.add(rep(2), hash(1), VoteKind::Abstain).unwrap();
-        pool.calculate(&weights);
-        pool.update_certificates(&t, &mut certs);
+        pool.calculate(&committees);
+        pool.update_certificates(&mut certs);
         assert!(!certs.is_terminated());
         // 38 of weight is still unknown and could notarize anything
-        assert!(!pool.is_settled(&t, &certs, &[hash(1)]));
+        assert!(!pool.is_settled(&certs, &[hash(1)]));
 
         pool.add(rep(3), hash(1), VoteKind::Timeout).unwrap();
-        pool.calculate(&weights);
-        pool.update_certificates(&t, &mut certs);
+        pool.calculate(&committees);
+        pool.update_certificates(&mut certs);
         assert!(certs.timeout);
         // rep 3 timed out but may have first voted a block we have not seen
-        assert!(!pool.is_settled(&t, &certs, &[hash(1)]));
+        assert!(!pool.is_settled(&certs, &[hash(1)]));
 
         let mut abstaining = SlotVotes::default();
         abstaining.add(rep(1), hash(1), VoteKind::First).unwrap();
         abstaining.add(rep(2), hash(1), VoteKind::Abstain).unwrap();
         abstaining.add(rep(3), hash(1), VoteKind::Abstain).unwrap();
-        abstaining.calculate(&weights);
+        abstaining.calculate(&committees);
         // 70 of weight left for good: hash 1 stays at 30
-        assert!(abstaining.is_settled(&t, &certs, &[hash(1)]));
+        assert!(abstaining.is_settled(&certs, &[hash(1)]));
     }
 
     /// RAI: a representative that timed out never casts a final vote
     #[test]
     fn timed_out_weight_cannot_finalize() {
-        let t = thresholds();
         let mut pool = SlotVotes::default();
-        let weights = weights(&[(1, 40), (2, 27), (3, 33)]);
+        let committees = committees(&[(1, 40), (2, 27), (3, 33)]);
         pool.add(rep(1), hash(1), VoteKind::First).unwrap();
         pool.add(rep(2), hash(1), VoteKind::First).unwrap();
         pool.add(rep(3), hash(1), VoteKind::Timeout).unwrap();
-        pool.calculate(&weights);
-        assert!(pool.can_finalize(&t, &hash(1)));
+        pool.calculate(&committees);
+        assert!(pool.can_finalize(&hash(1)));
 
         pool.add(rep(1), hash(1), VoteKind::Timeout).unwrap();
-        pool.calculate(&weights);
-        assert!(!pool.can_finalize(&t, &hash(1)));
+        pool.calculate(&committees);
+        assert!(!pool.can_finalize(&hash(1)));
     }
 
     /// A 3-3 fork whose representatives all timed out settles once every
     /// representative has taken its second look at the other block (line 28)
     #[test]
     fn settled_once_every_representative_took_its_second_look() {
-        let t = thresholds();
         let mut pool = SlotVotes::default();
         let mut certs = Certificates::default();
-        let weights = weights(&[(1, 17), (2, 17), (3, 17), (4, 17), (5, 16), (6, 16)]);
+        let committees = committees(&[(1, 17), (2, 17), (3, 17), (4, 17), (5, 16), (6, 16)]);
         for rep_id in 1..=3 {
             pool.add(rep(rep_id), hash(1), VoteKind::First).unwrap();
         }
         for rep_id in 4..=6 {
             pool.add(rep(rep_id), hash(2), VoteKind::First).unwrap();
         }
-        pool.calculate(&weights);
-        pool.update_certificates(&t, &mut certs);
+        pool.calculate(&committees);
+        pool.update_certificates(&mut certs);
         assert!(!certs.is_terminated());
-        assert!(!pool.is_settled(&t, &certs, &[hash(1), hash(2)]));
+        assert!(!pool.is_settled(&certs, &[hash(1), hash(2)]));
 
         for rep_id in 1..=6 {
             pool.add(rep(rep_id), hash(1), VoteKind::Timeout).unwrap();
         }
-        pool.calculate(&weights);
-        pool.update_certificates(&t, &mut certs);
+        pool.calculate(&committees);
+        pool.update_certificates(&mut certs);
         assert!(certs.timeout);
         assert!(certs.notar.is_empty());
         // Both blocks have many first votes, every representative still looks
-        assert!(!pool.is_settled(&t, &certs, &[hash(1), hash(2)]));
+        assert!(!pool.is_settled(&certs, &[hash(1), hash(2)]));
 
         for rep_id in 1..=3 {
             pool.add(rep(rep_id), hash(2), VoteKind::Notar).unwrap();
@@ -813,32 +906,31 @@ mod tests {
         for rep_id in 4..=6 {
             pool.add(rep(rep_id), hash(1), VoteKind::Notar).unwrap();
         }
-        pool.calculate(&weights);
-        pool.update_certificates(&t, &mut certs);
+        pool.calculate(&committees);
+        pool.update_certificates(&mut certs);
         assert_eq!(certs.notar.len(), 2);
-        assert!(pool.is_settled(&t, &certs, &[hash(1), hash(2)]));
+        assert!(pool.is_settled(&certs, &[hash(1), hash(2)]));
     }
 
     #[test]
     fn not_settled_while_a_second_look_is_still_possible() {
-        let t = thresholds();
         let mut pool = SlotVotes::default();
         let mut certs = Certificates::default();
         pool.add(rep(1), hash(1), VoteKind::First).unwrap();
         pool.add(rep(2), hash(1), VoteKind::First).unwrap();
         pool.add(rep(3), hash(2), VoteKind::First).unwrap();
-        pool.calculate(&weights(&[(1, 40), (2, 27), (3, 39)]));
-        pool.update_certificates(&t, &mut certs);
+        pool.calculate(&committees(&[(1, 40), (2, 27), (3, 39)]));
+        pool.update_certificates(&mut certs);
         // hash 2 has f + p + 1 first votes, rep 1 and 2 may still take a second look
-        assert!(!pool.is_settled(&t, &certs, &[hash(1), hash(2)]));
+        assert!(!pool.is_settled(&certs, &[hash(1), hash(2)]));
 
         // Once they exited with a final vote they cannot
         pool.add(rep(1), hash(1), VoteKind::Final).unwrap();
         pool.add(rep(2), hash(1), VoteKind::Final).unwrap();
-        pool.calculate(&weights(&[(1, 40), (2, 27), (3, 39)]));
-        pool.update_certificates(&t, &mut certs);
+        pool.calculate(&committees(&[(1, 40), (2, 27), (3, 39)]));
+        pool.update_certificates(&mut certs);
         assert!(certs.is_finalized());
-        assert!(pool.is_settled(&t, &certs, &[hash(1), hash(2)]));
+        assert!(pool.is_settled(&certs, &[hash(1), hash(2)]));
     }
 
     #[test]
@@ -871,7 +963,7 @@ mod tests {
         let mut pool = SlotVotes::default();
         pool.add(rep(1), hash(1), VoteKind::First).unwrap();
         pool.add(rep(1), hash(2), VoteKind::Notar).unwrap();
-        pool.calculate(&weights(&[(1, 10)]));
+        pool.calculate(&committees(&[(1, 10)]));
         pool.remove_block(&hash(2));
         assert_eq!(pool.notar_tallies().get(&hash(2)), Amount::ZERO);
         assert_eq!(pool.rep(&rep(1)).unwrap().notar, vec![hash(1)]);
@@ -901,13 +993,137 @@ mod tests {
         );
     }
 
+    /// RAI: a joint instance notarizes and finalizes only what both
+    /// committees do, and reports the tallies of its own committee
+    #[test]
+    fn joint_certificates_need_both_committees() {
+        let mut pool = SlotVotes::default();
+        let mut certs = Certificates::default();
+        // Rep 1 carries the own committee, rep 2 the previous one
+        let committees = joint(&[(1, 70), (2, 10), (3, 20)], &[(1, 10), (2, 70), (3, 20)]);
+        pool.add(rep(1), hash(1), VoteKind::First).unwrap();
+        pool.calculate(&committees);
+        pool.update_certificates(&mut certs);
+        assert_eq!(pool.notar_tallies().get(&hash(1)), Amount::raw(70));
+        assert!(certs.notar.is_empty());
+        assert!(!certs.is_terminated());
+
+        pool.add(rep(2), hash(1), VoteKind::First).unwrap();
+        pool.calculate(&committees);
+        pool.update_certificates(&mut certs);
+        assert_eq!(certs.notar, vec![hash(1)]);
+        assert!(certs.fast.is_none());
+
+        // 90 of 100 first votes in both: fast finalized in both
+        pool.add(rep(3), hash(1), VoteKind::First).unwrap();
+        pool.calculate(&committees);
+        pool.update_certificates(&mut certs);
+        assert_eq!(certs.fast, Some(hash(1)));
+
+        let mut final_pool = SlotVotes::default();
+        let mut final_certs = Certificates::default();
+        final_pool.add(rep(1), hash(1), VoteKind::Final).unwrap();
+        final_pool.calculate(&committees);
+        final_pool.update_certificates(&mut final_certs);
+        assert!(final_certs.final_.is_none());
+        final_pool.add(rep(2), hash(1), VoteKind::Final).unwrap();
+        final_pool.calculate(&committees);
+        final_pool.update_certificates(&mut final_certs);
+        assert_eq!(final_certs.final_, Some(hash(1)));
+    }
+
+    /// RAI: a joint instance times out once one committee does, and the
+    /// rules with a liveness role (many votes, the timeout rule) hold once
+    /// they hold in one committee
+    #[test]
+    fn joint_timeout_and_many_votes_need_one_committee() {
+        let mut pool = SlotVotes::default();
+        let mut certs = Certificates::default();
+        let committees = joint(&[(1, 70), (2, 10), (3, 20)], &[(1, 10), (2, 70), (3, 20)]);
+        pool.add(rep(1), hash(1), VoteKind::Timeout).unwrap();
+        pool.calculate(&committees);
+        pool.update_certificates(&mut certs);
+        assert!(certs.timeout);
+        assert!(certs.is_terminated());
+
+        // Many first votes for hash 2 in the previous committee only
+        let mut looking = SlotVotes::default();
+        looking.add(rep(1), hash(1), VoteKind::First).unwrap();
+        looking.add(rep(2), hash(2), VoteKind::First).unwrap();
+        looking.calculate(&committees);
+        assert_eq!(looking.many_votes(), vec![hash(1), hash(2)]);
+        // allVotes − maxVotes: 10 in the own committee, 10 in the previous: no timeout
+        assert!(!looking.should_timeout());
+        looking.add(rep(3), hash(3), VoteKind::First).unwrap();
+        looking.calculate(&committees);
+        // 30 ≥ 39 in neither committee
+        assert!(!looking.should_timeout());
+        let split = joint(&[(1, 40), (2, 25), (3, 14)], &[(1, 60), (2, 20), (3, 20)]);
+        looking.calculate(&split);
+        // 39 in the own committee is enough
+        assert!(looking.should_timeout());
+    }
+
+    /// RAI: a joint instance settles once one committee can not notarize
+    /// anything more, and can finalize only while both still can
+    #[test]
+    fn joint_settled_needs_one_committee_and_finalizable_both() {
+        let mut pool = SlotVotes::default();
+        let mut certs = Certificates::default();
+        let candidates = [hash(1), hash(2)];
+        // Own: rep 1 alone certifies; previous: reps 1 and 2 together
+        let committees = joint(&[(1, 70), (2, 10), (3, 20)], &[(1, 40), (2, 40), (3, 20)]);
+        pool.add(rep(1), hash(1), VoteKind::First).unwrap();
+        pool.add(rep(2), hash(1), VoteKind::First).unwrap();
+        pool.add(rep(1), hash(1), VoteKind::Final).unwrap();
+        pool.add(rep(2), hash(1), VoteKind::Final).unwrap();
+        pool.calculate(&committees);
+        pool.update_certificates(&mut certs);
+        assert_eq!(certs.notar, vec![hash(1)]);
+        assert!(certs.is_finalized());
+        assert!(pool.is_settled(&certs, &candidates));
+
+        // Without rep 2's final vote: the own committee alone finalizes, the
+        // previous one still needs rep 2, which may still cast it
+        let mut open = SlotVotes::default();
+        let mut open_certs = Certificates::default();
+        open.add(rep(1), hash(1), VoteKind::First).unwrap();
+        open.add(rep(2), hash(1), VoteKind::First).unwrap();
+        open.add(rep(1), hash(1), VoteKind::Final).unwrap();
+        open.calculate(&committees);
+        open.update_certificates(&mut open_certs);
+        assert!(!open_certs.is_finalized());
+        assert!(open.can_finalize(&hash(1)));
+        // Rep 2 timed out: it will never final vote, the previous committee
+        // can not finalize any more
+        open.add(rep(2), hash(1), VoteKind::Timeout).unwrap();
+        open.calculate(&committees);
+        assert!(!open.can_finalize(&hash(1)));
+        // Settled: in the own committee rep 1 exited and rep 3 alone can
+        // not notarize hash 2, whatever the previous committee allows
+        assert!(open.is_settled(&open_certs, &candidates));
+    }
+
     /*
      * Test helpers
      */
 
-    /// Thresholds for an online weight of 100: certificate 62, fast 81, many 39
-    fn thresholds() -> KudzuThresholds {
-        KudzuThresholds::new(Amount::raw(100))
+    /// A single committee for an online weight of 100: certificate 62,
+    /// fast 81, many 39
+    fn committees(entries: &[(u64, u128)]) -> Committees {
+        Committees::single(Arc::new(Committee::with_online(
+            weights(entries),
+            Amount::raw(100),
+        )))
+    }
+
+    /// The instance's own committee and the one of the epoch before, both
+    /// for an online weight of 100
+    fn joint(own: &[(u64, u128)], previous: &[(u64, u128)]) -> Committees {
+        Committees::joint(
+            Arc::new(Committee::with_online(weights(own), Amount::raw(100))),
+            Arc::new(Committee::with_online(weights(previous), Amount::raw(100))),
+        )
     }
 
     fn rep(i: u64) -> PublicKey {

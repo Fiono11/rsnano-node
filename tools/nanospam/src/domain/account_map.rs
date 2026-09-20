@@ -73,8 +73,9 @@ impl AccountMap {
         state.unconfirmed_frontier = frontier;
         state.confirmed_frontier = frontier;
         self.confirmed_accounts.insert(account);
-        self.active_accounts.insert(account);
-        self.active_accounts_vec.push(account);
+        if self.active_accounts.insert(account) {
+            self.active_accounts_vec.push(account);
+        }
     }
 
     pub fn add_confirmed_receivable(

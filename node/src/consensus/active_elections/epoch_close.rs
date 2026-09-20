@@ -2,14 +2,13 @@ use std::{collections::BTreeMap, time::Duration};
 
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{
-    Amount, Blake2HashBuilder, BlockHash, ConsensusEpoch, PublicKey, QualifiedRoot, Root,
-    VoteError, VoteKind,
+    Blake2HashBuilder, BlockHash, ConsensusEpoch, PublicKey, QualifiedRoot, Root, VoteError,
+    VoteKind,
 };
-use rustc_hash::FxHashMap;
 
 use crate::consensus::election::{
-    CertificateEvidence, Certificates, Election, ElectionId, ElectionState, EpochState,
-    KudzuThresholds, LocalSlotState, SlotVotes, TIMEOUT_BLOCK, kudzu_state,
+    CertificateEvidence, Certificates, Committees, Election, ElectionId, ElectionState, EpochState,
+    LocalSlotState, SlotVotes, TIMEOUT_BLOCK, kudzu_state,
 };
 
 /// RAI: an instance of a closed epoch opened after the close certificate was
@@ -85,7 +84,8 @@ pub(crate) struct EpochClose {
 pub(crate) struct CloseRound {
     votes: SlotVotes,
     certificates: Certificates,
-    thresholds: Option<KudzuThresholds>,
+    /// The committees of the last count, None before the first vote
+    committees: Option<Committees>,
     state: ElectionState,
     slot: LocalSlotState,
     /// The values voted for by someone: the candidates of this round
@@ -102,7 +102,7 @@ impl Default for CloseRound {
         Self {
             votes: SlotVotes::default(),
             certificates: Certificates::default(),
-            thresholds: None,
+            committees: None,
             state: ElectionState::Active,
             slot: LocalSlotState::default(),
             candidates: Vec::new(),
@@ -323,15 +323,15 @@ impl EpochClose {
         }
     }
 
-    /// A vote of the given kind by a representative for a value in a round
+    /// A vote of the given kind by a representative for a value in a round,
+    /// counted in the committee of the epoch closed
     pub fn apply_vote(
         &mut self,
         voter: PublicKey,
         value: BlockHash,
         kind: VoteKind,
         round: u32,
-        rep_weights: &FxHashMap<PublicKey, Amount>,
-        thresholds: &KudzuThresholds,
+        committees: &Committees,
         now: Timestamp,
     ) -> Result<(), VoteError> {
         if self.closed.is_some() {
@@ -350,15 +350,34 @@ impl EpochClose {
             slot.candidates.push(value);
         }
         slot.votes.add(voter, value, kind)?;
-        slot.votes.calculate(rep_weights);
-        slot.votes
-            .update_certificates(thresholds, &mut slot.certificates);
-        slot.thresholds = Some(*thresholds);
+        self.count_round(round, committees, now);
+        Ok(())
+    }
+
+    /// RAI: count every round again: the committee of the epoch became
+    /// known after votes were collected
+    pub fn recount(&mut self, committees: &Committees, now: Timestamp) {
+        for round in 0..self.rounds.len() {
+            if self.closed.is_some() {
+                return;
+            }
+            if self.rounds[round].votes.len() > 0 {
+                self.count_round(round, committees, now);
+            }
+        }
+    }
+
+    /// Tallies a round in the committees, collects its certificates and
+    /// closes the epoch on a finalized value
+    fn count_round(&mut self, round: usize, committees: &Committees, now: Timestamp) {
+        let slot = &mut self.rounds[round];
+        slot.votes.calculate(committees);
+        slot.votes.update_certificates(&mut slot.certificates);
+        slot.committees = Some(committees.clone());
         slot.state = kudzu_state(
             slot.state,
             &slot.votes,
             &slot.certificates,
-            thresholds,
             &slot.candidates,
         );
         if let Some(value) = slot.certificates.finalized() {
@@ -371,7 +390,6 @@ impl EpochClose {
             });
             self.check_agreed();
         }
-        Ok(())
     }
 
     /// Records a vote this replica is about to cast; the value becomes a
@@ -441,15 +459,15 @@ impl EpochClose {
             if slot.slot.final_voted.is_some() || slot.slot.first_voted.is_none() {
                 continue;
             }
-            let Some(thresholds) = &slot.thresholds else {
+            if slot.committees.is_none() {
                 continue;
-            };
+            }
             // Lines 28–31: a second look at every value with many first votes
             // whose parent is in the tree. It is notarized if it is this
             // replica's own value; otherwise the timeout block is (Protocol 2,
             // lines 7–9).
             let mut timeout = false;
-            for value in slot.votes.many_votes(thresholds) {
+            for value in slot.votes.many_votes() {
                 if !self.chain_valid(round, &value) {
                     continue;
                 }
@@ -462,7 +480,7 @@ impl EpochClose {
                 }
             }
             // Lines 32–35
-            timeout |= !slot.certificates.is_terminated() && slot.votes.should_timeout(thresholds);
+            timeout |= !slot.certificates.is_terminated() && slot.votes.should_timeout();
             if timeout && slot.slot.timeout_voted.is_none() {
                 due.push((round as u32, routing, VoteKind::Timeout));
             }
@@ -562,8 +580,10 @@ impl EpochClose {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::consensus::election::SlotOutcome;
-    use rsnano_types::Account;
+    use crate::consensus::election::{Committee, SlotOutcome};
+    use rsnano_types::{Account, Amount};
+    use rustc_hash::FxHashMap;
+    use std::sync::Arc;
 
     #[test]
     fn leader_proposes_its_value_once_ready() {
@@ -1065,12 +1085,11 @@ mod tests {
         (0..6).map(key).collect()
     }
 
-    fn weights() -> FxHashMap<PublicKey, Amount> {
-        keys().into_iter().map(|k| (k, Amount::raw(100))).collect()
-    }
-
-    fn thresholds() -> KudzuThresholds {
-        KudzuThresholds::new(Amount::raw(600))
+    /// The committee of six equal representatives: four for a certificate
+    fn committees() -> Committees {
+        let weights: FxHashMap<PublicKey, Amount> =
+            keys().into_iter().map(|k| (k, Amount::raw(100))).collect();
+        Committees::single(Arc::new(Committee::new(weights)))
     }
 
     fn t(secs: u64) -> Timestamp {
@@ -1101,14 +1120,6 @@ mod tests {
         kind: VoteKind,
         round: u32,
     ) -> Result<(), VoteError> {
-        close.apply_vote(
-            key(rep),
-            value,
-            kind,
-            round,
-            &weights(),
-            &thresholds(),
-            t(0),
-        )
+        close.apply_vote(key(rep), value, kind, round, &committees(), t(0))
     }
 }

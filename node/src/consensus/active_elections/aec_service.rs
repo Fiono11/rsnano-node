@@ -17,14 +17,14 @@ use rsnano_utils::{
 
 use super::{
     ActiveElectionsConfig, ActiveElectionsContainer, ActiveElectionsInfo, AecCooldownReason,
-    AecFact, AecInsertError, AecInsertRequest, ApplyVoteArgs, EpochCloseInfo,
+    AecFact, AecInsertError, AecInsertRequest, ApplyVoteArgs, CommitteeInfo, EpochCloseInfo,
 };
 use crate::{
     consensus::{
         ElectionCandidateSource,
         election::{
-            CertificateEvidence, ConfirmedElection, Election, ElectionBehavior, ElectionId,
-            ElectionState, EpochSlot, EpochState, FinalStateHash, LocalSlotState,
+            AccountFrontier, CertificateEvidence, ConfirmedElection, Election, ElectionBehavior,
+            ElectionId, ElectionState, EpochSlot, EpochState, FinalStateHash, LocalSlotState,
         },
         vote_generation::VoteTarget,
         vote_rebroadcast::WalletRepsConsumer,
@@ -119,6 +119,11 @@ impl AecService {
         self.aec.read().unwrap().finalized_in(epoch)
     }
 
+    /// RAI: the committees known here, the genesis one first
+    pub fn epoch_committees(&self) -> Vec<CommitteeInfo> {
+        self.aec.read().unwrap().epoch_committees()
+    }
+
     /// RAI: the close elections of the epochs this node has left
     pub fn epoch_closes(&self) -> Vec<EpochCloseInfo> {
         self.aec.read().unwrap().epoch_closes()
@@ -127,6 +132,12 @@ impl AecService {
     /// RAI: the final state of an epoch as it stands on this node
     pub fn epoch_state(&self, epoch: ConsensusEpoch) -> EpochState {
         self.aec.read().unwrap().epoch_state(epoch)
+    }
+
+    /// RAI: the frontiers of every account at the end of the setup: the
+    /// genesis committee, and the base the epochs' committees are counted on
+    pub fn set_genesis_committee(&self, frontiers: Vec<AccountFrontier>) {
+        self.aec.write().unwrap().set_genesis_committee(frontiers)
     }
 
     /// RAI: the setup is over, epoch 0 starts now

@@ -3,17 +3,19 @@ use std::{
     ops::Deref,
 };
 
+use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{Amount, BlockHash, ConsensusEpoch, VoteDelivery, VoteError};
 use rsnano_utils::sync::backpressure_channel::Sender;
 
 use super::{
     AecFact, ApplyVoteArgs,
     epoch_close::{EpochClose, is_late},
+    epoch_committees::{EpochCommittees, live_committees},
     recently_confirmed_cache::RecentlyConfirmedCache,
     root_container::{Entry, RootContainer},
     stats::AecStats,
 };
-use crate::consensus::election::{ConfirmationType, Election, KudzuThresholds, VoteSummary};
+use crate::consensus::election::{Committees, ConfirmationType, Election, ElectionId, VoteSummary};
 
 pub(super) struct ApplyVoteHelper<'a> {
     pub args: &'a ApplyVoteArgs<'a>,
@@ -23,6 +25,8 @@ pub(super) struct ApplyVoteHelper<'a> {
     pub roots: &'a mut RootContainer,
     /// RAI: the close elections, to tell the late instances of a closed epoch
     pub closes: &'a BTreeMap<ConsensusEpoch, EpochClose>,
+    /// RAI: the committees the instances of each epoch are counted in
+    pub committees: &'a EpochCommittees,
 }
 
 impl<'a> ApplyVoteHelper<'a> {
@@ -52,6 +56,7 @@ impl<'a> ApplyVoteHelper<'a> {
                 .roots
                 .election_for_block_in_epoch_mut(block_hash, epoch)
             {
+                let id = election.id();
                 {
                     let mut apply_to_election = ApplyVoteToElectionHelper {
                         args: self.args,
@@ -61,30 +66,12 @@ impl<'a> ApplyVoteHelper<'a> {
                         election,
                         block_hash,
                         closes: self.closes,
+                        committees: self.committees,
                     };
                     let vote_result = apply_to_election.apply_vote();
                     result.per_block.insert(*block_hash, vote_result);
                 }
-
-                let id = election.id();
-                let confirmed = election.is_confirmed();
-                let terminated = election.state().is_terminated();
-
-                if confirmed {
-                    if !self.roots.is_terminated(&id) {
-                        result.decided.push(id.epoch);
-                    }
-                    if let Some(entry) = self.roots.erase(&id) {
-                        result.confirmed.push(entry);
-                    }
-                } else if terminated && !self.roots.is_terminated(&id) {
-                    // Kudzu: keep the evidence, but stop taking capacity
-                    result.decided.push(id.epoch);
-                    self.roots.mark_terminated(&id);
-                    if let Some(observer) = self.observer {
-                        observer.send(AecFact::ElectionTerminated(id)).unwrap();
-                    }
-                }
+                settle_election(self.roots, &id, self.observer, &mut result);
             } else if self.recently_confirmed.hash_exists(block_hash) {
                 result.per_block.insert(*block_hash, Err(VoteError::Late));
             } else {
@@ -95,6 +82,38 @@ impl<'a> ApplyVoteHelper<'a> {
         }
 
         result
+    }
+}
+
+/// After an election's tallies were updated: a finalized election leaves
+/// the roots, a terminated one leaves its bucket (Kudzu: the evidence is
+/// kept, but it stops taking capacity)
+pub(super) fn settle_election(
+    roots: &mut RootContainer,
+    id: &ElectionId,
+    observer: &Option<Sender<AecFact>>,
+    result: &mut ApplyVoteResult,
+) {
+    let Some(election) = roots.election(id) else {
+        return;
+    };
+    let confirmed = election.is_confirmed();
+    let terminated = election.state().is_terminated();
+    if confirmed {
+        if !roots.is_terminated(id) {
+            result.decided.push(id.epoch);
+        }
+        if let Some(entry) = roots.erase(id) {
+            result.confirmed.push(entry);
+        }
+    } else if terminated && !roots.is_terminated(id) {
+        result.decided.push(id.epoch);
+        roots.mark_terminated(id);
+        if let Some(observer) = observer {
+            observer
+                .send(AecFact::ElectionTerminated(id.clone()))
+                .unwrap();
+        }
     }
 }
 
@@ -114,6 +133,7 @@ struct ApplyVoteToElectionHelper<'a> {
     pub election: &'a mut Election,
     pub block_hash: &'a BlockHash,
     pub closes: &'a BTreeMap<ConsensusEpoch, EpochClose>,
+    pub committees: &'a EpochCommittees,
 }
 
 impl<'a> ApplyVoteToElectionHelper<'a> {
@@ -177,71 +197,131 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
     }
 
     pub fn confirm_if_quorum(&mut self) {
-        let old_winner = self.election.winner().hash();
-        let was_in_block_tree = self.election.certificates().has_block();
-
         if cfg!(feature = "rai_protocol") {
-            let old_state = self.election.state();
-            self.election.update_kudzu_tallies(
-                self.args.rep_weights,
-                KudzuThresholds::from_quorum(self.args.quorum_snapshot),
+            // RAI: the instance counts in the committees of its epoch; a vote
+            // of an epoch whose committee is not known here yet waits in the
+            // pool until the committee is derived and the epoch is counted again
+            let Some(committees) =
+                election_committees(self.committees, self.closes, self.election, self.args)
+            else {
+                return;
+            };
+            count_kudzu_election(
+                self.election,
+                &committees,
+                self.args.now,
+                self.stats,
+                self.observer,
+                self.recently_confirmed,
+                self.closes,
             );
-            self.stats
-                .kudzu_transition(old_state, self.election, was_in_block_tree, self.args.now);
-        } else {
-            self.election.update_tallies(
-                self.args.rep_weights,
-                self.args.quorum_snapshot.quorum_delta,
-            );
-        }
-
-        self.notify_winner_changed(old_winner);
-
-        let confirmed = if cfg!(feature = "rai_protocol") {
-            self.election.is_confirmed()
-        } else {
-            self.election.is_final() && self.election.is_confirmed()
-        };
-        if confirmed {
-            self.election_got_confirmed();
-        }
-    }
-
-    fn notify_winner_changed(&mut self, old_winner: BlockHash) {
-        let winner_changed = self.election.winner().hash() != old_winner;
-        if winner_changed {
-            self.notify(AecFact::WinnerChanged(
-                old_winner,
-                self.election.winner().deref().clone(),
-            ));
-        }
-    }
-
-    fn election_got_confirmed(&mut self) {
-        // RAI: a late instance of a closed epoch is discarded, not confirmed
-        if is_late(self.closes, self.election) {
             return;
         }
-        self.insert_recently_confirmed();
 
-        let confirmed_election = self
-            .election
-            .into_confirmed_election(self.args.now, ConfirmationType::ActiveConfirmedQuorum);
-
-        self.notify(AecFact::ElectionConfirmed(confirmed_election));
+        let old_winner = self.election.winner().hash();
+        self.election.update_tallies(
+            self.args.rep_weights,
+            self.args.quorum_snapshot.quorum_delta,
+        );
+        notify_winner_changed(self.election, old_winner, self.observer);
+        if self.election.is_final() && self.election.is_confirmed() {
+            election_got_confirmed(
+                self.election,
+                self.args.now,
+                self.observer,
+                self.recently_confirmed,
+                self.closes,
+            );
+        }
     }
+}
 
-    fn insert_recently_confirmed(&mut self) {
-        self.recently_confirmed.put(
-            self.election.qualified_root().clone(),
-            self.election.winner().hash(),
+/// RAI: the committees an instance is counted in: those of its epoch, or
+/// the ledger's live weights before the epochs of a run started
+pub(super) fn election_committees(
+    committees: &EpochCommittees,
+    closes: &BTreeMap<ConsensusEpoch, EpochClose>,
+    election: &Election,
+    args: &ApplyVoteArgs,
+) -> Option<Committees> {
+    if !committees.started() {
+        return Some(live_committees(args.rep_weights, args.quorum_snapshot));
+    }
+    let epoch = election.epoch();
+    committees.for_epoch(epoch, previous_epoch_closed(closes, epoch))
+}
+
+/// RAI: whether the close election of the epoch before this one has
+/// finalized its value; an epoch without a known predecessor counts as such
+pub(super) fn previous_epoch_closed(
+    closes: &BTreeMap<ConsensusEpoch, EpochClose>,
+    epoch: ConsensusEpoch,
+) -> bool {
+    epoch
+        .as_u64()
+        .checked_sub(1)
+        .and_then(|previous| closes.get(&ConsensusEpoch::new(previous)))
+        .is_none_or(|previous| previous.is_closed())
+}
+
+/// Kudzu: count an election in the given committees, collect its
+/// certificates and act on its transitions: the winner in the block tree,
+/// the confirmation
+pub(super) fn count_kudzu_election(
+    election: &mut Election,
+    committees: &Committees,
+    now: Timestamp,
+    stats: &mut AecStats,
+    observer: &Option<Sender<AecFact>>,
+    recently_confirmed: &mut RecentlyConfirmedCache,
+    closes: &BTreeMap<ConsensusEpoch, EpochClose>,
+) {
+    let old_winner = election.winner().hash();
+    let was_in_block_tree = election.certificates().has_block();
+    let old_state = election.state();
+    election.update_kudzu_tallies(committees);
+    stats.kudzu_transition(old_state, election, was_in_block_tree, now);
+    notify_winner_changed(election, old_winner, observer);
+    if election.is_confirmed() {
+        election_got_confirmed(election, now, observer, recently_confirmed, closes);
+    }
+}
+
+fn notify_winner_changed(
+    election: &Election,
+    old_winner: BlockHash,
+    observer: &Option<Sender<AecFact>>,
+) {
+    if election.winner().hash() != old_winner {
+        notify(
+            observer,
+            AecFact::WinnerChanged(old_winner, election.winner().deref().clone()),
         );
     }
+}
 
-    fn notify(&self, event: AecFact) {
-        if let Some(o) = self.observer {
-            o.send(event).unwrap();
-        }
+fn election_got_confirmed(
+    election: &Election,
+    now: Timestamp,
+    observer: &Option<Sender<AecFact>>,
+    recently_confirmed: &mut RecentlyConfirmedCache,
+    closes: &BTreeMap<ConsensusEpoch, EpochClose>,
+) {
+    // RAI: a late instance of a closed epoch is discarded, not confirmed
+    if is_late(closes, election) {
+        return;
+    }
+    recently_confirmed.put(election.qualified_root().clone(), election.winner().hash());
+
+    let confirmed_election =
+        election.into_confirmed_election(now, ConfirmationType::ActiveConfirmedQuorum);
+
+    notify(observer, AecFact::ElectionConfirmed(confirmed_election));
+}
+
+fn notify(observer: &Option<Sender<AecFact>>, event: AecFact) {
+    if let Some(o) = observer {
+        o.send(event).unwrap();
     }
 }
 
@@ -594,6 +674,7 @@ mod tests {
                 observer: &None,
                 roots: &mut self.roots,
                 closes: &BTreeMap::new(),
+                committees: &EpochCommittees::default(),
             };
 
             let result = helper.apply_vote();
@@ -685,6 +766,7 @@ mod tests {
                     election: &mut self.election,
                     closes: &BTreeMap::new(),
                     block_hash: &vote.hashes[0],
+                    committees: &EpochCommittees::default(),
                 }
                 .apply_vote()
             };

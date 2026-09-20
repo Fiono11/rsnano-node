@@ -11,6 +11,12 @@ pub struct BlockTallies {
 }
 
 impl BlockTallies {
+    /// No tallies at all: what an election reports before its first count
+    pub const EMPTY: BlockTallies = BlockTallies {
+        tallies: [(BlockHash::ZERO, Amount::ZERO); Election::MAX_BLOCKS],
+        len: 0,
+    };
+
     pub(crate) fn new() -> Self {
         Default::default()
     }

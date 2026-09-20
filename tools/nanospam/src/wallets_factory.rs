@@ -5,10 +5,12 @@ use tracing::{debug, info};
 
 use rsnano_rpc_client::NanoRpcClient;
 use rsnano_rpc_messages::{ReceiveArgs, SendArgs, WalletAddArgs, WalletRepresentativeSetArgs};
-use rsnano_types::{Amount, Block, BlockHash, JsonBlock, StateBlockArgs, WalletId, WorkNonce};
+use rsnano_types::{
+    Account, Amount, Block, BlockHash, JsonBlock, PublicKey, StateBlockArgs, WalletId, WorkNonce,
+};
 
 use crate::{
-    domain::AccountMap,
+    domain::{AccountMap, Representatives},
     setup::{genesis_key, pr_key},
 };
 
@@ -23,6 +25,7 @@ pub(crate) async fn create_wallets(
     rpc_clients: &[NanoRpcClient],
     genesis_rpc: &NanoRpcClient,
     account_map: &mut AccountMap,
+    representatives: &Representatives,
 ) -> WalletId {
     let mut genesis_wallet = WalletId::ZERO;
     let genesis_key = genesis_key();
@@ -115,10 +118,11 @@ pub(crate) async fn create_wallets(
         .block;
     wait_until_confirmed(genesis_rpc, genesis_send).await;
     info!("Receiving initial spam amount...");
+    let initial_account = initial_key.account();
     let genesis_receive: Block = StateBlockArgs {
         key: &initial_key,
         previous: BlockHash::ZERO,
-        representative: initial_key.public_key(),
+        representative: representative_of(&initial_account, representatives),
         balance: INITIAL_AMOUNT,
         link: genesis_send.into(),
         work: 0.into(),
@@ -132,13 +136,93 @@ pub(crate) async fn create_wallets(
 
     wait_until_confirmed(genesis_rpc, recv.hash).await;
 
-    account_map.set_account_state(
-        initial_key.account(),
-        INITIAL_AMOUNT,
-        genesis_receive.hash(),
-    );
+    account_map.set_account_state(initial_account, INITIAL_AMOUNT, genesis_receive.hash());
+
+    seed_representatives(genesis_rpc, account_map, representatives).await;
 
     genesis_wallet
+}
+
+/// RAI: the representative an account delegates to; the account itself
+/// in a run without representatives
+fn representative_of(account: &Account, representatives: &Representatives) -> PublicKey {
+    representatives
+        .of(account)
+        .unwrap_or_else(|| account.as_key())
+}
+
+/// RAI: the spam amount sits in one account, delegated to one
+/// representative, which would hold it all in the committee derived from
+/// epoch 0. Spread over one seed account per representative, every
+/// representative starts with an equal share of it and the shares drift
+/// from there with the spam.
+async fn seed_representatives(
+    genesis_rpc: &NanoRpcClient,
+    account_map: &mut AccountMap,
+    representatives: &Representatives,
+) {
+    if representatives.len() < 2 {
+        return;
+    }
+    let initial_key = account_map.initial_key().clone();
+    let initial_account = initial_key.account();
+    let share = INITIAL_AMOUNT / (representatives.len() as u128 + 1);
+    // The first account delegating to each representative, the initial
+    // account's representative included: it keeps a share of its own
+    let mut seeds: Vec<Account> = Vec::new();
+    for rep in representatives.iter() {
+        let seed = account_map
+            .accounts()
+            .iter()
+            .skip(1)
+            .find(|account| representatives.of(account) == Some(*rep) && !seeds.contains(account))
+            .copied();
+        if let Some(seed) = seed {
+            seeds.push(seed);
+        }
+    }
+    let mut frontier = account_map
+        .state(&initial_account)
+        .unwrap()
+        .confirmed_frontier;
+    let mut balance = INITIAL_AMOUNT;
+    for seed in seeds {
+        balance -= share;
+        let send: Block = StateBlockArgs {
+            key: &initial_key,
+            previous: frontier,
+            representative: representative_of(&initial_account, representatives),
+            balance,
+            link: seed.into(),
+            work: 0.into(),
+        }
+        .into();
+        frontier = send.hash();
+        info!(
+            "Seeding Ӿ{} to {} for representative {}",
+            share.format_balance(0),
+            seed.encode_account(),
+            representative_of(&seed, representatives)
+        );
+        genesis_rpc.process(JsonBlock::from(send)).await.unwrap();
+        wait_until_confirmed(genesis_rpc, frontier).await;
+
+        let seed_key = account_map.state(&seed).unwrap().key.clone();
+        let receive: Block = StateBlockArgs {
+            key: &seed_key,
+            previous: BlockHash::ZERO,
+            representative: representative_of(&seed, representatives),
+            balance: share,
+            link: frontier.into(),
+            work: 0.into(),
+        }
+        .into();
+        let receive_hash = receive.hash();
+        genesis_rpc.process(JsonBlock::from(receive)).await.unwrap();
+        wait_until_confirmed(genesis_rpc, receive_hash).await;
+        account_map.set_account_state(seed, share, receive_hash);
+    }
+    account_map.set_account_state(initial_account, balance, frontier);
 }
 
 async fn wait_until_confirmed(rpc_client: &NanoRpcClient, hash: BlockHash) {

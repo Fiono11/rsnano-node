@@ -5,8 +5,8 @@ use rsnano_node::consensus::election::{
     Certificates, ElectionState, EpochState, FinalStateHash, SlotOutcome, slot_outcome,
 };
 use rsnano_rpc_messages::{
-    ConflictingRoot, EpochCloseState, EpochFinalState, FinalStateArgs, FinalStateEntry,
-    FinalStateResponse,
+    CommitteeMember, ConflictingRoot, EpochCloseState, EpochCommittee, EpochFinalState,
+    FinalStateArgs, FinalStateEntry, FinalStateResponse,
 };
 use rsnano_types::{Account, BlockHash, ConsensusEpoch, QualifiedRoot};
 
@@ -67,6 +67,31 @@ impl RpcCommandHandler {
         // Elections of the epoch that are not settled although their block
         // is cemented; they are still collecting the certificates of the epoch
         let mut cemented_undecided: BTreeMap<ConsensusEpoch, u64> = BTreeMap::new();
+        let committees: Vec<EpochCommittee> = self
+            .node
+            .aec
+            .epoch_committees()
+            .into_iter()
+            .map(|committee| {
+                let mut weights = committee.weights;
+                weights.sort_by(|(_, a), (_, b)| b.cmp(a));
+                EpochCommittee {
+                    derived_by: committee
+                        .derived_by
+                        .map_or_else(|| "genesis".to_string(), |epoch| epoch.to_string()),
+                    digest: committee.digest,
+                    online: committee.online,
+                    members: (committee.members as u64).into(),
+                    weights: weights
+                        .into_iter()
+                        .map(|(representative, weight)| CommitteeMember {
+                            representative: Account::from(representative),
+                            weight,
+                        })
+                        .collect(),
+                }
+            })
+            .collect();
         let closes: BTreeMap<_, _> = self
             .node
             .aec
@@ -151,6 +176,7 @@ impl RpcCommandHandler {
             conflicting,
             entries,
             current_epoch: self.node.aec.current_epoch().as_u64().into(),
+            committees,
             epochs: epochs
                 .into_iter()
                 .map(|(epoch, state)| {

@@ -43,6 +43,8 @@ pub(crate) struct AecStats {
     pub close_rounds: u64,
     /// RAI: epochs closed by a certificate of their close election
     pub epochs_closed: u64,
+    /// RAI: instances decided on a count without a vote: their committees changed
+    pub recounted: usize,
     /// RAI: epochs left while still draining because a certificate quorum was ahead
     pub epochs_left_behind: u64,
     /// RAI: instances erased at their epoch's close for lack of a block in the state
@@ -217,6 +219,7 @@ impl StatsSource for AecStats {
         result.insert(AEC_STAT_KEY, "close_rounds", self.close_rounds);
         result.insert(AEC_STAT_KEY, "epochs_closed", self.epochs_closed);
         result.insert(AEC_STAT_KEY, "epochs_left_behind", self.epochs_left_behind);
+        result.insert(AEC_STAT_KEY, "recounted", self.recounted);
         result.insert(
             AEC_STAT_KEY,
             "discarded_instances",

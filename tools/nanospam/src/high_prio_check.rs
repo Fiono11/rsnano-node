@@ -12,7 +12,7 @@ use rsnano_types::{
     StateBlockArgs, WalletId,
 };
 
-use crate::domain::{Forks, spam_logic::SpamLogic};
+use crate::domain::{Forks, Representatives, spam_logic::SpamLogic};
 
 const PRIO_ACCOUNTS: usize = 20;
 const INITIAL_ACCOUNT_BALANCE: Amount = Amount::millinano(1500); // bucket 16
@@ -23,16 +23,23 @@ pub(crate) struct HighPrioCheck<'a> {
     logic: &'a Mutex<SpamLogic>,
     /// prio account => key + frontier hash + height
     accounts: HashMap<Account, (PrivateKey, BlockHash, u64)>,
+    /// RAI: the representatives the prio accounts delegate to
+    representatives: Representatives,
 }
 
 impl<'a> HighPrioCheck<'a> {
-    pub(crate) fn new(rpc_client: &'a NanoRpcClient, logic: &'a Mutex<SpamLogic>) -> Self {
+    pub(crate) fn new(
+        rpc_client: &'a NanoRpcClient,
+        logic: &'a Mutex<SpamLogic>,
+        representatives: Representatives,
+    ) -> Self {
         Self {
             rpc_client,
             logic,
             accounts: prio_account_keys()
                 .map(|k| (k.account(), (k, BlockHash::ZERO, 0)))
                 .collect(),
+            representatives,
         }
     }
 
@@ -69,7 +76,10 @@ impl<'a> HighPrioCheck<'a> {
             let receive_block: Block = StateBlockArgs {
                 key: &key,
                 previous: BlockHash::ZERO,
-                representative: key.public_key(),
+                representative: self
+                    .representatives
+                    .of(&key.account())
+                    .unwrap_or_else(|| key.public_key()),
                 balance: INITIAL_ACCOUNT_BALANCE,
                 link: send_block.block.into(),
                 work: 0.into(),
@@ -127,10 +137,16 @@ impl<'a> HighPrioCheck<'a> {
                 .min_by(|(_, _, x), (_, _, y)| x.cmp(y))
                 .unwrap();
 
+            // A change block to the next representative in turn; without
+            // representatives to a new one each time, so that it changes
+            let representative = self
+                .representatives
+                .nth(*height)
+                .unwrap_or_else(|| PublicKey::from(*height));
             let block: Block = StateBlockArgs {
                 key,
                 previous: *frontier,
-                representative: PublicKey::from(*height),
+                representative,
                 balance: INITIAL_ACCOUNT_BALANCE,
                 link: Link::ZERO,
                 work: 0.into(),

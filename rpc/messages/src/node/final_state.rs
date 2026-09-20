@@ -1,5 +1,5 @@
 use crate::{RpcBool, RpcCommand, RpcU64};
-use rsnano_types::{Account, BlockHash, QualifiedRoot};
+use rsnano_types::{Account, Amount, BlockHash, QualifiedRoot};
 use serde::{Deserialize, Serialize};
 
 impl RpcCommand {
@@ -45,9 +45,34 @@ pub struct FinalStateResponse {
     pub current_epoch: RpcU64,
     /// RAI: the final state of every consensus epoch this node took part in
     pub epochs: Vec<EpochFinalState>,
+    /// RAI: the committees known to this node, the genesis one first
+    #[serde(default)]
+    pub committees: Vec<EpochCommittee>,
     /// RAI: the entries of the requested epoch's state
     #[serde(skip_serializing_if = "Option::is_none")]
     pub entries: Option<Vec<FinalStateEntry>>,
+}
+
+/// RAI: the voting weights of one consensus epoch, as derived on this node
+#[derive(PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub struct EpochCommittee {
+    /// The epoch whose finalized state derived the committee; "genesis" for
+    /// the committee of the setup
+    pub derived_by: String,
+    /// Order-independent digest of the weights: equal on every node which
+    /// derived the same committee
+    pub digest: BlockHash,
+    /// n: the weight of all members together
+    pub online: Amount,
+    pub members: RpcU64,
+    /// Every member's weight, descending
+    pub weights: Vec<CommitteeMember>,
+}
+
+#[derive(PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub struct CommitteeMember {
+    pub representative: Account,
+    pub weight: Amount,
 }
 
 /// RAI: one entry of an epoch's final state

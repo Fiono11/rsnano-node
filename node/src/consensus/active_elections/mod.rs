@@ -3,6 +3,7 @@ mod aec_service;
 mod apply_vote_helper;
 mod cooldown_controller;
 mod epoch_close;
+mod epoch_committees;
 mod epoch_states;
 mod recently_confirmed_cache;
 mod root_container;
@@ -14,6 +15,7 @@ pub use active_elections_container::*;
 pub use aec_service::{AecService, AecSnapshot, BucketSnapshot};
 pub use cooldown_controller::AecCooldownReason;
 pub use epoch_close::EpochCloseInfo;
+pub use epoch_committees::CommitteeInfo;
 
 use std::{collections::HashMap, isize, time::Duration};
 

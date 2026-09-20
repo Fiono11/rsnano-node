@@ -23,9 +23,9 @@ use crate::{
     consensus::{
         AecSnapshot, ElectionCandidateSource,
         election::{
-            AddForkResult, CertificateEvidence, ConfirmationType, ConfirmedElection, Election,
-            ElectionBehavior, ElectionId, ElectionState, EpochSlot, EpochState, FinalStateHash,
-            KudzuThresholds, LocalSlotState, VoteType,
+            AccountFrontier, AddForkResult, CertificateEvidence, Committee, Committees,
+            ConfirmationType, ConfirmedElection, Election, ElectionBehavior, ElectionId,
+            ElectionState, EpochSlot, EpochState, FinalStateHash, LocalSlotState, VoteType,
         },
         election_schedulers::priority::bucket_count,
         filtered_vote::FilteredVote,
@@ -37,10 +37,14 @@ use crate::{
 use super::{
     ActiveElectionsConfig, ActiveElectionsInfo, AecFact, AecInsertError, AecInsertRequest, Entry,
     RootContainer,
-    apply_vote_helper::ApplyVoteHelper,
+    apply_vote_helper::{
+        ApplyVoteHelper, ApplyVoteResult, count_kudzu_election, previous_epoch_closed,
+        settle_election,
+    },
     cooldown_controller::{AecCooldownReason, CooldownController, CooldownResult},
     epoch_close::{CloseEvent, EpochClose, EpochCloseInfo, is_late},
-    epoch_states::{EpochStates, FinalizedInstance},
+    epoch_committees::{CommitteeInfo, EpochCommittees, live_committees},
+    epoch_states::{Delegation, EpochStates, FinalizedInstance},
     recently_confirmed_cache::RecentlyConfirmedCache,
     slot_states::SlotStates,
     stats::AecStats,
@@ -107,6 +111,12 @@ pub(crate) struct ActiveElectionsContainer {
     epoch_voters: BTreeMap<ConsensusEpoch, BTreeSet<PublicKey>>,
     /// RAI: the close elections of the epochs this node has left
     closes: BTreeMap<ConsensusEpoch, EpochClose>,
+    /// RAI: the frontiers behind the value this node attests in each
+    /// close election, as of the state hashed: what the epoch's committee
+    /// is derived from once the value is finalized and agreed
+    close_frontiers: BTreeMap<ConsensusEpoch, (BlockHash, Vec<AccountFrontier>)>,
+    /// RAI: the committees the instances of each epoch are counted in
+    committees: EpochCommittees,
     /// RAI: Δ_timeout of a close round
     close_round_timeout: Duration,
     /// RAI: the representatives this node votes with, to know when it leads
@@ -142,6 +152,8 @@ impl ActiveElectionsContainer {
             rep_epochs: HashMap::new(),
             epoch_voters: BTreeMap::new(),
             closes: BTreeMap::new(),
+            close_frontiers: BTreeMap::new(),
+            committees: EpochCommittees::default(),
             close_round_timeout: config.close_round_timeout,
             local_reps: Vec::new(),
         }
@@ -196,13 +208,18 @@ impl ActiveElectionsContainer {
         }
         self.rep_epochs.insert(vote.voter, epoch);
         let next = self.current_epoch.next();
+        // The weights of the epoch ahead, as far as known here
+        let committees = self
+            .committees_for(next)
+            .unwrap_or_else(|| live_committees(args.rep_weights, args.quorum_snapshot));
+        let committee = committees.primary();
         let ahead: Amount = self
             .rep_epochs
             .iter()
             .filter(|(_, epoch)| **epoch >= next)
-            .map(|(rep, _)| args.rep_weights.weight(rep))
+            .map(|(rep, _)| committee.weight(rep))
             .sum();
-        let thresholds = KudzuThresholds::from_quorum(args.quorum_snapshot);
+        let thresholds = committee.thresholds();
         if ahead > thresholds.f && !self.draining {
             self.stats.epochs_followed += 1;
             self.end_epoch(args.now);
@@ -222,6 +239,11 @@ impl ActiveElectionsContainer {
     /// RAI: the representatives this node votes with
     pub fn set_local_representatives(&mut self, reps: Vec<PublicKey>) {
         self.local_reps = reps;
+    }
+
+    /// RAI: the committees known here, the genesis one first
+    pub fn epoch_committees(&self) -> Vec<CommitteeInfo> {
+        self.committees.infos()
     }
 
     /// RAI: the close elections of the epochs this node has left
@@ -273,7 +295,7 @@ impl ActiveElectionsContainer {
 
     /// RAI: count the elections of the current epoch which just got their
     /// first certificate and end the epoch once enough have
-    fn count_decided(&mut self, decided: &[ConsensusEpoch], args: &ApplyVoteArgs) {
+    fn count_decided(&mut self, decided: &[ConsensusEpoch], now: Timestamp) {
         self.decided_in_current_epoch += decided
             .iter()
             .filter(|epoch| **epoch == self.current_epoch)
@@ -283,7 +305,7 @@ impl ActiveElectionsContainer {
             && self.decided_in_current_epoch >= self.epoch_terminated_elections
             && !self.draining
         {
-            self.end_epoch(args.now);
+            self.end_epoch(now);
         }
     }
 
@@ -347,11 +369,128 @@ impl ActiveElectionsContainer {
     /// RAI: whether the close election of the epoch before this one has
     /// finalized its value; an epoch without a known predecessor counts as such
     fn previous_epoch_closed(&self, epoch: ConsensusEpoch) -> bool {
-        epoch
-            .as_u64()
-            .checked_sub(1)
-            .and_then(|previous| self.closes.get(&ConsensusEpoch::new(previous)))
-            .is_none_or(|previous| previous.is_closed())
+        previous_epoch_closed(&self.closes, epoch)
+    }
+
+    /// RAI: the committees the instances of an epoch are counted in, if
+    /// the committee of the epoch is known here (see `EpochCommittees`)
+    fn committees_for(&self, epoch: ConsensusEpoch) -> Option<Committees> {
+        self.committees
+            .for_epoch(epoch, self.previous_epoch_closed(epoch))
+    }
+
+    /// RAI: the frontiers of every account at the end of the setup: the
+    /// genesis committee the first two epochs count in, and the base the
+    /// committees of the epochs closed are derived on
+    pub fn set_genesis_committee(&mut self, frontiers: Vec<AccountFrontier>) {
+        if self.committees.started() {
+            return;
+        }
+        let committee = self.committees.start(frontiers);
+        self.log_committee("genesis", &committee);
+    }
+
+    /// RAI: the frontiers an epoch finalized, as of the value its close
+    /// agreed on: the committee the epoch two after counts in. The
+    /// instances collected so far in that epoch are counted now.
+    pub fn derive_committee(
+        &mut self,
+        epoch: ConsensusEpoch,
+        frontiers: Vec<AccountFrontier>,
+        now: Timestamp,
+    ) {
+        let Some(committee) = self.committees.derive(epoch, frontiers) else {
+            return;
+        };
+        self.log_committee(&epoch.to_string(), &committee);
+        // The epoch two after counts in it, the one after that jointly
+        for later in [2, 3] {
+            self.recount_epoch(ConsensusEpoch::new(epoch.as_u64() + later), now);
+        }
+        self.recount_closes(now);
+    }
+
+    /// RAI: count the open instances of an epoch again: its committees
+    /// changed, because a committee became known or the epoch before
+    /// closed and the joint phase ended. The certificates a single
+    /// committee supports form on that count, on every replica alike.
+    fn recount_epoch(&mut self, epoch: ConsensusEpoch, now: Timestamp) {
+        let Some(committees) = self.committees_for(epoch) else {
+            return;
+        };
+        let ids: Vec<ElectionId> = self
+            .roots
+            .iter()
+            .map(|entry| &entry.election)
+            .filter(|election| election.epoch() == epoch && !election.state().has_ended())
+            .map(|election| election.id())
+            .collect();
+        let mut result = ApplyVoteResult::default();
+        for id in ids {
+            let Some(election) = self.roots.election_mut(&id) else {
+                continue;
+            };
+            count_kudzu_election(
+                election,
+                &committees,
+                now,
+                &mut self.stats,
+                &self.observer,
+                &mut self.recently_confirmed,
+                &self.closes,
+            );
+            settle_election(&mut self.roots, &id, &self.observer, &mut result);
+        }
+        self.stats.recounted += result.decided.len();
+        for entry in result.confirmed {
+            self.cleanup_election(entry);
+        }
+        self.count_decided(&result.decided, now);
+    }
+
+    /// RAI: count the rounds of the open close elections again, in the
+    /// committee of their epoch as known now
+    fn recount_closes(&mut self, now: Timestamp) {
+        let epochs: Vec<_> = self
+            .closes
+            .values()
+            .filter(|close| !close.is_closed())
+            .map(|close| close.epoch())
+            .collect();
+        for epoch in epochs {
+            let Some(committees) = self.committees.for_close(epoch) else {
+                continue;
+            };
+            let close = self.closes.get_mut(&epoch).unwrap();
+            close.recount(&committees, now);
+            let events = close.take_events();
+            self.log_close_events(epoch, events, now);
+        }
+    }
+
+    fn log_committee(&self, derived_by: &str, committee: &Committee) {
+        if !cfg!(feature = "rai_protocol") {
+            return;
+        }
+        let mut members: Vec<_> = committee.weights().iter().collect();
+        members.sort_by(|(_, a), (_, b)| b.cmp(a));
+        let shares: Vec<String> = members
+            .iter()
+            .map(|(rep, weight)| {
+                let share = weight.number() as f64 / committee.online().number().max(1) as f64;
+                format!("{}:{:.1}%", &rep.to_string()[..8], share * 100.0)
+            })
+            .collect();
+        eprintln!(
+            "EPOCH_COMMITTEE t={} derived_by={} members={} accounts={} n={} digest={} shares={:?}",
+            unix_ms(),
+            derived_by,
+            committee.len(),
+            self.committees.counted(),
+            committee.online().number(),
+            committee.digest(),
+            shares
+        );
     }
 
     /// RAI: leave the current epoch and start the next one. The instances of
@@ -429,6 +568,76 @@ impl ActiveElectionsContainer {
         (state, late)
     }
 
+    /// RAI: the frontiers behind an epoch's state as it stands: for every
+    /// account with a block in the state, the block at its greatest height
+    /// there, if there is exactly one at that height, with what it
+    /// delegates. The state hashes the winners of the finalized instances
+    /// and the blocks notarized in the running ones; two replicas attesting
+    /// the same value hold the same blocks, whatever certificates each has
+    /// seen, so they hold the same frontiers: what the epoch's committee is
+    /// derived from. The blocks are read from the instances
+    /// themselves, which hold every candidate: the ledger may not hold a
+    /// notarized block yet (a fork's winner still being inserted).
+    fn epoch_frontiers(
+        &self,
+        epoch: ConsensusEpoch,
+        cutoff: Option<Timestamp>,
+    ) -> Vec<AccountFrontier> {
+        let mut by_account: HashMap<Account, (u64, Vec<Delegation>)> = HashMap::new();
+        let mut add = |account: Account, height: u64, delegation: Delegation| {
+            let entry = by_account.entry(account).or_insert((height, Vec::new()));
+            if height > entry.0 {
+                *entry = (height, vec![delegation]);
+            } else if height == entry.0 && !entry.1.iter().any(|d| d.hash == delegation.hash) {
+                entry.1.push(delegation);
+            }
+        };
+        for block in self.epoch_states.finalized_blocks_in(epoch) {
+            add(block.account, block.height, block.delegation);
+        }
+        for election in self.roots.iter().map(|entry| &entry.election) {
+            if election.epoch() != epoch || cutoff.is_some_and(|cutoff| election.start() >= cutoff)
+            {
+                continue;
+            }
+            for delegation in delegations(election) {
+                add(election.account(), election.height(), delegation);
+            }
+        }
+        let mut frontiers: Vec<AccountFrontier> = by_account
+            .into_iter()
+            .filter_map(
+                |(account, (height, delegations))| match delegations.as_slice() {
+                    [delegation] => Some(AccountFrontier {
+                        account,
+                        height,
+                        representative: delegation.representative,
+                        balance: delegation.balance,
+                    }),
+                    _ => None,
+                },
+            )
+            .collect();
+        frontiers.sort_by_key(|frontier| frontier.account);
+        frontiers
+    }
+
+    /// RAI: keep the frontiers behind the value this node attests in the
+    /// epoch's close, as of the state it hashed
+    fn keep_close_frontiers(&mut self, epoch: ConsensusEpoch, state: &EpochState) {
+        let value = state.close_value(epoch);
+        if self
+            .close_frontiers
+            .get(&epoch)
+            .is_some_and(|(kept, _)| *kept == value)
+        {
+            return;
+        }
+        let closed_at = self.closes.get(&epoch).and_then(|close| close.closed_at());
+        let frontiers = self.epoch_frontiers(epoch, closed_at);
+        self.close_frontiers.insert(epoch, (value, frontiers));
+    }
+
     /// RAI: the leaders of the rounds of an epoch's close election, in public
     /// key order: the representatives seen voting in the epoch or in the one
     /// after it. Every replica saw the same ones vote, while the ledger's
@@ -465,6 +674,7 @@ impl ActiveElectionsContainer {
             .collect();
         for epoch in epochs {
             let state = self.epoch_state(epoch);
+            self.keep_close_frontiers(epoch, &state);
             let previous_closed = self.previous_epoch_closed(epoch);
             let leaders = self.close_leaders(epoch);
             let close = self.closes.get_mut(&epoch).unwrap();
@@ -477,7 +687,7 @@ impl ActiveElectionsContainer {
                 self.epoch_voters.remove(&epoch);
             }
             let events = close.take_events();
-            self.log_close_events(epoch, events);
+            self.log_close_events(epoch, events, now);
         }
         self.discard_late_instances();
         self.log_drain_wait(now);
@@ -540,18 +750,24 @@ impl ActiveElectionsContainer {
         );
     }
 
-    fn log_close_events(&mut self, epoch: ConsensusEpoch, events: Vec<CloseEvent>) {
+    fn log_close_events(&mut self, epoch: ConsensusEpoch, events: Vec<CloseEvent>, now: Timestamp) {
         for event in events {
             match &event {
                 CloseEvent::Ready(_) => {}
                 CloseEvent::RoundEntered { .. } => self.stats.close_rounds += 1,
-                CloseEvent::Closed { .. } => self.stats.epochs_closed += 1,
-                CloseEvent::Agreed(_) => {
+                CloseEvent::Closed { .. } => {
+                    self.stats.epochs_closed += 1;
+                    // The epoch after leaves its joint phase: its instances
+                    // count in its own committee alone from now on
+                    self.recount_epoch(epoch.next(), now);
+                }
+                CloseEvent::Agreed(value) => {
                     // The epoch before this one is decided for good: no
                     // instance of it is voted in again
                     if let Some(previous) = epoch.as_u64().checked_sub(1) {
                         self.slots.remove_epoch(ConsensusEpoch::new(previous));
                     }
+                    self.epoch_agreed(epoch, *value, now);
                 }
             }
             if !cfg!(feature = "rai_protocol") {
@@ -601,6 +817,21 @@ impl ActiveElectionsContainer {
         }
     }
 
+    /// RAI: the value this node attests in an epoch's close is the one
+    /// finalized: the frontiers behind it derive the epoch's committee
+    fn epoch_agreed(&mut self, epoch: ConsensusEpoch, value: BlockHash, now: Timestamp) {
+        let frontiers = match self.close_frontiers.remove(&epoch) {
+            Some((kept, frontiers)) if kept == value => frontiers,
+            // The value was attested on an earlier tick; the state has not
+            // changed since, or the close would not have agreed
+            _ => {
+                let closed_at = self.closes.get(&epoch).and_then(|close| close.closed_at());
+                self.epoch_frontiers(epoch, closed_at)
+            }
+        };
+        self.derive_committee(epoch, frontiers, now);
+    }
+
     /// RAI: a vote in a round of an epoch's close election
     fn apply_close_vote(
         &mut self,
@@ -609,29 +840,31 @@ impl ActiveElectionsContainer {
         round: u32,
     ) -> HashMap<BlockHash, Result<(), VoteError>> {
         let vote = &args.vote;
-        let thresholds = KudzuThresholds::from_quorum(args.quorum_snapshot);
+        // The close counts in the committee of its epoch; before the epochs
+        // of a run started, in the ledger's live weights. A close vote of an
+        // epoch whose committee is not known here yet waits in the vote cache.
+        let committees = if self.committees.started() {
+            self.committees.for_close(epoch)
+        } else {
+            Some(live_committees(args.rep_weights, args.quorum_snapshot))
+        };
         let mut per_block = HashMap::new();
         for hash in vote.filtered_blocks() {
             // Not left yet: the vote waits in the vote cache until this node
             // gets there. Left before this node ran: nothing to close here.
-            let result = match self.closes.get_mut(&epoch) {
-                Some(close) => close.apply_vote(
-                    vote.voter,
-                    *hash,
-                    vote.kind(),
-                    round,
-                    args.rep_weights,
-                    &thresholds,
-                    args.now,
-                ),
-                None if epoch >= self.current_epoch => Err(VoteError::Indeterminate),
-                None => Err(VoteError::Late),
+            let result = match (self.closes.get_mut(&epoch), &committees) {
+                (Some(close), Some(committees)) => {
+                    close.apply_vote(vote.voter, *hash, vote.kind(), round, committees, args.now)
+                }
+                (Some(_), None) => Err(VoteError::Indeterminate),
+                (None, _) if epoch >= self.current_epoch => Err(VoteError::Indeterminate),
+                (None, _) => Err(VoteError::Late),
             };
             per_block.insert(*hash, result);
         }
         if let Some(close) = self.closes.get_mut(&epoch) {
             let events = close.take_events();
-            self.log_close_events(epoch, events);
+            self.log_close_events(epoch, events, args.now);
         }
         per_block
     }
@@ -1284,7 +1517,9 @@ impl ActiveElectionsContainer {
                 epoch: election.epoch(),
                 winner: finalized,
                 candidates: election.candidate_blocks().keys().copied().collect(),
-                notarized: election.certificates().notar.clone(),
+                delegation: delegations(election)
+                    .into_iter()
+                    .find(|delegation| delegation.hash == finalized),
                 slot,
             });
         }
@@ -1413,12 +1648,13 @@ impl ActiveElectionsContainer {
             observer: &self.observer,
             roots: &mut self.roots,
             closes: &self.closes,
+            committees: &self.committees,
         };
         let result = apply_helper.apply_vote();
         for entry in result.confirmed {
             self.cleanup_election(entry);
         }
-        self.count_decided(&result.decided, &args);
+        self.count_decided(&result.decided, args.now);
         self.observe_epoch(&args);
         let mut per_block = result.per_block;
         // RAI: a vote of an epoch this node has not reached yet is not late, it
@@ -1551,9 +1787,30 @@ impl ContainerInfoProvider for ActiveElectionsContainer {
 
 pub struct ApplyVoteArgs<'a> {
     pub vote: &'a FilteredVote,
+    /// The ledger's live weights: the vote cooldown, and the committee of
+    /// a run without epochs
     pub rep_weights: &'a RepWeights,
     pub quorum_snapshot: &'a QuorumSnapshot,
     pub now: Timestamp,
+}
+
+/// RAI: what each notarized block of an election delegates, read from the
+/// candidate the election holds. A legacy block without a balance or
+/// representative field delegates nothing.
+fn delegations(election: &Election) -> Vec<Delegation> {
+    election
+        .certificates()
+        .notar
+        .iter()
+        .filter_map(|hash| {
+            let block = election.candidate_blocks().get(hash)?;
+            Some(Delegation {
+                hash: *hash,
+                representative: block.representative_field()?,
+                balance: block.balance_field()?,
+            })
+        })
+        .collect()
 }
 
 /// For the diagnostics on stderr, which nanospam collects
@@ -2264,6 +2521,179 @@ mod tests {
             }]
         );
         assert!(container.close_solicitations(now).is_empty());
+    }
+
+    /// RAI: the committees of the epochs. The first two count in the genesis
+    /// committee; epoch 0 derives from the blocks it finalized the committee
+    /// epoch 2 counts in, jointly with the genesis one while epoch 1 closes,
+    /// and alone after: an instance is counted again as its committees change.
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn epochs_count_in_their_committees_and_are_counted_again_on_a_change() {
+        use rsnano_types::{Link, StateBlockArgs, WorkNonce};
+
+        let mut container = ActiveElectionsContainer::new(
+            ActiveElectionsConfig {
+                epoch_terminated_elections: 1,
+                ..Default::default()
+            },
+            Duration::from_secs(1),
+        );
+        let rep1 = PrivateKey::from(1);
+        let rep2 = PrivateKey::from(2);
+        // The live weights are not used once the genesis committee is set
+        let rep_weights = RepWeights::default();
+        let quorum = QuorumSnapshot::new_test_instance();
+        let now = Timestamp::new_test_instance();
+        container.start_epochs(now);
+        // The genesis committee: representative 1 alone, delegated to by
+        // one account which moves to representative 2 in epoch 0
+        let mover = PrivateKey::from(10);
+        container.set_genesis_committee(vec![AccountFrontier {
+            account: mover.account(),
+            height: 1,
+            representative: rep1.public_key(),
+            balance: Amount::raw(100),
+        }]);
+        let block0 = SavedBlock::new_test_instance_with(
+            StateBlockArgs {
+                key: &mover,
+                previous: BlockHash::from(1),
+                representative: rep2.public_key(),
+                balance: Amount::raw(100),
+                link: Link::ZERO,
+                work: WorkNonce::new(0),
+            }
+            .into(),
+        );
+
+        let vote = |container: &mut ActiveElectionsContainer,
+                    key: &PrivateKey,
+                    kind: VoteKind,
+                    epoch: ConsensusEpoch,
+                    hash: BlockHash| {
+            let vote = Arc::new(Vote::new_in_epoch(key, kind, epoch, vec![hash]));
+            container.apply_vote(ApplyVoteArgs {
+                vote: &ReceivedVote::new(vote, VoteDelivery::Direct, None).into(),
+                rep_weights: &rep_weights,
+                quorum_snapshot: &quorum,
+                now,
+            })
+        };
+        let insert = |container: &mut ActiveElectionsContainer, block: &SavedBlock| {
+            container
+                .insert(
+                    AecInsertRequest::new_priority(
+                        block.clone(),
+                        BlockPriority::new_test_instance(),
+                    ),
+                    now,
+                )
+                .unwrap();
+        };
+        let close_value = |container: &ActiveElectionsContainer, epoch: u64| {
+            container
+                .epoch_closes()
+                .into_iter()
+                .find(|close| close.epoch == ConsensusEpoch::new(epoch))
+                .unwrap()
+                .value
+                .unwrap()
+        };
+
+        // Epoch 0: representative 2 has no weight, representative 1
+        // finalizes the block and closes the epoch, which derives the
+        // committee of epoch 2: representative 2 alone
+        insert(&mut container, &block0);
+        vote(
+            &mut container,
+            &rep2,
+            VoteKind::Final,
+            ConsensusEpoch::ZERO,
+            block0.hash(),
+        );
+        assert!(!container.is_finalized(&block0.hash()));
+        vote(
+            &mut container,
+            &rep1,
+            VoteKind::Final,
+            ConsensusEpoch::ZERO,
+            block0.hash(),
+        );
+        assert!(container.is_finalized(&block0.hash()));
+        assert_eq!(container.current_epoch(), ConsensusEpoch::new(1));
+        assert_eq!(container.epoch_committees().len(), 1);
+        let value0 = close_value(&container, 0);
+        vote(
+            &mut container,
+            &rep1,
+            VoteKind::First,
+            ConsensusEpoch::close_round(ConsensusEpoch::ZERO, 0),
+            value0,
+        );
+        assert_eq!(container.epoch_closes()[0].closed, Some((0, value0)));
+        let committees = container.epoch_committees();
+        assert_eq!(committees.len(), 2);
+        assert_eq!(committees[1].derived_by, Some(ConsensusEpoch::ZERO));
+        assert_eq!(
+            committees[1].weights,
+            vec![(rep2.public_key(), Amount::raw(100))]
+        );
+
+        // Epoch 1 still counts in the genesis committee
+        let block1 = SavedBlock::new_test_instance_with_key(11);
+        insert(&mut container, &block1);
+        vote(
+            &mut container,
+            &rep1,
+            VoteKind::Final,
+            ConsensusEpoch::new(1),
+            block1.hash(),
+        );
+        assert!(container.is_finalized(&block1.hash()));
+        assert_eq!(container.current_epoch(), ConsensusEpoch::new(2));
+
+        // Epoch 2: joint with the genesis committee while epoch 1 closes.
+        // Representative 2 finalizes in one committee, not in the other.
+        let block2 = SavedBlock::new_test_instance_with_key(12);
+        insert(&mut container, &block2);
+        let epoch2 = ConsensusEpoch::new(2);
+        let result = vote(
+            &mut container,
+            &rep2,
+            VoteKind::Final,
+            epoch2,
+            block2.hash(),
+        );
+        assert_eq!(result.get(&block2.hash()), Some(&Ok(())));
+        let election = container.election_for_block(&block2.hash()).unwrap();
+        let committees = election.committees().unwrap();
+        assert!(committees.is_joint());
+        assert_eq!(
+            committees.primary().weight(&rep2.public_key()),
+            Amount::raw(100)
+        );
+        assert_eq!(
+            committees.primary().weight(&rep1.public_key()),
+            Amount::ZERO
+        );
+        assert!(!election.is_confirmed());
+        assert!(election.certificates().notar.is_empty());
+
+        // Representative 1 closes epoch 1 in the genesis committee: epoch 2
+        // counts in its own committee alone from now on, and the vote
+        // collected finalizes the block
+        let value1 = close_value(&container, 1);
+        vote(
+            &mut container,
+            &rep1,
+            VoteKind::First,
+            ConsensusEpoch::close_round(ConsensusEpoch::new(1), 0),
+            value1,
+        );
+        assert!(container.election_for_block(&block2.hash()).is_none());
+        assert!(container.finalized_in_epoch(&block2.hash(), epoch2));
+        assert_eq!(container.stats.recounted, 1);
     }
 
     /// RAI: the epochs close one after the other: the close election of an

@@ -1,5 +1,11 @@
-use crate::domain::{RateSpec, SpamStrategy, spam_logic::SpamSpec};
 use clap::Parser;
+
+use rsnano_types::PublicKey;
+
+use crate::{
+    domain::{RateSpec, Representatives, SpamStrategy, spam_logic::SpamSpec},
+    setup::pr_key,
+};
 
 const DEFAULT_RATE: &str = "1+50@3s";
 
@@ -93,7 +99,15 @@ impl CliArgs {
             rate: self.rate_spec()?,
             fork_probability: self.fork_probability(),
             track_confirmations: !self.unconfirmed,
+            representatives: self.representatives(),
         })
+    }
+
+    /// RAI: the principal representatives of the run, which every account
+    /// delegates to
+    pub(crate) fn representatives(&self) -> Representatives {
+        let reps: Vec<PublicKey> = (0..self.prs).map(|i| pr_key(i).public_key()).collect();
+        Representatives::new(reps)
     }
 
     pub(crate) fn high_prio_check(&self) -> bool {

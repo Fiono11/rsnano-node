@@ -89,8 +89,8 @@ impl RpcCommandHandler {
                     timeout: certs.timeout,
                     timeout_tally: election.kudzu_votes().timeout_weight(),
                     certificate_threshold: election
-                        .thresholds()
-                        .map(|t| t.certificate)
+                        .committees()
+                        .map(|c| c.primary().thresholds().certificate)
                         .unwrap_or_default(),
                     fast: certs.fast,
                     final_: certs.final_,

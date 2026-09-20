@@ -18,7 +18,8 @@ use rsnano_utils::stats::DetailType;
 use super::{
     ConfirmationType, ConfirmedElection, ElectionId, ElectionState,
     block_tallies::BlockTallies,
-    kudzu::{Certificates, KudzuThresholds, LocalSlotState, SlotVotes, kudzu_state},
+    committee::Committees,
+    kudzu::{Certificates, LocalSlotState, SlotVotes, kudzu_state},
 };
 use rustc_hash::FxHashMap;
 
@@ -100,8 +101,8 @@ pub struct Election {
     kudzu: SlotVotes,
     /// Kudzu certificates collected so far
     certificates: Certificates,
-    /// Thresholds used for the last Kudzu tally
-    thresholds: Option<KudzuThresholds>,
+    /// RAI: the committees of the last Kudzu tally
+    committees: Option<Committees>,
 }
 
 impl Election {
@@ -138,7 +139,7 @@ impl Election {
             winner: MaybeSavedBlock::Saved(block),
             kudzu: SlotVotes::default(),
             certificates: Certificates::default(),
-            thresholds: None,
+            committees: None,
         }
     }
 
@@ -198,8 +199,9 @@ impl Election {
         &self.kudzu
     }
 
-    pub fn thresholds(&self) -> Option<&KudzuThresholds> {
-        self.thresholds.as_ref()
+    /// RAI: the committees of the last Kudzu tally
+    pub fn committees(&self) -> Option<&Committees> {
+        self.committees.as_ref()
     }
 
     pub fn state(&self) -> ElectionState {
@@ -381,13 +383,10 @@ impl Election {
     /// Kudzu: whether a finalization certificate can still form for one of the
     /// notarized blocks
     pub fn kudzu_can_finalize(&self) -> bool {
-        let Some(thresholds) = &self.thresholds else {
-            return false;
-        };
         self.certificates
             .notar
             .iter()
-            .any(|hash| self.kudzu.can_finalize(thresholds, hash))
+            .any(|hash| self.kudzu.can_finalize(hash))
     }
 
     pub fn has_quorum(&self) -> bool {
@@ -608,20 +607,18 @@ impl Election {
         None
     }
 
-    /// Kudzu: recalculate tallies, collect certificates and update the state
-    pub fn update_kudzu_tallies(
-        &mut self,
-        rep_weights: &FxHashMap<PublicKey, Amount>,
-        thresholds: KudzuThresholds,
-    ) {
+    /// Kudzu: recalculate tallies in the committees the instance is counted
+    /// in, collect certificates and update the state. RAI: called again
+    /// with other committees once the instance's epoch leaves its joint
+    /// phase, so that the certificates a single committee supports form.
+    pub fn update_kudzu_tallies(&mut self, committees: &Committees) {
         if self.state.has_ended() {
             return;
         }
 
-        self.thresholds = Some(thresholds);
-        self.kudzu.calculate(rep_weights);
-        self.kudzu
-            .update_certificates(&thresholds, &mut self.certificates);
+        self.committees = Some(committees.clone());
+        self.kudzu.calculate(committees);
+        self.kudzu.update_certificates(&mut self.certificates);
         self.tallies = self.kudzu.notar_tallies().clone();
         self.final_tallies = self.kudzu.final_tallies().clone();
 
@@ -643,7 +640,6 @@ impl Election {
             self.state,
             &self.kudzu,
             &self.certificates,
-            &thresholds,
             self.candidate_blocks.keys(),
         );
     }
@@ -713,14 +709,12 @@ impl Election {
             return due;
         }
 
-        if let Some(thresholds) = &self.thresholds
-            && slot.first_voted.is_some()
-        {
+        if self.committees.is_some() && slot.first_voted.is_some() {
             // Lines 28–31: a second look at every block with many first votes.
             // Taken also after the instance terminated: a replica that has not
             // exited looks eventually, so that the settled predicate can rely
             // on it (RAI).
-            for block in self.kudzu.many_votes(thresholds) {
+            for block in self.kudzu.many_votes() {
                 if self.candidate_blocks.contains_key(&block) && !slot.looked_at(&block) {
                     due.push((block, VoteKind::Notar));
                 }
@@ -728,7 +722,7 @@ impl Election {
             // Lines 32–35 only run while the slot is not done
             if slot.timeout_voted.is_none()
                 && !self.certificates.is_terminated()
-                && self.kudzu.should_timeout(thresholds)
+                && self.kudzu.should_timeout()
             {
                 due.push((winner, VoteKind::Timeout));
             }
@@ -878,7 +872,7 @@ pub enum AddForkResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::consensus::election::{SlotOutcome, slot_outcome};
+    use crate::consensus::election::{Committee, SlotOutcome, slot_outcome};
     use rsnano_types::{PrivateKey, StateBlockArgs};
 
     #[test]
@@ -906,7 +900,7 @@ mod tests {
         slot.mark_voted(block, VoteKind::First);
 
         notarization_certificate(&mut election, block);
-        election.update_kudzu_tallies(&weights(&[(1, 40), (2, 27), (3, 33)]), thresholds());
+        election.update_kudzu_tallies(&committees(&[(1, 40), (2, 27), (3, 33)]));
 
         assert_eq!(election.state(), ElectionState::Terminated);
         assert!(election.has_quorum());
@@ -928,7 +922,7 @@ mod tests {
     fn fast_finalization_by_first_votes_alone() {
         let (mut election, block, _) = election_with_fork();
         first_votes(&mut election, block, &[1, 2, 3]);
-        election.update_kudzu_tallies(&weights(&[(1, 40), (2, 27), (3, 20)]), thresholds());
+        election.update_kudzu_tallies(&committees(&[(1, 40), (2, 27), (3, 20)]));
 
         assert_eq!(election.state(), ElectionState::Confirmed);
         assert!(election.is_confirmed());
@@ -945,16 +939,16 @@ mod tests {
     fn finalization_certificate_confirms() {
         let (mut election, block, _) = election_with_fork();
         notarization_certificate(&mut election, block);
-        let weights = weights(&[(1, 40), (2, 27), (3, 33)]);
-        election.update_kudzu_tallies(&weights, thresholds());
+        let committees = committees(&[(1, 40), (2, 27), (3, 33)]);
+        election.update_kudzu_tallies(&committees);
         assert_eq!(election.state(), ElectionState::Terminated);
 
         vote(&mut election, 1, block, VoteKind::Final);
-        election.update_kudzu_tallies(&weights, thresholds());
+        election.update_kudzu_tallies(&committees);
         assert_eq!(election.state(), ElectionState::Terminated);
 
         vote(&mut election, 2, block, VoteKind::Final);
-        election.update_kudzu_tallies(&weights, thresholds());
+        election.update_kudzu_tallies(&committees);
         assert_eq!(election.state(), ElectionState::Confirmed);
         assert_eq!(election.certificates().final_, Some(block));
         assert_eq!(election.winner_final_tally(), Amount::raw(67));
@@ -967,8 +961,8 @@ mod tests {
         slot.mark_voted(block, VoteKind::First);
 
         first_votes(&mut election, fork, &[2, 3]);
-        let weights = weights(&[(1, 40), (2, 27), (3, 33)]);
-        election.update_kudzu_tallies(&weights, thresholds());
+        let committees = committees(&[(1, 40), (2, 27), (3, 33)]);
+        election.update_kudzu_tallies(&committees);
         assert_eq!(election.state(), ElectionState::Passive);
         assert_eq!(
             election.kudzu_votes_due(&slot, |_| true),
@@ -977,7 +971,7 @@ mod tests {
 
         slot.mark_voted(fork, VoteKind::Notar);
         vote(&mut election, 1, fork, VoteKind::Notar);
-        election.update_kudzu_tallies(&weights, thresholds());
+        election.update_kudzu_tallies(&committees);
         // The fork is now in the block tree and became the winner
         assert_eq!(election.state(), ElectionState::Terminated);
         assert_eq!(election.winner().hash(), fork);
@@ -992,7 +986,7 @@ mod tests {
     fn second_look_is_not_taken_before_the_first_vote() {
         let (mut election, _, fork) = election_with_fork();
         first_votes(&mut election, fork, &[2, 3]);
-        election.update_kudzu_tallies(&weights(&[(1, 40), (2, 27), (3, 33)]), thresholds());
+        election.update_kudzu_tallies(&committees(&[(1, 40), (2, 27), (3, 33)]));
 
         let due = election.kudzu_votes_due(&LocalSlotState::default(), |_| true);
         assert!(!due.iter().any(|(_, kind)| *kind == VoteKind::Notar));
@@ -1008,8 +1002,8 @@ mod tests {
         vote(&mut election, 2, fork, VoteKind::First);
         vote(&mut election, 3, fork, VoteKind::First);
         // allVotes − maxVotes = 100 − 60 = 40 ≥ 34
-        let weights = weights(&[(1, 40), (2, 27), (3, 33)]);
-        election.update_kudzu_tallies(&weights, thresholds());
+        let committees = committees(&[(1, 40), (2, 27), (3, 33)]);
+        election.update_kudzu_tallies(&committees);
 
         let due = election.kudzu_votes_due(&slot, |_| true);
         assert!(due.contains(&(block, VoteKind::Timeout)));
@@ -1027,14 +1021,14 @@ mod tests {
         let (mut election, block, _) = election_with_fork();
         let mut slot = LocalSlotState::default();
         slot.mark_voted(block, VoteKind::First);
-        let weights = weights(&[(1, 40), (2, 27), (3, 33)]);
+        let committees = committees(&[(1, 40), (2, 27), (3, 33)]);
 
         // Representatives 1 and 2 first voted the block but timed out before
         // it was notarized
         vote(&mut election, 1, block, VoteKind::First);
         vote(&mut election, 1, block, VoteKind::Timeout);
         vote(&mut election, 2, block, VoteKind::Timeout);
-        election.update_kudzu_tallies(&weights, thresholds());
+        election.update_kudzu_tallies(&committees);
         assert_eq!(election.state(), ElectionState::TimedOut);
         assert!(election.certificates().timeout);
         assert!(!election.has_quorum());
@@ -1046,7 +1040,7 @@ mod tests {
 
         // A late notarization certificate still puts the block into the tree
         vote(&mut election, 2, block, VoteKind::First);
-        election.update_kudzu_tallies(&weights, thresholds());
+        election.update_kudzu_tallies(&committees);
         assert!(election.state().is_terminated());
         assert!(!election.is_confirmed());
         assert!(election.has_quorum());
@@ -1065,10 +1059,10 @@ mod tests {
     #[test]
     fn timeout_certificate_of_abstaining_representatives_settles() {
         let (mut election, block, _) = election_with_fork();
-        let weights = weights(&[(1, 40), (2, 27), (3, 33)]);
+        let committees = committees(&[(1, 40), (2, 27), (3, 33)]);
         vote(&mut election, 1, block, VoteKind::Abstain);
         vote(&mut election, 2, block, VoteKind::Abstain);
-        election.update_kudzu_tallies(&weights, thresholds());
+        election.update_kudzu_tallies(&committees);
         assert!(election.certificates().timeout);
         assert_eq!(election.state(), ElectionState::Settled);
         assert_eq!(
@@ -1080,11 +1074,10 @@ mod tests {
     #[test]
     fn three_three_fork_terminates_with_one_certificate_and_a_timeout_certificate() {
         let (mut election, block, fork) = election_with_fork();
-        let weights = weights(&[(1, 40), (2, 40), (3, 40), (4, 40), (5, 40), (6, 40)]);
-        let thresholds = KudzuThresholds::new(Amount::raw(240));
+        let committees = committees(&[(1, 40), (2, 40), (3, 40), (4, 40), (5, 40), (6, 40)]);
         first_votes(&mut election, block, &[1, 2, 3]);
         first_votes(&mut election, fork, &[4, 5, 6]);
-        election.update_kudzu_tallies(&weights, thresholds);
+        election.update_kudzu_tallies(&committees);
         assert!(!election.certificates().is_terminated());
 
         // The fork holders take a second look at the block, everybody times out
@@ -1094,7 +1087,7 @@ mod tests {
         for rep in 1..=6 {
             vote(&mut election, rep, block, VoteKind::Timeout);
         }
-        election.update_kudzu_tallies(&weights, thresholds);
+        election.update_kudzu_tallies(&committees);
         assert_eq!(election.certificates().notar, vec![block]);
         assert!(election.certificates().timeout);
         assert!(!election.is_confirmed());
@@ -1105,7 +1098,7 @@ mod tests {
         for rep in 1..=3 {
             vote(&mut election, rep, block, VoteKind::Final);
         }
-        election.update_kudzu_tallies(&weights, thresholds);
+        election.update_kudzu_tallies(&committees);
         assert!(!election.is_confirmed());
         assert_eq!(election.state(), ElectionState::Settled);
         // Everybody but the block holders notarized the fork, no final certificate can form
@@ -1115,8 +1108,7 @@ mod tests {
     #[test]
     fn settled_four_two_fork_can_still_be_finalized_by_the_missing_final_votes() {
         let (mut election, block, fork) = election_with_fork();
-        let weights = weights(&[(1, 40), (2, 40), (3, 40), (4, 40), (5, 40), (6, 40)]);
-        let thresholds = KudzuThresholds::new(Amount::raw(240));
+        let committees = committees(&[(1, 40), (2, 40), (3, 40), (4, 40), (5, 40), (6, 40)]);
         first_votes(&mut election, block, &[1, 2, 3, 4]);
         first_votes(&mut election, fork, &[5, 6]);
         for rep in 5..=6 {
@@ -1126,7 +1118,7 @@ mod tests {
         for rep in 1..=2 {
             vote(&mut election, rep, block, VoteKind::Final);
         }
-        election.update_kudzu_tallies(&weights, thresholds);
+        election.update_kudzu_tallies(&committees);
         assert_eq!(election.state(), ElectionState::Settled);
         assert!(!election.is_confirmed());
 
@@ -1147,21 +1139,21 @@ mod tests {
         for rep in 3..=4 {
             vote(&mut election, rep, block, VoteKind::Final);
         }
-        election.update_kudzu_tallies(&weights, thresholds);
+        election.update_kudzu_tallies(&committees);
         assert!(election.is_confirmed());
     }
 
     #[test]
     fn settled_once_no_other_notarization_certificate_can_form() {
         let (mut election, block, fork) = election_with_fork();
-        let weights = weights(&[(1, 40), (2, 27), (3, 33)]);
+        let committees = committees(&[(1, 40), (2, 27), (3, 33)]);
         notarization_certificate(&mut election, block);
-        election.update_kudzu_tallies(&weights, thresholds());
+        election.update_kudzu_tallies(&committees);
         assert_eq!(election.state(), ElectionState::Terminated);
 
         vote(&mut election, 3, fork, VoteKind::First);
         vote(&mut election, 1, block, VoteKind::Final);
-        election.update_kudzu_tallies(&weights, thresholds());
+        election.update_kudzu_tallies(&committees);
         assert_eq!(election.state(), ElectionState::Settled);
         assert!(!election.is_confirmed());
         assert!(election.state().is_terminated());
@@ -1173,7 +1165,7 @@ mod tests {
         // a second look (needs 39) nor a certificate
         let (mut election, block, _) = election_with_fork();
         first_votes(&mut election, block, &[1, 2]);
-        election.update_kudzu_tallies(&weights(&[(1, 40), (2, 27), (3, 33)]), thresholds());
+        election.update_kudzu_tallies(&committees(&[(1, 40), (2, 27), (3, 33)]));
         assert_eq!(election.state(), ElectionState::Settled);
         assert!(election.has_quorum());
     }
@@ -1182,10 +1174,10 @@ mod tests {
     fn certificates_survive_weight_changes() {
         let (mut election, block, _) = election_with_fork();
         notarization_certificate(&mut election, block);
-        election.update_kudzu_tallies(&weights(&[(1, 40), (2, 27), (3, 33)]), thresholds());
+        election.update_kudzu_tallies(&committees(&[(1, 40), (2, 27), (3, 33)]));
         assert_eq!(election.state(), ElectionState::Terminated);
 
-        election.update_kudzu_tallies(&weights(&[(1, 1), (2, 1), (3, 1)]), thresholds());
+        election.update_kudzu_tallies(&committees(&[(1, 1), (2, 1), (3, 1)]));
         assert_eq!(election.state(), ElectionState::Terminated);
         assert!(election.has_quorum());
     }
@@ -1222,7 +1214,7 @@ mod tests {
 
         // The others first vote the block: a second look, but no final vote
         notarization_certificate(&mut election, block);
-        election.update_kudzu_tallies(&weights(&[(1, 40), (2, 27), (3, 33)]), thresholds());
+        election.update_kudzu_tallies(&committees(&[(1, 40), (2, 27), (3, 33)]));
         assert!(election.has_quorum());
         assert_eq!(election.kudzu_final_vote_due(&slot), None);
         assert_eq!(
@@ -1258,8 +1250,10 @@ mod tests {
      */
 
     /// Thresholds for an online weight of 100: certificate 62, fast 81, many 39
-    fn thresholds() -> KudzuThresholds {
-        KudzuThresholds::new(Amount::raw(100))
+    /// A single committee of the given weights, n their sum: certificate
+    /// 62%, fast 81%, many 38% + 1
+    fn committees(entries: &[(u64, u128)]) -> Committees {
+        Committees::single(Arc::new(Committee::new(weights(entries))))
     }
 
     fn election_with_fork() -> (Election, BlockHash, BlockHash) {
