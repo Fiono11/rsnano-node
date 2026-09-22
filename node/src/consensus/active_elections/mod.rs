@@ -17,7 +17,7 @@ pub use cooldown_controller::AecCooldownReason;
 pub use epoch_close::EpochCloseInfo;
 pub use epoch_committees::CommitteeInfo;
 
-use std::{collections::HashMap, isize, time::Duration};
+use std::{collections::HashMap, isize, sync::Arc, time::Duration};
 
 use rsnano_types::{
     Amount, Block, BlockHash, BlockPriority, ConsensusEpoch, QualifiedRoot, SavedBlock,
@@ -42,10 +42,10 @@ pub struct ActiveElectionsConfig {
     /// RAI: an epoch ends this long after its first election started; zero
     /// never ends an epoch by time
     pub epoch_duration: Duration,
-    /// RAI: Δ_timeout of a round of an epoch's close election: a replica
-    /// abstains once it waited this long for a valid proposal. A round led
-    /// by a representative which does not propose costs this long; a leader
-    /// proposes within `EpochClose::PROPOSAL_DELAY` of getting ready
+    /// RAI: Δ_E of a slot of an epoch's close election: a replica first
+    /// votes the timeout value once it waited this long for a valid
+    /// proposal. A slot led by a representative which does not propose
+    /// costs this long; a leader proposes as soon as it can derive a value
     pub close_round_timeout: Duration,
 }
 
@@ -72,8 +72,10 @@ pub enum AecFact {
     /// slot in its priority bucket
     ElectionTerminated(ElectionId),
 
-    /// RAI: new elections are now started in this epoch
-    EpochAdvanced(ConsensusEpoch),
+    /// RAI: new elections are now started in this epoch, and the report of
+    /// the epoch left was taken at the switch, under the same lock that
+    /// stopped its signing
+    EpochAdvanced(ConsensusEpoch, Option<Arc<EpochReport>>),
 
     /// RAI: instances of a closed epoch opened after its certificate was
     /// seen got notarized: their blocks are not in the value finalized and

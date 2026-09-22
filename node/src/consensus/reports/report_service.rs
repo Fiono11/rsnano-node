@@ -12,7 +12,7 @@ use rsnano_utils::stats::{DetailType, Direction, StatType, Stats};
 
 use super::{ReconcileResult, ReportExchange, ReportMessage};
 use crate::{
-    consensus::AecService,
+    consensus::{AecService, EpochReport},
     transport::{MessageFlooder, MessageSender},
     wallets::WalletRepresentatives,
 };
@@ -35,6 +35,9 @@ pub struct ReportService {
     /// When a request or a refusal was last logged per epoch: one line a
     /// second says what a reconciliation is stuck on without flooding the log
     logged: Mutex<HashMap<(ConsensusEpoch, bool), Timestamp>>,
+    /// Reports taken at a boundary whose predecessor checkpoint was not
+    /// decided here yet: signed once it is
+    pending: Mutex<HashMap<ConsensusEpoch, Arc<EpochReport>>>,
 }
 
 #[allow(dead_code)] // reconciled_count is read by the close, Section 9.1
@@ -58,6 +61,7 @@ impl ReportService {
             clock,
             stats,
             logged: Mutex::new(HashMap::new()),
+            pending: Mutex::new(HashMap::new()),
         }
     }
 
@@ -87,17 +91,39 @@ impl ReportService {
         true
     }
 
-    /// Section 6.1: the node has left the epoch and issues no further
-    /// ordinary votes for it. Its report is signed and broadcast.
-    pub fn epoch_left(&self, epoch: ConsensusEpoch) {
+    /// Algorithm 1 line 8: the node stopped signing in the epoch at its
+    /// boundary and took its report there, under the same lock. The report
+    /// is signed "against closed S_{e-1}" and broadcast here; a boundary
+    /// reached before that checkpoint was decided here signs as soon as it
+    /// is (see `tick`).
+    pub fn epoch_left(&self, epoch: ConsensusEpoch, report: Arc<EpochReport>) {
+        let Some(predecessor) = self.predecessor_of(epoch) else {
+            crate::utils::diagnostic!("EPOCH_REPORT_DEFERRED epoch={}", epoch);
+            self.pending.lock().unwrap().insert(epoch, report);
+            return;
+        };
+        self.sign_report(epoch, report, predecessor);
+    }
+
+    /// d_{e-1}: the hash of the decided predecessor checkpoint, if this node
+    /// holds it
+    fn predecessor_of(&self, epoch: ConsensusEpoch) -> Option<rsnano_types::BlockHash> {
+        self.active_elections
+            .epoch_previous_state(epoch)
+            .map(|state| state.state_hash())
+    }
+
+    fn sign_report(
+        &self,
+        epoch: ConsensusEpoch,
+        report: Arc<EpochReport>,
+        predecessor: rsnano_types::BlockHash,
+    ) {
         let mut keys = Vec::new();
         self.wallet_reps.lock().unwrap().rep_priv_keys(&mut keys);
         if keys.is_empty() {
             return;
         }
-        let Some(report) = self.active_elections.epoch_report(epoch) else {
-            return;
-        };
         let certified = report.certified.len();
         let residual = report.residual.len();
         let root = report.certified.root();
@@ -105,9 +131,10 @@ impl ReportService {
             let mut exchange = self.exchange.lock().unwrap();
             exchange.report_epoch(
                 epoch,
-                report.certified,
-                report.residual,
+                report.certified.clone(),
+                report.residual.clone(),
                 report.committee,
+                predecessor,
                 &keys,
             )
         };
@@ -233,6 +260,18 @@ impl ReportService {
     /// keeps delivering the votes of a closed epoch, and it is that growth
     /// which eventually gives this node a state it shares with a reporter.
     pub fn tick(&self) {
+        // A report deferred for want of its predecessor checkpoint is signed
+        // once that checkpoint is decided here
+        let deferred: Vec<ConsensusEpoch> = self.pending.lock().unwrap().keys().copied().collect();
+        for epoch in deferred {
+            let Some(predecessor) = self.predecessor_of(epoch) else {
+                continue;
+            };
+            let Some(report) = self.pending.lock().unwrap().remove(&epoch) else {
+                continue;
+            };
+            self.sign_report(epoch, report, predecessor);
+        }
         // This node's own reports go out again for as long as it holds them:
         // a replica that missed the broadcast at the boundary can not select
         // them, and one still deriving an old epoch's state needs them

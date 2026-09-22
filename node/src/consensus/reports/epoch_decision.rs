@@ -149,7 +149,7 @@ impl EpochDecisionService {
             self.report_unready(epoch, "no committee", 0, Amount::ZERO, Amount::ZERO);
             return false;
         };
-        if self.active_elections.epoch_previous_state(epoch).is_none() {
+        let Some(previous) = self.active_elections.epoch_previous_state(epoch) else {
             self.report_unready(
                 epoch,
                 "no predecessor state",
@@ -158,12 +158,13 @@ impl EpochDecisionService {
                 committee.thresholds().report,
             );
             return false;
-        }
+        };
+        let predecessor = previous.state_hash();
         let (usable, weight) = {
             let exchange = self.exchange.lock().unwrap();
             (
                 exchange.usable(epoch).len(),
-                selected_weight(&exchange, epoch, &committee),
+                selected_weight(&exchange, epoch, &committee, predecessor),
             )
         };
         if weight >= committee.thresholds().report {
@@ -294,10 +295,13 @@ impl EpochDecisionService {
     ) -> Option<(EpochValue, Arc<EpochLedger>)> {
         let previous = self.active_elections.epoch_previous_state(epoch)?;
         let committee = self.active_elections.epoch_committee(epoch)?;
+        let predecessor = previous.state_hash();
         let exchange = self.exchange.lock().unwrap();
+        // Only reports signed against the same predecessor checkpoint
         let mut usable: Vec<PublicKey> = exchange
             .usable(epoch)
             .iter()
+            .filter(|(report, _, _)| report.predecessor == predecessor)
             .map(|(report, _, _)| report.reporter)
             .collect();
         usable.sort();
@@ -332,6 +336,7 @@ impl EpochDecisionService {
             exchange: &exchange,
             epoch,
             committee: &committee,
+            predecessor,
         };
         let resolved: Vec<(ReportRef, SelectedReport)> = selected
             .iter()
@@ -364,6 +369,7 @@ impl EpochDecisionService {
             exchange: &exchange,
             epoch: value.epoch,
             committee: &committee,
+            predecessor: previous.state_hash(),
         };
         let states: Vec<SelectedReport> = value
             .reports()
@@ -442,11 +448,14 @@ impl EpochDecisionService {
     }
 }
 
-/// The reports this node has reconstructed, as an epoch derivation sees them
+/// The reports this node has reconstructed, as an epoch derivation sees
+/// them: those signed against the predecessor checkpoint the derivation
+/// starts from
 struct UsableReports<'a> {
     exchange: &'a ReportExchange,
     epoch: ConsensusEpoch,
     committee: &'a Committee,
+    predecessor: BlockHash,
 }
 
 impl ReportSource for UsableReports<'_> {
@@ -456,6 +465,7 @@ impl ReportSource for UsableReports<'_> {
             &report.reporter,
             report.certified,
             report.residual,
+            self.predecessor,
         )?;
         Some(SelectedReport {
             reporter: report.reporter,
@@ -472,10 +482,12 @@ fn selected_weight(
     exchange: &ReportExchange,
     epoch: ConsensusEpoch,
     committee: &Committee,
+    predecessor: BlockHash,
 ) -> Amount {
     exchange
         .usable(epoch)
         .iter()
+        .filter(|(report, _, _)| report.predecessor == predecessor)
         .fold(Amount::ZERO, |sum, (report, _, _)| {
             sum.number()
                 .checked_add(committee.weight(&report.reporter).number())

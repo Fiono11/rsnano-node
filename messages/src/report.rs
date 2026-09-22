@@ -6,16 +6,20 @@ use rsnano_types::{
 
 use crate::MessageVariant;
 
-/// RAI, Section 6.1: the report of one replica for one epoch,
-/// `Sign_i(REPORT, e, H(O_e), r_{i,e})`. It carries the root of the
-/// reporter's map of first and final votes and nothing else: no block, no
-/// certificate, no vote signature. The map behind it may hold millions of
-/// entries; this message stays 176 bytes.
+/// RAI, "Reports that remain reconstructible": the signed report of one
+/// replica for one epoch. It binds the epoch, the predecessor checkpoint,
+/// the committee, the identity and two roots, and nothing else: no block,
+/// no certificate, no vote. The inventories behind the roots may hold
+/// millions of entries; this message stays 208 bytes. The session is the
+/// network the message header names.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Report {
     pub epoch: ConsensusEpoch,
     /// H(O_e): the digest of the committee that issued the epoch's votes
     pub committee: BlockHash,
+    /// d_{e-1}: the closed predecessor checkpoint the report is signed
+    /// against
+    pub predecessor: BlockHash,
     /// r_i: the root of the reporter's certified block tree
     pub certified: BlockHash,
     /// g_i: the root of the vote evidence the certified tree does not
@@ -27,7 +31,7 @@ pub struct Report {
 
 impl Report {
     pub const SERIALIZED_SIZE: usize = ConsensusEpoch::SERIALIZED_SIZE
-        + BlockHash::SERIALIZED_SIZE * 3
+        + BlockHash::SERIALIZED_SIZE * 4
         + PublicKey::SERIALIZED_SIZE
         + Signature::SERIALIZED_SIZE;
 
@@ -35,6 +39,7 @@ impl Report {
         key: &PrivateKey,
         epoch: ConsensusEpoch,
         committee: BlockHash,
+        predecessor: BlockHash,
         certified: BlockHash,
         residual: BlockHash,
         payload: BlockHash,
@@ -42,6 +47,7 @@ impl Report {
         Self {
             epoch,
             committee,
+            predecessor,
             certified,
             residual,
             reporter: key.public_key(),
@@ -53,6 +59,7 @@ impl Report {
         Self {
             epoch: ConsensusEpoch::new(1),
             committee: BlockHash::from(2),
+            predecessor: BlockHash::from(7),
             certified: BlockHash::from(3),
             residual: BlockHash::from(4),
             reporter: PublicKey::from(5),
@@ -75,6 +82,7 @@ impl Report {
     {
         self.epoch.serialize(writer)?;
         self.committee.serialize(writer)?;
+        self.predecessor.serialize(writer)?;
         self.certified.serialize(writer)?;
         self.residual.serialize(writer)?;
         self.reporter.serialize(writer)?;
@@ -89,6 +97,7 @@ impl Report {
         Ok(Self {
             epoch: ConsensusEpoch::deserialize(&mut bytes)?,
             committee: BlockHash::deserialize(&mut bytes)?,
+            predecessor: BlockHash::deserialize(&mut bytes)?,
             certified: BlockHash::deserialize(&mut bytes)?,
             residual: BlockHash::deserialize(&mut bytes)?,
             reporter: PublicKey::deserialize(&mut bytes)?,
@@ -327,8 +336,9 @@ impl MessageVariant for ReconReply {
 }
 
 /// One entry of a residual-vote object on the wire: the block the reporter
-/// voted for and which of its own votes it recorded
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// voted for, which of its own votes it recorded, and its signature over
+/// the record
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ResidualEntry {
     pub account: Account,
     pub height: u64,
@@ -337,15 +347,23 @@ pub struct ResidualEntry {
     pub previous: BlockHash,
     /// 0 first, 1 notarization support, 2 final
     pub kind: u8,
+    pub signature: Signature,
 }
 
 impl ResidualEntry {
+    pub const SERIALIZED_SIZE: usize = Account::SERIALIZED_SIZE
+        + 8
+        + BlockHash::SERIALIZED_SIZE * 2
+        + 1
+        + Signature::SERIALIZED_SIZE;
+
     fn serialize<T: std::io::Write>(&self, writer: &mut T) -> std::io::Result<()> {
         self.account.serialize(writer)?;
         writer.write_all(&self.height.to_le_bytes())?;
         self.hash.serialize(writer)?;
         self.previous.serialize(writer)?;
-        writer.write_all(&[self.kind])
+        writer.write_all(&[self.kind])?;
+        self.signature.serialize(writer)
     }
 
     fn deserialize(bytes: &mut &[u8]) -> Result<Self, DeserializationError> {
@@ -359,12 +377,14 @@ impl ResidualEntry {
         if kind[0] > 2 {
             return Err(DeserializationError::InvalidData);
         }
+        let signature = Signature::deserialize(bytes)?;
         Ok(Self {
             account,
             height: u64::from_le_bytes(height),
             hash,
             previous,
             kind: kind[0],
+            signature,
         })
     }
 }
@@ -439,9 +459,9 @@ pub struct ResidualReply {
 }
 
 impl ResidualReply {
-    /// Entries in one reply, bounded by the message size like a
-    /// reconciliation reply's
-    pub const MAX_ENTRIES: usize = 600;
+    /// Entries in one reply, bounded by the message size: a signed entry is
+    /// 137 bytes against a payload of 64 KiB
+    pub const MAX_ENTRIES: usize = 450;
 
     pub fn new_test_instance() -> Self {
         Self {
@@ -454,6 +474,7 @@ impl ResidualReply {
                 hash: BlockHash::from(5),
                 previous: BlockHash::from(6),
                 kind: 1,
+                signature: Signature::from_bytes([8; 64]),
             }],
         }
     }
@@ -530,6 +551,7 @@ mod tests {
             &key,
             ConsensusEpoch::new(2),
             BlockHash::from(1),
+            BlockHash::from(4),
             BlockHash::from(2),
             BlockHash::from(3),
             payload,
@@ -570,7 +592,9 @@ mod tests {
         ResidualReply::new_test_instance()
             .serialize(&mut bytes)
             .unwrap();
-        *bytes.last_mut().unwrap() = 7;
+        // The kind precedes the signature of the only entry
+        let kind = bytes.len() - Signature::SERIALIZED_SIZE - 1;
+        bytes[kind] = 7;
         assert!(ResidualReply::deserialize(&bytes).is_err());
     }
 

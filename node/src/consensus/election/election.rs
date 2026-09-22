@@ -103,21 +103,19 @@ pub struct Election {
     certificates: Certificates,
     /// RAI: the committees of the last Kudzu tally
     committees: Option<Committees>,
-    /// RAI, Protocol 1 step 4: a block of this slot which another replica
-    /// named to this one (in its request for the slot's certificates) and
-    /// which this replica does not hold, with the instant it was first named
-    /// and the first-vote weight cached for it. The block is fetched by hash;
-    /// one that does not arrive is one this replica can not validate, and
-    /// once it has many first votes the timeout block is notarized in its
-    /// place. Empty as a rule: a candidate this replica holds is not in it.
-    missing_candidates: HashMap<BlockHash, MissingCandidate>,
-    /// RAI: a block with many first votes stayed missing for `MISSING_BLOCK_TIMEOUT`
-    missing_many: bool,
+    /// RAI, "Where a block may be voted on": the checkpoint of the epoch
+    /// before this instance's is decided here. Until it is, "even a fast
+    /// vote tally is provisional: it cannot justify a final vote"; first and
+    /// notarization votes proceed.
+    predecessor_decided: bool,
 }
 
 impl Election {
     const PASSIVE_DURATION_FACTOR: u32 = 5;
     pub const MAX_BLOCKS: usize = 10;
+    /// RAI, "Costs and limits": a validator signs at most one first vote
+    /// and two additional notarization votes per account domain
+    pub const MAX_SECOND_LOOKS: usize = 2;
 
     pub fn new(
         block: SavedBlock,
@@ -150,8 +148,7 @@ impl Election {
             kudzu: SlotVotes::default(),
             certificates: Certificates::default(),
             committees: None,
-            missing_candidates: HashMap::new(),
-            missing_many: false,
+            predecessor_decided: true,
         }
     }
 
@@ -337,10 +334,6 @@ impl Election {
 
     pub fn transition_time(&mut self, now: Timestamp) {
         let duration = self.start.elapsed(now);
-        if cfg!(feature = "rai_protocol") {
-            // Step 4: a block with many first votes which never arrived
-            self.missing_many = self.has_missing_many(now);
-        }
         match self.state {
             ElectionState::Passive => {
                 if self.base_latency * Self::PASSIVE_DURATION_FACTOR < duration {
@@ -365,13 +358,6 @@ impl Election {
     pub fn base_latency(&self) -> Duration {
         self.base_latency
     }
-
-    /// RAI, Protocol 1 step 4: how long a block with many first votes may be
-    /// on its way before this replica gives up on validating it and notarizes
-    /// the timeout block in its place. The paper fetches the block by hash at
-    /// this point; here the solicitor asks for the candidates of the instance,
-    /// and this is how long that may take.
-    pub const MISSING_BLOCK_TIMEOUT: Duration = Duration::from_secs(2);
 
     /// RAI: how long a settled instance keeps asking for the final votes it
     /// lacks after the last statement reached it. They may never come: the
@@ -675,7 +661,12 @@ impl Election {
             self.change_winner_to(&new_winner);
         }
 
-        self.forget_arrived_candidates();
+        // RAI: no finality before the predecessor checkpoint is decided. The
+        // tallies stay; the certificates come out of them once it is.
+        if !self.predecessor_decided {
+            self.certificates.fast = None;
+            self.certificates.final_ = None;
+        }
         self.update_winner_tally();
         self.has_quorum = self.certificates.is_notarized(&self.winner.hash());
         self.state = kudzu_state(
@@ -686,71 +677,31 @@ impl Election {
         );
     }
 
-    /// RAI, Protocol 1 step 4: another replica named a block of this slot
-    /// which this one does not hold, with the first-vote weight cached for it
-    /// so far. Votes carry hashes only, so a vote for a block this replica
-    /// lacks reaches no instance; the requests of the other replicas name
-    /// both the root and the hash, and are how a missing candidate becomes
-    /// known here. The block is asked for in turn (the aggregator publishes
-    /// the candidates it holds); if it never arrives and it has many first
-    /// votes, the timeout block is notarized in its place.
-    pub fn note_missing_candidate(&mut self, hash: BlockHash, tally: Amount, now: Timestamp) {
-        if self.candidate_blocks.contains_key(&hash) || self.certificates.is_terminated() {
-            return;
-        }
-        // A faulty replica can name any hash; a slot has a bounded number of
-        // candidates, and only a block with many first votes matters here
-        if self.missing_candidates.len() >= Self::MAX_BLOCKS
-            && !self.missing_candidates.contains_key(&hash)
-        {
-            return;
-        }
-        let entry = self
-            .missing_candidates
-            .entry(hash)
-            .or_insert(MissingCandidate {
-                since: now,
-                tally: Amount::ZERO,
-            });
-        entry.tally = entry.tally.max(tally);
+    /// RAI: whether the checkpoint of the epoch before this instance's is
+    /// decided here, which is what lets its finality be applied
+    pub fn predecessor_decided(&self) -> bool {
+        self.predecessor_decided
     }
 
-    /// A missing candidate which arrived is validated and notarized by the
-    /// second look like any other, so it is no longer missing
-    fn forget_arrived_candidates(&mut self) {
-        if self.missing_candidates.is_empty() {
-            return;
+    /// RAI, "Where a block may be voted on": the predecessor checkpoint is
+    /// decided (or not yet). Once it is, the certificates the tallies
+    /// already support come out, and the final vote may be cast.
+    pub fn set_predecessor_decided(&mut self, decided: bool) {
+        self.predecessor_decided = decided;
+        if decided && let Some(committees) = self.committees.clone() {
+            self.update_kudzu_tallies(&committees);
         }
-        let candidates = &self.candidate_blocks;
-        self.missing_candidates
-            .retain(|hash, _| !candidates.contains_key(hash));
     }
 
-    /// RAI, Protocol 1 step 4: a block of this slot with many first votes
-    /// which this replica could not obtain within `MISSING_BLOCK_TIMEOUT`.
-    /// Many first votes is what makes it a block a correct replica holds and
-    /// serves (Section 3.3), so one that stays missing this long is one this
-    /// replica will not validate.
-    fn has_missing_many(&self, now: Timestamp) -> bool {
-        if self.missing_candidates.is_empty() || self.certificates.is_terminated() {
-            return false;
-        }
-        let Some(committees) = &self.committees else {
-            return false;
-        };
-        self.missing_candidates.values().any(|candidate| {
-            candidate.since.elapsed(now) >= Self::MISSING_BLOCK_TIMEOUT
-                && committees
-                    .iter()
-                    .any(|committee| candidate.tally >= committee.thresholds().many)
-        })
-    }
-
-    /// Line 11: the final vote to cast at exit, if any
+    /// Line 11: the final vote to cast at exit, if any. RAI: not before the
+    /// predecessor checkpoint is decided.
     pub fn kudzu_final_vote_due(&self, slot: &LocalSlotState) -> Option<(BlockHash, VoteKind)> {
         let winner = self.winner.hash();
-        (self.kudzu_is_final() && slot.final_voted.is_none() && slot.notarized_only(&winner))
-            .then_some((winner, VoteKind::Final))
+        (self.predecessor_decided
+            && self.kudzu_is_final()
+            && slot.final_voted.is_none()
+            && slot.notarized_only(&winner))
+        .then_some((winner, VoteKind::Final))
     }
 
     /// Protocol 1 for this node's representatives: the votes to broadcast now,
@@ -777,9 +728,9 @@ impl Election {
             slot.cast_votes().collect()
         };
 
-        // A replica issues at most one first vote per slot: the valid proposal
-        // if it has one, the timeout block otherwise. Both rules can come due
-        // on the same tick, and the proposal is the one to cast.
+        // A replica issues at most one first vote per slot: the valid
+        // proposal, if it has one. RAI: there is no account timeout vote of
+        // any kind; an unresolved position is carried to the epoch decision.
         if !finalized && slot.first_voted.is_none() {
             // Lines 18–21: first vote for the valid proposal, i.e. our ledger
             // block whose dependencies are finalized
@@ -788,18 +739,6 @@ impl Election {
                 && proposal_valid(&winner);
             if proposable {
                 due.push((winner, VoteKind::First));
-            } else if slot.stale && !self.certificates.is_terminated() {
-                // Lines 22–25: RAI, in an instance of an epoch this node has
-                // left it does not propose: its first vote goes to the timeout
-                // block right away. The statement is routed through the
-                // candidate. The Δ_timeout of line 22 is not applied to an
-                // ordinary slot: a replica which abstains can no longer cast
-                // the exit final vote, and with the epoch's close agreeing on
-                // one state hash, a first vote decided by local timing leaves
-                // the replicas attesting different states (see the phase 7
-                // record). It belongs with the report phase, which is what
-                // reconciles states that legitimately differ.
-                due.push((winner, VoteKind::Abstain));
             }
         }
 
@@ -819,20 +758,17 @@ impl Election {
             // Lines 28–31: a second look at every block with many first votes.
             // Taken also after the instance terminated: a replica that has not
             // exited looks eventually, so that the settled predicate can rely
-            // on it (RAI).
+            // on it (RAI). At most two: "only floor(N / r) <= 2 blocks can
+            // qualify", and a receiver drops the third support anyway.
+            let mut looks = slot.notar_voted.len();
             for block in self.kudzu.many_votes() {
+                if looks >= Self::MAX_SECOND_LOOKS {
+                    break;
+                }
                 if self.candidate_blocks.contains_key(&block) && !slot.looked_at(&block) {
                     due.push((block, VoteKind::Notar));
+                    looks += 1;
                 }
-            }
-            // Lines 32–35 only run while the slot is not done. Step 4: the
-            // timeout block is notarized in place of a many-voted block this
-            // replica could not obtain and validate.
-            if slot.timeout_voted.is_none()
-                && !self.certificates.is_terminated()
-                && (self.kudzu.should_timeout() || self.missing_many)
-            {
-                due.push((winner, VoteKind::Timeout));
             }
         }
 
@@ -863,16 +799,6 @@ impl Election {
             votes,
         }
     }
-}
-
-/// RAI: a block of a slot this replica does not hold, as another replica
-/// named it, with the first-vote weight cached for it
-#[derive(Clone, Copy, Debug)]
-struct MissingCandidate {
-    /// When the block was first named here
-    since: Timestamp,
-    /// The first-vote weight the vote cache holds for it
-    tally: Amount,
 }
 
 /// Kudzu: what a replica hands out for a terminated election
@@ -1110,8 +1036,11 @@ mod tests {
         assert!(!due.iter().any(|(_, kind)| *kind == VoteKind::Notar));
     }
 
+    /// RAI: "There is no account-slot timeout." Split first votes trigger
+    /// the second look, never a timeout vote; the position is carried to
+    /// the epoch decision if it stays unresolved.
     #[test]
-    fn split_first_votes_trigger_the_timeout_vote() {
+    fn split_first_votes_trigger_no_timeout_vote() {
         let (mut election, block, fork) = election_with_fork();
         let mut slot = LocalSlotState::default();
         slot.mark_voted(block, VoteKind::First);
@@ -1119,19 +1048,74 @@ mod tests {
         vote(&mut election, 1, block, VoteKind::First);
         vote(&mut election, 2, fork, VoteKind::First);
         vote(&mut election, 3, fork, VoteKind::First);
-        // allVotes − maxVotes = 100 − 60 = 40 ≥ 34
+        // allVotes − maxVotes = 100 − 60 = 40 ≥ 34: Kudzu would time out
         let committees = committees(&[(1, 40), (2, 27), (3, 33)]);
         election.update_kudzu_tallies(&committees);
 
         let due = election.kudzu_votes_due(&slot, |_| true);
-        assert!(due.contains(&(block, VoteKind::Timeout)));
+        assert!(!due.iter().any(|(_, kind)| *kind == VoteKind::Timeout));
+        assert!(due.contains(&(fork, VoteKind::Notar)));
+    }
 
-        slot.mark_voted(block, VoteKind::Timeout);
+    /// RAI, "Costs and limits": at most two second looks per domain
+    #[test]
+    fn at_most_two_second_looks_are_taken() {
+        let (mut election, block, fork) = election_with_fork();
+        let third: Block = StateBlockArgs {
+            representative: 998.into(),
+            ..StateBlockArgs::new_test_instance()
+        }
+        .into();
+        election.try_add_fork(&third, Amount::ZERO);
+        let mut slot = LocalSlotState::default();
+        slot.mark_voted(block, VoteKind::First);
+        vote(&mut election, 1, block, VoteKind::First);
+        vote(&mut election, 2, fork, VoteKind::First);
+        vote(&mut election, 3, third.hash(), VoteKind::First);
+        election.update_kudzu_tallies(&committees(&[(1, 10), (2, 45), (3, 45)]));
+        let looks: Vec<_> = election
+            .kudzu_votes_due(&slot, |_| true)
+            .into_iter()
+            .filter(|(_, kind)| *kind == VoteKind::Notar)
+            .collect();
+        assert_eq!(looks.len(), 2);
+        slot.mark_voted(looks[0].0, VoteKind::Notar);
+        slot.mark_voted(looks[1].0, VoteKind::Notar);
         assert!(
-            election
+            !election
                 .kudzu_votes_due(&slot, |_| true)
-                .contains(&(block, VoteKind::Timeout))
+                .iter()
+                .any(|(hash, kind)| *kind == VoteKind::Notar && !slot.looked_at(hash))
         );
+    }
+
+    /// RAI, "Where a block may be voted on": until the predecessor checkpoint
+    /// is decided, no final vote is cast and a fast tally stays provisional;
+    /// once it is, both come out of the votes already held
+    #[test]
+    fn no_finality_before_the_predecessor_checkpoint_is_decided() {
+        let (mut election, block, _) = election_with_fork();
+        let mut slot = LocalSlotState::default();
+        slot.mark_voted(block, VoteKind::First);
+        election.set_predecessor_decided(false);
+        let committees = committees(&[(1, 40), (2, 27), (3, 33)]);
+
+        // A notarization certificate, but no final vote
+        first_votes(&mut election, block, &[1, 2]);
+        election.update_kudzu_tallies(&committees);
+        assert!(election.has_quorum());
+        assert_eq!(election.kudzu_final_vote_due(&slot), None);
+
+        // Every first vote: a fast certificate in Kudzu, provisional here
+        vote(&mut election, 3, block, VoteKind::First);
+        election.update_kudzu_tallies(&committees);
+        assert!(!election.certificates().is_finalized());
+        assert_ne!(election.state(), ElectionState::Confirmed);
+
+        // Decided: the fast certificate is applied and the final vote due
+        election.set_predecessor_decided(true);
+        assert_eq!(election.certificates().fast, Some(block));
+        assert_eq!(election.state(), ElectionState::Confirmed);
     }
 
     #[test]
@@ -1313,95 +1297,22 @@ mod tests {
     }
 
     /// RAI: in an instance of an epoch this node has left without proposing
-    /// its first vote goes to the timeout block (line 24). It still takes its
-    /// second looks (line 28) but never exits with a final vote.
+    /// it casts no first vote of any kind. Nor a second look: a second look
+    /// follows a first vote.
     #[test]
-    fn stale_instance_abstains_and_still_takes_second_looks() {
+    fn stale_instance_casts_no_first_vote() {
         let (mut election, block, _) = election_with_fork();
-        let mut slot = LocalSlotState::stale();
-        assert_eq!(
-            election.kudzu_votes_due(&slot, |_| true),
-            vec![(block, VoteKind::Abstain)]
-        );
-        slot.mark_voted(block, VoteKind::Abstain);
-        assert!(slot.abstained());
-        assert_eq!(
-            election.kudzu_votes_due(&slot, |_| true),
-            vec![(block, VoteKind::Abstain)]
-        );
+        let slot = LocalSlotState::stale();
+        assert!(election.kudzu_votes_due(&slot, |_| true).is_empty());
 
-        // The others first vote the block: a second look, but no final vote
         notarization_certificate(&mut election, block);
         election.update_kudzu_tallies(&committees(&[(1, 40), (2, 27), (3, 33)]));
         assert!(election.has_quorum());
-        assert_eq!(election.kudzu_final_vote_due(&slot), None);
-        assert_eq!(
-            election.kudzu_votes_due(&slot, |_| true),
-            vec![(block, VoteKind::Abstain), (block, VoteKind::Notar)]
-        );
-        slot.mark_voted(block, VoteKind::Notar);
-        // Re-broadcast in the order cast
-        assert_eq!(
-            election.kudzu_votes_due(&slot, |_| true),
-            vec![(block, VoteKind::Notar), (block, VoteKind::Abstain)]
-        );
-    }
-
-    /// RAI, Protocol 1 step 4: a candidate of the slot which this replica
-    /// could not obtain is notarized as the timeout block, but only once it
-    /// has many first votes and the fetch has had its time
-    #[cfg(feature = "rai_protocol")]
-    #[test]
-    fn a_missing_candidate_with_many_first_votes_notarizes_the_timeout_block() {
-        let (mut election, block, _) = election_with_fork();
-        let missing = BlockHash::from(42);
-        let committees = committees(&[(1, 40), (2, 27), (3, 33)]);
-        let mut slot = LocalSlotState::default();
-        slot.mark_voted(block, VoteKind::First);
-        vote(&mut election, 1, block, VoteKind::First);
-        election.update_kudzu_tallies(&committees);
-
-        // Below many (39): the missing block is not one a correct replica holds
-        election.note_missing_candidate(missing, Amount::raw(38), election.start());
-        election.transition_time(election.start() + Election::MISSING_BLOCK_TIMEOUT);
-        assert_eq!(
-            election.kudzu_votes_due(&slot, |_| true),
-            vec![(block, VoteKind::First)]
-        );
-
-        // Many first votes, but the block may still be on its way
-        election.note_missing_candidate(missing, Amount::raw(39), election.start());
-        let early = election.start() + Election::MISSING_BLOCK_TIMEOUT - Duration::from_millis(1);
-        election.transition_time(early);
-        assert_eq!(
-            election.kudzu_votes_due(&slot, |_| true),
-            vec![(block, VoteKind::First)]
-        );
-
-        election.transition_time(election.start() + Election::MISSING_BLOCK_TIMEOUT);
-        assert_eq!(
-            election.kudzu_votes_due(&slot, |_| true),
-            vec![(block, VoteKind::First), (block, VoteKind::Timeout)]
-        );
-    }
-
-    /// A missing candidate which arrives is notarized by the second look
-    /// like any other, not as the timeout block
-    #[cfg(feature = "rai_protocol")]
-    #[test]
-    fn a_missing_candidate_that_arrives_is_no_longer_missing() {
-        let (mut election, block, fork) = election_with_fork();
-        let committees = committees(&[(1, 40), (2, 27), (3, 33)]);
-        let mut slot = LocalSlotState::default();
-        slot.mark_voted(block, VoteKind::First);
-        vote(&mut election, 1, block, VoteKind::First);
-        // The fork is a candidate here, so naming it records nothing
-        election.note_missing_candidate(fork, Amount::raw(50), election.start());
-        election.update_kudzu_tallies(&committees);
-        election.transition_time(election.start() + Election::MISSING_BLOCK_TIMEOUT);
-        assert_eq!(
-            election.kudzu_votes_due(&slot, |_| true),
-            vec![(block, VoteKind::First)]
+        assert!(
+            !election
+                .kudzu_votes_due(&slot, |_| true)
+                .iter()
+                .any(|(_, kind)| matches!(kind, VoteKind::First | VoteKind::Notar))
         );
     }
 

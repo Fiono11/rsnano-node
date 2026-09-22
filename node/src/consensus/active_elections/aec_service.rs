@@ -273,13 +273,6 @@ impl AecService {
         self.aec.read().unwrap().epoch_certified(epoch)
     }
 
-    /// RAI: what this node reports for one epoch - the certified block tree
-    /// and the votes of its own that the tree does not summarize
-    #[cfg(feature = "rai_protocol")]
-    pub(crate) fn epoch_report(&self, epoch: ConsensusEpoch) -> Option<super::EpochReport> {
-        self.aec.read().unwrap().epoch_report(epoch)
-    }
-
     /// RAI: `S_{e-1}` for the close of an epoch, the state its derivation
     /// builds on
     #[cfg(feature = "rai_protocol")]
@@ -341,16 +334,6 @@ impl AecService {
     #[cfg(feature = "rai_protocol")]
     pub(crate) fn epoch_proposals_due(&self) -> Vec<super::EpochProposalContext> {
         self.aec.read().unwrap().epoch_proposals_due()
-    }
-
-    /// RAI: a candidate of one of this node's instances which it does not
-    /// hold, as another replica named it (Protocol 1, step 4)
-    pub fn note_missing_candidate(&self, id: &ElectionId, hash: BlockHash, tally: Amount) {
-        let now = self.clock.now();
-        self.aec
-            .write()
-            .unwrap()
-            .note_missing_candidate(id, hash, tally, now);
     }
 
     pub fn is_terminated(&self, id: &ElectionId) -> bool {

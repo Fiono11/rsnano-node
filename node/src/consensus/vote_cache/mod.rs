@@ -246,7 +246,7 @@ impl EventHandler<AecFact> for VoteCache {
             AecFact::BlockAddedToElection(hash) => self.processor.trigger(*hash),
             // RAI: the votes of an epoch this node had not reached yet waited
             // here; now they open that epoch's instances
-            AecFact::EpochAdvanced(epoch) => {
+            AecFact::EpochAdvanced(epoch, _) => {
                 for hash in self.hashes_voted_in_epoch(*epoch) {
                     self.processor.trigger(hash);
                 }
@@ -331,7 +331,7 @@ mod tests {
         cache.process(new_vote, Amount::raw(7), &HashMap::new());
         assert_eq!(cache.hashes_voted_in_epoch(epoch1), vec![new_hash]);
 
-        cache.handle(&AecFact::EpochAdvanced(epoch1));
+        cache.handle(&AecFact::EpochAdvanced(epoch1, None));
 
         assert_eq!(cache.processor.len(), 1);
     }

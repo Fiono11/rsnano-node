@@ -244,10 +244,10 @@ impl ReportIndex {
                     previous: entry.previous,
                 });
             }
-            for (block, _, previous) in report.residual.entries() {
+            for (block, _, record) in report.residual.entries() {
                 placements.entry(block.hash).or_insert(BlockPlacement {
                     slot: AccountSlot::new(block.account, block.height),
-                    previous,
+                    previous: record.previous,
                 });
             }
         }

@@ -297,7 +297,7 @@ fn notify_winner_changed(
     }
 }
 
-fn election_got_confirmed(
+pub(super) fn election_got_confirmed(
     election: &Election,
     now: Timestamp,
     observer: &Option<Sender<AecFact>>,

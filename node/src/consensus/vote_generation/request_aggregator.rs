@@ -24,7 +24,6 @@ use crate::{
     consensus::{
         AecService,
         election::{ElectionId, VoteType},
-        vote_cache::VoteCache,
     },
     transport::MessageSender,
 };
@@ -59,9 +58,6 @@ pub struct RequestAggregator {
     vote_generators: Arc<VoteGenerators>,
     ledger: Arc<Ledger>,
     active_elections: Arc<AecService>,
-    /// RAI: the first-vote weight cached for a candidate this node does not
-    /// hold (Protocol 1, step 4)
-    vote_cache: Arc<VoteCache>,
     message_sender: MessageSender,
     evidence_replies: Arc<Mutex<EvidenceReplyCache>>,
     state: Arc<Mutex<RequestAggregatorState>>,
@@ -76,7 +72,6 @@ impl RequestAggregator {
         vote_generators: Arc<VoteGenerators>,
         ledger: Arc<Ledger>,
         active_elections: Arc<AecService>,
-        vote_cache: Arc<VoteCache>,
         message_sender: MessageSender,
     ) -> Self {
         let max_queue = config.max_queue;
@@ -85,7 +80,6 @@ impl RequestAggregator {
             vote_generators,
             ledger,
             active_elections,
-            vote_cache,
             message_sender,
             evidence_replies: Arc::new(Mutex::new(EvidenceReplyCache::default())),
             config,
@@ -105,7 +99,6 @@ impl RequestAggregator {
             VoteGenerators::new_null().into(),
             Ledger::new_null().into(),
             AecService::new_null().into(),
-            VoteCache::new_null().into(),
             MessageSender::new_null(),
         )
     }
@@ -121,7 +114,6 @@ impl RequestAggregator {
                 ledger: self.ledger.clone(),
                 vote_generators: self.vote_generators.clone(),
                 active_elections: self.active_elections.clone(),
-                vote_cache: self.vote_cache.clone(),
                 message_sender: Mutex::new(self.message_sender.clone()),
                 evidence_replies: self.evidence_replies.clone(),
             };
@@ -249,7 +241,6 @@ struct RequestAggregatorLoop {
     ledger: Arc<Ledger>,
     vote_generators: Arc<VoteGenerators>,
     active_elections: Arc<AecService>,
-    vote_cache: Arc<VoteCache>,
     message_sender: Mutex<MessageSender>,
     evidence_replies: Arc<Mutex<EvidenceReplyCache>>,
 }
@@ -428,21 +419,8 @@ impl RequestAggregatorLoop {
             let Some(block) = search_for_block(any, hash, root) else {
                 continue;
             };
-            // RAI, Protocol 1 step 4: the requester holds a candidate of this
-            // slot which this node does not. Votes name hashes only, so a vote
-            // for it reaches no instance here and this request is how the
-            // instance learns of it; this node's own block for the slot gives
-            // the instance. The block is asked for below, and the timeout
-            // block is notarized in its place if it has many first votes and
-            // never arrives.
-            let tally = self.vote_cache.get_non_final_tally(hash);
-            if !tally.is_zero() {
-                self.active_elections.note_missing_candidate(
-                    &ElectionId::new(block.qualified_root(), request.epoch),
-                    *hash,
-                    tally,
-                );
-            }
+            // RAI: the requester holds a candidate of this slot which this
+            // node does not; it is asked for below
             let mut sender = self.message_sender.lock().unwrap();
             let mut replies = self.evidence_replies.lock().unwrap();
             if Self::publish_evidence_block(

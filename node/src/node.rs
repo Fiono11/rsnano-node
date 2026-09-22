@@ -779,7 +779,6 @@ impl Node {
             vote_generators.clone(),
             ledger.clone(),
             active_elections.clone(),
-            vote_cache.clone(),
             message_sender.clone(),
         ));
 

@@ -361,7 +361,13 @@ impl EpochClose {
                     leader: self.leader(round as u32),
                 });
             }
-            if self.tree_block(round).is_some() || self.rounds[round].certificates.timeout {
+            // Joint completeness or shared skip evidence: a timeout
+            // certificate, or notarizations of two different values across
+            // the committees, both let the slot be left
+            if self.tree_block(round).is_some()
+                || self.rounds[round].certificates.timeout
+                || self.rounds[round].certificates.conflict
+            {
                 self.current += 1;
                 self.ensure_round(self.current);
                 continue;

@@ -21,11 +21,14 @@ impl ReportPlugin {
 
 impl EventHandlerMut<AecFact> for ReportPlugin {
     fn handle(&mut self, event: &AecFact) {
-        if let AecFact::EpochAdvanced(current) = event {
+        if let AecFact::EpochAdvanced(current, report) = event {
             let Some(left) = current.as_u64().checked_sub(1) else {
                 return;
             };
-            self.reports.epoch_left(ConsensusEpoch::new(left));
+            if let Some(report) = report {
+                self.reports
+                    .epoch_left(ConsensusEpoch::new(left), report.clone());
+            }
         }
     }
 }

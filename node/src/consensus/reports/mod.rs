@@ -12,7 +12,7 @@ use rsnano_messages::{
     CertifiedEntry, ReconReply, ReconReq, Report, ResidualEntry, ResidualReply, ResidualReq,
 };
 use rsnano_nullable_clock::Timestamp;
-use rsnano_types::{BlockHash, ConsensusEpoch, PrivateKey, PublicKey};
+use rsnano_types::{BlockHash, ConsensusEpoch, PrivateKey, PublicKey, Signature};
 
 use crate::consensus::election::{
     Certification, CertifiedBlock, CertifiedState, CertifiedStatus, ReportCommitment, ResidualKind,
@@ -165,15 +165,19 @@ impl ReportExchange {
         self.epochs.get(&epoch).map(|held| held.live.root())
     }
 
-    /// RAI: this node stops issuing account votes for the epoch and signs one
-    /// report per representative it votes with. The certified state is frozen
-    /// as the report's snapshot; the live state carries on from there.
+    /// RAI: this node stopped issuing account votes for the epoch at its
+    /// boundary and signs one report per representative it votes with,
+    /// against the closed predecessor checkpoint. The certified state is
+    /// frozen as the report's snapshot; the live state carries on from
+    /// there. The residual object is signed by each representative, record
+    /// by record, so each signs a root of its own.
     pub fn report_epoch(
         &mut self,
         epoch: ConsensusEpoch,
         certified: CertifiedState,
         residual: ResidualVotes,
         committee: BlockHash,
+        predecessor: BlockHash,
         keys: &[PrivateKey],
     ) -> Vec<ReportMessage> {
         let held = self.epochs.entry(epoch).or_default();
@@ -181,13 +185,17 @@ impl ReportExchange {
             return Vec::new();
         }
         let certified_root = certified.root();
-        let residual_root = residual.root();
+        let mut residuals = Vec::new();
         held.signed = keys
             .iter()
             .map(|key| {
+                let signed = residual.signed(epoch, key);
+                let residual_root = signed.root();
+                residuals.push(signed);
                 let payload = ReportCommitment {
                     epoch,
                     committee,
+                    predecessor,
                     certified: certified_root,
                     residual: residual_root,
                     reporter: key.public_key(),
@@ -197,6 +205,7 @@ impl ReportExchange {
                     key,
                     epoch,
                     committee,
+                    predecessor,
                     certified_root,
                     residual_root,
                     payload,
@@ -204,9 +213,13 @@ impl ReportExchange {
             })
             .collect();
         held.history.insert(certified_root, certified.clone());
-        held.live = certified;
-        held.residuals.insert(residual_root, residual.clone());
-        held.residual = residual;
+        for (block, entry) in certified.entries() {
+            held.live.certify(*block, entry.previous, entry.status);
+        }
+        held.residual = residuals.first().cloned().unwrap_or_default();
+        for signed in residuals {
+            held.residuals.insert(signed.root(), signed);
+        }
         let messages = held
             .signed
             .iter()
@@ -292,6 +305,7 @@ impl ReportExchange {
         reporter: &PublicKey,
         certified: BlockHash,
         residual: BlockHash,
+        predecessor: BlockHash,
     ) -> Option<(&CertifiedState, &ResidualVotes)> {
         let held = self.epochs.get(&epoch)?;
         // This node's own reports count like any other: a selection is
@@ -304,13 +318,19 @@ impl ReportExchange {
             .iter()
             .find(|report| &report.reporter == reporter)
         {
-            if own.certified != certified || own.residual != residual {
+            if own.certified != certified
+                || own.residual != residual
+                || own.predecessor != predecessor
+            {
                 return None;
             }
             return Some((held.state(certified)?, held.residuals.get(&residual)?));
         }
         let their = held.theirs.get(reporter)?;
-        if their.report.certified != certified || their.report.residual != residual {
+        if their.report.certified != certified
+            || their.report.residual != residual
+            || their.report.predecessor != predecessor
+        {
             return None;
         }
         Some((their.reconstructed.as_ref()?, their.residual.as_ref()?))
@@ -348,6 +368,7 @@ impl ReportExchange {
         let payload = ReportCommitment {
             epoch: report.epoch,
             committee: report.committee,
+            predecessor: report.predecessor,
             certified: report.certified,
             residual: report.residual,
             reporter: report.reporter,
@@ -583,12 +604,13 @@ impl ReportExchange {
             .entries()
             .skip(request.offset as usize)
             .take(ResidualReply::MAX_ENTRIES)
-            .map(|(block, kind, previous)| ResidualEntry {
+            .map(|(block, kind, record)| ResidualEntry {
                 account: block.account,
                 height: block.height,
                 hash: block.hash,
-                previous,
+                previous: record.previous,
                 kind: kind.as_byte(),
+                signature: record.signature.clone().unwrap_or_else(Signature::new),
             })
             .collect();
         Some(ResidualReply {
@@ -600,7 +622,10 @@ impl ReportExchange {
     }
 
     /// RAI: accumulate a residual object and accept it exactly when what has
-    /// been accumulated hashes to the root its reporter signed. The fetch is
+    /// been accumulated hashes to the root its reporter signed. Every record
+    /// is checked against the reporter's signature first: "a Byzantine
+    /// reporter may omit facts, but cannot make missing signatures ...
+    /// valid", and a record it did not sign is not its vote. The fetch is
     /// gossiped and answered by several replicas, so the parts arrive in any
     /// order: only the part that continues what is held is taken, in
     /// canonical order, and the others are asked for again.
@@ -628,8 +653,18 @@ impl ReportExchange {
             if last.is_some_and(|held| (block, kind) <= held) {
                 continue;
             }
+            if !ResidualVotes::verify_record(
+                reply.epoch,
+                &reporter,
+                &block,
+                entry.previous,
+                kind,
+                &entry.signature,
+            ) {
+                continue;
+            }
             last = Some((block, kind));
-            object.record(block, entry.previous, kind);
+            object.record_signed(block, entry.previous, kind, entry.signature.clone());
         }
         let complete = object.root() == reply.root;
         let total = object.len();
@@ -743,6 +778,7 @@ mod tests {
             certified,
             ResidualVotes::new(),
             BlockHash::from(7),
+            BlockHash::ZERO,
             &keys,
         );
 
@@ -764,6 +800,7 @@ mod tests {
                     state_of(0..9),
                     ResidualVotes::new(),
                     BlockHash::from(7),
+                    BlockHash::ZERO,
                     &keys,
                 )
                 .is_empty()
@@ -794,6 +831,7 @@ mod tests {
             theirs.clone(),
             ResidualVotes::new(),
             BlockHash::from(7),
+            BlockHash::ZERO,
             &[PrivateKey::from(2)],
         );
         assert!(ours.handle_report(signed(&key, epoch, &theirs)));
@@ -823,6 +861,7 @@ mod tests {
             state_of(0..35),
             ResidualVotes::new(),
             BlockHash::from(7),
+            BlockHash::ZERO,
             &[PrivateKey::from(2)],
         );
         assert!(ours.handle_report(signed(&key, epoch, &theirs)));
@@ -838,6 +877,7 @@ mod tests {
             state_of(0..35),
             ResidualVotes::new(),
             BlockHash::from(7),
+            BlockHash::ZERO,
             &[PrivateKey::from(3)],
         );
         bridging.refresh_live(epoch, state_of(0..40));
@@ -869,6 +909,7 @@ mod tests {
             state_of(0..12),
             ResidualVotes::new(),
             BlockHash::from(7),
+            BlockHash::ZERO,
             &[PrivateKey::from(2)],
         );
         assert!(ours.handle_report(signed(&key, epoch, &theirs)));
@@ -881,6 +922,7 @@ mod tests {
             theirs.clone(),
             ResidualVotes::new(),
             BlockHash::from(7),
+            BlockHash::ZERO,
             &[key.clone()],
         );
         reporter.refresh_live(epoch, state_of(0..12));
@@ -911,6 +953,7 @@ mod tests {
             state_of(0..10),
             ResidualVotes::new(),
             BlockHash::from(7),
+            BlockHash::ZERO,
             &[PrivateKey::from(1)],
         );
         let reported = exchange.live_root(epoch).unwrap();
@@ -954,6 +997,7 @@ mod tests {
             state_of(0..5),
             ResidualVotes::new(),
             BlockHash::from(7),
+            BlockHash::ZERO,
             &[PrivateKey::from(1)],
         );
         let reported = exchange.live_root(epoch).unwrap();
@@ -980,6 +1024,7 @@ mod tests {
             state_of(0..10),
             ResidualVotes::new(),
             BlockHash::from(7),
+            BlockHash::ZERO,
             &[PrivateKey::from(1)],
         );
         let known = exchange.live_root(epoch).unwrap();
@@ -1022,6 +1067,7 @@ mod tests {
             state_of(0..8),
             ResidualVotes::new(),
             BlockHash::from(7),
+            BlockHash::ZERO,
             &[PrivateKey::from(2)],
         );
         assert!(ours.handle_report(signed(&key, epoch, &state_of(0..10))));
@@ -1066,6 +1112,7 @@ mod tests {
             state_of(0..3),
             ResidualVotes::new(),
             BlockHash::from(7),
+            BlockHash::ZERO,
             &[PrivateKey::from(1)],
         );
         let near = exchange.live_root(epoch).unwrap();
@@ -1115,6 +1162,7 @@ mod tests {
                 state.clone(),
                 ResidualVotes::new(),
                 BlockHash::from(7),
+                BlockHash::ZERO,
                 &[key.clone()],
             );
             exchange.refresh_live(epoch, union.clone());
@@ -1175,6 +1223,7 @@ mod tests {
             theirs.clone(),
             residual.clone(),
             BlockHash::from(7),
+            BlockHash::ZERO,
             &[key.clone()],
         );
 
@@ -1184,9 +1233,15 @@ mod tests {
             theirs.clone(),
             ResidualVotes::new(),
             BlockHash::from(7),
+            BlockHash::ZERO,
             &[PrivateKey::from(2)],
         );
-        assert!(ours.handle_report(signed_with(&key, epoch, &theirs, &residual)));
+        assert!(ours.handle_report(signed_with(
+            &key,
+            epoch,
+            &theirs,
+            &residual.signed(epoch, &key)
+        )));
 
         // The certified state matches at once, but the report is not usable
         let (messages, result) = ours.reconcile(epoch, key.public_key(), later()).unwrap();
@@ -1207,18 +1262,60 @@ mod tests {
 
         let usable = theirs_usable(&ours, epoch);
         assert_eq!(usable.len(), 1);
-        assert_eq!(usable[0].1, residual.root());
+        let signed_root = residual.signed(epoch, &key).root();
+        assert_eq!(usable[0].1, signed_root);
 
         // And a reconstructor serves the object in turn, so an unavailable
         // reporter does not make it unfetchable
         let second = ours
             .handle_residual_request(&ResidualReq {
                 epoch,
-                root: residual.root(),
+                root: signed_root,
                 offset: 0,
             })
             .expect("a reconstructor serves it too");
         assert_eq!(second.entries.len(), 4);
+    }
+
+    /// A record the reporter did not sign is not its vote: dropped, and the
+    /// object then never reaches the signed root
+    #[test]
+    fn a_residual_record_without_the_reporters_signature_is_dropped() {
+        let epoch = ConsensusEpoch::ZERO;
+        let key = PrivateKey::from(1);
+        let theirs = state_of(0..3);
+        let mut residual = ResidualVotes::new();
+        residual.record(block(20), parent(20), ResidualKind::First);
+        let signed = residual.signed(epoch, &key);
+        let mut ours = ReportExchange::new();
+        ours.report_epoch(
+            epoch,
+            theirs.clone(),
+            ResidualVotes::new(),
+            BlockHash::from(7),
+            BlockHash::ZERO,
+            &[PrivateKey::from(2)],
+        );
+        assert!(ours.handle_report(signed_with(&key, epoch, &theirs, &signed)));
+        let forged = residual.signed(epoch, &PrivateKey::from(3));
+        let (block20, kind, record) = forged.entries().next().unwrap();
+        let reply = ResidualReply {
+            epoch,
+            root: signed.root(),
+            offset: 0,
+            entries: vec![ResidualEntry {
+                account: block20.account,
+                height: block20.height,
+                hash: block20.hash,
+                previous: record.previous,
+                kind: kind.as_byte(),
+                signature: record.signature.clone().unwrap(),
+            }],
+        };
+        let result = ours.handle_residual_reply(&reply).unwrap();
+        assert!(!result.complete);
+        assert_eq!(result.total, 0);
+        assert!(theirs_usable(&ours, epoch).is_empty());
     }
 
     /// A residual object that is empty needs no fetch at all: its signed root
@@ -1234,6 +1331,7 @@ mod tests {
             theirs.clone(),
             ResidualVotes::new(),
             BlockHash::from(7),
+            BlockHash::ZERO,
             &[PrivateKey::from(2)],
         );
         assert!(ours.handle_report(signed(&key, epoch, &theirs)));
@@ -1261,6 +1359,7 @@ mod tests {
             theirs.clone(),
             residual.clone(),
             BlockHash::from(7),
+            BlockHash::ZERO,
             &[key.clone()],
         );
         let mut ours = ReportExchange::new();
@@ -1269,9 +1368,15 @@ mod tests {
             theirs.clone(),
             ResidualVotes::new(),
             BlockHash::from(7),
+            BlockHash::ZERO,
             &[PrivateKey::from(2)],
         );
-        assert!(ours.handle_report(signed_with(&key, epoch, &theirs, &residual)));
+        assert!(ours.handle_report(signed_with(
+            &key,
+            epoch,
+            &theirs,
+            &residual.signed(epoch, &key)
+        )));
 
         let mut replies = 0;
         loop {
@@ -1312,6 +1417,7 @@ mod tests {
             theirs.clone(),
             residual.clone(),
             BlockHash::from(7),
+            BlockHash::ZERO,
             &[key.clone()],
         );
         let mut ours = ReportExchange::new();
@@ -1320,9 +1426,15 @@ mod tests {
             theirs.clone(),
             ResidualVotes::new(),
             BlockHash::from(7),
+            BlockHash::ZERO,
             &[PrivateKey::from(2)],
         );
-        assert!(ours.handle_report(signed_with(&key, epoch, &theirs, &residual)));
+        assert!(ours.handle_report(signed_with(
+            &key,
+            epoch,
+            &theirs,
+            &residual.signed(epoch, &key)
+        )));
         let (messages, _) = ours.reconcile(epoch, key.public_key(), later()).unwrap();
         let Some(ReportMessage::ResidualRequest(first)) = messages
             .into_iter()
@@ -1364,6 +1476,7 @@ mod tests {
             certified.clone(),
             residual.clone(),
             BlockHash::from(7),
+            BlockHash::ZERO,
             &[key.clone()],
         );
         // The live state moves on; the report's own snapshot is still usable
@@ -1373,22 +1486,42 @@ mod tests {
         assert_eq!(usable.len(), 1);
         assert_eq!(usable[0].0.reporter, key.public_key());
         assert_eq!(usable[0].1.root(), certified.root());
-        assert_eq!(usable[0].2.root(), residual.root());
+        let signed_root = residual.signed(epoch, &key).root();
+        assert_eq!(usable[0].2.root(), signed_root);
 
         let named = exchange
-            .usable_report(epoch, &key.public_key(), certified.root(), residual.root())
+            .usable_report(
+                epoch,
+                &key.public_key(),
+                certified.root(),
+                signed_root,
+                BlockHash::ZERO,
+            )
             .expect("a proposal may name it");
         assert_eq!(named.0.root(), certified.root());
         assert_eq!(named.1.first_votes().count(), 1);
 
-        // A proposal naming the wrong roots for this reporter is refused
+        // A proposal naming the wrong roots, or another predecessor, for
+        // this reporter is refused
         assert!(
             exchange
                 .usable_report(
                     epoch,
                     &key.public_key(),
                     BlockHash::from(9),
-                    residual.root()
+                    signed_root,
+                    BlockHash::ZERO,
+                )
+                .is_none()
+        );
+        assert!(
+            exchange
+                .usable_report(
+                    epoch,
+                    &key.public_key(),
+                    certified.root(),
+                    signed_root,
+                    BlockHash::from(1),
                 )
                 .is_none()
         );
@@ -1406,6 +1539,7 @@ mod tests {
             state_of(0..8),
             ResidualVotes::new(),
             BlockHash::from(7),
+            BlockHash::ZERO,
             &[PrivateKey::from(2)],
         );
         assert!(ours.handle_report(signed(&key, epoch, &state_of(0..10))));
@@ -1440,6 +1574,7 @@ mod tests {
                 state_of(0..3),
                 ResidualVotes::new(),
                 BlockHash::from(7),
+                BlockHash::ZERO,
                 &[key.clone()],
             );
         }
@@ -1490,6 +1625,7 @@ mod tests {
                 state_of(0..2),
                 ResidualVotes::new(),
                 BlockHash::from(7),
+                BlockHash::ZERO,
                 &[key.clone()],
             );
         }
@@ -1578,6 +1714,7 @@ mod tests {
         let payload = ReportCommitment {
             epoch,
             committee: BlockHash::from(7),
+            predecessor: BlockHash::ZERO,
             certified: state.root(),
             residual: residual.root(),
             reporter: key.public_key(),
@@ -1587,6 +1724,7 @@ mod tests {
             key,
             epoch,
             BlockHash::from(7),
+            BlockHash::ZERO,
             state.root(),
             residual.root(),
             payload,
