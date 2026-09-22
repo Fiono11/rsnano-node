@@ -132,6 +132,9 @@ impl Committees {
 pub struct AccountFrontier {
     pub account: Account,
     pub height: u64,
+    /// The block at the frontier: what a decided epoch state names, and what
+    /// the delegation below is read from
+    pub hash: BlockHash,
     pub representative: PublicKey,
     pub balance: Amount,
 }
@@ -237,12 +240,14 @@ mod tests {
         let mut weights = CommitteeWeights::default();
         let rep = PrivateKey::from(1).public_key();
         weights.count(AccountFrontier {
+            hash: BlockHash::from(1),
             account: Account::from(1),
             height: 1,
             representative: rep,
             balance: Amount::MAX,
         });
         weights.count(AccountFrontier {
+            hash: BlockHash::from(1),
             account: Account::from(2),
             height: 1,
             representative: rep,
@@ -362,6 +367,7 @@ mod tests {
 
     fn frontier(account: Account, height: u64, rep_id: u64, balance: u128) -> AccountFrontier {
         AccountFrontier {
+            hash: BlockHash::from(height * 1000 + rep_id),
             account,
             height,
             representative: rep(rep_id),

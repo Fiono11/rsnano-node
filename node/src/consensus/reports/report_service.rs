@@ -1,7 +1,12 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
-use rsnano_messages::{Message, ReconReply, ReconReq, Report};
+use rsnano_messages::{Message, ReconReply, ReconReq, Report, ResidualReply, ResidualReq};
 use rsnano_network::{Channel, TrafficType};
+use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_types::{ConsensusEpoch, PublicKey};
 use rsnano_utils::stats::{DetailType, Direction, StatType, Stats};
 
@@ -20,30 +25,39 @@ use crate::{
 /// The exchange itself is pure state (`ReportExchange`); this is the
 /// infrastructure around it: the keys, the clock, the network.
 pub struct ReportService {
-    exchange: Mutex<ReportExchange>,
+    exchange: Arc<Mutex<ReportExchange>>,
     active_elections: Arc<AecService>,
     wallet_reps: Arc<Mutex<WalletRepresentatives>>,
     flooder: Mutex<MessageFlooder>,
     sender: Mutex<MessageSender>,
+    clock: Arc<SteadyClock>,
     stats: Arc<Stats>,
+    /// When a request or a refusal was last logged per epoch: one line a
+    /// second says what a reconciliation is stuck on without flooding the log
+    logged: Mutex<HashMap<(ConsensusEpoch, bool), Timestamp>>,
 }
 
 #[allow(dead_code)] // reconciled_count is read by the close, Section 9.1
 impl ReportService {
+    const LOG_INTERVAL: Duration = Duration::from_secs(1);
+
     pub fn new(
         active_elections: Arc<AecService>,
         wallet_reps: Arc<Mutex<WalletRepresentatives>>,
         flooder: MessageFlooder,
         sender: MessageSender,
+        clock: Arc<SteadyClock>,
         stats: Arc<Stats>,
     ) -> Self {
         Self {
-            exchange: Mutex::new(ReportExchange::new()),
+            exchange: Arc::new(Mutex::new(ReportExchange::new())),
             active_elections,
             wallet_reps,
             flooder: Mutex::new(flooder),
             sender: Mutex::new(sender),
+            clock,
             stats,
+            logged: Mutex::new(HashMap::new()),
         }
     }
 
@@ -53,8 +67,24 @@ impl ReportService {
             Arc::new(Mutex::new(WalletRepresentatives::new_null())),
             MessageFlooder::new_null(),
             MessageSender::new_null(),
+            Arc::new(SteadyClock::new_null()),
             Arc::new(Stats::default()),
         )
+    }
+
+    /// Whether a diagnostic of this kind for the epoch is due: at most one
+    /// per `LOG_INTERVAL`
+    fn log_due(&self, epoch: ConsensusEpoch, refusal: bool) -> bool {
+        let now = self.clock.now();
+        let mut logged = self.logged.lock().unwrap();
+        if logged
+            .get(&(epoch, refusal))
+            .is_some_and(|last| last.elapsed(now) < Self::LOG_INTERVAL)
+        {
+            return false;
+        }
+        logged.insert((epoch, refusal), now);
+        true
     }
 
     /// Section 6.1: the node has left the epoch and issues no further
@@ -106,14 +136,37 @@ impl ReportService {
     }
 
     /// RAI: reconcile a stored report, which an epoch proposal has to be
-    /// validated against
+    /// validated against. Both halves are made usable: the certified state
+    /// by a reconstructive difference, the residual object by a fetch.
     pub fn reconcile(&self, epoch: ConsensusEpoch, reporter: PublicKey) {
-        let Some((message, result)) = self.exchange.lock().unwrap().reconcile(epoch, reporter)
+        let now = self.clock.now();
+        let Some((messages, result)) = self
+            .exchange
+            .lock()
+            .unwrap()
+            .reconcile(epoch, reporter, now)
         else {
             return;
         };
         log_reconciled(result);
-        self.send(message.into_iter().collect(), None);
+        for message in &messages {
+            if let ReportMessage::Request(request) = message
+                && self.log_due(epoch, false)
+            {
+                crate::utils::diagnostic!(
+                    "EPOCH_RECON_REQUEST epoch={} reporter={} target={} sources={:?}",
+                    epoch,
+                    reporter,
+                    request.target,
+                    request
+                        .sources
+                        .iter()
+                        .map(|root| root.to_string()[..8].to_string())
+                        .collect::<Vec<_>>()
+                );
+            }
+        }
+        self.send(messages, None);
     }
 
     /// RAI: a request for a reconstructive difference. This node answers only
@@ -122,8 +175,23 @@ impl ReportService {
         self.stats
             .inc_dir(StatType::Message, DetailType::ReconReq, Direction::In);
         let reply = self.exchange.lock().unwrap().handle_request(&request);
-        if let Some(reply) = reply {
-            self.send(vec![ReportMessage::Reply(reply)], Some(channel));
+        match reply {
+            Ok(reply) => self.send(vec![ReportMessage::Reply(reply)], Some(channel)),
+            Err(refusal) => {
+                if self.log_due(request.epoch, true) {
+                    crate::utils::diagnostic!(
+                        "EPOCH_RECON_REFUSED epoch={} target={} reason={:?} sources={:?}",
+                        request.epoch,
+                        request.target,
+                        refusal,
+                        request
+                            .sources
+                            .iter()
+                            .map(|root| root.to_string()[..8].to_string())
+                            .collect::<Vec<_>>()
+                    );
+                }
+            }
         }
     }
 
@@ -136,16 +204,52 @@ impl ReportService {
         log_reconciled(result);
     }
 
+    /// RAI: a fetch of a residual object. Any replica that holds the object
+    /// answers, whether it is its own or one it reconstructed.
+    pub fn handle_residual_request(&self, request: ResidualReq, channel: &Arc<Channel>) {
+        self.stats
+            .inc_dir(StatType::Message, DetailType::ResidualReq, Direction::In);
+        let reply = self
+            .exchange
+            .lock()
+            .unwrap()
+            .handle_residual_request(&request);
+        if let Some(reply) = reply {
+            self.send(vec![ReportMessage::ResidualAnswer(reply)], Some(channel));
+        }
+    }
+
+    /// RAI: part of a residual object, accepted exactly when what has been
+    /// accumulated hashes to the root the reporter signed
+    pub fn handle_residual_reply(&self, reply: ResidualReply, _channel: &Arc<Channel>) {
+        self.stats
+            .inc_dir(StatType::Message, DetailType::ResidualReply, Direction::In);
+        let result = self.exchange.lock().unwrap().handle_residual_reply(&reply);
+        log_reconciled(result);
+    }
+
     /// Drives the reconciliations of the epochs still closing. The live
     /// certified state is refreshed from the active elections first: gossip
     /// keeps delivering the votes of a closed epoch, and it is that growth
     /// which eventually gives this node a state it shares with a reporter.
     pub fn tick(&self) {
+        // This node's own reports go out again for as long as it holds them:
+        // a replica that missed the broadcast at the boundary can not select
+        // them, and one still deriving an old epoch's state needs them
+        let repeated = self
+            .exchange
+            .lock()
+            .unwrap()
+            .repeat_reports(self.clock.now());
+        self.send(repeated, None);
+        // Until the epoch is decided here, not until its election closes: a
+        // replica that learned the certificate before it could derive the
+        // value still needs the reports that value names
         let epochs: Vec<ConsensusEpoch> = self
             .active_elections
             .epoch_closes()
             .into_iter()
-            .filter(|close| close.closed.is_none())
+            .filter(|close| close.value.is_none())
             .map(|close| close.epoch)
             .collect();
         for epoch in epochs {
@@ -154,7 +258,7 @@ impl ReportService {
                 let usable: Vec<PublicKey> = exchange
                     .usable(epoch)
                     .iter()
-                    .map(|(report, _)| report.reporter)
+                    .map(|(report, _, _)| report.reporter)
                     .collect();
                 exchange
                     .reports(epoch)
@@ -178,6 +282,12 @@ impl ReportService {
     /// selects from, and it needs N−f of them
     pub fn usable_count(&self, epoch: ConsensusEpoch) -> usize {
         self.exchange.lock().unwrap().usable(epoch).len()
+    }
+
+    /// RAI: the exchange itself, which the epoch decision derives its values
+    /// from: the reports it selects are the ones reconstructed here
+    pub(crate) fn exchange(&self) -> Arc<Mutex<ReportExchange>> {
+        self.exchange.clone()
     }
 
     fn send(&self, messages: Vec<ReportMessage>, channel: Option<&Arc<Channel>>) {
@@ -214,6 +324,32 @@ impl ReportService {
                     self.sender.lock().unwrap().try_send(
                         target,
                         &Message::ReconReply(reply),
+                        TrafficType::Generic,
+                    );
+                }
+                ReportMessage::ResidualRequest(request) => {
+                    // Anyone that reconstructed the object can serve it, so
+                    // the fetch is gossiped rather than addressed
+                    self.stats
+                        .inc_dir(StatType::Message, DetailType::ResidualReq, Direction::Out);
+                    self.flooder.lock().unwrap().flood_prs_and_some_non_prs(
+                        &Message::ResidualReq(request),
+                        TrafficType::Generic,
+                        1.0,
+                    );
+                }
+                ReportMessage::ResidualAnswer(reply) => {
+                    let Some(target) = channel else {
+                        continue;
+                    };
+                    self.stats.inc_dir(
+                        StatType::Message,
+                        DetailType::ResidualReply,
+                        Direction::Out,
+                    );
+                    self.sender.lock().unwrap().try_send(
+                        target,
+                        &Message::ResidualReply(reply),
                         TrafficType::Generic,
                     );
                 }

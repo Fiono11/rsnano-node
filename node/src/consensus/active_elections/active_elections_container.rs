@@ -1,7 +1,9 @@
 use std::{
     cmp::max,
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap},
     mem::size_of,
+    ops::Deref,
+    sync::Arc,
     time::Duration,
 };
 
@@ -36,6 +38,8 @@ use crate::{
     utils::diagnostic,
 };
 
+use crate::consensus::election::{AccountSlot, EpochLedger, EpochValue};
+
 use super::{
     ActiveElectionsConfig, ActiveElectionsInfo, AecFact, AecInsertError, AecInsertRequest, Entry,
     RootContainer,
@@ -44,7 +48,7 @@ use super::{
         settle_election,
     },
     cooldown_controller::{AecCooldownReason, CooldownController, CooldownResult},
-    epoch_close::{AgreedContent, CloseEvent, EpochClose, EpochCloseInfo, is_late},
+    epoch_close::{CloseEvent, DecidedStates, EpochClose, EpochCloseInfo, is_late},
     epoch_committees::{CommitteeInfo, EpochCommittees, live_committees},
     epoch_states::{Delegation, EpochStates, FinalizedInstance},
     recently_confirmed_cache::RecentlyConfirmedCache,
@@ -63,6 +67,21 @@ pub(crate) fn per_bucket_cap(max_elections: usize) -> usize {
     } else {
         max(max_elections / bucket_count(), 1)
     }
+}
+
+/// RAI: a close round this node leads and has not proposed into yet. A
+/// proposal extends the highest joint-complete placement this node holds,
+/// copying its `(Q_e, d_e)`; with none, it extends election genesis and
+/// selects `N - f` usable reports of its own.
+#[allow(dead_code)] // the RAI epoch decision uses this
+pub(crate) struct EpochProposalContext {
+    pub epoch: ConsensusEpoch,
+    pub round: u32,
+    /// The representative leading the round, which this node votes with
+    pub leader: PublicKey,
+    pub parent: Option<EpochValue>,
+    /// The state the parent decides, which its child carries over unchanged
+    pub parent_state: Option<Arc<EpochLedger>>,
 }
 
 /// RAI: what this node reports for one epoch: the certified block tree and
@@ -123,15 +142,14 @@ pub(crate) struct ActiveElectionsContainer {
     epoch_voters: BTreeMap<ConsensusEpoch, BTreeSet<PublicKey>>,
     /// RAI: the close elections of the epochs this node has left
     closes: BTreeMap<ConsensusEpoch, EpochClose>,
-    /// RAI: the content behind the value this node attests in each close
-    /// election, as of the state hashed: the frontiers the epoch's committee
-    /// is derived from, and the entries the value hashed, once the value is
-    /// finalized and agreed
-    close_content: BTreeMap<ConsensusEpoch, Vec<EpochContent>>,
-    /// RAI: the content of the epochs this node agreed on: an instance of
-    /// such an epoch that notarizes anything else is late, and none is
-    /// started any more
-    agreed: AgreedContent,
+    /// RAI: `S_e` for every epoch whose joint election decided, as this
+    /// node derived it from the selected reports. An instance of a decided
+    /// epoch that notarizes a block the state does not hold is late, and
+    /// none is started any more.
+    decided: DecidedStates,
+    /// RAI: `S_{-1}`, the closed genesis state: the ledger as it stood when
+    /// the epochs started. The first epoch's derivation builds on it.
+    genesis_state: Arc<EpochLedger>,
     /// RAI: the committees the instances of each epoch are counted in
     committees: EpochCommittees,
     /// RAI: Δ_timeout of a close round
@@ -169,8 +187,8 @@ impl ActiveElectionsContainer {
             rep_epochs: HashMap::new(),
             epoch_voters: BTreeMap::new(),
             closes: BTreeMap::new(),
-            close_content: BTreeMap::new(),
-            agreed: AgreedContent::new(),
+            decided: DecidedStates::new(),
+            genesis_state: Arc::new(EpochLedger::new()),
             committees: EpochCommittees::default(),
             close_round_timeout: config.close_round_timeout,
             local_reps: Vec::new(),
@@ -394,6 +412,14 @@ impl ActiveElectionsContainer {
         self.committees.for_epoch(epoch)
     }
 
+    /// RAI: `O_e = C_{e-2}`, the committee that issued an epoch's account
+    /// votes and whose reports its close selects. Its thresholds are the
+    /// ones a selection and a recovery count against.
+    #[allow(dead_code)] // the RAI epoch decision uses these
+    pub fn epoch_committee(&self, epoch: ConsensusEpoch) -> Option<Arc<Committee>> {
+        self.committees.committee(epoch)
+    }
+
     /// RAI: the frontiers of every account at the end of the setup: the
     /// genesis committee the first two epochs count in, and the base the
     /// committees of the epochs closed are derived on
@@ -401,6 +427,17 @@ impl ActiveElectionsContainer {
         if self.committees.started() {
             return;
         }
+        // RAI: `S_{-1} = S_G`, the closed genesis state the first epoch's
+        // derivation builds on. Every account sits at its frontier, and
+        // those positions are finalized: rule 1 never rolls them back.
+        let mut genesis = EpochLedger::new();
+        for frontier in &frontiers {
+            genesis.finalize_genesis(
+                AccountSlot::new(frontier.account, frontier.height),
+                frontier.hash,
+            );
+        }
+        self.genesis_state = Arc::new(genesis);
         let committee = self.committees.start(frontiers);
         self.log_committee("genesis", &committee);
     }
@@ -456,7 +493,7 @@ impl ActiveElectionsContainer {
                 &mut self.stats,
                 &self.observer,
                 &mut self.recently_confirmed,
-                &self.agreed,
+                &self.decided,
             );
             settle_election(&mut self.roots, &id, &self.observer, &mut result);
         }
@@ -544,36 +581,18 @@ impl ActiveElectionsContainer {
         }
     }
 
-    /// RAI: the final state of an epoch as it stands on this node, the value
-    /// it attests in the epoch's close: what its finalized instances decided
-    /// and what its running ones notarized - those opened before the close
-    /// certificate was seen here, so that the value stands still once the
-    /// epoch is closed and can agree. Of an agreed epoch, without its late
-    /// instances: this node keeps attesting the value finalized.
+    /// RAI: how one epoch stands on this node: what its finalized instances
+    /// decided and what its running ones notarized. It is no longer what the
+    /// close decides on - the epoch's state comes from the selected reports
+    /// now - but it is what the run's diagnostics and the RPC report, and
+    /// what the drain of the boundary reads.
     pub fn epoch_state(&self, epoch: ConsensusEpoch) -> EpochState {
-        self.epoch_state_and_late(epoch, self.close_cutoff(epoch)).0
+        self.epoch_state_and_late(epoch).0
     }
 
-    /// RAI: the epoch's state with every instance counted, whenever opened:
-    /// the value a replica that lacked blocks at the close reaches once
-    /// they came, and may agree with
-    fn epoch_state_all(&self, epoch: ConsensusEpoch) -> EpochState {
-        self.epoch_state_and_late(epoch, None).0
-    }
-
-    /// RAI: when the close certificate of the epoch was seen here, if it was
-    fn close_cutoff(&self, epoch: ConsensusEpoch) -> Option<Timestamp> {
-        self.closes.get(&epoch).and_then(|close| close.closed_at())
-    }
-
-    /// RAI: the epoch's state over the instances opened before the cutoff,
-    /// and its late instances: those of an agreed epoch which notarized a
-    /// block the agreed value does not hold
-    fn epoch_state_and_late(
-        &self,
-        epoch: ConsensusEpoch,
-        cutoff: Option<Timestamp>,
-    ) -> (EpochState, Vec<ElectionId>) {
+    /// RAI: the epoch's state, and its late instances: those of a decided
+    /// epoch which notarized a block the decided state does not hold
+    fn epoch_state_and_late(&self, epoch: ConsensusEpoch) -> (EpochState, Vec<ElectionId>) {
         let finalized = self.epoch_states.by_epoch().get(&epoch);
         let mut state = EpochState::with_finalized(
             finalized.unwrap_or(&FinalStateHash::default()),
@@ -584,11 +603,8 @@ impl ActiveElectionsContainer {
             if election.epoch() != epoch {
                 continue;
             }
-            if is_late(&self.agreed, election) {
+            if is_late(&self.decided, election) {
                 late.push(election.id());
-                continue;
-            }
-            if cutoff.is_some_and(|cutoff| election.start() >= cutoff) {
                 continue;
             }
             state.add_election(
@@ -601,78 +617,61 @@ impl ActiveElectionsContainer {
         (state, late)
     }
 
-    /// RAI: the content behind an epoch's state as it stands: every
-    /// (account, height, block) the state hashes - the winners of the
-    /// finalized instances and the blocks the running ones notarized - and
-    /// the frontiers: for every account with a block in the state, the block
-    /// at its greatest height there, if there is exactly one at that height,
-    /// with what it delegates. Two replicas attesting the same value hold
-    /// the same blocks, whatever certificates each has seen, so they hold
-    /// the same content. The blocks are read from the instances themselves,
-    /// which hold every candidate: the ledger may not hold a fork's winner
-    /// yet (still being inserted).
-    fn epoch_content(&self, epoch: ConsensusEpoch, cutoff: Option<Timestamp>) -> EpochContent {
-        let mut entries: HashSet<(Account, u64, BlockHash)> = HashSet::new();
-        // Every height the epoch decided for an account, not only its top
-        // one: an account whose top height is contested is still counted, at
-        // the last height below the contest that the epoch decided
-        let mut by_account: HashMap<Account, BTreeMap<u64, Vec<Delegation>>> = HashMap::new();
-        let mut add = |account: Account, height: u64, delegation: Delegation| {
-            entries.insert((account, height, delegation.hash));
-            let at_height = by_account
-                .entry(account)
-                .or_default()
-                .entry(height)
-                .or_default();
-            if !at_height.iter().any(|d| d.hash == delegation.hash) {
-                at_height.push(delegation);
-            }
-        };
+    /// RAI: `Sigma_e` as account frontiers: every account at the block the
+    /// decided state finalized for it, with what that block delegates. The
+    /// weights are cumulative, so an account whose frontier did not move in
+    /// this epoch is already counted and needs no entry here.
+    ///
+    /// The delegation is read from the block itself, which this node holds
+    /// in the instance the block was a candidate in. A frontier block it
+    /// does not hold is reported and left out rather than guessed at.
+    fn decided_frontiers(
+        &self,
+        epoch: ConsensusEpoch,
+        state: &EpochLedger,
+    ) -> Vec<AccountFrontier> {
+        let mut delegations_by_hash: HashMap<BlockHash, Delegation> = HashMap::new();
         for block in self.epoch_states.finalized_blocks_in(epoch) {
-            add(block.account, block.height, block.delegation);
+            delegations_by_hash.insert(block.delegation.hash, block.delegation);
         }
         for election in self.roots.iter().map(|entry| &entry.election) {
-            if election.epoch() != epoch
-                || is_late(&self.agreed, election)
-                || cutoff.is_some_and(|cutoff| election.start() >= cutoff)
-            {
+            if election.epoch() != epoch {
                 continue;
             }
             for delegation in delegations(election) {
-                add(election.account(), election.height(), delegation);
+                delegations_by_hash.insert(delegation.hash, delegation);
             }
         }
-        let frontiers = account_frontiers(by_account);
-        EpochContent {
-            value: BlockHash::ZERO,
-            frontiers,
-            entries,
-        }
-    }
-
-    /// RAI: keep the content behind each value this node may agree with in
-    /// the epoch's close, as of the state hashed: the one it attests, and
-    /// the one with every instance counted
-    fn keep_close_content(
-        &mut self,
-        epoch: ConsensusEpoch,
-        values: [(BlockHash, Option<Timestamp>); 2],
-    ) {
-        for (value, cutoff) in values {
+        let mut frontiers = Vec::new();
+        let mut missing = 0;
+        for (account, (height, hash)) in state.frontiers() {
             if self
-                .close_content
-                .get(&epoch)
-                .is_some_and(|kept| kept.iter().any(|content| content.value == value))
+                .committees
+                .counted_height(&account)
+                .is_some_and(|counted| counted >= height)
             {
                 continue;
             }
-            let mut content = self.epoch_content(epoch, cutoff);
-            content.value = value;
-            let kept = self.close_content.entry(epoch).or_default();
-            // The two values as of the last tick are all that can agree
-            kept.retain(|content| content.value == value || kept_value(content, &values));
-            kept.push(content);
+            match delegations_by_hash.get(&hash) {
+                Some(delegation) => frontiers.push(AccountFrontier {
+                    account,
+                    height,
+                    hash,
+                    representative: delegation.representative,
+                    balance: delegation.balance,
+                }),
+                None => missing += 1,
+            }
         }
+        if missing > 0 {
+            diagnostic!(
+                "EPOCH_FRONTIER_MISSING epoch={} accounts={} : blocks this node does not hold",
+                epoch,
+                missing
+            );
+        }
+        frontiers.sort_by_key(|frontier| frontier.account);
+        frontiers
     }
 
     /// RAI: the leaders of the rounds of an epoch's close election, in public
@@ -701,28 +700,18 @@ impl ActiveElectionsContainer {
     /// closed: the epochs close one after the other. The votes of the other
     /// replicas are collected all the while.
     fn tick_closes(&mut self, now: Timestamp) {
-        // A closed epoch is still followed until this node agrees with the
-        // value: its instances may settle only after the certificate came
+        // A closed epoch is still followed until this node holds the state
+        // the finalized value decided: it may still be deriving it
         let epochs: Vec<_> = self
             .closes
             .values()
-            .filter(|close| !close.is_agreed())
+            .filter(|close| !close.is_decided())
             .map(|close| close.epoch())
             .collect();
         for epoch in epochs {
-            let cutoff = self.close_cutoff(epoch);
-            let state = self.epoch_state(epoch);
-            let all = self.epoch_state_all(epoch);
-            let values = [
-                (state.close_value(epoch), cutoff),
-                (all.close_value(epoch), None),
-            ];
-            self.keep_close_content(epoch, values);
             let previous_closed = self.previous_epoch_closed(epoch);
             let leaders = self.close_leaders(epoch);
             let close = self.closes.get_mut(&epoch).unwrap();
-            close.set_state(&state);
-            close.set_alternative(values[1].0);
             close.set_leaders(leaders);
             if previous_closed {
                 close.tick(now);
@@ -737,14 +726,107 @@ impl ActiveElectionsContainer {
         self.log_drain_wait(now);
     }
 
+    /// RAI: `S_{e-1}` for the close of an epoch: the state the epoch before
+    /// it decided, and the closed genesis state for the first epoch. None
+    /// while the epoch before has not been decided here, which is when this
+    /// node can neither propose nor check a value.
+    #[allow(dead_code)] // the RAI epoch decision uses these
+    pub fn epoch_previous_state(&self, epoch: ConsensusEpoch) -> Option<Arc<EpochLedger>> {
+        match epoch.as_u64().checked_sub(1) {
+            Some(before) => self.decided.get(&ConsensusEpoch::new(before)).cloned(),
+            None => Some(self.genesis_state.clone()),
+        }
+    }
+
+    /// RAI: `S_e` once the epoch's joint election decided and this node
+    /// derived the state the finalized value names
+    #[allow(dead_code)] // the RAI epoch decision uses these
+    pub fn epoch_decided_state(&self, epoch: ConsensusEpoch) -> Option<Arc<EpochLedger>> {
+        self.decided.get(&epoch).cloned()
+    }
+
+    /// RAI: this node holds what it takes to derive a value for the close of
+    /// an epoch: the decided predecessor state and enough usable reports
+    #[allow(dead_code)] // the RAI epoch decision uses these
+    pub fn set_close_ready(&mut self, epoch: ConsensusEpoch, ready: bool, now: Timestamp) {
+        let Some(close) = self.closes.get_mut(&epoch) else {
+            return;
+        };
+        close.set_ready(ready);
+        let events = close.take_events();
+        self.log_close_events(epoch, events, now);
+    }
+
+    /// RAI: a value this node derived `BuildState(S_{e-1}, Q_e)` for and
+    /// whose hash came out as the one proposed. It may be voted for from
+    /// now on, and deciding it decides the state derived.
+    #[allow(dead_code)] // the RAI epoch decision uses these
+    pub fn accept_epoch_value(
+        &mut self,
+        value: EpochValue,
+        state: Arc<EpochLedger>,
+        now: Timestamp,
+    ) -> Option<BlockHash> {
+        let epoch = value.epoch;
+        let close = self.closes.get_mut(&epoch)?;
+        let hash = close.accept_value(value, state);
+        let events = close.take_events();
+        self.log_close_events(epoch, events, now);
+        Some(hash)
+    }
+
+    /// RAI: this node proposed a value as the leader of a close round
+    /// RAI: whether this node has already derived and checked a value of an
+    /// epoch's close. A leader repeats its proposal while its round stands,
+    /// and deriving `BuildState` walks the whole predecessor state.
+    #[allow(dead_code)] // the RAI epoch decision uses these
+    pub fn holds_epoch_value(&self, epoch: ConsensusEpoch, value: &BlockHash) -> bool {
+        self.closes
+            .get(&epoch)
+            .is_some_and(|close| close.holds_value(value))
+    }
+
+    #[allow(dead_code)] // the RAI epoch decision uses these
+    pub fn record_epoch_proposal(&mut self, epoch: ConsensusEpoch, round: u32, value: BlockHash) {
+        if let Some(close) = self.closes.get_mut(&epoch) {
+            close.record_proposal(round, value);
+        }
+    }
+
+    /// RAI: the close rounds this node leads and has not proposed into yet,
+    /// with the placement a proposal there extends: a joint-complete parent
+    /// whose `(Q_e, d_e)` the child copies, or none, which makes the child
+    /// one of election genesis with a selection of its own.
+    #[allow(dead_code)] // the RAI epoch decision uses these
+    pub fn epoch_proposals_due(&self) -> Vec<EpochProposalContext> {
+        self.closes
+            .values()
+            .filter_map(|close| {
+                let round = close.proposal_due(&self.local_reps)?;
+                let leader = close.leader(round)?;
+                let parent = close.parent_for(round).cloned();
+                let parent_state = parent
+                    .as_ref()
+                    .and_then(|parent| close.state_of(&parent.hash()).cloned());
+                Some(EpochProposalContext {
+                    epoch: close.epoch(),
+                    round,
+                    leader,
+                    parent,
+                    parent_state,
+                })
+            })
+            .collect()
+    }
+
     /// RAI: the only discard: an instance of an agreed epoch notarized a
     /// block the agreed value does not hold. It is erased; its blocks are
     /// in this node's ledger and not in the value, so they are rolled back
     /// (see `cleanup_election`), unless finalized in another epoch.
     fn discard_late_instances(&mut self) {
-        let agreed: Vec<_> = self.agreed.keys().copied().collect();
-        for epoch in agreed {
-            let (_, late) = self.epoch_state_and_late(epoch, None);
+        let decided: Vec<_> = self.decided.keys().copied().collect();
+        for epoch in decided {
+            let (_, late) = self.epoch_state_and_late(epoch);
             for id in late {
                 self.erase_election(&id);
             }
@@ -791,18 +873,28 @@ impl ActiveElectionsContainer {
     fn log_close_events(&mut self, epoch: ConsensusEpoch, events: Vec<CloseEvent>, now: Timestamp) {
         for event in events {
             match &event {
-                CloseEvent::Ready(_) => {}
+                CloseEvent::Ready | CloseEvent::Validated { .. } => {}
                 CloseEvent::RoundEntered { .. } => self.stats.close_rounds += 1,
-                CloseEvent::Closed { .. } => self.stats.epochs_closed += 1,
-                CloseEvent::Agreed(value) => self.epoch_agreed(epoch, *value, now),
+                CloseEvent::Closed { .. } => {
+                    self.stats.epochs_closed += 1;
+                    self.epoch_decided(epoch, now);
+                }
                 CloseEvent::RoundConflict { .. } => self.stats.close_conflicts += 1,
             }
             if !cfg!(feature = "rai_protocol") {
                 continue;
             }
             match event {
-                CloseEvent::Ready(value) => {
-                    diagnostic!("EPOCH_CLOSE_READY epoch={} value={}", epoch, value);
+                CloseEvent::Ready => {
+                    diagnostic!("EPOCH_CLOSE_READY epoch={}", epoch);
+                }
+                CloseEvent::Validated { value, state } => {
+                    diagnostic!(
+                        "EPOCH_VALUE epoch={} value={} state={}",
+                        epoch,
+                        value,
+                        state
+                    );
                 }
                 CloseEvent::RoundEntered { round, leader } => {
                     let leads = leader.is_some_and(|leader| self.local_reps.contains(&leader));
@@ -816,17 +908,18 @@ impl ActiveElectionsContainer {
                         leads
                     );
                 }
-                CloseEvent::Closed { round, value, own } => {
+                CloseEvent::Closed {
+                    round,
+                    value,
+                    state,
+                } => {
                     diagnostic!(
-                        "EPOCH_CLOSED epoch={} round={} value={} own={}",
+                        "EPOCH_CLOSED epoch={} round={} value={} state={}",
                         epoch,
                         round,
                         value,
-                        own
+                        state
                     );
-                }
-                CloseEvent::Agreed(value) => {
-                    diagnostic!("EPOCH_AGREED epoch={} value={}", epoch, value);
                 }
                 CloseEvent::RoundConflict { round } => {
                     diagnostic!("EPOCH_CLOSE_CONFLICT epoch={} round={}", epoch, round);
@@ -835,29 +928,26 @@ impl ActiveElectionsContainer {
         }
     }
 
-    /// RAI: the value this node attests in an epoch's close is the one
-    /// finalized: the epoch is decided for good. Its content is what the
-    /// epoch holds from now on - an instance notarizing anything else is
-    /// late, none is started any more, and the states of the slots without
-    /// an instance are dropped - and its frontiers derive the committee.
-    fn epoch_agreed(&mut self, epoch: ConsensusEpoch, value: BlockHash, now: Timestamp) {
-        let kept = self.close_content.remove(&epoch).unwrap_or_default();
-        let content = match kept.into_iter().find(|content| content.value == value) {
-            Some(content) => content,
-            // The value was attested on an earlier tick; the state has not
-            // changed since, or the close would not have agreed. Of the two
-            // states, the one hashing to the value.
-            None => {
-                let cutoff = self.close_cutoff(epoch);
-                let mut content = self.epoch_content(epoch, cutoff);
-                if self.epoch_state(epoch).close_value(epoch) != value {
-                    content = self.epoch_content(epoch, None);
-                }
-                content.value = value;
-                content
-            }
+    /// RAI: the epoch's joint election finalized a value this node derived
+    /// the state of: `S_e` is decided for good. That state is what the epoch
+    /// holds from now on - an instance notarizing anything else is late,
+    /// none is started any more, and the states of the slots without an
+    /// instance are dropped - and its finalized projection derives the
+    /// committee the epoch two after counts in.
+    fn epoch_decided(&mut self, epoch: ConsensusEpoch, now: Timestamp) {
+        if self.decided.contains_key(&epoch) {
+            return;
+        }
+        let Some(state) = self
+            .closes
+            .get(&epoch)
+            .and_then(|close| close.decided_state().cloned())
+        else {
+            return;
         };
-        self.agreed.insert(epoch, content.entries);
+        let frontiers = self.decided_frontiers(epoch, &state);
+        self.decided.insert(epoch, state.clone());
+        self.install_checkpoint(epoch, &state, now);
         let live: FxHashSet<(Account, u64)> = self
             .roots
             .iter()
@@ -866,7 +956,73 @@ impl ActiveElectionsContainer {
             .map(|election| (election.account(), election.height()))
             .collect();
         self.slots.remove_epoch_except(epoch, &live);
-        self.derive_committee(epoch, content.frontiers, now);
+        self.derive_committee(epoch, frontiers, now);
+    }
+
+    /// RAI, "Only the joint decision installs its checkpoint": what `S_e`
+    /// finalized beyond `S_{e-1}` becomes final here. An instance holding
+    /// such a block is confirmed with it as the winner, whatever its own
+    /// certificates say - the checkpoint recovered a finality the votes this
+    /// node saw did not show, or chose the sole survivor of a position - and
+    /// every such block is cemented by the ledger. "Installation reconciles
+    /// already-finalized live operations without applying their effects
+    /// twice": a block already cemented is left as it is.
+    fn install_checkpoint(&mut self, epoch: ConsensusEpoch, state: &EpochLedger, now: Timestamp) {
+        let previous = self.epoch_previous_state(epoch);
+        let hashes: Vec<BlockHash> = state
+            .finalized_slots()
+            .filter(|(slot, block)| {
+                !previous
+                    .as_ref()
+                    .is_some_and(|previous| previous.is_finalized(slot, &block.hash))
+            })
+            .map(|(_, block)| block.hash)
+            .collect();
+        let mut confirmed = 0;
+        for hash in &hashes {
+            let Some(election) = self.roots.election_for_block_mut(hash) else {
+                continue;
+            };
+            let Some(replaced) = election.finalize_by_checkpoint(hash) else {
+                continue;
+            };
+            let id = election.id();
+            let root = election.qualified_root().clone();
+            let winner = election.winner().deref().clone();
+            let confirmed_election =
+                election.into_confirmed_election(now, ConfirmationType::ActiveConfirmedQuorum);
+            if replaced != *hash {
+                // The ledger holds the other branch: it is rolled back and
+                // the finalized block inserted in its place
+                self.notify(AecFact::WinnerChanged(replaced, winner));
+            }
+            self.recently_confirmed.put(root.clone(), *hash);
+            self.notify(AecFact::ElectionConfirmed(confirmed_election));
+            // Every instance of the root goes: the position is final
+            let _ = id;
+            self.erase(&root);
+            confirmed += 1;
+        }
+        if cfg!(feature = "rai_protocol") {
+            diagnostic!(
+                "EPOCH_INSTALL epoch={} finalized={} instances_confirmed={}",
+                epoch,
+                hashes.len(),
+                confirmed
+            );
+        }
+        if !hashes.is_empty() {
+            self.notify(AecFact::CheckpointFinalized { epoch, hashes });
+        }
+    }
+
+    /// RAI: whether a decided checkpoint finalized this block of the
+    /// election's position
+    fn finalized_by_checkpoint(&self, election: &Election, hash: &BlockHash) -> bool {
+        let slot = AccountSlot::new(election.account(), election.height());
+        self.decided
+            .values()
+            .any(|state| state.is_finalized(&slot, hash))
     }
 
     /// RAI: a vote in a round of an epoch's close election
@@ -937,8 +1093,8 @@ impl ActiveElectionsContainer {
         if self.roots.get(&id).is_some() {
             return;
         }
-        // An agreed epoch is decided for good: the instance could only be late
-        if self.agreed.contains_key(&epoch) {
+        // A decided epoch is settled for good: the instance could only be late
+        if self.decided.contains_key(&epoch) {
             self.stats.agreed_epoch_refused += 1;
             return;
         }
@@ -982,10 +1138,13 @@ impl ActiveElectionsContainer {
         use crate::consensus::election::{CertifiedBlock, CertifiedState, CertifiedStatus};
         let mut certified = CertifiedState::new();
         // What finalized in the epoch and left the AEC is certified by the
-        // certificate that finalized it
+        // certificate that finalized it. The parent goes with it: an epoch
+        // derivation places a candidate by the branch it continues, and two
+        // blocks at one slot are told apart by nothing else.
         for instance in self.epoch_states.instances_of(epoch) {
             certified.certify(
                 CertifiedBlock::new(instance.account, instance.height, instance.winner),
+                instance.root.previous,
                 CertifiedStatus::Finalized,
             );
         }
@@ -994,16 +1153,17 @@ impl ActiveElectionsContainer {
             if election.epoch() != epoch {
                 continue;
             }
+            let previous = election.qualified_root().previous;
             let at = |hash| CertifiedBlock::new(election.account(), election.height(), hash);
             let certificates = election.certificates();
             for hash in &certificates.notar {
-                certified.certify(at(*hash), CertifiedStatus::Notarized);
+                certified.certify(at(*hash), previous, CertifiedStatus::Notarized);
             }
             if let Some(hash) = certificates.final_ {
-                certified.certify(at(hash), CertifiedStatus::Finalized);
+                certified.certify(at(hash), previous, CertifiedStatus::Finalized);
             }
             if let Some(hash) = certificates.fast {
-                certified.certify(at(hash), CertifiedStatus::FastFinalized);
+                certified.certify(at(hash), previous, CertifiedStatus::FastFinalized);
             }
         }
         certified
@@ -1032,12 +1192,18 @@ impl ActiveElectionsContainer {
         let certified = self.epoch_certified(epoch);
         let mut residual = ResidualVotes::new();
 
-        // This node's own votes which the certified state does not summarize
-        let mut record = |account: Account, height: u64, slot: &LocalSlotState| {
+        // This node's own votes which the certified state does not summarize,
+        // each with the parent its block names: the parent belongs to the
+        // block, because two conflicting parents put their children in one
+        // voting domain on different branches
+        let mut record = |account: Account,
+                          height: u64,
+                          parent: &dyn Fn(&BlockHash) -> BlockHash,
+                          slot: &LocalSlotState| {
             let mut support = |hash: BlockHash, kind: ResidualKind| {
                 let block = CertifiedBlock::new(account, height, hash);
                 if certified.status(&block).is_none() {
-                    residual.record(block, kind);
+                    residual.record(block, parent(&hash), kind);
                 }
             };
             // The first vote is kept apart from the second-look notarization
@@ -1055,15 +1221,24 @@ impl ActiveElectionsContainer {
                     .status(&block)
                     .is_none_or(|status| !status.is_finalized())
                 {
-                    residual.record(block, ResidualKind::Final);
+                    residual.record(block, parent(&hash), ResidualKind::Final);
                 }
             }
         };
+        // A live slot's votes: the parent of each block this node voted for
         for (account, height, slot) in self.slots.iter_epoch(epoch) {
-            record(account, height, slot);
+            record(account, height, &|hash| self.slots.parent(hash), slot);
         }
-        for (account, height, slot) in self.epoch_states.slots_of(epoch) {
-            record(account, height, slot);
+        // An instance that finalized and left the AEC: every candidate of it
+        // continues the branch its election was rooted at
+        for instance in self.epoch_states.instances_of(epoch) {
+            let previous = instance.root.previous;
+            record(
+                instance.account,
+                instance.height,
+                &|_| previous,
+                &instance.slot,
+            );
         }
 
         Some(EpochReport {
@@ -1160,6 +1335,7 @@ impl ActiveElectionsContainer {
                 accepted.push(target);
                 continue;
             };
+            let previous = election.qualified_root().previous;
             let slot = self.slots.get_or_default(&election.epoch_slot());
             let kind = VoteKind::from(target.vote_type);
             // A first vote not cast before this node left the epoch is not cast
@@ -1168,6 +1344,7 @@ impl ActiveElectionsContainer {
                 continue;
             }
             slot.mark_voted(target.winner, kind);
+            self.slots.record_parent(target.winner, previous);
             accepted.push(target);
         }
         accepted
@@ -1181,9 +1358,11 @@ impl ActiveElectionsContainer {
         if !cfg!(feature = "rai_protocol") || !election.certificates().is_finalized() {
             return;
         }
+        let previous = election.qualified_root().previous;
         let slot = self.slots.get_or_default(&election.epoch_slot());
         if let Some((hash, kind)) = election.kudzu_final_vote_due(slot) {
             slot.mark_voted(hash, kind);
+            self.slots.record_parent(hash, previous);
             self.pending_kudzu_votes.push(VoteTarget {
                 election: election.id(),
                 winner: hash,
@@ -1681,18 +1860,21 @@ impl ActiveElectionsContainer {
         self.keep_exit_final_vote(election);
         // A late instance's blocks are discarded - never one finalized in
         // another epoch: what an epoch finalized stays finalized
-        let discarded: Vec<BlockHash> = if is_late(&self.agreed, election) {
+        let discarded: Vec<BlockHash> = if is_late(&self.decided, election) {
             election
                 .certificates()
                 .notar
                 .iter()
-                .filter(|block| !self.epoch_states.is_finalized(block))
+                .filter(|block| {
+                    !self.epoch_states.is_finalized(block)
+                        && !self.finalized_by_checkpoint(election, block)
+                })
                 .copied()
                 .collect()
         } else {
             Vec::new()
         };
-        if is_late(&self.agreed, election) && discarded.len() < election.certificates().notar.len()
+        if is_late(&self.decided, election) && discarded.len() < election.certificates().notar.len()
         {
             self.stats.finalized_kept +=
                 (election.certificates().notar.len() - discarded.len()) as u64;
@@ -1732,7 +1914,7 @@ impl ActiveElectionsContainer {
         // a discard, a rolled back dependent), and it must find them. Once the
         // epoch is agreed no instance of it is started again, and the state
         // goes with the election.
-        if !cfg!(feature = "rai_protocol") || self.agreed.contains_key(&election.epoch()) {
+        if !cfg!(feature = "rai_protocol") || self.decided.contains_key(&election.epoch()) {
             self.slots.remove(&election.epoch_slot());
         }
 
@@ -1852,7 +2034,7 @@ impl ActiveElectionsContainer {
             observer: &self.observer,
             roots: &mut self.roots,
             committees: &self.committees,
-            agreed: &self.agreed,
+            decided: &self.decided,
         };
         let result = apply_helper.apply_vote();
         for entry in result.confirmed {
@@ -1873,7 +2055,7 @@ impl ActiveElectionsContainer {
         }
         // RAI: a vote of an agreed epoch for a block without an instance
         // there is late: the epoch is decided, no instance of it is started
-        if self.agreed.contains_key(&args.vote.epoch) {
+        if self.decided.contains_key(&args.vote.epoch) {
             for result in per_block.values_mut() {
                 if matches!(result, Err(VoteError::Indeterminate)) {
                     *result = Err(VoteError::Late);
@@ -2007,61 +2189,6 @@ pub struct ApplyVoteArgs<'a> {
     pub now: Timestamp,
 }
 
-/// RAI: the content behind an epoch's value as this node attests it
-struct EpochContent {
-    value: BlockHash,
-    /// Every account at its greatest height with a single block in the state
-    frontiers: Vec<AccountFrontier>,
-    /// Every (account, height, block) the value hashes
-    entries: HashSet<(Account, u64, BlockHash)>,
-}
-
-/// Whether a kept content is one of the values of this tick
-fn kept_value(content: &EpochContent, values: &[(BlockHash, Option<Timestamp>); 2]) -> bool {
-    values.iter().any(|(value, _)| *value == content.value)
-}
-
-/// RAI: what each notarized block of an election delegates, read from the
-/// candidate the election holds. A legacy block without a balance or
-/// representative field delegates nothing.
-/// RAI: the frontier of each account in an epoch's decided content: the top
-/// of the chain the epoch decided for it, which is the highest height below
-/// its lowest contested one.
-///
-/// An account whose top height is contested is still counted, at the last
-/// height below the contest. Dropping it instead leaves it counted at the
-/// balance of an earlier epoch while the accounts that received its sends
-/// are counted at their new ones, which counts the same coins twice. The
-/// weights of a committee sum to the whole supply, so there is no room for
-/// that: the total runs over and a single representative ends up outweighing
-/// every threshold.
-fn account_frontiers(
-    by_account: HashMap<Account, BTreeMap<u64, Vec<Delegation>>>,
-) -> Vec<AccountFrontier> {
-    let mut frontiers: Vec<AccountFrontier> = by_account
-        .into_iter()
-        .filter_map(|(account, by_height)| {
-            let contested = by_height
-                .iter()
-                .find(|(_, delegations)| delegations.len() > 1)
-                .map(|(height, _)| *height)
-                .unwrap_or(u64::MAX);
-            by_height
-                .iter()
-                .filter(|(height, delegations)| **height < contested && delegations.len() == 1)
-                .next_back()
-                .map(|(height, delegations)| AccountFrontier {
-                    account,
-                    height: *height,
-                    representative: delegations[0].representative,
-                    balance: delegations[0].balance,
-                })
-        })
-        .collect();
-    frontiers.sort_by_key(|frontier| frontier.account);
-    frontiers
-}
-
 fn delegations(election: &Election) -> Vec<Delegation> {
     election
         .certificates()
@@ -2081,69 +2208,6 @@ fn delegations(election: &Election) -> Vec<Delegation> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// RAI: an account whose top height is contested is counted at the last
-    /// height the epoch decided for it, not dropped. Dropping it leaves it
-    /// counted at an older, larger balance while the accounts that received
-    /// its sends are counted at their new ones, which is the same coins
-    /// twice; the weights of a committee sum to the whole supply, so the
-    /// total then runs over.
-    #[test]
-    fn a_contested_top_height_is_counted_below_the_contest() {
-        let account = Account::from(1);
-        let mut by_height: BTreeMap<u64, Vec<Delegation>> = BTreeMap::new();
-        by_height.insert(1, vec![delegation(1, 1, 900)]);
-        // The account sent at height 2, so it is counted at 500 from there on
-        by_height.insert(2, vec![delegation(2, 1, 500)]);
-        // Its top height is contested, and neither block is decided
-        by_height.insert(3, vec![delegation(3, 1, 400), delegation(4, 1, 300)]);
-
-        let frontiers = account_frontiers(HashMap::from([(account, by_height)]));
-
-        assert_eq!(frontiers.len(), 1);
-        assert_eq!(frontiers[0].height, 2);
-        assert_eq!(frontiers[0].balance, Amount::raw(500));
-    }
-
-    /// Without a contest the frontier is the top height
-    #[test]
-    fn an_uncontested_account_is_counted_at_its_top_height() {
-        let account = Account::from(1);
-        let by_height = BTreeMap::from([
-            (1, vec![delegation(1, 1, 900)]),
-            (2, vec![delegation(2, 1, 500)]),
-        ]);
-
-        let frontiers = account_frontiers(HashMap::from([(account, by_height)]));
-
-        assert_eq!(frontiers[0].height, 2);
-        assert_eq!(frontiers[0].balance, Amount::raw(500));
-    }
-
-    /// An account contested at the first height the epoch decided for it has
-    /// no frontier of its own: nothing below the contest was decided, so what
-    /// it was counted at before still stands
-    #[test]
-    fn an_account_contested_at_its_first_height_has_no_frontier() {
-        let account = Account::from(1);
-        let by_height = BTreeMap::from([
-            (1, vec![delegation(1, 1, 900), delegation(2, 1, 800)]),
-            // A height above the contest is not the decided chain either
-            (2, vec![delegation(3, 1, 700)]),
-        ]);
-
-        let frontiers = account_frontiers(HashMap::from([(account, by_height)]));
-
-        assert!(frontiers.is_empty());
-    }
-
-    fn delegation(hash: u64, rep: u64, balance: u128) -> Delegation {
-        Delegation {
-            hash: BlockHash::from(hash),
-            representative: PrivateKey::from(rep).public_key(),
-            balance: Amount::raw(balance),
-        }
-    }
 
     use crate::consensus::{
         ReceivedVote,
@@ -2706,13 +2770,13 @@ mod tests {
         assert_eq!(container.epoch_closes().len(), 1);
     }
 
-    /// RAI: once this node agreed on an epoch's value, an instance of the
-    /// epoch which notarizes a block the value does not hold is late: it
-    /// does not count in the epoch's state, its blocks are discarded and it
-    /// is erased. No instance of an agreed epoch is started any more.
+    /// RAI: once an epoch's joint election decided its state, an instance
+    /// of the epoch which notarizes a block that state does not hold is
+    /// late: it does not count, its blocks are discarded and it is erased.
+    /// No instance of a decided epoch is started any more.
     #[cfg(feature = "rai_protocol")]
     #[test]
-    fn discards_the_late_notarized_instances_of_an_agreed_epoch() {
+    fn discards_the_late_notarized_instances_of_a_decided_epoch() {
         let mut container = ActiveElectionsContainer::new(
             ActiveElectionsConfig {
                 epoch_terminated_elections: 1,
@@ -2760,7 +2824,13 @@ mod tests {
             .unwrap();
         container.insert_for_vote(late.clone(), ConsensusEpoch::ZERO, now);
         assert_eq!(container.len(), 2);
-        let value = container.epoch_closes()[0].value.unwrap();
+        // The decided state holds `decided` and nothing else of the epoch
+        let value = decide_epoch_value(
+            &mut container,
+            ConsensusEpoch::ZERO,
+            &[(decided.account(), decided.height(), decided.hash())],
+            now,
+        );
         let closed_at = now + Duration::from_secs(1);
         apply(
             &mut container,
@@ -2773,8 +2843,8 @@ mod tests {
             closed_at,
         );
         assert_eq!(container.epoch_closes()[0].closed, Some((0, value)));
-        // Agreed: the epoch holds `decided` and nothing else from now on, and
-        // no instance of it is started any more
+        // Decided: the epoch holds `decided` and nothing else from now on,
+        // and no instance of it is started any more
         let another = SavedBlock::new_test_instance_with_key(3);
         container.insert_for_vote(another.clone(), ConsensusEpoch::ZERO, closed_at);
         assert_eq!(container.len(), 2);
@@ -2797,14 +2867,8 @@ mod tests {
         assert!(container.election_for_block(&late.hash()).is_none());
         assert_eq!(container.len(), 0);
         assert_eq!(container.stats.discarded_instances, 1);
-        assert_eq!(
-            container
-                .epoch_state(ConsensusEpoch::ZERO)
-                .close_value(ConsensusEpoch::ZERO),
-            value
-        );
 
-        // A vote of the agreed epoch for a block without an instance is late,
+        // A vote of the decided epoch for a block without an instance is late,
         // not cached: the epoch is decided for good
         let result = apply(
             &mut container,
@@ -2819,8 +2883,114 @@ mod tests {
         assert_eq!(result.get(&another.hash()), Some(&Err(VoteError::Late)));
     }
 
-    /// RAI: what an epoch finalized stays finalized: a late instance of an
-    /// agreed epoch which notarized a block finalized in another epoch is
+    /// RAI, "Only the joint decision installs its checkpoint": a block the
+    /// decided state finalized and no account certificate did is final
+    /// here too. Its instance is confirmed with it as the winner and the
+    /// block is handed to the ledger to cement.
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn installs_what_the_decided_checkpoint_finalized() {
+        let mut container = ActiveElectionsContainer::new(
+            ActiveElectionsConfig {
+                epoch_terminated_elections: 1,
+                ..Default::default()
+            },
+            Duration::from_secs(1),
+        );
+        let (tx, rx) = rsnano_utils::sync::backpressure_channel::channel(1024);
+        container.set_observer(tx);
+        let rep_key = PrivateKey::from(1);
+        let mut rep_weights = RepWeights::default();
+        rep_weights.put(rep_key.public_key(), Amount::MAX);
+        let now = Timestamp::new_test_instance();
+        container.start_epochs(now);
+        let decided = SavedBlock::new_test_instance_with_key(1);
+        let recovered = SavedBlock::new_test_instance_with_key(2);
+        container
+            .insert(
+                AecInsertRequest::new_priority(decided.clone(), BlockPriority::new_test_instance()),
+                now,
+            )
+            .unwrap();
+        let apply = |container: &mut ActiveElectionsContainer, vote: Vote, at: Timestamp| {
+            container.apply_vote(ApplyVoteArgs {
+                vote: &ReceivedVote::new(Arc::new(vote), VoteDelivery::Direct, None).into(),
+                rep_weights: &rep_weights,
+                quorum_snapshot: &QuorumSnapshot::new_test_instance(),
+                now: at,
+            })
+        };
+        // `decided` finalizes by certificate and ends the epoch; `recovered`
+        // is proposed in epoch 1 and has an instance of epoch 0 opened for a
+        // peer's vote, with no certificate in either
+        apply(
+            &mut container,
+            Vote::new_final(&rep_key, vec![decided.hash()]),
+            now,
+        );
+        assert_eq!(container.current_epoch(), ConsensusEpoch::new(1));
+        container
+            .insert(
+                AecInsertRequest::new_priority(
+                    recovered.clone(),
+                    BlockPriority::new_test_instance(),
+                ),
+                now,
+            )
+            .unwrap();
+        container.insert_for_vote(recovered.clone(), ConsensusEpoch::ZERO, now);
+        assert_eq!(container.len(), 2);
+
+        // The checkpoint finalizes both: the second one is what the
+        // reports recovered
+        let value = decide_epoch_value(
+            &mut container,
+            ConsensusEpoch::ZERO,
+            &[
+                (decided.account(), decided.height(), decided.hash()),
+                (recovered.account(), recovered.height(), recovered.hash()),
+            ],
+            now,
+        );
+        let closed_at = now + Duration::from_secs(1);
+        apply(
+            &mut container,
+            Vote::new_in_epoch(
+                &rep_key,
+                VoteKind::First,
+                ConsensusEpoch::close_round(ConsensusEpoch::ZERO, 0),
+                vec![value],
+            ),
+            closed_at,
+        );
+        assert_eq!(container.epoch_closes()[0].closed, Some((0, value)));
+
+        // The instances of the recovered block are confirmed with it and gone
+        assert!(container.election_for_block(&recovered.hash()).is_none());
+        assert_eq!(container.len(), 0);
+        assert!(container.was_recently_confirmed(&recovered.hash()));
+        assert_eq!(container.stats.discarded_instances, 0);
+        let facts: Vec<AecFact> = std::iter::from_fn(|| rx.try_recv().ok()).collect();
+        assert!(facts.iter().any(|fact| matches!(
+            fact,
+            AecFact::ElectionConfirmed(election) if election.winner.hash() == recovered.hash()
+        )));
+        // And the ledger is told to cement what the checkpoint finalized
+        // beyond its predecessor: both blocks, the cemented one included
+        let installed = facts.iter().find_map(|fact| match fact {
+            AecFact::CheckpointFinalized { epoch, hashes } => Some((*epoch, hashes.clone())),
+            _ => None,
+        });
+        let (epoch, mut hashes) = installed.expect("the checkpoint is installed");
+        assert_eq!(epoch, ConsensusEpoch::ZERO);
+        hashes.sort();
+        let mut expected = vec![decided.hash(), recovered.hash()];
+        expected.sort();
+        assert_eq!(hashes, expected);
+    }
+
+    /// RAI: what an epoch finalized stays finalized: a late instance of a
+    /// decided epoch which notarized a block finalized in another epoch is
     /// erased, but the block is not discarded
     #[cfg(feature = "rai_protocol")]
     #[test]
@@ -2881,8 +3051,13 @@ mod tests {
         container.insert_for_vote(block.clone(), ConsensusEpoch::ZERO, now);
         assert_eq!(container.len(), 1);
 
-        // Epoch 0 closes and is agreed without the block
-        let value = container.epoch_closes()[0].value.unwrap();
+        // Epoch 0 closes on a state without the block
+        let value = decide_epoch_value(
+            &mut container,
+            ConsensusEpoch::ZERO,
+            &[(decided.account(), decided.height(), decided.hash())],
+            now,
+        );
         apply(
             &mut container,
             Vote::new_in_epoch(
@@ -2989,17 +3164,21 @@ mod tests {
         let closes = container.epoch_closes();
         assert_eq!(closes.len(), 1);
         assert_eq!(closes[0].epoch, ConsensusEpoch::ZERO);
-        assert!(closes[0].ready);
-        let value = closes[0].value.unwrap();
-        assert_eq!(
-            value,
-            container
-                .epoch_state(ConsensusEpoch::ZERO)
-                .close_value(ConsensusEpoch::ZERO)
-        );
+        // RAI: the close takes no part until this node holds the decided
+        // predecessor state and enough usable reports to derive a value
+        assert!(!closes[0].ready);
         assert_eq!(container.epoch_state(ConsensusEpoch::ZERO).finalized, 1);
+        container.set_close_ready(ConsensusEpoch::ZERO, true, now);
 
-        // This node leads round 0: its first vote is the proposal
+        // This node leads round 0: the value it derived is its proposal
+        let value = test_epoch_value(ConsensusEpoch::ZERO, 0);
+        let hash = value.hash();
+        container
+            .accept_epoch_value(value, Arc::new(EpochLedger::new()), now)
+            .unwrap();
+        container.record_epoch_proposal(ConsensusEpoch::ZERO, 0, hash);
+        let value = hash;
+        container.transition_time(now);
         let round0 = ConsensusEpoch::close_round(ConsensusEpoch::ZERO, 0);
         let close_id = ElectionId::new(EpochClose::root_of(ConsensusEpoch::ZERO), round0);
         let proposal = VoteTarget {
@@ -3079,6 +3258,7 @@ mod tests {
         container.set_genesis_committee(vec![AccountFrontier {
             account: mover.account(),
             height: 1,
+            hash: BlockHash::from(77),
             representative: rep1.public_key(),
             balance: Amount::raw(100),
         }]);
@@ -3118,16 +3298,6 @@ mod tests {
                 )
                 .unwrap();
         };
-        let close_value = |container: &ActiveElectionsContainer, epoch: u64| {
-            container
-                .epoch_closes()
-                .into_iter()
-                .find(|close| close.epoch == ConsensusEpoch::new(epoch))
-                .unwrap()
-                .value
-                .unwrap()
-        };
-
         // Epoch 0: representative 2 has no weight, representative 1
         // finalizes the block and closes the epoch, which derives the
         // committee of epoch 2: representative 2 alone
@@ -3150,7 +3320,14 @@ mod tests {
         assert!(container.is_finalized(&block0.hash()));
         assert_eq!(container.current_epoch(), ConsensusEpoch::new(1));
         assert_eq!(container.epoch_committees().len(), 1);
-        let value0 = close_value(&container, 0);
+        // The state epoch 0 decided: the mover at its new block, which is
+        // what the committee of epoch 2 is derived from
+        let value0 = decide_epoch_value(
+            &mut container,
+            ConsensusEpoch::ZERO,
+            &[(block0.account(), block0.height(), block0.hash())],
+            now,
+        );
         vote(
             &mut container,
             &rep1,
@@ -3220,7 +3397,12 @@ mod tests {
         // The close of epoch 1 counts in the genesis committee, which voted
         // in epoch 1, and in C(0), which runs epoch 2: representative 1
         // alone does not close it any more
-        let value1 = close_value(&container, 1);
+        let value1 = decide_epoch_value(
+            &mut container,
+            ConsensusEpoch::new(1),
+            &[(block1.account(), block1.height(), block1.hash())],
+            now,
+        );
         vote(
             &mut container,
             &rep1,
@@ -3285,6 +3467,14 @@ mod tests {
         // Epoch 1 has drained but is not left while epoch 0 is not closed
         assert_eq!(container.current_epoch(), ConsensusEpoch::new(1));
         assert!(container.is_draining());
+        container.set_close_ready(ConsensusEpoch::ZERO, true, now);
+        let value = test_epoch_value(ConsensusEpoch::ZERO, 0);
+        let hash = value.hash();
+        container
+            .accept_epoch_value(value, Arc::new(EpochLedger::new()), now)
+            .unwrap();
+        container.record_epoch_proposal(ConsensusEpoch::ZERO, 0, hash);
+        container.transition_time(now);
         let closes = container.epoch_closes();
         assert_eq!(closes.len(), 1);
         assert!(closes[0].started);
@@ -3298,7 +3488,7 @@ mod tests {
         assert_eq!(close_votes(&container).len(), 1);
 
         // Closing epoch 0 lets epoch 1 be left and its close start
-        let value = closes[0].value.unwrap();
+        let value = hash;
         let vote = Arc::new(Vote::new_in_epoch(
             &rep_key,
             VoteKind::First,
@@ -3316,6 +3506,16 @@ mod tests {
         container.transition_time(now);
         assert_eq!(container.current_epoch(), ConsensusEpoch::new(2));
         assert!(!container.is_draining());
+        // Epoch 1's close takes part once this node can derive a value there
+        assert!(!container.epoch_closes()[1].started);
+        let next = test_epoch_value(ConsensusEpoch::new(1), 0);
+        let next_hash = next.hash();
+        container.set_close_ready(ConsensusEpoch::new(1), true, now);
+        container
+            .accept_epoch_value(next, Arc::new(EpochLedger::new()), now)
+            .unwrap();
+        container.record_epoch_proposal(ConsensusEpoch::new(1), 0, next_hash);
+        container.transition_time(now);
         assert!(container.epoch_closes()[1].started);
         let proposal = close_votes(&container);
         assert!(proposal.iter().any(|target| {
@@ -3687,6 +3887,55 @@ mod tests {
         ) -> Option<ElectionCandidate> {
             None
         }
+    }
+
+    /// RAI: makes an epoch's close ready and hands it the value this node
+    /// derived, whose state holds exactly the given positions. Returns the
+    /// value's hash, which a certificate for closes the epoch on that state.
+    #[cfg(feature = "rai_protocol")]
+    #[allow(dead_code)]
+    fn decide_epoch_value(
+        container: &mut ActiveElectionsContainer,
+        epoch: ConsensusEpoch,
+        finalized: &[(Account, u64, BlockHash)],
+        now: Timestamp,
+    ) -> BlockHash {
+        container.set_close_ready(epoch, true, now);
+        // The state of an epoch is derived on the decided predecessor, which
+        // already holds every account's earlier positions
+        let mut ledger = container
+            .epoch_previous_state(epoch)
+            .map(|previous| (*previous).clone())
+            .unwrap_or_default();
+        for (account, height, hash) in finalized {
+            ledger.finalize_genesis(AccountSlot::new(*account, *height), *hash);
+        }
+        let value = test_epoch_value(epoch, 0);
+        let hash = value.hash();
+        container
+            .accept_epoch_value(value, Arc::new(ledger), now)
+            .unwrap();
+        container.record_epoch_proposal(epoch, 0, hash);
+        container.transition_time(now);
+        hash
+    }
+
+    /// RAI: a value of election genesis, as a leader that selected one
+    /// report would have derived it
+    #[cfg(feature = "rai_protocol")]
+    fn test_epoch_value(epoch: ConsensusEpoch, slot: u32) -> EpochValue {
+        use crate::consensus::election::ReportRef;
+        EpochValue::from_parts(
+            epoch,
+            slot,
+            BlockHash::ZERO,
+            vec![ReportRef {
+                reporter: PublicKey::from(1),
+                certified: BlockHash::from(10),
+                residual: BlockHash::from(11),
+            }],
+            BlockHash::from(100),
+        )
     }
 
     fn test_final_vote(rep_key: &PrivateKey, block_hash: BlockHash) -> ReceivedVote {

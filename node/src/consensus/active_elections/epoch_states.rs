@@ -165,6 +165,7 @@ impl EpochStates {
     }
 
     /// RAI: the instances of one epoch which finalized and left the AEC
+    #[allow(dead_code)] // the RAI epoch decision uses these
     pub fn instances_of(&self, epoch: ConsensusEpoch) -> impl Iterator<Item = &FinalizedInstance> {
         self.instances.iter().filter_map(move |(hash, instances)| {
             instances
@@ -172,19 +173,6 @@ impl EpochStates {
                 .find(|i| i.epoch == epoch && i.winner == *hash)
                 .map(|i| i.as_ref())
         })
-    }
-
-    /// RAI: this node's statements in the instances of one epoch which
-    /// finalized and left the AEC, for the epoch's report
-    pub fn slots_of(
-        &self,
-        epoch: ConsensusEpoch,
-    ) -> impl Iterator<Item = (Account, u64, &LocalSlotState)> {
-        self.instances
-            .values()
-            .flat_map(|instances| instances.iter())
-            .filter(move |instance| instance.epoch == epoch)
-            .map(|instance| (instance.account, instance.height, &instance.slot))
     }
 
     pub fn len(&self) -> usize {

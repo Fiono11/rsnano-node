@@ -90,6 +90,9 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
             AecFact::LateBlocksDiscarded { epoch, hashes } => {
                 self.discard_late_blocks(epoch, hashes)
             }
+            AecFact::CheckpointFinalized { epoch, hashes } => {
+                self.install_checkpoint_blocks(epoch, hashes)
+            }
             AecFact::ElectionEnded(election) => {
                 self.election_schedulers.notify();
 
@@ -211,6 +214,39 @@ impl AecFactProcessor {
             failed.len(),
             failed.iter().take(3).collect::<Vec<_>>(),
             hashes.iter().map(|h| h.to_string()).collect::<Vec<_>>()
+        );
+    }
+
+    /// RAI: the blocks a decided checkpoint finalized are cemented. One the
+    /// ledger already cemented is left alone; one it holds unconfirmed is
+    /// handed to the confirming set, which cements it with its ancestors;
+    /// one it does not hold at all is reported, and the finality stands in
+    /// the decided state until the block arrives.
+    fn install_checkpoint_blocks(&mut self, epoch: ConsensusEpoch, hashes: Vec<BlockHash>) {
+        let mut cemented = 0;
+        let mut queued = 0;
+        let mut missing = 0;
+        {
+            let any = self.ledger.any();
+            let confirmed = self.ledger.confirmed();
+            for hash in &hashes {
+                if confirmed.block_exists(hash) {
+                    cemented += 1;
+                } else if any.block_exists(hash) {
+                    self.confirming_set.add_block(*hash);
+                    queued += 1;
+                } else {
+                    missing += 1;
+                }
+            }
+        }
+        crate::utils::diagnostic!(
+            "EPOCH_INSTALLED epoch={} finalized={} cemented={} queued={} missing={}",
+            epoch,
+            hashes.len(),
+            cemented,
+            queued,
+            missing
         );
     }
 

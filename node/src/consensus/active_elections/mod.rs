@@ -83,6 +83,14 @@ pub enum AecFact {
         hashes: Vec<BlockHash>,
     },
 
+    /// RAI: the decided checkpoint of an epoch finalized these blocks beyond
+    /// its predecessor. Installed: cemented in the ledger, where they are
+    /// not already
+    CheckpointFinalized {
+        epoch: ConsensusEpoch,
+        hashes: Vec<BlockHash>,
+    },
+
     BlockAddedToElection(BlockHash),
     BlockDiscarded(Block),
     BlockConfirmed(SavedBlock, ConfirmedElection),

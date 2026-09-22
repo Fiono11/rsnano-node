@@ -12,7 +12,7 @@ use rsnano_utils::stats::{DetailType, Direction, StatType, Stats};
 use rsnano_work::WorkThresholds;
 
 #[cfg(feature = "rai_protocol")]
-use crate::consensus::reports::ReportService;
+use crate::consensus::reports::{EpochDecisionService, ReportService};
 #[cfg(feature = "ledger_snapshots")]
 use crate::ledger_snapshots::LedgerSnapshots;
 use crate::{
@@ -40,6 +40,9 @@ pub struct NetworkMessageProcessor {
     /// RAI: the report phase of the epoch closes (Section 6)
     #[cfg(feature = "rai_protocol")]
     reports: Arc<ReportService>,
+    /// RAI: the value half of the joint epoch election
+    #[cfg(feature = "rai_protocol")]
+    epoch_decision: Arc<EpochDecisionService>,
     #[cfg(feature = "ledger_snapshots")]
     ledger_snapshots: Arc<LedgerSnapshots>,
 }
@@ -58,6 +61,7 @@ impl NetworkMessageProcessor {
         bootstrapper: Arc<Bootstrapper>,
         work_thresholds: WorkThresholds,
         #[cfg(feature = "rai_protocol")] reports: Arc<ReportService>,
+        #[cfg(feature = "rai_protocol")] epoch_decision: Arc<EpochDecisionService>,
         #[cfg(feature = "ledger_snapshots")] ledger_snapshots: Arc<LedgerSnapshots>,
     ) -> Self {
         Self {
@@ -74,6 +78,8 @@ impl NetworkMessageProcessor {
             work_thresholds,
             #[cfg(feature = "rai_protocol")]
             reports,
+            #[cfg(feature = "rai_protocol")]
+            epoch_decision,
             #[cfg(feature = "ledger_snapshots")]
             ledger_snapshots,
         }
@@ -221,6 +227,12 @@ impl NetworkMessageProcessor {
             Message::ReconReq(request) => self.reports.handle_request(request, channel),
             #[cfg(feature = "rai_protocol")]
             Message::ReconReply(reply) => self.reports.handle_reply(reply, channel),
+            #[cfg(feature = "rai_protocol")]
+            Message::ResidualReq(request) => self.reports.handle_residual_request(request, channel),
+            #[cfg(feature = "rai_protocol")]
+            Message::ResidualReply(reply) => self.reports.handle_residual_reply(reply, channel),
+            #[cfg(feature = "rai_protocol")]
+            Message::EpochProp(prop) => self.epoch_decision.handle_proposal(prop, channel),
             #[cfg(feature = "ledger_snapshots")]
             Message::SnapshotPreproposal(preproposal) => {
                 self.ledger_snapshots.handle_preproposal(preproposal);

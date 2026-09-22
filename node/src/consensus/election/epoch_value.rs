@@ -40,9 +40,56 @@ pub struct EpochValue {
 }
 
 impl EpochValue {
+    /// The value a proposal carries, as it came off the wire. The reports
+    /// are checked for canonical order and distinct reporters when the value
+    /// is validated, not here.
+    pub fn from_parts(
+        epoch: ConsensusEpoch,
+        slot: u32,
+        parent: BlockHash,
+        reports: Vec<ReportRef>,
+        state: BlockHash,
+    ) -> Self {
+        Self {
+            epoch,
+            slot,
+            parent,
+            reports,
+            state,
+        }
+    }
+
     /// The reports an epoch value selects, in canonical order
     pub fn reports(&self) -> &[ReportRef] {
         &self.reports
+    }
+
+    /// RAI: `(Q_e, d_e)`, the payload of a placement. "A child of a
+    /// non-genesis placement must copy its parent's (Q_e, d_e)": only a
+    /// child of election genesis may introduce a selection of its own, so
+    /// once a placement is joint-complete every later slot carries the same
+    /// state, and the election decides which slot's placement it finalizes
+    /// rather than which state.
+    pub fn copies(&self, parent: &EpochValue) -> bool {
+        self.reports == parent.reports && self.state == parent.state
+    }
+
+    /// A child of the notional genesis placement, which starts the election
+    /// and is the only placement that may introduce a report selection
+    pub fn extends_genesis(&self) -> bool {
+        self.parent.is_zero()
+    }
+
+    /// The same payload in the next election slot: what a leader proposes
+    /// when a joint-complete placement already exists
+    pub fn extend(&self, slot: u32) -> Self {
+        Self {
+            epoch: self.epoch,
+            slot,
+            parent: self.hash(),
+            reports: self.reports.clone(),
+            state: self.state,
+        }
     }
 
     /// Builds the value a leader proposes: the state the selected reports
@@ -99,15 +146,9 @@ impl EpochValue {
         previous: &EpochLedger,
         reconstructed: &dyn ReportSource,
         index: &dyn BlockIndex,
-        quorum: usize,
+        quorum: Amount,
         many: Amount,
     ) -> Result<EpochLedger, EpochValueError> {
-        if self.reports.len() != quorum {
-            return Err(EpochValueError::WrongSelectionSize {
-                selected: self.reports.len(),
-                required: quorum,
-            });
-        }
         // Distinct reporters: a value that names one reporter twice would
         // count one report as several
         if self
@@ -121,13 +162,26 @@ impl EpochValue {
             return Err(EpochValueError::NotCanonical);
         }
         let mut states = Vec::with_capacity(self.reports.len());
+        let mut selected = Amount::ZERO;
         for report in &self.reports {
             let Some(state) = reconstructed.report(report) else {
                 return Err(EpochValueError::NotReconstructed {
                     reporter: report.reporter,
                 });
             };
+            selected = selected
+                .number()
+                .checked_add(state.weight.number())
+                .map(Amount::raw)
+                .unwrap_or(Amount::MAX);
             states.push(state);
+        }
+        // q_report = N − f of the old committee, as weight
+        if selected < quorum {
+            return Err(EpochValueError::WrongSelectionSize {
+                selected,
+                required: quorum,
+            });
         }
         let ledger = build_state(previous, &states, index, many);
         if ledger.state_hash() != self.state {
@@ -149,8 +203,9 @@ pub trait ReportSource {
 /// Why a validator does not vote for an epoch value
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EpochValueError {
-    /// A proposal selects exactly N-f reports
-    WrongSelectionSize { selected: usize, required: usize },
+    /// A proposal selects reports carrying at least N−f of the old
+    /// committee's weight
+    WrongSelectionSize { selected: Amount, required: Amount },
     /// One reporter named twice would count as several reports
     RepeatedReporter,
     /// The reports are not in the canonical order, so two leaders naming the
@@ -186,7 +241,7 @@ mod tests {
         assert_eq!(value.reports().len(), 3);
 
         let derived = value
-            .validate(&EpochLedger::new(), &world, &world.index, 3, MANY)
+            .validate(&EpochLedger::new(), &world, &world.index, QUORUM, MANY)
             .expect("the reports determine this state");
         assert_eq!(derived.state_hash(), value.state);
         assert_eq!(derived.finalized_count(), ledger.finalized_count());
@@ -205,7 +260,7 @@ mod tests {
         let mut shuffled = value.clone();
         shuffled.reports.reverse();
         assert_eq!(
-            shuffled.validate(&EpochLedger::new(), &world, &world.index, 3, MANY),
+            shuffled.validate(&EpochLedger::new(), &world, &world.index, QUORUM, MANY),
             Err(EpochValueError::NotCanonical)
         );
         // And the hash follows the order, so a shuffled value is a different one
@@ -220,7 +275,7 @@ mod tests {
         let proposed = BlockHash::from(999);
         value.state = proposed;
         let error = value
-            .validate(&EpochLedger::new(), &world, &world.index, 3, MANY)
+            .validate(&EpochLedger::new(), &world, &world.index, QUORUM, MANY)
             .unwrap_err();
         let EpochValueError::StateMismatch { derived, .. } = error else {
             panic!("expected a state mismatch, got {error:?}");
@@ -245,7 +300,7 @@ mod tests {
             ..World::new(3)
         };
         assert_eq!(
-            value.validate(&EpochLedger::new(), &partial, &partial.index, 3, MANY),
+            value.validate(&EpochLedger::new(), &partial, &partial.index, QUORUM, MANY),
             Err(EpochValueError::NotReconstructed { reporter: missing })
         );
     }
@@ -257,17 +312,17 @@ mod tests {
         let world = World::new(3);
         let (value, _) = world.propose();
         assert_eq!(
-            value.validate(&EpochLedger::new(), &world, &world.index, 4, MANY),
+            value.validate(&EpochLedger::new(), &world, &world.index, TOO_MUCH, MANY),
             Err(EpochValueError::WrongSelectionSize {
-                selected: 3,
-                required: 4
+                selected: QUORUM,
+                required: TOO_MUCH
             })
         );
 
         let mut repeated = value.clone();
         repeated.reports[1] = repeated.reports[0];
         assert_eq!(
-            repeated.validate(&EpochLedger::new(), &world, &world.index, 3, MANY),
+            repeated.validate(&EpochLedger::new(), &world, &world.index, QUORUM, MANY),
             Err(EpochValueError::RepeatedReporter)
         );
     }
@@ -325,6 +380,10 @@ mod tests {
     /// the checkpoint recovery threshold
     const MANY: Amount = Amount::raw(25);
     const REPORTER_WEIGHT: Amount = Amount::raw(10);
+    /// q_report for three reporters of `REPORTER_WEIGHT` each
+    const QUORUM: Amount = Amount::raw(30);
+    /// More weight than three reporters carry
+    const TOO_MUCH: Amount = Amount::raw(40);
 
     /// Three reporters: all of them certified the same block, and each one
     /// supported a block of its own that no certificate covers
@@ -356,11 +415,13 @@ mod tests {
                 let mut certified = CertifiedState::new();
                 certified.certify(
                     CertifiedBlock::new(Account::from(1), 1, shared),
+                    BlockHash::ZERO,
                     CertifiedStatus::Notarized,
                 );
                 let mut residual = ResidualVotes::new();
                 residual.record(
                     CertifiedBlock::new(Account::from(2 + i as u64), 1, own),
+                    BlockHash::ZERO,
                     ResidualKind::First,
                 );
                 let refs = ReportRef {

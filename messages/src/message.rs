@@ -26,6 +26,14 @@ pub enum Message {
     ReconReq(ReconReq),
     #[cfg(feature = "rai_protocol")]
     ReconReply(ReconReply),
+    /// RAI: a fetch of the residual object a report committed to
+    #[cfg(feature = "rai_protocol")]
+    ResidualReq(ResidualReq),
+    #[cfg(feature = "rai_protocol")]
+    ResidualReply(ResidualReply),
+    /// RAI: a leader's proposal of an epoch value in one election slot
+    #[cfg(feature = "rai_protocol")]
+    EpochProp(EpochProp),
     #[cfg(feature = "ledger_snapshots")]
     SnapshotPreproposal(Preproposal),
     #[cfg(feature = "ledger_snapshots")]
@@ -107,6 +115,12 @@ impl From<&ParseMessageError> for DetailType {
             ParseMessageError::InvalidMessage(MessageType::ReconReq) => Self::ReconReq,
             #[cfg(feature = "rai_protocol")]
             ParseMessageError::InvalidMessage(MessageType::ReconReply) => Self::ReconReply,
+            #[cfg(feature = "rai_protocol")]
+            ParseMessageError::InvalidMessage(MessageType::ResidualReq) => Self::ResidualReq,
+            #[cfg(feature = "rai_protocol")]
+            ParseMessageError::InvalidMessage(MessageType::ResidualReply) => Self::ResidualReply,
+            #[cfg(feature = "rai_protocol")]
+            ParseMessageError::InvalidMessage(MessageType::EpochProp) => Self::EpochProp,
             #[cfg(feature = "ledger_snapshots")]
             ParseMessageError::InvalidMessage(MessageType::Preproposal) => todo!(),
             #[cfg(feature = "ledger_snapshots")]
@@ -162,6 +176,12 @@ impl Message {
             Message::ReconReq(_) => MessageType::ReconReq,
             #[cfg(feature = "rai_protocol")]
             Message::ReconReply(_) => MessageType::ReconReply,
+            #[cfg(feature = "rai_protocol")]
+            Message::ResidualReq(_) => MessageType::ResidualReq,
+            #[cfg(feature = "rai_protocol")]
+            Message::ResidualReply(_) => MessageType::ResidualReply,
+            #[cfg(feature = "rai_protocol")]
+            Message::EpochProp(_) => MessageType::EpochProp,
             #[cfg(feature = "ledger_snapshots")]
             Message::SnapshotPreproposal(_) => MessageType::Preproposal,
             #[cfg(feature = "ledger_snapshots")]
@@ -196,6 +216,12 @@ impl Message {
             Message::ReconReq(x) => Some(x),
             #[cfg(feature = "rai_protocol")]
             Message::ReconReply(x) => Some(x),
+            #[cfg(feature = "rai_protocol")]
+            Message::ResidualReq(x) => Some(x),
+            #[cfg(feature = "rai_protocol")]
+            Message::ResidualReply(x) => Some(x),
+            #[cfg(feature = "rai_protocol")]
+            Message::EpochProp(x) => Some(x),
             _ => None,
         }
     }
@@ -230,6 +256,12 @@ impl Message {
             Message::ReconReq(m) => m.serialize(writer),
             #[cfg(feature = "rai_protocol")]
             Message::ReconReply(m) => m.serialize(writer),
+            #[cfg(feature = "rai_protocol")]
+            Message::ResidualReq(m) => m.serialize(writer),
+            #[cfg(feature = "rai_protocol")]
+            Message::ResidualReply(m) => m.serialize(writer),
+            #[cfg(feature = "rai_protocol")]
+            Message::EpochProp(m) => m.serialize(writer),
             #[cfg(feature = "ledger_snapshots")]
             Message::SnapshotPreproposal(m) => m.serialize(writer),
             #[cfg(feature = "ledger_snapshots")]
@@ -280,6 +312,14 @@ impl Message {
             MessageType::ReconReq => Message::ReconReq(ReconReq::deserialize(payload)?),
             #[cfg(feature = "rai_protocol")]
             MessageType::ReconReply => Message::ReconReply(ReconReply::deserialize(payload)?),
+            #[cfg(feature = "rai_protocol")]
+            MessageType::ResidualReq => Message::ResidualReq(ResidualReq::deserialize(payload)?),
+            #[cfg(feature = "rai_protocol")]
+            MessageType::ResidualReply => {
+                Message::ResidualReply(ResidualReply::deserialize(payload)?)
+            }
+            #[cfg(feature = "rai_protocol")]
+            MessageType::EpochProp => Message::EpochProp(EpochProp::deserialize(payload)?),
             #[cfg(feature = "ledger_snapshots")]
             MessageType::Preproposal => {
                 Message::SnapshotPreproposal(Preproposal::deserialize(payload)?)

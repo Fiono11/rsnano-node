@@ -3,7 +3,7 @@ use std::{any::Any, sync::Arc};
 use rsnano_types::ConsensusEpoch;
 use rsnano_utils::EventHandlerMut;
 
-use super::ReportService;
+use super::{EpochDecisionService, ReportService};
 use crate::consensus::{AecFact, AecService, AecTickerPlugin};
 
 /// RAI, Section 6.1: the epoch this node just left is reported on. The
@@ -30,21 +30,26 @@ impl EventHandlerMut<AecFact> for ReportPlugin {
     }
 }
 
-/// RAI, Section 6.2: repeats the reconciliation requests whose answers did
-/// not come, on the AEC's tick
+/// RAI: repeats the reconciliation requests whose answers did not come, and
+/// drives the joint epoch election, on the AEC's tick
 pub(crate) struct ReportTicker {
     reports: Arc<ReportService>,
+    epoch_decision: Arc<EpochDecisionService>,
 }
 
 impl ReportTicker {
-    pub fn new(reports: Arc<ReportService>) -> Self {
-        Self { reports }
+    pub fn new(reports: Arc<ReportService>, epoch_decision: Arc<EpochDecisionService>) -> Self {
+        Self {
+            reports,
+            epoch_decision,
+        }
     }
 }
 
 impl AecTickerPlugin for ReportTicker {
     fn run(&mut self, _aec: &AecService) {
         self.reports.tick();
+        self.epoch_decision.tick();
     }
 
     fn as_any(&self) -> &dyn Any {

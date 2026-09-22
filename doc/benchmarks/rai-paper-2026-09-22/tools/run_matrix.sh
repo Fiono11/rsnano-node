@@ -15,7 +15,10 @@ run() {
   echo "\n########## $name ##########"
   local restarts=3; [ $nodes -lt 6 ] && restarts=1
   local allow=0; [ $nodes -lt 6 ] && allow=1
-  local deadline=240; [ $nodes -lt 6 ] && deadline=480
+  # Every passing run settled within a second (six nodes) or within 31 s (a
+  # faulty representative, pending instances allowed); a longer wait only
+  # delays the verdict of a run that failed
+  local deadline=30; [ $nodes -lt 6 ] && deadline=60
   FORKS=$forks NODES=$nodes RESTARTS=$restarts SETTLE_DEADLINE=$deadline ALLOW_PENDING=$allow $T/run_variant.sh $D/$name.log "$@" > $D/$name.wrapper 2>&1
   local code=$?
   local verdict=$(grep -a -h "SETTLED_CONSISTENT\|CLOSED_CONSISTENT\|COMMITTEES_CONSISTENT\|^SAFE\|INCONSISTENT\|TIMEOUT\|SAFETY_VIOLATION\|COMMITTEES_MISSING\|COMMITTEES_OVERWEIGHT\|checks failed\|stalled\|nanospam aborted\|nanospam died" $D/$name.log.snap 2>/dev/null | cut -c1-120 | tr '\n' ' ')

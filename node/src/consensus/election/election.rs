@@ -491,6 +491,24 @@ impl Election {
         }
     }
 
+    /// RAI, "Only the joint decision installs its checkpoint": the decided
+    /// state of the epoch finalized this candidate. The instance is
+    /// confirmed with it as the winner whatever its own certificates say:
+    /// the checkpoint recovered a finality the votes seen here did not
+    /// show, or chose the sole survivor of the position. Returns the winner
+    /// it replaces, if the winner changed.
+    pub fn finalize_by_checkpoint(&mut self, hash: &BlockHash) -> Option<BlockHash> {
+        if self.state.has_ended() || !self.candidate_blocks.contains_key(hash) {
+            return None;
+        }
+        let previous = self.winner.hash();
+        if previous != *hash {
+            self.change_winner_to(hash);
+        }
+        self.state = ElectionState::Confirmed;
+        Some(previous)
+    }
+
     pub fn start(&self) -> Timestamp {
         self.start
     }

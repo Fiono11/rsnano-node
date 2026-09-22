@@ -9,7 +9,7 @@ use rsnano_utils::sync::backpressure_channel::Sender;
 
 use super::{
     AecFact, ApplyVoteArgs,
-    epoch_close::{AgreedContent, EpochClose, is_late},
+    epoch_close::{DecidedStates, EpochClose, is_late},
     epoch_committees::{EpochCommittees, live_committees},
     recently_confirmed_cache::RecentlyConfirmedCache,
     root_container::{Entry, RootContainer},
@@ -25,8 +25,8 @@ pub(super) struct ApplyVoteHelper<'a> {
     pub roots: &'a mut RootContainer,
     /// RAI: the committees the instances of each epoch are counted in
     pub committees: &'a EpochCommittees,
-    /// RAI: the content of the agreed epochs, to tell the late instances
-    pub agreed: &'a AgreedContent,
+    /// RAI: the states the decided epochs hold, to tell the late instances
+    pub decided: &'a DecidedStates,
 }
 
 impl<'a> ApplyVoteHelper<'a> {
@@ -66,7 +66,7 @@ impl<'a> ApplyVoteHelper<'a> {
                         election,
                         block_hash,
                         committees: self.committees,
-                        agreed: self.agreed,
+                        decided: self.decided,
                     };
                     let vote_result = apply_to_election.apply_vote();
                     result.per_block.insert(*block_hash, vote_result);
@@ -133,7 +133,7 @@ struct ApplyVoteToElectionHelper<'a> {
     pub election: &'a mut Election,
     pub block_hash: &'a BlockHash,
     pub committees: &'a EpochCommittees,
-    pub agreed: &'a AgreedContent,
+    pub decided: &'a DecidedStates,
 }
 
 impl<'a> ApplyVoteToElectionHelper<'a> {
@@ -212,7 +212,7 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
                 self.stats,
                 self.observer,
                 self.recently_confirmed,
-                self.agreed,
+                self.decided,
             );
             return;
         }
@@ -229,7 +229,7 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
                 self.args.now,
                 self.observer,
                 self.recently_confirmed,
-                self.agreed,
+                self.decided,
             );
         }
     }
@@ -271,7 +271,7 @@ pub(super) fn count_kudzu_election(
     stats: &mut AecStats,
     observer: &Option<Sender<AecFact>>,
     recently_confirmed: &mut RecentlyConfirmedCache,
-    agreed: &AgreedContent,
+    decided: &DecidedStates,
 ) {
     let old_winner = election.winner().hash();
     let was_in_block_tree = election.certificates().has_block();
@@ -280,7 +280,7 @@ pub(super) fn count_kudzu_election(
     stats.kudzu_transition(old_state, election, was_in_block_tree, now);
     notify_winner_changed(election, old_winner, observer);
     if election.is_confirmed() {
-        election_got_confirmed(election, now, observer, recently_confirmed, agreed);
+        election_got_confirmed(election, now, observer, recently_confirmed, decided);
     }
 }
 
@@ -302,10 +302,10 @@ fn election_got_confirmed(
     now: Timestamp,
     observer: &Option<Sender<AecFact>>,
     recently_confirmed: &mut RecentlyConfirmedCache,
-    agreed: &AgreedContent,
+    decided: &DecidedStates,
 ) {
-    // RAI: a late instance of an agreed epoch is discarded, not confirmed
-    if is_late(agreed, election) {
+    // RAI: a late instance of a decided epoch is discarded, not confirmed
+    if is_late(decided, election) {
         return;
     }
     recently_confirmed.put(election.qualified_root().clone(), election.winner().hash());
@@ -671,7 +671,7 @@ mod tests {
                 observer: &None,
                 roots: &mut self.roots,
                 committees: &EpochCommittees::default(),
-                agreed: &BTreeMap::new(),
+                decided: &BTreeMap::new(),
             };
 
             let result = helper.apply_vote();
@@ -763,7 +763,7 @@ mod tests {
                     election: &mut self.election,
                     block_hash: &vote.hashes[0],
                     committees: &EpochCommittees::default(),
-                    agreed: &BTreeMap::new(),
+                    decided: &BTreeMap::new(),
                 }
                 .apply_vote()
             };

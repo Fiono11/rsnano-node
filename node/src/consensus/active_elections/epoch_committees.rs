@@ -1,7 +1,7 @@
 use std::{cmp::max, collections::BTreeMap, sync::Arc};
 
 use rsnano_ledger::RepWeights;
-use rsnano_types::{Amount, BlockHash, ConsensusEpoch, PublicKey};
+use rsnano_types::{Account, Amount, BlockHash, ConsensusEpoch, PublicKey};
 
 use crate::{
     consensus::election::{AccountFrontier, Committee, CommitteeWeights, Committees},
@@ -111,6 +111,12 @@ impl EpochCommittees {
     /// The accounts counted so far
     pub fn counted(&self) -> usize {
         self.weights.len()
+    }
+
+    /// The height already counted for an account: a frontier at or below it
+    /// changes nothing, because the weights are cumulative
+    pub fn counted_height(&self, account: &Account) -> Option<u64> {
+        self.weights.counted_height(account)
     }
 
     /// Every committee known here, the genesis one first, as seen from outside
@@ -307,6 +313,7 @@ mod tests {
 
     fn frontier(account: u64, height: u64, rep_id: u64, balance: u128) -> AccountFrontier {
         AccountFrontier {
+            hash: BlockHash::from(height * 1000 + rep_id),
             account: Account::from(account),
             height,
             representative: rep(rep_id),

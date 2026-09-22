@@ -1,52 +1,60 @@
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashMap},
+    sync::Arc,
     time::Duration,
 };
 
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{
-    Account, Blake2HashBuilder, BlockHash, ConsensusEpoch, PublicKey, QualifiedRoot, Root,
-    VoteError, VoteKind,
+    Blake2HashBuilder, BlockHash, ConsensusEpoch, PublicKey, QualifiedRoot, Root, VoteError,
+    VoteKind,
 };
 
 use crate::consensus::election::{
-    CertificateEvidence, Certificates, Committees, Election, ElectionId, ElectionState, EpochState,
-    LocalSlotState, SlotVotes, TIMEOUT_BLOCK, kudzu_state,
+    CertificateEvidence, Certificates, Committees, Election, ElectionId, ElectionState,
+    EpochLedger, EpochValue, LocalSlotState, SlotVotes, TIMEOUT_BLOCK, kudzu_state,
 };
 
-/// RAI: the content of an epoch's value as this node agreed on it: every
-/// (account, height, block) the value hashed. The same on every replica
-/// that agreed, unlike the instant the certificate was seen here.
-pub(super) type AgreedContent = BTreeMap<ConsensusEpoch, HashSet<(Account, u64, BlockHash)>>;
+/// RAI: the state one consensus epoch decided, `S_e = (L_e, Sigma_e)`, as
+/// the epoch's joint election finalized it. Every replica that accepted the
+/// decided value derived this same state from the same selected reports.
+pub(super) type DecidedStates = BTreeMap<ConsensusEpoch, Arc<EpochLedger>>;
 
-/// RAI: an instance of an agreed epoch that notarized a block the agreed
-/// value does not hold is late: what it decides is discarded instead of
-/// recorded. Until this node agrees, nothing of the epoch is late: an
-/// instance it lacks may be part of the value finalized.
-pub(super) fn is_late(agreed: &AgreedContent, election: &Election) -> bool {
-    agreed.get(&election.epoch()).is_some_and(|content| {
-        election
-            .certificates()
-            .notar
-            .iter()
-            .any(|block| !content.contains(&(election.account(), election.height(), *block)))
+/// RAI: an instance of a decided epoch that notarized a block the decided
+/// state does not hold is late: what it decides is discarded instead of
+/// recorded. Until the epoch is decided here, nothing of it is late: an
+/// instance this node lacks may be part of the state finalized.
+pub(super) fn is_late(decided: &DecidedStates, election: &Election) -> bool {
+    decided.get(&election.epoch()).is_some_and(|state| {
+        let slot =
+            crate::consensus::election::AccountSlot::new(election.account(), election.height());
+        election.certificates().notar.iter().any(|block| {
+            !state.is_finalized(&slot, block) && !state.notarized(&slot).contains(block)
+        })
     })
 }
 
-/// RAI: the close election of one consensus epoch, a multi-round Kudzu
-/// instance on the epoch's final state. Every round is a Kudzu slot
-/// (Protocol 1) with its own leader; the leader's first vote is its proposal,
-/// the value it attests: the hash of the epoch's state as it sees it. A
-/// replica first votes the proposal if its own state hashes to the same value
-/// and abstains otherwise; the round ends with a notarization or a timeout
-/// certificate, and the next round has the next leader. The epoch is closed
-/// once some round finalizes a value.
+/// RAI, "The joint epoch election": the election that closes one consensus
+/// epoch. Every round is a Kudzu election slot (Protocol 1) with its own
+/// leader. The leader selects `N - f` usable reports of the epoch, derives
+/// `BuildState(S_{e-1}, Q_e)` and proposes the value `X = (h_p, Q_e, d_e)`:
+/// the reports it selected and the hash of the state they determine, never
+/// the state itself.
 ///
-/// A proposal is valid in round r if, for the rounds before r, the replica
-/// holds a timeout certificate or a notarization certificate for the same
-/// value (Section 4.6, with the same value standing in for the parent block):
-/// once a round finalizes a value no round can have a timeout certificate
-/// (Lemma 5.7), so no other value can ever be proposed validly again.
+/// A follower does not compare that value with one of its own. It
+/// reconstructs the named reports, derives the same state and checks that it
+/// hashes to `d_e`; two validators that accept a value therefore hold the
+/// same state whatever certificates each of them happened to collect. That
+/// is what makes the rule public rather than local: an epoch closes on what
+/// `N - f` reports determine, not on what any one replica saw.
+///
+/// A proposal is valid in a round if it names a parent placement this
+/// replica holds a notarization certificate for and every slot in between
+/// has shared skip evidence (a timeout certificate, or notarizations of two
+/// different values across the two committees). A child of a non-genesis
+/// placement copies its parent's `(Q_e, d_e)`, so once a placement is
+/// complete no later slot can carry another state; only a child of election
+/// genesis introduces a selection of its own.
 pub(crate) struct EpochClose {
     epoch: ConsensusEpoch,
     root: QualifiedRoot,
@@ -56,41 +64,25 @@ pub(crate) struct EpochClose {
     rounds: Vec<CloseRound>,
     /// The round this replica is in
     current: usize,
-    /// Every instance of the epoch has settled on this replica: it attests
-    /// `own`. Readiness is lost again while an instance opens late.
+    /// RAI: this replica holds the decided predecessor state and enough
+    /// usable reports to derive a value. Without both it can neither propose
+    /// nor check a proposal, so it takes no part in the election yet.
     ready: bool,
-    /// The value this replica attests: the hash of the epoch's state as it
-    /// stands, kept while not ready so that its statements stay routable
-    own: Option<BlockHash>,
-    /// The hash of the epoch's state with every instance counted, the ones
-    /// opened after the close was seen here included: a replica that lacked
-    /// blocks at the close agrees with the value finalized once they came
-    own_all: Option<BlockHash>,
-    /// Every instance of the epoch has settled here: the own value can not
-    /// change any more (but for a late instance). An instance terminated by
-    /// a timeout certificate is notarized later on, and a value proposed
-    /// before that sees the followers abstain once theirs moved on: a round
-    /// timeout lost. Settlement can take long, though (the stragglers'
-    /// first votes are solicited), and the epoch after can not be left
-    /// before the close: a leader whose instances are not settled proposes
-    /// once its value has stood for `PROPOSAL_DELAY`, the followers' values
-    /// catch up in that time as a rule.
-    settled: bool,
-    /// The own value as of the last tick and since when it stands
-    own_since: Option<(BlockHash, Timestamp)>,
-    /// The own value has stood for `PROPOSAL_DELAY`
-    own_stable: bool,
-    /// The values which were this replica's own at some point: the payloads
-    /// it validated (Section 4.3, the correctness predicate of the tree)
-    validated: Vec<BlockHash>,
+    /// The values this replica validated: it derived `BuildState` from their
+    /// selected reports and the hash came out as the one proposed. Only a
+    /// validated value is first voted, supported on a second look, or taken
+    /// as a round's tree block.
+    values: HashMap<BlockHash, EpochValue>,
+    /// The state each validated value decides. The one the election
+    /// finalizes is `S_e`.
+    states: HashMap<BlockHash, Arc<EpochLedger>>,
+    /// The value this replica proposed as the leader of a round
+    proposed: BTreeMap<u32, BlockHash>,
     /// The round whose certificate closed the epoch, and the value
     closed: Option<(u32, BlockHash)>,
-    /// When the certificate was seen here: the value attested counts the
-    /// instances opened before, so that it stands still and can agree
-    closed_at: Option<Timestamp>,
-    /// This replica's own value is the finalized one: the epoch's state is
-    /// decided here, the instances without a block in it can be discarded
-    agreed: bool,
+    /// The close was reported: the epoch is decided here and its state
+    /// handed over once
+    reported: bool,
     /// Δ_timeout of Protocol 1, line 22
     round_timeout: Duration,
     events: Vec<CloseEvent>,
@@ -131,23 +123,24 @@ impl Default for CloseRound {
 
 /// What happened in the close election, for the log
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[allow(dead_code)] // some variants are the RAI epoch decision's
 pub(crate) enum CloseEvent {
-    /// Every instance of the epoch terminated, this replica attests the value
-    Ready(BlockHash),
+    /// This replica can take part: it holds the decided predecessor state
+    /// and enough usable reports
+    Ready,
     /// This replica entered a round led by the given representative
     RoundEntered {
         round: u32,
         leader: Option<PublicKey>,
     },
-    /// A certificate finalized the value; whether it is this replica's own
+    /// A value this replica derived and checked for itself
+    Validated { value: BlockHash, state: BlockHash },
+    /// A certificate finalized the value; the epoch is decided
     Closed {
         round: u32,
         value: BlockHash,
-        own: bool,
+        state: BlockHash,
     },
-    /// This replica's own value is the finalized one, at the close or once
-    /// its instances settled later: the epoch is decided here
-    Agreed(BlockHash),
     /// RAI: the round was abandoned because the two committees of the joint
     /// election certified different values and none of them all (the
     /// cross-committee conflict clause of ET)
@@ -159,7 +152,7 @@ pub(crate) enum CloseEvent {
 pub struct EpochCloseInfo {
     pub epoch: ConsensusEpoch,
     pub ready: bool,
-    /// The value this replica attests
+    /// The state hash of the value finalized, if the epoch is decided
     pub value: Option<BlockHash>,
     /// This replica entered round 0
     pub started: bool,
@@ -176,9 +169,6 @@ impl EpochClose {
     const MAX_CANDIDATES: usize = 64;
     /// Rounds behind the current one which are still solicited
     const SOLICITED_ROUNDS: usize = 3;
-    /// How long a leader's own value must stand before it proposes it while
-    /// its instances are not settled
-    pub const PROPOSAL_DELAY: Duration = Duration::from_secs(1);
 
     pub fn new(epoch: ConsensusEpoch, leaders: Vec<PublicKey>, round_timeout: Duration) -> Self {
         Self {
@@ -188,15 +178,11 @@ impl EpochClose {
             rounds: vec![CloseRound::default()],
             current: 0,
             ready: false,
-            own: None,
-            own_all: None,
-            settled: false,
-            own_since: None,
-            own_stable: false,
-            validated: Vec::new(),
+            values: HashMap::new(),
+            states: HashMap::new(),
+            proposed: BTreeMap::new(),
             closed: None,
-            closed_at: None,
-            agreed: false,
+            reported: false,
             round_timeout,
             events: Vec::new(),
         }
@@ -235,42 +221,114 @@ impl EpochClose {
         self.closed.is_some()
     }
 
-    /// The finalized value is this replica's own
-    pub fn is_agreed(&self) -> bool {
-        self.agreed
+    #[allow(dead_code)] // the RAI epoch decision uses these
+    pub fn is_ready(&self) -> bool {
+        self.ready
     }
 
-    /// When the certificate closing the epoch was seen here
-    pub fn closed_at(&self) -> Option<Timestamp> {
-        self.closed_at
+    /// The round this replica is in: the slot a leader proposes into now
+    #[allow(dead_code)] // the RAI epoch decision uses these
+    pub fn current_round(&self) -> u32 {
+        self.current as u32
     }
 
-    /// The finalized value is one of this replica's: the one it attests, or
-    /// the state with every instance counted
-    fn check_agreed(&mut self) {
-        if self.agreed {
-            return;
+    /// RAI: `S_e`, the state the finalized value decided. None until the
+    /// epoch is closed, or while this replica has not validated the value
+    /// finalized - it goes on collecting and will hold it once it has.
+    pub fn decided_state(&self) -> Option<&Arc<EpochLedger>> {
+        let (_, value) = self.closed.as_ref()?;
+        self.states.get(value)
+    }
+
+    /// The epoch is closed and this replica holds the state decided
+    pub fn is_decided(&self) -> bool {
+        self.decided_state().is_some()
+    }
+
+    /// RAI: this replica holds the decided predecessor state and enough
+    /// usable reports of this epoch to derive a value
+    #[allow(dead_code)] // the RAI epoch decision uses these
+    pub fn set_ready(&mut self, ready: bool) {
+        if ready && !self.ready {
+            self.events.push(CloseEvent::Ready);
         }
-        if let Some((_, value)) = self.closed
-            && (self.own == Some(value) || self.own_all == Some(value))
-        {
-            self.agreed = true;
-            self.events.push(CloseEvent::Agreed(value));
-        }
+        self.ready = ready;
     }
 
-    /// The hash of the epoch's state with every instance counted, the
-    /// alternative this replica may agree with
-    pub fn set_alternative(&mut self, value: BlockHash) {
-        self.own_all = Some(value);
-        self.check_agreed();
+    /// RAI: a value this replica derived `BuildState(S_{e-1}, Q_e)` for and
+    /// whose hash came out as the one proposed. Only such a value may be
+    /// voted for; the state is kept, because deciding the value decides it.
+    #[allow(dead_code)] // the RAI epoch decision uses these
+    pub fn accept_value(&mut self, value: EpochValue, state: Arc<EpochLedger>) -> BlockHash {
+        let hash = value.hash();
+        if !self.values.contains_key(&hash) {
+            self.events.push(CloseEvent::Validated {
+                value: hash,
+                state: value.state,
+            });
+            self.values.insert(hash, value);
+            self.states.insert(hash, state);
+            self.check_closed();
+        }
+        hash
+    }
+
+    /// The state a validated value decides
+    #[allow(dead_code)] // the RAI epoch decision uses these
+    pub fn state_of(&self, value: &BlockHash) -> Option<&Arc<EpochLedger>> {
+        self.states.get(value)
+    }
+
+    /// Whether this replica has already derived and checked a value. A
+    /// proposal is repeated while its round stands, and a derivation walks
+    /// the whole predecessor state: one check per value is enough.
+    #[allow(dead_code)] // the RAI epoch decision uses these
+    pub fn holds_value(&self, value: &BlockHash) -> bool {
+        self.values.contains_key(value)
+    }
+
+    /// RAI: the value this replica proposed as the leader of a round
+    #[allow(dead_code)] // the RAI epoch decision uses these
+    pub fn record_proposal(&mut self, round: u32, value: BlockHash) {
+        self.proposed.insert(round, value);
+    }
+
+    /// Whether this replica has to build a proposal for the round it is in:
+    /// it leads the round, it can derive a value, and it has not proposed
+    /// one there yet
+    #[allow(dead_code)] // the RAI epoch decision uses these
+    pub fn proposal_due(&self, local_reps: &[PublicKey]) -> Option<u32> {
+        if !self.ready || self.closed.is_some() {
+            return None;
+        }
+        let round = self.current as u32;
+        if self.proposed.contains_key(&round) {
+            return None;
+        }
+        let leader = self.leader(round)?;
+        local_reps.contains(&leader).then_some(round)
+    }
+
+    /// RAI, "Leader behavior": the highest joint-complete placement this
+    /// replica holds, whose children copy its `(Q_e, d_e)`. None while no
+    /// placement is complete, and the leader then extends election genesis
+    /// with a selection of its own.
+    #[allow(dead_code)] // the RAI epoch decision uses these
+    pub fn parent_for(&self, round: u32) -> Option<&EpochValue> {
+        (0..round as usize)
+            .rev()
+            .find_map(|earlier| self.tree_block(earlier))
+            .and_then(|hash| self.values.get(&hash))
     }
 
     pub fn info(&self) -> EpochCloseInfo {
         EpochCloseInfo {
             epoch: self.epoch,
             ready: self.ready,
-            value: self.own,
+            value: self
+                .closed
+                .and_then(|(_, value)| self.values.get(&value))
+                .map(|value| value.state),
             started: self.rounds[0].entered.is_some(),
             round: self.current as u32,
             closed: self.closed,
@@ -288,50 +346,11 @@ impl EpochClose {
         self.leaders = leaders;
     }
 
-    /// The epoch's state as this replica sees it now: the blocks notarized
-    /// or finalized in the epoch's instances. It takes part once every
-    /// instance of the epoch has terminated, and its value follows the state
-    /// while instances of the epoch still open and terminate, before and
-    /// after the close: the value finalized may differ from the final one.
-    /// Once the epoch is closed, instances still without a certificate do
-    /// not matter: if the state without them is the value finalized, this
-    /// replica agrees.
-    ///
-    /// Once ready, a replica stays ready: an instance of the epoch opened
-    /// for a vote after this replica left the epoch (a straggler's, or a
-    /// faulty representative's) ends by a timeout and adds nothing to the
-    /// value, and the close must not wait for it - a faulty representative
-    /// can open such instances without end.
-    pub fn set_state(&mut self, state: &EpochState) {
-        let value = state.close_value(self.epoch);
-        self.ready |= state.is_terminated();
-        self.settled = state.is_settled();
-        if !self.ready && self.closed.is_none_or(|(_, closed)| closed != value) {
-            return;
-        }
-        if self.own != Some(value) {
-            self.own = Some(value);
-            self.events.push(CloseEvent::Ready(value));
-        }
-        if !self.validated.contains(&value) {
-            self.validated.push(value);
-        }
-        self.check_agreed();
-    }
-
     /// Protocol 1, lines 2–13: enter the rounds this replica is due in and
     /// leave those which are done
     pub fn tick(&mut self, now: Timestamp) {
         if !self.ready || self.closed.is_some() {
             return;
-        }
-        if let Some(own) = self.own {
-            let since = match self.own_since {
-                Some((value, since)) if value == own => since,
-                _ => now,
-            };
-            self.own_since = Some((own, since));
-            self.own_stable = since.elapsed(now) >= Self::PROPOSAL_DELAY;
         }
         loop {
             let round = self.current;
@@ -406,6 +425,7 @@ impl EpochClose {
     /// Tallies a round in the committees, collects its certificates and
     /// closes the epoch on a finalized value
     fn count_round(&mut self, round: usize, committees: &Committees, now: Timestamp) {
+        let _ = now;
         let conflicted = self.rounds[round].certificates.conflict;
         let slot = &mut self.rounds[round];
         slot.votes.calculate(committees);
@@ -424,14 +444,34 @@ impl EpochClose {
         }
         if let Some(value) = slot.certificates.finalized() {
             self.closed = Some((round as u32, value));
-            self.closed_at = Some(now);
-            self.events.push(CloseEvent::Closed {
-                round: round as u32,
-                value,
-                own: self.own == Some(value),
-            });
-            self.check_agreed();
+            self.report_closed();
         }
+    }
+
+    /// The epoch is closed: report it once this replica holds the state the
+    /// finalized value decided. A replica that had not validated that value
+    /// yet goes on deriving and reports when it has.
+    fn report_closed(&mut self) {
+        if self.reported {
+            return;
+        }
+        let Some((round, value)) = self.closed else {
+            return;
+        };
+        let Some(derived) = self.values.get(&value) else {
+            return;
+        };
+        self.reported = true;
+        self.events.push(CloseEvent::Closed {
+            round,
+            value,
+            state: derived.state,
+        });
+    }
+
+    #[allow(dead_code)] // the RAI epoch decision uses these
+    fn check_closed(&mut self) {
+        self.report_closed();
     }
 
     /// Records a vote this replica is about to cast; the value becomes a
@@ -455,7 +495,7 @@ impl EpochClose {
             if slot.entered.is_none() {
                 continue;
             }
-            let routing = self.own.unwrap_or(TIMEOUT_BLOCK);
+            let routing = self.routing(round);
             // Lines 9–11: exit with the tree block and a final vote if
             // notarized ⊆ {B}. Cast even after a fast finalization: replicas
             // which missed a first vote depend on it.
@@ -505,20 +545,19 @@ impl EpochClose {
                 continue;
             }
             // Lines 28–31: a second look at every value with many first votes
-            // whose parent is in the tree. It is notarized if it is this
-            // replica's own value; otherwise the timeout block is (Protocol 2,
+            // whose placement is valid here. It is notarized if this replica
+            // validated it; otherwise the timeout block is (Protocol 2,
             // lines 7–9).
             let mut timeout = false;
             for value in slot.votes.many_votes() {
-                if !self.chain_valid(round, &value) {
+                if !self.values.contains_key(&value) {
+                    // A value this replica could not derive and check: it
+                    // notarizes the timeout block in its place
+                    timeout = true;
                     continue;
                 }
-                if self.validated.contains(&value) {
-                    if !slot.slot.looked_at(&value) {
-                        due.push((round as u32, value, VoteKind::Notar));
-                    }
-                } else {
-                    timeout = true;
+                if self.chain_valid(round, &value) && !slot.slot.looked_at(&value) {
+                    due.push((round as u32, value, VoteKind::Notar));
                 }
             }
             // Lines 32–35
@@ -530,50 +569,90 @@ impl EpochClose {
         due
     }
 
-    /// The valid proposal of the round's leader (Section 4.6): its first
-    /// vote, for this replica's own value, chained to the earlier rounds.
-    /// If this node leads the round, its own value is the proposal, once
-    /// its instances settled or the value stood for `PROPOSAL_DELAY`.
+    /// The candidate hash a timeout or abstain vote of this round is routed
+    /// through: one this replica validated, so that the request reaches the
+    /// replicas holding the value; the timeout block when it has none.
+    fn routing(&self, round: usize) -> BlockHash {
+        self.rounds
+            .get(round)
+            .into_iter()
+            .flat_map(|slot| slot.candidates.iter())
+            .find(|value| self.values.contains_key(value))
+            .copied()
+            .unwrap_or(TIMEOUT_BLOCK)
+    }
+
+    /// The valid proposal of the round's leader: its first vote, for a value
+    /// this replica has validated and whose placement is valid in the round.
+    /// If this node leads the round, the value it proposed there.
     fn valid_proposal(&self, round: usize, local_reps: &[PublicKey]) -> Option<BlockHash> {
-        let own = self.own?;
         let leader = self.leader(round as u32)?;
         let proposal = if local_reps.contains(&leader) {
-            if !self.settled && !self.own_stable {
-                return None;
-            }
-            own
+            self.proposed.get(&(round as u32)).copied()?
         } else {
             self.rounds[round].votes.rep(&leader)?.first?
         };
-        (proposal == own && proposal != TIMEOUT_BLOCK && self.chain_valid(round, &own))
-            .then_some(proposal)
+        (proposal != TIMEOUT_BLOCK
+            && self.values.contains_key(&proposal)
+            && self.chain_valid(round, &proposal))
+        .then_some(proposal)
     }
 
-    /// Whether a block for the value may exist in the round (Section 4.6):
-    /// every earlier round back to one with a notarization certificate for
-    /// the same value, which must be valid there in turn, has a timeout
-    /// certificate
-    fn chain_valid(&self, round: usize, value: &BlockHash) -> bool {
-        for earlier in (0..round).rev() {
-            let certs = &self.rounds[earlier].certificates;
-            if certs.is_notarized(value) {
-                return self.chain_valid(earlier, value);
-            }
-            if !certs.timeout {
-                return false;
-            }
+    /// RAI: whether a placement may sit in this round. It names a parent
+    /// placement, and that parent must be notarized in an earlier round with
+    /// shared skip evidence for every slot in between; a child of election
+    /// genesis is valid only while no round before it is complete. A
+    /// non-genesis child must also copy its parent's `(Q_e, d_e)`, which is
+    /// what stops a later slot from carrying another state.
+    pub fn chain_valid(&self, round: usize, value: &BlockHash) -> bool {
+        let Some(held) = self.values.get(value) else {
+            return false;
+        };
+        if held.slot as usize != round {
+            return false;
         }
-        true
+        match self.round_of(&held.parent) {
+            Some(parent_round) => {
+                let Some(parent) = self.values.get(&held.parent) else {
+                    return false;
+                };
+                parent_round < round
+                    && held.copies(parent)
+                    && (parent_round + 1..round).all(|slot| self.skipped(slot))
+                    && self.chain_valid(parent_round, &held.parent)
+            }
+            None => held.extends_genesis() && (0..round).all(|slot| self.skipped(slot)),
+        }
     }
 
-    /// The block for this round in the complete block tree (Section 4.3): a
-    /// notarized value this replica validated, chained to the earlier rounds
+    /// The round whose certificates notarize this placement, if this replica
+    /// holds one
+    fn round_of(&self, value: &BlockHash) -> Option<usize> {
+        if value.is_zero() {
+            return None;
+        }
+        self.rounds
+            .iter()
+            .position(|slot| slot.certificates.is_notarized(value))
+    }
+
+    /// Shared skip evidence for a round: a timeout certificate, or the two
+    /// committees notarizing different values
+    fn skipped(&self, round: usize) -> bool {
+        self.rounds
+            .get(round)
+            .is_some_and(|slot| slot.certificates.timeout || slot.certificates.conflict)
+    }
+
+    /// The placement of this round in the complete tree (Section 4.3): a
+    /// notarized value this replica validated, whose chain is valid
     fn tree_block(&self, round: usize) -> Option<BlockHash> {
-        self.rounds[round]
+        self.rounds
+            .get(round)?
             .certificates
             .notar
             .iter()
-            .find(|value| self.validated.contains(value) && self.chain_valid(round, value))
+            .find(|value| self.values.contains_key(*value) && self.chain_valid(round, value))
             .copied()
     }
 
@@ -596,9 +675,9 @@ impl EpochClose {
             return Vec::new();
         }
         let first = self.current.saturating_sub(Self::SOLICITED_ROUNDS);
-        let routing = self.own.unwrap_or(TIMEOUT_BLOCK);
         let mut result = Vec::new();
         for round in first..=self.current.min(self.rounds.len() - 1) {
+            let routing = self.routing(round);
             let slot = &mut self.rounds[round];
             if slot.entered.is_none()
                 || slot
@@ -622,518 +701,236 @@ impl EpochClose {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::consensus::election::{Committee, SlotOutcome};
+    use crate::consensus::election::{Committee, ReportRef};
     use rsnano_types::{Account, Amount};
     use rustc_hash::FxHashMap;
-    use std::sync::Arc;
 
+    /// RAI: the leader proposes the value it derived, and a follower votes
+    /// for it because it derived the same state from the same reports - not
+    /// because the value matches one of its own
     #[test]
-    fn leader_proposes_its_value_once_ready() {
+    fn a_follower_votes_for_the_value_it_could_derive() {
         let mut close = close_election();
-        assert_eq!(close.votes_due(&[LEADER]), vec![]);
         assert_eq!(close.leader(0), Some(LEADER));
-        assert_eq!(close.leader(1), Some(keys()[1]));
+        assert_eq!(close.votes_due(&[FOLLOWER]), vec![]);
 
-        close.set_state(&state(1));
-        assert_eq!(close.votes_due(&[LEADER]), vec![]);
+        // Not ready: no decided predecessor state or not enough reports
+        close.tick(t(0));
+        assert!(!close.info().started);
+
+        close.set_ready(true);
         close.tick(t(0));
         assert_eq!(
             close.take_events(),
             vec![
-                CloseEvent::Ready(value(1)),
+                CloseEvent::Ready,
                 CloseEvent::RoundEntered {
                     round: 0,
                     leader: Some(LEADER)
                 }
             ]
         );
-        assert_eq!(
-            close.votes_due(&[LEADER]),
-            vec![(0, value(1), VoteKind::First)]
-        );
-        close.mark_voted(0, value(1), VoteKind::First);
-        // The cast vote is re-broadcast, nothing else is due
-        assert_eq!(
-            close.votes_due(&[LEADER]),
-            vec![(0, value(1), VoteKind::First)]
-        );
-        assert_eq!(close.info().round, 0);
-        assert!(close.info().ready);
-        assert!(close.info().started);
-    }
-
-    /// A terminated instance can still be notarized: a leader whose
-    /// instances are not settled waits for its value to stand for a while,
-    /// the followers' values catch up in the meantime
-    #[test]
-    fn unsettled_leader_proposes_once_its_value_stood_for_a_while() {
-        let mut close = close_election();
-        let mut unsettled = state(1);
-        unsettled.add(SlotOutcome::Pending);
-        close.set_state(&unsettled);
-        close.tick(t(0));
-        assert!(close.info().started);
-        assert_eq!(close.votes_due(&[LEADER]), vec![]);
-
-        // The value changed: the wait starts over
-        let mut changed = state(2);
-        changed.add(SlotOutcome::Pending);
-        close.set_state(&changed);
-        close.tick(t(0) + EpochClose::PROPOSAL_DELAY);
-        assert_eq!(close.votes_due(&[LEADER]), vec![]);
-        close.tick(t(0) + EpochClose::PROPOSAL_DELAY * 2);
-        assert_eq!(
-            close.votes_due(&[LEADER]),
-            vec![(0, value(2), VoteKind::First)]
-        );
-    }
-
-    /// An instance of the epoch opened after this replica got ready (a vote
-    /// of a straggler, or of a faulty representative which never stops)
-    /// does not stop the close: the rounds go on, the leader proposes
-    #[test]
-    fn an_instance_opened_after_the_replica_got_ready_does_not_stop_the_close() {
-        let mut close = close_election();
-        close.set_state(&state(1));
-        close.tick(t(0));
-        close.take_events();
-
-        let mut reopened = state(1);
-        reopened.unterminated += 1;
-        reopened.pending += 1;
-        close.set_state(&reopened);
-        close.tick(t(0) + EpochClose::PROPOSAL_DELAY);
-        assert_eq!(close.take_events(), vec![]);
-        assert_eq!(
-            close.votes_due(&[LEADER]),
-            vec![(0, value(1), VoteKind::First)]
-        );
-
-        // A follower's round times out as usual
-        close.tick(t(0) + TIMEOUT);
-        assert!(close.round(0).timed_out);
-    }
-
-    #[test]
-    fn unsettled_leader_proposes_at_once_when_its_instances_settle() {
-        let mut close = close_election();
-        let mut unsettled = state(1);
-        unsettled.add(SlotOutcome::Pending);
-        close.set_state(&unsettled);
-        close.tick(t(0));
-        assert_eq!(close.votes_due(&[LEADER]), vec![]);
-
-        close.set_state(&state(1));
-        close.tick(t(0) + Duration::from_millis(1));
-        assert_eq!(
-            close.votes_due(&[LEADER]),
-            vec![(0, value(1), VoteKind::First)]
-        );
-    }
-
-    #[test]
-    fn follower_first_votes_the_leaders_proposal_if_it_is_its_own_value() {
-        let mut close = close_election();
-        close.set_state(&state(1));
-        close.tick(t(0));
+        // The leader's first vote arrives before the proposal itself: the
+        // follower holds no value to check and does not vote
+        let proposal = genesis_value(0, 1);
+        let hash = proposal.hash();
+        vote(&mut close, 0, hash, VoteKind::First, 0).unwrap();
         assert_eq!(close.votes_due(&[FOLLOWER]), vec![]);
 
-        // Another representative's first vote is not a proposal
-        vote(&mut close, 2, value(1), VoteKind::First, 0).unwrap();
-        assert_eq!(close.votes_due(&[FOLLOWER]), vec![]);
-        vote(&mut close, 0, value(1), VoteKind::First, 0).unwrap();
+        // With the value derived and checked, the follower first votes it
+        close.accept_value(proposal, ledger());
         assert_eq!(
             close.votes_due(&[FOLLOWER]),
-            vec![(0, value(1), VoteKind::First)]
+            vec![(0, hash, VoteKind::First)]
         );
     }
 
+    /// A value this replica could not derive is not one it votes for, even
+    /// with many first votes behind it: it times out the round instead
     #[test]
-    fn follower_abstains_at_the_timeout_without_a_valid_proposal() {
+    fn an_underivable_value_is_not_voted_for() {
         let mut close = close_election();
-        close.set_state(&state(2));
+        close.set_ready(true);
         close.tick(t(0));
-        vote(&mut close, 0, value(1), VoteKind::First, 0).unwrap();
-        assert_eq!(close.votes_due(&[FOLLOWER]), vec![]);
-        close.tick(t(4));
-        assert_eq!(close.votes_due(&[FOLLOWER]), vec![]);
-        close.tick(t(5));
-        assert_eq!(
-            close.votes_due(&[FOLLOWER]),
-            vec![(0, value(2), VoteKind::Abstain)]
-        );
-        close.mark_voted(0, value(2), VoteKind::Abstain);
-        // Too late to first vote the proposal now
-        assert_eq!(
-            close.votes_due(&[FOLLOWER]),
-            vec![(0, value(2), VoteKind::Abstain)]
-        );
-    }
+        let ours = genesis_value(0, 1);
+        let theirs = genesis_value(0, 2);
+        close.accept_value(ours.clone(), ledger());
+        close.mark_voted(0, ours.hash(), VoteKind::First);
 
-    #[test]
-    fn readiness_starts_the_round_timer_not_the_epoch_end() {
-        let mut close = close_election();
-        close.tick(t(0));
-        assert_eq!(close.take_events(), vec![]);
-        close.set_state(&state(1));
-        close.tick(t(10));
-        close.tick(t(14));
-        assert!(!close.round(0).timed_out);
-        close.tick(t(15));
-        assert!(close.round(0).timed_out);
-    }
-
-    #[test]
-    fn fast_finalization_closes_the_epoch_and_leaves_the_exit_vote() {
-        let mut close = close_election();
-        close.set_state(&state(1));
-        close.tick(t(0));
-        vote(&mut close, 0, value(1), VoteKind::First, 0).unwrap();
-        close.mark_voted(0, value(1), VoteKind::First);
-        for rep in 1..5 {
-            vote(&mut close, rep, value(1), VoteKind::First, 0).unwrap();
-        }
-        assert_eq!(close.closed, Some((0, value(1))));
-        let events = close.take_events();
-        assert!(events.contains(&CloseEvent::Closed {
-            round: 0,
-            value: value(1),
-            own: true
-        }));
-        assert!(events.contains(&CloseEvent::Agreed(value(1))));
-        assert!(close.is_agreed());
-        assert_eq!(
-            close.votes_due(&[FOLLOWER]),
-            vec![(0, value(1), VoteKind::Final)]
-        );
-        close.mark_voted(0, value(1), VoteKind::Final);
-        assert_eq!(close.votes_due(&[FOLLOWER]), vec![]);
-        assert_eq!(
-            vote(&mut close, 5, value(1), VoteKind::First, 0),
-            Err(VoteError::Late)
-        );
-        // No further round is entered
-        close.tick(t(100));
-        assert_eq!(close.info().round, 0);
-    }
-
-    #[test]
-    fn notarization_certificate_ends_the_round_with_a_final_vote_and_enters_the_next() {
-        let mut close = close_election();
-        close.set_state(&state(1));
-        close.tick(t(0));
-        close.take_events();
-        vote(&mut close, 0, value(1), VoteKind::First, 0).unwrap();
-        close.mark_voted(0, value(1), VoteKind::First);
-        // Three first votes plus one second look: a notarization certificate,
-        // no fast finalization
-        for rep in 1..3 {
-            vote(&mut close, rep, value(1), VoteKind::First, 0).unwrap();
-        }
-        vote(&mut close, 3, value(1), VoteKind::Notar, 0).unwrap();
-        assert!(close.round(0).certificates.is_notarized(&value(1)));
-        assert_eq!(close.round(0).state, ElectionState::Terminated);
-        assert_eq!(
-            close.votes_due(&[FOLLOWER]),
-            vec![
-                (0, value(1), VoteKind::First),
-                (0, value(1), VoteKind::Final)
-            ]
-        );
-        close.mark_voted(0, value(1), VoteKind::Final);
-
-        close.tick(t(1));
-        assert_eq!(close.info().round, 1);
-        assert_eq!(
-            close.take_events(),
-            vec![CloseEvent::RoundEntered {
-                round: 1,
-                leader: Some(keys()[1])
-            }]
-        );
-        // Round 1: the leader proposes the notarized value again
-        vote(&mut close, 1, value(1), VoteKind::First, 1).unwrap();
-        let due = close.votes_due(&[FOLLOWER]);
-        assert!(due.contains(&(1, value(1), VoteKind::First)));
-
-        // A replica which does not hold the value has no block in its tree
-        // and stays in round 0
-        let mut other = close_election();
-        other.set_state(&state(2));
-        other.tick(t(0));
-        for rep in 0..4 {
-            vote(&mut other, rep, value(1), VoteKind::First, 0).unwrap();
-        }
-        other.tick(t(1));
-        assert_eq!(other.info().round, 0);
-        assert_eq!(other.votes_due(&[FOLLOWER]), vec![]);
-    }
-
-    #[test]
-    fn a_leader_whose_value_is_not_chained_does_not_propose() {
-        let mut close = EpochClose::new(ConsensusEpoch::ZERO, keys(), TIMEOUT);
-        let leader1 = keys()[1];
-        close.set_state(&state(2));
-        close.tick(t(0));
-        for rep in 0..4 {
-            vote(&mut close, rep, value(1), VoteKind::First, 0).unwrap();
-        }
-        // Not validated here, so round 0 is not left; timeout certificate ends it
-        for rep in 0..4 {
-            vote(&mut close, rep, value(1), VoteKind::Timeout, 0).unwrap();
-        }
-        close.tick(t(1));
-        assert_eq!(close.info().round, 1);
-        // Round 0 is notarized for value 1 and timed out: both chains are valid
-        assert_eq!(
-            close.votes_due(&[leader1]),
-            vec![(1, value(2), VoteKind::First)]
-        );
-
-        // Without the timeout certificate only the notarized value is chained
-        let mut close = EpochClose::new(ConsensusEpoch::ZERO, keys(), TIMEOUT);
-        close.set_state(&state(1));
-        close.tick(t(0));
-        for rep in 0..4 {
-            vote(&mut close, rep, value(1), VoteKind::First, 0).unwrap();
-        }
-        close.tick(t(1));
-        assert_eq!(close.info().round, 1);
-        // Line 11: the exit final vote of a replica which notarized nothing,
-        // and the leader's proposal of the chained value
-        assert_eq!(
-            close.votes_due(&[leader1]),
-            vec![
-                (0, value(1), VoteKind::Final),
-                (1, value(1), VoteKind::First)
-            ]
-        );
-        close.mark_voted(0, value(1), VoteKind::Final);
-        close.set_state(&state(2));
-        assert!(
-            !close
-                .votes_due(&[leader1])
-                .iter()
-                .any(|(round, _, _)| *round == 1)
-        );
-        close.set_state(&state(1));
-        assert!(
-            close
-                .votes_due(&[leader1])
-                .contains(&(1, value(1), VoteKind::First))
-        );
-    }
-
-    #[test]
-    fn second_look_notarizes_the_own_value_and_times_out_another() {
-        let mut close = close_election();
-        close.set_state(&state(1));
-        close.tick(t(0));
-        close.tick(t(5));
-        close.mark_voted(0, value(1), VoteKind::Abstain);
-        // Many first votes for the own value, no proposal seen: a second look
+        // Three of six first vote a value this replica can not derive: many
+        // first votes, and the second look goes to the timeout block
         for rep in 1..4 {
-            vote(&mut close, rep, value(1), VoteKind::First, 0).unwrap();
+            vote(&mut close, rep, theirs.hash(), VoteKind::First, 0).unwrap();
         }
         let due = close.votes_due(&[FOLLOWER]);
-        assert!(due.contains(&(0, value(1), VoteKind::Notar)));
-        assert!(!due.iter().any(|(_, _, kind)| *kind == VoteKind::Timeout));
-        close.mark_voted(0, value(1), VoteKind::Notar);
-        // Looked at once; the cast vote is only re-broadcast
-        assert_eq!(
-            close
-                .votes_due(&[FOLLOWER])
-                .iter()
-                .filter(|(_, _, kind)| *kind == VoteKind::Notar)
-                .count(),
-            1
-        );
-
-        // Many first votes for another value: the timeout block is notarized
-        let mut close = close_election();
-        close.set_state(&state(2));
-        close.tick(t(0));
-        vote(&mut close, 0, value(2), VoteKind::First, 0).unwrap();
-        close.mark_voted(0, value(2), VoteKind::First);
-        for rep in 1..4 {
-            vote(&mut close, rep, value(1), VoteKind::First, 0).unwrap();
-        }
-        let due = close.votes_due(&[FOLLOWER]);
-        assert!(due.contains(&(0, value(2), VoteKind::Timeout)));
-        assert!(!due.contains(&(0, value(1), VoteKind::Notar)));
-        close.mark_voted(0, value(2), VoteKind::Timeout);
-        // The timeout block is notarized once
-        assert_eq!(
-            close
-                .votes_due(&[FOLLOWER])
-                .iter()
-                .filter(|(_, _, kind)| *kind == VoteKind::Timeout)
-                .count(),
-            1
-        );
-    }
-
-    #[test]
-    fn split_first_votes_trigger_the_timeout_vote() {
-        let mut close = close_election();
-        close.set_state(&state(1));
-        close.tick(t(0));
-        vote(&mut close, 0, value(1), VoteKind::First, 0).unwrap();
-        close.mark_voted(0, value(1), VoteKind::First);
-        for rep in 1..3 {
-            vote(&mut close, rep, value(1), VoteKind::First, 0).unwrap();
-        }
-        for rep in 3..6 {
-            vote(&mut close, rep, value(rep as u64), VoteKind::Abstain, 0).unwrap();
-        }
         assert!(
-            close
-                .votes_due(&[FOLLOWER])
-                .contains(&(0, value(1), VoteKind::Timeout))
+            due.iter().any(|(_, _, kind)| *kind == VoteKind::Timeout),
+            "a value it can not check is one it does not notarize: {due:?}"
         );
-        close.mark_voted(0, value(1), VoteKind::Timeout);
-        // The timeout certificate ends the round
-        for rep in 0..3 {
-            vote(&mut close, rep, value(1), VoteKind::Timeout, 0).unwrap();
-        }
-        assert_eq!(close.round(0).state, ElectionState::TimedOut);
-        close.tick(t(1));
-        assert_eq!(close.info().round, 1);
-        // Round 0 was left without a final vote, round 1 starts afresh
-        assert_eq!(
-            close.votes_due(&[FOLLOWER]),
-            vec![
-                (0, value(1), VoteKind::First),
-                (0, value(1), VoteKind::Timeout)
-            ]
+        assert!(
+            !due.iter()
+                .any(|(_, value, kind)| { *value == theirs.hash() && *kind == VoteKind::Notar })
         );
     }
 
+    /// RAI: deciding a value decides the state it names. A replica that has
+    /// not derived that value yet reports the epoch decided only once it has.
     #[test]
-    fn votes_for_later_rounds_create_them_within_bounds() {
+    fn deciding_a_value_decides_the_state_it_names() {
         let mut close = close_election();
-        vote(&mut close, 0, value(1), VoteKind::First, 3).unwrap();
-        assert_eq!(close.rounds.len(), 4);
-        assert_eq!(
-            vote(&mut close, 0, value(1), VoteKind::First, 100),
-            Err(VoteError::Ignored)
-        );
-        assert_eq!(
-            vote(&mut close, 0, value(1), VoteKind::First, 3),
-            Err(VoteError::Replay)
-        );
-        // Unentered rounds are not voted in
-        close.set_state(&state(1));
-        assert!(!close.info().started);
+        close.set_ready(true);
         close.tick(t(0));
-        assert!(close.info().started);
-        assert_eq!(close.votes_due(&[FOLLOWER]), vec![]);
-    }
+        let proposal = genesis_value(0, 1);
+        let hash = proposal.hash();
 
-    #[test]
-    fn evidence_and_solicitation() {
-        let mut close = close_election();
-        assert!(close.certificate_evidence(0).is_none());
-        assert_eq!(close.solicitations(t(0), Duration::from_secs(1)), vec![]);
-        close.set_state(&state(2));
-        close.tick(t(0));
-        assert!(close.certificate_evidence(0).is_none());
-        assert_eq!(
-            close.solicitations(t(0), Duration::from_secs(1)),
-            vec![(0, value(2))]
-        );
-        assert_eq!(close.solicitations(t(0), Duration::from_secs(1)), vec![]);
-        assert_eq!(
-            close.solicitations(t(1), Duration::from_secs(1)),
-            vec![(0, value(2))]
-        );
-
-        vote(&mut close, 0, value(1), VoteKind::First, 0).unwrap();
-        close.mark_voted(0, value(2), VoteKind::Abstain);
-        let evidence = close.certificate_evidence(0).unwrap();
-        assert_eq!(
-            evidence.statements,
-            vec![(VoteKind::Abstain, vec![value(2)])]
-        );
-        assert!(evidence.blocks.is_empty());
-        assert!(close.certificate_evidence(1).is_none());
-    }
-
-    /// The certificate may arrive before this replica's instances settled:
-    /// it agrees once its own value turns out to be the finalized one
-    #[test]
-    fn agrees_once_its_own_value_is_the_finalized_one() {
-        let mut close = close_election();
-        for rep in 0..5 {
-            vote(&mut close, rep, value(1), VoteKind::First, 0).unwrap();
+        // The certificate arrives before this replica derived the value
+        for rep in 0..4 {
+            vote(&mut close, rep, hash, VoteKind::Final, 0).unwrap();
         }
         assert!(close.is_closed());
-        assert!(!close.is_agreed());
-        assert!(close.take_events().contains(&CloseEvent::Closed {
-            round: 0,
-            value: value(1),
-            own: false
-        }));
-        // An instance without a certificate keeps the replica from taking part
-        let mut unterminated = state(2);
-        unterminated.add_election(
-            &Account::from(3),
-            1,
-            ElectionState::Active,
-            &Certificates::default(),
+        assert!(!close.is_decided());
+        assert!(
+            !close
+                .take_events()
+                .iter()
+                .any(|event| matches!(event, CloseEvent::Closed { .. })),
+            "nothing is decided before the state is derived"
         );
-        close.set_state(&unterminated);
-        assert!(!close.is_agreed());
-        close.set_state(&state(2));
-        assert!(!close.is_agreed());
-        // Still without a certificate here, but the state without that
-        // instance is the finalized one: agreed, the instance is undecided
-        let mut agreeing = state(1);
-        agreeing.add_election(
-            &Account::from(3),
-            1,
-            ElectionState::Active,
-            &Certificates::default(),
-        );
-        close.set_state(&agreeing);
-        assert!(close.is_agreed());
+
+        let state = ledger();
+        close.accept_value(proposal.clone(), state.clone());
+        assert!(close.is_decided());
         assert_eq!(
-            close.take_events(),
-            vec![
-                CloseEvent::Ready(value(2)),
-                CloseEvent::Ready(value(1)),
-                CloseEvent::Agreed(value(1))
-            ]
+            close.decided_state().map(|held| held.state_hash()),
+            Some(state.state_hash())
+        );
+        assert!(close.take_events().iter().any(|event| matches!(
+            event,
+            CloseEvent::Closed { value, .. } if *value == hash
+        )));
+    }
+
+    /// RAI: "A child of a non-genesis placement must copy its parent's
+    /// (Q_e, d_e)." Once a placement is complete every later slot carries
+    /// the same state, so the election decides which slot it finalizes and
+    /// never another state.
+    #[test]
+    fn a_child_of_a_complete_placement_copies_its_payload() {
+        let mut close = close_election();
+        close.set_ready(true);
+        close.tick(t(0));
+        let parent = genesis_value(0, 1);
+        close.accept_value(parent.clone(), ledger());
+        // Round 0 notarizes it, so round 1 has a joint-complete parent
+        for rep in 0..4 {
+            vote(&mut close, rep, parent.hash(), VoteKind::First, 0).unwrap();
+        }
+        close.tick(t(1));
+        assert_eq!(close.info().round, 1);
+        assert_eq!(
+            close.parent_for(1).map(|value| value.hash()),
+            Some(parent.hash())
+        );
+
+        // A child copying the payload is valid in round 1
+        let child = parent.extend(1);
+        close.accept_value(child.clone(), ledger());
+        assert!(close.chain_valid(1, &child.hash()));
+
+        // One introducing another selection is not, however it is chained
+        let other = genesis_value(1, 2);
+        close.accept_value(other.clone(), ledger());
+        assert!(
+            !close.chain_valid(1, &other.hash()),
+            "only a child of election genesis introduces a selection"
         );
     }
 
+    /// A child of election genesis is valid only while no earlier round is
+    /// complete, and every round before it has shared skip evidence
     #[test]
-    fn leaders_follow_the_representatives_seen() {
-        let mut close = EpochClose::new(ConsensusEpoch::ZERO, vec![key(5)], TIMEOUT);
-        assert_eq!(close.leader(0), Some(key(5)));
-        assert_eq!(close.leader(1), Some(key(5)));
-        close.set_leaders(keys());
+    fn a_genesis_child_needs_every_earlier_round_skipped() {
+        let mut close = close_election();
+        close.set_ready(true);
+        close.tick(t(0));
+        let late = genesis_value(1, 1);
+        close.accept_value(late.clone(), ledger());
+        assert!(
+            !close.chain_valid(1, &late.hash()),
+            "round 0 has no skip evidence yet"
+        );
+
+        // Round 0 times out: the skip evidence is there
+        for rep in 0..4 {
+            vote(&mut close, rep, TIMEOUT_BLOCK, VoteKind::Timeout, 0).unwrap();
+        }
+        assert!(close.chain_valid(1, &late.hash()));
+    }
+
+    /// A value proposed in another slot than the one it names is not valid
+    /// there: the placement hash binds its election slot
+    #[test]
+    fn a_value_is_valid_only_in_the_slot_it_names() {
+        let mut close = close_election();
+        close.set_ready(true);
+        close.tick(t(0));
+        let value = genesis_value(0, 1);
+        close.accept_value(value.clone(), ledger());
+        assert!(close.chain_valid(0, &value.hash()));
+        assert!(!close.chain_valid(1, &value.hash()));
+    }
+
+    /// The round times out and the next leader takes over
+    #[test]
+    fn a_round_that_times_out_moves_to_the_next_leader() {
+        let mut close = close_election();
+        close.set_ready(true);
+        close.tick(t(0));
+        close.take_events();
+        // Δ_timeout passes without a proposal: this replica abstains
+        close.tick(t(6));
+        assert_eq!(
+            close.votes_due(&[FOLLOWER]),
+            vec![(0, TIMEOUT_BLOCK, VoteKind::Abstain)]
+        );
+
+        for rep in 0..4 {
+            vote(&mut close, rep, TIMEOUT_BLOCK, VoteKind::Timeout, 0).unwrap();
+        }
+        close.tick(t(6));
+        assert_eq!(close.info().round, 1);
         assert_eq!(close.leader(1), Some(key(1)));
-        close.set_leaders(Vec::new());
-        assert_eq!(close.leader(1), None);
     }
 
+    /// RAI: the cross-committee conflict clause of ET. Two committees
+    /// notarizing different values skip the slot.
     #[test]
-    fn root_and_id_are_per_epoch_and_round() {
-        let close = EpochClose::new(ConsensusEpoch::new(3), keys(), TIMEOUT);
-        assert_ne!(
-            EpochClose::root_of(ConsensusEpoch::new(3)),
-            EpochClose::root_of(ConsensusEpoch::new(4))
+    fn a_cross_committee_conflict_skips_the_round() {
+        let mut close = close_election();
+        close.set_ready(true);
+        close.tick(t(0));
+        let one = genesis_value(0, 1);
+        let other = genesis_value(0, 2);
+        close.accept_value(one.clone(), ledger());
+        close.accept_value(other.clone(), ledger());
+        // The old committee certifies one value, the new one the other
+        for rep in 0..4 {
+            close
+                .apply_vote(key(rep), one.hash(), VoteKind::First, 0, &joint(), t(0))
+                .unwrap();
+        }
+        for rep in 6..10 {
+            close
+                .apply_vote(key(rep), other.hash(), VoteKind::First, 0, &joint(), t(0))
+                .unwrap();
+        }
+        assert!(close.round(0).certificates.conflict);
+        let child = genesis_value(1, 3);
+        close.accept_value(child.clone(), ledger());
+        assert!(
+            close.chain_valid(1, &child.hash()),
+            "a conflicted round is skipped like a timed out one"
         );
-        assert_eq!(
-            close.id(2),
-            ElectionId::new(
-                EpochClose::root_of(ConsensusEpoch::new(3)),
-                ConsensusEpoch::close_round(ConsensusEpoch::new(3), 2)
-            )
-        );
-        // The leader rotates with the epoch as well
-        assert_eq!(close.leader(0), Some(keys()[3]));
     }
 
     /*
@@ -1145,8 +942,14 @@ mod tests {
     const FOLLOWER: PublicKey = key(3);
 
     const fn key(index: usize) -> PublicKey {
-        // Six equal representatives in public key order
-        PublicKey::from_bytes([[1; 32], [2; 32], [3; 32], [4; 32], [5; 32], [6; 32]][index])
+        // Twelve equal representatives in public key order: six in the old
+        // committee, six in the new one
+        PublicKey::from_bytes(
+            [
+                [1; 32], [2; 32], [3; 32], [4; 32], [5; 32], [6; 32], [7; 32], [8; 32], [9; 32],
+                [10; 32], [11; 32], [12; 32],
+            ][index],
+        )
     }
 
     fn keys() -> Vec<PublicKey> {
@@ -1155,25 +958,50 @@ mod tests {
 
     /// The committee of six equal representatives: four for a certificate
     fn committees() -> Committees {
+        Committees::single(Arc::new(committee(0..6)))
+    }
+
+    /// The old committee and the new one, which share no member: a value
+    /// needs both to certify it
+    fn joint() -> Committees {
+        Committees::joint(Arc::new(committee(0..6)), Arc::new(committee(6..12)))
+    }
+
+    fn committee(members: std::ops::Range<usize>) -> Committee {
         let weights: FxHashMap<PublicKey, Amount> =
-            keys().into_iter().map(|k| (k, Amount::raw(100))).collect();
-        Committees::single(Arc::new(Committee::new(weights)))
+            members.map(|i| (key(i), Amount::raw(100))).collect();
+        Committee::new(weights)
     }
 
     fn t(secs: u64) -> Timestamp {
         Timestamp::new_test_instance() + Duration::from_secs(secs)
     }
 
-    fn state(entry: u64) -> EpochState {
-        let mut state = EpochState::default();
-        state
-            .hash
-            .add(&Account::from(entry), 1, &BlockHash::from(entry));
-        state
+    /// A value of election genesis in the given slot, with a selection told
+    /// apart by `selection`
+    fn genesis_value(slot: u32, selection: u64) -> EpochValue {
+        EpochValue::from_parts(
+            ConsensusEpoch::ZERO,
+            slot,
+            BlockHash::ZERO,
+            vec![ReportRef {
+                reporter: PublicKey::from(selection),
+                certified: BlockHash::from(selection * 10),
+                residual: BlockHash::from(selection * 10 + 1),
+            }],
+            BlockHash::from(selection * 100),
+        )
     }
 
-    fn value(entry: u64) -> BlockHash {
-        state(entry).close_value(ConsensusEpoch::ZERO)
+    /// The state a value decides; the tests do not derive it, they only
+    /// check that deciding the value hands it over
+    fn ledger() -> Arc<EpochLedger> {
+        let mut ledger = EpochLedger::new();
+        ledger.finalize_genesis(
+            crate::consensus::election::AccountSlot::new(Account::from(1), 1),
+            BlockHash::from(1),
+        );
+        Arc::new(ledger)
     }
 
     /// Epoch 0: key 0 leads round 0

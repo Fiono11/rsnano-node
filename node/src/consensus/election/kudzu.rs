@@ -23,6 +23,11 @@ pub struct KudzuThresholds {
     pub fast: Amount,
     /// f + p + 1: enough first votes for a second look or a timeout vote
     pub many: Amount,
+    /// RAI: q_report = N − f, the reports an epoch proposal selects. Weights
+    /// stand in for validator counts here as they do for every other
+    /// threshold, so a selection has to carry n − f of the old committee's
+    /// weight rather than a number of identities.
+    pub report: Amount,
 }
 
 impl KudzuThresholds {
@@ -38,6 +43,7 @@ impl KudzuThresholds {
             certificate: online - f - p,
             fast: online - p,
             many: f + p + Amount::raw(1),
+            report: online - f,
         }
     }
 

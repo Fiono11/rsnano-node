@@ -17,6 +17,7 @@ impl RpcCommandHandler {
             .map(|(account, info)| AccountFrontier {
                 account,
                 height: info.block_count,
+                hash: info.head,
                 representative: info.representative,
                 balance: info.balance,
             })

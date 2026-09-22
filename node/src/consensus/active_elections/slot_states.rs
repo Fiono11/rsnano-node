@@ -1,4 +1,4 @@
-use rsnano_types::{Account, ConsensusEpoch};
+use rsnano_types::{Account, BlockHash, ConsensusEpoch};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::consensus::election::{EpochSlot, LocalSlotState};
@@ -9,6 +9,12 @@ use crate::consensus::election::{EpochSlot, LocalSlotState};
 #[derive(Default)]
 pub(crate) struct SlotStates {
     by_slot: FxHashMap<(Account, u64), Vec<(ConsensusEpoch, LocalSlotState)>>,
+    /// RAI: the parent each block this node voted for names. A residual vote
+    /// in an epoch's report places its block by the branch the block
+    /// continues, and a slot state is keyed by (account, height) alone: two
+    /// conflicting parents put their children in one voting domain but on
+    /// different branches, so the parent belongs to the block, not the slot.
+    parents: FxHashMap<BlockHash, BlockHash>,
     len: usize,
 }
 
@@ -34,9 +40,21 @@ impl SlotStates {
         &mut states[position].1
     }
 
+    /// RAI: the parent a block this node voted for names
+    #[allow(dead_code)] // the RAI epoch decision uses these
+    pub fn parent(&self, hash: &BlockHash) -> BlockHash {
+        self.parents.get(hash).copied().unwrap_or(BlockHash::ZERO)
+    }
+
+    /// RAI: remember which branch a block this node voted for continues
+    pub fn record_parent(&mut self, hash: BlockHash, previous: BlockHash) {
+        self.parents.entry(hash).or_insert(previous);
+    }
+
     /// RAI, Section 6.1: what this node voted in every slot of one epoch:
     /// the account, the height and the slot's state. The record the epoch's
     /// report is built from.
+    #[allow(dead_code)] // the RAI epoch decision uses these
     pub fn iter_epoch(
         &self,
         epoch: ConsensusEpoch,
@@ -51,8 +69,28 @@ impl SlotStates {
             })
     }
 
+    /// The blocks the states of a slot voted for, whose parents go with them
+    fn voted_at(&self, account: Account, height: u64) -> Vec<BlockHash> {
+        self.by_slot
+            .get(&(account, height))
+            .into_iter()
+            .flat_map(|states| states.iter())
+            .flat_map(|(_, state)| {
+                state
+                    .first_voted
+                    .into_iter()
+                    .chain(state.final_voted)
+                    .chain(state.timeout_voted)
+                    .chain(state.notar_voted.iter().copied())
+            })
+            .collect()
+    }
+
     /// Drop the states of all epochs of this slot
     pub fn remove_slot(&mut self, account: Account, height: u64) {
+        for hash in self.voted_at(account, height) {
+            self.parents.remove(&hash);
+        }
         if let Some(states) = self.by_slot.remove(&(account, height)) {
             self.len -= states.len();
         }
@@ -61,12 +99,26 @@ impl SlotStates {
     /// RAI: drop the states of one epoch but for the slots named: those
     /// with an instance still in the AEC, which votes with them
     pub fn remove_epoch_except(&mut self, epoch: ConsensusEpoch, keep: &FxHashSet<(Account, u64)>) {
+        let parents = &mut self.parents;
         self.by_slot.retain(|slot, states| {
             if keep.contains(slot) {
                 return true;
             }
             let before = states.len();
-            states.retain(|(e, _)| *e != epoch);
+            states.retain(|(e, held)| {
+                if *e == epoch {
+                    for hash in held
+                        .first_voted
+                        .into_iter()
+                        .chain(held.final_voted)
+                        .chain(held.timeout_voted)
+                        .chain(held.notar_voted.iter().copied())
+                    {
+                        parents.remove(&hash);
+                    }
+                }
+                *e != epoch
+            });
             self.len -= before - states.len();
             !states.is_empty()
         });
@@ -78,7 +130,16 @@ impl SlotStates {
             return;
         };
         if let Some(position) = states.iter().position(|(epoch, _)| *epoch == slot.epoch) {
-            states.remove(position);
+            let (_, held) = states.remove(position);
+            for hash in held
+                .first_voted
+                .into_iter()
+                .chain(held.final_voted)
+                .chain(held.timeout_voted)
+                .chain(held.notar_voted)
+            {
+                self.parents.remove(&hash);
+            }
             self.len -= 1;
         }
         if states.is_empty() {

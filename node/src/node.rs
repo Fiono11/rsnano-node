@@ -15,7 +15,7 @@ use num_format::{Locale, ToFormattedString};
 use tracing::{error, info, warn};
 
 #[cfg(feature = "rai_protocol")]
-use crate::consensus::reports::{ReportPlugin, ReportService, ReportTicker};
+use crate::consensus::reports::{EpochDecisionService, ReportPlugin, ReportService, ReportTicker};
 use rsnano_ledger::{
     AnySet, BlockError, BlockSource, Ledger, LedgerBuilder, LedgerSet, ProcessResult,
 };
@@ -842,10 +842,23 @@ impl Node {
             wallet_reps.clone(),
             message_flooder.clone(),
             message_sender.clone(),
+            steady_clock.clone(),
             stats.clone(),
         ));
         #[cfg(feature = "rai_protocol")]
         aec_event_handlers.add_mut(ReportPlugin::new(reports.clone()));
+
+        // RAI, "The joint epoch election": the value half of the close - the
+        // report selection, the derivation and the proposal
+        #[cfg(feature = "rai_protocol")]
+        let epoch_decision = Arc::new(EpochDecisionService::new(
+            reports.exchange(),
+            active_elections.clone(),
+            wallet_reps.clone(),
+            message_flooder.clone(),
+            steady_clock.clone(),
+            stats.clone(),
+        ));
 
         let mut aec_ticker = AecTicker::new(active_elections.clone(), steady_clock.clone());
 
@@ -857,7 +870,7 @@ impl Node {
         });
 
         #[cfg(feature = "rai_protocol")]
-        aec_ticker.add_plugin(ReportTicker::new(reports.clone()));
+        aec_ticker.add_plugin(ReportTicker::new(reports.clone(), epoch_decision.clone()));
 
         let mut bootstrap_stale =
             BootstrapStaleElections::new(bootstrapper.clone(), steady_clock.clone());
@@ -970,6 +983,8 @@ impl Node {
             network_params.work.clone(),
             #[cfg(feature = "rai_protocol")]
             reports.clone(),
+            #[cfg(feature = "rai_protocol")]
+            epoch_decision.clone(),
             #[cfg(feature = "ledger_snapshots")]
             ledger_snapshots.clone(),
         ));

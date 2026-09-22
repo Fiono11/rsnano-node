@@ -280,6 +280,69 @@ impl AecService {
         self.aec.read().unwrap().epoch_report(epoch)
     }
 
+    /// RAI: `S_{e-1}` for the close of an epoch, the state its derivation
+    /// builds on
+    #[cfg(feature = "rai_protocol")]
+    pub fn epoch_previous_state(
+        &self,
+        epoch: ConsensusEpoch,
+    ) -> Option<std::sync::Arc<crate::consensus::election::EpochLedger>> {
+        self.aec.read().unwrap().epoch_previous_state(epoch)
+    }
+
+    /// RAI: `O_e = C_{e-2}`, the committee an epoch's reports are counted in
+    #[cfg(feature = "rai_protocol")]
+    pub fn epoch_committee(
+        &self,
+        epoch: ConsensusEpoch,
+    ) -> Option<std::sync::Arc<crate::consensus::election::Committee>> {
+        self.aec.read().unwrap().epoch_committee(epoch)
+    }
+
+    /// RAI: this node holds what it takes to derive a value for an epoch's
+    /// close
+    #[cfg(feature = "rai_protocol")]
+    pub fn set_close_ready(&self, epoch: ConsensusEpoch, ready: bool) {
+        let now = self.clock.now();
+        self.aec.write().unwrap().set_close_ready(epoch, ready, now);
+    }
+
+    /// RAI: a value this node derived and checked for itself. Deciding it
+    /// decides the state derived.
+    #[cfg(feature = "rai_protocol")]
+    pub fn accept_epoch_value(
+        &self,
+        value: crate::consensus::election::EpochValue,
+        state: std::sync::Arc<crate::consensus::election::EpochLedger>,
+    ) -> Option<BlockHash> {
+        let now = self.clock.now();
+        self.aec
+            .write()
+            .unwrap()
+            .accept_epoch_value(value, state, now)
+    }
+
+    /// RAI: whether this node already derived and checked a value
+    #[cfg(feature = "rai_protocol")]
+    pub fn holds_epoch_value(&self, epoch: ConsensusEpoch, value: &BlockHash) -> bool {
+        self.aec.read().unwrap().holds_epoch_value(epoch, value)
+    }
+
+    /// RAI: this node proposed a value as the leader of a close round
+    #[cfg(feature = "rai_protocol")]
+    pub fn record_epoch_proposal(&self, epoch: ConsensusEpoch, round: u32, value: BlockHash) {
+        self.aec
+            .write()
+            .unwrap()
+            .record_epoch_proposal(epoch, round, value);
+    }
+
+    /// RAI: the close rounds this node leads and has not proposed into yet
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn epoch_proposals_due(&self) -> Vec<super::EpochProposalContext> {
+        self.aec.read().unwrap().epoch_proposals_due()
+    }
+
     /// RAI: a candidate of one of this node's instances which it does not
     /// hold, as another replica named it (Protocol 1, step 4)
     pub fn note_missing_candidate(&self, id: &ElectionId, hash: BlockHash, tally: Amount) {

@@ -1,0 +1,6 @@
+fork0 exit=4 | TIMEOUT COMMITTEES_MISSING [('0', 5), ('1', 5)] SAFETY_VIOLATION 97 checks failed (settle=1 committees=2 safety=1): nodes kept running 
+    DID NOT FINISH | busy_s=23 rate=1957 cps median=102 ms weighted=130 ms spikes=[(9, 315)]
+    discards: 0 closes:   10 round=0    5 round=1 
+fork5 exit=3 | nanospam aborted: Error: the PRs never saw the full quorum: None / online [340282366920938463463374607431768211455, 3402 
+    no second reached 1000 cps (0 status lines)
+    discards: 0 closes: 

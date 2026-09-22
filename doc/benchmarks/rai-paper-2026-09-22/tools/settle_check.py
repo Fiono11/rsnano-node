@@ -8,7 +8,9 @@ epoch, and how many of the epoch's elections are still open:
   * cemented_undecided: block cemented, but this PR still collects the epoch's certificates.
 The run is settled once, for every epoch seen on any PR, every PR reports that epoch with
 pending = 0 and cemented_undecided = 0. It is consistent when all PRs then report the same
-hash per epoch.
+decided state `d_e` per epoch: RAI's epoch state comes from the N-f reports the decided
+value names, not from a replica's own view of what the epoch's instances notarized, and
+those views need not coincide.
 
 Then every PR is told to leave its current epoch (`epoch_advance`), so that the last epoch
 gets its close election too, and the run is closed once every PR reports, for every epoch,
@@ -57,24 +59,37 @@ def open_elections(epoch_state):
     return int(epoch_state["pending"]) + int(epoch_state["cemented_undecided"])
 
 
+def decided_state(view, epoch):
+    """d_e: the state hash the epoch's joint election decided on this PR"""
+    return (view.get(epoch, {}).get("close") or {}).get("value")
+
+
 def check(per_pr):
-    """-> (epochs, open per epoch per PR, inconsistent epochs)"""
+    """-> (epochs, open per epoch per PR, inconsistent epochs)
+
+    RAI: what has to agree between replicas is the state the epoch's joint
+    election decided - BuildState over the N-f reports the decided value
+    names - not each replica's own live view of what the epoch's instances
+    notarized. Those views are built from whichever certificates a replica
+    happened to assemble and are not required to coincide; the checkpoint is.
+    """
     epochs = sorted(set().union(*[set(v) for v in per_pr]))
     open_by_epoch = {}
     inconsistent = []
     for epoch in epochs:
         opens = []
-        hashes = set()
+        states = set()
         for view in per_pr:
             if epoch in view:
                 opens.append(open_elections(view[epoch]))
-                hashes.add(view[epoch]["hash"])
             else:
                 # the PR never took part in this epoch: nothing decided there
                 opens.append(0)
-                hashes.add(None)
+            state = decided_state(view, epoch)
+            if state is not None:
+                states.add(state)
         open_by_epoch[epoch] = opens
-        if sum(opens) == 0 and len(hashes) > 1:
+        if sum(opens) == 0 and len(states) > 1:
             inconsistent.append(epoch)
     return epochs, open_by_epoch, inconsistent
 
@@ -83,7 +98,9 @@ def summarize(view, epoch):
     if epoch not in view:
         return "-"
     e = view[epoch]
-    return (f"{e['hash'][:8]} fin={e['finalized']} single={e['single_notarized']} "
+    state = decided_state(view, epoch)
+    return (f"S={(state or '-')[:8]} live={e['hash'][:8]} fin={e['finalized']} "
+            f"single={e['single_notarized']} "
             f"pend={e['pending']} cem_und={e['cemented_undecided']} "
             f"empty={e['empty']} confl={e['conflicting']}")
 
@@ -182,9 +199,9 @@ def summarize_close(view, epoch):
     if not close:
         return "-"
     closed = close.get("closed_value")
-    agreed = "=" if closed and close.get("value") == closed else "!" if closed else "?"
-    return (f"round={close['round']} ready={close['ready']} started={close['started']} value={(close.get('value') or '-')[:8]} "
-            f"closed={(closed or '-')[:8]}@{close.get('closed_round', '-')}{agreed}")
+    return (f"round={close['round']} ready={close['ready']} started={close['started']} "
+            f"S={(close.get('value') or '-')[:8]} "
+            f"closed={(closed or '-')[:8]}@{close.get('closed_round', '-')}")
 
 
 def wait_for_close(per_pr_snapshot):

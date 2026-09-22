@@ -16,11 +16,20 @@ pub enum CertifiedStatus {
 }
 
 impl CertifiedStatus {
-    fn as_byte(self) -> u8 {
+    pub fn as_byte(self) -> u8 {
         match self {
             CertifiedStatus::Notarized => 0,
             CertifiedStatus::Finalized => 1,
             CertifiedStatus::FastFinalized => 2,
+        }
+    }
+
+    pub fn from_byte(byte: u8) -> Option<Self> {
+        match byte {
+            0 => Some(CertifiedStatus::Notarized),
+            1 => Some(CertifiedStatus::Finalized),
+            2 => Some(CertifiedStatus::FastFinalized),
+            _ => None,
         }
     }
 
@@ -47,6 +56,20 @@ impl CertifiedBlock {
     }
 }
 
+/// RAI: what a validator constructed for a block, and the parent the block
+/// names. "The inventory includes the required account ancestry": two blocks
+/// at one account slot are told apart by the branch each continues, and the
+/// epoch derivation places every candidate by its parent. Carrying it here
+/// makes `BuildState` a function of the selected reports alone, so two
+/// validators that reconstructed the same reports derive the same state
+/// whether or not each holds every body.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Certification {
+    pub status: CertifiedStatus,
+    /// The parent the block names; zero when it opens the account
+    pub previous: BlockHash,
+}
+
 /// RAI, "Certified-state reports and reconciliation": the canonical certified
 /// block tree of one validator for one epoch. It holds every complete
 /// notarized block the validator knows, with the finalization status it has
@@ -59,7 +82,7 @@ impl CertifiedBlock {
 /// which is what lets a later common state bridge to a historical root.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CertifiedState {
-    entries: BTreeMap<CertifiedBlock, CertifiedStatus>,
+    entries: BTreeMap<CertifiedBlock, Certification>,
     /// The XOR of the entry digests, so that a status upgrade or an added
     /// block is a constant-time update of the root
     digest: [u8; 32],
@@ -79,25 +102,40 @@ impl CertifiedState {
     }
 
     pub fn status(&self, block: &CertifiedBlock) -> Option<CertifiedStatus> {
+        self.entries.get(block).map(|held| held.status)
+    }
+
+    /// The status of a block and the parent it names
+    pub fn certification(&self, block: &CertifiedBlock) -> Option<Certification> {
         self.entries.get(block).copied()
     }
 
-    pub fn entries(&self) -> impl Iterator<Item = (&CertifiedBlock, &CertifiedStatus)> {
+    pub fn entries(&self) -> impl DoubleEndedIterator<Item = (&CertifiedBlock, &Certification)> {
         self.entries.iter()
     }
 
     /// Records a certified block, or upgrades the status of one already
     /// there. A status never weakens: a validator that has constructed a
-    /// finalization certificate does not lose it.
-    pub fn certify(&mut self, block: CertifiedBlock, status: CertifiedStatus) -> bool {
+    /// finalization certificate does not lose it. The parent is fixed by the
+    /// block body, so the first one recorded stands.
+    pub fn certify(
+        &mut self,
+        block: CertifiedBlock,
+        previous: BlockHash,
+        status: CertifiedStatus,
+    ) -> bool {
         match self.entries.get(&block).copied() {
-            Some(held) if held >= status => false,
+            Some(held) if held.status >= status => false,
             held => {
+                let entry = Certification {
+                    status,
+                    previous: held.map(|held| held.previous).unwrap_or(previous),
+                };
                 if let Some(held) = held {
                     self.toggle(&block, held);
                 }
-                self.toggle(&block, status);
-                self.entries.insert(block, status);
+                self.toggle(&block, entry);
+                self.entries.insert(block, entry);
                 true
             }
         }
@@ -112,46 +150,71 @@ impl CertifiedState {
             .build()
     }
 
-    /// The additions and upgrades that take this state to the other one.
-    /// A certified state only ever grows, so a difference that would have to
-    /// remove an entry or weaken a status is not representable: the states
-    /// are then unrelated and the caller has no bridge between them.
-    pub fn difference(&self, target: &CertifiedState) -> Option<CertifiedDelta> {
-        // The target has to hold everything this state holds, at least as
-        // strongly; otherwise it does not descend from it and there is no
-        // bridge between the two
-        for (block, held) in &self.entries {
-            match target.entries.get(block) {
-                Some(status) if status >= held => {}
-                _ => return None,
-            }
-        }
+    /// RAI: "It may add or remove blocks and change status annotations."
+    /// The canonical edits that take this state to the other one. A live
+    /// certified state only ever grows, but two validators' states are not
+    /// comparable in general - each has constructed certificates the other
+    /// has not - so a difference between two states a responder knows has to
+    /// be able to drop an entry as well as add one. Without that, two
+    /// incomparable historical states have no bridge at all and every
+    /// reconciliation between them falls back to a full transfer.
+    pub fn difference(&self, target: &CertifiedState) -> CertifiedDelta {
         let mut delta = CertifiedDelta::default();
-        for (block, status) in &target.entries {
-            if self.entries.get(block) != Some(status) {
-                delta.entries.push((*block, *status));
+        for (block, entry) in &target.entries {
+            if self.entries.get(block) != Some(entry) {
+                delta.added.push((*block, *entry));
             }
         }
-        Some(delta)
+        for block in self.entries.keys() {
+            if !target.entries.contains_key(block) {
+                delta.removed.push(*block);
+            }
+        }
+        delta
     }
 
     /// Applies a difference. The caller checks the resulting root against the
     /// signed one, which is the whole of the reconciliation check.
     pub fn apply(&mut self, delta: &CertifiedDelta) {
-        for (block, status) in &delta.entries {
-            self.certify(*block, *status);
+        for block in &delta.removed {
+            self.remove(block);
+        }
+        for (block, entry) in &delta.added {
+            self.set(*block, *entry);
         }
     }
 
-    fn toggle(&mut self, block: &CertifiedBlock, status: CertifiedStatus) {
-        let entry = Blake2HashBuilder::new()
+    /// Records an entry exactly as given, weaker status included: a
+    /// reconstruction rebuilds the reporter's state, which is not this
+    /// node's own and is not required to grow
+    pub fn set(&mut self, block: CertifiedBlock, entry: Certification) {
+        if let Some(held) = self.entries.insert(block, entry) {
+            self.toggle(&block, held);
+        }
+        self.toggle(&block, entry);
+    }
+
+    pub fn remove(&mut self, block: &CertifiedBlock) {
+        if let Some(held) = self.entries.remove(block) {
+            self.toggle(block, held);
+        }
+    }
+
+    /// RAI: the digest one entry contributes to the state root
+    fn entry_digest(block: &CertifiedBlock, entry: &Certification) -> BlockHash {
+        Blake2HashBuilder::new()
             .update(b"RAI certified entry")
             .update(block.account.as_bytes())
             .update(block.height.to_le_bytes())
             .update(block.hash.as_bytes())
-            .update([status.as_byte()])
-            .build();
-        for (d, e) in self.digest.iter_mut().zip(entry.as_bytes()) {
+            .update(entry.previous.as_bytes())
+            .update([entry.status.as_byte()])
+            .build()
+    }
+
+    fn toggle(&mut self, block: &CertifiedBlock, entry: Certification) {
+        let digest = Self::entry_digest(block, &entry);
+        for (d, e) in self.digest.iter_mut().zip(digest.as_bytes()) {
             *d ^= e;
         }
     }
@@ -160,7 +223,20 @@ impl CertifiedState {
 /// RAI: the reconstructive difference between two certified states
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CertifiedDelta {
-    pub entries: Vec<(CertifiedBlock, CertifiedStatus)>,
+    /// Entries the target holds and the source does not, or holds otherwise
+    pub added: Vec<(CertifiedBlock, Certification)>,
+    /// Entries the source holds and the target does not
+    pub removed: Vec<CertifiedBlock>,
+}
+
+impl CertifiedDelta {
+    pub fn len(&self) -> usize {
+        self.added.len() + self.removed.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 /// RAI: which of its own votes a reporter records for a block whose
@@ -180,7 +256,17 @@ pub enum ResidualKind {
 }
 
 impl ResidualKind {
-    fn as_byte(self) -> u8 {
+    /// The encoding a fetch of the object uses
+    pub fn from_byte(byte: u8) -> Option<Self> {
+        match byte {
+            0 => Some(ResidualKind::First),
+            1 => Some(ResidualKind::Notar),
+            2 => Some(ResidualKind::Final),
+            _ => None,
+        }
+    }
+
+    pub fn as_byte(self) -> u8 {
         match self {
             ResidualKind::First => 0,
             ResidualKind::Notar => 1,
@@ -195,7 +281,8 @@ impl ResidualKind {
 /// it holds this validator's own votes only.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ResidualVotes {
-    entries: BTreeMap<(CertifiedBlock, ResidualKind), ()>,
+    /// The parent each voted block names, by the vote recorded for it
+    entries: BTreeMap<(CertifiedBlock, ResidualKind), BlockHash>,
     digest: [u8; 32],
 }
 
@@ -236,7 +323,31 @@ impl ResidualVotes {
             .map(|(block, _)| block)
     }
 
-    pub fn record(&mut self, block: CertifiedBlock, kind: ResidualKind) -> bool {
+    /// The votes recorded, in canonical order, each with the parent its
+    /// block names: what a fetch of the object carries, and what its root
+    /// commits to
+    pub fn entries(
+        &self,
+    ) -> impl DoubleEndedIterator<Item = (CertifiedBlock, ResidualKind, BlockHash)> + '_ {
+        self.entries
+            .iter()
+            .map(|((block, kind), previous)| (*block, *kind, *previous))
+    }
+
+    /// The parent a recorded block names, whichever vote recorded it
+    pub fn previous(&self, block: &CertifiedBlock) -> Option<BlockHash> {
+        self.entries
+            .iter()
+            .find(|((held, _), _)| held == block)
+            .map(|(_, previous)| *previous)
+    }
+
+    pub fn record(
+        &mut self,
+        block: CertifiedBlock,
+        previous: BlockHash,
+        kind: ResidualKind,
+    ) -> bool {
         if self.entries.contains_key(&(block, kind)) {
             return false;
         }
@@ -245,12 +356,13 @@ impl ResidualVotes {
             .update(block.account.as_bytes())
             .update(block.height.to_le_bytes())
             .update(block.hash.as_bytes())
+            .update(previous.as_bytes())
             .update([kind.as_byte()])
             .build();
         for (d, e) in self.digest.iter_mut().zip(entry.as_bytes()) {
             *d ^= e;
         }
-        self.entries.insert((block, kind), ());
+        self.entries.insert((block, kind), previous);
         true
     }
 
@@ -311,17 +423,17 @@ mod tests {
         let mut one = CertifiedState::new();
         let mut other = CertifiedState::new();
         for i in 0..20 {
-            one.certify(block(i), CertifiedStatus::Notarized);
+            one.certify(block(i), parent(block(i)), CertifiedStatus::Notarized);
         }
         for i in (0..20).rev() {
-            other.certify(block(i), CertifiedStatus::Notarized);
+            other.certify(block(i), parent(block(i)), CertifiedStatus::Notarized);
         }
         assert_eq!(one.root(), other.root());
 
         // A status upgrade changes the root
-        other.certify(block(3), CertifiedStatus::Finalized);
+        other.certify(block(3), parent(block(3)), CertifiedStatus::Finalized);
         assert_ne!(one.root(), other.root());
-        one.certify(block(3), CertifiedStatus::Finalized);
+        one.certify(block(3), parent(block(3)), CertifiedStatus::Finalized);
         assert_eq!(one.root(), other.root());
     }
 
@@ -329,11 +441,11 @@ mod tests {
     #[test]
     fn a_status_is_upgraded_and_never_weakened() {
         let mut state = CertifiedState::new();
-        assert!(state.certify(block(1), CertifiedStatus::Notarized));
-        assert!(state.certify(block(1), CertifiedStatus::Finalized));
+        assert!(state.certify(block(1), parent(block(1)), CertifiedStatus::Notarized));
+        assert!(state.certify(block(1), parent(block(1)), CertifiedStatus::Finalized));
         assert_eq!(state.status(&block(1)), Some(CertifiedStatus::Finalized));
         // Back to notarized changes nothing
-        assert!(!state.certify(block(1), CertifiedStatus::Notarized));
+        assert!(!state.certify(block(1), parent(block(1)), CertifiedStatus::Notarized));
         assert_eq!(state.status(&block(1)), Some(CertifiedStatus::Finalized));
         assert_eq!(state.len(), 1);
     }
@@ -344,39 +456,65 @@ mod tests {
     fn a_difference_reconstructs_the_target_root() {
         let mut source = CertifiedState::new();
         for i in 0..20 {
-            source.certify(block(i), CertifiedStatus::Notarized);
+            source.certify(block(i), parent(block(i)), CertifiedStatus::Notarized);
         }
         let mut target = source.clone();
         for i in 20..25 {
-            target.certify(block(i), CertifiedStatus::Notarized);
+            target.certify(block(i), parent(block(i)), CertifiedStatus::Notarized);
         }
-        target.certify(block(2), CertifiedStatus::FastFinalized);
+        target.certify(block(2), parent(block(2)), CertifiedStatus::FastFinalized);
 
-        let delta = source.difference(&target).expect("target descends");
-        assert_eq!(delta.entries.len(), 6);
+        let delta = source.difference(&target);
+        assert_eq!(delta.added.len(), 6);
+        assert!(delta.removed.is_empty());
         source.apply(&delta);
         assert_eq!(source.root(), target.root());
         assert_eq!(source.len(), target.len());
     }
 
-    /// A state the target does not descend from has no difference: the
-    /// responder has no bridge and does not answer
+    /// RAI: "It may add or remove blocks and change status annotations."
+    /// Two validators' historical states are not comparable in general, so a
+    /// difference has to drop what the target does not hold. Without that
+    /// there is no bridge between them at all.
     #[test]
-    fn an_unrelated_state_has_no_difference() {
+    fn a_difference_between_incomparable_states_removes_and_adds() {
         let mut source = CertifiedState::new();
-        source.certify(block(1), CertifiedStatus::Notarized);
-        source.certify(block(99), CertifiedStatus::Notarized);
+        source.certify(block(1), parent(block(1)), CertifiedStatus::Notarized);
+        source.certify(block(99), parent(block(99)), CertifiedStatus::Notarized);
         let mut target = CertifiedState::new();
-        target.certify(block(1), CertifiedStatus::Notarized);
-        assert!(source.difference(&target).is_none());
+        target.certify(block(1), parent(block(1)), CertifiedStatus::Finalized);
+        target.certify(block(7), parent(block(7)), CertifiedStatus::Notarized);
 
-        // Nor does one whose status is ahead of the target's
+        let delta = source.difference(&target);
+        assert_eq!(delta.removed, vec![block(99)]);
+        assert_eq!(delta.added.len(), 2);
+        source.apply(&delta);
+        assert_eq!(source.root(), target.root());
+
+        // And back the other way, which a state that only grows could not do
         let mut ahead = CertifiedState::new();
-        ahead.certify(block(1), CertifiedStatus::Finalized);
+        ahead.certify(block(1), parent(block(1)), CertifiedStatus::Finalized);
         let mut behind = CertifiedState::new();
-        behind.certify(block(1), CertifiedStatus::Notarized);
-        assert!(ahead.difference(&behind).is_none());
-        assert!(behind.difference(&ahead).is_some());
+        behind.certify(block(1), parent(block(1)), CertifiedStatus::Notarized);
+        let delta = ahead.difference(&behind);
+        ahead.apply(&delta);
+        assert_eq!(ahead.root(), behind.root());
+    }
+
+    /// The parent a block names is part of what a report commits to: two
+    /// validators that place one block on different branches hold different
+    /// roots, so the derivation can not be fed two answers for one block
+    #[test]
+    fn the_root_commits_to_the_branch_a_block_continues() {
+        let mut one = CertifiedState::new();
+        one.certify(block(1), BlockHash::from(50), CertifiedStatus::Notarized);
+        let mut other = CertifiedState::new();
+        other.certify(block(1), BlockHash::from(51), CertifiedStatus::Notarized);
+        assert_ne!(one.root(), other.root());
+        assert_eq!(
+            one.certification(&block(1)).unwrap().previous,
+            BlockHash::from(50)
+        );
     }
 
     /// A live state that has grown past the report keeps a bridge to it:
@@ -385,20 +523,20 @@ mod tests {
     fn a_grown_state_still_bridges_to_the_reported_one() {
         let mut reported = CertifiedState::new();
         for i in 0..10 {
-            reported.certify(block(i), CertifiedStatus::Notarized);
+            reported.certify(block(i), parent(block(i)), CertifiedStatus::Notarized);
         }
         let root = reported.root();
         let mut live = reported.clone();
         for i in 10..15 {
-            live.certify(block(i), CertifiedStatus::Notarized);
+            live.certify(block(i), parent(block(i)), CertifiedStatus::Notarized);
         }
         // The live state is ahead, so it bridges the other way: a requester
         // whose own state is the smaller one reconstructs the report
         let mut requester = CertifiedState::new();
         for i in 0..8 {
-            requester.certify(block(i), CertifiedStatus::Notarized);
+            requester.certify(block(i), parent(block(i)), CertifiedStatus::Notarized);
         }
-        let delta = requester.difference(&reported).unwrap();
+        let delta = requester.difference(&reported);
         requester.apply(&delta);
         assert_eq!(requester.root(), root);
     }
@@ -408,10 +546,10 @@ mod tests {
         let mut one = ResidualVotes::new();
         let mut other = ResidualVotes::new();
         assert_eq!(one.root(), other.root());
-        one.record(block(1), ResidualKind::First);
-        one.record(block(2), ResidualKind::Final);
-        other.record(block(2), ResidualKind::Final);
-        other.record(block(1), ResidualKind::First);
+        one.record(block(1), parent(block(1)), ResidualKind::First);
+        one.record(block(2), parent(block(2)), ResidualKind::Final);
+        other.record(block(2), parent(block(2)), ResidualKind::Final);
+        other.record(block(1), parent(block(1)), ResidualKind::First);
         assert_eq!(one.root(), other.root());
         assert_eq!(one.len(), 2);
         assert!(one.contains(&block(1), ResidualKind::First));
@@ -419,7 +557,7 @@ mod tests {
         assert_eq!(one.supported().collect::<Vec<_>>(), vec![&block(1)]);
 
         // Recording twice changes nothing
-        assert!(!one.record(block(1), ResidualKind::First));
+        assert!(!one.record(block(1), parent(block(1)), ResidualKind::First));
         assert_eq!(one.len(), 2);
     }
 
@@ -428,8 +566,8 @@ mod tests {
     #[test]
     fn a_first_vote_is_told_apart_from_notarization_support() {
         let mut votes = ResidualVotes::new();
-        votes.record(block(1), ResidualKind::First);
-        votes.record(block(2), ResidualKind::Notar);
+        votes.record(block(1), parent(block(1)), ResidualKind::First);
+        votes.record(block(2), parent(block(2)), ResidualKind::Notar);
         assert_eq!(votes.len(), 2);
 
         // Both count as support for candidate membership
@@ -446,14 +584,14 @@ mod tests {
     #[test]
     fn the_two_support_kinds_hash_apart() {
         let mut first_only = ResidualVotes::new();
-        first_only.record(block(1), ResidualKind::First);
+        first_only.record(block(1), parent(block(1)), ResidualKind::First);
         let mut notar_only = ResidualVotes::new();
-        notar_only.record(block(1), ResidualKind::Notar);
+        notar_only.record(block(1), parent(block(1)), ResidualKind::Notar);
         assert_ne!(first_only.root(), notar_only.root());
 
         let mut both = ResidualVotes::new();
-        both.record(block(1), ResidualKind::First);
-        both.record(block(1), ResidualKind::Notar);
+        both.record(block(1), parent(block(1)), ResidualKind::First);
+        both.record(block(1), parent(block(1)), ResidualKind::Notar);
         assert_eq!(both.len(), 2);
         assert_ne!(both.root(), first_only.root());
         assert_eq!(both.first_votes().collect::<Vec<_>>(), vec![&block(1)]);
@@ -500,5 +638,10 @@ mod tests {
 
     fn block(i: u64) -> CertifiedBlock {
         CertifiedBlock::new(Account::from(i), 1 + i % 4, BlockHash::from(i * 7 + 1))
+    }
+
+    /// The parent a test block names, distinct per block
+    fn parent(block: CertifiedBlock) -> BlockHash {
+        BlockHash::from(block.height * 100_000 + block.account.as_bytes()[31] as u64 + 3)
     }
 }

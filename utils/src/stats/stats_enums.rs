@@ -144,6 +144,9 @@ pub enum DetailType {
     Report,
     ReconReq,
     ReconReply,
+    ResidualReq,
+    ResidualReply,
+    EpochProp,
     #[cfg(feature = "ledger_snapshots")]
     Preproposal,
     #[cfg(feature = "ledger_snapshots")]

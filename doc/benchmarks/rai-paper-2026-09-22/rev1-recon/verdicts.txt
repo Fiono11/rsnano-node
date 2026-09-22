@@ -1,0 +1,9 @@
+fork5 exit=0 | SETTLED_CONSISTENT after 0s: epochs [0, 1, 2] identical on all PRs, cemented=['42954', '42954', '42954', '42954', '42954 CLOSED_CONSISTENT after 0s: epochs [0, 1, 2] closed identically on all PRs COMMITTEES_CONSISTENT SAFE 
+    DID NOT FINISH | busy_s=21 rate=1919 cps median=112 ms weighted=153 ms spikes=[(17, 325)]
+    discards: 0 closes:   12 round=0    6 round=1 
+offline1 exit=4 | TIMEOUT COMMITTEES_CONSISTENT SAFE checks failed (settle=1 committees=0 safety=0): nodes kept running 
+    DID NOT FINISH | busy_s=22 rate=1906 cps median=110 ms weighted=128 ms spikes=[]
+    discards: 0 closes:   10 round=0 
+byz1 exit=6 | attempt 1 stalled at 29737 blocks stalled: nodes kept running 
+    DID NOT FINISH | busy_s=16 rate=1861 cps median=111 ms weighted=115 ms spikes=[]
+    discards: 0 closes: 

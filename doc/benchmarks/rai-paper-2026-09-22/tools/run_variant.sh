@@ -22,7 +22,7 @@ LAST=$((NODES - 1))
 # fork on one of the first blocks freezes nanospam's account graph. One for a
 # run with faulty representatives, where a stall is the result.
 RESTARTS=${RESTARTS:-3}
-SETTLE_DEADLINE=${SETTLE_DEADLINE:-240}
+SETTLE_DEADLINE=${SETTLE_DEADLINE:-30}
 : > "$SNAP"
 DATA=$HOME/NanoSpam
 T=$REPO/doc/benchmarks/rai-paper-2026-09-22/tools
