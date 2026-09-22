@@ -16,9 +16,16 @@ pub struct Committee {
 }
 
 impl Committee {
-    /// n is the weight of all members together
+    /// n is the weight of all members together. The members hold the whole
+    /// supply between them, which is the largest amount there is, so the sum
+    /// is held at the maximum rather than wrapped: see `CommitteeWeights::add`.
     pub fn new(weights: FxHashMap<PublicKey, Amount>) -> Self {
-        let online = weights.values().copied().sum();
+        let online = weights.values().fold(Amount::ZERO, |sum, weight| {
+            sum.number()
+                .checked_add(weight.number())
+                .map(Amount::raw)
+                .unwrap_or(Amount::MAX)
+        });
         Self::with_online(weights, online)
     }
 
@@ -179,11 +186,33 @@ impl CommitteeWeights {
         self.counted.is_empty()
     }
 
+    /// Adds an account's balance to its representative's weight.
+    ///
+    /// The weights of a committee sum to the whole supply when every account
+    /// is counted once at a frontier that reflects its finalized sends, and
+    /// the supply is the largest amount there is, so there is no headroom: a
+    /// sum that overflows means some coins were counted twice, and it is the
+    /// counting that is wrong, not the arithmetic. Wrapping would turn a
+    /// total slightly over the supply into a tiny one, which is how a single
+    /// representative came to outweigh every threshold before. The weight is
+    /// held at the maximum instead and the fault is reported, so that a run
+    /// shows it rather than deciding on nonsense.
     fn add(&mut self, rep: PublicKey, amount: Amount) {
         if amount.is_zero() {
             return;
         }
-        *self.weights.entry(rep).or_default() += amount;
+        let weight = self.weights.entry(rep).or_default();
+        match weight.number().checked_add(amount.number()) {
+            Some(sum) => *weight = Amount::raw(sum),
+            None => {
+                *weight = Amount::MAX;
+                crate::utils::diagnostic!(
+                    "COMMITTEE_OVERWEIGHT rep={} added={} : an account counted twice",
+                    rep,
+                    amount.number()
+                );
+            }
+        }
     }
 
     fn subtract(&mut self, rep: PublicKey, amount: Amount) {
@@ -199,6 +228,35 @@ impl CommitteeWeights {
 
 #[cfg(test)]
 mod tests {
+    /// The members of a committee hold the whole supply between them, so an
+    /// account counted twice has nowhere to go. The sum is held at the
+    /// maximum rather than wrapping to a small number, which would have let
+    /// one member outweigh every threshold.
+    #[test]
+    fn a_weight_over_the_supply_is_held_at_the_maximum() {
+        let mut weights = CommitteeWeights::default();
+        let rep = PrivateKey::from(1).public_key();
+        weights.count(AccountFrontier {
+            account: Account::from(1),
+            height: 1,
+            representative: rep,
+            balance: Amount::MAX,
+        });
+        weights.count(AccountFrontier {
+            account: Account::from(2),
+            height: 1,
+            representative: rep,
+            balance: Amount::raw(1000),
+        });
+        let committee = weights.committee();
+        assert_eq!(committee.weight(&rep), Amount::MAX);
+        assert_eq!(committee.online(), Amount::MAX);
+        // The thresholds stay ordered, so no single vote decides anything
+        let thresholds = committee.thresholds();
+        assert!(thresholds.certificate < thresholds.fast);
+        assert!(thresholds.fast <= committee.online());
+    }
+
     use super::*;
     use rsnano_types::PrivateKey;
 

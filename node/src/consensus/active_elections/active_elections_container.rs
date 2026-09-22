@@ -613,14 +613,19 @@ impl ActiveElectionsContainer {
     /// yet (still being inserted).
     fn epoch_content(&self, epoch: ConsensusEpoch, cutoff: Option<Timestamp>) -> EpochContent {
         let mut entries: HashSet<(Account, u64, BlockHash)> = HashSet::new();
-        let mut by_account: HashMap<Account, (u64, Vec<Delegation>)> = HashMap::new();
+        // Every height the epoch decided for an account, not only its top
+        // one: an account whose top height is contested is still counted, at
+        // the last height below the contest that the epoch decided
+        let mut by_account: HashMap<Account, BTreeMap<u64, Vec<Delegation>>> = HashMap::new();
         let mut add = |account: Account, height: u64, delegation: Delegation| {
             entries.insert((account, height, delegation.hash));
-            let entry = by_account.entry(account).or_insert((height, Vec::new()));
-            if height > entry.0 {
-                *entry = (height, vec![delegation]);
-            } else if height == entry.0 && !entry.1.iter().any(|d| d.hash == delegation.hash) {
-                entry.1.push(delegation);
+            let at_height = by_account
+                .entry(account)
+                .or_default()
+                .entry(height)
+                .or_default();
+            if !at_height.iter().any(|d| d.hash == delegation.hash) {
+                at_height.push(delegation);
             }
         };
         for block in self.epoch_states.finalized_blocks_in(epoch) {
@@ -637,21 +642,7 @@ impl ActiveElectionsContainer {
                 add(election.account(), election.height(), delegation);
             }
         }
-        let mut frontiers: Vec<AccountFrontier> = by_account
-            .into_iter()
-            .filter_map(
-                |(account, (height, delegations))| match delegations.as_slice() {
-                    [delegation] => Some(AccountFrontier {
-                        account,
-                        height,
-                        representative: delegation.representative,
-                        balance: delegation.balance,
-                    }),
-                    _ => None,
-                },
-            )
-            .collect();
-        frontiers.sort_by_key(|frontier| frontier.account);
+        let frontiers = account_frontiers(by_account);
         EpochContent {
             value: BlockHash::ZERO,
             frontiers,
@@ -2030,6 +2021,44 @@ fn kept_value(content: &EpochContent, values: &[(BlockHash, Option<Timestamp>); 
 /// RAI: what each notarized block of an election delegates, read from the
 /// candidate the election holds. A legacy block without a balance or
 /// representative field delegates nothing.
+/// RAI: the frontier of each account in an epoch's decided content: the top
+/// of the chain the epoch decided for it, which is the highest height below
+/// its lowest contested one.
+///
+/// An account whose top height is contested is still counted, at the last
+/// height below the contest. Dropping it instead leaves it counted at the
+/// balance of an earlier epoch while the accounts that received its sends
+/// are counted at their new ones, which counts the same coins twice. The
+/// weights of a committee sum to the whole supply, so there is no room for
+/// that: the total runs over and a single representative ends up outweighing
+/// every threshold.
+fn account_frontiers(
+    by_account: HashMap<Account, BTreeMap<u64, Vec<Delegation>>>,
+) -> Vec<AccountFrontier> {
+    let mut frontiers: Vec<AccountFrontier> = by_account
+        .into_iter()
+        .filter_map(|(account, by_height)| {
+            let contested = by_height
+                .iter()
+                .find(|(_, delegations)| delegations.len() > 1)
+                .map(|(height, _)| *height)
+                .unwrap_or(u64::MAX);
+            by_height
+                .iter()
+                .filter(|(height, delegations)| **height < contested && delegations.len() == 1)
+                .next_back()
+                .map(|(height, delegations)| AccountFrontier {
+                    account,
+                    height: *height,
+                    representative: delegations[0].representative,
+                    balance: delegations[0].balance,
+                })
+        })
+        .collect();
+    frontiers.sort_by_key(|frontier| frontier.account);
+    frontiers
+}
+
 fn delegations(election: &Election) -> Vec<Delegation> {
     election
         .certificates()
@@ -2049,6 +2078,70 @@ fn delegations(election: &Election) -> Vec<Delegation> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// RAI: an account whose top height is contested is counted at the last
+    /// height the epoch decided for it, not dropped. Dropping it leaves it
+    /// counted at an older, larger balance while the accounts that received
+    /// its sends are counted at their new ones, which is the same coins
+    /// twice; the weights of a committee sum to the whole supply, so the
+    /// total then runs over.
+    #[test]
+    fn a_contested_top_height_is_counted_below_the_contest() {
+        let account = Account::from(1);
+        let mut by_height: BTreeMap<u64, Vec<Delegation>> = BTreeMap::new();
+        by_height.insert(1, vec![delegation(1, 1, 900)]);
+        // The account sent at height 2, so it is counted at 500 from there on
+        by_height.insert(2, vec![delegation(2, 1, 500)]);
+        // Its top height is contested, and neither block is decided
+        by_height.insert(3, vec![delegation(3, 1, 400), delegation(4, 1, 300)]);
+
+        let frontiers = account_frontiers(HashMap::from([(account, by_height)]));
+
+        assert_eq!(frontiers.len(), 1);
+        assert_eq!(frontiers[0].height, 2);
+        assert_eq!(frontiers[0].balance, Amount::raw(500));
+    }
+
+    /// Without a contest the frontier is the top height
+    #[test]
+    fn an_uncontested_account_is_counted_at_its_top_height() {
+        let account = Account::from(1);
+        let by_height = BTreeMap::from([
+            (1, vec![delegation(1, 1, 900)]),
+            (2, vec![delegation(2, 1, 500)]),
+        ]);
+
+        let frontiers = account_frontiers(HashMap::from([(account, by_height)]));
+
+        assert_eq!(frontiers[0].height, 2);
+        assert_eq!(frontiers[0].balance, Amount::raw(500));
+    }
+
+    /// An account contested at the first height the epoch decided for it has
+    /// no frontier of its own: nothing below the contest was decided, so what
+    /// it was counted at before still stands
+    #[test]
+    fn an_account_contested_at_its_first_height_has_no_frontier() {
+        let account = Account::from(1);
+        let by_height = BTreeMap::from([
+            (1, vec![delegation(1, 1, 900), delegation(2, 1, 800)]),
+            // A height above the contest is not the decided chain either
+            (2, vec![delegation(3, 1, 700)]),
+        ]);
+
+        let frontiers = account_frontiers(HashMap::from([(account, by_height)]));
+
+        assert!(frontiers.is_empty());
+    }
+
+    fn delegation(hash: u64, rep: u64, balance: u128) -> Delegation {
+        Delegation {
+            hash: BlockHash::from(hash),
+            representative: PrivateKey::from(rep).public_key(),
+            balance: Amount::raw(balance),
+        }
+    }
+
     use crate::consensus::{
         ReceivedVote,
         active_elections::{BucketInfo, ElectionCandidate},

@@ -8,6 +8,8 @@ mod election_id;
 mod election_state;
 #[cfg(feature = "rai_protocol")]
 mod epoch_ledger;
+#[cfg(feature = "rai_protocol")]
+mod epoch_value;
 mod final_state;
 mod kudzu;
 #[cfg(feature = "rai_protocol")]
@@ -22,6 +24,8 @@ pub use election_id::*;
 pub use election_state::*;
 #[cfg(feature = "rai_protocol")]
 pub use epoch_ledger::*;
+#[cfg(feature = "rai_protocol")]
+pub use epoch_value::*;
 pub use final_state::*;
 pub use kudzu::*;
 #[cfg(feature = "rai_protocol")]

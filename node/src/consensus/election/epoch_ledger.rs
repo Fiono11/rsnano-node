@@ -99,17 +99,30 @@ impl EpochLedger {
     }
 
     /// Sigma_e: the finalized frontier of every account, which is the replay
-    /// of the finalized blocks in account-parent order
+    /// of its finalized blocks in parent order.
+    ///
+    /// The frontier is the top of the account's *contiguous* finalized chain,
+    /// so it stops below the first slot the epoch did not decide. Taking the
+    /// highest finalized slot instead would skip over an undecided one and
+    /// count a balance the account reached through blocks the state does not
+    /// hold: the account's sends below the gap would not have reduced it
+    /// while the receivers of those sends counted the coins, which is the
+    /// same money counted twice. Weights are derived from this, and they sum
+    /// to the whole supply when every account is counted once, so there is no
+    /// headroom for counting anything twice.
     pub fn frontiers(&self) -> BTreeMap<Account, (u64, BlockHash)> {
         let mut frontiers: BTreeMap<Account, (u64, BlockHash)> = BTreeMap::new();
         for (slot, hash) in &self.finalized {
             let entry = frontiers
                 .entry(slot.account)
-                .or_insert((slot.height, *hash));
-            if slot.height >= entry.0 {
+                .or_insert((0, BlockHash::ZERO));
+            // The finalized slots of an account are walked in height order,
+            // so the frontier advances only while the chain has no gap
+            if slot.height == entry.0 + 1 {
                 *entry = (slot.height, *hash);
             }
         }
+        frontiers.retain(|_, (height, _)| *height > 0);
         frontiers
     }
 
@@ -508,6 +521,44 @@ mod tests {
         // Nothing represents the other one any more
         assert_eq!(ledger.finalized(&slot(2, 1)), None);
         assert!(ledger.notarized(&slot(2, 1)).is_empty());
+    }
+
+    /// The frontier stops below a slot the epoch did not decide. Counting
+    /// the highest finalized slot instead would credit the account with a
+    /// balance it reached through blocks the state does not hold, which is
+    /// the same money counted twice once the receivers are counted too.
+    #[test]
+    fn a_frontier_stops_below_an_undecided_slot() {
+        let mut index = StubIndex::default();
+        let first = index.add(1, 1, BlockHash::ZERO);
+        let second = index.add(1, 2, first);
+        let conflicting = index.add(1, 3, second);
+        let sibling = index.add(1, 3, second);
+        let later = index.add(1, 4, conflicting);
+
+        let mut certified = CertifiedState::new();
+        for hash in [first, second, conflicting, sibling] {
+            certified.certify(certified_at(&index, hash), CertifiedStatus::Notarized);
+        }
+        // The block above the conflict is represented but its slot is not
+        // decided, so the account's chain has a gap at slot 3
+        let mut ledger = build_state(
+            &EpochLedger::new(),
+            &[SelectedReport {
+                certified: &certified,
+                residual: &ResidualVotes::new(),
+            }],
+            &index,
+        );
+        assert_eq!(
+            ledger.notarized(&slot(1, 3)).len(),
+            2,
+            "slot 3 is undecided"
+        );
+        ledger.finalize(slot(1, 4), later);
+
+        let frontiers = ledger.frontiers();
+        assert_eq!(frontiers[&Account::from(1)], (2, second));
     }
 
     /// Two validators deriving from the same reports obtain the same hash,
