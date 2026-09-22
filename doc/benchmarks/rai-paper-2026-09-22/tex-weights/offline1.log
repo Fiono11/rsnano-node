@@ -1,0 +1,386 @@
+[2m2026-09-22T18:06:22.355864Z[0m [32m INFO[0m [2mnanospam::setup::account_map_factory[0m[2m:[0m Creating account keys file with 45000 keys: "/Users/ruimorais/NanoSpam/account_keys.txt"
+[2m2026-09-22T18:06:23.085186Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m ********************************************************************************
+[2m2026-09-22T18:06:23.085199Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m Setting up node PR0...
+[2m2026-09-22T18:06:23.085204Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m Creating directory "/Users/ruimorais/NanoSpam/pr0"
+[2m2026-09-22T18:06:23.085290Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m Creating node config file: "/Users/ruimorais/NanoSpam/pr0/config-node.toml"
+[2m2026-09-22T18:06:23.085405Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m Creating rpc config file: "/Users/ruimorais/NanoSpam/pr0/config-rpc.toml"
+[2m2026-09-22T18:06:23.085468Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m ********************************************************************************
+[2m2026-09-22T18:06:23.085472Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m Setting up node PR1...
+[2m2026-09-22T18:06:23.085476Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m Creating directory "/Users/ruimorais/NanoSpam/pr1"
+[2m2026-09-22T18:06:23.085514Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m Creating node config file: "/Users/ruimorais/NanoSpam/pr1/config-node.toml"
+[2m2026-09-22T18:06:23.085585Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m Creating rpc config file: "/Users/ruimorais/NanoSpam/pr1/config-rpc.toml"
+[2m2026-09-22T18:06:23.085645Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m ********************************************************************************
+[2m2026-09-22T18:06:23.085649Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m Setting up node PR2...
+[2m2026-09-22T18:06:23.085653Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m Creating directory "/Users/ruimorais/NanoSpam/pr2"
+[2m2026-09-22T18:06:23.085692Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m Creating node config file: "/Users/ruimorais/NanoSpam/pr2/config-node.toml"
+[2m2026-09-22T18:06:23.085757Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m Creating rpc config file: "/Users/ruimorais/NanoSpam/pr2/config-rpc.toml"
+[2m2026-09-22T18:06:23.085814Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m ********************************************************************************
+[2m2026-09-22T18:06:23.085818Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m Setting up node PR3...
+[2m2026-09-22T18:06:23.085822Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m Creating directory "/Users/ruimorais/NanoSpam/pr3"
+[2m2026-09-22T18:06:23.085864Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m Creating node config file: "/Users/ruimorais/NanoSpam/pr3/config-node.toml"
+[2m2026-09-22T18:06:23.085925Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m Creating rpc config file: "/Users/ruimorais/NanoSpam/pr3/config-rpc.toml"
+[2m2026-09-22T18:06:23.085980Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m ********************************************************************************
+[2m2026-09-22T18:06:23.085984Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m Setting up node PR4...
+[2m2026-09-22T18:06:23.085988Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m Creating directory "/Users/ruimorais/NanoSpam/pr4"
+[2m2026-09-22T18:06:23.086042Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m Creating node config file: "/Users/ruimorais/NanoSpam/pr4/config-node.toml"
+[2m2026-09-22T18:06:23.086133Z[0m [32m INFO[0m [2mnanospam::setup::node_config_factory[0m[2m:[0m Creating rpc config file: "/Users/ruimorais/NanoSpam/pr4/config-rpc.toml"
+[2m2026-09-22T18:06:23.086237Z[0m [32m INFO[0m [2mnanospam::setup::node_launcher[0m[2m:[0m Starting node: NANO_TEST_GENESIS_BLOCK="{\n    \"type\": \"open\",\n    \"account\": \"nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne\",\n    \"source\": \"D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532\",\n    \"representative\": \"nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne\",\n    \"signature\": \"3F6792C2DC623DF2E8643777160AB983B66B337E2478E13D2C3448126A8F4CD8DCCD19803C158A057FA44060AE0EFC09B1C311CB4FBF42F8D240610B38F56E08\",\n    \"work\": \"70FEF01F7EC45DEC\"\n    }" NANO_TEST_GENESIS_PRV ="49643F9B10CA1AA34F9AF8ED4AABD29F436104CCC375974B108534A48EAE3FE1" "rsnano" "--network" "test" "--data-path" "/Users/ruimorais/NanoSpam/pr0" "node" "run"
+[2m2026-09-22T18:06:23.086720Z[0m [32m INFO[0m [2mnanospam::setup::node_launcher[0m[2m:[0m Waiting for RPC...
+[2m2026-09-22T18:06:23.190933Z[0m [32m INFO[0m [2mnanospam::setup::node_launcher[0m[2m:[0m Starting node: NANO_TEST_GENESIS_BLOCK="{\n    \"type\": \"open\",\n    \"account\": \"nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne\",\n    \"source\": \"D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532\",\n    \"representative\": \"nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne\",\n    \"signature\": \"3F6792C2DC623DF2E8643777160AB983B66B337E2478E13D2C3448126A8F4CD8DCCD19803C158A057FA44060AE0EFC09B1C311CB4FBF42F8D240610B38F56E08\",\n    \"work\": \"70FEF01F7EC45DEC\"\n    }" NANO_TEST_GENESIS_PRV ="49643F9B10CA1AA34F9AF8ED4AABD29F436104CCC375974B108534A48EAE3FE1" "rsnano" "--network" "test" "--data-path" "/Users/ruimorais/NanoSpam/pr1" "node" "run"
+[2m2026-09-22T18:06:23.191354Z[0m [32m INFO[0m [2mnanospam::setup::node_launcher[0m[2m:[0m Waiting for RPC...
+[2m2026-09-22T18:06:23.295624Z[0m [32m INFO[0m [2mnanospam::setup::node_launcher[0m[2m:[0m Starting node: NANO_TEST_GENESIS_BLOCK="{\n    \"type\": \"open\",\n    \"account\": \"nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne\",\n    \"source\": \"D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532\",\n    \"representative\": \"nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne\",\n    \"signature\": \"3F6792C2DC623DF2E8643777160AB983B66B337E2478E13D2C3448126A8F4CD8DCCD19803C158A057FA44060AE0EFC09B1C311CB4FBF42F8D240610B38F56E08\",\n    \"work\": \"70FEF01F7EC45DEC\"\n    }" NANO_TEST_GENESIS_PRV ="49643F9B10CA1AA34F9AF8ED4AABD29F436104CCC375974B108534A48EAE3FE1" "rsnano" "--network" "test" "--data-path" "/Users/ruimorais/NanoSpam/pr2" "node" "run"
+[2m2026-09-22T18:06:23.296157Z[0m [32m INFO[0m [2mnanospam::setup::node_launcher[0m[2m:[0m Waiting for RPC...
+[2m2026-09-22T18:06:23.400207Z[0m [32m INFO[0m [2mnanospam::setup::node_launcher[0m[2m:[0m Starting node: NANO_TEST_GENESIS_BLOCK="{\n    \"type\": \"open\",\n    \"account\": \"nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne\",\n    \"source\": \"D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532\",\n    \"representative\": \"nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne\",\n    \"signature\": \"3F6792C2DC623DF2E8643777160AB983B66B337E2478E13D2C3448126A8F4CD8DCCD19803C158A057FA44060AE0EFC09B1C311CB4FBF42F8D240610B38F56E08\",\n    \"work\": \"70FEF01F7EC45DEC\"\n    }" NANO_TEST_GENESIS_PRV ="49643F9B10CA1AA34F9AF8ED4AABD29F436104CCC375974B108534A48EAE3FE1" "rsnano" "--network" "test" "--data-path" "/Users/ruimorais/NanoSpam/pr3" "node" "run"
+[2m2026-09-22T18:06:23.400792Z[0m [32m INFO[0m [2mnanospam::setup::node_launcher[0m[2m:[0m Waiting for RPC...
+[2m2026-09-22T18:06:23.505325Z[0m [32m INFO[0m [2mnanospam::setup::node_launcher[0m[2m:[0m Starting node: NANO_TEST_GENESIS_BLOCK="{\n    \"type\": \"open\",\n    \"account\": \"nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne\",\n    \"source\": \"D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532\",\n    \"representative\": \"nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne\",\n    \"signature\": \"3F6792C2DC623DF2E8643777160AB983B66B337E2478E13D2C3448126A8F4CD8DCCD19803C158A057FA44060AE0EFC09B1C311CB4FBF42F8D240610B38F56E08\",\n    \"work\": \"70FEF01F7EC45DEC\"\n    }" NANO_TEST_GENESIS_PRV ="49643F9B10CA1AA34F9AF8ED4AABD29F436104CCC375974B108534A48EAE3FE1" "rsnano" "--network" "test" "--data-path" "/Users/ruimorais/NanoSpam/pr4" "node" "run"
+[2m2026-09-22T18:06:23.505727Z[0m [32m INFO[0m [2mnanospam::setup::node_launcher[0m[2m:[0m Waiting for RPC...
+[2m2026-09-22T18:06:23.610286Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Creating wallet...
+[2m2026-09-22T18:06:23.674383Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Setting default representative...
+[2m2026-09-22T18:06:23.674622Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Creating wallet...
+[2m2026-09-22T18:06:23.718444Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Setting default representative...
+[2m2026-09-22T18:06:23.718719Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Sending Ӿ40,047,061 to PR1 wallet nano_3atmwjh8t11psdqf3qx6xjfiei94oajch6zsyauowxzjogbbgz168g5mp8f1 ...
+[2m2026-09-22T18:06:23.719199Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Waiting for confirmation for B19EAD8221E07E52EEB7CA7EE50577B662C489ADBA15C0727DB6F8AEDAD50081
+[2m2026-09-22T18:06:38.888004Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Receiving...
+[2m2026-09-22T18:06:38.889188Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Waiting for confirmation for CBAA8D9FE2AA2CFEB77B87886D76922E22E4C51C0C091A54179A7E5CF79FC967
+[2m2026-09-22T18:06:38.992110Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m DONE
+[2m2026-09-22T18:06:38.992165Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m ********************************************************************************
+[2m2026-09-22T18:06:38.992175Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Creating wallet...
+[2m2026-09-22T18:06:39.067066Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Setting default representative...
+[2m2026-09-22T18:06:39.067365Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Sending Ӿ40,047,061 to PR2 wallet nano_36asm8scxymtsjmgqp14per3zxpgaec1c65qb9en1buscq7qzqa93tfyyzs3 ...
+[2m2026-09-22T18:06:39.067845Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Waiting for confirmation for CAFB013DCCB20BBF4CC103A0FDD2BF25C8F109B9E984B96D0666840E4B0F89BA
+[2m2026-09-22T18:06:39.170525Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Receiving...
+[2m2026-09-22T18:06:39.171389Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Waiting for confirmation for 7189E44F408196E8FD1F393F06CDAD4F7C5A415B2A2DDFA8ABEABEE83DA60182
+[2m2026-09-22T18:06:39.273861Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m DONE
+[2m2026-09-22T18:06:39.273914Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m ********************************************************************************
+[2m2026-09-22T18:06:39.273928Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Creating wallet...
+[2m2026-09-22T18:06:39.348123Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Setting default representative...
+[2m2026-09-22T18:06:39.348455Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Sending Ӿ40,047,061 to PR3 wallet nano_1sfb11jzfi8k51fcnrzi1qe3qh1e1jkic3h45oak9yfg5yhbkczzxfwtat7m ...
+[2m2026-09-22T18:06:39.348840Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Waiting for confirmation for E2CEA882BAF6FE5BE932C387FEB7740D791CAF9E5BECC7CEE8176C7DDEE6378A
+[2m2026-09-22T18:06:39.451137Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Receiving...
+[2m2026-09-22T18:06:39.451860Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Waiting for confirmation for EA5EC3EAA2535557DB68742DBFA22A64B7B314876EE136F919471550E89D65D4
+[2m2026-09-22T18:06:39.554547Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m DONE
+[2m2026-09-22T18:06:39.556943Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m ********************************************************************************
+[2m2026-09-22T18:06:39.556959Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Creating wallet...
+[2m2026-09-22T18:06:39.626720Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Setting default representative...
+[2m2026-09-22T18:06:39.627033Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Sending Ӿ40,047,061 to PR4 wallet nano_1rsxmoinip7d4wafdp855194n43fs7s1jgne6tx8ruatiu6g89815pddzijp ...
+[2m2026-09-22T18:06:39.627418Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Waiting for confirmation for 22677C7E74B964C1E24887306A66EAC48330280DFA5744E0E21166EC47B5438A
+[2m2026-09-22T18:06:39.831436Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Receiving...
+[2m2026-09-22T18:06:39.832146Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Waiting for confirmation for 686B8354F9897585048EDBC473B612A3E2823DE919A66201E69841219A6B5651
+[2m2026-09-22T18:06:40.037341Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m DONE
+[2m2026-09-22T18:06:40.037397Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m ********************************************************************************
+[2m2026-09-22T18:06:40.037452Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Sending Ӿ40,047,061 to PR5 (no node) nano_1wtzwadxk9naxc356m4rienp93ht131w7ypadk39qck8uah3bg3zohsmj9th ...
+[2m2026-09-22T18:06:40.038232Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Waiting for confirmation for 86B6E149E407121861E950D6B66B56BA39E500C199E580ED6065515C3C25094F
+[2m2026-09-22T18:06:55.281198Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Waiting for confirmation for 417F8AEA0F6FDD9A5EE6F5896819E98A81FC15AA2CF56207A5BCFB27193E37A9
+[2m2026-09-22T18:06:55.384290Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m DONE
+[2m2026-09-22T18:06:55.384374Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Sending initial spam amount...
+[2m2026-09-22T18:06:55.385420Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Waiting for confirmation for 0825DDDB572839EB3CC9600131D88936C270E1BC0E88DCAC949E7BED6447353C
+[2m2026-09-22T18:06:55.488604Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Receiving initial spam amount...
+[2m2026-09-22T18:06:55.489566Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Waiting for confirmation for B34A609930A61C874DA61AD3288066E3F7843D08E3BDE1E6FEA8C7B53C43F836
+[2m2026-09-22T18:06:55.592864Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Seeding Ӿ14,285,714 to nano_3ppioibm1fdfhpm1ensncbpnfq8n8d1y5jixfgq7885jbw49zghpynj6sc1q for representative D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532
+[2m2026-09-22T18:06:55.593876Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Waiting for confirmation for 80F767282A45A20EFADF997D46734027844C62FC9ABA2E4E19D8893F48DB3DDB
+[2m2026-09-22T18:06:55.698062Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Waiting for confirmation for F9F1EF199755674FA17556B22616609D58784B1F0998012382D8D8908CEF683F
+[2m2026-09-22T18:06:55.800641Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Seeding Ӿ14,285,714 to nano_3iae3hoipfbxpwjsuejameqxop6zpez5e6gsnzou8qbwao8yoqeycbpim4ww for representative A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04
+[2m2026-09-22T18:06:55.801435Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Waiting for confirmation for 662F1047D066BB89572E7ED963EAD6680F437AC4F4764561E1863058D3F7723D
+[2m2026-09-22T18:06:55.904562Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Waiting for confirmation for F59C2D76E07BF7EC3ACA544BEBECB2B08D2021A5ECE6BBEE07F8777D124D7FFB
+[2m2026-09-22T18:06:56.109544Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Seeding Ӿ14,285,714 to nano_1nkyeieezxgkah5qtry4ph38u7frhttzzk71rqpgj4yfjoxzd4e7e11fm56b for representative 911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07
+[2m2026-09-22T18:06:56.110200Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Waiting for confirmation for 88B10559EED061519C8C7135DA4C1760A87365FA80325ED5E58CFE616DF0B89E
+[2m2026-09-22T18:06:56.214294Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Waiting for confirmation for FB310969E08D6EB17E432F9AE7C8E9B046A729C4BA863053AEA84535E0BB3C93
+[2m2026-09-22T18:06:56.317800Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Seeding Ӿ14,285,714 to nano_3zw99y3x9kt1eqd6a7rmknritccysscdz98qk4j1gmwaw51hgj1895zepwq5 for representative 65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF
+[2m2026-09-22T18:06:56.318612Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Waiting for confirmation for ECD2CFDFB081567B8B9C9F9719E2E612BB600A15790BB86A7763C79BCF0B836E
+[2m2026-09-22T18:06:56.525345Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Waiting for confirmation for AF4EBDACBAF7AC5EAC98C7ABE63B0938B2F9FC68C38171BCA52493E1A7B44534
+[2m2026-09-22T18:06:56.629017Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Seeding Ӿ14,285,714 to nano_1z6ptahhwfthh6bog3xz9k8cpebb1na1y7gm49xxps96cabywi89h7de7713 for representative 633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0
+[2m2026-09-22T18:06:56.629707Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Waiting for confirmation for 676F8E2750F21C01021196423E0E55272EDF9AAC26A89C2787BF6FD2C29FDBCD
+[2m2026-09-22T18:06:56.734174Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Waiting for confirmation for 5E7EEE52AC393ECEAA28DC2205570BA50EA2F45117BFA87BF28396823BAE74A6
+[2m2026-09-22T18:06:56.837792Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Seeding Ӿ14,285,714 to nano_3fhn5d4szmbu43byzmjpuu7duuw5f6e46j9rgrnb9jb9zdinjt5nn96tikyw for representative 735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F
+[2m2026-09-22T18:06:56.838379Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Waiting for confirmation for A5B315356178AC1D57B976285621693277DB67DD1D4EB4B3ED82C5607D9D8C9A
+[2m2026-09-22T18:06:56.942946Z[0m [32m INFO[0m [2mnanospam::wallets_factory[0m[2m:[0m Waiting for confirmation for C206E011293DA9C035DE989EE95E5E8E80ACC408C2971B55E82F12CB5F7F7009
+[2m2026-09-22T18:06:57.046232Z[0m [32m INFO[0m [2mnanospam::high_prio_check[0m[2m:[0m Creating high priority accounts...
+[2m2026-09-22T18:06:57.065428Z[0m [32m INFO[0m [2mnanospam::high_prio_check[0m[2m:[0m Waiting for confirmations...
+[2m2026-09-22T18:06:59.207719Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Waiting for all PRs to see the full quorum...
+[2m2026-09-22T18:06:59.819137Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m All PRs see the full quorum after 611.377541ms
+[2m2026-09-22T18:06:59.819278Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Waiting for all PRs to hold the same cemented ledger...
+[2m2026-09-22T18:06:59.820769Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m All PRs hold the same ledger of 65 blocks after 1.470084ms
+EPOCH_COMMITTEE derived_by=genesis members=6 accounts=33 n=340282366920938463463374607431768211455 digest=F9BD739DEC3E8C987C5E6D5F869562590F3481751A7ED5D0E0C3C751FC90F12C shares=["911999B2:20.2%", "735FE217:16.0%", "A353E45E:16.0%", "633D9D61:16.0%", "65A90023:16.0%", "D315857C:16.0%"] t=1790100419821
+EPOCH_START epoch=0 elections=0 t=1790100419821
+EPOCH_COMMITTEE derived_by=genesis members=6 accounts=33 n=340282366920938463463374607431768211455 digest=F9BD739DEC3E8C987C5E6D5F869562590F3481751A7ED5D0E0C3C751FC90F12C shares=["911999B2:20.2%", "735FE217:16.0%", "A353E45E:16.0%", "633D9D61:16.0%", "65A90023:16.0%", "D315857C:16.0%"] t=1790100419821
+EPOCH_START epoch=0 elections=0 t=1790100419821
+EPOCH_COMMITTEE derived_by=genesis members=6 accounts=33 n=340282366920938463463374607431768211455 digest=F9BD739DEC3E8C987C5E6D5F869562590F3481751A7ED5D0E0C3C751FC90F12C shares=["911999B2:20.2%", "735FE217:16.0%", "A353E45E:16.0%", "633D9D61:16.0%", "65A90023:16.0%", "D315857C:16.0%"] t=1790100419821
+EPOCH_START epoch=0 elections=0 t=1790100419821
+EPOCH_COMMITTEE derived_by=genesis members=6 accounts=33 n=340282366920938463463374607431768211455 digest=F9BD739DEC3E8C987C5E6D5F869562590F3481751A7ED5D0E0C3C751FC90F12C shares=["911999B2:20.2%", "735FE217:16.0%", "A353E45E:16.0%", "633D9D61:16.0%", "65A90023:16.0%", "D315857C:16.0%"] t=1790100419822
+EPOCH_START epoch=0 elections=0 t=1790100419822
+EPOCH_COMMITTEE derived_by=genesis members=6 accounts=33 n=340282366920938463463374607431768211455 digest=F9BD739DEC3E8C987C5E6D5F869562590F3481751A7ED5D0E0C3C751FC90F12C shares=["911999B2:20.2%", "735FE217:16.0%", "A353E45E:16.0%", "633D9D61:16.0%", "65A90023:16.0%", "D315857C:16.0%"] t=1790100419822
+EPOCH_START epoch=0 elections=0 t=1790100419822
+[2m2026-09-22T18:06:59.822553Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Started the epochs on every PR
+[2m2026-09-22T18:06:59.822571Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Connecting to node PR0... [3mpeer_addr[0m[2m=[0m[::1]:17075
+[2m2026-09-22T18:06:59.823070Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Performing handshake...
+[2m2026-09-22T18:06:59.823844Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Performing handshake...
+[2m2026-09-22T18:06:59.835699Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Performing handshake...
+[2m2026-09-22T18:06:59.847741Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Performing handshake...
+[2m2026-09-22T18:06:59.858811Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Connecting to node PR1... [3mpeer_addr[0m[2m=[0m[::1]:17085
+[2m2026-09-22T18:06:59.859197Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Performing handshake...
+[2m2026-09-22T18:06:59.860169Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Performing handshake...
+[2m2026-09-22T18:06:59.871877Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Performing handshake...
+[2m2026-09-22T18:06:59.883200Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Performing handshake...
+[2m2026-09-22T18:06:59.894322Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Connecting to node PR2... [3mpeer_addr[0m[2m=[0m[::1]:17095
+[2m2026-09-22T18:06:59.894728Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Performing handshake...
+[2m2026-09-22T18:06:59.895699Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Performing handshake...
+[2m2026-09-22T18:06:59.907358Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Performing handshake...
+[2m2026-09-22T18:06:59.918576Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Performing handshake...
+[2m2026-09-22T18:06:59.930170Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Connecting to node PR3... [3mpeer_addr[0m[2m=[0m[::1]:17105
+[2m2026-09-22T18:06:59.930555Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Performing handshake...
+[2m2026-09-22T18:06:59.931541Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Performing handshake...
+[2m2026-09-22T18:06:59.943116Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Performing handshake...
+[2m2026-09-22T18:06:59.954448Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Performing handshake...
+[2m2026-09-22T18:06:59.965339Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Connecting to node PR4... [3mpeer_addr[0m[2m=[0m[::1]:17115
+[2m2026-09-22T18:06:59.965738Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Performing handshake...
+[2m2026-09-22T18:06:59.966513Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Performing handshake...
+[2m2026-09-22T18:06:59.977705Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Performing handshake...
+[2m2026-09-22T18:06:59.988721Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Performing handshake...
+[2m2026-09-22T18:07:00.000499Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Connecting to websocket...
+[2m2026-09-22T18:07:00.001296Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Starting with 2000 BPS
+[2m2026-09-22T18:07:01.001856Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 552 blocks | 2,000 bps | 633 cps | avg conf time: 101 ms
+[2m2026-09-22T18:07:02.002893Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 4,010 blocks | 2,000 bps | 3,454 cps | avg conf time: 135 ms
+[2m2026-09-22T18:07:03.003544Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 6,005 blocks | 2,000 bps | 1,993 cps | avg conf time: 101 ms
+[2m2026-09-22T18:07:04.004867Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 7,892 blocks | 2,000 bps | 1,884 cps | avg conf time: 100 ms
+[2m2026-09-22T18:07:05.005748Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 9,795 blocks | 2,000 bps | 1,901 cps | avg conf time: 101 ms
+[2m2026-09-22T18:07:06.006795Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 11,601 blocks | 2,000 bps | 1,804 cps | avg conf time: 102 ms
+[2m2026-09-22T18:07:07.007788Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 13,439 blocks | 2,000 bps | 1,836 cps | avg conf time: 102 ms
+EPOCH_ENDED epoch=0 elections=1040 active=218 t=1790100427832
+EPOCH_DRAIN_WAIT epoch=0 unterminated=218 previous_closed=true first=["3678E1F32DEB56C8ADDCE76CE220AC7EF959926F101EC5B6A35CF1FABA4B15A4:active:1:0", "4431A4978B7A4DB353209C6444A61B9353527277641F903506D94C8EC308E315:active:1:2", "397A985A5086B2462618E4703D0926D7CAD4DC54565D9125333643A504BC69D2:active:1:0"] t=1790100427833
+EPOCH_ENDED epoch=0 elections=1064 active=242 t=1790100427843
+EPOCH_ENDED epoch=0 elections=1064 active=242 t=1790100427843
+EPOCH_ENDED epoch=0 elections=1064 active=242 t=1790100427843
+EPOCH_ENDED epoch=0 elections=1064 active=242 t=1790100427843
+EPOCH_DRAIN_WAIT epoch=0 unterminated=17 previous_closed=true first=["B3FE050BA93BD6B91C9D245CE06D3068EDC5D2AA8370B081DFB7973B07190994:active:1:4", "AC313FC7FFA65EEC9346180035C8ABDB3D31249045B686985B5AA983BF6D6774:active:1:4", "12880612523463D348AC6F931FD30C0320806038EC14553C82E6E87DBCC8100B:active:1:4"] t=1790100427934
+EPOCH_DRAIN_WAIT epoch=0 unterminated=1 previous_closed=true first=["99EF4B683627D85E10E69A7BE27E31485A69D07C683FAEDCD662BE804A6A4589:active:2:5"] t=1790100428005
+[2m2026-09-22T18:07:08.008393Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 15,188 blocks | 2,000 bps | 1,747 cps | avg conf time: 102 ms
+EPOCH_DRAIN_WAIT epoch=0 unterminated=1 previous_closed=true first=["99EF4B683627D85E10E69A7BE27E31485A69D07C683FAEDCD662BE804A6A4589:active:2:5"] t=1790100428056
+EPOCH_CLOSE_READY epoch=0 value=FD42AE31FDE5403AC385EF7E8D341CCF2CA7715523DAC3C0E1698AD3E0A107AC t=1790100428349
+EPOCH_CLOSE_ROUND epoch=0 round=0 leader=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 leads=true t=1790100428349
+EPOCH_ADVANCED epoch=1 elections=842 active=0 t=1790100428349
+EPOCH_REPORT epoch=0 certified=16110 residual=842 root=8B34E6E2614579D7937C11B8A5A05172D29E2B16B217AD676B746F437D470C89 reports=1 t=1790100428371
+EPOCH_CLOSE_READY epoch=0 value=FD42AE31FDE5403AC385EF7E8D341CCF2CA7715523DAC3C0E1698AD3E0A107AC t=1790100428372
+EPOCH_CLOSE_ROUND epoch=0 round=0 leader=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 leads=false t=1790100428372
+EPOCH_ADVANCED epoch=1 elections=842 active=0 t=1790100428372
+EPOCH_RECONCILED epoch=0 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=true entries=0 total=16110 t=1790100428388
+EPOCH_REPORT epoch=0 certified=16110 residual=841 root=8B34E6E2614579D7937C11B8A5A05172D29E2B16B217AD676B746F437D470C89 reports=1 t=1790100428407
+EPOCH_RECONCILED epoch=0 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=true entries=0 total=16110 t=1790100428440
+EPOCH_RECONCILED epoch=0 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=true entries=0 total=16110 t=1790100428440
+EPOCH_RECONCILED epoch=0 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=true entries=0 total=16110 t=1790100428446
+EPOCH_CLOSE_READY epoch=0 value=FD42AE31FDE5403AC385EF7E8D341CCF2CA7715523DAC3C0E1698AD3E0A107AC t=1790100428585
+EPOCH_CLOSE_ROUND epoch=0 round=0 leader=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 leads=false t=1790100428585
+EPOCH_ADVANCED epoch=1 elections=842 active=0 t=1790100428585
+EPOCH_REPORT epoch=0 certified=16110 residual=842 root=8B34E6E2614579D7937C11B8A5A05172D29E2B16B217AD676B746F437D470C89 reports=1 t=1790100428609
+EPOCH_RECONCILED epoch=0 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=true entries=0 total=16110 t=1790100428693
+EPOCH_RECONCILED epoch=0 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=true entries=0 total=16110 t=1790100428694
+EPOCH_RECONCILED epoch=0 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=true entries=0 total=16110 t=1790100428699
+EPOCH_CLOSE_READY epoch=0 value=FD42AE31FDE5403AC385EF7E8D341CCF2CA7715523DAC3C0E1698AD3E0A107AC t=1790100428759
+EPOCH_CLOSE_ROUND epoch=0 round=0 leader=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 leads=false t=1790100428759
+EPOCH_ADVANCED epoch=1 elections=842 active=0 t=1790100428759
+EPOCH_RECONCILED epoch=0 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=true entries=0 total=16110 t=1790100428780
+EPOCH_REPORT epoch=0 certified=16110 residual=842 root=8B34E6E2614579D7937C11B8A5A05172D29E2B16B217AD676B746F437D470C89 reports=1 t=1790100428798
+EPOCH_RECONCILED epoch=0 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=true entries=0 total=16110 t=1790100428878
+[2m2026-09-22T18:07:09.010505Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 15,204 blocks | 2,000 bps | 15 cps | avg conf time: 221 ms
+EPOCH_RECONCILED epoch=0 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=true entries=0 total=16110 t=1790100429050
+EPOCH_RECONCILED epoch=0 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=true entries=0 total=16110 t=1790100429053
+EPOCH_RECONCILED epoch=0 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=true entries=0 total=16110 t=1790100429056
+EPOCH_RECONCILED epoch=0 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=true entries=0 total=16110 t=1790100429069
+EPOCH_RECONCILED epoch=0 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=true entries=0 total=16110 t=1790100429073
+EPOCH_RECONCILED epoch=0 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=true entries=0 total=16110 t=1790100429074
+EPOCH_CLOSE_ROUND epoch=0 round=1 leader=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF leads=false t=1790100429078
+EPOCH_RECONCILED epoch=0 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=true entries=0 total=16110 t=1790100429092
+EPOCH_CLOSE_READY epoch=0 value=FD42AE31FDE5403AC385EF7E8D341CCF2CA7715523DAC3C0E1698AD3E0A107AC t=1790100429125
+EPOCH_CLOSE_ROUND epoch=0 round=0 leader=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 leads=false t=1790100429127
+EPOCH_ADVANCED epoch=1 elections=842 active=0 t=1790100429133
+EPOCH_REPORT epoch=0 certified=16110 residual=842 root=8B34E6E2614579D7937C11B8A5A05172D29E2B16B217AD676B746F437D470C89 reports=1 t=1790100429166
+EPOCH_RECONCILED epoch=0 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=true entries=0 total=16110 t=1790100429193
+EPOCH_RECONCILED epoch=0 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=true entries=0 total=16110 t=1790100429194
+EPOCH_RECONCILED epoch=0 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=true entries=0 total=16110 t=1790100429194
+EPOCH_RECONCILED epoch=0 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=true entries=0 total=16110 t=1790100429194
+EPOCH_RECONCILED epoch=0 reporter=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF complete=true entries=0 total=16110 t=1790100429195
+EPOCH_CLOSED epoch=0 round=0 value=FD42AE31FDE5403AC385EF7E8D341CCF2CA7715523DAC3C0E1698AD3E0A107AC own=true t=1790100429200
+EPOCH_COMMITTEE derived_by=0 members=6 accounts=7171 n=300523177154496498060215159848348901144 digest=6B3158EA4C62426628B231D5399FF1483265434AFD2FDA5ECAA7876503495171 shares=["65A90023:20.3%", "735FE217:17.3%", "D315857C:16.8%", "633D9D61:15.4%", "A353E45E:15.4%", "911999B2:14.8%"] t=1790100429205
+EPOCH_AGREED epoch=0 value=FD42AE31FDE5403AC385EF7E8D341CCF2CA7715523DAC3C0E1698AD3E0A107AC t=1790100429205
+EPOCH_CLOSED epoch=0 round=0 value=FD42AE31FDE5403AC385EF7E8D341CCF2CA7715523DAC3C0E1698AD3E0A107AC own=true t=1790100429223
+EPOCH_COMMITTEE derived_by=0 members=6 accounts=7171 n=300523177154496498060215159848348901144 digest=6B3158EA4C62426628B231D5399FF1483265434AFD2FDA5ECAA7876503495171 shares=["65A90023:20.3%", "735FE217:17.3%", "D315857C:16.8%", "633D9D61:15.4%", "A353E45E:15.4%", "911999B2:14.8%"] t=1790100429229
+EPOCH_AGREED epoch=0 value=FD42AE31FDE5403AC385EF7E8D341CCF2CA7715523DAC3C0E1698AD3E0A107AC t=1790100429229
+EPOCH_CLOSED epoch=0 round=0 value=FD42AE31FDE5403AC385EF7E8D341CCF2CA7715523DAC3C0E1698AD3E0A107AC own=true t=1790100429236
+EPOCH_COMMITTEE derived_by=0 members=6 accounts=7171 n=300523177154496498060215159848348901144 digest=6B3158EA4C62426628B231D5399FF1483265434AFD2FDA5ECAA7876503495171 shares=["65A90023:20.3%", "735FE217:17.3%", "D315857C:16.8%", "633D9D61:15.4%", "A353E45E:15.4%", "911999B2:14.8%"] t=1790100429244
+EPOCH_AGREED epoch=0 value=FD42AE31FDE5403AC385EF7E8D341CCF2CA7715523DAC3C0E1698AD3E0A107AC t=1790100429244
+EPOCH_CLOSED epoch=0 round=0 value=FD42AE31FDE5403AC385EF7E8D341CCF2CA7715523DAC3C0E1698AD3E0A107AC own=true t=1790100429248
+EPOCH_COMMITTEE derived_by=0 members=6 accounts=7171 n=300523177154496498060215159848348901144 digest=6B3158EA4C62426628B231D5399FF1483265434AFD2FDA5ECAA7876503495171 shares=["65A90023:20.3%", "735FE217:17.3%", "D315857C:16.8%", "633D9D61:15.4%", "A353E45E:15.4%", "911999B2:14.8%"] t=1790100429255
+EPOCH_AGREED epoch=0 value=FD42AE31FDE5403AC385EF7E8D341CCF2CA7715523DAC3C0E1698AD3E0A107AC t=1790100429255
+EPOCH_CLOSED epoch=0 round=0 value=FD42AE31FDE5403AC385EF7E8D341CCF2CA7715523DAC3C0E1698AD3E0A107AC own=true t=1790100429258
+EPOCH_COMMITTEE derived_by=0 members=6 accounts=7171 n=300523177154496498060215159848348901144 digest=6B3158EA4C62426628B231D5399FF1483265434AFD2FDA5ECAA7876503495171 shares=["65A90023:20.3%", "735FE217:17.3%", "D315857C:16.8%", "633D9D61:15.4%", "A353E45E:15.4%", "911999B2:14.8%"] t=1790100429264
+EPOCH_AGREED epoch=0 value=FD42AE31FDE5403AC385EF7E8D341CCF2CA7715523DAC3C0E1698AD3E0A107AC t=1790100429264
+[2m2026-09-22T18:07:10.011657Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 18,910 blocks | 2,000 bps | 3,698 cps | avg conf time: 473 ms
+[2m2026-09-22T18:07:11.013006Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 20,752 blocks | 2,000 bps | 1,839 cps | avg conf time: 109 ms
+[2m2026-09-22T18:07:12.013601Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 22,606 blocks | 2,000 bps | 1,852 cps | avg conf time: 110 ms
+[2m2026-09-22T18:07:13.014276Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 24,443 blocks | 2,000 bps | 1,835 cps | avg conf time: 108 ms
+[2m2026-09-22T18:07:14.015244Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 26,300 blocks | 2,000 bps | 1,855 cps | avg conf time: 110 ms
+[2m2026-09-22T18:07:15.016496Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 28,209 blocks | 2,000 bps | 1,906 cps | avg conf time: 111 ms
+EPOCH_ENDED epoch=1 elections=1786 active=212 t=1790100435821
+EPOCH_ENDED epoch=1 elections=1787 active=213 t=1790100435822
+EPOCH_ENDED epoch=1 elections=1798 active=224 t=1790100435827
+EPOCH_ENDED epoch=1 elections=1798 active=224 t=1790100435828
+EPOCH_ENDED epoch=1 elections=1798 active=224 t=1790100435828
+EPOCH_DRAIN_WAIT epoch=1 unterminated=119 previous_closed=true first=["6A83ACA9CAE24E14208FEEBDF08BA35488D561534C04ABF7F98EB5F4B80ABCF4:active:1:2", "8600C7C70F95E72262B6729A6858B78A146414B8077F730EB2258B61A4DC7F7F:active:1:2", "699ACBBE5AFD1F0DB7ECF25E20BDAC1A76128001B1FFD759A49E0798E3B2D68A:active:1:2"] t=1790100435863
+EPOCH_DRAIN_WAIT epoch=1 unterminated=1 previous_closed=true first=["31F9DA4FB87EB549A6466ACD30B5D48F33AD5C66DABC4B8067776656F3C3B4A7:active:1:3"] t=1790100435993
+EPOCH_DRAIN_WAIT epoch=1 unterminated=1 previous_closed=true first=["31F9DA4FB87EB549A6466ACD30B5D48F33AD5C66DABC4B8067776656F3C3B4A7:active:1:3"] t=1790100435999
+EPOCH_DRAIN_WAIT epoch=1 unterminated=1 previous_closed=true first=["31F9DA4FB87EB549A6466ACD30B5D48F33AD5C66DABC4B8067776656F3C3B4A7:active:2:5"] t=1790100436013
+[2m2026-09-22T18:07:16.017427Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 29,826 blocks | 2,000 bps | 1,615 cps | avg conf time: 108 ms
+EPOCH_CLOSE_READY epoch=1 value=AA718FD2D47986FC0B2DBE6D76EE97DDEF0C1002D1083C1CFCC5DAE43E39073B t=1790100436254
+EPOCH_CLOSE_ROUND epoch=1 round=0 leader=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF leads=false t=1790100436254
+EPOCH_ADVANCED epoch=2 elections=1600 active=0 t=1790100436254
+EPOCH_REPORT epoch=1 certified=15381 residual=747 root=E9AFB94973FEF3111123082603C157BF6806421A82EF862743B4B6F21043EC89 reports=1 t=1790100436283
+EPOCH_RECONCILED epoch=1 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=true entries=0 total=15381 t=1790100436298
+EPOCH_CLOSE_READY epoch=1 value=AA718FD2D47986FC0B2DBE6D76EE97DDEF0C1002D1083C1CFCC5DAE43E39073B t=1790100436369
+EPOCH_CLOSE_ROUND epoch=1 round=0 leader=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF leads=true t=1790100436369
+EPOCH_ADVANCED epoch=2 elections=1600 active=0 t=1790100436370
+EPOCH_REPORT epoch=1 certified=15381 residual=758 root=E9AFB94973FEF3111123082603C157BF6806421A82EF862743B4B6F21043EC89 reports=1 t=1790100436403
+EPOCH_RECONCILED epoch=1 reporter=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF complete=true entries=0 total=15381 t=1790100436416
+EPOCH_RECONCILED epoch=1 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=true entries=0 total=15381 t=1790100436416
+EPOCH_CLOSE_READY epoch=1 value=AA718FD2D47986FC0B2DBE6D76EE97DDEF0C1002D1083C1CFCC5DAE43E39073B t=1790100436632
+EPOCH_CLOSE_ROUND epoch=1 round=0 leader=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF leads=false t=1790100436632
+EPOCH_ADVANCED epoch=2 elections=1600 active=0 t=1790100436633
+EPOCH_CLOSE_READY epoch=1 value=AA718FD2D47986FC0B2DBE6D76EE97DDEF0C1002D1083C1CFCC5DAE43E39073B t=1790100436642
+EPOCH_CLOSE_ROUND epoch=1 round=0 leader=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF leads=false t=1790100436642
+EPOCH_ADVANCED epoch=2 elections=1600 active=0 t=1790100436642
+EPOCH_CLOSE_READY epoch=1 value=AA718FD2D47986FC0B2DBE6D76EE97DDEF0C1002D1083C1CFCC5DAE43E39073B t=1790100436648
+EPOCH_CLOSE_ROUND epoch=1 round=0 leader=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF leads=false t=1790100436648
+EPOCH_ADVANCED epoch=2 elections=1600 active=0 t=1790100436649
+EPOCH_REPORT epoch=1 certified=15381 residual=747 root=E9AFB94973FEF3111123082603C157BF6806421A82EF862743B4B6F21043EC89 reports=1 t=1790100436669
+EPOCH_REPORT epoch=1 certified=15381 residual=758 root=E9AFB94973FEF3111123082603C157BF6806421A82EF862743B4B6F21043EC89 reports=1 t=1790100436673
+EPOCH_REPORT epoch=1 certified=15381 residual=758 root=E9AFB94973FEF3111123082603C157BF6806421A82EF862743B4B6F21043EC89 reports=1 t=1790100436691
+EPOCH_RECONCILED epoch=1 reporter=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF complete=true entries=0 total=15381 t=1790100436807
+EPOCH_RECONCILED epoch=1 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=true entries=0 total=15381 t=1790100436807
+EPOCH_RECONCILED epoch=1 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=true entries=0 total=15381 t=1790100436807
+EPOCH_RECONCILED epoch=1 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=true entries=0 total=15381 t=1790100436807
+EPOCH_RECONCILED epoch=1 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=true entries=0 total=15381 t=1790100436808
+EPOCH_RECONCILED epoch=1 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=true entries=0 total=15381 t=1790100436808
+EPOCH_RECONCILED epoch=1 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=true entries=0 total=15381 t=1790100436809
+EPOCH_RECONCILED epoch=1 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=true entries=0 total=15381 t=1790100436837
+EPOCH_RECONCILED epoch=1 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=true entries=0 total=15381 t=1790100436838
+EPOCH_RECONCILED epoch=1 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=true entries=0 total=15381 t=1790100436840
+EPOCH_RECONCILED epoch=1 reporter=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF complete=true entries=0 total=15381 t=1790100436841
+EPOCH_RECONCILED epoch=1 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=true entries=0 total=15381 t=1790100436842
+EPOCH_CLOSED epoch=1 round=0 value=AA718FD2D47986FC0B2DBE6D76EE97DDEF0C1002D1083C1CFCC5DAE43E39073B own=true t=1790100436864
+EPOCH_CLOSED epoch=1 round=0 value=AA718FD2D47986FC0B2DBE6D76EE97DDEF0C1002D1083C1CFCC5DAE43E39073B own=true t=1790100436864
+EPOCH_COMMITTEE derived_by=1 members=6 accounts=12166 n=297388618457966097549806775974848454680 digest=927AFDD35EBED773420AE511716D646CBF6EC62CAB05F2B74C7AC52DBE3CD12F shares=["65A90023:20.2%", "735FE217:17.3%", "D315857C:16.7%", "633D9D61:15.5%", "A353E45E:15.4%", "911999B2:14.9%"] t=1790100436869
+EPOCH_AGREED epoch=1 value=AA718FD2D47986FC0B2DBE6D76EE97DDEF0C1002D1083C1CFCC5DAE43E39073B t=1790100436869
+EPOCH_COMMITTEE derived_by=1 members=6 accounts=12166 n=297388618457966097549806775974848454680 digest=927AFDD35EBED773420AE511716D646CBF6EC62CAB05F2B74C7AC52DBE3CD12F shares=["65A90023:20.2%", "735FE217:17.3%", "D315857C:16.7%", "633D9D61:15.5%", "A353E45E:15.4%", "911999B2:14.9%"] t=1790100436869
+EPOCH_AGREED epoch=1 value=AA718FD2D47986FC0B2DBE6D76EE97DDEF0C1002D1083C1CFCC5DAE43E39073B t=1790100436869
+EPOCH_RECONCILED epoch=1 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=true entries=0 total=15381 t=1790100436872
+EPOCH_RECONCILED epoch=1 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=true entries=0 total=15381 t=1790100436872
+EPOCH_RECONCILED epoch=1 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=true entries=0 total=15381 t=1790100436872
+EPOCH_CLOSE_ROUND epoch=1 round=1 leader=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 leads=false t=1790100436872
+EPOCH_RECONCILED epoch=1 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=true entries=0 total=15381 t=1790100436873
+EPOCH_RECONCILED epoch=1 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=true entries=0 total=15381 t=1790100436873
+EPOCH_RECONCILED epoch=1 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=true entries=0 total=15381 t=1790100436873
+EPOCH_RECONCILED epoch=1 reporter=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF complete=true entries=0 total=15381 t=1790100436873
+EPOCH_RECONCILED epoch=1 reporter=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF complete=true entries=0 total=15381 t=1790100436899
+EPOCH_CLOSED epoch=1 round=0 value=AA718FD2D47986FC0B2DBE6D76EE97DDEF0C1002D1083C1CFCC5DAE43E39073B own=true t=1790100436900
+EPOCH_COMMITTEE derived_by=1 members=6 accounts=12166 n=297388618457966097549806775974848454680 digest=927AFDD35EBED773420AE511716D646CBF6EC62CAB05F2B74C7AC52DBE3CD12F shares=["65A90023:20.2%", "735FE217:17.3%", "D315857C:16.7%", "633D9D61:15.5%", "A353E45E:15.4%", "911999B2:14.9%"] t=1790100436905
+EPOCH_AGREED epoch=1 value=AA718FD2D47986FC0B2DBE6D76EE97DDEF0C1002D1083C1CFCC5DAE43E39073B t=1790100436905
+EPOCH_CLOSED epoch=1 round=0 value=AA718FD2D47986FC0B2DBE6D76EE97DDEF0C1002D1083C1CFCC5DAE43E39073B own=true t=1790100436937
+EPOCH_COMMITTEE derived_by=1 members=6 accounts=12166 n=297388618457966097549806775974848454680 digest=927AFDD35EBED773420AE511716D646CBF6EC62CAB05F2B74C7AC52DBE3CD12F shares=["65A90023:20.2%", "735FE217:17.3%", "D315857C:16.7%", "633D9D61:15.5%", "A353E45E:15.4%", "911999B2:14.9%"] t=1790100436948
+EPOCH_AGREED epoch=1 value=AA718FD2D47986FC0B2DBE6D76EE97DDEF0C1002D1083C1CFCC5DAE43E39073B t=1790100436948
+EPOCH_CLOSED epoch=1 round=0 value=AA718FD2D47986FC0B2DBE6D76EE97DDEF0C1002D1083C1CFCC5DAE43E39073B own=true t=1790100436957
+EPOCH_RECONCILED epoch=1 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=true entries=0 total=15381 t=1790100436960
+EPOCH_COMMITTEE derived_by=1 members=6 accounts=12166 n=297388618457966097549806775974848454680 digest=927AFDD35EBED773420AE511716D646CBF6EC62CAB05F2B74C7AC52DBE3CD12F shares=["65A90023:20.2%", "735FE217:17.3%", "D315857C:16.7%", "633D9D61:15.5%", "A353E45E:15.4%", "911999B2:14.9%"] t=1790100436962
+EPOCH_AGREED epoch=1 value=AA718FD2D47986FC0B2DBE6D76EE97DDEF0C1002D1083C1CFCC5DAE43E39073B t=1790100436962
+EPOCH_RECONCILED epoch=1 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=true entries=0 total=15381 t=1790100436965
+[2m2026-09-22T18:07:17.018181Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 31,202 blocks | 2,000 bps | 1,374 cps | avg conf time: 628 ms
+[2m2026-09-22T18:07:18.019236Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 33,543 blocks | 2,000 bps | 2,338 cps | avg conf time: 200 ms
+[2m2026-09-22T18:07:19.020323Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 35,333 blocks | 2,000 bps | 1,788 cps | avg conf time: 111 ms
+[2m2026-09-22T18:07:20.021359Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 37,209 blocks | 2,000 bps | 1,873 cps | avg conf time: 112 ms
+[2m2026-09-22T18:07:21.022234Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 39,075 blocks | 2,000 bps | 1,864 cps | avg conf time: 113 ms
+[2m2026-09-22T18:07:22.023477Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 40,856 blocks | 2,000 bps | 1,778 cps | avg conf time: 112 ms
+[2m2026-09-22T18:07:23.024817Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 42,671 blocks | 2,000 bps | 1,812 cps | avg conf time: 110 ms
+EPOCH_ENDED epoch=2 elections=2255 active=0 t=1790100443842
+EPOCH_ENDED epoch=2 elections=2255 active=0 t=1790100443895
+EPOCH_ENDED epoch=2 elections=2255 active=0 t=1790100443934
+EPOCH_CLOSE_READY epoch=2 value=ADCD355341E1CC1F5E65DD26B60EAFE1B6202DA74E5A589D98DE44604DDCFA49 t=1790100443980
+EPOCH_CLOSE_ROUND epoch=2 round=0 leader=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 leads=false t=1790100443980
+EPOCH_ADVANCED epoch=3 elections=2255 active=0 t=1790100443981
+EPOCH_ENDED epoch=2 elections=2255 active=0 t=1790100443993
+EPOCH_REPORT epoch=2 certified=13573 residual=655 root=E57B7C7B8E1C0B99374D1B92E852C682E67EBA7A95F697E092A185C77685E3DE reports=1 t=1790100443998
+EPOCH_RECONCILED epoch=2 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=true entries=0 total=13573 t=1790100444009
+EPOCH_ENDED epoch=2 elections=2255 active=0 t=1790100444025
+[2m2026-09-22T18:07:24.026784Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 42,745 blocks | 2,000 bps | 73 cps | avg conf time: 114 ms
+EPOCH_CLOSE_READY epoch=2 value=ADCD355341E1CC1F5E65DD26B60EAFE1B6202DA74E5A589D98DE44604DDCFA49 t=1790100444035
+EPOCH_CLOSE_ROUND epoch=2 round=0 leader=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 leads=true t=1790100444037
+EPOCH_ADVANCED epoch=3 elections=2255 active=0 t=1790100444038
+EPOCH_REPORT epoch=2 certified=13573 residual=655 root=E57B7C7B8E1C0B99374D1B92E852C682E67EBA7A95F697E092A185C77685E3DE reports=1 t=1790100444060
+EPOCH_RECONCILED epoch=2 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=true entries=0 total=13573 t=1790100444073
+EPOCH_RECONCILED epoch=2 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=true entries=0 total=13573 t=1790100444073
+EPOCH_CLOSE_READY epoch=2 value=ADCD355341E1CC1F5E65DD26B60EAFE1B6202DA74E5A589D98DE44604DDCFA49 t=1790100444073
+EPOCH_CLOSE_ROUND epoch=2 round=0 leader=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 leads=false t=1790100444073
+EPOCH_ADVANCED epoch=3 elections=2255 active=0 t=1790100444074
+EPOCH_REPORT epoch=2 certified=13573 residual=655 root=E57B7C7B8E1C0B99374D1B92E852C682E67EBA7A95F697E092A185C77685E3DE reports=1 t=1790100444097
+EPOCH_RECONCILED epoch=2 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=true entries=0 total=13573 t=1790100444107
+EPOCH_RECONCILED epoch=2 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=true entries=0 total=13573 t=1790100444107
+EPOCH_RECONCILED epoch=2 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=true entries=0 total=13573 t=1790100444107
+EPOCH_CLOSE_READY epoch=2 value=ADCD355341E1CC1F5E65DD26B60EAFE1B6202DA74E5A589D98DE44604DDCFA49 t=1790100444131
+EPOCH_CLOSE_ROUND epoch=2 round=0 leader=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 leads=false t=1790100444131
+EPOCH_ADVANCED epoch=3 elections=2255 active=0 t=1790100444132
+EPOCH_REPORT epoch=2 certified=13573 residual=655 root=E57B7C7B8E1C0B99374D1B92E852C682E67EBA7A95F697E092A185C77685E3DE reports=1 t=1790100444146
+EPOCH_RECONCILED epoch=2 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=true entries=0 total=13573 t=1790100444162
+EPOCH_RECONCILED epoch=2 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=true entries=0 total=13573 t=1790100444162
+EPOCH_RECONCILED epoch=2 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=true entries=0 total=13573 t=1790100444162
+EPOCH_RECONCILED epoch=2 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=true entries=0 total=13573 t=1790100444163
+EPOCH_CLOSE_READY epoch=2 value=ADCD355341E1CC1F5E65DD26B60EAFE1B6202DA74E5A589D98DE44604DDCFA49 t=1790100444163
+EPOCH_CLOSE_ROUND epoch=2 round=0 leader=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 leads=false t=1790100444163
+EPOCH_ADVANCED epoch=3 elections=2255 active=0 t=1790100444164
+EPOCH_RECONCILED epoch=2 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=true entries=0 total=13573 t=1790100444165
+EPOCH_RECONCILED epoch=2 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=true entries=0 total=13573 t=1790100444165
+EPOCH_RECONCILED epoch=2 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=true entries=0 total=13573 t=1790100444166
+EPOCH_REPORT epoch=2 certified=13573 residual=655 root=E57B7C7B8E1C0B99374D1B92E852C682E67EBA7A95F697E092A185C77685E3DE reports=1 t=1790100444184
+EPOCH_RECONCILED epoch=2 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=true entries=0 total=13573 t=1790100444194
+EPOCH_RECONCILED epoch=2 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=true entries=0 total=13573 t=1790100444195
+EPOCH_RECONCILED epoch=2 reporter=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF complete=true entries=0 total=13573 t=1790100444195
+EPOCH_RECONCILED epoch=2 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=true entries=0 total=13573 t=1790100444195
+EPOCH_RECONCILED epoch=2 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=true entries=0 total=13573 t=1790100444195
+EPOCH_RECONCILED epoch=2 reporter=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF complete=true entries=0 total=13573 t=1790100444218
+EPOCH_RECONCILED epoch=2 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=true entries=0 total=13573 t=1790100444219
+EPOCH_RECONCILED epoch=2 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=true entries=0 total=13573 t=1790100444219
+EPOCH_RECONCILED epoch=2 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=true entries=0 total=13573 t=1790100444252
+EPOCH_RECONCILED epoch=2 reporter=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF complete=true entries=0 total=13573 t=1790100444253
+EPOCH_CLOSE_ROUND epoch=2 round=1 leader=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 leads=true t=1790100444296
+EPOCH_CLOSED epoch=2 round=0 value=ADCD355341E1CC1F5E65DD26B60EAFE1B6202DA74E5A589D98DE44604DDCFA49 own=true t=1790100444303
+EPOCH_CLOSED epoch=2 round=0 value=ADCD355341E1CC1F5E65DD26B60EAFE1B6202DA74E5A589D98DE44604DDCFA49 own=true t=1790100444303
+EPOCH_CLOSED epoch=2 round=0 value=ADCD355341E1CC1F5E65DD26B60EAFE1B6202DA74E5A589D98DE44604DDCFA49 own=true t=1790100444303
+EPOCH_CLOSED epoch=2 round=0 value=ADCD355341E1CC1F5E65DD26B60EAFE1B6202DA74E5A589D98DE44604DDCFA49 own=true t=1790100444303
+EPOCH_CLOSED epoch=2 round=0 value=ADCD355341E1CC1F5E65DD26B60EAFE1B6202DA74E5A589D98DE44604DDCFA49 own=true t=1790100444306
+EPOCH_COMMITTEE derived_by=2 members=6 accounts=15468 n=294437816267952349905242073755802012850 digest=6C89FAE65EF9829A89264BC742089252F7D77BB8BB2BD798E8C175C24DB0E722 shares=["65A90023:20.4%", "735FE217:17.4%", "D315857C:16.6%", "633D9D61:15.4%", "A353E45E:15.3%", "911999B2:14.8%"] t=1790100444309
+EPOCH_AGREED epoch=2 value=ADCD355341E1CC1F5E65DD26B60EAFE1B6202DA74E5A589D98DE44604DDCFA49 t=1790100444309
+EPOCH_COMMITTEE derived_by=2 members=6 accounts=15468 n=294437816267952349905242073755802012850 digest=6C89FAE65EF9829A89264BC742089252F7D77BB8BB2BD798E8C175C24DB0E722 shares=["65A90023:20.4%", "735FE217:17.4%", "D315857C:16.6%", "633D9D61:15.4%", "A353E45E:15.3%", "911999B2:14.8%"] t=1790100444309
+EPOCH_AGREED epoch=2 value=ADCD355341E1CC1F5E65DD26B60EAFE1B6202DA74E5A589D98DE44604DDCFA49 t=1790100444309
+EPOCH_COMMITTEE derived_by=2 members=6 accounts=15468 n=294437816267952349905242073755802012850 digest=6C89FAE65EF9829A89264BC742089252F7D77BB8BB2BD798E8C175C24DB0E722 shares=["65A90023:20.4%", "735FE217:17.4%", "D315857C:16.6%", "633D9D61:15.4%", "A353E45E:15.3%", "911999B2:14.8%"] t=1790100444310
+EPOCH_AGREED epoch=2 value=ADCD355341E1CC1F5E65DD26B60EAFE1B6202DA74E5A589D98DE44604DDCFA49 t=1790100444310
+EPOCH_COMMITTEE derived_by=2 members=6 accounts=15468 n=294437816267952349905242073755802012850 digest=6C89FAE65EF9829A89264BC742089252F7D77BB8BB2BD798E8C175C24DB0E722 shares=["65A90023:20.4%", "735FE217:17.4%", "D315857C:16.6%", "633D9D61:15.4%", "A353E45E:15.3%", "911999B2:14.8%"] t=1790100444310
+EPOCH_AGREED epoch=2 value=ADCD355341E1CC1F5E65DD26B60EAFE1B6202DA74E5A589D98DE44604DDCFA49 t=1790100444310
+EPOCH_COMMITTEE derived_by=2 members=6 accounts=15468 n=294437816267952349905242073755802012850 digest=6C89FAE65EF9829A89264BC742089252F7D77BB8BB2BD798E8C175C24DB0E722 shares=["65A90023:20.4%", "735FE217:17.4%", "D315857C:16.6%", "633D9D61:15.4%", "A353E45E:15.3%", "911999B2:14.8%"] t=1790100444313
+EPOCH_AGREED epoch=2 value=ADCD355341E1CC1F5E65DD26B60EAFE1B6202DA74E5A589D98DE44604DDCFA49 t=1790100444313
+[2m2026-09-22T18:07:25.028927Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 42,745 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+[2m2026-09-22T18:07:26.030275Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 42,745 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+[2m2026-09-22T18:07:27.032191Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 42,745 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+[2m2026-09-22T18:07:28.033940Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 42,745 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+[2m2026-09-22T18:07:29.036742Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 42,745 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+[2m2026-09-22T18:07:30.039182Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 42,745 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+[2m2026-09-22T18:07:31.041530Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 42,745 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+[2m2026-09-22T18:07:32.043034Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 42,745 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+[2m2026-09-22T18:07:33.044149Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 42,745 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+[2m2026-09-22T18:07:34.046659Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 42,745 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+[2m2026-09-22T18:07:35.048722Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 42,745 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+[2m2026-09-22T18:07:36.050452Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 42,745 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+[2m2026-09-22T18:07:37.051731Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 42,745 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+[2m2026-09-22T18:07:38.054019Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 42,745 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+[2m2026-09-22T18:07:39.055808Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 42,745 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+[2m2026-09-22T18:07:40.058001Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 42,745 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+[2m2026-09-22T18:07:41.059645Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 42,745 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+[2m2026-09-22T18:07:42.062045Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 42,745 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+[2m2026-09-22T18:07:43.063643Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 42,745 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+[2m2026-09-22T18:07:44.065473Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 42,745 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+[2m2026-09-22T18:07:45.067157Z[0m [32m INFO[0m [2mnanospam::app[0m[2m:[0m Confirmed 42,745 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+cleanup done

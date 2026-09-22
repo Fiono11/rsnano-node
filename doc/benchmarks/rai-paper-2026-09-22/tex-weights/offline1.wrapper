@@ -1,0 +1,31 @@
+/Users/ruimorais/rsnano-node/target/release/rsnano
+publishing done after 78s
+t=0s epochs=[0, 1, 2] open={0: [0, 0, 0, 0, 0], 1: [0, 0, 0, 0, 0], 2: [0, 0, 0, 0, 0]} inconsistent=[] cemented=['42810', '42810', '42810', '42810', '42810']
+  epoch 0: AB50C7F0 fin=15268 single=842 pend=0 cem_und=0 empty=0 confl=0 | AB50C7F0 fin=15268 single=842 pend=0 cem_und=0 empty=0 confl=0 | AB50C7F0 fin=15268 single=842 pend=0 cem_und=0 empty=0 confl=0 | AB50C7F0 fin=15268 single=842 pend=0 cem_und=0 empty=0 confl=0 | AB50C7F0 fin=15268 single=842 pend=0 cem_und=0 empty=0 confl=0
+  epoch 1: BB97BD94 fin=14623 single=758 pend=0 cem_und=0 empty=0 confl=0 | BB97BD94 fin=14623 single=758 pend=0 cem_und=0 empty=0 confl=0 | BB97BD94 fin=14623 single=758 pend=0 cem_und=0 empty=0 confl=0 | BB97BD94 fin=14623 single=758 pend=0 cem_und=0 empty=0 confl=0 | BB97BD94 fin=14623 single=758 pend=0 cem_und=0 empty=0 confl=0
+  epoch 2: B6D76248 fin=12918 single=655 pend=0 cem_und=0 empty=0 confl=0 | B6D76248 fin=12918 single=655 pend=0 cem_und=0 empty=0 confl=0 | B6D76248 fin=12918 single=655 pend=0 cem_und=0 empty=0 confl=0 | B6D76248 fin=12918 single=655 pend=0 cem_und=0 empty=0 confl=0 | B6D76248 fin=12918 single=655 pend=0 cem_und=0 empty=0 confl=0
+SETTLED_CONSISTENT after 0s: epochs [0, 1, 2] identical on all PRs, cemented=['42810', '42810', '42810', '42810', '42810']
+epoch 3 is empty on every PR: not ended
+close t=0s left=[0, 1, 2] open={0: [0, 0, 0, 0, 0], 1: [0, 0, 0, 0, 0], 2: [0, 0, 0, 0, 0]} inconsistent=[]
+  close 0: round=1 ready=true started=true value=FD42AE31 closed=FD42AE31@0= | round=0 ready=true started=true value=FD42AE31 closed=FD42AE31@0= | round=0 ready=true started=true value=FD42AE31 closed=FD42AE31@0= | round=0 ready=true started=true value=FD42AE31 closed=FD42AE31@0= | round=0 ready=true started=true value=FD42AE31 closed=FD42AE31@0=
+  close 1: round=0 ready=true started=true value=AA718FD2 closed=AA718FD2@0= | round=0 ready=true started=true value=AA718FD2 closed=AA718FD2@0= | round=0 ready=true started=true value=AA718FD2 closed=AA718FD2@0= | round=0 ready=true started=true value=AA718FD2 closed=AA718FD2@0= | round=1 ready=true started=true value=AA718FD2 closed=AA718FD2@0=
+  close 2: round=0 ready=true started=true value=ADCD3553 closed=ADCD3553@0= | round=1 ready=true started=true value=ADCD3553 closed=ADCD3553@0= | round=0 ready=true started=true value=ADCD3553 closed=ADCD3553@0= | round=0 ready=true started=true value=ADCD3553 closed=ADCD3553@0= | round=0 ready=true started=true value=ADCD3553 closed=ADCD3553@0=
+CLOSED_CONSISTENT after 0s: epochs [0, 1, 2] closed identically on all PRs
+settle check exit=0 at 79s (settle phase 1s)
+committee genesis: members=6 n=3.403e+38 digest=F9BD739D on PR0,PR1,PR2,PR3,PR4 ok
+    3tfyyzs3=20.2% ohsmj9th=16.0% 8g5mp8f1=16.0% 5pddzijp=16.0% xfwtat7m=16.0% rxk7n7ne=16.0%
+committee       0: members=6 n=3.005e+38 digest=6B3158EA on PR0,PR1,PR2,PR3,PR4 ok
+    xfwtat7m=20.3% ohsmj9th=17.3% rxk7n7ne=16.8% 5pddzijp=15.4% 8g5mp8f1=15.4% 3tfyyzs3=14.8%
+committee       1: members=6 n=2.974e+38 digest=927AFDD3 on PR0,PR1,PR2,PR3,PR4 ok
+    xfwtat7m=20.2% ohsmj9th=17.3% rxk7n7ne=16.7% 5pddzijp=15.5% 8g5mp8f1=15.4% 3tfyyzs3=14.9%
+committee       2: members=6 n=2.944e+38 digest=6C89FAE6 on PR0,PR1,PR2,PR3,PR4 ok
+    xfwtat7m=20.4% ohsmj9th=17.4% rxk7n7ne=16.6% 5pddzijp=15.4% 8g5mp8f1=15.3% 3tfyyzs3=14.8%
+current epochs per PR: [3, 3, 3, 3, 3]
+n ranges over 2.9444e+38..3.4028e+38: 13.47% in flight at most
+COMMITTEES_CONSISTENT
+epochs=[0, 1, 2] slots=45064 finalized slots=42809 finalized blocks=42809 slots with more than one block in the state=0
+S2 slots finalized one way and single-notarized another in some epoch: 0
+S3 blocks finalized in more than one epoch: 0
+S5 blocks discarded as late: 0, of which decided afresh in a later epoch: 0
+S4 slots checked against every PR's ledger: 300 of 42809
+SAFE

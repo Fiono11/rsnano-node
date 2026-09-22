@@ -1,0 +1,25 @@
+a rep1 exit=0 | SETTLED_CONSISTENT after 0s: epochs [0, 1, 2] identical on all PRs, cemented=['42874', '42874', '42874', '42874', '42874', '42874'] CLOSED_CONSISTENT after 0s: epochs [0, 1, 2] closed identically on a
+    
+    closes:    6 epoch=0 round=0    6 epoch=1 round=0    6 epoch=2 round=1 
+== a rep1 done rc=0
+b rep1 exit=0 | SETTLED_CONSISTENT after 0s: epochs [0, 1, 2] identical on all PRs, cemented=['42933', '42933', '42933', '42933', '42933', '42933'] CLOSED_CONSISTENT after 0s: epochs [0, 1, 2] closed identically on a
+    
+    closes:    6 epoch=0 round=0    6 epoch=1 round=1    6 epoch=2 round=0 
+== b rep1 done rc=0
+c rep1 exit=0 | SETTLED_CONSISTENT after 0s: epochs [0, 1, 2] identical on all PRs, cemented=['43019', '43019', '43019', '43019', '43019', '43019'] CLOSED_CONSISTENT after 0s: epochs [0, 1, 2] closed identically on a
+    
+    closes:    6 epoch=0 round=0    6 epoch=1 round=1    6 epoch=2 round=1 
+== c rep1 done rc=0
+a rep2 exit=0 | SETTLED_CONSISTENT after 0s: epochs [0, 1, 2] identical on all PRs, cemented=['42962', '42962', '42962', '42962', '42962', '42962'] CLOSED_CONSISTENT after 0s: epochs [0, 1, 2] closed identically on a
+    
+    closes:    6 epoch=0 round=0    6 epoch=1 round=0    6 epoch=2 round=0 
+== a rep2 done rc=0
+b rep2 exit=0 | SETTLED_CONSISTENT after 0s: epochs [0, 1, 2] identical on all PRs, cemented=['42994', '42994', '42993', '42994', '42994', '42994'] CLOSED_CONSISTENT after 0s: epochs [0, 1, 2] closed identically on a
+    
+    closes:    6 epoch=0 round=1    6 epoch=1 round=0    6 epoch=2 round=0 
+== b rep2 done rc=0
+c rep2 exit=0 | SETTLED_CONSISTENT after 0s: epochs [0, 1, 2] identical on all PRs, cemented=['42919', '42919', '42919', '42919', '42919', '42919'] CLOSED_CONSISTENT after 0s: epochs [0, 1, 2] closed identically on a
+    
+    closes:    6 epoch=0 round=1    6 epoch=1 round=0    6 epoch=2 round=0 
+== c rep2 done rc=0
+AB_DONE
