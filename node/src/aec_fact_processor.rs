@@ -201,7 +201,7 @@ impl AecFactProcessor {
         }
         // The hashes are listed: the run's safety check reads them to prove
         // that nothing discarded was ever finalized
-        eprintln!(
+        crate::utils::diagnostic!(
             "EPOCH_DISCARDED epoch={} candidates={} rolled_back={} not_held={} cemented_kept={} failed={} {:?} hashes={:?}",
             epoch,
             hashes.len(),

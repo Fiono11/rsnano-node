@@ -33,6 +33,7 @@ use crate::{
         vote_generation::VoteTarget,
     },
     representatives::QuorumSnapshot,
+    utils::diagnostic,
 };
 
 use super::{
@@ -183,9 +184,8 @@ impl ActiveElectionsContainer {
         self.epoch_ends_at = self.next_boundary(now);
         self.decided_in_current_epoch = 0;
         if cfg!(feature = "rai_protocol") {
-            eprintln!(
-                "EPOCH_START t={} epoch={} elections={}",
-                unix_ms(),
+            diagnostic!(
+                "EPOCH_START epoch={} elections={}",
                 self.current_epoch,
                 self.roots.len()
             );
@@ -350,9 +350,8 @@ impl ActiveElectionsContainer {
         self.draining = true;
         self.stats.epochs_ended += 1;
         if cfg!(feature = "rai_protocol") {
-            eprintln!(
-                "EPOCH_ENDED t={} epoch={} elections={} active={}",
-                unix_ms(),
+            diagnostic!(
+                "EPOCH_ENDED epoch={} elections={} active={}",
                 self.current_epoch,
                 self.roots.len(),
                 self.roots.active_len()
@@ -491,9 +490,8 @@ impl ActiveElectionsContainer {
                 format!("{}:{:.1}%", &rep.to_string()[..8], share * 100.0)
             })
             .collect();
-        eprintln!(
-            "EPOCH_COMMITTEE t={} derived_by={} members={} accounts={} n={} digest={} shares={:?}",
-            unix_ms(),
+        diagnostic!(
+            "EPOCH_COMMITTEE derived_by={} members={} accounts={} n={} digest={} shares={:?}",
             derived_by,
             committee.len(),
             self.committees.counted(),
@@ -527,9 +525,8 @@ impl ActiveElectionsContainer {
         self.tick_closes(now);
         self.notify(AecFact::EpochAdvanced(self.current_epoch));
         if cfg!(feature = "rai_protocol") {
-            eprintln!(
-                "EPOCH_ADVANCED t={} epoch={} elections={} active={}",
-                unix_ms(),
+            diagnostic!(
+                "EPOCH_ADVANCED epoch={} elections={} active={}",
                 self.current_epoch,
                 self.roots.len(),
                 self.roots.active_len()
@@ -781,9 +778,8 @@ impl ActiveElectionsContainer {
                 )
             })
             .collect();
-        eprintln!(
-            "EPOCH_DRAIN_WAIT t={} epoch={} unterminated={} previous_closed={} first={:?}",
-            unix_ms(),
+        diagnostic!(
+            "EPOCH_DRAIN_WAIT epoch={} unterminated={} previous_closed={} first={:?}",
             self.current_epoch,
             self.epoch_state(self.current_epoch).unterminated,
             self.previous_epoch_closed(self.current_epoch),
@@ -804,18 +800,12 @@ impl ActiveElectionsContainer {
             }
             match event {
                 CloseEvent::Ready(value) => {
-                    eprintln!(
-                        "EPOCH_CLOSE_READY t={} epoch={} value={}",
-                        unix_ms(),
-                        epoch,
-                        value
-                    );
+                    diagnostic!("EPOCH_CLOSE_READY epoch={} value={}", epoch, value);
                 }
                 CloseEvent::RoundEntered { round, leader } => {
                     let leads = leader.is_some_and(|leader| self.local_reps.contains(&leader));
-                    eprintln!(
-                        "EPOCH_CLOSE_ROUND t={} epoch={} round={} leader={} leads={}",
-                        unix_ms(),
+                    diagnostic!(
+                        "EPOCH_CLOSE_ROUND epoch={} round={} leader={} leads={}",
                         epoch,
                         round,
                         leader
@@ -825,9 +815,8 @@ impl ActiveElectionsContainer {
                     );
                 }
                 CloseEvent::Closed { round, value, own } => {
-                    eprintln!(
-                        "EPOCH_CLOSED t={} epoch={} round={} value={} own={}",
-                        unix_ms(),
+                    diagnostic!(
+                        "EPOCH_CLOSED epoch={} round={} value={} own={}",
                         epoch,
                         round,
                         value,
@@ -835,12 +824,7 @@ impl ActiveElectionsContainer {
                     );
                 }
                 CloseEvent::Agreed(value) => {
-                    eprintln!(
-                        "EPOCH_AGREED t={} epoch={} value={}",
-                        unix_ms(),
-                        epoch,
-                        value
-                    );
+                    diagnostic!("EPOCH_AGREED epoch={} value={}", epoch, value);
                 }
             }
         }
@@ -1971,14 +1955,6 @@ fn delegations(election: &Election) -> Vec<Delegation> {
             })
         })
         .collect()
-}
-
-/// For the diagnostics on stderr, which nanospam collects
-fn unix_ms() -> u128 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or_default()
 }
 
 #[cfg(test)]
