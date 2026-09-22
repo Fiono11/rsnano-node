@@ -164,8 +164,18 @@ impl EpochStates {
             .collect()
     }
 
-    /// RAI, Section 6.1: this node's statements in the instances of one
-    /// epoch which finalized and left the AEC, for the epoch's report
+    /// RAI: the instances of one epoch which finalized and left the AEC
+    pub fn instances_of(&self, epoch: ConsensusEpoch) -> impl Iterator<Item = &FinalizedInstance> {
+        self.instances.iter().filter_map(move |(hash, instances)| {
+            instances
+                .iter()
+                .find(|i| i.epoch == epoch && i.winner == *hash)
+                .map(|i| i.as_ref())
+        })
+    }
+
+    /// RAI: this node's statements in the instances of one epoch which
+    /// finalized and left the AEC, for the epoch's report
     pub fn slots_of(
         &self,
         epoch: ConsensusEpoch,

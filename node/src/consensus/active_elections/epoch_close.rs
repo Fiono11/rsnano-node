@@ -148,6 +148,10 @@ pub(crate) enum CloseEvent {
     /// This replica's own value is the finalized one, at the close or once
     /// its instances settled later: the epoch is decided here
     Agreed(BlockHash),
+    /// RAI: the round was abandoned because the two committees of the joint
+    /// election certified different values and none of them all (the
+    /// cross-committee conflict clause of ET)
+    RoundConflict { round: u32 },
 }
 
 /// The close election as seen from outside
@@ -402,6 +406,7 @@ impl EpochClose {
     /// Tallies a round in the committees, collects its certificates and
     /// closes the epoch on a finalized value
     fn count_round(&mut self, round: usize, committees: &Committees, now: Timestamp) {
+        let conflicted = self.rounds[round].certificates.conflict;
         let slot = &mut self.rounds[round];
         slot.votes.calculate(committees);
         slot.votes.update_certificates(&mut slot.certificates);
@@ -412,6 +417,11 @@ impl EpochClose {
             &slot.certificates,
             &slot.candidates,
         );
+        if slot.certificates.conflict && !conflicted {
+            self.events.push(CloseEvent::RoundConflict {
+                round: round as u32,
+            });
+        }
         if let Some(value) = slot.certificates.finalized() {
             self.closed = Some((round as u32, value));
             self.closed_at = Some(now);

@@ -1,9 +1,26 @@
 # RAI: paper compliance, phase by phase (2026-09-22)
 
-Bringing the `rai_kudzu` implementation in line with *RAI: Multi-Tree Kudzu with Epochs
-and Lagged Reconfiguration* (simplified specification, 2026-09-22, `RAI.pdf`), one phase
+Bringing the `rai_kudzu` implementation in line with the protocol specification, one phase
 at a time. After every phase the four benchmark variants are rerun; a phase is kept only
 if performance is maintained against the baseline.
+
+**The specification changed mid-way.** The first phases were written against *RAI: Multi-Tree
+Kudzu with Epochs and Lagged Reconfiguration* (`RAI.pdf`, a simplified specification). `RAI.tex`
+- *RAI: Value Transfer with Account-Local Consensus* - supersedes it, and the phases from
+`tex-step1` on follow that. What changed for the work already done:
+
+| done against `RAI.pdf` | under `RAI.tex` |
+|---|---|
+| phase 7a: the timeout block is notarized in place of a candidate that never arrives | reverted. Account elections have no slot timer and no timeout votes at all; unresolved competition is carried to the epoch decision |
+| item 22: the Δ_timeout first vote, deferred after it broke convergence | dropped. The specification removes account timeouts, which is what the measurement had shown |
+| phase 1: a report is a per-vote dictionary keyed by (account, height, kind) | to rework. A report commits to a certified-state root over the reporter's certified block tree and a residual-vote root over the evidence not yet reflected there |
+| reconciliation by recursive comparison of an authenticated dictionary | to rework as a state difference between two roots a responder knows; the specification says explicitly that it does not rely on recursive pairwise Merkle-tree comparison, which is the walk measured below at ~2.3 MB |
+| `possibleQ(h)`: `F_Q(h) >= p+1` or `V_Q(h) >= f+p+1` | replaced by `Include_Q(h)`: certified-visible, or one selected reporter's residual vote |
+| `S_e = (Σ_e, U_e)` with unresolved hashes | `S_e = (L_e, Σ_e)`: a checkpoint ledger whose conflicting survivors are checkpoint-notarized without application effect, and the finalized-only replay |
+| phase 4: the close counts in the old and the new committee | confirmed, and extended with the cross-committee conflict clause of `ET` |
+
+New in `RAI.tex` and not yet implemented: ancestral finalization closure, local
+epoch-preservation locks, child-based fork recovery at slot v+1, and batched account blocks.
 
 Base: plain HEAD `699a0cd1e` (the user's choice; the uncommitted Sept 21 fixes in
 `stash@{0}` are not used).
@@ -52,6 +69,7 @@ Confirmation rate and median confirmation time over the seconds at >= 1000 cps.
 | phase 7a (item 21) | 1955 cps / 94 ms | 1963 cps / 107 ms | 1911, 1910 cps / 109, 110 ms | pass |
 | phase 1 (reports) | 2046 cps / 96 ms | 2066 cps / 108 ms | 1995, 1920 cps / 108, 107 ms | pass |
 | phase 4 (committees) | 2100 cps / 97 ms | 1967 cps / 111 ms | 1911 cps / 102 ms | pass |
+| tex: ET + reports | 1959 cps / 101 ms | 1959 cps / 99 ms | 1864 cps / 109 ms | pass |
 
 `offline1` is the A/B of `offline1-ab/` (phase 7a against the base) and `phase1-ab/` (phase 1
 against phase 7a); the other three are the matrix runs. Every check passes on every variant of
@@ -97,6 +115,34 @@ Two changes followed, both from the measurement:
 
 `phase1-smoke2.log` after the change: every check passes at 1876 cps / 108 ms, six reports of
 ~31000 entries per epoch, zero reconciliations.
+
+### What a certified-state report costs
+
+The reports of `RAI.tex` are two roots: `r_i` over the reporter's certified block tree and `g_i`
+over the votes of its own that the tree does not summarize. Reconciliation is a reconstructive
+difference between two states a responder knows, which the text prefers to recursive comparison
+of an authenticated dictionary by name.
+
+Measured over the four variants, the difference is nearly always nothing at all:
+
+| variant | certified entries per reporter | residual | reconciliations | entries transferred |
+|---------|-------------------------------|----------|-----------------|---------------------|
+| fork0    | 16164 on all six, identical  | 0        | 78  | 0 |
+| fork5    | 16200-16271                  | 449-556  | 66  | 0 |
+| offline1 | 16229 on all five, identical | 784-799  | 70  | 0 |
+| byz1     |                              |          | 184 | 0 |
+
+That is the point of the two roots. A certified state records what a validator constructed
+certificates for, and validators that saw the same votes construct the same certificates, so the
+roots simply coincide and there is nothing to reconcile. What legitimately differs between
+replicas - the votes each one cast for a block no certificate covers - is carried by the residual
+root, in the report itself, instead of being repaired over the wire.
+
+The per-vote dictionary of the superseded specification had the opposite shape. It recorded each
+replica's own first and final votes, which differ by construction, so a reconciliation had to
+repair 800-2700 entries spread over the key space at a cost of 2455 to 45587 requests
+(`phase1-smoke.log`). The measurement is what made the case for the change; the change is what
+the text specifies.
 
 ### Phase 4: what the joint close costs
 

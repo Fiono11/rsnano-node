@@ -1,12 +1,7 @@
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+use std::sync::{Arc, Mutex};
 
-use rsnano_messages::{Message, Report, ReportAck, ReportReq};
+use rsnano_messages::{Message, ReconReply, ReconReq, Report};
 use rsnano_network::{Channel, TrafficType};
-use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{ConsensusEpoch, PublicKey};
 use rsnano_utils::stats::{DetailType, Direction, StatType, Stats};
 
@@ -26,38 +21,28 @@ use crate::{
 /// infrastructure around it: the keys, the clock, the network.
 pub struct ReportService {
     exchange: Mutex<ReportExchange>,
-    /// Where each reporter's report came from: its requests go back there
-    channels: Mutex<HashMap<(ConsensusEpoch, PublicKey), Arc<Channel>>>,
     active_elections: Arc<AecService>,
     wallet_reps: Arc<Mutex<WalletRepresentatives>>,
     flooder: Mutex<MessageFlooder>,
     sender: Mutex<MessageSender>,
-    clock: Arc<SteadyClock>,
     stats: Arc<Stats>,
 }
 
 #[allow(dead_code)] // reconciled_count is read by the close, Section 9.1
 impl ReportService {
-    /// How long an unanswered reconciliation request waits before it is
-    /// repeated
-    const REQUEST_TIMEOUT: Duration = Duration::from_secs(2);
-
     pub fn new(
         active_elections: Arc<AecService>,
         wallet_reps: Arc<Mutex<WalletRepresentatives>>,
         flooder: MessageFlooder,
         sender: MessageSender,
-        clock: Arc<SteadyClock>,
         stats: Arc<Stats>,
     ) -> Self {
         Self {
             exchange: Mutex::new(ReportExchange::new()),
-            channels: Mutex::new(HashMap::new()),
             active_elections,
             wallet_reps,
             flooder: Mutex::new(flooder),
             sender: Mutex::new(sender),
-            clock,
             stats,
         }
     }
@@ -68,7 +53,6 @@ impl ReportService {
             Arc::new(Mutex::new(WalletRepresentatives::new_null())),
             MessageFlooder::new_null(),
             MessageSender::new_null(),
-            Arc::new(SteadyClock::new_null()),
             Arc::new(Stats::default()),
         )
     }
@@ -81,24 +65,31 @@ impl ReportService {
         if keys.is_empty() {
             return;
         }
-        let Some((map, committee)) = self.active_elections.epoch_report(epoch) else {
+        let Some(report) = self.active_elections.epoch_report(epoch) else {
             return;
         };
-        let entries = map.len();
-        let root = map.root();
+        let certified = report.certified.len();
+        let residual = report.residual.len();
+        let root = report.certified.root();
         let messages = {
             let mut exchange = self.exchange.lock().unwrap();
-            exchange.report_epoch(epoch, map, committee, &keys)
+            exchange.report_epoch(
+                epoch,
+                report.certified,
+                report.residual,
+                report.committee,
+                &keys,
+            )
         };
         if messages.is_empty() {
             return;
         }
         crate::utils::diagnostic!(
-            "EPOCH_REPORT epoch={} entries={} root={} committee={} reports={}",
+            "EPOCH_REPORT epoch={} certified={} residual={} root={} reports={}",
             epoch,
-            entries,
+            certified,
+            residual,
             root,
-            committee,
             messages.len()
         );
         self.send(messages, None);
@@ -108,68 +99,85 @@ impl ReportService {
     /// when a close has to be validated against it (Section 6.2), not on
     /// arrival: a reconciliation transfers most of the reporter's map, and
     /// nothing decides on a report yet.
-    pub fn handle_report(&self, report: Report, channel: &Arc<Channel>) {
+    pub fn handle_report(&self, report: Report, _channel: &Arc<Channel>) {
         self.stats
             .inc_dir(StatType::Message, DetailType::Report, Direction::In);
-        let key = (report.epoch, report.reporter);
-        let taken = self.exchange.lock().unwrap().handle_report(report);
-        if taken {
-            self.channels.lock().unwrap().insert(key, channel.clone());
-        }
+        self.exchange.lock().unwrap().handle_report(report);
     }
 
-    /// Section 6.2: reconcile a stored report, which a close proposal has to
-    /// be validated against
+    /// RAI: reconcile a stored report, which an epoch proposal has to be
+    /// validated against
     pub fn reconcile(&self, epoch: ConsensusEpoch, reporter: PublicKey) {
-        let now = self.clock.now();
-        let message = self
-            .exchange
-            .lock()
-            .unwrap()
-            .reconcile(epoch, reporter, now);
+        let Some((message, result)) = self.exchange.lock().unwrap().reconcile(epoch, reporter)
+        else {
+            return;
+        };
+        log_reconciled(result);
         self.send(message.into_iter().collect(), None);
     }
 
-    /// Section 6.2: a reconciliation request for one of this node's reports
-    pub fn handle_request(&self, request: ReportReq, channel: &Arc<Channel>) {
+    /// RAI: a request for a reconstructive difference. This node answers only
+    /// if it knows both states; no answer is not a verdict.
+    pub fn handle_request(&self, request: ReconReq, channel: &Arc<Channel>) {
         self.stats
-            .inc_dir(StatType::Message, DetailType::ReportReq, Direction::In);
-        let local_reps: Vec<PublicKey> = self.wallet_reps.lock().unwrap().rep_pub_keys().collect();
-        let ack = self
-            .exchange
-            .lock()
-            .unwrap()
-            .handle_request(&request, &local_reps);
-        if let Some(ack) = ack {
-            self.send(vec![ReportMessage::Reply(ack)], Some(channel));
+            .inc_dir(StatType::Message, DetailType::ReconReq, Direction::In);
+        let reply = self.exchange.lock().unwrap().handle_request(&request);
+        if let Some(reply) = reply {
+            self.send(vec![ReportMessage::Reply(reply)], Some(channel));
         }
     }
 
-    /// Section 6.2: one part of a report this node is reconciling
-    pub fn handle_ack(&self, ack: ReportAck, channel: &Arc<Channel>) {
+    /// RAI: a difference towards a report this node is reconstructing. It is
+    /// accepted exactly when the rebuilt state hashes to the signed root.
+    pub fn handle_reply(&self, reply: ReconReply, _channel: &Arc<Channel>) {
         self.stats
-            .inc_dir(StatType::Message, DetailType::ReportAck, Direction::In);
-        let now = self.clock.now();
-        let (messages, result) = self.exchange.lock().unwrap().handle_ack(ack, now);
+            .inc_dir(StatType::Message, DetailType::ReconReply, Direction::In);
+        let result = self.exchange.lock().unwrap().handle_reply(&reply);
         log_reconciled(result);
-        self.send(messages, Some(channel));
     }
 
-    /// Repeats the reconciliation requests whose answers did not come
+    /// Drives the reconciliations of the epochs still closing. The live
+    /// certified state is refreshed from the active elections first: gossip
+    /// keeps delivering the votes of a closed epoch, and it is that growth
+    /// which eventually gives this node a state it shares with a reporter.
     pub fn tick(&self) {
-        let now = self.clock.now();
-        let messages = self
-            .exchange
-            .lock()
-            .unwrap()
-            .due_requests(now, Self::REQUEST_TIMEOUT);
-        self.send(messages, None);
+        let epochs: Vec<ConsensusEpoch> = self
+            .active_elections
+            .epoch_closes()
+            .into_iter()
+            .filter(|close| close.closed.is_none())
+            .map(|close| close.epoch)
+            .collect();
+        for epoch in epochs {
+            let reporters: Vec<PublicKey> = {
+                let exchange = self.exchange.lock().unwrap();
+                let usable: Vec<PublicKey> = exchange
+                    .usable(epoch)
+                    .iter()
+                    .map(|(report, _)| report.reporter)
+                    .collect();
+                exchange
+                    .reports(epoch)
+                    .iter()
+                    .map(|report| report.reporter)
+                    .filter(|reporter| !usable.contains(reporter))
+                    .collect()
+            };
+            if reporters.is_empty() {
+                continue;
+            }
+            let live = self.active_elections.epoch_certified(epoch);
+            self.exchange.lock().unwrap().refresh_live(epoch, live);
+            for reporter in reporters {
+                self.reconcile(epoch, reporter);
+            }
+        }
     }
 
-    /// How many reports of the epoch are reconciled here: what a close
-    /// proposal could select from (Section 7 needs N−f of them)
-    pub fn reconciled_count(&self, epoch: ConsensusEpoch) -> usize {
-        self.exchange.lock().unwrap().reconciled(epoch).len()
+    /// How many reports of the epoch are usable here: what an epoch proposal
+    /// selects from, and it needs N−f of them
+    pub fn usable_count(&self, epoch: ConsensusEpoch) -> usize {
+        self.exchange.lock().unwrap().usable(epoch).len()
     }
 
     fn send(&self, messages: Vec<ReportMessage>, channel: Option<&Arc<Channel>>) {
@@ -186,33 +194,26 @@ impl ReportService {
                         .inc_dir(StatType::Message, DetailType::Report, Direction::Out);
                 }
                 ReportMessage::Request(request) => {
-                    let target = channel.cloned().or_else(|| {
-                        self.channels
-                            .lock()
-                            .unwrap()
-                            .get(&(request.epoch, request.reporter))
-                            .cloned()
-                    });
-                    let Some(target) = target else {
-                        continue;
-                    };
+                    // A difference may come from any replica that knows both
+                    // states, not only from the reporter, so the request is
+                    // gossiped rather than addressed
                     self.stats
-                        .inc_dir(StatType::Message, DetailType::ReportReq, Direction::Out);
-                    self.sender.lock().unwrap().try_send(
-                        &target,
-                        &Message::ReportReq(request),
+                        .inc_dir(StatType::Message, DetailType::ReconReq, Direction::Out);
+                    self.flooder.lock().unwrap().flood_prs_and_some_non_prs(
+                        &Message::ReconReq(request),
                         TrafficType::Generic,
+                        1.0,
                     );
                 }
-                ReportMessage::Reply(ack) => {
+                ReportMessage::Reply(reply) => {
                     let Some(target) = channel else {
                         continue;
                     };
                     self.stats
-                        .inc_dir(StatType::Message, DetailType::ReportAck, Direction::Out);
+                        .inc_dir(StatType::Message, DetailType::ReconReply, Direction::Out);
                     self.sender.lock().unwrap().try_send(
                         target,
-                        &Message::ReportAck(ack),
+                        &Message::ReconReply(reply),
                         TrafficType::Generic,
                     );
                 }
@@ -221,20 +222,16 @@ impl ReportService {
     }
 }
 
-/// RAI, Section 6.2: what one reconciliation cost, for the record. The
-/// authenticated dictionary is a fixed partition of the key space, so a
-/// difference spread over many slots touches many buckets; this is how that
-/// cost is measured against a real workload.
+/// RAI: what one reconciliation cost, for the record
 fn log_reconciled(result: Option<ReconcileResult>) {
     let Some(result) = result else {
         return;
     };
     crate::utils::diagnostic!(
-        "EPOCH_RECONCILED epoch={} reporter={} complete={} requests={} entries={} total={}",
+        "EPOCH_RECONCILED epoch={} reporter={} complete={} entries={} total={}",
         result.epoch,
         result.reporter,
         result.complete,
-        result.requests,
         result.entries,
         result.total
     );

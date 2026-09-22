@@ -23,9 +23,9 @@ pub enum Message {
     Report(Report),
     /// RAI: a step of a reconciliation against a report root (Section 6.2)
     #[cfg(feature = "rai_protocol")]
-    ReportReq(ReportReq),
+    ReconReq(ReconReq),
     #[cfg(feature = "rai_protocol")]
-    ReportAck(ReportAck),
+    ReconReply(ReconReply),
     #[cfg(feature = "ledger_snapshots")]
     SnapshotPreproposal(Preproposal),
     #[cfg(feature = "ledger_snapshots")]
@@ -104,9 +104,9 @@ impl From<&ParseMessageError> for DetailType {
             #[cfg(feature = "rai_protocol")]
             ParseMessageError::InvalidMessage(MessageType::Report) => Self::Report,
             #[cfg(feature = "rai_protocol")]
-            ParseMessageError::InvalidMessage(MessageType::ReportReq) => Self::ReportReq,
+            ParseMessageError::InvalidMessage(MessageType::ReconReq) => Self::ReconReq,
             #[cfg(feature = "rai_protocol")]
-            ParseMessageError::InvalidMessage(MessageType::ReportAck) => Self::ReportAck,
+            ParseMessageError::InvalidMessage(MessageType::ReconReply) => Self::ReconReply,
             #[cfg(feature = "ledger_snapshots")]
             ParseMessageError::InvalidMessage(MessageType::Preproposal) => todo!(),
             #[cfg(feature = "ledger_snapshots")]
@@ -159,9 +159,9 @@ impl Message {
             #[cfg(feature = "rai_protocol")]
             Message::Report(_) => MessageType::Report,
             #[cfg(feature = "rai_protocol")]
-            Message::ReportReq(_) => MessageType::ReportReq,
+            Message::ReconReq(_) => MessageType::ReconReq,
             #[cfg(feature = "rai_protocol")]
-            Message::ReportAck(_) => MessageType::ReportAck,
+            Message::ReconReply(_) => MessageType::ReconReply,
             #[cfg(feature = "ledger_snapshots")]
             Message::SnapshotPreproposal(_) => MessageType::Preproposal,
             #[cfg(feature = "ledger_snapshots")]
@@ -193,9 +193,9 @@ impl Message {
             #[cfg(feature = "rai_protocol")]
             Message::Report(x) => Some(x),
             #[cfg(feature = "rai_protocol")]
-            Message::ReportReq(x) => Some(x),
+            Message::ReconReq(x) => Some(x),
             #[cfg(feature = "rai_protocol")]
-            Message::ReportAck(x) => Some(x),
+            Message::ReconReply(x) => Some(x),
             _ => None,
         }
     }
@@ -227,9 +227,9 @@ impl Message {
             #[cfg(feature = "rai_protocol")]
             Message::Report(m) => m.serialize(writer),
             #[cfg(feature = "rai_protocol")]
-            Message::ReportReq(m) => m.serialize(writer),
+            Message::ReconReq(m) => m.serialize(writer),
             #[cfg(feature = "rai_protocol")]
-            Message::ReportAck(m) => m.serialize(writer),
+            Message::ReconReply(m) => m.serialize(writer),
             #[cfg(feature = "ledger_snapshots")]
             Message::SnapshotPreproposal(m) => m.serialize(writer),
             #[cfg(feature = "ledger_snapshots")]
@@ -277,9 +277,9 @@ impl Message {
             #[cfg(feature = "rai_protocol")]
             MessageType::Report => Message::Report(Report::deserialize(payload)?),
             #[cfg(feature = "rai_protocol")]
-            MessageType::ReportReq => Message::ReportReq(ReportReq::deserialize(payload)?),
+            MessageType::ReconReq => Message::ReconReq(ReconReq::deserialize(payload)?),
             #[cfg(feature = "rai_protocol")]
-            MessageType::ReportAck => Message::ReportAck(ReportAck::deserialize(payload)?),
+            MessageType::ReconReply => Message::ReconReply(ReconReply::deserialize(payload)?),
             #[cfg(feature = "ledger_snapshots")]
             MessageType::Preproposal => {
                 Message::SnapshotPreproposal(Preproposal::deserialize(payload)?)

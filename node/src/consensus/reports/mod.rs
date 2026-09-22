@@ -1,66 +1,63 @@
-mod reconciliation;
 mod report_plugin;
 mod report_service;
 
-pub(crate) use reconciliation::Reconciliation;
 pub(crate) use report_plugin::{ReportPlugin, ReportTicker};
 pub use report_service::ReportService;
 
 use std::collections::{BTreeMap, HashMap};
 
-use rsnano_messages::{Report, ReportAck, ReportEntry, ReportPart, ReportPayload, ReportReq};
-use rsnano_nullable_clock::Timestamp;
+use rsnano_messages::{CertifiedEntry, ReconReply, ReconReq, Report};
 use rsnano_types::{BlockHash, ConsensusEpoch, PrivateKey, PublicKey};
 
-#[cfg(test)]
-use crate::consensus::election::ReportKey;
-use crate::consensus::election::{ReportKind, SignedReport, VoteReport};
+use crate::consensus::election::{
+    CertifiedBlock, CertifiedState, CertifiedStatus, ReportCommitment, ResidualVotes,
+};
 
-/// RAI, Section 6: the reports of one run. This node's own report per epoch,
-/// signed by each of its representatives, and the reports of the other
-/// replicas as they are reconciled.
+/// RAI, "Certified-state reports and reconciliation": the reports of one run.
 ///
-/// The reports are collected and reconciled but nothing decides on them yet:
-/// the close of an epoch still agrees on one state hash. What a close
-/// proposal needs from here - the signed reports, the reconciled maps - is
-/// already exposed (`own_reports`, `reconciled`), and is read once the close
-/// selects N−f reports and keeps every hash that passes `possible_Q`
-/// (Section 7).
+/// For each epoch this node keeps its live certified state, which goes on
+/// growing as gossip delivers votes, and the snapshot it froze when it signed
+/// its report. Both are states it knows, so either can be the source or the
+/// target of a reconstructive difference; that is what lets a validator which
+/// has converged to a later common state reach a historical root.
+///
+/// The reports of the other validators are kept as their signed roots until
+/// something has to be validated against them, and reconstructed then.
 ///
 /// Pure state: what to send is returned to the caller, which owns the
 /// network. Nothing here reads a clock or a socket.
 pub(crate) struct ReportExchange {
-    /// The epochs this node has reported on, newest last
-    own: BTreeMap<ConsensusEpoch, OwnReport>,
-    /// The reports of the other replicas, by epoch and reporter
-    theirs: HashMap<(ConsensusEpoch, PublicKey), Reconciliation>,
-    /// Epochs kept; older ones are dropped with their reconciliations
+    epochs: BTreeMap<ConsensusEpoch, EpochReports>,
+    /// Epochs kept; older ones are dropped with their states
     max_epochs: usize,
 }
 
-#[allow(dead_code)] // read by the close, Section 9.1
-pub(crate) struct OwnReport {
-    /// The map of the first and final votes this node issued in the epoch
-    pub map: VoteReport,
-    /// One signed report per representative this node votes with. A close
-    /// proposal carries them (Section 9.1), and a replica which missed the
-    /// broadcast is answered with them.
-    pub signed: Vec<Report>,
+#[derive(Default)]
+struct EpochReports {
+    /// The certified state as it stands here, which keeps growing
+    live: CertifiedState,
+    /// The states this node retains by their roots: the one its report
+    /// froze, and any other worth keeping as a bridge
+    history: BTreeMap<BlockHash, CertifiedState>,
+    /// The residual votes this node signed for
+    residual: ResidualVotes,
+    /// One signed report per representative this node votes with
+    signed: Vec<Report>,
+    /// The reports of the other validators, by reporter
+    theirs: HashMap<PublicKey, TheirReport>,
 }
 
-/// What one reconciliation ended up costing, for the record
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ReconcileResult {
-    pub epoch: ConsensusEpoch,
-    pub reporter: PublicKey,
-    /// The reconstructed map hashes to the signed root
-    pub complete: bool,
-    /// Parts asked for
-    pub requests: usize,
-    /// Entries taken from the reporter
-    pub entries: usize,
-    /// Entries in the reconciled map
-    pub total: usize,
+struct TheirReport {
+    report: Report,
+    /// The state reconstructed for the signed root, once a difference has
+    /// rebuilt it
+    reconstructed: Option<CertifiedState>,
+}
+
+impl TheirReport {
+    fn is_complete(&self) -> bool {
+        self.reconstructed.is_some()
+    }
 }
 
 /// What the exchange asks the caller to send
@@ -68,450 +65,606 @@ pub(crate) struct ReconcileResult {
 pub(crate) enum ReportMessage {
     /// Broadcast this node's own report
     Broadcast(Report),
-    /// Ask one reporter for a part of its map
-    Request(ReportReq),
-    /// Answer a reporter's request
-    Reply(ReportAck),
+    /// Ask for a reconstructive difference towards a report's root
+    Request(ReconReq),
+    /// Answer a request with the difference between two states this node knows
+    Reply(ReconReply),
 }
 
-#[allow(dead_code)] // the readers of a reconciled report are the close's
+/// What a reconciliation cost and whether it succeeded, for the record
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ReconcileResult {
+    pub epoch: ConsensusEpoch,
+    pub reporter: PublicKey,
+    /// The rebuilt state hashes to the root the reporter signed
+    pub complete: bool,
+    /// Entries the difference carried
+    pub entries: usize,
+    /// Entries in the rebuilt state
+    pub total: usize,
+}
+
+#[allow(dead_code)] // the readers of a usable report are the epoch decision's
 impl ReportExchange {
-    /// Epochs whose reports are kept: the closing one and a little history,
-    /// so a replica that lags can still reconcile
+    /// Epochs whose states are kept: the closing one and a little history,
+    /// so a validator that lags can still reconstruct
     pub const MAX_EPOCHS: usize = 4;
 
     pub fn new() -> Self {
         Self {
-            own: BTreeMap::new(),
-            theirs: HashMap::new(),
+            epochs: BTreeMap::new(),
             max_epochs: Self::MAX_EPOCHS,
         }
     }
 
-    /// Section 6.1: this node stops issuing ordinary votes for the epoch and
-    /// signs one report per representative it votes with. The map is what it
-    /// voted in the epoch; `committee` is H(O_e).
+    /// The root of the epoch's certified state as it stands here
+    pub fn live_root(&self, epoch: ConsensusEpoch) -> Option<BlockHash> {
+        self.epochs.get(&epoch).map(|held| held.live.root())
+    }
+
+    /// RAI: this node stops issuing account votes for the epoch and signs one
+    /// report per representative it votes with. The certified state is frozen
+    /// as the report's snapshot; the live state carries on from there.
     pub fn report_epoch(
         &mut self,
         epoch: ConsensusEpoch,
-        map: VoteReport,
+        certified: CertifiedState,
+        residual: ResidualVotes,
         committee: BlockHash,
         keys: &[PrivateKey],
     ) -> Vec<ReportMessage> {
-        if self.own.contains_key(&epoch) {
+        let held = self.epochs.entry(epoch).or_default();
+        if !held.signed.is_empty() {
             return Vec::new();
         }
-        let root = map.root();
-        let signed: Vec<Report> = keys
+        let certified_root = certified.root();
+        let residual_root = residual.root();
+        held.signed = keys
             .iter()
             .map(|key| {
-                let payload = SignedReport {
+                let payload = ReportCommitment {
                     epoch,
                     committee,
-                    root,
+                    certified: certified_root,
+                    residual: residual_root,
                     reporter: key.public_key(),
                 }
                 .payload();
-                Report::new(key, epoch, committee, root, payload)
+                Report::new(
+                    key,
+                    epoch,
+                    committee,
+                    certified_root,
+                    residual_root,
+                    payload,
+                )
             })
             .collect();
-        let messages = signed
+        held.history.insert(certified_root, certified.clone());
+        held.live = certified;
+        held.residual = residual;
+        let messages = held
+            .signed
             .iter()
             .cloned()
             .map(ReportMessage::Broadcast)
             .collect();
-        self.own.insert(epoch, OwnReport { map, signed });
         self.trim();
         messages
     }
 
     /// Whether this node has reported on the epoch
     pub fn has_reported(&self, epoch: ConsensusEpoch) -> bool {
-        self.own.contains_key(&epoch)
-    }
-
-    pub fn own_root(&self, epoch: ConsensusEpoch) -> Option<BlockHash> {
-        self.own.get(&epoch).map(|own| own.map.root())
+        self.epochs
+            .get(&epoch)
+            .is_some_and(|held| !held.signed.is_empty())
     }
 
     /// The signed reports of this node for the epoch, one per representative
     pub fn own_reports(&self, epoch: ConsensusEpoch) -> &[Report] {
-        self.own
+        self.epochs
             .get(&epoch)
-            .map(|own| own.signed.as_slice())
+            .map(|held| held.signed.as_slice())
             .unwrap_or_default()
     }
 
-    /// The reports of the epoch this node has verified, reconciled or not
-    pub fn reports(&self, epoch: ConsensusEpoch) -> Vec<&Reconciliation> {
-        self.theirs
-            .iter()
-            .filter(|((e, _), _)| *e == epoch)
-            .map(|(_, reconciliation)| reconciliation)
+    /// RAI: the certified state of an epoch grows here as gossip delivers the
+    /// votes behind a certificate. The state a report signed stays in the
+    /// history, so this node can still bridge to it, and so does the state
+    /// it was asked to bridge from: a requester which advertised a root has
+    /// to be answerable once this node reaches it.
+    pub fn refresh_live(&mut self, epoch: ConsensusEpoch, live: CertifiedState) {
+        let held = self.epochs.entry(epoch).or_default();
+        if held.live.root() == live.root() {
+            return;
+        }
+        // Keep the state left behind: it is a common descendant for anyone
+        // who advertised it, and the bridge to every root before it
+        let previous = std::mem::replace(&mut held.live, live);
+        if !previous.is_empty() {
+            held.history.insert(previous.root(), previous);
+        }
+        held.trim_history();
+    }
+
+    /// The reports of the epoch this node holds, reconstructed or not
+    pub fn reports(&self, epoch: ConsensusEpoch) -> Vec<&Report> {
+        self.epochs
+            .get(&epoch)
+            .map(|held| held.theirs.values().map(|their| &their.report).collect())
+            .unwrap_or_default()
+    }
+
+    /// The reports whose certified state has been reconstructed and checked
+    /// against the signed root: what an epoch proposal may select
+    pub fn usable(&self, epoch: ConsensusEpoch) -> Vec<(&Report, &CertifiedState)> {
+        let Some(held) = self.epochs.get(&epoch) else {
+            return Vec::new();
+        };
+        held.theirs
+            .values()
+            .filter_map(|their| {
+                their
+                    .reconstructed
+                    .as_ref()
+                    .map(|state| (&their.report, state))
+            })
             .collect()
     }
 
-    /// The reports of the epoch this node has reconciled in full: what a
-    /// close proposal selects from (Section 7)
-    pub fn reconciled(&self, epoch: ConsensusEpoch) -> Vec<&Reconciliation> {
-        self.reports(epoch)
-            .into_iter()
-            .filter(|reconciliation| reconciliation.is_complete())
-            .collect()
-    }
-
-    /// Lemma 6.1: a report is taken only with a valid signature over its
-    /// epoch, committee, root and reporter. It is stored, not reconciled:
-    /// Section 6.2 reconciles a report when a close proposal has to be
-    /// validated against it, and until then the root alone is what this node
-    /// needs to keep.
+    /// Lemma 3.5: a report is taken only with a valid signature over its
+    /// epoch, committee, both roots and the reporter. It is stored, not
+    /// reconstructed: the contents are fetched when something has to be
+    /// validated against them.
     pub fn handle_report(&mut self, report: Report) -> bool {
-        let payload = SignedReport {
+        let payload = ReportCommitment {
             epoch: report.epoch,
             committee: report.committee,
-            root: report.root,
+            certified: report.certified,
+            residual: report.residual,
             reporter: report.reporter,
         }
         .payload();
         if !report.verify(payload) {
             return false;
         }
-        let key = (report.epoch, report.reporter);
-        // A reporter signs one report per epoch; a second one from the same
-        // reporter changes nothing, whatever root it carries
-        if self.theirs.contains_key(&key) {
+        let held = self.epochs.entry(report.epoch).or_default();
+        // A reporter signs one report per epoch; a second one changes nothing
+        if held.theirs.contains_key(&report.reporter) {
             return false;
         }
-        let base = self
-            .own
-            .get(&report.epoch)
-            .map(|own| own.map.clone())
-            .unwrap_or_else(|| VoteReport::new(report.epoch));
-        self.theirs.insert(key, Reconciliation::new(report, base));
+        held.theirs.insert(
+            report.reporter,
+            TheirReport {
+                report,
+                reconstructed: None,
+            },
+        );
         true
     }
 
-    /// Section 6.2: start reconciling a report this node holds, against its
-    /// own map of the epoch. Returns nothing if the report is unknown or its
-    /// reconciliation is already under way or done.
+    /// RAI: ask for the difference from the state this node holds to a
+    /// report's root. A state that already hashes to the root needs no
+    /// difference at all, which is the common case between validators that
+    /// saw the same evidence.
     pub fn reconcile(
         &mut self,
         epoch: ConsensusEpoch,
         reporter: PublicKey,
-        now: Timestamp,
-    ) -> Option<ReportMessage> {
-        let reconciliation = self.theirs.get_mut(&(epoch, reporter))?;
-        if reconciliation.is_started() {
+    ) -> Option<(Option<ReportMessage>, Option<ReconcileResult>)> {
+        let held = self.epochs.get_mut(&epoch)?;
+        let source = held.live.root();
+        let live = held.live.clone();
+        let their = held.theirs.get_mut(&reporter)?;
+        if their.is_complete() {
             return None;
         }
-        reconciliation.next_request(now).map(ReportMessage::Request)
+        let target = their.report.certified;
+        if source == target {
+            let total = live.len();
+            their.reconstructed = Some(live);
+            return Some((
+                None,
+                Some(ReconcileResult {
+                    epoch,
+                    reporter,
+                    complete: true,
+                    entries: 0,
+                    total,
+                }),
+            ));
+        }
+        Some((
+            Some(ReportMessage::Request(ReconReq {
+                epoch,
+                source,
+                target,
+            })),
+            None,
+        ))
     }
 
-    /// Section 6.2: answer a reconciliation request from this node's own map
-    pub fn handle_request(
-        &self,
-        request: &ReportReq,
-        local_reps: &[PublicKey],
-    ) -> Option<ReportAck> {
-        if !local_reps.contains(&request.reporter) {
+    /// RAI: answer a request, if this node knows both states. The source may
+    /// be its live state or one it retained, and so may the target; a replica
+    /// that knows only one of them does not answer.
+    pub fn handle_request(&self, request: &ReconReq) -> Option<ReconReply> {
+        let held = self.epochs.get(&request.epoch)?;
+        let source = held.state(request.source)?;
+        let target = held.state(request.target)?;
+        let delta = source.difference(target)?;
+        if delta.entries.len() > ReconReply::MAX_ENTRIES {
             return None;
         }
-        let own = self.own.get(&request.epoch)?;
-        let payload = match request.part {
-            ReportPart::Digests => ReportPayload::Digests(own.map.bucket_digests()),
-            ReportPart::Bucket(bucket) => ReportPayload::Entries(
-                own.map
-                    .bucket_entries(bucket)
-                    .into_iter()
-                    .take(ReportAck::MAX_ENTRIES)
-                    .map(|(key, hash)| ReportEntry {
-                        account: key.account,
-                        height: key.height,
-                        is_final: key.kind == ReportKind::Final,
-                        hash,
-                    })
-                    .collect(),
-            ),
-        };
-        Some(ReportAck {
+        Some(ReconReply {
             epoch: request.epoch,
-            reporter: request.reporter,
-            part: request.part,
-            payload,
+            source: request.source,
+            target: request.target,
+            entries: delta
+                .entries
+                .iter()
+                .map(|(block, status)| CertifiedEntry {
+                    account: block.account,
+                    height: block.height,
+                    hash: block.hash,
+                    status: match status {
+                        CertifiedStatus::Notarized => 0,
+                        CertifiedStatus::Finalized => 1,
+                        CertifiedStatus::FastFinalized => 2,
+                    },
+                })
+                .collect(),
         })
     }
 
-    /// Section 6.2: take one answer into the reconciliation it belongs to and
-    /// ask for the next part. Returns the messages to send and, once the
-    /// reconciliation ends, what it cost: the parts asked for and the
-    /// entries taken.
-    pub fn handle_ack(
-        &mut self,
-        ack: ReportAck,
-        now: Timestamp,
-    ) -> (Vec<ReportMessage>, Option<ReconcileResult>) {
-        let key = (ack.epoch, ack.reporter);
-        let Some(reconciliation) = self.theirs.get_mut(&key) else {
-            return (Vec::new(), None);
-        };
-        let was_running = !reconciliation.is_complete() && !reconciliation.has_failed();
-        reconciliation.absorb(&ack);
-        let messages: Vec<ReportMessage> = reconciliation
-            .next_request(now)
-            .into_iter()
-            .map(ReportMessage::Request)
-            .collect();
-        let ended = was_running && (reconciliation.is_complete() || reconciliation.has_failed());
-        let result = ended.then(|| {
-            let (requests, entries) = reconciliation.cost();
-            ReconcileResult {
-                epoch: key.0,
-                reporter: key.1,
-                complete: reconciliation.is_complete(),
-                requests,
-                entries,
-                total: reconciliation.map().len(),
-            }
-        });
-        (messages, result)
-    }
-
-    /// The requests to repeat: a reconciliation whose answer did not come
-    pub fn due_requests(
-        &mut self,
-        now: Timestamp,
-        timeout: std::time::Duration,
-    ) -> Vec<ReportMessage> {
-        let mut messages = Vec::new();
-        for reconciliation in self.theirs.values_mut() {
-            if reconciliation.is_complete() || !reconciliation.is_overdue(now, timeout) {
-                continue;
-            }
-            if let Some(request) = reconciliation.next_request(now) {
-                messages.push(ReportMessage::Request(request));
-            }
+    /// RAI: apply a difference and accept the reconstruction exactly when the
+    /// root comes out as the one the report signed. That check is the whole
+    /// of the reconciliation: the reply carries no signature of its own.
+    pub fn handle_reply(&mut self, reply: &ReconReply) -> Option<ReconcileResult> {
+        let held = self.epochs.get_mut(&reply.epoch)?;
+        let mut state = held.state(reply.source)?.clone();
+        let reporter = held
+            .theirs
+            .iter()
+            .find(|(_, their)| their.report.certified == reply.target && !their.is_complete())
+            .map(|(reporter, _)| *reporter)?;
+        for entry in &reply.entries {
+            state.certify(
+                CertifiedBlock::new(entry.account, entry.height, entry.hash),
+                match entry.status {
+                    1 => CertifiedStatus::Finalized,
+                    2 => CertifiedStatus::FastFinalized,
+                    _ => CertifiedStatus::Notarized,
+                },
+            );
         }
-        messages
+        let complete = state.root() == reply.target;
+        let total = state.len();
+        if complete {
+            held.theirs.get_mut(&reporter)?.reconstructed = Some(state);
+        }
+        Some(ReconcileResult {
+            epoch: reply.epoch,
+            reporter,
+            complete,
+            entries: reply.entries.len(),
+            total,
+        })
     }
 
     fn trim(&mut self) {
-        while self.own.len() > self.max_epochs {
-            let Some(oldest) = self.own.keys().next().copied() else {
+        while self.epochs.len() > self.max_epochs {
+            let Some(oldest) = self.epochs.keys().next().copied() else {
                 break;
             };
-            self.own.remove(&oldest);
-            self.theirs.retain(|(epoch, _), _| *epoch != oldest);
+            self.epochs.remove(&oldest);
         }
     }
 }
 
-/// RAI: a report map built from a list of slot votes, as the active
-/// elections hand them over at the epoch boundary
-#[cfg(test)]
-pub(crate) fn report_entries(
-    votes: impl IntoIterator<
-        Item = (
-            rsnano_types::Account,
-            u64,
-            Option<BlockHash>,
-            Option<BlockHash>,
-        ),
-    >,
-    epoch: ConsensusEpoch,
-) -> VoteReport {
-    let mut map = VoteReport::new(epoch);
-    for (account, height, first, final_) in votes {
-        if let Some(hash) = first {
-            map.add(ReportKey::new(account, height, ReportKind::First), hash);
+impl EpochReports {
+    /// The states an epoch retains besides the live one: the report's own
+    /// snapshot and the states this node passed through, which are what it
+    /// can bridge from
+    const MAX_HISTORY: usize = 8;
+
+    /// A state this node knows by its root: the live one, or one it retained
+    fn state(&self, root: BlockHash) -> Option<&CertifiedState> {
+        if self.live.root() == root {
+            return Some(&self.live);
         }
-        if let Some(hash) = final_ {
-            map.add(ReportKey::new(account, height, ReportKind::Final), hash);
+        self.history.get(&root)
+    }
+
+    /// Drops the smallest retained states, never the signed ones: a report's
+    /// snapshot is what the other validators ask this node to bridge to
+    fn trim_history(&mut self) {
+        let signed: Vec<BlockHash> = self.signed.iter().map(|report| report.certified).collect();
+        while self.history.len() > Self::MAX_HISTORY {
+            let Some(drop) = self
+                .history
+                .iter()
+                .filter(|(root, _)| !signed.contains(root))
+                .min_by_key(|(_, state)| state.len())
+                .map(|(root, _)| *root)
+            else {
+                break;
+            };
+            self.history.remove(&drop);
         }
     }
-    map
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use rsnano_types::Account;
-    use std::time::Duration;
 
     #[test]
     fn reporting_an_epoch_signs_one_report_per_representative() {
         let mut exchange = ReportExchange::new();
         let keys = [PrivateKey::from(1), PrivateKey::from(2)];
-        let map = map_of(&[(1, 1)]);
-        let root = map.root();
+        let certified = state_of(0..5);
+        let root = certified.root();
 
-        let messages = exchange.report_epoch(ConsensusEpoch::ZERO, map, BlockHash::from(7), &keys);
+        let messages = exchange.report_epoch(
+            ConsensusEpoch::ZERO,
+            certified,
+            ResidualVotes::new(),
+            BlockHash::from(7),
+            &keys,
+        );
 
         assert_eq!(messages.len(), 2);
         assert!(exchange.has_reported(ConsensusEpoch::ZERO));
-        assert_eq!(exchange.own_root(ConsensusEpoch::ZERO), Some(root));
+        assert_eq!(exchange.live_root(ConsensusEpoch::ZERO), Some(root));
         for (message, key) in messages.iter().zip(keys.iter()) {
             let ReportMessage::Broadcast(report) = message else {
                 panic!("expected a broadcast");
             };
             assert_eq!(report.reporter, key.public_key());
-            assert_eq!(report.root, root);
-            assert_eq!(report.committee, BlockHash::from(7));
+            assert_eq!(report.certified, root);
         }
         // An epoch is reported once
         assert!(
             exchange
                 .report_epoch(
                     ConsensusEpoch::ZERO,
-                    map_of(&[(2, 1)]),
+                    state_of(0..9),
+                    ResidualVotes::new(),
                     BlockHash::from(7),
-                    &keys
+                    &keys,
                 )
                 .is_empty()
         );
-        assert_eq!(exchange.own_root(ConsensusEpoch::ZERO), Some(root));
+        assert_eq!(exchange.live_root(ConsensusEpoch::ZERO), Some(root));
     }
 
-    /// Lemma 6.1: the reporter's signature binds the root; an unsigned or
-    /// forged report is not taken
+    /// Lemma 3.5: the reporter's signature binds both roots
     #[test]
     fn a_report_with_a_bad_signature_is_ignored() {
         let mut exchange = ReportExchange::new();
-        let mut report = signed_report(
-            &PrivateKey::from(1),
-            ConsensusEpoch::ZERO,
-            map_of(&[(1, 1)]),
-        );
-        report.root = BlockHash::from(999);
+        let mut report = signed(&PrivateKey::from(1), ConsensusEpoch::ZERO, &state_of(0..3));
+        report.certified = BlockHash::from(999);
         assert!(!exchange.handle_report(report));
         assert!(exchange.reports(ConsensusEpoch::ZERO).is_empty());
     }
 
-    /// Section 6.2: the reconciliation of a report against this node's own
-    /// map recovers the entries it lacks and ends at the signed root
+    /// A validator whose own state already hashes to the report's root
+    /// reconstructs it without asking for anything
     #[test]
-    fn a_report_is_reconciled_against_the_own_map() {
+    fn an_equal_state_needs_no_difference() {
         let epoch = ConsensusEpoch::ZERO;
         let key = PrivateKey::from(1);
-        // The reporter voted in 40 slots, this node saw 38 of them
-        let theirs = map_of(&(0..40).map(|i| (i, 1)).collect::<Vec<_>>());
-        let ours = map_of(&(0..38).map(|i| (i, 1)).collect::<Vec<_>>());
-        let report = signed_report(&key, epoch, theirs.clone());
-
-        let mut reporter = ReportExchange::new();
-        reporter.report_epoch(epoch, theirs.clone(), BlockHash::from(7), &[key.clone()]);
-
-        let mut ours_exchange = ReportExchange::new();
-        ours_exchange.report_epoch(epoch, ours, BlockHash::from(7), &[PrivateKey::from(2)]);
-
-        assert!(ours_exchange.handle_report(report));
-        let mut messages: Vec<ReportMessage> = ours_exchange
-            .reconcile(epoch, key.public_key(), now())
-            .into_iter()
-            .collect();
-        let mut rounds = 0;
-        while let Some(message) = messages.pop() {
-            let ReportMessage::Request(request) = message else {
-                panic!("expected a request");
-            };
-            let ack = reporter
-                .handle_request(&request, &[key.public_key()])
-                .expect("the reporter answers");
-            messages.extend(ours_exchange.handle_ack(ack, now()).0);
-            rounds += 1;
-            assert!(rounds < 100, "reconciliation does not terminate");
-        }
-
-        let reconciled = ours_exchange.reconciled(epoch);
-        assert_eq!(reconciled.len(), 1);
-        assert_eq!(reconciled[0].map().root(), theirs.root());
-        assert_eq!(reconciled[0].map().len(), theirs.len());
-    }
-
-    /// The full-report fallback (Section 6.2): a replica with no common base
-    /// reconciles from an empty map
-    #[test]
-    fn a_report_is_reconciled_from_an_empty_map() {
-        let epoch = ConsensusEpoch::ZERO;
-        let key = PrivateKey::from(1);
-        let theirs = map_of(&(0..30).map(|i| (i, 1)).collect::<Vec<_>>());
-        let mut reporter = ReportExchange::new();
-        reporter.report_epoch(epoch, theirs.clone(), BlockHash::from(7), &[key.clone()]);
-
+        let theirs = state_of(0..10);
         let mut ours = ReportExchange::new();
-        assert!(ours.handle_report(signed_report(&key, epoch, theirs.clone())));
-        let mut messages: Vec<ReportMessage> = ours
-            .reconcile(epoch, key.public_key(), now())
-            .into_iter()
-            .collect();
-        let mut rounds = 0;
-        while let Some(message) = messages.pop() {
-            let ReportMessage::Request(request) = message else {
-                panic!("expected a request");
-            };
-            let ack = reporter
-                .handle_request(&request, &[key.public_key()])
-                .unwrap();
-            messages.extend(ours.handle_ack(ack, now()).0);
-            rounds += 1;
-            assert!(rounds < 200, "reconciliation does not terminate");
-        }
-        let reconciled = ours.reconciled(epoch);
-        assert_eq!(reconciled.len(), 1);
-        assert_eq!(reconciled[0].map().root(), theirs.root());
-        // A first and a final vote for each of the thirty slots
-        assert_eq!(reconciled[0].map().len(), 60);
-    }
-
-    #[test]
-    fn a_request_for_another_representative_is_not_answered() {
-        let mut exchange = ReportExchange::new();
-        let key = PrivateKey::from(1);
-        exchange.report_epoch(
-            ConsensusEpoch::ZERO,
-            map_of(&[(1, 1)]),
+        ours.report_epoch(
+            epoch,
+            theirs.clone(),
+            ResidualVotes::new(),
             BlockHash::from(7),
-            &[key.clone()],
+            &[PrivateKey::from(2)],
         );
-        let request = ReportReq {
-            epoch: ConsensusEpoch::ZERO,
-            reporter: PublicKey::from(99),
-            part: ReportPart::Digests,
-        };
-        assert!(
-            exchange
-                .handle_request(&request, &[key.public_key()])
-                .is_none()
-        );
-        let mine = ReportReq {
-            reporter: key.public_key(),
-            ..request
-        };
-        assert!(
-            exchange
-                .handle_request(&mine, &[key.public_key()])
-                .is_some()
-        );
+        assert!(ours.handle_report(signed(&key, epoch, &theirs)));
+
+        let (message, result) = ours.reconcile(epoch, key.public_key()).unwrap();
+        assert!(message.is_none(), "nothing to ask for");
+        let result = result.expect("complete at once");
+        assert!(result.complete);
+        assert_eq!(result.entries, 0);
+        assert_eq!(ours.usable(epoch).len(), 1);
+        // And it is not reconciled twice
+        assert!(ours.reconcile(epoch, key.public_key()).is_none());
     }
 
-    /// A request whose answer never comes is repeated
+    /// The reconciliation: a validator behind the reporter asks for the
+    /// difference, a validator that knows both states bridges, and the root
+    /// comes out as the signed one
     #[test]
-    fn an_unanswered_request_is_repeated() {
+    fn a_report_is_reconstructed_from_a_difference() {
         let epoch = ConsensusEpoch::ZERO;
         let key = PrivateKey::from(1);
+        let theirs = state_of(0..40);
+        // This node saw 35 of the 40 certificates
+        let mut ours = ReportExchange::new();
+        ours.report_epoch(
+            epoch,
+            state_of(0..35),
+            ResidualVotes::new(),
+            BlockHash::from(7),
+            &[PrivateKey::from(2)],
+        );
+        assert!(ours.handle_report(signed(&key, epoch, &theirs)));
+
+        let (message, result) = ours.reconcile(epoch, key.public_key()).unwrap();
+        assert!(result.is_none());
+        let Some(ReportMessage::Request(request)) = message else {
+            panic!("expected a request");
+        };
+
+        // A validator that reported the same 35 and has since seen the other
+        // five knows both the source and the target
+        let mut bridging = ReportExchange::new();
+        bridging.report_epoch(
+            epoch,
+            state_of(0..35),
+            ResidualVotes::new(),
+            BlockHash::from(7),
+            &[PrivateKey::from(3)],
+        );
+        bridging.refresh_live(epoch, state_of(0..40));
+        let reply = bridging.handle_request(&request).expect("it knows both");
+        assert_eq!(reply.entries.len(), 5);
+
+        let result = ours.handle_reply(&reply).expect("a reply we asked for");
+        assert!(result.complete);
+        assert_eq!(result.entries, 5);
+        assert_eq!(result.total, 40);
+        let usable = ours.usable(epoch);
+        assert_eq!(usable.len(), 1);
+        assert_eq!(usable[0].1.root(), theirs.root());
+    }
+
+    /// Lemma 3.6: a validator whose live state has moved on can still bridge
+    /// from the state it was at, because it retains the states it passed
+    /// through. That is what makes a request answerable after the fact.
+    #[test]
+    fn a_state_left_behind_still_bridges() {
+        let epoch = ConsensusEpoch::ZERO;
         let mut exchange = ReportExchange::new();
-        let start = now();
-        assert!(exchange.handle_report(signed_report(&key, epoch, map_of(&[(1, 1)]))));
-        assert!(exchange.reconcile(epoch, key.public_key(), start).is_some());
-        assert!(
-            exchange
-                .due_requests(start, Duration::from_secs(1))
-                .is_empty()
+        exchange.report_epoch(
+            epoch,
+            state_of(0..10),
+            ResidualVotes::new(),
+            BlockHash::from(7),
+            &[PrivateKey::from(1)],
         );
-        let later = start + Duration::from_secs(2);
-        assert_eq!(
-            exchange.due_requests(later, Duration::from_secs(1)).len(),
-            1
+        let reported = exchange.live_root(epoch).unwrap();
+        exchange.refresh_live(epoch, state_of(0..20));
+        let passed = exchange.live_root(epoch).unwrap();
+        exchange.refresh_live(epoch, state_of(0..30));
+
+        // The report's own root, and the state passed through on the way,
+        // are both still bridgeable to the live one
+        for source in [reported, passed] {
+            let reply = exchange
+                .handle_request(&ReconReq {
+                    epoch,
+                    source,
+                    target: exchange.live_root(epoch).unwrap(),
+                })
+                .expect("both states are known");
+            assert!(!reply.entries.is_empty());
+        }
+        // And the live state bridges back to the report, which is what a
+        // validator asking for the historical root needs
+        let reply = exchange
+            .handle_request(&ReconReq {
+                epoch,
+                source: reported,
+                target: reported,
+            })
+            .unwrap();
+        assert!(reply.entries.is_empty());
+    }
+
+    /// The signed snapshot is never dropped to make room: it is the root the
+    /// other validators ask this node to bridge to
+    #[test]
+    fn the_reported_state_survives_a_long_history() {
+        let epoch = ConsensusEpoch::ZERO;
+        let mut exchange = ReportExchange::new();
+        exchange.report_epoch(
+            epoch,
+            state_of(0..5),
+            ResidualVotes::new(),
+            BlockHash::from(7),
+            &[PrivateKey::from(1)],
         );
+        let reported = exchange.live_root(epoch).unwrap();
+        for i in 6..40 {
+            exchange.refresh_live(epoch, state_of(0..i));
+        }
+        let reply = exchange.handle_request(&ReconReq {
+            epoch,
+            source: reported,
+            target: exchange.live_root(epoch).unwrap(),
+        });
+        assert!(reply.is_some(), "the reported state is still known");
+    }
+
+    /// A replica that does not know both states returns nothing, which the
+    /// requester treats as no answer rather than as a verdict
+    #[test]
+    fn a_replica_that_knows_one_state_does_not_answer() {
+        let epoch = ConsensusEpoch::ZERO;
+        let mut exchange = ReportExchange::new();
+        exchange.report_epoch(
+            epoch,
+            state_of(0..10),
+            ResidualVotes::new(),
+            BlockHash::from(7),
+            &[PrivateKey::from(1)],
+        );
+        let known = exchange.live_root(epoch).unwrap();
+        for (source, target) in [
+            (known, BlockHash::from(12345)),
+            (BlockHash::from(12345), known),
+        ] {
+            assert!(
+                exchange
+                    .handle_request(&ReconReq {
+                        epoch,
+                        source,
+                        target
+                    })
+                    .is_none()
+            );
+        }
+        // Both known: the difference is empty
+        let reply = exchange
+            .handle_request(&ReconReq {
+                epoch,
+                source: known,
+                target: known,
+            })
+            .unwrap();
+        assert!(reply.entries.is_empty());
+    }
+
+    /// A reply that does not rebuild the signed root leaves the report unusable
+    #[test]
+    fn a_reply_that_misses_the_root_is_not_usable() {
+        let epoch = ConsensusEpoch::ZERO;
+        let key = PrivateKey::from(1);
+        let mut ours = ReportExchange::new();
+        ours.report_epoch(
+            epoch,
+            state_of(0..8),
+            ResidualVotes::new(),
+            BlockHash::from(7),
+            &[PrivateKey::from(2)],
+        );
+        assert!(ours.handle_report(signed(&key, epoch, &state_of(0..10))));
+        let (message, _) = ours.reconcile(epoch, key.public_key()).unwrap();
+        let Some(ReportMessage::Request(request)) = message else {
+            panic!("expected a request");
+        };
+
+        // One entry short of the target
+        let reply = ReconReply {
+            epoch,
+            source: request.source,
+            target: request.target,
+            entries: vec![CertifiedEntry {
+                account: block(8).account,
+                height: block(8).height,
+                hash: block(8).hash,
+                status: 0,
+            }],
+        };
+        let result = ours.handle_reply(&reply).unwrap();
+        assert!(!result.complete);
+        assert!(ours.usable(epoch).is_empty());
     }
 
     /// Only the recent epochs are kept
@@ -520,46 +673,52 @@ mod tests {
         let mut exchange = ReportExchange::new();
         let key = PrivateKey::from(1);
         for i in 0..(ReportExchange::MAX_EPOCHS as u64 + 2) {
-            let epoch = ConsensusEpoch::new(i);
-            exchange.report_epoch(epoch, map_of(&[(1, 1)]), BlockHash::from(7), &[key.clone()]);
+            exchange.report_epoch(
+                ConsensusEpoch::new(i),
+                state_of(0..2),
+                ResidualVotes::new(),
+                BlockHash::from(7),
+                &[key.clone()],
+            );
         }
-        assert!(exchange.own_root(ConsensusEpoch::ZERO).is_none());
-        assert!(exchange.own_root(ConsensusEpoch::new(1)).is_none());
-        assert!(exchange.own_root(ConsensusEpoch::new(2)).is_some());
+        assert!(exchange.live_root(ConsensusEpoch::ZERO).is_none());
+        assert!(exchange.live_root(ConsensusEpoch::new(1)).is_none());
+        assert!(exchange.live_root(ConsensusEpoch::new(2)).is_some());
     }
 
     /*
      * Test helpers
      */
 
-    fn now() -> Timestamp {
-        Timestamp::new_test_instance()
+    fn block(i: u64) -> CertifiedBlock {
+        CertifiedBlock::new(Account::from(i), 1 + i % 4, BlockHash::from(i * 7 + 1))
     }
 
-    fn map_of(slots: &[(u64, u64)]) -> VoteReport {
-        report_entries(
-            slots.iter().map(|(account, height)| {
-                (
-                    Account::from(*account),
-                    *height,
-                    Some(BlockHash::from(*account)),
-                    Some(BlockHash::from(*account)),
-                )
-            }),
-            ConsensusEpoch::ZERO,
-        )
+    fn state_of(blocks: std::ops::Range<u64>) -> CertifiedState {
+        let mut state = CertifiedState::new();
+        for i in blocks {
+            state.certify(block(i), CertifiedStatus::Notarized);
+        }
+        state
     }
 
-    fn signed_report(key: &PrivateKey, epoch: ConsensusEpoch, map: VoteReport) -> Report {
-        let root = map.root();
-        let committee = BlockHash::from(7);
-        let payload = SignedReport {
+    fn signed(key: &PrivateKey, epoch: ConsensusEpoch, state: &CertifiedState) -> Report {
+        let residual = ResidualVotes::new();
+        let payload = ReportCommitment {
             epoch,
-            committee,
-            root,
+            committee: BlockHash::from(7),
+            certified: state.root(),
+            residual: residual.root(),
             reporter: key.public_key(),
         }
         .payload();
-        Report::new(key, epoch, committee, root, payload)
+        Report::new(
+            key,
+            epoch,
+            BlockHash::from(7),
+            state.root(),
+            residual.root(),
+            payload,
+        )
     }
 }

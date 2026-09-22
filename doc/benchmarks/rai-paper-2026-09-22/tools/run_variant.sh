@@ -55,10 +55,16 @@ for attempt in $(seq 1 $RESTARTS); do
       teardown
       exit 3
     fi
-    if ! kill -0 $NSPID 2>/dev/null && ! grep -a -q "Confirmation rate" "$OUT"; then
-      echo "nanospam died: $(tail -1 "$OUT" | cut -c1-200)" | tee -a "$SNAP"
-      teardown
-      exit 3
+    # nanospam is gone: it either finished (it prints its own summary and
+    # exits, which can happen before fifteen zero seconds have passed) or it
+    # died. Either way there is nothing more to wait for.
+    if ! kill -0 $NSPID 2>/dev/null; then
+      if ! grep -a -q "Confirmation rate" "$OUT"; then
+        echo "nanospam died: $(tail -1 "$OUT" | cut -c1-200)" | tee -a "$SNAP"
+        teardown
+        exit 3
+      fi
+      break
     fi
     sleep 2
   done

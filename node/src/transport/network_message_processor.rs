@@ -218,9 +218,9 @@ impl NetworkMessageProcessor {
             #[cfg(feature = "rai_protocol")]
             Message::Report(report) => self.reports.handle_report(report, channel),
             #[cfg(feature = "rai_protocol")]
-            Message::ReportReq(request) => self.reports.handle_request(request, channel),
+            Message::ReconReq(request) => self.reports.handle_request(request, channel),
             #[cfg(feature = "rai_protocol")]
-            Message::ReportAck(ack) => self.reports.handle_ack(ack, channel),
+            Message::ReconReply(reply) => self.reports.handle_reply(reply, channel),
             #[cfg(feature = "ledger_snapshots")]
             Message::SnapshotPreproposal(preproposal) => {
                 self.ledger_snapshots.handle_preproposal(preproposal);

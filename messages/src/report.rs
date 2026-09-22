@@ -16,15 +16,18 @@ pub struct Report {
     pub epoch: ConsensusEpoch,
     /// H(O_e): the digest of the committee that issued the epoch's votes
     pub committee: BlockHash,
-    /// The root of the reporter's authenticated map
-    pub root: BlockHash,
+    /// r_i: the root of the reporter's certified block tree
+    pub certified: BlockHash,
+    /// g_i: the root of the vote evidence the certified tree does not
+    /// summarize
+    pub residual: BlockHash,
     pub reporter: PublicKey,
     pub signature: Signature,
 }
 
 impl Report {
     pub const SERIALIZED_SIZE: usize = ConsensusEpoch::SERIALIZED_SIZE
-        + BlockHash::SERIALIZED_SIZE * 2
+        + BlockHash::SERIALIZED_SIZE * 3
         + PublicKey::SERIALIZED_SIZE
         + Signature::SERIALIZED_SIZE;
 
@@ -32,13 +35,15 @@ impl Report {
         key: &PrivateKey,
         epoch: ConsensusEpoch,
         committee: BlockHash,
-        root: BlockHash,
+        certified: BlockHash,
+        residual: BlockHash,
         payload: BlockHash,
     ) -> Self {
         Self {
             epoch,
             committee,
-            root,
+            certified,
+            residual,
             reporter: key.public_key(),
             signature: key.sign(payload.as_bytes()),
         }
@@ -48,9 +53,10 @@ impl Report {
         Self {
             epoch: ConsensusEpoch::new(1),
             committee: BlockHash::from(2),
-            root: BlockHash::from(3),
-            reporter: PublicKey::from(4),
-            signature: Signature::from_bytes([5; 64]),
+            certified: BlockHash::from(3),
+            residual: BlockHash::from(4),
+            reporter: PublicKey::from(5),
+            signature: Signature::from_bytes([6; 64]),
         }
     }
 
@@ -69,7 +75,8 @@ impl Report {
     {
         self.epoch.serialize(writer)?;
         self.committee.serialize(writer)?;
-        self.root.serialize(writer)?;
+        self.certified.serialize(writer)?;
+        self.residual.serialize(writer)?;
         self.reporter.serialize(writer)?;
         self.signature.serialize(writer)
     }
@@ -82,7 +89,8 @@ impl Report {
         Ok(Self {
             epoch: ConsensusEpoch::deserialize(&mut bytes)?,
             committee: BlockHash::deserialize(&mut bytes)?,
-            root: BlockHash::deserialize(&mut bytes)?,
+            certified: BlockHash::deserialize(&mut bytes)?,
+            residual: BlockHash::deserialize(&mut bytes)?,
             reporter: PublicKey::deserialize(&mut bytes)?,
             signature: Signature::deserialize(&mut bytes)?,
         })
@@ -91,57 +99,27 @@ impl Report {
 
 impl MessageVariant for Report {}
 
-/// Which part of a report map a request asks for, and an answer carries
-/// (Section 6.2: compare the roots, then the bucket digests, then fetch the
-/// entries of the buckets that differ)
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ReportPart {
-    /// The digests of the 256 buckets
-    Digests,
-    /// The entries of one bucket, whole
-    Bucket(u8),
-}
-
-impl ReportPart {
-    fn serialize<T: std::io::Write>(&self, writer: &mut T) -> std::io::Result<()> {
-        match self {
-            ReportPart::Digests => writer.write_all(&[0, 0]),
-            ReportPart::Bucket(bucket) => writer.write_all(&[1, *bucket]),
-        }
-    }
-
-    fn deserialize(bytes: &mut &[u8]) -> Result<Self, DeserializationError> {
-        let mut buffer = [0u8; 2];
-        read_exact(bytes, &mut buffer)?;
-        match buffer[0] {
-            0 => Ok(ReportPart::Digests),
-            1 => Ok(ReportPart::Bucket(buffer[1])),
-            _ => Err(DeserializationError::InvalidData),
-        }
-    }
-
-    const SERIALIZED_SIZE: usize = 2;
-}
-
-/// RAI, Section 6.2: a step of a reconciliation against a signed report root.
-/// The requester names the report (epoch and reporter) and the part of the
-/// map it needs.
+/// RAI, "Reconciliation": a request to reconstruct a historical certified
+/// state. The requester names the epoch, the state it currently holds and
+/// the target it wants; a replica answers only if it knows both.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ReportReq {
+pub struct ReconReq {
     pub epoch: ConsensusEpoch,
-    pub reporter: PublicKey,
-    pub part: ReportPart,
+    /// r_s: the root of the certified state the requester holds now
+    pub source: BlockHash,
+    /// r_t: the root it wants to reconstruct
+    pub target: BlockHash,
 }
 
-impl ReportReq {
+impl ReconReq {
     pub const SERIALIZED_SIZE: usize =
-        ConsensusEpoch::SERIALIZED_SIZE + PublicKey::SERIALIZED_SIZE + ReportPart::SERIALIZED_SIZE;
+        ConsensusEpoch::SERIALIZED_SIZE + BlockHash::SERIALIZED_SIZE * 2;
 
     pub fn new_test_instance() -> Self {
         Self {
             epoch: ConsensusEpoch::new(1),
-            reporter: PublicKey::from(2),
-            part: ReportPart::Bucket(3),
+            source: BlockHash::from(2),
+            target: BlockHash::from(3),
         }
     }
 
@@ -150,8 +128,8 @@ impl ReportReq {
         T: std::io::Write,
     {
         self.epoch.serialize(writer)?;
-        self.reporter.serialize(writer)?;
-        self.part.serialize(writer)
+        self.source.serialize(writer)?;
+        self.target.serialize(writer)
     }
 
     pub const fn serialized_size(_extensions: BitArray<u16>) -> usize {
@@ -161,86 +139,82 @@ impl ReportReq {
     pub fn deserialize(mut bytes: &[u8]) -> Result<Self, DeserializationError> {
         Ok(Self {
             epoch: ConsensusEpoch::deserialize(&mut bytes)?,
-            reporter: PublicKey::deserialize(&mut bytes)?,
-            part: ReportPart::deserialize(&mut bytes)?,
+            source: BlockHash::deserialize(&mut bytes)?,
+            target: BlockHash::deserialize(&mut bytes)?,
         })
     }
 }
 
-impl MessageVariant for ReportReq {}
+impl MessageVariant for ReconReq {}
 
-/// One entry of a report map on the wire: the slot, which of the two
-/// one-shot votes it is, and the block voted for
+/// One entry of a certified state on the wire: where the block sits, which
+/// block it is, and what the reporter had constructed for it
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ReportEntry {
+pub struct CertifiedEntry {
     pub account: Account,
     pub height: u64,
-    /// false: the first vote of the slot; true: the final vote
-    pub is_final: bool,
     pub hash: BlockHash,
+    /// 0 notarized, 1 finalized, 2 fast finalized
+    pub status: u8,
 }
 
-impl ReportEntry {
+impl CertifiedEntry {
     fn serialize<T: std::io::Write>(&self, writer: &mut T) -> std::io::Result<()> {
         self.account.serialize(writer)?;
         writer.write_all(&self.height.to_le_bytes())?;
-        writer.write_all(&[self.is_final as u8])?;
-        self.hash.serialize(writer)
+        self.hash.serialize(writer)?;
+        writer.write_all(&[self.status])
     }
 
     fn deserialize(bytes: &mut &[u8]) -> Result<Self, DeserializationError> {
         let account = Account::deserialize(bytes)?;
         let mut height = [0u8; 8];
         read_exact(bytes, &mut height)?;
-        let mut is_final = [0u8; 1];
-        read_exact(bytes, &mut is_final)?;
+        let hash = BlockHash::deserialize(bytes)?;
+        let mut status = [0u8; 1];
+        read_exact(bytes, &mut status)?;
+        if status[0] > 2 {
+            return Err(DeserializationError::InvalidData);
+        }
         Ok(Self {
             account,
             height: u64::from_le_bytes(height),
-            is_final: is_final[0] != 0,
-            hash: BlockHash::deserialize(bytes)?,
+            hash,
+            status: status[0],
         })
     }
 }
 
-/// RAI, Section 6.2: the answer to a `ReportReq`, either the digests of a
-/// level or the entries of a leaf bucket. The requester checks every entry
-/// against its key and the reconstructed root against the signed one, so an
-/// answer needs no signature of its own.
+/// RAI, "Reconciliation": the reconstructive difference from the source
+/// state to the target. The requester applies it and accepts the result
+/// exactly when the root comes out as the target, so the reply carries no
+/// signature and no proof of its own.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ReportPayload {
-    Digests(Vec<[u8; 32]>),
-    Entries(Vec<ReportEntry>),
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ReportAck {
+pub struct ReconReply {
     pub epoch: ConsensusEpoch,
-    pub reporter: PublicKey,
-    pub part: ReportPart,
-    pub payload: ReportPayload,
+    pub source: BlockHash,
+    pub target: BlockHash,
+    pub entries: Vec<CertifiedEntry>,
 }
 
-impl ReportAck {
-    /// One digest per bucket
-    pub const BUCKETS: usize = 256;
-    /// Entries of one bucket. A report of the benchmark holds ~31000 entries,
-    /// so a bucket holds ~120; this is the cap that keeps an answer inside
-    /// one message, and a reporter with a larger map is refused rather than
-    /// answered with a part of a bucket.
-    pub const MAX_ENTRIES: usize = 800;
+impl ReconReply {
+    /// Entries in one reply. A difference between two states of the same
+    /// epoch is the evidence that arrived between them, so it is small in
+    /// the common case; a reply that would exceed this is not sent, and the
+    /// requester reconstructs from a later common state instead.
+    pub const MAX_ENTRIES: usize = 700;
 
     pub fn new_test_instance() -> Self {
         Self {
             epoch: ConsensusEpoch::new(1),
-            reporter: PublicKey::from(2),
-            part: ReportPart::Bucket(3),
-            payload: ReportPayload::Entries(vec![ReportEntry {
-                account: Account::from(5),
-                height: 6,
-                is_final: true,
-                hash: BlockHash::from(7),
-            }]),
+            source: BlockHash::from(2),
+            target: BlockHash::from(3),
+            entries: vec![CertifiedEntry {
+                account: Account::from(4),
+                height: 5,
+                hash: BlockHash::from(6),
+                status: 1,
+            }],
         }
     }
 
@@ -249,19 +223,10 @@ impl ReportAck {
         T: std::io::Write,
     {
         self.epoch.serialize(writer)?;
-        self.reporter.serialize(writer)?;
-        self.part.serialize(writer)?;
-        match &self.payload {
-            ReportPayload::Digests(digests) => {
-                for digest in digests {
-                    writer.write_all(digest)?;
-                }
-            }
-            ReportPayload::Entries(entries) => {
-                for entry in entries {
-                    entry.serialize(writer)?;
-                }
-            }
+        self.source.serialize(writer)?;
+        self.target.serialize(writer)?;
+        for entry in &self.entries {
+            entry.serialize(writer)?;
         }
         Ok(())
     }
@@ -272,39 +237,22 @@ impl ReportAck {
 
     pub fn deserialize(mut bytes: &[u8]) -> Result<Self, DeserializationError> {
         let epoch = ConsensusEpoch::deserialize(&mut bytes)?;
-        let reporter = PublicKey::deserialize(&mut bytes)?;
-        let part = ReportPart::deserialize(&mut bytes)?;
-        let payload = match part {
-            ReportPart::Bucket(_) => {
-                let mut entries = Vec::new();
-                while !bytes.is_empty() {
-                    entries.push(ReportEntry::deserialize(&mut bytes)?);
-                }
-                ReportPayload::Entries(entries)
-            }
-            ReportPart::Digests => {
-                let mut digests = Vec::new();
-                while !bytes.is_empty() {
-                    let mut digest = [0u8; 32];
-                    read_exact(&mut bytes, &mut digest)?;
-                    digests.push(digest);
-                }
-                if digests.len() != Self::BUCKETS {
-                    return Err(DeserializationError::InvalidData);
-                }
-                ReportPayload::Digests(digests)
-            }
-        };
+        let source = BlockHash::deserialize(&mut bytes)?;
+        let target = BlockHash::deserialize(&mut bytes)?;
+        let mut entries = Vec::new();
+        while !bytes.is_empty() {
+            entries.push(CertifiedEntry::deserialize(&mut bytes)?);
+        }
         Ok(Self {
             epoch,
-            reporter,
-            part,
-            payload,
+            source,
+            target,
+            entries,
         })
     }
 }
 
-impl MessageVariant for ReportAck {
+impl MessageVariant for ReconReply {
     fn header_extensions(&self, payload_len: u16) -> BitArray<u16> {
         BitArray::new(payload_len)
     }
@@ -339,6 +287,7 @@ mod tests {
             ConsensusEpoch::new(2),
             BlockHash::from(1),
             BlockHash::from(2),
+            BlockHash::from(3),
             payload,
         );
         assert_eq!(report.reporter, key.public_key());
@@ -347,42 +296,32 @@ mod tests {
     }
 
     #[test]
-    fn serialize_report_req() {
-        for part in [ReportPart::Digests, ReportPart::Bucket(7)] {
-            let req = ReportReq {
-                part,
-                ..ReportReq::new_test_instance()
-            };
-            assert_deserializable(&Message::ReportReq(req));
-        }
+    fn serialize_recon_req() {
+        assert_deserializable(&Message::ReconReq(ReconReq::new_test_instance()));
     }
 
     #[test]
-    fn serialize_report_ack_with_entries() {
-        assert_deserializable(&Message::ReportAck(ReportAck::new_test_instance()));
+    fn serialize_recon_reply() {
+        assert_deserializable(&Message::ReconReply(ReconReply::new_test_instance()));
     }
 
     #[test]
-    fn serialize_report_ack_with_digests() {
-        let ack = ReportAck {
-            part: ReportPart::Digests,
-            payload: ReportPayload::Digests(
-                (0..ReportAck::BUCKETS).map(|i| [i as u8; 32]).collect(),
-            ),
-            ..ReportAck::new_test_instance()
+    fn serialize_an_empty_recon_reply() {
+        let reply = ReconReply {
+            entries: Vec::new(),
+            ..ReconReply::new_test_instance()
         };
-        assert_deserializable(&Message::ReportAck(ack));
+        assert_deserializable(&Message::ReconReply(reply));
     }
 
     #[test]
-    fn an_ack_of_digests_must_hold_one_per_bucket() {
-        let ack = ReportAck {
-            part: ReportPart::Digests,
-            payload: ReportPayload::Digests(vec![[0; 32]; 3]),
-            ..ReportAck::new_test_instance()
-        };
+    fn a_reply_with_an_unknown_status_is_refused() {
         let mut bytes = Vec::new();
-        ack.serialize(&mut bytes).unwrap();
-        assert!(ReportAck::deserialize(&bytes).is_err());
+        ReconReply::new_test_instance()
+            .serialize(&mut bytes)
+            .unwrap();
+        // The status is the last byte of the only entry
+        *bytes.last_mut().unwrap() = 7;
+        assert!(ReconReply::deserialize(&bytes).is_err());
     }
 }

@@ -42,9 +42,9 @@ pub enum MessageType {
     Report = 0x13,
     /// RAI: one step of a reconciliation against a report root (Section 6.2)
     #[cfg(feature = "rai_protocol")]
-    ReportReq = 0x14,
+    ReconReq = 0x14,
     #[cfg(feature = "rai_protocol")]
-    ReportAck = 0x15,
+    ReconReply = 0x15,
 }
 
 impl MessageType {
@@ -68,9 +68,9 @@ impl MessageType {
             #[cfg(feature = "rai_protocol")]
             MessageType::Report => "report",
             #[cfg(feature = "rai_protocol")]
-            MessageType::ReportReq => "report_req",
+            MessageType::ReconReq => "report_req",
             #[cfg(feature = "rai_protocol")]
-            MessageType::ReportAck => "report_ack",
+            MessageType::ReconReply => "report_ack",
             #[cfg(feature = "ledger_snapshots")]
             MessageType::Preproposal => "preproposal",
             #[cfg(feature = "ledger_snapshots")]
@@ -85,7 +85,7 @@ impl MessageType {
     pub const fn max_id() -> usize {
         #[cfg(feature = "rai_protocol")]
         {
-            Self::ReportAck as usize
+            Self::ReconReply as usize
         }
         #[cfg(all(not(feature = "rai_protocol"), feature = "ledger_snapshots"))]
         {
@@ -214,9 +214,9 @@ impl MessageHeader {
             #[cfg(feature = "rai_protocol")]
             MessageType::Report => Report::serialized_size(self.extensions),
             #[cfg(feature = "rai_protocol")]
-            MessageType::ReportReq => ReportReq::serialized_size(self.extensions),
+            MessageType::ReconReq => ReconReq::serialized_size(self.extensions),
             #[cfg(feature = "rai_protocol")]
-            MessageType::ReportAck => ReportAck::serialized_size(self.extensions),
+            MessageType::ReconReply => ReconReply::serialized_size(self.extensions),
             #[cfg(feature = "ledger_snapshots")]
             MessageType::Preproposal => Preproposal::serialized_size(self.extensions),
             #[cfg(feature = "ledger_snapshots")]
@@ -285,9 +285,9 @@ impl From<MessageType> for DetailType {
             #[cfg(feature = "rai_protocol")]
             MessageType::Report => DetailType::Report,
             #[cfg(feature = "rai_protocol")]
-            MessageType::ReportReq => DetailType::ReportReq,
+            MessageType::ReconReq => DetailType::ReconReq,
             #[cfg(feature = "rai_protocol")]
-            MessageType::ReportAck => DetailType::ReportAck,
+            MessageType::ReconReply => DetailType::ReconReply,
             #[cfg(feature = "ledger_snapshots")]
             MessageType::Preproposal => DetailType::Preproposal,
             #[cfg(feature = "ledger_snapshots")]

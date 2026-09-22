@@ -60,6 +60,11 @@ pub struct Certificates {
     pub notar: Vec<BlockHash>,
     /// Timeout certificate
     pub timeout: bool,
+    /// RAI: the two committees of a joint epoch election notarized
+    /// different values. The slot is abandoned like a timed out one: no
+    /// joint certificate can form for either value, and the two
+    /// notarization certificates are themselves the skip evidence.
+    pub conflict: bool,
     /// Fast finalization certificate
     pub fast: Option<BlockHash>,
     /// Finalization certificate
@@ -69,7 +74,7 @@ pub struct Certificates {
 impl Certificates {
     /// Protocol 1, lines 9–13: the slot is done
     pub fn is_terminated(&self) -> bool {
-        self.has_block() || self.timeout
+        self.has_block() || self.timeout || self.conflict
     }
 
     /// Some block for this slot is in the complete block tree
@@ -91,8 +96,10 @@ impl Certificates {
 
     /// Lemma 5.7: once a timeout certificate exists no block at this height
     /// can be (fast) finalized explicitly, only implicitly through a descendant.
+    /// The same holds once the two committees of a joint election have
+    /// notarized different values: neither can gather a joint certificate.
     pub fn explicit_finalization_possible(&self) -> bool {
-        !self.timeout
+        !self.timeout && !self.conflict
     }
 }
 
@@ -506,6 +513,7 @@ impl SlotVotes {
         if self.tallies.iter().any(|t| t.times_out()) {
             certs.timeout = true;
         }
+        certs.conflict |= self.committees_notarize_different_values();
         if certs.fast.is_none() {
             certs.fast = primary
                 .first_tallies
@@ -522,6 +530,42 @@ impl SlotVotes {
                 .find(|(hash, _)| self.tallies.iter().all(|t| t.finalizes(hash)))
                 .map(|(hash, _)| *hash);
         }
+    }
+
+    /// RAI, the cross-committee conflict clause of ET: two committees of a
+    /// joint election hold notarization certificates for different values.
+    /// The slot is abandoned, and the two certificates are the skip
+    /// evidence.
+    ///
+    /// Nothing can be decided in such a slot, so abandoning it loses
+    /// nothing. A value x is decided by a finalization certificate in every
+    /// committee, and a validator final votes x only if it notarized x
+    /// alone. A committee holding a certificate for some h != x therefore
+    /// has q validators which can not final vote x, leaving at most
+    /// N - q = f + p of them, short of the q a certificate needs. So a
+    /// committee certifying h can only ever finalize h, and with two
+    /// committees certifying different values no value can be finalized in
+    /// both. A committee that certified a second value can not finalize
+    /// either of them, which is the same argument once more.
+    pub fn committees_notarize_different_values(&self) -> bool {
+        if self.tallies.len() < 2 {
+            return false;
+        }
+        let notarized = |tallies: &CommitteeTallies| -> Vec<BlockHash> {
+            tallies
+                .notar_tallies
+                .iter()
+                .filter(|(hash, _)| *hash != TIMEOUT_BLOCK && tallies.notarizes(hash))
+                .map(|(hash, _)| *hash)
+                .collect()
+        };
+        let certified: Vec<Vec<BlockHash>> = self.tallies.iter().map(notarized).collect();
+        certified.iter().enumerate().any(|(i, ours)| {
+            certified[i + 1..].iter().any(|theirs| {
+                ours.iter()
+                    .any(|hash| theirs.iter().any(|other| other != hash))
+            })
+        })
     }
 
     /// An election is settled when no further notarization certificate can
@@ -1233,6 +1277,95 @@ mod tests {
 
     /// A single committee for an online weight of 100: certificate 62,
     /// fast 81, many 39
+    /// RAI: a joint epoch election abandons a slot when its two committees
+    /// notarize different values. No joint certificate can form for either,
+    /// and the two notarization certificates are the skip evidence.
+    #[test]
+    fn two_committees_notarizing_different_values_abandon_the_slot() {
+        let mut votes = SlotVotes::default();
+        // The old committee is representatives 1-3, the new one 4-6; each
+        // committee notarizes a different value with its own 67 of weight
+        for voter in [1, 2] {
+            votes.add(rep(voter), hash(1), VoteKind::First).unwrap();
+        }
+        for voter in [4, 5] {
+            votes.add(rep(voter), hash(2), VoteKind::First).unwrap();
+        }
+        let committees = joint(&[(1, 40), (2, 27), (3, 33)], &[(4, 40), (5, 27), (6, 33)]);
+        votes.calculate(&committees);
+        let mut certs = Certificates::default();
+        votes.update_certificates(&mut certs);
+
+        assert!(votes.committees_notarize_different_values());
+        assert!(certs.conflict);
+        // No joint notarization certificate formed for either value
+        assert!(certs.notar.is_empty());
+        assert!(certs.is_terminated());
+        assert!(!certs.explicit_finalization_possible());
+    }
+
+    /// The same value in both committees is no conflict, and it notarizes
+    #[test]
+    fn two_committees_notarizing_the_same_value_do_not_conflict() {
+        let mut votes = SlotVotes::default();
+        for voter in [1, 2, 4, 5] {
+            votes.add(rep(voter), hash(1), VoteKind::First).unwrap();
+        }
+        let committees = joint(&[(1, 40), (2, 27), (3, 33)], &[(4, 40), (5, 27), (6, 33)]);
+        votes.calculate(&committees);
+        let mut certs = Certificates::default();
+        votes.update_certificates(&mut certs);
+
+        assert!(!votes.committees_notarize_different_values());
+        assert!(!certs.conflict);
+        assert_eq!(certs.notar, vec![hash(1)]);
+    }
+
+    /// A committee that certified a second value can no longer finalize
+    /// either of them: no validator of it notarized one alone, so the slot
+    /// is abandoned even though the committees share a value
+    #[test]
+    fn a_committee_certifying_a_second_value_conflicts() {
+        let mut votes = SlotVotes::default();
+        // Both committees certify hash 1; the old one also certifies hash 2
+        for voter in [1, 2, 4, 5] {
+            votes.add(rep(voter), hash(1), VoteKind::First).unwrap();
+        }
+        for voter in [1, 2] {
+            votes.add(rep(voter), hash(2), VoteKind::Notar).unwrap();
+        }
+        let committees = joint(&[(1, 40), (2, 27), (3, 33)], &[(4, 40), (5, 27), (6, 33)]);
+        votes.calculate(&committees);
+        let mut certs = Certificates::default();
+        votes.update_certificates(&mut certs);
+
+        assert!(votes.committees_notarize_different_values());
+        assert!(certs.conflict);
+        // The shared value is jointly notarized, but neither committee can
+        // finalize it any more, so the slot is abandoned
+        assert_eq!(certs.notar, vec![hash(1)]);
+        assert!(!certs.explicit_finalization_possible());
+    }
+
+    /// One committee notarizing while the other has not yet is no conflict:
+    /// the second may still notarize the same value
+    #[test]
+    fn one_committee_ahead_of_the_other_is_no_conflict() {
+        let mut votes = SlotVotes::default();
+        for voter in [1, 2] {
+            votes.add(rep(voter), hash(1), VoteKind::First).unwrap();
+        }
+        votes.add(rep(4), hash(1), VoteKind::First).unwrap();
+        let committees = joint(&[(1, 40), (2, 27), (3, 33)], &[(4, 40), (5, 27), (6, 33)]);
+        votes.calculate(&committees);
+        let mut certs = Certificates::default();
+        votes.update_certificates(&mut certs);
+
+        assert!(!votes.committees_notarize_different_values());
+        assert!(!certs.conflict);
+        assert!(certs.notar.is_empty());
+    }
+
     fn committees(entries: &[(u64, u128)]) -> Committees {
         Committees::single(Arc::new(Committee::with_online(
             weights(entries),

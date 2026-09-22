@@ -65,6 +65,16 @@ pub(crate) fn per_bucket_cap(max_elections: usize) -> usize {
     }
 }
 
+/// RAI: what this node reports for one epoch: the certified block tree and
+/// the votes of its own that the tree does not summarize, with the digest of
+/// the committee which issued the epoch's votes
+#[cfg(feature = "rai_protocol")]
+pub(crate) struct EpochReport {
+    pub committee: BlockHash,
+    pub certified: crate::consensus::election::CertifiedState,
+    pub residual: crate::consensus::election::ResidualVotes,
+}
+
 pub(crate) struct ActiveElectionsContainer {
     roots: RootContainer,
     observer: Option<Sender<AecFact>>,
@@ -794,6 +804,7 @@ impl ActiveElectionsContainer {
                 CloseEvent::RoundEntered { .. } => self.stats.close_rounds += 1,
                 CloseEvent::Closed { .. } => self.stats.epochs_closed += 1,
                 CloseEvent::Agreed(value) => self.epoch_agreed(epoch, *value, now),
+                CloseEvent::RoundConflict { .. } => self.stats.close_conflicts += 1,
             }
             if !cfg!(feature = "rai_protocol") {
                 continue;
@@ -825,6 +836,9 @@ impl ActiveElectionsContainer {
                 }
                 CloseEvent::Agreed(value) => {
                     diagnostic!("EPOCH_AGREED epoch={} value={}", epoch, value);
+                }
+                CloseEvent::RoundConflict { round } => {
+                    diagnostic!("EPOCH_CLOSE_CONFLICT epoch={} round={}", epoch, round);
                 }
             }
         }
@@ -964,43 +978,118 @@ impl ActiveElectionsContainer {
         }
     }
 
-    /// RAI, Section 6.1: the map of the first and final votes this node
-    /// issued in one epoch, and H(O_e), the digest of the committee that
-    /// issued the epoch's votes. What the epoch's report commits to.
-    ///
-    /// The map is built from the slot states, which hold this node's
-    /// one-shot votes per slot and epoch and outlive their elections until
-    /// the epoch is agreed. A finalized instance keeps its own state, so the
-    /// votes of a slot decided early in the epoch are in the map too.
+    /// RAI: the certified block tree of one epoch as it stands here: every
+    /// complete notarized block with the finalization status this node has
+    /// been able to construct for it. It grows as gossip delivers the votes
+    /// behind a certificate, which is what lets a later state bridge to a
+    /// root a report froze earlier.
     #[cfg(feature = "rai_protocol")]
-    pub fn epoch_report(
+    pub fn epoch_certified(
         &self,
         epoch: ConsensusEpoch,
-    ) -> Option<(crate::consensus::election::VoteReport, BlockHash)> {
-        use crate::consensus::election::{ReportKey, ReportKind, VoteReport};
+    ) -> crate::consensus::election::CertifiedState {
+        use crate::consensus::election::{CertifiedBlock, CertifiedState, CertifiedStatus};
+        let mut certified = CertifiedState::new();
+        // What finalized in the epoch and left the AEC is certified by the
+        // certificate that finalized it
+        for instance in self.epoch_states.instances_of(epoch) {
+            certified.certify(
+                CertifiedBlock::new(instance.account, instance.height, instance.winner),
+                CertifiedStatus::Finalized,
+            );
+        }
+        // What the instances still in the AEC have certified
+        for election in self.roots.iter().map(|entry| &entry.election) {
+            if election.epoch() != epoch {
+                continue;
+            }
+            let at = |hash| CertifiedBlock::new(election.account(), election.height(), hash);
+            let certificates = election.certificates();
+            for hash in &certificates.notar {
+                certified.certify(at(*hash), CertifiedStatus::Notarized);
+            }
+            if let Some(hash) = certificates.final_ {
+                certified.certify(at(hash), CertifiedStatus::Finalized);
+            }
+            if let Some(hash) = certificates.fast {
+                certified.certify(at(hash), CertifiedStatus::FastFinalized);
+            }
+        }
+        certified
+    }
+
+    /// RAI, "Certified-state reports and reconciliation": what this node
+    /// reports for one epoch. The certified state holds every complete
+    /// notarized block of the epoch with the finalization status this node
+    /// has been able to construct for it; the residual votes hold this
+    /// node's own votes that the certified state does not summarize - its
+    /// support for a block with no notarization certificate, and its final
+    /// vote for a block that is notarized but not finalized. Lemma 3.7 is
+    /// what the second one is for: a certificate constructible only from
+    /// votes issued before the boundary stays report-visible.
+    ///
+    /// The certified state is read from the instances themselves, which keep
+    /// their certificates, and from the instances that finalized and left
+    /// the AEC; the residual votes from the slot states, which hold this
+    /// node's one-shot votes per slot and epoch.
+    #[cfg(feature = "rai_protocol")]
+    pub fn epoch_report(&self, epoch: ConsensusEpoch) -> Option<EpochReport> {
+        use crate::consensus::election::{
+            CertifiedBlock, ResidualKind, ResidualVotes, TIMEOUT_BLOCK,
+        };
         let committee = self.committees.committee(epoch)?;
-        let mut map = VoteReport::new(epoch);
-        let mut add = |account: Account, height: u64, slot: &LocalSlotState| {
-            if let Some(hash) = slot.first_voted {
-                map.add(ReportKey::new(account, height, ReportKind::First), hash);
+        let certified = self.epoch_certified(epoch);
+        let mut residual = ResidualVotes::new();
+
+        // This node's own votes which the certified state does not summarize
+        let mut record = |account: Account, height: u64, slot: &LocalSlotState| {
+            let mut support = |hash: BlockHash| {
+                let block = CertifiedBlock::new(account, height, hash);
+                if certified.status(&block).is_none() {
+                    residual.record(block, ResidualKind::Support);
+                }
+            };
+            if let Some(hash) = slot.first_voted.filter(|hash| *hash != TIMEOUT_BLOCK) {
+                support(hash);
+            }
+            for hash in &slot.notar_voted {
+                support(*hash);
             }
             if let Some(hash) = slot.final_voted {
-                map.add(ReportKey::new(account, height, ReportKind::Final), hash);
+                let block = CertifiedBlock::new(account, height, hash);
+                if certified
+                    .status(&block)
+                    .is_none_or(|status| !status.is_finalized())
+                {
+                    residual.record(block, ResidualKind::Final);
+                }
             }
         };
         for (account, height, slot) in self.slots.iter_epoch(epoch) {
-            add(account, height, slot);
+            record(account, height, slot);
         }
         for (account, height, slot) in self.epoch_states.slots_of(epoch) {
-            add(account, height, slot);
+            record(account, height, slot);
         }
-        Some((map, committee.digest()))
+
+        Some(EpochReport {
+            committee: committee.digest(),
+            certified,
+            residual,
+        })
     }
 
-    /// RAI, Protocol 1 step 4: another replica named a candidate of one of
-    /// this node's instances which this node does not hold. Recorded on the
-    /// instance so that, if the block never arrives and it has many first
-    /// votes, the timeout block is notarized in its place.
+    /// RAI: another replica named a candidate of one of this node's
+    /// instances which this node does not hold. Recorded on the instance so
+    /// that, if the block never arrives and it has many first votes, the
+    /// timeout block is notarized in its place.
+    ///
+    /// RAI.tex has no account-slot timer and no account timeout votes at
+    /// all: an unresolved slot is resolved by the epoch decision instead.
+    /// The rule can not go until that decision exists, because the close
+    /// this node still runs waits for every instance of the epoch to
+    /// terminate before it proposes - removing it measured as close rounds
+    /// timing out and the epoch states diverging (see the tex-step1 record).
     pub fn note_missing_candidate(
         &mut self,
         id: &ElectionId,

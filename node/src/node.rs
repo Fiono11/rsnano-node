@@ -842,7 +842,6 @@ impl Node {
             wallet_reps.clone(),
             message_flooder.clone(),
             message_sender.clone(),
-            steady_clock.clone(),
             stats.clone(),
         ));
         #[cfg(feature = "rai_protocol")]

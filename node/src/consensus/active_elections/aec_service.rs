@@ -264,13 +264,19 @@ impl AecService {
         self.aec.read().unwrap().certificate_evidence(hash, epoch)
     }
 
-    /// RAI, Section 6.1: the map of the first and final votes this node
-    /// issued in one epoch, and H(O_e): what the epoch's report commits to
+    /// RAI: the certified block tree of one epoch as it stands here
     #[cfg(feature = "rai_protocol")]
-    pub fn epoch_report(
+    pub fn epoch_certified(
         &self,
         epoch: ConsensusEpoch,
-    ) -> Option<(crate::consensus::election::VoteReport, BlockHash)> {
+    ) -> crate::consensus::election::CertifiedState {
+        self.aec.read().unwrap().epoch_certified(epoch)
+    }
+
+    /// RAI: what this node reports for one epoch - the certified block tree
+    /// and the votes of its own that the tree does not summarize
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn epoch_report(&self, epoch: ConsensusEpoch) -> Option<super::EpochReport> {
         self.aec.read().unwrap().epoch_report(epoch)
     }
 
