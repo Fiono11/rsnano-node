@@ -264,6 +264,16 @@ impl AecService {
         self.aec.read().unwrap().certificate_evidence(hash, epoch)
     }
 
+    /// RAI, Section 6.1: the map of the first and final votes this node
+    /// issued in one epoch, and H(O_e): what the epoch's report commits to
+    #[cfg(feature = "rai_protocol")]
+    pub fn epoch_report(
+        &self,
+        epoch: ConsensusEpoch,
+    ) -> Option<(crate::consensus::election::VoteReport, BlockHash)> {
+        self.aec.read().unwrap().epoch_report(epoch)
+    }
+
     /// RAI: a candidate of one of this node's instances which it does not
     /// hold, as another replica named it (Protocol 1, step 4)
     pub fn note_missing_candidate(&self, id: &ElectionId, hash: BlockHash, tally: Amount) {

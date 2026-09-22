@@ -34,6 +34,23 @@ impl SlotStates {
         &mut states[position].1
     }
 
+    /// RAI, Section 6.1: what this node voted in every slot of one epoch:
+    /// the account, the height and the slot's state. The record the epoch's
+    /// report is built from.
+    pub fn iter_epoch(
+        &self,
+        epoch: ConsensusEpoch,
+    ) -> impl Iterator<Item = (Account, u64, &LocalSlotState)> {
+        self.by_slot
+            .iter()
+            .flat_map(move |((account, height), states)| {
+                states
+                    .iter()
+                    .filter(move |(slot_epoch, _)| *slot_epoch == epoch)
+                    .map(move |(_, state)| (*account, *height, state))
+            })
+    }
+
     /// Drop the states of all epochs of this slot
     pub fn remove_slot(&mut self, account: Account, height: u64) {
         if let Some(states) = self.by_slot.remove(&(account, height)) {

@@ -1,0 +1,34 @@
+
+########## fork0 ##########
+fork0 exit=0 | SETTLED_CONSISTENT after 0s: epochs [0, 1, 2] identical on all PRs, cemented=['45045', '45045', '45045', '45045', '45045 CLOSED_CONSISTENT after 0s: epochs [0, 1, 2] closed identically on all PRs COMMITTEES_CONSISTENT SAFE 
+    DID NOT FINISH | busy_s=23 rate=1957 cps median=95 ms weighted=139 ms spikes=[(8, 569), (16, 448)]
+    discards: 0 closes:   13 round=0    1 round=1790074940968    1 round=8 
+
+########## fork5 ##########
+fork5 exit=0 | SETTLED_CONSISTENT after 0s: epochs [0, 1, 2] identical on all PRs, cemented=['42818', '42818', '42818', '42818', '42818 CLOSED_CONSISTENT after 0s: epochs [0, 1, 2] closed identically on all PRs COMMITTEES_CONSISTENT SAFE 
+    DID NOT FINISH | busy_s=23 rate=1818 cps median=110 ms weighted=159 ms spikes=[(8, 492), (16, 466)]
+    discards: 0 closes:   15 round=0    1 round=29    1 round=2972 
+
+########## offline1 ##########
+offline1 exit=0 | CLOSED_CONSISTENT after 0s: epochs [0, 1, 2] closed identically on all PRs COMMITTEES_CONSISTENT SAFE 
+    DID NOT FINISH | busy_s=23 rate=1858 cps median=108 ms weighted=138 ms spikes=[(8, 467), (16, 430)]
+    discards: 0 closes:    1 round=   10 round=0    1 round=825 
+
+########## byz1 ##########
+byz1 exit=6 | attempt 1 stalled at 35375 blocks stalled: nodes kept running 
+    DID NOT FINISH | busy_s=14 rate=2004 cps median=458 ms weighted=1840 ms spikes=[(7, 2171), (8, 809), (9, 1039), (10, 1282), (11, 1082), (12, 797), (13, 18301)]
+    discards: 178 closes:    4 round=  119 round=0    1 round=021    1 round=04   20 round=1    1 round=780    1 round=8454 
+
+########## verdicts ##########
+fork0 exit=0 | SETTLED_CONSISTENT after 0s: epochs [0, 1, 2] identical on all PRs, cemented=['45045', '45045', '45045', '45045', '45045 CLOSED_CONSISTENT after 0s: epochs [0, 1, 2] closed identically on all PRs COMMITTEES_CONSISTENT SAFE 
+    DID NOT FINISH | busy_s=23 rate=1957 cps median=95 ms weighted=139 ms spikes=[(8, 569), (16, 448)]
+    discards: 0 closes:   13 round=0    1 round=1790074940968    1 round=8 
+fork5 exit=0 | SETTLED_CONSISTENT after 0s: epochs [0, 1, 2] identical on all PRs, cemented=['42818', '42818', '42818', '42818', '42818 CLOSED_CONSISTENT after 0s: epochs [0, 1, 2] closed identically on all PRs COMMITTEES_CONSISTENT SAFE 
+    DID NOT FINISH | busy_s=23 rate=1818 cps median=110 ms weighted=159 ms spikes=[(8, 492), (16, 466)]
+    discards: 0 closes:   15 round=0    1 round=29    1 round=2972 
+offline1 exit=0 | CLOSED_CONSISTENT after 0s: epochs [0, 1, 2] closed identically on all PRs COMMITTEES_CONSISTENT SAFE 
+    DID NOT FINISH | busy_s=23 rate=1858 cps median=108 ms weighted=138 ms spikes=[(8, 467), (16, 430)]
+    discards: 0 closes:    1 round=   10 round=0    1 round=825 
+byz1 exit=6 | attempt 1 stalled at 35375 blocks stalled: nodes kept running 
+    DID NOT FINISH | busy_s=14 rate=2004 cps median=458 ms weighted=1840 ms spikes=[(7, 2171), (8, 809), (9, 1039), (10, 1282), (11, 1082), (12, 797), (13, 18301)]
+    discards: 178 closes:    4 round=  119 round=0    1 round=021    1 round=04   20 round=1    1 round=780    1 round=8454 

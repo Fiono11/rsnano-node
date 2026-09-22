@@ -17,6 +17,8 @@ mod fork_cache;
 mod fork_cache_updater;
 mod local_votes_remover;
 mod rep_tiers;
+#[cfg(feature = "rai_protocol")]
+pub(crate) mod reports;
 mod vote_applier;
 mod vote_broadcaster;
 pub mod vote_cache;

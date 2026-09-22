@@ -1,0 +1,12 @@
+fork0 exit=0 | SETTLED_CONSISTENT after 0s: epochs [0, 1, 2] identical on all PRs, cemented=['45062', '45062', '45062', '45062', '45062 CLOSED_CONSISTENT after 0s: epochs [0, 1, 2] closed identically on all PRs COMMITTEES_CONSISTENT SAFE 
+    DID NOT FINISH | busy_s=22 rate=2046 cps median=96 ms weighted=154 ms spikes=[(8, 558), (16, 470)]
+    discards: 0 closes:   14 round=0    1 round=2 
+fork5 exit=0 | SETTLED_CONSISTENT after 0s: epochs [0, 1, 2] identical on all PRs, cemented=['42859', '42859', '42859', '42859', '42859 CLOSED_CONSISTENT after 0s: epochs [0, 1, 2] closed identically on all PRs COMMITTEES_CONSISTENT SAFE 
+    DID NOT FINISH | busy_s=20 rate=2066 cps median=108 ms weighted=271 ms spikes=[(7, 1049), (13, 562), (14, 378)]
+    discards: 0 closes:   18 round=0 
+offline1 exit=0 | CLOSED_CONSISTENT after 0s: epochs [0, 1, 2] closed identically on all PRs COMMITTEES_CONSISTENT SAFE 
+    DID NOT FINISH | busy_s=17 rate=2476 cps median=105 ms weighted=3164 ms spikes=[(7, 621), (15, 12038), (16, 8367)]
+    discards: 0 closes:    1 round=   14 round=0 
+byz1 exit=0 | CLOSED_CONSISTENT after 0s: epochs [0, 1, 2, 3, 4] closed identically on all PRs COMMITTEES_CONSISTENT SAFE 
+    DID NOT FINISH | busy_s=15 rate=2710 cps median=107 ms weighted=1259 ms spikes=[(7, 1718), (12, 3973), (13, 2817), (14, 1346)]
+    discards: 5 closes:    1 round=   16 round=0    1 round=03    2 round=1    1 round=1790080316122 

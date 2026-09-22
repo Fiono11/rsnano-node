@@ -164,6 +164,19 @@ impl EpochStates {
             .collect()
     }
 
+    /// RAI, Section 6.1: this node's statements in the instances of one
+    /// epoch which finalized and left the AEC, for the epoch's report
+    pub fn slots_of(
+        &self,
+        epoch: ConsensusEpoch,
+    ) -> impl Iterator<Item = (Account, u64, &LocalSlotState)> {
+        self.instances
+            .values()
+            .flat_map(|instances| instances.iter())
+            .filter(move |instance| instance.epoch == epoch)
+            .map(|instance| (instance.account, instance.height, &instance.slot))
+    }
+
     pub fn len(&self) -> usize {
         self.len
     }

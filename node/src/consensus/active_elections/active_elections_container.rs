@@ -987,6 +987,39 @@ impl ActiveElectionsContainer {
         }
     }
 
+    /// RAI, Section 6.1: the map of the first and final votes this node
+    /// issued in one epoch, and H(O_e), the digest of the committee that
+    /// issued the epoch's votes. What the epoch's report commits to.
+    ///
+    /// The map is built from the slot states, which hold this node's
+    /// one-shot votes per slot and epoch and outlive their elections until
+    /// the epoch is agreed. A finalized instance keeps its own state, so the
+    /// votes of a slot decided early in the epoch are in the map too.
+    #[cfg(feature = "rai_protocol")]
+    pub fn epoch_report(
+        &self,
+        epoch: ConsensusEpoch,
+    ) -> Option<(crate::consensus::election::VoteReport, BlockHash)> {
+        use crate::consensus::election::{ReportKey, ReportKind, VoteReport};
+        let committee = self.committees.committee(epoch)?;
+        let mut map = VoteReport::new(epoch);
+        let mut add = |account: Account, height: u64, slot: &LocalSlotState| {
+            if let Some(hash) = slot.first_voted {
+                map.add(ReportKey::new(account, height, ReportKind::First), hash);
+            }
+            if let Some(hash) = slot.final_voted {
+                map.add(ReportKey::new(account, height, ReportKind::Final), hash);
+            }
+        };
+        for (account, height, slot) in self.slots.iter_epoch(epoch) {
+            add(account, height, slot);
+        }
+        for (account, height, slot) in self.epoch_states.slots_of(epoch) {
+            add(account, height, slot);
+        }
+        Some((map, committee.digest()))
+    }
+
     /// RAI, Protocol 1 step 4: another replica named a candidate of one of
     /// this node's instances which this node does not hold. Recorded on the
     /// instance so that, if the block never arrives and it has many first

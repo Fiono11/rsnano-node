@@ -1,0 +1,12 @@
+
+########## fork0 ##########
+fork0 exit=0 | SETTLED_CONSISTENT after 0s: epochs [0, 1, 2] identical on all PRs, cemented=['45063', '45063', '45063', '45063', '45063 CLOSED_CONSISTENT after 0s: epochs [0, 1, 2] closed identically on all PRs COMMITTEES_CONSISTENT SAFE 
+    DID NOT FINISH | busy_s=21 rate=2100 cps median=95 ms weighted=156 ms spikes=[(7, 618), (15, 473)]
+    discards: 0 closes:   15 round=0    1 round=002 
+
+########## fork5 ##########
+fork5 exit=4 | INCONSISTENT COMMITTEES_CONSISTENT checks failed (settle=2 committees=0 safety=1): nodes kept running 
+    DID NOT FINISH | busy_s=22 rate=1903 cps median=106 ms weighted=144 ms spikes=[(7, 454), (15, 743)]
+    discards: 0 closes:   16 round=0 
+
+########## offline1 ##########

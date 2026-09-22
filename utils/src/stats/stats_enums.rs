@@ -140,6 +140,10 @@ pub enum DetailType {
     TelemetryAck,
     AscPullReq,
     AscPullAck,
+    /// RAI: the report phase of an epoch close (Section 6)
+    Report,
+    ReportReq,
+    ReportAck,
     #[cfg(feature = "ledger_snapshots")]
     Preproposal,
     #[cfg(feature = "ledger_snapshots")]

@@ -11,6 +11,8 @@ use rsnano_types::VoteDelivery;
 use rsnano_utils::stats::{DetailType, Direction, StatType, Stats};
 use rsnano_work::WorkThresholds;
 
+#[cfg(feature = "rai_protocol")]
+use crate::consensus::reports::ReportService;
 #[cfg(feature = "ledger_snapshots")]
 use crate::ledger_snapshots::LedgerSnapshots;
 use crate::{
@@ -35,6 +37,9 @@ pub struct NetworkMessageProcessor {
     bootstrap_responder: Arc<BootstrapResponder>,
     bootstrapper: Arc<Bootstrapper>,
     work_thresholds: WorkThresholds,
+    /// RAI: the report phase of the epoch closes (Section 6)
+    #[cfg(feature = "rai_protocol")]
+    reports: Arc<ReportService>,
     #[cfg(feature = "ledger_snapshots")]
     ledger_snapshots: Arc<LedgerSnapshots>,
 }
@@ -52,6 +57,7 @@ impl NetworkMessageProcessor {
         bootstrap_responder: Arc<BootstrapResponder>,
         bootstrapper: Arc<Bootstrapper>,
         work_thresholds: WorkThresholds,
+        #[cfg(feature = "rai_protocol")] reports: Arc<ReportService>,
         #[cfg(feature = "ledger_snapshots")] ledger_snapshots: Arc<LedgerSnapshots>,
     ) -> Self {
         Self {
@@ -66,6 +72,8 @@ impl NetworkMessageProcessor {
             bootstrap_responder,
             bootstrapper,
             work_thresholds,
+            #[cfg(feature = "rai_protocol")]
+            reports,
             #[cfg(feature = "ledger_snapshots")]
             ledger_snapshots,
         }
@@ -207,6 +215,12 @@ impl NetworkMessageProcessor {
             | Message::BulkPullAccount(_) => {
                 // obsolete messages
             }
+            #[cfg(feature = "rai_protocol")]
+            Message::Report(report) => self.reports.handle_report(report, channel),
+            #[cfg(feature = "rai_protocol")]
+            Message::ReportReq(request) => self.reports.handle_request(request, channel),
+            #[cfg(feature = "rai_protocol")]
+            Message::ReportAck(ack) => self.reports.handle_ack(ack, channel),
             #[cfg(feature = "ledger_snapshots")]
             Message::SnapshotPreproposal(preproposal) => {
                 self.ledger_snapshots.handle_preproposal(preproposal);
@@ -294,6 +308,8 @@ mod tests {
             BootstrapResponder::new_null().into(),
             Bootstrapper::new_null().into(),
             WorkThresholds::new_stub(),
+            #[cfg(feature = "rai_protocol")]
+            ReportService::new_null().into(),
             ledger_snapshots.into(),
         )
     }

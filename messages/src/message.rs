@@ -18,6 +18,14 @@ pub enum Message {
     Handshake(Handshake),
     TelemetryAck(TelemetryAck),
     TelemetryReq,
+    /// RAI: a replica's signed report root for one epoch (Section 6.1)
+    #[cfg(feature = "rai_protocol")]
+    Report(Report),
+    /// RAI: a step of a reconciliation against a report root (Section 6.2)
+    #[cfg(feature = "rai_protocol")]
+    ReportReq(ReportReq),
+    #[cfg(feature = "rai_protocol")]
+    ReportAck(ReportAck),
     #[cfg(feature = "ledger_snapshots")]
     SnapshotPreproposal(Preproposal),
     #[cfg(feature = "ledger_snapshots")]
@@ -93,6 +101,12 @@ impl From<&ParseMessageError> for DetailType {
                 Self::InvalidAscPullAckMessage
             }
             ParseMessageError::InvalidMessage(MessageType::BulkPush) => Self::InvalidMessageType,
+            #[cfg(feature = "rai_protocol")]
+            ParseMessageError::InvalidMessage(MessageType::Report) => Self::Report,
+            #[cfg(feature = "rai_protocol")]
+            ParseMessageError::InvalidMessage(MessageType::ReportReq) => Self::ReportReq,
+            #[cfg(feature = "rai_protocol")]
+            ParseMessageError::InvalidMessage(MessageType::ReportAck) => Self::ReportAck,
             #[cfg(feature = "ledger_snapshots")]
             ParseMessageError::InvalidMessage(MessageType::Preproposal) => todo!(),
             #[cfg(feature = "ledger_snapshots")]
@@ -142,6 +156,12 @@ impl Message {
             Message::Handshake(_) => MessageType::Handshake,
             Message::TelemetryAck(_) => MessageType::TelemetryAck,
             Message::TelemetryReq => MessageType::TelemetryReq,
+            #[cfg(feature = "rai_protocol")]
+            Message::Report(_) => MessageType::Report,
+            #[cfg(feature = "rai_protocol")]
+            Message::ReportReq(_) => MessageType::ReportReq,
+            #[cfg(feature = "rai_protocol")]
+            Message::ReportAck(_) => MessageType::ReportAck,
             #[cfg(feature = "ledger_snapshots")]
             Message::SnapshotPreproposal(_) => MessageType::Preproposal,
             #[cfg(feature = "ledger_snapshots")]
@@ -170,6 +190,12 @@ impl Message {
             Message::SnapshotProposal(x) => Some(x),
             #[cfg(feature = "ledger_snapshots")]
             Message::SnapshotProposalVote(x) => Some(x),
+            #[cfg(feature = "rai_protocol")]
+            Message::Report(x) => Some(x),
+            #[cfg(feature = "rai_protocol")]
+            Message::ReportReq(x) => Some(x),
+            #[cfg(feature = "rai_protocol")]
+            Message::ReportAck(x) => Some(x),
             _ => None,
         }
     }
@@ -198,6 +224,12 @@ impl Message {
             Message::Handshake(m) => m.serialize(writer),
             Message::TelemetryAck(m) => m.serialize(writer),
             Message::BulkPush | Message::TelemetryReq => Ok(()),
+            #[cfg(feature = "rai_protocol")]
+            Message::Report(m) => m.serialize(writer),
+            #[cfg(feature = "rai_protocol")]
+            Message::ReportReq(m) => m.serialize(writer),
+            #[cfg(feature = "rai_protocol")]
+            Message::ReportAck(m) => m.serialize(writer),
             #[cfg(feature = "ledger_snapshots")]
             Message::SnapshotPreproposal(m) => m.serialize(writer),
             #[cfg(feature = "ledger_snapshots")]
@@ -242,6 +274,12 @@ impl Message {
                 Message::TelemetryAck(TelemetryAck::deserialize(payload, header.extensions)?)
             }
             MessageType::TelemetryReq => Message::TelemetryReq,
+            #[cfg(feature = "rai_protocol")]
+            MessageType::Report => Message::Report(Report::deserialize(payload)?),
+            #[cfg(feature = "rai_protocol")]
+            MessageType::ReportReq => Message::ReportReq(ReportReq::deserialize(payload)?),
+            #[cfg(feature = "rai_protocol")]
+            MessageType::ReportAck => Message::ReportAck(ReportAck::deserialize(payload)?),
             #[cfg(feature = "ledger_snapshots")]
             MessageType::Preproposal => {
                 Message::SnapshotPreproposal(Preproposal::deserialize(payload)?)

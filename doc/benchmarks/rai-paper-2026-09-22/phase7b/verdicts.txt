@@ -1,0 +1,12 @@
+fork0 exit=0 | SETTLED_CONSISTENT after 0s: epochs [0, 1, 2] identical on all PRs, cemented=['44997', '44997', '44997', '44997', '44997 CLOSED_CONSISTENT after 0s: epochs [0, 1, 2] closed identically on all PRs COMMITTEES_CONSISTENT SAFE 
+    DID NOT FINISH | busy_s=23 rate=1955 cps median=94 ms weighted=125 ms spikes=[(8, 407), (16, 367)]
+    discards: 0 closes:   18 round=0 
+fork5 exit=0 | SETTLED_CONSISTENT after 0s: epochs [0, 1, 2] identical on all PRs, cemented=['42784', '42784', '42784', '42784', '42784 CLOSED_CONSISTENT after 0s: epochs [0, 1, 2] closed identically on all PRs COMMITTEES_CONSISTENT SAFE 
+    DID NOT FINISH | busy_s=21 rate=1963 cps median=107 ms weighted=205 ms spikes=[(7, 783), (14, 800)]
+    discards: 0 closes:    2 round=   12 round=0    1 round=0611 
+offline1 exit=3 | nanospam aborted: Error: the PRs never saw the full quorum: None / online [285949583981734433838526458574092557166, 2859 
+    no second reached 1000 cps (0 status lines)
+    discards: 0 closes: 
+byz1 exit=0 | CLOSED_CONSISTENT after 0s: epochs [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23 COMMITTEES_CONSISTENT SAFE 
+    DID NOT FINISH | busy_s=18 rate=2235 cps median=108 ms weighted=1696 ms spikes=[(7, 522), (14, 5461), (15, 5830), (16, 7206), (17, 3323)]
+    discards: 1191 closes:   13 round=  184 round=0    1 round=0170436    1 round=01790077517486    1 round=01790077637511    1 round=06535    1 round=09    1 round=12498    1 round=1790077573520690501    1 round=17900776295500    1 round=19    4 round=2    1 round=3    1 round=330    1 round=440    1 round=480    1 round=5    1 round=81 

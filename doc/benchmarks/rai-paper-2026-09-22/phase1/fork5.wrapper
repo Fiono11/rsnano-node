@@ -1,0 +1,31 @@
+/Users/ruimorais/rsnano-node/target/release/rsnano
+publishing done after 81s
+t=0s epochs=[0, 1, 2] open={0: [0, 0, 0, 0, 0, 0], 1: [0, 0, 0, 0, 0, 0], 2: [0, 0, 0, 0, 0, 0]} inconsistent=[] cemented=['42859', '42859', '42859', '42859', '42859', '42859']
+  epoch 0: ADC4822F fin=15044 single=336 pend=0 cem_und=0 empty=1 confl=462 | ADC4822F fin=15044 single=336 pend=0 cem_und=0 empty=1 confl=462 | ADC4822F fin=15044 single=336 pend=0 cem_und=0 empty=1 confl=462 | ADC4822F fin=15044 single=336 pend=0 cem_und=0 empty=1 confl=462 | ADC4822F fin=15044 single=336 pend=0 cem_und=0 empty=1 confl=462 | ADC4822F fin=15044 single=336 pend=0 cem_und=0 empty=1 confl=462
+  epoch 1: 77963F71 fin=14343 single=407 pend=0 cem_und=0 empty=8 confl=309 | 77963F71 fin=14343 single=407 pend=0 cem_und=0 empty=8 confl=309 | 77963F71 fin=14343 single=407 pend=0 cem_und=0 empty=8 confl=309 | 77963F71 fin=14343 single=407 pend=0 cem_und=0 empty=8 confl=309 | 77963F71 fin=14343 single=407 pend=0 cem_und=0 empty=8 confl=309 | 77963F71 fin=14343 single=407 pend=0 cem_und=0 empty=8 confl=309
+  epoch 2: 1F224B42 fin=13471 single=349 pend=0 cem_und=0 empty=0 confl=334 | 1F224B42 fin=13471 single=349 pend=0 cem_und=0 empty=0 confl=334 | 1F224B42 fin=13471 single=349 pend=0 cem_und=0 empty=0 confl=334 | 1F224B42 fin=13471 single=349 pend=0 cem_und=0 empty=0 confl=334 | 1F224B42 fin=13471 single=349 pend=0 cem_und=0 empty=0 confl=334 | 1F224B42 fin=13471 single=349 pend=0 cem_und=0 empty=0 confl=334
+SETTLED_CONSISTENT after 0s: epochs [0, 1, 2] identical on all PRs, cemented=['42859', '42859', '42859', '42859', '42859', '42859']
+epoch 3 is empty on every PR: not ended
+close t=0s left=[0, 1, 2] open={0: [0, 0, 0, 0, 0, 0], 1: [0, 0, 0, 0, 0, 0], 2: [0, 0, 0, 0, 0, 0]} inconsistent=[]
+  close 0: round=0 ready=true started=true value=D1CFEA05 closed=D1CFEA05@0= | round=0 ready=true started=true value=D1CFEA05 closed=D1CFEA05@0= | round=0 ready=true started=true value=D1CFEA05 closed=D1CFEA05@0= | round=0 ready=true started=true value=D1CFEA05 closed=D1CFEA05@0= | round=1 ready=true started=true value=D1CFEA05 closed=D1CFEA05@0= | round=1 ready=true started=true value=D1CFEA05 closed=D1CFEA05@0=
+  close 1: round=1 ready=true started=true value=CC1ED126 closed=CC1ED126@0= | round=1 ready=true started=true value=CC1ED126 closed=CC1ED126@0= | round=0 ready=true started=true value=CC1ED126 closed=CC1ED126@0= | round=0 ready=true started=true value=CC1ED126 closed=CC1ED126@0= | round=0 ready=true started=true value=CC1ED126 closed=CC1ED126@0= | round=0 ready=true started=true value=CC1ED126 closed=CC1ED126@0=
+  close 2: round=1 ready=true started=true value=76215EA5 closed=76215EA5@0= | round=1 ready=true started=true value=76215EA5 closed=76215EA5@0= | round=0 ready=true started=true value=76215EA5 closed=76215EA5@0= | round=0 ready=true started=true value=76215EA5 closed=76215EA5@0= | round=0 ready=true started=false value=76215EA5 closed=76215EA5@0= | round=0 ready=true started=true value=76215EA5 closed=76215EA5@0=
+CLOSED_CONSISTENT after 0s: epochs [0, 1, 2] closed identically on all PRs
+settle check exit=0 at 81s (settle phase 0s)
+committee genesis: members=6 n=3.403e+38 digest=8D786F57 on PR0,PR1,PR2,PR3,PR4,PR5 ok
+    rxk7n7ne=20.2% 8g5mp8f1=16.0% ohsmj9th=16.0% 5pddzijp=16.0% xfwtat7m=16.0% 3tfyyzs3=16.0%
+committee       0: members=6 n=3.393e+38 digest=AF1051AB on PR0,PR1,PR2,PR3,PR4,PR5 ok
+    8g5mp8f1=18.2% ohsmj9th=17.8% xfwtat7m=17.7% 5pddzijp=17.6% 3tfyyzs3=14.7% rxk7n7ne=14.0%
+committee       1: members=6 n=3.296e+38 digest=80839D3B on PR0,PR1,PR2,PR3,PR4,PR5 ok
+    8g5mp8f1=18.1% xfwtat7m=18.0% 5pddzijp=18.0% ohsmj9th=17.9% 3tfyyzs3=14.4% rxk7n7ne=13.5%
+committee       2: members=6 n=3.230e+38 digest=FB220CB8 on PR0,PR1,PR2,PR3,PR4,PR5 ok
+    8g5mp8f1=18.1% xfwtat7m=18.0% ohsmj9th=17.9% 5pddzijp=17.9% 3tfyyzs3=14.5% rxk7n7ne=13.5%
+current epochs per PR: [3, 3, 3, 3, 3, 3]
+n ranges over 3.2297e+38..3.4028e+38: 5.09% in flight at most
+COMMITTEES_CONSISTENT
+epochs=[0, 1, 2] slots=43950 finalized slots=42858 finalized blocks=42858 slots with more than one block in the state=0
+S2 slots finalized one way and single-notarized another in some epoch: 0
+S3 blocks finalized in more than one epoch: 0
+S5 blocks discarded as late: 0, of which decided afresh in a later epoch: 0
+S4 slots checked against every PR's ledger: 300 of 42858
+SAFE
