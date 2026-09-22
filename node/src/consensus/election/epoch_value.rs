@@ -25,6 +25,11 @@ pub struct ReportRef {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EpochValue {
     pub epoch: ConsensusEpoch,
+    /// The epoch-election slot this placement sits in. Election slots are
+    /// separate from account slots, and the placement hash binds this one:
+    /// the same reports and state proposed in two slots are two placements,
+    /// so a vote in one slot cannot be replayed into the other.
+    pub slot: u32,
     /// The epoch value this one descends from, zero for the first of an epoch
     pub parent: BlockHash,
     /// `Q_e`, in a canonical order so that two leaders naming the same
@@ -45,6 +50,7 @@ impl EpochValue {
     /// selects, which is what makes them usable.
     pub fn propose(
         epoch: ConsensusEpoch,
+        slot: u32,
         parent: BlockHash,
         previous: &EpochLedger,
         selection: &[(ReportRef, SelectedReport)],
@@ -57,6 +63,7 @@ impl EpochValue {
         let ledger = build_state(previous, &states, index, many);
         let value = Self {
             epoch,
+            slot,
             parent,
             reports,
             state: ledger.state_hash(),
@@ -69,6 +76,7 @@ impl EpochValue {
         let mut builder = Blake2HashBuilder::new()
             .update(b"RAI epoch value")
             .update(self.epoch.as_u64().to_le_bytes())
+            .update(self.slot.to_le_bytes())
             .update(self.parent.as_bytes());
         for report in &self.reports {
             builder = builder
@@ -275,6 +283,7 @@ mod tests {
             world.selection().into_iter().take(2).collect();
         let (some, _) = EpochValue::propose(
             ConsensusEpoch::ZERO,
+            0,
             BlockHash::ZERO,
             &EpochLedger::new(),
             &fewer,
@@ -283,6 +292,29 @@ mod tests {
         );
         assert_ne!(all.state, some.state);
         assert_ne!(all.hash(), some.hash());
+    }
+
+    /// RAI: the placement hash binds its election slot, so the same reports
+    /// and the same derived state proposed in two slots are two placements.
+    /// Without this a vote cast in one slot would carry into the other.
+    #[test]
+    fn the_election_slot_is_bound_into_the_hash() {
+        let world = World::new(3);
+        let (first, _) = world.propose();
+        let (second, _) = EpochValue::propose(
+            ConsensusEpoch::ZERO,
+            1,
+            BlockHash::ZERO,
+            &EpochLedger::new(),
+            &world.selection(),
+            &world.index,
+            MANY,
+        );
+
+        assert_eq!(first.reports(), second.reports());
+        assert_eq!(first.state, second.state);
+        assert_ne!(first.slot, second.slot);
+        assert_ne!(first.hash(), second.hash());
     }
 
     /*
@@ -373,6 +405,7 @@ mod tests {
         fn propose(&self) -> (EpochValue, EpochLedger) {
             EpochValue::propose(
                 ConsensusEpoch::ZERO,
+                0,
                 BlockHash::ZERO,
                 &EpochLedger::new(),
                 &self.selection(),
