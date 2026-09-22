@@ -1,4 +1,4 @@
-use rsnano_types::{Blake2HashBuilder, BlockHash, ConsensusEpoch, PublicKey};
+use rsnano_types::{Amount, Blake2HashBuilder, BlockHash, ConsensusEpoch, PublicKey};
 
 use super::{BlockIndex, EpochLedger, SelectedReport, build_state};
 
@@ -49,11 +49,12 @@ impl EpochValue {
         previous: &EpochLedger,
         selection: &[(ReportRef, SelectedReport)],
         index: &dyn BlockIndex,
+        many: Amount,
     ) -> (Self, EpochLedger) {
         let mut reports: Vec<ReportRef> = selection.iter().map(|(report, _)| *report).collect();
         reports.sort();
         let states: Vec<SelectedReport> = selection.iter().map(|(_, state)| *state).collect();
-        let ledger = build_state(previous, &states, index);
+        let ledger = build_state(previous, &states, index, many);
         let value = Self {
             epoch,
             parent,
@@ -91,6 +92,7 @@ impl EpochValue {
         reconstructed: &dyn ReportSource,
         index: &dyn BlockIndex,
         quorum: usize,
+        many: Amount,
     ) -> Result<EpochLedger, EpochValueError> {
         if self.reports.len() != quorum {
             return Err(EpochValueError::WrongSelectionSize {
@@ -119,7 +121,7 @@ impl EpochValue {
             };
             states.push(state);
         }
-        let ledger = build_state(previous, &states, index);
+        let ledger = build_state(previous, &states, index, many);
         if ledger.state_hash() != self.state {
             return Err(EpochValueError::StateMismatch {
                 derived: ledger.state_hash(),
@@ -176,7 +178,7 @@ mod tests {
         assert_eq!(value.reports().len(), 3);
 
         let derived = value
-            .validate(&EpochLedger::new(), &world, &world.index, 3)
+            .validate(&EpochLedger::new(), &world, &world.index, 3, MANY)
             .expect("the reports determine this state");
         assert_eq!(derived.state_hash(), value.state);
         assert_eq!(derived.finalized_count(), ledger.finalized_count());
@@ -195,7 +197,7 @@ mod tests {
         let mut shuffled = value.clone();
         shuffled.reports.reverse();
         assert_eq!(
-            shuffled.validate(&EpochLedger::new(), &world, &world.index, 3),
+            shuffled.validate(&EpochLedger::new(), &world, &world.index, 3, MANY),
             Err(EpochValueError::NotCanonical)
         );
         // And the hash follows the order, so a shuffled value is a different one
@@ -210,7 +212,7 @@ mod tests {
         let proposed = BlockHash::from(999);
         value.state = proposed;
         let error = value
-            .validate(&EpochLedger::new(), &world, &world.index, 3)
+            .validate(&EpochLedger::new(), &world, &world.index, 3, MANY)
             .unwrap_err();
         let EpochValueError::StateMismatch { derived, .. } = error else {
             panic!("expected a state mismatch, got {error:?}");
@@ -235,7 +237,7 @@ mod tests {
             ..World::new(3)
         };
         assert_eq!(
-            value.validate(&EpochLedger::new(), &partial, &partial.index, 3),
+            value.validate(&EpochLedger::new(), &partial, &partial.index, 3, MANY),
             Err(EpochValueError::NotReconstructed { reporter: missing })
         );
     }
@@ -247,7 +249,7 @@ mod tests {
         let world = World::new(3);
         let (value, _) = world.propose();
         assert_eq!(
-            value.validate(&EpochLedger::new(), &world, &world.index, 4),
+            value.validate(&EpochLedger::new(), &world, &world.index, 4, MANY),
             Err(EpochValueError::WrongSelectionSize {
                 selected: 3,
                 required: 4
@@ -257,7 +259,7 @@ mod tests {
         let mut repeated = value.clone();
         repeated.reports[1] = repeated.reports[0];
         assert_eq!(
-            repeated.validate(&EpochLedger::new(), &world, &world.index, 3),
+            repeated.validate(&EpochLedger::new(), &world, &world.index, 3, MANY),
             Err(EpochValueError::RepeatedReporter)
         );
     }
@@ -277,6 +279,7 @@ mod tests {
             &EpochLedger::new(),
             &fewer,
             &world.index,
+            MANY,
         );
         assert_ne!(all.state, some.state);
         assert_ne!(all.hash(), some.hash());
@@ -285,6 +288,11 @@ mod tests {
     /*
      * Test helpers
      */
+
+    /// f + p + 1, against a reporter weight that keeps a single report below
+    /// the checkpoint recovery threshold
+    const MANY: Amount = Amount::raw(25);
+    const REPORTER_WEIGHT: Amount = Amount::raw(10);
 
     /// Three reporters: all of them certified the same block, and each one
     /// supported a block of its own that no certificate covers
@@ -321,7 +329,7 @@ mod tests {
                 let mut residual = ResidualVotes::new();
                 residual.record(
                     CertifiedBlock::new(Account::from(2 + i as u64), 1, own),
-                    ResidualKind::Support,
+                    ResidualKind::First,
                 );
                 let refs = ReportRef {
                     reporter,
@@ -352,6 +360,8 @@ mod tests {
                     (
                         held.refs,
                         SelectedReport {
+                            reporter: *reporter,
+                            weight: REPORTER_WEIGHT,
                             certified: &held.certified,
                             residual: &held.residual,
                         },
@@ -367,6 +377,7 @@ mod tests {
                 &EpochLedger::new(),
                 &self.selection(),
                 &self.index,
+                MANY,
             )
         }
     }
@@ -375,6 +386,8 @@ mod tests {
         fn report(&self, report: &ReportRef) -> Option<SelectedReport<'_>> {
             let held = self.reports.get(&report.reporter)?;
             (held.refs == *report).then_some(SelectedReport {
+                reporter: report.reporter,
+                weight: REPORTER_WEIGHT,
                 certified: &held.certified,
                 residual: &held.residual,
             })

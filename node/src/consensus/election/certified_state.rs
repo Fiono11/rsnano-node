@@ -167,9 +167,14 @@ pub struct CertifiedDelta {
 /// certified status does not yet summarize them
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ResidualKind {
-    /// A first vote, which is notarization support as well, for a block
+    /// A first vote, for a block with no notarization certificate in the
+    /// certified state. Kept apart from `Notar` because only first votes
+    /// build a fast finalization certificate, so only they can stand for a
+    /// hidden one in the checkpoint recovery rule.
+    First,
+    /// Notarization support added under the second-look rule, for a block
     /// with no notarization certificate in the certified state
-    Support,
+    Notar,
     /// A final vote for a block the certified state holds as notarized only
     Final,
 }
@@ -177,8 +182,9 @@ pub enum ResidualKind {
 impl ResidualKind {
     fn as_byte(self) -> u8 {
         match self {
-            ResidualKind::Support => 0,
-            ResidualKind::Final => 1,
+            ResidualKind::First => 0,
+            ResidualKind::Notar => 1,
+            ResidualKind::Final => 2,
         }
     }
 }
@@ -212,10 +218,21 @@ impl ResidualVotes {
 
     /// The blocks this reporter supported with a first or notarization vote
     /// that its certified state does not summarize: `M_Q` counts these
+    /// The blocks this reporter supported with a first or a notarization
+    /// vote: what `M_Q` counts for candidate membership
     pub fn supported(&self) -> impl Iterator<Item = &CertifiedBlock> {
         self.entries
             .keys()
-            .filter(|(_, kind)| *kind == ResidualKind::Support)
+            .filter(|(_, kind)| matches!(kind, ResidualKind::First | ResidualKind::Notar))
+            .map(|(block, _)| block)
+    }
+
+    /// The blocks this reporter first voted: what `FirstCount_Q` counts, and
+    /// the only votes a hidden fast finalization certificate can rest on
+    pub fn first_votes(&self) -> impl Iterator<Item = &CertifiedBlock> {
+        self.entries
+            .keys()
+            .filter(|(_, kind)| *kind == ResidualKind::First)
             .map(|(block, _)| block)
     }
 
@@ -391,19 +408,55 @@ mod tests {
         let mut one = ResidualVotes::new();
         let mut other = ResidualVotes::new();
         assert_eq!(one.root(), other.root());
-        one.record(block(1), ResidualKind::Support);
+        one.record(block(1), ResidualKind::First);
         one.record(block(2), ResidualKind::Final);
         other.record(block(2), ResidualKind::Final);
-        other.record(block(1), ResidualKind::Support);
+        other.record(block(1), ResidualKind::First);
         assert_eq!(one.root(), other.root());
         assert_eq!(one.len(), 2);
-        assert!(one.contains(&block(1), ResidualKind::Support));
+        assert!(one.contains(&block(1), ResidualKind::First));
         assert!(!one.contains(&block(1), ResidualKind::Final));
         assert_eq!(one.supported().collect::<Vec<_>>(), vec![&block(1)]);
 
         // Recording twice changes nothing
-        assert!(!one.record(block(1), ResidualKind::Support));
+        assert!(!one.record(block(1), ResidualKind::First));
         assert_eq!(one.len(), 2);
+    }
+
+    /// A first vote and second-look notarization support are separate
+    /// entries: only the first vote can witness a hidden fast certificate
+    #[test]
+    fn a_first_vote_is_told_apart_from_notarization_support() {
+        let mut votes = ResidualVotes::new();
+        votes.record(block(1), ResidualKind::First);
+        votes.record(block(2), ResidualKind::Notar);
+        assert_eq!(votes.len(), 2);
+
+        // Both count as support for candidate membership
+        assert_eq!(
+            votes.supported().collect::<Vec<_>>(),
+            vec![&block(1), &block(2)]
+        );
+        // Only the first vote counts for the recovery threshold
+        assert_eq!(votes.first_votes().collect::<Vec<_>>(), vec![&block(1)]);
+    }
+
+    /// The same block first voted and then notarized is two entries, and the
+    /// root distinguishes them from either alone
+    #[test]
+    fn the_two_support_kinds_hash_apart() {
+        let mut first_only = ResidualVotes::new();
+        first_only.record(block(1), ResidualKind::First);
+        let mut notar_only = ResidualVotes::new();
+        notar_only.record(block(1), ResidualKind::Notar);
+        assert_ne!(first_only.root(), notar_only.root());
+
+        let mut both = ResidualVotes::new();
+        both.record(block(1), ResidualKind::First);
+        both.record(block(1), ResidualKind::Notar);
+        assert_eq!(both.len(), 2);
+        assert_ne!(both.root(), first_only.root());
+        assert_eq!(both.first_votes().collect::<Vec<_>>(), vec![&block(1)]);
     }
 
     #[test]

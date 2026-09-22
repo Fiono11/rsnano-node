@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use rsnano_types::{Account, Blake2HashBuilder, BlockHash};
+use rsnano_types::{Account, Amount, Blake2HashBuilder, BlockHash, PublicKey};
 
-use super::{CertifiedState, CertifiedStatus, ResidualVotes};
+use super::{CertifiedBlock, CertifiedState, ResidualVotes};
 
 /// A position in an account forest. The slot follows from the parent: a block
 /// whose parent sits at slot v-1 is at slot v.
@@ -45,6 +45,14 @@ pub trait BlockIndex {
 /// validator reconstructed it
 #[derive(Clone, Copy, Debug)]
 pub struct SelectedReport<'a> {
+    /// The reporting validator. `M_Q` and `FirstCount_Q` count a reporter
+    /// once however many votes it recorded, so the identity is needed to
+    /// tell two reports apart.
+    pub reporter: PublicKey,
+    /// Its weight in the committee the reports are counted in. The thresholds
+    /// of this implementation are weights rather than validator counts, so
+    /// `f + p + 1` is a weight here too.
+    pub weight: Amount,
     pub certified: &'a CertifiedState,
     pub residual: &'a ResidualVotes,
 }
@@ -175,6 +183,7 @@ pub fn build_state(
     previous: &EpochLedger,
     selection: &[SelectedReport],
     index: &dyn BlockIndex,
+    many: Amount,
 ) -> EpochLedger {
     let mut ledger = EpochLedger::new();
 
@@ -188,7 +197,7 @@ pub fn build_state(
     // summarize (Include_Q). Rule 2 drops what this validator can not place.
     let mut candidates: BTreeMap<AccountSlot, BTreeSet<BlockHash>> = BTreeMap::new();
     let mut final_visible: BTreeSet<BlockHash> = BTreeSet::new();
-    let mut place = |hash: BlockHash, candidates: &mut BTreeMap<_, BTreeSet<_>>| {
+    let place = |hash: BlockHash, candidates: &mut BTreeMap<_, BTreeSet<_>>| {
         if let Some(placement) = index.placement(&hash) {
             candidates.entry(placement.slot).or_default().insert(hash);
         }
@@ -232,11 +241,77 @@ pub fn build_state(
         }
     };
 
-    // Rule 3: a block the reports show finalized is finalized here, with the
-    // unresolved ancestors it rests on
+    // RAI, before any pruning: the mandatory recovery targets, which
+    // preserve a finalization the reports do not show because it was
+    // assembled after they were signed.
+    //
+    // V_Q(a,v) are the hashes at the slot whose notarization certificate the
+    // selected reports make visible; a finalization annotation establishes
+    // the certificate too, so every certified status counts. A_Q(a,v) are
+    // the hashes f + p + 1 of the selected weight first voted: enough to
+    // cover the q_fast first voters of a fast certificate nobody reported.
+    //
+    // A unique member of V_Q is protected because a final voter records the
+    // certificate before it final votes, so a certificate assembled later
+    // rests on it. When no certificate is visible at all, a unique member of
+    // A_Q is protected in its place. A slot with two of either is left to the
+    // ordinary rules: a conflict there cannot have finalized (Lemma 3.3).
+    let mut protect: BTreeMap<AccountSlot, BlockHash> = BTreeMap::new();
+    for (slot, hashes) in &candidates {
+        let certified_visible: Vec<BlockHash> = hashes
+            .iter()
+            .copied()
+            .filter(|hash| {
+                selection.iter().any(|report| {
+                    report
+                        .certified
+                        .status(&CertifiedBlock::new(slot.account, slot.height, *hash))
+                        .is_some()
+                })
+            })
+            .collect();
+        let target = match certified_visible.as_slice() {
+            [unique] => Some(*unique),
+            [] => {
+                let first_voted: Vec<BlockHash> = hashes
+                    .iter()
+                    .copied()
+                    .filter(|hash| {
+                        let block = CertifiedBlock::new(slot.account, slot.height, *hash);
+                        // A reporter counts once however many votes it
+                        // recorded, and the selection holds distinct
+                        // identities, so the set guards against a repeat
+                        let mut counted: BTreeSet<PublicKey> = BTreeSet::new();
+                        let mut weight = Amount::ZERO;
+                        for report in selection {
+                            if report.residual.first_votes().any(|voted| *voted == block)
+                                && counted.insert(report.reporter)
+                            {
+                                weight = weight.checked_add(report.weight).unwrap_or(Amount::MAX);
+                            }
+                        }
+                        weight >= many
+                    })
+                    .collect();
+                match first_voted.as_slice() {
+                    [unique] => Some(*unique),
+                    _ => None,
+                }
+            }
+            _ => None,
+        };
+        if let Some(target) = target {
+            protect.insert(*slot, target);
+        }
+    }
+
+    // Rule 3: a block the reports show finalized is finalized here, and so is
+    // every mandatory recovery target, each with the unresolved ancestors it
+    // rests on
     for (slot, hashes) in &candidates {
         for hash in hashes {
-            if final_visible.contains(hash) && compatible(&ledger, slot, hash) {
+            let mandatory = final_visible.contains(hash) || protect.get(slot) == Some(hash);
+            if mandatory && compatible(&ledger, slot, hash) {
                 finalize_with_ancestors(&mut ledger, index, *slot, *hash);
             }
         }
@@ -320,7 +395,8 @@ fn finalize_with_ancestors(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::consensus::election::{CertifiedBlock, ResidualKind};
+    use crate::consensus::election::{CertifiedBlock, CertifiedStatus, ResidualKind};
+    use rsnano_types::PrivateKey;
     use std::collections::HashMap;
 
     /// A slot whose only included block is the one the reports certified is
@@ -333,12 +409,9 @@ mod tests {
         certified.certify(certified_at(&index, block), CertifiedStatus::Notarized);
         let residual = ResidualVotes::new();
 
-        let ledger = build_state(
+        let ledger = derive(
             &EpochLedger::new(),
-            &[SelectedReport {
-                certified: &certified,
-                residual: &residual,
-            }],
+            &[report(&certified, &residual)],
             &index,
         );
 
@@ -359,12 +432,9 @@ mod tests {
         certified.certify(certified_at(&index, other), CertifiedStatus::Notarized);
         let residual = ResidualVotes::new();
 
-        let ledger = build_state(
+        let ledger = derive(
             &EpochLedger::new(),
-            &[SelectedReport {
-                certified: &certified,
-                residual: &residual,
-            }],
+            &[report(&certified, &residual)],
             &index,
         );
 
@@ -374,9 +444,13 @@ mod tests {
     }
 
     /// Include_Q: one selected reporter's residual support is enough to make
-    /// a block a candidate, which then denies the slot its unique survivor
+    /// RAI: a unique certified-visible block is a mandatory recovery target,
+    /// so a single residual conflict cannot defeat it. A correct final voter
+    /// records the notarization certificate before it final votes, so a
+    /// finalization assembled after the reports were signed rests on this
+    /// block, and keeping it merely provisional would lose that obligation.
     #[test]
-    fn one_residual_support_keeps_a_block_at_the_slot() {
+    fn a_unique_certified_block_outranks_a_residual_conflict() {
         let mut index = StubIndex::default();
         let certified_block = index.add(1, 1, BlockHash::ZERO);
         let supported = index.add(1, 1, BlockHash::ZERO);
@@ -386,23 +460,103 @@ mod tests {
             CertifiedStatus::Notarized,
         );
         let mut residual = ResidualVotes::new();
-        residual.record(certified_at(&index, supported), ResidualKind::Support);
+        residual.record(certified_at(&index, supported), ResidualKind::First);
 
-        let ledger = build_state(
+        let ledger = derive(
             &EpochLedger::new(),
-            &[SelectedReport {
-                certified: &certified,
-                residual: &residual,
-            }],
+            &[report(&certified, &residual)],
             &index,
         );
 
-        // Without the residual support the certified block would have been
-        // the unique survivor and finalized
+        assert_eq!(ledger.finalized(&slot(1, 1)), Some(certified_block));
+        assert_eq!(ledger.notarized(&slot(1, 1)), vec![]);
+    }
+
+    /// RAI: with no certificate visible at all, f + p + 1 of the selected
+    /// weight having first voted one block stands for a fast finalization
+    /// certificate nobody reported, and recovers it
+    #[test]
+    fn a_hidden_fast_certificate_is_recovered_from_first_votes() {
+        let mut index = StubIndex::default();
+        let hidden = index.add(1, 1, BlockHash::ZERO);
+        let other = index.add(1, 1, BlockHash::ZERO);
+        let certified = CertifiedState::new();
+        let mut for_hidden = ResidualVotes::new();
+        for_hidden.record(certified_at(&index, hidden), ResidualKind::First);
+        let mut for_other = ResidualVotes::new();
+        for_other.record(certified_at(&index, other), ResidualKind::First);
+
+        // Three reporters of REPORTER_WEIGHT reach MANY for `hidden`
+        let ledger = derive(
+            &EpochLedger::new(),
+            &[
+                reported_by(1, &certified, &for_hidden),
+                reported_by(2, &certified, &for_hidden),
+                reported_by(3, &certified, &for_hidden),
+                reported_by(4, &certified, &for_other),
+            ],
+            &index,
+        );
+
+        assert_eq!(ledger.finalized(&slot(1, 1)), Some(hidden));
+    }
+
+    /// Below the threshold nothing is recovered and the slot keeps both
+    /// blocks: two reporters are short of f + p + 1
+    #[test]
+    fn first_votes_below_the_threshold_recover_nothing() {
+        let mut index = StubIndex::default();
+        let one = index.add(1, 1, BlockHash::ZERO);
+        let other = index.add(1, 1, BlockHash::ZERO);
+        let certified = CertifiedState::new();
+        let mut for_one = ResidualVotes::new();
+        for_one.record(certified_at(&index, one), ResidualKind::First);
+        let mut for_other = ResidualVotes::new();
+        for_other.record(certified_at(&index, other), ResidualKind::First);
+
+        let ledger = derive(
+            &EpochLedger::new(),
+            &[
+                reported_by(1, &certified, &for_one),
+                reported_by(2, &certified, &for_one),
+                reported_by(3, &certified, &for_other),
+            ],
+            &index,
+        );
+
+        assert_eq!(ledger.finalized(&slot(1, 1)), None);
+        assert_eq!(ledger.notarized(&slot(1, 1)), vec_sorted(&[one, other]));
+    }
+
+    /// Only first votes build a fast certificate, so second-look notarization
+    /// support does not reach the recovery threshold however much of it there
+    /// is. This is why the residual object tells the two kinds apart.
+    #[test]
+    fn notarization_support_does_not_recover_a_fast_certificate() {
+        let mut index = StubIndex::default();
+        let supported = index.add(1, 1, BlockHash::ZERO);
+        let other = index.add(1, 1, BlockHash::ZERO);
+        let certified = CertifiedState::new();
+        let mut looked_at = ResidualVotes::new();
+        looked_at.record(certified_at(&index, supported), ResidualKind::Notar);
+        let mut for_other = ResidualVotes::new();
+        for_other.record(certified_at(&index, other), ResidualKind::First);
+
+        let ledger = derive(
+            &EpochLedger::new(),
+            &[
+                reported_by(1, &certified, &looked_at),
+                reported_by(2, &certified, &looked_at),
+                reported_by(3, &certified, &looked_at),
+                reported_by(4, &certified, &for_other),
+            ],
+            &index,
+        );
+
         assert_eq!(ledger.finalized(&slot(1, 1)), None);
         assert_eq!(
             ledger.notarized(&slot(1, 1)),
-            vec_sorted(&[certified_block, supported])
+            vec_sorted(&[supported, other])
         );
     }
 
@@ -418,12 +572,9 @@ mod tests {
         certified.certify(certified_at(&index, loser), CertifiedStatus::Notarized);
         let residual = ResidualVotes::new();
 
-        let ledger = build_state(
+        let ledger = derive(
             &EpochLedger::new(),
-            &[SelectedReport {
-                certified: &certified,
-                residual: &residual,
-            }],
+            &[report(&certified, &residual)],
             &index,
         );
 
@@ -445,12 +596,9 @@ mod tests {
         }
         let residual = ResidualVotes::new();
 
-        let ledger = build_state(
+        let ledger = derive(
             &EpochLedger::new(),
-            &[SelectedReport {
-                certified: &certified,
-                residual: &residual,
-            }],
+            &[report(&certified, &residual)],
             &index,
         );
 
@@ -479,14 +627,7 @@ mod tests {
         );
         let residual = ResidualVotes::new();
 
-        let ledger = build_state(
-            &previous,
-            &[SelectedReport {
-                certified: &certified,
-                residual: &residual,
-            }],
-            &index,
-        );
+        let ledger = derive(&previous, &[report(&certified, &residual)], &index);
 
         assert_eq!(ledger.finalized(&slot(1, 1)), Some(finalized));
         assert!(ledger.notarized(&slot(1, 1)).is_empty());
@@ -507,14 +648,7 @@ mod tests {
         certified.certify(certified_at(&index, kept), CertifiedStatus::Notarized);
         let residual = ResidualVotes::new();
 
-        let ledger = build_state(
-            &previous,
-            &[SelectedReport {
-                certified: &certified,
-                residual: &residual,
-            }],
-            &index,
-        );
+        let ledger = derive(&previous, &[report(&certified, &residual)], &index);
 
         // The kept block is the unique survivor of its slot and finalizes
         assert_eq!(ledger.finalized(&slot(1, 1)), Some(kept));
@@ -542,12 +676,10 @@ mod tests {
         }
         // The block above the conflict is represented but its slot is not
         // decided, so the account's chain has a gap at slot 3
-        let mut ledger = build_state(
+        let residual = ResidualVotes::new();
+        let mut ledger = derive(
             &EpochLedger::new(),
-            &[SelectedReport {
-                certified: &certified,
-                residual: &ResidualVotes::new(),
-            }],
+            &[report(&certified, &residual)],
             &index,
         );
         assert_eq!(
@@ -572,25 +704,15 @@ mod tests {
         certified.certify(certified_at(&index, one), CertifiedStatus::Notarized);
         certified.certify(certified_at(&index, other), CertifiedStatus::Notarized);
         let residual = ResidualVotes::new();
-        let selection = [SelectedReport {
-            certified: &certified,
-            residual: &residual,
-        }];
+        let selection = [report(&certified, &residual)];
 
-        let first = build_state(&EpochLedger::new(), &selection, &index);
-        let second = build_state(&EpochLedger::new(), &selection, &index);
+        let first = derive(&EpochLedger::new(), &selection, &index);
+        let second = derive(&EpochLedger::new(), &selection, &index);
         assert_eq!(first.state_hash(), second.state_hash());
 
         let mut fewer = CertifiedState::new();
         fewer.certify(certified_at(&index, one), CertifiedStatus::Notarized);
-        let third = build_state(
-            &EpochLedger::new(),
-            &[SelectedReport {
-                certified: &fewer,
-                residual: &residual,
-            }],
-            &index,
-        );
+        let third = derive(&EpochLedger::new(), &[report(&fewer, &residual)], &index);
         assert_ne!(first.state_hash(), third.state_hash());
     }
 
@@ -606,12 +728,9 @@ mod tests {
         );
         let residual = ResidualVotes::new();
 
-        let ledger = build_state(
+        let ledger = derive(
             &EpochLedger::new(),
-            &[SelectedReport {
-                certified: &certified,
-                residual: &residual,
-            }],
+            &[report(&certified, &residual)],
             &index,
         );
 
@@ -622,6 +741,40 @@ mod tests {
     /*
      * Test helpers
      */
+
+    /// f + p + 1 for the tests. A reporter weighs `REPORTER_WEIGHT`, so one
+    /// report never reaches the recovery threshold and three do: a test that
+    /// means to exercise `A_Q` has to say so by selecting three reporters.
+    const MANY: Amount = Amount::raw(25);
+    const REPORTER_WEIGHT: Amount = Amount::raw(10);
+
+    fn derive(
+        previous: &EpochLedger,
+        selection: &[SelectedReport],
+        index: &dyn BlockIndex,
+    ) -> EpochLedger {
+        build_state(previous, selection, index, MANY)
+    }
+
+    fn report<'a>(
+        certified: &'a CertifiedState,
+        residual: &'a ResidualVotes,
+    ) -> SelectedReport<'a> {
+        reported_by(1, certified, residual)
+    }
+
+    fn reported_by<'a>(
+        key: u64,
+        certified: &'a CertifiedState,
+        residual: &'a ResidualVotes,
+    ) -> SelectedReport<'a> {
+        SelectedReport {
+            reporter: PrivateKey::from(key).public_key(),
+            weight: REPORTER_WEIGHT,
+            certified,
+            residual,
+        }
+    }
 
     fn slot(account: u64, height: u64) -> AccountSlot {
         AccountSlot::new(Account::from(account), height)

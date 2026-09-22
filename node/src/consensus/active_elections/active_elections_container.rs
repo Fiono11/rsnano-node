@@ -1034,17 +1034,20 @@ impl ActiveElectionsContainer {
 
         // This node's own votes which the certified state does not summarize
         let mut record = |account: Account, height: u64, slot: &LocalSlotState| {
-            let mut support = |hash: BlockHash| {
+            let mut support = |hash: BlockHash, kind: ResidualKind| {
                 let block = CertifiedBlock::new(account, height, hash);
                 if certified.status(&block).is_none() {
-                    residual.record(block, ResidualKind::Support);
+                    residual.record(block, kind);
                 }
             };
+            // The first vote is kept apart from the second-look notarization
+            // support: only first votes can witness a hidden fast
+            // finalization certificate, which is what `A_Q` recovers
             if let Some(hash) = slot.first_voted.filter(|hash| *hash != TIMEOUT_BLOCK) {
-                support(hash);
+                support(hash, ResidualKind::First);
             }
             for hash in &slot.notar_voted {
-                support(*hash);
+                support(*hash, ResidualKind::Notar);
             }
             if let Some(hash) = slot.final_voted {
                 let block = CertifiedBlock::new(account, height, hash);
