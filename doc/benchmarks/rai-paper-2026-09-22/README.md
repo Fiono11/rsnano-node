@@ -51,6 +51,7 @@ Confirmation rate and median confirmation time over the seconds at >= 1000 cps.
 | phase 7 (items 21+22) | 2100 cps / 95 ms | 1903 cps / 106 ms, **settle fails** | - | - |
 | phase 7a (item 21) | 1955 cps / 94 ms | 1963 cps / 107 ms | 1911, 1910 cps / 109, 110 ms | pass |
 | phase 1 (reports) | 2046 cps / 96 ms | 2066 cps / 108 ms | 1995, 1920 cps / 108, 107 ms | pass |
+| phase 4 (committees) | 2100 cps / 97 ms | 1967 cps / 111 ms | 1911 cps / 102 ms | pass |
 
 `offline1` is the A/B of `offline1-ab/` (phase 7a against the base) and `phase1-ab/` (phase 1
 against phase 7a); the other three are the matrix runs. Every check passes on every variant of
@@ -96,6 +97,25 @@ Two changes followed, both from the measurement:
 
 `phase1-smoke2.log` after the change: every check passes at 1876 cps / 108 ms, six reports of
 ~31000 entries per epoch, zero reconciliations.
+
+### Phase 4: what the joint close costs
+
+The close of an epoch is counted in the old committee and the new one together (Section 9.2), so
+a value is elected only when both certify it and a round times out when either does. The two
+committees are genuinely different objects by then - in the `offline1` run C(0) has n=3.219e38
+over 7207 accounts, C(1) n=3.154e38 over 12152, C(2) n=3.105e38 over 14943, each with its own
+digest - so the joint rule is exercised rather than collapsing to one committee.
+
+It costs nothing while the representatives' shares stay close: every close of `fork0`, `fork5`
+and `offline1` was elected in round 0, because a value that clears 62 % of one committee clears
+62 % of the other when each member holds 16-20 % in both. Under a Byzantine representative it
+does cost: `byz1` needed round 1 for two of its sixteen closes. That is the rule working, not
+failing - the run closed every epoch identically on every replica.
+
+The other half of the phase is the ordinary instances, which now count in C(e−2) alone instead
+of jointly with C(e−3) while the epoch before closes. Their certificates therefore form against
+one committee's thresholds rather than two: notarization and finalization get easier, timeout
+certificates and settling get harder.
 
 ### What phase 1 does not do yet
 

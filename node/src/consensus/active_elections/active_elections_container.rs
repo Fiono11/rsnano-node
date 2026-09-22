@@ -379,11 +379,10 @@ impl ActiveElectionsContainer {
         previous_epoch_closed(&self.closes, epoch)
     }
 
-    /// RAI: the committees the instances of an epoch are counted in, if
-    /// the committee of the epoch is known here (see `EpochCommittees`)
+    /// RAI: the committee the instances of an epoch are counted in, if it
+    /// is known here (see `EpochCommittees`)
     fn committees_for(&self, epoch: ConsensusEpoch) -> Option<Committees> {
-        self.committees
-            .for_epoch(epoch, self.previous_epoch_closed(epoch))
+        self.committees.for_epoch(epoch)
     }
 
     /// RAI: the frontiers of every account at the end of the setup: the
@@ -413,19 +412,18 @@ impl ActiveElectionsContainer {
         for (epoch, committee) in &derived {
             self.log_committee(&epoch.to_string(), committee);
         }
-        // The epoch two after each counts in it, the one after that jointly
+        // The epoch two after each counts in it (K_e = C(e−2)), and it is
+        // the new committee of the close of the epoch before that one
         for (epoch, _) in &derived {
-            for later in [2, 3] {
-                self.recount_epoch(ConsensusEpoch::new(epoch.as_u64() + later), now);
-            }
+            self.recount_epoch(ConsensusEpoch::new(epoch.as_u64() + 2), now);
         }
         self.recount_closes(now);
     }
 
-    /// RAI: count the open instances of an epoch again: its committees
-    /// changed, because a committee became known or the epoch before
-    /// closed and the joint phase ended. The certificates a single
-    /// committee supports form on that count, on every replica alike.
+    /// RAI: count the open instances of an epoch again: its committee
+    /// became known here, after votes of the epoch had been collected. The
+    /// certificates the committee supports form on that count, on every
+    /// replica alike.
     fn recount_epoch(&mut self, epoch: ConsensusEpoch, now: Timestamp) {
         let Some(committees) = self.committees_for(epoch) else {
             return;
@@ -798,12 +796,7 @@ impl ActiveElectionsContainer {
             match &event {
                 CloseEvent::Ready(_) => {}
                 CloseEvent::RoundEntered { .. } => self.stats.close_rounds += 1,
-                CloseEvent::Closed { .. } => {
-                    self.stats.epochs_closed += 1;
-                    // The epoch after leaves its joint phase: its instances
-                    // count in its own committee alone from now on
-                    self.recount_epoch(epoch.next(), now);
-                }
+                CloseEvent::Closed { .. } => self.stats.epochs_closed += 1,
                 CloseEvent::Agreed(value) => self.epoch_agreed(epoch, *value, now),
             }
             if !cfg!(feature = "rai_protocol") {
@@ -1791,7 +1784,6 @@ impl ActiveElectionsContainer {
             stats: &mut self.stats,
             observer: &self.observer,
             roots: &mut self.roots,
-            closes: &self.closes,
             committees: &self.committees,
             agreed: &self.agreed,
         };
@@ -2899,8 +2891,8 @@ mod tests {
 
     /// RAI: the committees of the epochs. The first two count in the genesis
     /// committee; epoch 0 derives from the blocks it finalized the committee
-    /// epoch 2 counts in, jointly with the genesis one while epoch 1 closes,
-    /// and alone after: an instance is counted again as its committees change.
+    /// epoch 2 counts in, alone (Section 5.2). Votes of an epoch whose
+    /// committee is not known here yet wait, and are counted once it is.
     #[cfg(feature = "rai_protocol")]
     #[test]
     fn epochs_count_in_their_committees_and_are_counted_again_on_a_change() {
@@ -3027,14 +3019,14 @@ mod tests {
         assert!(container.is_finalized(&block1.hash()));
         assert_eq!(container.current_epoch(), ConsensusEpoch::new(2));
 
-        // Epoch 2: joint with the genesis committee while epoch 1 closes.
-        // Representative 2 finalizes in one committee, not in the other.
+        // Epoch 2 counts in C(0) alone: representative 2 holds all of its
+        // weight and finalizes there, where representative 1 has none
         let block2 = SavedBlock::new_test_instance_with_key(12);
         insert(&mut container, &block2);
         let epoch2 = ConsensusEpoch::new(2);
         let result = vote(
             &mut container,
-            &rep2,
+            &rep1,
             VoteKind::Final,
             epoch2,
             block2.hash(),
@@ -3042,7 +3034,7 @@ mod tests {
         assert_eq!(result.get(&block2.hash()), Some(&Ok(())));
         let election = container.election_for_block(&block2.hash()).unwrap();
         let committees = election.committees().unwrap();
-        assert!(committees.is_joint());
+        assert!(!committees.is_joint());
         assert_eq!(
             committees.primary().weight(&rep2.public_key()),
             Amount::raw(100)
@@ -3054,9 +3046,19 @@ mod tests {
         assert!(!election.is_confirmed());
         assert!(election.certificates().notar.is_empty());
 
-        // Representative 1 closes epoch 1 in the genesis committee: epoch 2
-        // counts in its own committee alone from now on, and the vote
-        // collected finalizes the block
+        vote(
+            &mut container,
+            &rep2,
+            VoteKind::Final,
+            epoch2,
+            block2.hash(),
+        );
+        assert!(container.election_for_block(&block2.hash()).is_none());
+        assert!(container.finalized_in_epoch(&block2.hash(), epoch2));
+
+        // The close of epoch 1 counts in the genesis committee, which voted
+        // in epoch 1, and in C(0), which runs epoch 2: representative 1
+        // alone does not close it any more
         let value1 = close_value(&container, 1);
         vote(
             &mut container,
@@ -3065,9 +3067,15 @@ mod tests {
             ConsensusEpoch::close_round(ConsensusEpoch::new(1), 0),
             value1,
         );
-        assert!(container.election_for_block(&block2.hash()).is_none());
-        assert!(container.finalized_in_epoch(&block2.hash(), epoch2));
-        assert_eq!(container.stats.recounted, 1);
+        assert_eq!(container.epoch_closes()[1].closed, None);
+        vote(
+            &mut container,
+            &rep2,
+            VoteKind::First,
+            ConsensusEpoch::close_round(ConsensusEpoch::new(1), 0),
+            value1,
+        );
+        assert_eq!(container.epoch_closes()[1].closed, Some((0, value1)));
     }
 
     /// RAI: the epochs close one after the other: the close election of an

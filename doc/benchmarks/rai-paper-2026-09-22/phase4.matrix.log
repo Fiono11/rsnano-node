@@ -1,0 +1,34 @@
+
+########## fork0 ##########
+fork0 exit=0 | SETTLED_CONSISTENT after 0s: epochs [0, 1, 2] identical on all PRs, cemented=['45064', '45064', '45064', '45064', '45064 CLOSED_CONSISTENT after 0s: epochs [0, 1, 2] closed identically on all PRs COMMITTEES_CONSISTENT SAFE 
+    DID NOT FINISH | busy_s=21 rate=2100 cps median=97 ms weighted=191 ms spikes=[(7, 923), (14, 376)]
+    discards: 0 closes:   15 round=0 
+
+########## fork5 ##########
+fork5 exit=0 | SETTLED_CONSISTENT after 0s: epochs [0, 1, 2] identical on all PRs, cemented=['42970', '42970', '42969', '42970', '42970 CLOSED_CONSISTENT after 0s: epochs [0, 1, 2] closed identically on all PRs COMMITTEES_CONSISTENT SAFE 
+    DID NOT FINISH | busy_s=21 rate=1967 cps median=111 ms weighted=222 ms spikes=[(7, 723), (8, 416), (15, 852)]
+    discards: 0 closes:    1 round=   14 round=0 
+
+########## offline1 ##########
+offline1 exit=0 | CLOSED_CONSISTENT after 0s: epochs [0, 1, 2] closed identically on all PRs COMMITTEES_CONSISTENT SAFE 
+    DID NOT FINISH | busy_s=22 rate=1911 cps median=102 ms weighted=147 ms spikes=[(7, 522), (15, 902)]
+    discards: 0 closes:    1 round=   13 round=0 
+
+########## byz1 ##########
+byz1 exit=0 | CLOSED_CONSISTENT after 0s: epochs [0, 1, 2, 3] closed identically on all PRs COMMITTEES_CONSISTENT SAFE 
+    DID NOT FINISH | busy_s=15 rate=2722 cps median=115 ms weighted=1206 ms spikes=[(7, 2529), (8, 1885), (9, 680), (12, 3350), (13, 2702), (14, 918)]
+    discards: 0 closes:   14 round=0    2 round=1 
+
+########## verdicts ##########
+fork0 exit=0 | SETTLED_CONSISTENT after 0s: epochs [0, 1, 2] identical on all PRs, cemented=['45064', '45064', '45064', '45064', '45064 CLOSED_CONSISTENT after 0s: epochs [0, 1, 2] closed identically on all PRs COMMITTEES_CONSISTENT SAFE 
+    DID NOT FINISH | busy_s=21 rate=2100 cps median=97 ms weighted=191 ms spikes=[(7, 923), (14, 376)]
+    discards: 0 closes:   15 round=0 
+fork5 exit=0 | SETTLED_CONSISTENT after 0s: epochs [0, 1, 2] identical on all PRs, cemented=['42970', '42970', '42969', '42970', '42970 CLOSED_CONSISTENT after 0s: epochs [0, 1, 2] closed identically on all PRs COMMITTEES_CONSISTENT SAFE 
+    DID NOT FINISH | busy_s=21 rate=1967 cps median=111 ms weighted=222 ms spikes=[(7, 723), (8, 416), (15, 852)]
+    discards: 0 closes:    1 round=   14 round=0 
+offline1 exit=0 | CLOSED_CONSISTENT after 0s: epochs [0, 1, 2] closed identically on all PRs COMMITTEES_CONSISTENT SAFE 
+    DID NOT FINISH | busy_s=22 rate=1911 cps median=102 ms weighted=147 ms spikes=[(7, 522), (15, 902)]
+    discards: 0 closes:    1 round=   13 round=0 
+byz1 exit=0 | CLOSED_CONSISTENT after 0s: epochs [0, 1, 2, 3] closed identically on all PRs COMMITTEES_CONSISTENT SAFE 
+    DID NOT FINISH | busy_s=15 rate=2722 cps median=115 ms weighted=1206 ms spikes=[(7, 2529), (8, 1885), (9, 680), (12, 3350), (13, 2702), (14, 918)]
+    discards: 0 closes:   14 round=0    2 round=1 

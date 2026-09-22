@@ -23,8 +23,6 @@ pub(super) struct ApplyVoteHelper<'a> {
     pub stats: &'a mut AecStats,
     pub observer: &'a Option<Sender<AecFact>>,
     pub roots: &'a mut RootContainer,
-    /// RAI: the close elections, for the committee phase of each epoch
-    pub closes: &'a BTreeMap<ConsensusEpoch, EpochClose>,
     /// RAI: the committees the instances of each epoch are counted in
     pub committees: &'a EpochCommittees,
     /// RAI: the content of the agreed epochs, to tell the late instances
@@ -67,7 +65,6 @@ impl<'a> ApplyVoteHelper<'a> {
                         observer: self.observer,
                         election,
                         block_hash,
-                        closes: self.closes,
                         committees: self.committees,
                         agreed: self.agreed,
                     };
@@ -135,7 +132,6 @@ struct ApplyVoteToElectionHelper<'a> {
     pub observer: &'a Option<Sender<AecFact>>,
     pub election: &'a mut Election,
     pub block_hash: &'a BlockHash,
-    pub closes: &'a BTreeMap<ConsensusEpoch, EpochClose>,
     pub committees: &'a EpochCommittees,
     pub agreed: &'a AgreedContent,
 }
@@ -205,8 +201,7 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
             // RAI: the instance counts in the committees of its epoch; a vote
             // of an epoch whose committee is not known here yet waits in the
             // pool until the committee is derived and the epoch is counted again
-            let Some(committees) =
-                election_committees(self.committees, self.closes, self.election, self.args)
+            let Some(committees) = election_committees(self.committees, self.election, self.args)
             else {
                 return;
             };
@@ -240,19 +235,17 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
     }
 }
 
-/// RAI: the committees an instance is counted in: those of its epoch, or
+/// RAI: the committee an instance is counted in: the one of its epoch, or
 /// the ledger's live weights before the epochs of a run started
 pub(super) fn election_committees(
     committees: &EpochCommittees,
-    closes: &BTreeMap<ConsensusEpoch, EpochClose>,
     election: &Election,
     args: &ApplyVoteArgs,
 ) -> Option<Committees> {
     if !committees.started() {
         return Some(live_committees(args.rep_weights, args.quorum_snapshot));
     }
-    let epoch = election.epoch();
-    committees.for_epoch(epoch, previous_epoch_closed(closes, epoch))
+    committees.for_epoch(election.epoch())
 }
 
 /// RAI: whether the close election of the epoch before this one has
@@ -677,7 +670,6 @@ mod tests {
                 stats: &mut stats,
                 observer: &None,
                 roots: &mut self.roots,
-                closes: &BTreeMap::new(),
                 committees: &EpochCommittees::default(),
                 agreed: &BTreeMap::new(),
             };
@@ -769,7 +761,6 @@ mod tests {
                     stats: &mut stats,
                     observer: &Some(tx),
                     election: &mut self.election,
-                    closes: &BTreeMap::new(),
                     block_hash: &vote.hashes[0],
                     committees: &EpochCommittees::default(),
                     agreed: &BTreeMap::new(),
