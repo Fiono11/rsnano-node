@@ -987,6 +987,22 @@ impl ActiveElectionsContainer {
         }
     }
 
+    /// RAI, Protocol 1 step 4: another replica named a candidate of one of
+    /// this node's instances which this node does not hold. Recorded on the
+    /// instance so that, if the block never arrives and it has many first
+    /// votes, the timeout block is notarized in its place.
+    pub fn note_missing_candidate(
+        &mut self,
+        id: &ElectionId,
+        hash: BlockHash,
+        tally: Amount,
+        now: Timestamp,
+    ) {
+        if let Some(election) = self.roots.election_mut(id) {
+            election.note_missing_candidate(hash, tally, now);
+        }
+    }
+
     /// RAI: the epoch new elections are started in
     pub fn current_epoch(&self) -> ConsensusEpoch {
         self.current_epoch

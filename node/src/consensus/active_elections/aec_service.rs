@@ -264,6 +264,16 @@ impl AecService {
         self.aec.read().unwrap().certificate_evidence(hash, epoch)
     }
 
+    /// RAI: a candidate of one of this node's instances which it does not
+    /// hold, as another replica named it (Protocol 1, step 4)
+    pub fn note_missing_candidate(&self, id: &ElectionId, hash: BlockHash, tally: Amount) {
+        let now = self.clock.now();
+        self.aec
+            .write()
+            .unwrap()
+            .note_missing_candidate(id, hash, tally, now);
+    }
+
     pub fn is_terminated(&self, id: &ElectionId) -> bool {
         self.aec.read().unwrap().is_terminated(id)
     }
