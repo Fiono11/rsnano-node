@@ -113,9 +113,6 @@ pub struct Election {
 impl Election {
     const PASSIVE_DURATION_FACTOR: u32 = 5;
     pub const MAX_BLOCKS: usize = 10;
-    /// RAI, "Costs and limits": a validator signs at most one first vote
-    /// and two additional notarization votes per account domain
-    pub const MAX_SECOND_LOOKS: usize = 2;
 
     pub fn new(
         block: SavedBlock,
@@ -292,6 +289,12 @@ impl Election {
         // A vote of another epoch belongs to another Kudzu instance
         if vote.epoch != self.epoch {
             return Err(VoteError::Indeterminate);
+        }
+        // RAI, single-support voting: an account domain has first votes and
+        // final votes only. Nobody correct issues a notarization or timeout
+        // vote in one, and one received supports nothing.
+        if !matches!(vote.kind(), VoteKind::First | VoteKind::Final) {
+            return Err(VoteError::Ignored);
         }
         self.kudzu.add(vote.voter, hash, vote.kind())?;
         self.votes.insert(
@@ -674,6 +677,7 @@ impl Election {
             &self.kudzu,
             &self.certificates,
             self.candidate_blocks.keys(),
+            true,
         );
     }
 
@@ -693,14 +697,15 @@ impl Election {
         }
     }
 
-    /// Line 11: the final vote to cast at exit, if any. RAI: not before the
-    /// predecessor checkpoint is decided.
+    /// RAI, single-support voting: "A validator may final-vote only for the
+    /// block it first-voted, once that block is complete and eligible."
+    /// Not before the predecessor checkpoint is decided.
     pub fn kudzu_final_vote_due(&self, slot: &LocalSlotState) -> Option<(BlockHash, VoteKind)> {
         let winner = self.winner.hash();
         (self.predecessor_decided
             && self.kudzu_is_final()
             && slot.final_voted.is_none()
-            && slot.notarized_only(&winner))
+            && slot.first_voted == Some(winner))
         .then_some((winner, VoteKind::Final))
     }
 
@@ -742,36 +747,15 @@ impl Election {
             }
         }
 
-        // Lines 9–11: exit with the tree block and a final vote if notarized ⊆ {B}.
-        // This is cast even when the block was already fast finalized here, because
-        // replicas which missed a first vote depend on it (the 3δ path). The exit
-        // is the last action of the replica in this instance.
+        // The exit: a final vote for the first-voted block once it is
+        // complete and eligible. Cast even when the block was already fast
+        // finalized here, because replicas which missed a first vote depend
+        // on it (the 3δ path). There is no second look in an account domain:
+        // "it issues no separate account notarization votes and never
+        // second-looks a rival".
         if let Some(final_vote) = self.kudzu_final_vote_due(slot) {
             due.push(final_vote);
-            return due;
         }
-        if slot.final_voted.is_some() || finalized {
-            return due;
-        }
-
-        if self.committees.is_some() && slot.first_voted.is_some() {
-            // Lines 28–31: a second look at every block with many first votes.
-            // Taken also after the instance terminated: a replica that has not
-            // exited looks eventually, so that the settled predicate can rely
-            // on it (RAI). At most two: "only floor(N / r) <= 2 blocks can
-            // qualify", and a receiver drops the third support anyway.
-            let mut looks = slot.notar_voted.len();
-            for block in self.kudzu.many_votes() {
-                if looks >= Self::MAX_SECOND_LOOKS {
-                    break;
-                }
-                if self.candidate_blocks.contains_key(&block) && !slot.looked_at(&block) {
-                    due.push((block, VoteKind::Notar));
-                    looks += 1;
-                }
-            }
-        }
-
         due
     }
 
@@ -937,8 +921,129 @@ mod tests {
         );
     }
 
+    /// RAI, single-support voting: an account domain has first and final
+    /// votes only; a notarization, timeout or abstaining vote received
+    /// there supports nothing
     #[test]
-    fn notarization_certificate_terminates_and_triggers_the_final_vote() {
+    fn an_account_domain_has_first_and_final_votes_only() {
+        let (mut election, block, _) = election_with_fork();
+        let committees = committees(&[(1, 40), (2, 27), (3, 33)]);
+        for kind in [VoteKind::Notar, VoteKind::Timeout, VoteKind::Abstain] {
+            assert_eq!(
+                try_vote(&mut election, 1, block, kind),
+                Err(VoteError::Ignored)
+            );
+        }
+        vote(&mut election, 1, block, VoteKind::First);
+        election.update_kudzu_tallies(&committees);
+        assert!(!election.has_quorum());
+        assert!(!election.certificates().timeout);
+        assert_eq!(election.winner_tally(), Amount::raw(40));
+    }
+
+    /// RAI, single-support voting: a rival with many first votes gets no
+    /// second look. Split first votes make no certificate, and the domain
+    /// settles unresolved, for the checkpoint or an uncontested child.
+    #[test]
+    fn no_second_look_in_an_account_domain() {
+        let (mut election, block, fork) = election_with_fork();
+        let mut slot = LocalSlotState::default();
+        slot.mark_voted(block, VoteKind::First);
+        vote(&mut election, 1, block, VoteKind::First);
+        first_votes(&mut election, fork, &[2, 3]);
+        let committees = committees(&[(1, 40), (2, 27), (3, 33)]);
+        election.update_kudzu_tallies(&committees);
+
+        assert_eq!(
+            election.kudzu_votes_due(&slot, |_| true),
+            vec![(block, VoteKind::First)]
+        );
+        assert!(!election.has_quorum());
+        assert!(election.certificates().notar.is_empty());
+        assert_eq!(election.kudzu_final_vote_due(&slot), None);
+        // Everybody voted and neither block can reach a certificate
+        assert_eq!(election.state(), ElectionState::Settled);
+        assert_eq!(
+            slot_outcome(election.state(), election.certificates()),
+            SlotOutcome::Empty
+        );
+        assert!(!election.kudzu_can_finalize());
+    }
+
+    /// RAI, single-support voting: the final vote goes to the first-voted
+    /// block only. A validator that first-voted nothing in the domain, or
+    /// the rival, final-votes nothing.
+    #[test]
+    fn the_final_vote_is_for_the_first_voted_block_only() {
+        let (mut election, block, fork) = election_with_fork();
+        notarization_certificate(&mut election, block);
+        election.update_kudzu_tallies(&committees(&[(1, 40), (2, 27), (3, 33)]));
+        assert!(election.has_quorum());
+
+        assert_eq!(
+            election.kudzu_final_vote_due(&LocalSlotState::default()),
+            None
+        );
+        let mut rival = LocalSlotState::default();
+        rival.mark_voted(fork, VoteKind::First);
+        assert_eq!(election.kudzu_final_vote_due(&rival), None);
+        let mut supporter = LocalSlotState::default();
+        supporter.mark_voted(block, VoteKind::First);
+        assert_eq!(
+            election.kudzu_final_vote_due(&supporter),
+            Some((block, VoteKind::Final))
+        );
+    }
+
+    /// A four-two split: the majority's first votes notarize their block,
+    /// and their final votes finalize it; the minority can not add to
+    /// either
+    #[test]
+    fn a_four_two_fork_finalizes_by_the_first_voters_final_votes() {
+        let (mut election, block, fork) = election_with_fork();
+        let committees = committees(&[(1, 40), (2, 40), (3, 40), (4, 40), (5, 40), (6, 40)]);
+        first_votes(&mut election, block, &[1, 2, 3, 4]);
+        first_votes(&mut election, fork, &[5, 6]);
+        // Only two of the four final votes arrived here
+        for rep in 1..=2 {
+            vote(&mut election, rep, block, VoteKind::Final);
+        }
+        election.update_kudzu_tallies(&committees);
+        assert_eq!(election.certificates().notar, vec![block]);
+        assert_eq!(election.state(), ElectionState::Settled);
+        assert!(!election.is_confirmed());
+
+        // Representatives 3 and 4 first-voted the block, so their final
+        // votes can still finalize it and the election keeps asking
+        assert!(election.kudzu_can_finalize());
+        let later = election.start() + election.base_latency() * 10;
+        assert!(election.should_solicit_evidence(later, false));
+        // but not before the passive period, unless its epoch was left
+        let early = election.start() + election.base_latency();
+        assert!(!election.should_solicit_evidence(early, false));
+        assert!(election.should_solicit_evidence(early, true));
+        // and not for good: the final votes may have been cast in another
+        // epoch's instance and never come
+        let much_later = election.start() + Election::EVIDENCE_WINDOW + Duration::from_secs(1);
+        assert!(!election.should_solicit_evidence(much_later, false));
+
+        // The minority's final votes count for nothing: they first-voted
+        // the fork, and their final votes are for it
+        for rep in 5..=6 {
+            vote(&mut election, rep, fork, VoteKind::Final);
+        }
+        election.update_kudzu_tallies(&committees);
+        assert!(!election.is_confirmed());
+        for rep in 3..=4 {
+            vote(&mut election, rep, block, VoteKind::Final);
+        }
+        election.update_kudzu_tallies(&committees);
+        assert_eq!(election.state(), ElectionState::Confirmed);
+        assert_eq!(election.certificates().final_, Some(block));
+    }
+
+    #[test]
+    fn notarization_certificate_settles_and_triggers_the_final_vote() {
         let (mut election, block, _) = election_with_fork();
         let mut slot = LocalSlotState::default();
         slot.mark_voted(block, VoteKind::First);
@@ -946,7 +1051,9 @@ mod tests {
         notarization_certificate(&mut election, block);
         election.update_kudzu_tallies(&committees(&[(1, 40), (2, 27), (3, 33)]));
 
-        assert_eq!(election.state(), ElectionState::Terminated);
+        // Settled at once: the 33 left can not notarize anything else
+        assert_eq!(election.state(), ElectionState::Settled);
+        assert!(election.state().is_terminated());
         assert!(election.has_quorum());
         assert_eq!(election.certificates().notar, vec![block]);
         assert_eq!(election.winner_tally(), Amount::raw(67));
@@ -972,10 +1079,18 @@ mod tests {
         assert!(election.is_confirmed());
         assert_eq!(election.certificates().fast, Some(block));
         assert!(election.certificates().final_.is_none());
-        // Line 11 still applies at exit: replicas which missed a first vote need it
+        // The exit final vote still applies: replicas which missed a first
+        // vote need it. For the first-voted block only.
+        let mut slot = LocalSlotState::default();
+        slot.mark_voted(block, VoteKind::First);
         assert_eq!(
-            election.kudzu_votes_due(&LocalSlotState::default(), |_| true),
+            election.kudzu_votes_due(&slot, |_| true),
             vec![(block, VoteKind::Final)]
+        );
+        assert!(
+            election
+                .kudzu_votes_due(&LocalSlotState::default(), |_| true)
+                .is_empty()
         );
     }
 
@@ -985,108 +1100,17 @@ mod tests {
         notarization_certificate(&mut election, block);
         let committees = committees(&[(1, 40), (2, 27), (3, 33)]);
         election.update_kudzu_tallies(&committees);
-        assert_eq!(election.state(), ElectionState::Terminated);
+        assert_eq!(election.state(), ElectionState::Settled);
 
         vote(&mut election, 1, block, VoteKind::Final);
         election.update_kudzu_tallies(&committees);
-        assert_eq!(election.state(), ElectionState::Terminated);
+        assert_eq!(election.state(), ElectionState::Settled);
 
         vote(&mut election, 2, block, VoteKind::Final);
         election.update_kudzu_tallies(&committees);
         assert_eq!(election.state(), ElectionState::Confirmed);
         assert_eq!(election.certificates().final_, Some(block));
         assert_eq!(election.winner_final_tally(), Amount::raw(67));
-    }
-
-    #[test]
-    fn second_look_notarizes_a_fork_with_many_first_votes_and_forbids_the_final_vote() {
-        let (mut election, block, fork) = election_with_fork();
-        let mut slot = LocalSlotState::default();
-        slot.mark_voted(block, VoteKind::First);
-
-        first_votes(&mut election, fork, &[2, 3]);
-        let committees = committees(&[(1, 40), (2, 27), (3, 33)]);
-        election.update_kudzu_tallies(&committees);
-        assert_eq!(election.state(), ElectionState::Passive);
-        assert_eq!(
-            election.kudzu_votes_due(&slot, |_| true),
-            vec![(block, VoteKind::First), (fork, VoteKind::Notar)]
-        );
-
-        slot.mark_voted(fork, VoteKind::Notar);
-        vote(&mut election, 1, fork, VoteKind::Notar);
-        election.update_kudzu_tallies(&committees);
-        // The fork is now in the block tree and became the winner
-        assert_eq!(election.state(), ElectionState::Terminated);
-        assert_eq!(election.winner().hash(), fork);
-        // notarized = {block, fork} ⊄ {fork}: no final vote
-        assert_eq!(
-            election.kudzu_votes_due(&slot, |_| true),
-            vec![(block, VoteKind::First), (fork, VoteKind::Notar)]
-        );
-    }
-
-    #[test]
-    fn second_look_is_not_taken_before_the_first_vote() {
-        let (mut election, _, fork) = election_with_fork();
-        first_votes(&mut election, fork, &[2, 3]);
-        election.update_kudzu_tallies(&committees(&[(1, 40), (2, 27), (3, 33)]));
-
-        let due = election.kudzu_votes_due(&LocalSlotState::default(), |_| true);
-        assert!(!due.iter().any(|(_, kind)| *kind == VoteKind::Notar));
-    }
-
-    /// RAI: "There is no account-slot timeout." Split first votes trigger
-    /// the second look, never a timeout vote; the position is carried to
-    /// the epoch decision if it stays unresolved.
-    #[test]
-    fn split_first_votes_trigger_no_timeout_vote() {
-        let (mut election, block, fork) = election_with_fork();
-        let mut slot = LocalSlotState::default();
-        slot.mark_voted(block, VoteKind::First);
-
-        vote(&mut election, 1, block, VoteKind::First);
-        vote(&mut election, 2, fork, VoteKind::First);
-        vote(&mut election, 3, fork, VoteKind::First);
-        // allVotes − maxVotes = 100 − 60 = 40 ≥ 34: Kudzu would time out
-        let committees = committees(&[(1, 40), (2, 27), (3, 33)]);
-        election.update_kudzu_tallies(&committees);
-
-        let due = election.kudzu_votes_due(&slot, |_| true);
-        assert!(!due.iter().any(|(_, kind)| *kind == VoteKind::Timeout));
-        assert!(due.contains(&(fork, VoteKind::Notar)));
-    }
-
-    /// RAI, "Costs and limits": at most two second looks per domain
-    #[test]
-    fn at_most_two_second_looks_are_taken() {
-        let (mut election, block, fork) = election_with_fork();
-        let third: Block = StateBlockArgs {
-            representative: 998.into(),
-            ..StateBlockArgs::new_test_instance()
-        }
-        .into();
-        election.try_add_fork(&third, Amount::ZERO);
-        let mut slot = LocalSlotState::default();
-        slot.mark_voted(block, VoteKind::First);
-        vote(&mut election, 1, block, VoteKind::First);
-        vote(&mut election, 2, fork, VoteKind::First);
-        vote(&mut election, 3, third.hash(), VoteKind::First);
-        election.update_kudzu_tallies(&committees(&[(1, 10), (2, 45), (3, 45)]));
-        let looks: Vec<_> = election
-            .kudzu_votes_due(&slot, |_| true)
-            .into_iter()
-            .filter(|(_, kind)| *kind == VoteKind::Notar)
-            .collect();
-        assert_eq!(looks.len(), 2);
-        slot.mark_voted(looks[0].0, VoteKind::Notar);
-        slot.mark_voted(looks[1].0, VoteKind::Notar);
-        assert!(
-            !election
-                .kudzu_votes_due(&slot, |_| true)
-                .iter()
-                .any(|(hash, kind)| *kind == VoteKind::Notar && !slot.looked_at(hash))
-        );
     }
 
     /// RAI, "Where a block may be voted on": until the predecessor checkpoint
@@ -1119,139 +1143,12 @@ mod tests {
     }
 
     #[test]
-    fn timeout_certificate_terminates_without_a_block_and_rules_out_explicit_finalization() {
-        let (mut election, block, _) = election_with_fork();
-        let mut slot = LocalSlotState::default();
-        slot.mark_voted(block, VoteKind::First);
-        let committees = committees(&[(1, 40), (2, 27), (3, 33)]);
-
-        // Representatives 1 and 2 first voted the block but timed out before
-        // it was notarized
-        vote(&mut election, 1, block, VoteKind::First);
-        vote(&mut election, 1, block, VoteKind::Timeout);
-        vote(&mut election, 2, block, VoteKind::Timeout);
-        election.update_kudzu_tallies(&committees);
-        assert_eq!(election.state(), ElectionState::TimedOut);
-        assert!(election.certificates().timeout);
-        assert!(!election.has_quorum());
-        assert!(election.state().is_terminated());
-
-        // Lines 28–35 no longer run: no timeout vote from us even if the rule holds
-        let due = election.kudzu_votes_due(&slot, |_| true);
-        assert_eq!(due, vec![(block, VoteKind::First)]);
-
-        // A late notarization certificate still puts the block into the tree
-        vote(&mut election, 2, block, VoteKind::First);
-        election.update_kudzu_tallies(&committees);
-        assert!(election.state().is_terminated());
-        assert!(!election.is_confirmed());
-        assert!(election.has_quorum());
-        assert_eq!(election.certificates().notar, vec![block]);
-        // but explicit finalization is impossible
-        assert!(!election.certificates().explicit_finalization_possible());
-        assert!(
-            !election
-                .kudzu_votes_due(&slot, |_| true)
-                .contains(&(block, VoteKind::Final))
-        );
-    }
-
-    /// RAI: a timeout certificate from representatives that never first voted
-    /// settles the instance at once, they will not vote in it any more
-    #[test]
-    fn timeout_certificate_of_abstaining_representatives_settles() {
-        let (mut election, block, _) = election_with_fork();
-        let committees = committees(&[(1, 40), (2, 27), (3, 33)]);
-        vote(&mut election, 1, block, VoteKind::Abstain);
-        vote(&mut election, 2, block, VoteKind::Abstain);
-        election.update_kudzu_tallies(&committees);
-        assert!(election.certificates().timeout);
-        assert_eq!(election.state(), ElectionState::Settled);
-        assert_eq!(
-            slot_outcome(election.state(), election.certificates()),
-            SlotOutcome::Empty
-        );
-    }
-
-    #[test]
-    fn three_three_fork_terminates_with_one_certificate_and_a_timeout_certificate() {
-        let (mut election, block, fork) = election_with_fork();
-        let committees = committees(&[(1, 40), (2, 40), (3, 40), (4, 40), (5, 40), (6, 40)]);
-        first_votes(&mut election, block, &[1, 2, 3]);
-        first_votes(&mut election, fork, &[4, 5, 6]);
-        election.update_kudzu_tallies(&committees);
-        assert!(!election.certificates().is_terminated());
-
-        // The fork holders take a second look at the block, everybody times out
-        for rep in 4..=6 {
-            vote(&mut election, rep, block, VoteKind::Notar);
-        }
-        for rep in 1..=6 {
-            vote(&mut election, rep, block, VoteKind::Timeout);
-        }
-        election.update_kudzu_tallies(&committees);
-        assert_eq!(election.certificates().notar, vec![block]);
-        assert!(election.certificates().timeout);
-        assert!(!election.is_confirmed());
-        // The block holders could still take a second look at the fork
-        assert_eq!(election.state(), ElectionState::Terminated);
-
-        // Once they exited with their final votes nothing can change
-        for rep in 1..=3 {
-            vote(&mut election, rep, block, VoteKind::Final);
-        }
-        election.update_kudzu_tallies(&committees);
-        assert!(!election.is_confirmed());
-        assert_eq!(election.state(), ElectionState::Settled);
-        // Everybody but the block holders notarized the fork, no final certificate can form
-        assert!(!election.kudzu_can_finalize());
-    }
-
-    #[test]
-    fn settled_four_two_fork_can_still_be_finalized_by_the_missing_final_votes() {
-        let (mut election, block, fork) = election_with_fork();
-        let committees = committees(&[(1, 40), (2, 40), (3, 40), (4, 40), (5, 40), (6, 40)]);
-        first_votes(&mut election, block, &[1, 2, 3, 4]);
-        first_votes(&mut election, fork, &[5, 6]);
-        for rep in 5..=6 {
-            vote(&mut election, rep, block, VoteKind::Notar);
-        }
-        // Only two of the four final votes arrived here
-        for rep in 1..=2 {
-            vote(&mut election, rep, block, VoteKind::Final);
-        }
-        election.update_kudzu_tallies(&committees);
-        assert_eq!(election.state(), ElectionState::Settled);
-        assert!(!election.is_confirmed());
-
-        // Representatives 3 and 4 notarized nothing but the block, so their
-        // final votes can still finalize it and the election keeps asking
-        assert!(election.kudzu_can_finalize());
-        let later = election.start() + election.base_latency() * 10;
-        assert!(election.should_solicit_evidence(later, false));
-        // but not before the passive period, unless its epoch was left
-        let early = election.start() + election.base_latency();
-        assert!(!election.should_solicit_evidence(early, false));
-        assert!(election.should_solicit_evidence(early, true));
-        // and not for good: the final votes may have been cast in another
-        // epoch's instance and never come
-        let much_later = election.start() + Election::EVIDENCE_WINDOW + Duration::from_secs(1);
-        assert!(!election.should_solicit_evidence(much_later, false));
-
-        for rep in 3..=4 {
-            vote(&mut election, rep, block, VoteKind::Final);
-        }
-        election.update_kudzu_tallies(&committees);
-        assert!(election.is_confirmed());
-    }
-
-    #[test]
     fn settled_once_no_other_notarization_certificate_can_form() {
         let (mut election, block, fork) = election_with_fork();
         let committees = committees(&[(1, 40), (2, 27), (3, 33)]);
         notarization_certificate(&mut election, block);
         election.update_kudzu_tallies(&committees);
-        assert_eq!(election.state(), ElectionState::Terminated);
+        assert_eq!(election.state(), ElectionState::Settled);
 
         vote(&mut election, 3, fork, VoteKind::First);
         vote(&mut election, 1, block, VoteKind::Final);
@@ -1277,10 +1174,11 @@ mod tests {
         let (mut election, block, _) = election_with_fork();
         notarization_certificate(&mut election, block);
         election.update_kudzu_tallies(&committees(&[(1, 40), (2, 27), (3, 33)]));
-        assert_eq!(election.state(), ElectionState::Terminated);
+        assert_eq!(election.state(), ElectionState::Settled);
 
+        // With every weight one, the one left may still make a certificate
         election.update_kudzu_tallies(&committees(&[(1, 1), (2, 1), (3, 1)]));
-        assert_eq!(election.state(), ElectionState::Terminated);
+        assert!(election.state().is_terminated());
         assert!(election.has_quorum());
     }
 
@@ -1381,11 +1279,10 @@ mod tests {
         }
     }
 
-    /// Rep 1 (40) first votes and rep 2 (27) notarizes: a certificate with 60
-    /// of weight not first voted yet, so the election terminates without settling
+    /// Reps 1 (40) and 2 (27) first vote: a notarization certificate with
+    /// rep 3 (33) still to vote
     fn notarization_certificate(election: &mut Election, hash: BlockHash) {
-        vote(election, 1, hash, VoteKind::First);
-        vote(election, 2, hash, VoteKind::Notar);
+        first_votes(election, hash, &[1, 2]);
     }
 
     fn weights(entries: &[(u64, u128)]) -> FxHashMap<PublicKey, Amount> {

@@ -111,19 +111,23 @@ impl Certificates {
 
 /// The state of a Kudzu instance given its certificates and votes: finalized,
 /// or terminated by a block in the tree or a timeout certificate, and settled
-/// once no further notarization certificate can form
+/// once no further notarization certificate can form. RAI, single-support
+/// account voting: an account domain settles as soon as no certificate can
+/// form, terminated or not - split first votes never terminate it, and
+/// "may remain unresolved until checkpoint recovery or an uncontested child".
 pub fn kudzu_state<'a>(
     current: ElectionState,
     votes: &SlotVotes,
     certs: &Certificates,
     candidates: impl IntoIterator<Item = &'a BlockHash> + Clone,
+    single_support: bool,
 ) -> ElectionState {
     if certs.is_finalized() {
         ElectionState::Confirmed
+    } else if votes.is_settled(certs, candidates, single_support) {
+        ElectionState::Settled
     } else if !certs.is_terminated() {
         current
-    } else if votes.is_settled(certs, candidates) {
-        ElectionState::Settled
     } else if certs.has_block() {
         ElectionState::Terminated
     } else {
@@ -320,6 +324,7 @@ impl CommitteeTallies {
         reps: &HashMap<PublicKey, RepSlotVotes>,
         certs: &Certificates,
         candidates: impl IntoIterator<Item = &'a BlockHash>,
+        single_support: bool,
     ) -> bool {
         // Weight that may still first vote (and thereby notarize) any block,
         // including one we have not seen: representatives never heard from,
@@ -345,7 +350,10 @@ impl CommitteeTallies {
         candidates
             .into_iter()
             .filter(|hash| !certs.is_notarized(hash))
-            .all(|hash| self.max_notar_weight(reps, hash, unvoted) < self.thresholds().certificate)
+            .all(|hash| {
+                self.max_notar_weight(reps, hash, unvoted, single_support)
+                    < self.thresholds().certificate
+            })
     }
 
     /// Whether a finalization certificate for `hash` can still form in this
@@ -377,6 +385,7 @@ impl CommitteeTallies {
         reps: &HashMap<PublicKey, RepSlotVotes>,
         hash: &BlockHash,
         unvoted: Amount,
+        single_support: bool,
     ) -> Amount {
         // Any representative that may still first vote may first vote this
         // block, so the block may still reach many first votes
@@ -393,7 +402,9 @@ impl CommitteeTallies {
             .checked_sub(notarized_without_first)
             .unwrap_or_default();
         let mut result = self.notar_tallies.get(hash) + could_first_vote;
-        if can_reach_many {
+        // RAI, single-support voting: no second look in an account domain,
+        // so a first vote for another block is support this block never gets
+        if can_reach_many && !single_support {
             // Every representative that has first voted and not exited could
             // still take a second look (line 28), abstaining ones included
             result += reps
@@ -583,16 +594,20 @@ impl SlotVotes {
         &self,
         certs: &Certificates,
         candidates: impl IntoIterator<Item = &'a BlockHash> + Clone,
+        single_support: bool,
     ) -> bool {
         if certs.is_finalized() {
             return true;
         }
-        if !certs.is_terminated() {
+        // An epoch-election slot is settled only once it terminated; an
+        // account domain has no second look and no timeout, so it settles
+        // as soon as no first vote can make a certificate any more
+        if !single_support && !certs.is_terminated() {
             return false;
         }
         self.tallies
             .iter()
-            .any(|t| t.is_settled(&self.reps, certs, candidates.clone()))
+            .any(|t| t.is_settled(&self.reps, certs, candidates.clone(), single_support))
     }
 
     /// Whether a finalization certificate for `hash` can still form: in
@@ -918,19 +933,19 @@ mod tests {
         pool.update_certificates(&mut certs);
         assert!(certs.is_notarized(&hash(1)));
         // 60 of weight has not first voted yet and could notarize anything
-        assert!(!pool.is_settled(&certs, &candidates));
+        assert!(!pool.is_settled(&certs, &candidates, false));
 
         pool.add(rep(3), hash(2), VoteKind::First).unwrap();
         pool.calculate(&committees);
         // hash 2 can still reach f + p + 1 first votes, so rep 1 could take a second look
-        assert!(!pool.is_settled(&certs, &candidates));
+        assert!(!pool.is_settled(&certs, &candidates, false));
 
         pool.add(rep(1), hash(1), VoteKind::Final).unwrap();
         pool.calculate(&committees);
         pool.update_certificates(&mut certs);
         assert!(!certs.is_finalized());
         // rep 1 exited: hash 2 can gather at most 33 + 27 = 60 < 67
-        assert!(pool.is_settled(&certs, &candidates));
+        assert!(pool.is_settled(&certs, &candidates, false));
     }
 
     /// RAI: a representative that abstained has left the instance and will
@@ -948,14 +963,14 @@ mod tests {
         pool.update_certificates(&mut certs);
         assert!(!certs.is_terminated());
         // 38 of weight is still unknown and could notarize anything
-        assert!(!pool.is_settled(&certs, &[hash(1)]));
+        assert!(!pool.is_settled(&certs, &[hash(1)], false));
 
         pool.add(rep(3), hash(1), VoteKind::Timeout).unwrap();
         pool.calculate(&committees);
         pool.update_certificates(&mut certs);
         assert!(certs.timeout);
         // rep 3 timed out but may have first voted a block we have not seen
-        assert!(!pool.is_settled(&certs, &[hash(1)]));
+        assert!(!pool.is_settled(&certs, &[hash(1)], false));
 
         let mut abstaining = SlotVotes::default();
         abstaining.add(rep(1), hash(1), VoteKind::First).unwrap();
@@ -963,7 +978,7 @@ mod tests {
         abstaining.add(rep(3), hash(1), VoteKind::Abstain).unwrap();
         abstaining.calculate(&committees);
         // 70 of weight left for good: hash 1 stays at 30
-        assert!(abstaining.is_settled(&certs, &[hash(1)]));
+        assert!(abstaining.is_settled(&certs, &[hash(1)], false));
     }
 
     /// RAI: a representative that timed out never casts a final vote
@@ -998,7 +1013,7 @@ mod tests {
         pool.calculate(&committees);
         pool.update_certificates(&mut certs);
         assert!(!certs.is_terminated());
-        assert!(!pool.is_settled(&certs, &[hash(1), hash(2)]));
+        assert!(!pool.is_settled(&certs, &[hash(1), hash(2)], false));
 
         for rep_id in 1..=6 {
             pool.add(rep(rep_id), hash(1), VoteKind::Timeout).unwrap();
@@ -1008,7 +1023,7 @@ mod tests {
         assert!(certs.timeout);
         assert!(certs.notar.is_empty());
         // Both blocks have many first votes, every representative still looks
-        assert!(!pool.is_settled(&certs, &[hash(1), hash(2)]));
+        assert!(!pool.is_settled(&certs, &[hash(1), hash(2)], false));
 
         for rep_id in 1..=3 {
             pool.add(rep(rep_id), hash(2), VoteKind::Notar).unwrap();
@@ -1019,7 +1034,7 @@ mod tests {
         pool.calculate(&committees);
         pool.update_certificates(&mut certs);
         assert_eq!(certs.notar.len(), 2);
-        assert!(pool.is_settled(&certs, &[hash(1), hash(2)]));
+        assert!(pool.is_settled(&certs, &[hash(1), hash(2)], false));
     }
 
     #[test]
@@ -1032,7 +1047,7 @@ mod tests {
         pool.calculate(&committees(&[(1, 40), (2, 27), (3, 39)]));
         pool.update_certificates(&mut certs);
         // hash 2 has f + p + 1 first votes, rep 1 and 2 may still take a second look
-        assert!(!pool.is_settled(&certs, &[hash(1), hash(2)]));
+        assert!(!pool.is_settled(&certs, &[hash(1), hash(2)], false));
 
         // Once they exited with a final vote they cannot
         pool.add(rep(1), hash(1), VoteKind::Final).unwrap();
@@ -1040,7 +1055,7 @@ mod tests {
         pool.calculate(&committees(&[(1, 40), (2, 27), (3, 39)]));
         pool.update_certificates(&mut certs);
         assert!(certs.is_finalized());
-        assert!(pool.is_settled(&certs, &[hash(1), hash(2)]));
+        assert!(pool.is_settled(&certs, &[hash(1), hash(2)], false));
     }
 
     #[test]
@@ -1191,7 +1206,7 @@ mod tests {
         pool.update_certificates(&mut certs);
         assert_eq!(certs.notar, vec![hash(1)]);
         assert!(certs.is_finalized());
-        assert!(pool.is_settled(&certs, &candidates));
+        assert!(pool.is_settled(&certs, &candidates, false));
 
         // Without rep 2's final vote: the own committee alone finalizes, the
         // previous one still needs rep 2, which may still cast it
@@ -1211,7 +1226,7 @@ mod tests {
         assert!(!open.can_finalize(&hash(1)));
         // Settled: in the own committee rep 1 exited and rep 3 alone can
         // not notarize hash 2, whatever the previous committee allows
-        assert!(open.is_settled(&open_certs, &candidates));
+        assert!(open.is_settled(&open_certs, &candidates, false));
     }
 
     /// A fork with one candidate notarized, the other short of a certificate,
@@ -1241,7 +1256,7 @@ mod tests {
         assert!(!certs.is_finalized());
         // The loser holds 48: reps 4 and 5 first voted it, rep 6 final voted
         // it. Rep 6 never first voted, but it can not add its 16 again.
-        assert!(pool.is_settled(&certs, &[winner, loser]));
+        assert!(pool.is_settled(&certs, &[winner, loser], false));
     }
 
     /// A representative that final voted the winner without a first vote
@@ -1274,7 +1289,7 @@ mod tests {
         assert_eq!(certs.notar, vec![winner]);
         // The loser holds 32 of first votes; rep 3's 20 can not join them,
         // and 32 is short of many, so nobody takes a second look at it
-        assert!(pool.is_settled(&certs, &[winner, loser]));
+        assert!(pool.is_settled(&certs, &[winner, loser], false));
     }
 
     /*

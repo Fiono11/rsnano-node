@@ -558,31 +558,37 @@ mod tests {
             ));
         }
 
+        /// RAI, single-support voting: an account domain takes first and
+        /// final votes; a notarization or timeout vote is ignored
         #[test]
-        fn vote_kinds_are_tallied_separately() {
+        fn only_first_and_final_votes_are_tallied() {
             let mut fixture = FixtureForElection::default();
             fixture
                 .rep_weights
                 .put(fixture.rep1_key.public_key(), Amount::nano(10_000_000));
             let hash = fixture.block.hash();
 
-            let notar = ReceivedVote::new(
-                Vote::new_of_kind(&fixture.rep1_key, VoteKind::Notar, vec![hash]).into(),
-                VoteDelivery::Direct,
-                None,
-            );
-            fixture.apply_vote(notar).unwrap();
-            let timeout = ReceivedVote::new(
-                Vote::new_of_kind(&fixture.rep1_key, VoteKind::Timeout, vec![hash]).into(),
-                VoteDelivery::Direct,
-                None,
-            );
-            fixture.apply_vote(timeout).unwrap();
-
+            for kind in [VoteKind::Notar, VoteKind::Timeout] {
+                let vote = ReceivedVote::new(
+                    Vote::new_of_kind(&fixture.rep1_key, kind, vec![hash]).into(),
+                    VoteDelivery::Direct,
+                    None,
+                );
+                assert_eq!(fixture.apply_vote(vote), Err(VoteError::Ignored));
+            }
             let votes = fixture.election.kudzu_votes();
+            assert_eq!(votes.notar_tallies().get(&hash), Amount::ZERO);
+            assert_eq!(votes.timeout_weight(), Amount::ZERO);
+
+            let first = ReceivedVote::new(
+                Vote::new_of_kind(&fixture.rep1_key, VoteKind::First, vec![hash]).into(),
+                VoteDelivery::Direct,
+                None,
+            );
+            fixture.apply_vote(first).unwrap();
+            let votes = fixture.election.kudzu_votes();
+            assert_eq!(votes.first_tallies().get(&hash), Amount::nano(10_000_000));
             assert_eq!(votes.notar_tallies().get(&hash), Amount::nano(10_000_000));
-            assert_eq!(votes.first_tallies().get(&hash), Amount::ZERO);
-            assert_eq!(votes.timeout_weight(), Amount::nano(10_000_000));
         }
     }
 

@@ -1007,38 +1007,63 @@ impl ActiveElectionsContainer {
             .collect();
         self.slots.remove_epoch_except(epoch, &live);
         self.derive_committee(epoch, frontiers, now);
-        self.release_omitted_candidates(epoch);
+        self.release_undecided_instances(epoch);
         self.release_predecessor_gate(epoch.next(), now);
     }
 
-    /// RAI: "Unselected current-epoch work may be omitted, leaving a clean
-    /// position for a later epoch ... an omitted candidate can be retried
-    /// with fresh epoch votes." An instance of the decided epoch whose
-    /// position the checkpoint neither finalized nor retained, and which
-    /// notarized nothing (a late one is discarded instead), is erased: its
-    /// block stays in the ledger and is proposed again in the open epoch.
-    fn release_omitted_candidates(&mut self, epoch: ConsensusEpoch) {
+    /// RAI: the instances of a decided epoch that the checkpoint did not
+    /// finalize are over. One whose position the checkpoint neither
+    /// finalized nor retained is omitted: "an omitted candidate can be
+    /// retried with fresh epoch votes", so it is erased and its block, still
+    /// in the ledger, is proposed again in the open epoch. One whose
+    /// position the checkpoint retained as a fork is closed: "a checkpoint
+    /// never reopens a retained position", the owner resolves it with a
+    /// child, and the instance is erased with nothing rolled back. A late
+    /// one is discarded instead.
+    fn release_undecided_instances(&mut self, epoch: ConsensusEpoch) {
         let Some(state) = self.decided.get(&epoch).cloned() else {
             return;
         };
-        let omitted: Vec<ElectionId> = self
-            .roots
-            .iter()
-            .map(|entry| &entry.election)
-            .filter(|election| election.epoch() == epoch && !election.is_confirmed())
-            .filter(|election| !is_late(&self.decided, election))
-            .filter(|election| {
-                let slot = AccountSlot::new(election.account(), election.height());
-                state.finalized(&slot).is_none() && state.notarized(&slot).is_empty()
-            })
-            .map(|election| election.id())
-            .collect();
-        for id in &omitted {
+        let mut omitted = Vec::new();
+        let mut retained = Vec::new();
+        for election in self.roots.iter().map(|entry| &entry.election) {
+            if election.epoch() != epoch
+                || election.is_confirmed()
+                || is_late(&self.decided, election)
+            {
+                continue;
+            }
+            let slot = AccountSlot::new(election.account(), election.height());
+            if state.finalized(&slot).is_some() {
+                continue;
+            }
+            if state.notarized(&slot).is_empty() {
+                omitted.push(election.id());
+            } else {
+                retained.push(election.id());
+            }
+        }
+        for id in omitted.iter().chain(&retained) {
             self.erase_election(id);
         }
-        if cfg!(feature = "rai_protocol") && !omitted.is_empty() {
-            diagnostic!("EPOCH_OMITTED epoch={} instances={}", epoch, omitted.len());
+        if cfg!(feature = "rai_protocol") && !(omitted.is_empty() && retained.is_empty()) {
+            diagnostic!(
+                "EPOCH_OMITTED epoch={} instances={} retained={}",
+                epoch,
+                omitted.len(),
+                retained.len()
+            );
         }
+    }
+
+    /// RAI: whether the latest decided checkpoint holds this position as a
+    /// retained fork, unresolved: no instance is started there again
+    fn position_retained(&self, account: Account, height: u64) -> bool {
+        let Some(state) = self.decided.values().next_back() else {
+            return false;
+        };
+        let slot = AccountSlot::new(account, height);
+        state.finalized(&slot).is_none() && !state.notarized(&slot).is_empty()
     }
 
     /// RAI, "Where a block may be voted on": the checkpoint the instances of
@@ -1234,6 +1259,11 @@ impl ActiveElectionsContainer {
         }
         // A decided epoch is settled for good: the instance could only be late
         if self.decided.contains_key(&epoch) {
+            self.stats.agreed_epoch_refused += 1;
+            return;
+        }
+        // A retained position is never reopened
+        if self.position_retained(block.account(), block.height()) {
             self.stats.agreed_epoch_refused += 1;
             return;
         }
@@ -1620,6 +1650,9 @@ impl ActiveElectionsContainer {
         if self.has_earlier_instance(&request.block.hash()) {
             return Err(AecInsertError::Duplicate);
         }
+        if self.position_retained(request.block.account(), request.block.height()) {
+            return Err(AecInsertError::Retained);
+        }
 
         self.insert_new_election(request, now);
         Ok(())
@@ -1925,7 +1958,11 @@ impl ActiveElectionsContainer {
                     Err(AecInsertError::Duplicate) => {
                         self.stats.activate_failed_duplicate += 1;
                     }
-                    Err(AecInsertError::Stopped | AecInsertError::Draining) => {}
+                    Err(
+                        AecInsertError::Stopped
+                        | AecInsertError::Draining
+                        | AecInsertError::Retained,
+                    ) => {}
                 }
             }
         }
@@ -2921,9 +2958,12 @@ mod tests {
             },
             Duration::from_secs(1),
         );
+        // The test quorum is 100M: a certificate 62M, a fast one 81M. One
+        // representative notarizes alone and finalizes alone, but never
+        // fast: its first vote alone leaves an instance notarized only.
         let rep_key = PrivateKey::from(1);
         let mut rep_weights = RepWeights::default();
-        rep_weights.put(rep_key.public_key(), Amount::MAX);
+        rep_weights.put(rep_key.public_key(), Amount::nano(70_000_000));
         let now = Timestamp::new_test_instance();
         container.start_epochs(now);
         let decided = SavedBlock::new_test_instance_with_key(1);
@@ -2965,7 +3005,7 @@ mod tests {
             &mut container,
             Vote::new_in_epoch(
                 &rep_key,
-                VoteKind::Notar,
+                VoteKind::First,
                 ConsensusEpoch::ZERO,
                 vec![late.hash()],
             ),
@@ -2986,6 +3026,17 @@ mod tests {
             Vote::new_in_epoch(
                 &rep_key,
                 VoteKind::First,
+                ConsensusEpoch::close_round(ConsensusEpoch::ZERO, 0),
+                vec![value],
+            ),
+            closed_at,
+        );
+        // Notarized by the first vote, decided by the final one
+        apply(
+            &mut container,
+            Vote::new_in_epoch(
+                &rep_key,
+                VoteKind::Final,
                 ConsensusEpoch::close_round(ConsensusEpoch::ZERO, 0),
                 vec![value],
             ),
@@ -3239,9 +3290,12 @@ mod tests {
             },
             Duration::from_secs(1),
         );
+        // The test quorum is 100M: a certificate 62M, a fast one 81M. One
+        // representative notarizes alone and finalizes alone, but never
+        // fast: its first vote alone leaves an instance notarized only.
         let rep_key = PrivateKey::from(1);
         let mut rep_weights = RepWeights::default();
-        rep_weights.put(rep_key.public_key(), Amount::MAX);
+        rep_weights.put(rep_key.public_key(), Amount::nano(70_000_000));
         let now = Timestamp::new_test_instance();
         container.start_epochs(now);
         let apply = |container: &mut ActiveElectionsContainer, vote: Vote| {
@@ -3281,7 +3335,7 @@ mod tests {
             &mut container,
             Vote::new_in_epoch(
                 &rep_key,
-                VoteKind::Notar,
+                VoteKind::First,
                 ConsensusEpoch::ZERO,
                 vec![block.hash()],
             ),
@@ -3312,6 +3366,16 @@ mod tests {
             Vote::new_in_epoch(
                 &rep_key,
                 VoteKind::First,
+                ConsensusEpoch::close_round(ConsensusEpoch::ZERO, 0),
+                vec![value],
+            ),
+        );
+        // Notarized by the first vote, decided by the final one
+        apply(
+            &mut container,
+            Vote::new_in_epoch(
+                &rep_key,
+                VoteKind::Final,
                 ConsensusEpoch::close_round(ConsensusEpoch::ZERO, 0),
                 vec![value],
             ),

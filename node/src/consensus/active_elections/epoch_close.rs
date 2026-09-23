@@ -442,6 +442,7 @@ impl EpochClose {
             &slot.votes,
             &slot.certificates,
             &slot.candidates,
+            false,
         );
         if slot.certificates.conflict && !conflicted {
             self.events.push(CloseEvent::RoundConflict {

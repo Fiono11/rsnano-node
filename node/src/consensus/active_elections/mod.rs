@@ -115,6 +115,10 @@ pub enum AecInsertError {
     /// RAI: the current epoch has ended and drains; new elections start
     /// once the next epoch has started
     Draining,
+    /// RAI: the block's position is held as a retained fork by the decided
+    /// checkpoint; "a checkpoint never reopens a retained position", the
+    /// owner resolves it with a child
+    Retained,
 
     /// This block or a fork got recently confirmed, so there is no need for a new election.
     RecentlyConfirmed,
