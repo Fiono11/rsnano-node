@@ -9,10 +9,12 @@ use rsnano_types::{Account, Blake2HashBuilder, BlockHash, ConsensusEpoch, Public
 pub enum CertifiedStatus {
     /// A vote-notarization certificate: the block is complete
     Notarized,
-    /// A normal finalization certificate
+    /// A finalization certificate, normal or fast. The inventory does not
+    /// tell the two apart: a validator that finalized by the normal
+    /// certificate and erased the instance never sees the last first votes
+    /// of the fast one, and two correct inventories would then differ for
+    /// good. A checkpoint asks only whether a block is finalized.
     Finalized,
-    /// A fast finalization certificate
-    FastFinalized,
 }
 
 impl CertifiedStatus {
@@ -20,7 +22,6 @@ impl CertifiedStatus {
         match self {
             CertifiedStatus::Notarized => 0,
             CertifiedStatus::Finalized => 1,
-            CertifiedStatus::FastFinalized => 2,
         }
     }
 
@@ -28,7 +29,6 @@ impl CertifiedStatus {
         match byte {
             0 => Some(CertifiedStatus::Notarized),
             1 => Some(CertifiedStatus::Finalized),
-            2 => Some(CertifiedStatus::FastFinalized),
             _ => None,
         }
     }
@@ -529,7 +529,7 @@ mod tests {
         for i in 20..25 {
             target.certify(block(i), parent(block(i)), CertifiedStatus::Notarized);
         }
-        target.certify(block(2), parent(block(2)), CertifiedStatus::FastFinalized);
+        target.certify(block(2), parent(block(2)), CertifiedStatus::Finalized);
 
         let delta = source.difference(&target);
         assert_eq!(delta.added.len(), 6);

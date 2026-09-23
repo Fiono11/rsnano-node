@@ -195,7 +195,7 @@ pub struct CertifiedEntry {
     pub hash: BlockHash,
     /// The parent the block names; zero when it opens the account
     pub previous: BlockHash,
-    /// 0 notarized, 1 finalized, 2 fast finalized
+    /// 0 notarized, 1 finalized
     pub status: u8,
 }
 
@@ -216,7 +216,7 @@ impl CertifiedEntry {
         let previous = BlockHash::deserialize(bytes)?;
         let mut status = [0u8; 1];
         read_exact(bytes, &mut status)?;
-        if status[0] > 2 {
+        if status[0] > 1 {
             return Err(DeserializationError::InvalidData);
         }
         Ok(Self {

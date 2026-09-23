@@ -1343,11 +1343,8 @@ impl ActiveElectionsContainer {
             for hash in &certificates.notar {
                 certified.certify(at(*hash), previous, CertifiedStatus::Notarized);
             }
-            if let Some(hash) = certificates.final_ {
+            if let Some(hash) = certificates.finalized() {
                 certified.certify(at(hash), previous, CertifiedStatus::Finalized);
-            }
-            if let Some(hash) = certificates.fast {
-                certified.certify(at(hash), previous, CertifiedStatus::FastFinalized);
             }
         }
         certified
