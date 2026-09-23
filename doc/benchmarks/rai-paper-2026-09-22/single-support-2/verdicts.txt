@@ -1,0 +1,12 @@
+fork0 exit=0 | SETTLED_CONSISTENT after 0s: epochs [0, 1, 2] identical on all PRs, cemented=['45065', '45065', '45065', '45065', '45065 CLOSED_CONSISTENT after 5s: epochs [0, 1, 2] closed identically on all PRs COMMITTEES_CONSISTENT SAFE 
+    published=45000 in 23.18s rate=1941 cps avg=253 ms | busy_s=21 rate=2093 cps median=98 ms weighted=257 ms spikes=[(7, 804), (8, 323), (15, 1515), (16, 574)]
+    discards: 0 closes:   18 round=0 
+fork5 exit=3 | nanospam aborted: Error: the PRs never held the same ledger: [(65, 65), (65, 65), (65, 65), (65, 65), (65, 65), (65, 64) 
+    no second reached 1000 cps (0 status lines)
+    discards: 0 closes: 
+offline1 exit=0 | SETTLED_CONSISTENT after 0s: epochs [0, 1, 2] identical on all PRs, cemented=['45062', '45059', '45062', '45057', '45062 CLOSED_CONSISTENT after 0s: epochs [0, 1, 2] closed identically on all PRs COMMITTEES_CONSISTENT SAFE 
+    DID NOT FINISH | busy_s=20 rate=2100 cps median=108 ms weighted=225 ms spikes=[(7, 943), (14, 573)]
+    discards: 0 closes:   10 round=0    5 round=1 
+byz1 exit=4 | TIMEOUT COMMITTEES_CONSISTENT SAFE checks failed (settle=1 committees=0 safety=0): nodes kept running 
+    DID NOT FINISH | busy_s=19 rate=2208 cps median=104 ms weighted=303 ms spikes=[(7, 980), (13, 1006)]
+    discards: 0 closes:   10 round=0 

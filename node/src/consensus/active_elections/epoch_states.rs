@@ -90,6 +90,15 @@ impl EpochStates {
         self.len += 1;
     }
 
+    /// Any finalized instance this block was a candidate in, whatever the
+    /// epoch: what places the block
+    pub fn any_instance(&self, hash: &BlockHash) -> Option<&FinalizedInstance> {
+        self.instances
+            .get(hash)?
+            .first()
+            .map(|instance| instance.as_ref())
+    }
+
     /// The finalized instance of the given epoch this block was a candidate in
     pub fn instance(&self, hash: &BlockHash, epoch: ConsensusEpoch) -> Option<&FinalizedInstance> {
         self.instances

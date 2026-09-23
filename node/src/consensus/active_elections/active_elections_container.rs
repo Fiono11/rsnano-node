@@ -2257,10 +2257,12 @@ impl ActiveElectionsContainer {
     }
 
     /// RAI: keeps the account votes received, by epoch and voter, for the
-    /// derivation of the voters' residual objects. A vote for a block this
-    /// node holds in an instance of the epoch, or finalized there, is
-    /// placed by that block's parent; one for a block it does not hold
-    /// waits in the vote cache and is recorded when it is replayed.
+    /// derivation of the voters' residual objects. A vote is placed by the
+    /// block's parent, read from whatever instance holds the block here,
+    /// this epoch's or another's: two replicas that switched epochs at
+    /// different moments hold the same block in different epochs' instances.
+    /// A vote for a block this node does not hold at all waits in the vote
+    /// cache and is recorded when it is replayed.
     fn record_votes(&mut self, args: &ApplyVoteArgs) {
         let vote = &args.vote;
         let kind = match vote.kind() {
@@ -2272,7 +2274,7 @@ impl ActiveElectionsContainer {
         for hash in vote.filtered_blocks() {
             let placed = self
                 .roots
-                .election_for_block_in_epoch(hash, vote.epoch)
+                .election_for_block(hash)
                 .map(|election| {
                     (
                         election.account(),
@@ -2282,7 +2284,7 @@ impl ActiveElectionsContainer {
                 })
                 .or_else(|| {
                     self.epoch_states
-                        .instance(hash, vote.epoch)
+                        .any_instance(hash)
                         .map(|instance| (instance.account, instance.height, instance.root.previous))
                 });
             let Some((account, height, previous)) = placed else {
