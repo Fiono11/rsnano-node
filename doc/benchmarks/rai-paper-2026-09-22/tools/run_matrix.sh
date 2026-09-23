@@ -33,4 +33,9 @@ run fork0     6 0
 run fork5     6 5
 run offline1  5 5 --offline 1
 run byz1      5 5 --byzantine 1
+# Two faulty members of six: beyond the paper's bound for N = 6 (f = p = 1,
+# one faulty member). The close needs reports carrying n - f of the weight
+# and four honest nodes hold less, so no epoch closes; what the run shows is
+# how the node behaves past the bound, not a gate.
+run fork5-off1-byz1 4 5 --offline 1 --byzantine 1
 echo "\n########## verdicts ##########"; cat $V
