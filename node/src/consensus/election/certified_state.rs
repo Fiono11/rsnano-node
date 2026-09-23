@@ -1,8 +1,6 @@
 use std::collections::BTreeMap;
 
-use rsnano_types::{
-    Account, Blake2HashBuilder, BlockHash, ConsensusEpoch, PrivateKey, PublicKey, Signature,
-};
+use rsnano_types::{Account, Blake2HashBuilder, BlockHash, ConsensusEpoch, PublicKey};
 
 /// RAI: what a validator has locally constructed for a block of one epoch.
 /// The statuses are ordered: a block enters the certified tree notarized and
@@ -283,26 +281,43 @@ impl ResidualKind {
 /// it holds this validator's own votes only.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ResidualVotes {
-    entries: BTreeMap<(CertifiedBlock, ResidualKind), ResidualRecord>,
+    /// The parent each voted block names, by the vote recorded for it
+    entries: BTreeMap<(CertifiedBlock, ResidualKind), BlockHash>,
     digest: [u8; 32],
-}
-
-/// RAI: one residual vote: the parent the voted block names, and the
-/// reporter's signature over the record. "All claimed statuses are
-/// independently verified": a residual vote is the reporter's own claim
-/// that it cast the vote, and the claim is signed, so a fetched object
-/// carries nothing a Byzantine replica could have put in the reporter's
-/// name. A draft this node builds for itself is unsigned until its
-/// representative's key signs it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ResidualRecord {
-    pub previous: BlockHash,
-    pub signature: Option<Signature>,
 }
 
 impl ResidualVotes {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// RAI, "Reports that remain reconstructible": the residual object a
+    /// reporter's votes and its certified inventory determine. "An
+    /// unsummarized first or notarization vote remains ... A final vote on a
+    /// notarized but not yet finalized block also remains. A summarized vote
+    /// must instead be covered by its corresponding certified status." The
+    /// reporter derives it from the votes it issued; a validator that holds
+    /// those votes, gossiped and signature-checked on receipt, derives the
+    /// same object from them and the reconstructed inventory, and checks it
+    /// against the signed root. Timeout and abstaining votes are no part of
+    /// it: an account domain has none.
+    pub fn derive(
+        certified: &CertifiedState,
+        votes: impl IntoIterator<Item = (CertifiedBlock, ResidualKind, BlockHash)>,
+    ) -> Self {
+        let mut residual = Self::new();
+        for (block, kind, previous) in votes {
+            let summarized = match kind {
+                ResidualKind::First | ResidualKind::Notar => certified.status(&block).is_some(),
+                ResidualKind::Final => certified
+                    .status(&block)
+                    .is_some_and(|status| status.is_finalized()),
+            };
+            if !summarized {
+                residual.record(block, previous, kind);
+            }
+        }
+        residual
     }
 
     pub fn len(&self) -> usize {
@@ -317,8 +332,6 @@ impl ResidualVotes {
         self.entries.contains_key(&(*block, kind))
     }
 
-    /// The blocks this reporter supported with a first or notarization vote
-    /// that its certified state does not summarize: `M_Q` counts these
     /// The blocks this reporter supported with a first or a notarization
     /// vote: what `M_Q` counts for candidate membership
     pub fn supported(&self) -> impl Iterator<Item = &CertifiedBlock> {
@@ -338,14 +351,13 @@ impl ResidualVotes {
     }
 
     /// The votes recorded, in canonical order, each with the parent its
-    /// block names and its signature: what a fetch of the object carries,
-    /// and what its root commits to
+    /// block names: what the root commits to
     pub fn entries(
         &self,
-    ) -> impl DoubleEndedIterator<Item = (CertifiedBlock, ResidualKind, &ResidualRecord)> + '_ {
+    ) -> impl DoubleEndedIterator<Item = (CertifiedBlock, ResidualKind, BlockHash)> + '_ {
         self.entries
             .iter()
-            .map(|((block, kind), record)| (*block, *kind, record))
+            .map(|((block, kind), previous)| (*block, *kind, *previous))
     }
 
     /// The parent a recorded block names, whichever vote recorded it
@@ -353,113 +365,31 @@ impl ResidualVotes {
         self.entries
             .iter()
             .find(|((held, _), _)| held == block)
-            .map(|(_, record)| record.previous)
+            .map(|(_, previous)| *previous)
     }
 
-    /// Records a vote of this node's own, unsigned as yet
     pub fn record(
         &mut self,
         block: CertifiedBlock,
         previous: BlockHash,
         kind: ResidualKind,
     ) -> bool {
-        self.record_with(
-            block,
-            kind,
-            ResidualRecord {
-                previous,
-                signature: None,
-            },
-        )
-    }
-
-    /// Records a vote as fetched, with the signature the reporter put on it
-    pub fn record_signed(
-        &mut self,
-        block: CertifiedBlock,
-        previous: BlockHash,
-        kind: ResidualKind,
-        signature: Signature,
-    ) -> bool {
-        self.record_with(
-            block,
-            kind,
-            ResidualRecord {
-                previous,
-                signature: Some(signature),
-            },
-        )
-    }
-
-    fn record_with(
-        &mut self,
-        block: CertifiedBlock,
-        kind: ResidualKind,
-        record: ResidualRecord,
-    ) -> bool {
         if self.entries.contains_key(&(block, kind)) {
             return false;
         }
-        let mut entry = Blake2HashBuilder::new()
+        let entry = Blake2HashBuilder::new()
             .update(b"RAI residual vote")
-            .update(block.account.as_bytes())
-            .update(block.height.to_le_bytes())
-            .update(block.hash.as_bytes())
-            .update(record.previous.as_bytes())
-            .update([kind.as_byte()]);
-        if let Some(signature) = &record.signature {
-            entry = entry.update(signature.as_bytes());
-        }
-        let entry = entry.build();
-        for (d, e) in self.digest.iter_mut().zip(entry.as_bytes()) {
-            *d ^= e;
-        }
-        self.entries.insert((block, kind), record);
-        true
-    }
-
-    /// What a reporter signs for one residual vote: the domain and the
-    /// vote, so that a record can not be moved to another epoch
-    pub fn vote_payload(
-        epoch: ConsensusEpoch,
-        block: &CertifiedBlock,
-        previous: BlockHash,
-        kind: ResidualKind,
-    ) -> BlockHash {
-        Blake2HashBuilder::new()
-            .update(b"RAI residual vote signed")
-            .update(epoch.as_u64().to_le_bytes())
             .update(block.account.as_bytes())
             .update(block.height.to_le_bytes())
             .update(block.hash.as_bytes())
             .update(previous.as_bytes())
             .update([kind.as_byte()])
-            .build()
-    }
-
-    /// The object as one representative reports it: every record signed by
-    /// that key. The root commits to the signatures, so two reporters that
-    /// recorded the same votes still sign different roots.
-    pub fn signed(&self, epoch: ConsensusEpoch, key: &PrivateKey) -> ResidualVotes {
-        let mut signed = ResidualVotes::new();
-        for (block, kind, record) in self.entries() {
-            let payload = Self::vote_payload(epoch, &block, record.previous, kind);
-            signed.record_signed(block, record.previous, kind, key.sign(payload.as_bytes()));
+            .build();
+        for (d, e) in self.digest.iter_mut().zip(entry.as_bytes()) {
+            *d ^= e;
         }
-        signed
-    }
-
-    /// Whether a fetched record carries the reporter's signature over it
-    pub fn verify_record(
-        epoch: ConsensusEpoch,
-        reporter: &PublicKey,
-        block: &CertifiedBlock,
-        previous: BlockHash,
-        kind: ResidualKind,
-        signature: &Signature,
-    ) -> bool {
-        let payload = Self::vote_payload(epoch, block, previous, kind);
-        reporter.verify(payload.as_bytes(), signature).is_ok()
+        self.entries.insert((block, kind), previous);
+        true
     }
 
     pub fn root(&self) -> BlockHash {
@@ -697,48 +627,46 @@ mod tests {
         assert_eq!(both.first_votes().collect::<Vec<_>>(), vec![&block(1)]);
     }
 
-    /// A residual record is the reporter's signed claim: signing gives a
-    /// root of the reporter's own, and a record verifies against its key
-    /// in its epoch only
+    /// The residual object is what the inventory does not summarize: a
+    /// first or notarization vote for a block with no certified status, a
+    /// final vote for a block not finalized. Derived from the same votes and
+    /// inventory on either side, it hashes the same.
     #[test]
-    fn a_residual_object_is_signed_per_reporter() {
-        let epoch = ConsensusEpoch::new(2);
-        let mut draft = ResidualVotes::new();
-        draft.record(block(1), parent(block(1)), ResidualKind::First);
-        draft.record(block(2), parent(block(2)), ResidualKind::Final);
-        let one = draft.signed(epoch, &PrivateKey::from(1));
-        let other = draft.signed(epoch, &PrivateKey::from(2));
-        assert_ne!(one.root(), other.root());
-        assert_ne!(one.root(), draft.root());
-        assert_eq!(one.root(), draft.signed(epoch, &PrivateKey::from(1)).root());
-        assert_eq!(one.len(), 2);
-        for (block, kind, record) in one.entries() {
-            let signature = record.signature.as_ref().unwrap();
-            assert!(ResidualVotes::verify_record(
-                epoch,
-                &PrivateKey::from(1).public_key(),
-                &block,
-                record.previous,
-                kind,
-                signature
-            ));
-            assert!(!ResidualVotes::verify_record(
-                epoch,
-                &PrivateKey::from(2).public_key(),
-                &block,
-                record.previous,
-                kind,
-                signature
-            ));
-            assert!(!ResidualVotes::verify_record(
-                ConsensusEpoch::new(3),
-                &PrivateKey::from(1).public_key(),
-                &block,
-                record.previous,
-                kind,
-                signature
-            ));
-        }
+    fn the_residual_is_derived_from_the_votes_the_inventory_does_not_summarize() {
+        let mut certified = CertifiedState::new();
+        certified.certify(block(1), parent(block(1)), CertifiedStatus::Notarized);
+        certified.certify(block(2), parent(block(2)), CertifiedStatus::Finalized);
+        let votes = vec![
+            // Summarized by the notarization
+            (block(1), ResidualKind::First, parent(block(1))),
+            // A final vote on a notarized, not finalized block remains
+            (block(1), ResidualKind::Final, parent(block(1))),
+            // Summarized by the finalization
+            (block(2), ResidualKind::First, parent(block(2))),
+            (block(2), ResidualKind::Final, parent(block(2))),
+            // No certificate at all: both remain
+            (block(3), ResidualKind::First, parent(block(3))),
+            (block(3), ResidualKind::Notar, parent(block(3))),
+        ];
+        let derived = ResidualVotes::derive(&certified, votes.clone());
+        assert_eq!(derived.len(), 3);
+        assert!(derived.contains(&block(1), ResidualKind::Final));
+        assert!(derived.contains(&block(3), ResidualKind::First));
+        assert!(derived.contains(&block(3), ResidualKind::Notar));
+        assert!(!derived.contains(&block(1), ResidualKind::First));
+        assert!(!derived.contains(&block(2), ResidualKind::Final));
+        // Order of the votes does not matter
+        let mut reversed = votes.clone();
+        reversed.reverse();
+        assert_eq!(
+            ResidualVotes::derive(&certified, reversed).root(),
+            derived.root()
+        );
+        // A vote missing on one side changes the root
+        assert_ne!(
+            ResidualVotes::derive(&certified, votes[..5].to_vec()).root(),
+            derived.root()
+        );
     }
 
     #[test]

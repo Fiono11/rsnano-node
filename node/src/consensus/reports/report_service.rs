@@ -4,7 +4,7 @@ use std::{
     time::Duration,
 };
 
-use rsnano_messages::{Message, ReconReply, ReconReq, Report, ResidualReply, ResidualReq};
+use rsnano_messages::{Message, ReconReply, ReconReq, Report};
 use rsnano_network::{Channel, TrafficType};
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_types::{ConsensusEpoch, PublicKey};
@@ -231,28 +231,35 @@ impl ReportService {
         log_reconciled(result);
     }
 
-    /// RAI: a fetch of a residual object. Any replica that holds the object
-    /// answers, whether it is its own or one it reconstructed.
-    pub fn handle_residual_request(&self, request: ResidualReq, channel: &Arc<Channel>) {
-        self.stats
-            .inc_dir(StatType::Message, DetailType::ResidualReq, Direction::In);
-        let reply = self
+    /// RAI: derive a report's residual object from the reporter's votes
+    /// this node received, once its certified state is reconstructed
+    fn derive_residual(&self, epoch: ConsensusEpoch, reporter: PublicKey) {
+        let now = self.clock.now();
+        if !self
             .exchange
             .lock()
             .unwrap()
-            .handle_residual_request(&request);
-        if let Some(reply) = reply {
-            self.send(vec![ReportMessage::ResidualAnswer(reply)], Some(channel));
+            .needs_residual(epoch, &reporter, now)
+        {
+            return;
         }
-    }
-
-    /// RAI: part of a residual object, accepted exactly when what has been
-    /// accumulated hashes to the root the reporter signed
-    pub fn handle_residual_reply(&self, reply: ResidualReply, _channel: &Arc<Channel>) {
-        self.stats
-            .inc_dir(StatType::Message, DetailType::ResidualReply, Direction::In);
-        let result = self.exchange.lock().unwrap().handle_residual_reply(&reply);
-        log_reconciled(result);
+        let votes = self.active_elections.vote_records_of(epoch, &reporter);
+        let held = votes.len();
+        let result = self
+            .exchange
+            .lock()
+            .unwrap()
+            .derive_residual(epoch, reporter, votes, now);
+        if let Some(result) = result {
+            crate::utils::diagnostic!(
+                "EPOCH_RESIDUAL epoch={} reporter={} votes={} derived={} complete={}",
+                epoch,
+                reporter,
+                held,
+                result.total,
+                result.complete
+            );
+        }
     }
 
     /// Drives the reconciliations of the epochs still closing. The live
@@ -313,6 +320,7 @@ impl ReportService {
             self.exchange.lock().unwrap().refresh_live(epoch, live);
             for reporter in reporters {
                 self.reconcile(epoch, reporter);
+                self.derive_residual(epoch, reporter);
             }
         }
     }
@@ -363,32 +371,6 @@ impl ReportService {
                     self.sender.lock().unwrap().try_send(
                         target,
                         &Message::ReconReply(reply),
-                        TrafficType::Generic,
-                    );
-                }
-                ReportMessage::ResidualRequest(request) => {
-                    // Anyone that reconstructed the object can serve it, so
-                    // the fetch is gossiped rather than addressed
-                    self.stats
-                        .inc_dir(StatType::Message, DetailType::ResidualReq, Direction::Out);
-                    self.flooder.lock().unwrap().flood_prs_and_some_non_prs(
-                        &Message::ResidualReq(request),
-                        TrafficType::Generic,
-                        1.0,
-                    );
-                }
-                ReportMessage::ResidualAnswer(reply) => {
-                    let Some(target) = channel else {
-                        continue;
-                    };
-                    self.stats.inc_dir(
-                        StatType::Message,
-                        DetailType::ResidualReply,
-                        Direction::Out,
-                    );
-                    self.sender.lock().unwrap().try_send(
-                        target,
-                        &Message::ResidualReply(reply),
                         TrafficType::Generic,
                     );
                 }

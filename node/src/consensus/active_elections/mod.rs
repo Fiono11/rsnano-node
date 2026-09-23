@@ -9,6 +9,7 @@ mod recently_confirmed_cache;
 mod root_container;
 mod slot_states;
 mod stats;
+mod vote_records;
 mod vote_router;
 
 pub use active_elections_container::*;

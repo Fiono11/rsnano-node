@@ -45,14 +45,9 @@ pub enum MessageType {
     ReconReq = 0x14,
     #[cfg(feature = "rai_protocol")]
     ReconReply = 0x15,
-    /// RAI: a fetch of the residual object a report committed to
-    #[cfg(feature = "rai_protocol")]
-    ResidualReq = 0x16,
-    #[cfg(feature = "rai_protocol")]
-    ResidualReply = 0x17,
     /// RAI: a leader's proposal of an epoch value in one election slot
     #[cfg(feature = "rai_protocol")]
-    EpochProp = 0x18,
+    EpochProp = 0x16,
 }
 
 impl MessageType {
@@ -79,10 +74,6 @@ impl MessageType {
             MessageType::ReconReq => "report_req",
             #[cfg(feature = "rai_protocol")]
             MessageType::ReconReply => "report_ack",
-            #[cfg(feature = "rai_protocol")]
-            MessageType::ResidualReq => "residual_req",
-            #[cfg(feature = "rai_protocol")]
-            MessageType::ResidualReply => "residual_ack",
             #[cfg(feature = "rai_protocol")]
             MessageType::EpochProp => "epoch_prop",
             #[cfg(feature = "ledger_snapshots")]
@@ -232,10 +223,6 @@ impl MessageHeader {
             #[cfg(feature = "rai_protocol")]
             MessageType::ReconReply => ReconReply::serialized_size(self.extensions),
             #[cfg(feature = "rai_protocol")]
-            MessageType::ResidualReq => ResidualReq::serialized_size(self.extensions),
-            #[cfg(feature = "rai_protocol")]
-            MessageType::ResidualReply => ResidualReply::serialized_size(self.extensions),
-            #[cfg(feature = "rai_protocol")]
             MessageType::EpochProp => EpochProp::serialized_size(self.extensions),
             #[cfg(feature = "ledger_snapshots")]
             MessageType::Preproposal => Preproposal::serialized_size(self.extensions),
@@ -308,10 +295,6 @@ impl From<MessageType> for DetailType {
             MessageType::ReconReq => DetailType::ReconReq,
             #[cfg(feature = "rai_protocol")]
             MessageType::ReconReply => DetailType::ReconReply,
-            #[cfg(feature = "rai_protocol")]
-            MessageType::ResidualReq => DetailType::ResidualReq,
-            #[cfg(feature = "rai_protocol")]
-            MessageType::ResidualReply => DetailType::ResidualReply,
             #[cfg(feature = "rai_protocol")]
             MessageType::EpochProp => DetailType::EpochProp,
             #[cfg(feature = "ledger_snapshots")]

@@ -228,10 +228,6 @@ impl NetworkMessageProcessor {
             #[cfg(feature = "rai_protocol")]
             Message::ReconReply(reply) => self.reports.handle_reply(reply, channel),
             #[cfg(feature = "rai_protocol")]
-            Message::ResidualReq(request) => self.reports.handle_residual_request(request, channel),
-            #[cfg(feature = "rai_protocol")]
-            Message::ResidualReply(reply) => self.reports.handle_residual_reply(reply, channel),
-            #[cfg(feature = "rai_protocol")]
             Message::EpochProp(prop) => self.epoch_decision.handle_proposal(prop, channel),
             #[cfg(feature = "ledger_snapshots")]
             Message::SnapshotPreproposal(preproposal) => {

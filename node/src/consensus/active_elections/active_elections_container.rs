@@ -38,7 +38,9 @@ use crate::{
     utils::diagnostic,
 };
 
-use crate::consensus::election::{AccountSlot, EpochLedger, EpochValue};
+use crate::consensus::election::{
+    AccountSlot, CertifiedBlock, EpochLedger, EpochValue, ResidualKind,
+};
 
 use super::{
     ActiveElectionsConfig, ActiveElectionsInfo, AecFact, AecInsertError, AecInsertRequest, Entry,
@@ -54,6 +56,7 @@ use super::{
     recently_confirmed_cache::RecentlyConfirmedCache,
     slot_states::SlotStates,
     stats::AecStats,
+    vote_records::VoteRecords,
 };
 
 /// Kudzu never evicts, so a full bucket makes the scheduler hold its blocks
@@ -119,6 +122,9 @@ pub(crate) struct ActiveElectionsContainer {
     /// their boundary. Their instances still collect the votes of the other
     /// replicas and construct certificates; this node issues no vote in them.
     frozen: BTreeSet<ConsensusEpoch>,
+    /// RAI: the votes received, by epoch and voter, from which another
+    /// reporter's residual object is derived
+    vote_records: VoteRecords,
     /// RAI: elections of the current epoch which got a certificate so far
     decided_in_current_epoch: usize,
     /// RAI: `decided_in_current_epoch` at which the epoch advances; 0 never
@@ -166,6 +172,9 @@ impl ActiveElectionsContainer {
     /// RAI: how many left epochs stay frozen; older ones have no instance
     /// left to sign in
     const FROZEN_EPOCHS_KEPT: u64 = 8;
+    /// RAI: how many left epochs keep their received votes, for the
+    /// residual objects of their reports; as many as the reports are kept
+    const VOTE_RECORD_EPOCHS_KEPT: u64 = 4;
 
     pub fn new(config: ActiveElectionsConfig, base_latency: Duration) -> Self {
         Self {
@@ -184,6 +193,7 @@ impl ActiveElectionsContainer {
             current_epoch: ConsensusEpoch::ZERO,
             draining: false,
             frozen: BTreeSet::new(),
+            vote_records: VoteRecords::default(),
             decided_in_current_epoch: 0,
             epoch_terminated_elections: config.epoch_terminated_elections,
             epoch_duration: config.epoch_duration,
@@ -581,6 +591,10 @@ impl ActiveElectionsContainer {
         self.frozen.insert(left);
         self.frozen
             .retain(|epoch| epoch.as_u64() + Self::FROZEN_EPOCHS_KEPT > left.as_u64());
+        if let Some(kept_from) = left.as_u64().checked_sub(Self::VOTE_RECORD_EPOCHS_KEPT) {
+            self.vote_records
+                .trim_before(ConsensusEpoch::new(kept_from));
+        }
         self.pending_kudzu_votes
             .retain(|target| target.election.epoch != left);
         let report = self.epoch_report(left).map(Arc::new);
@@ -597,10 +611,11 @@ impl ActiveElectionsContainer {
         self.notify(AecFact::EpochAdvanced(self.current_epoch, report));
         if cfg!(feature = "rai_protocol") {
             diagnostic!(
-                "EPOCH_ADVANCED epoch={} elections={} active={}",
+                "EPOCH_ADVANCED epoch={} elections={} active={} vote_records={}",
                 self.current_epoch,
                 self.roots.len(),
-                self.roots.active_len()
+                self.roots.active_len(),
+                self.vote_records.len()
             );
         }
     }
@@ -1303,61 +1318,56 @@ impl ActiveElectionsContainer {
     /// the AEC; the residual votes from the slot states, which hold this
     /// node's one-shot votes per slot and epoch.
     pub fn epoch_report(&self, epoch: ConsensusEpoch) -> Option<EpochReport> {
-        use crate::consensus::election::{
-            CertifiedBlock, ResidualKind, ResidualVotes, TIMEOUT_BLOCK,
-        };
+        use crate::consensus::election::{ResidualVotes, TIMEOUT_BLOCK};
         let committee = self.committees.committee(epoch)?;
         let certified = self.epoch_certified(epoch);
-        let mut residual = ResidualVotes::new();
 
-        // This node's own votes which the certified state does not summarize,
-        // each with the parent its block names: the parent belongs to the
-        // block, because two conflicting parents put their children in one
-        // voting domain on different branches
-        let mut record = |account: Account,
-                          height: u64,
-                          parent: &dyn Fn(&BlockHash) -> BlockHash,
-                          slot: &LocalSlotState| {
-            let mut support = |hash: BlockHash, kind: ResidualKind| {
-                let block = CertifiedBlock::new(account, height, hash);
-                if certified.status(&block).is_none() {
-                    residual.record(block, parent(&hash), kind);
-                }
+        // This node's own votes in the epoch, each with the parent its block
+        // names: the parent belongs to the block, because two conflicting
+        // parents put their children in one voting domain on different
+        // branches. The first vote is kept apart from the second-look
+        // notarization support: only first votes can witness a hidden fast
+        // finalization certificate, which is what `A_Q` recovers.
+        let mut votes = Vec::new();
+        let mut own = |account: Account,
+                       height: u64,
+                       parent: &dyn Fn(&BlockHash) -> BlockHash,
+                       slot: &LocalSlotState| {
+            let mut voted = |hash: BlockHash, kind: ResidualKind| {
+                votes.push((
+                    CertifiedBlock::new(account, height, hash),
+                    kind,
+                    parent(&hash),
+                ));
             };
-            // The first vote is kept apart from the second-look notarization
-            // support: only first votes can witness a hidden fast
-            // finalization certificate, which is what `A_Q` recovers
             if let Some(hash) = slot.first_voted.filter(|hash| *hash != TIMEOUT_BLOCK) {
-                support(hash, ResidualKind::First);
+                voted(hash, ResidualKind::First);
             }
             for hash in &slot.notar_voted {
-                support(*hash, ResidualKind::Notar);
+                voted(*hash, ResidualKind::Notar);
             }
             if let Some(hash) = slot.final_voted {
-                let block = CertifiedBlock::new(account, height, hash);
-                if certified
-                    .status(&block)
-                    .is_none_or(|status| !status.is_finalized())
-                {
-                    residual.record(block, parent(&hash), ResidualKind::Final);
-                }
+                voted(hash, ResidualKind::Final);
             }
         };
         // A live slot's votes: the parent of each block this node voted for
         for (account, height, slot) in self.slots.iter_epoch(epoch) {
-            record(account, height, &|hash| self.slots.parent(hash), slot);
+            own(account, height, &|hash| self.slots.parent(hash), slot);
         }
         // An instance that finalized and left the AEC: every candidate of it
         // continues the branch its election was rooted at
         for instance in self.epoch_states.instances_of(epoch) {
             let previous = instance.root.previous;
-            record(
+            own(
                 instance.account,
                 instance.height,
                 &|_| previous,
                 &instance.slot,
             );
         }
+        // What the certified state does not summarize: the same rule the
+        // other validators derive this object by
+        let residual = ResidualVotes::derive(&certified, votes);
 
         Some(EpochReport {
             committee: committee.digest(),
@@ -2150,6 +2160,7 @@ impl ActiveElectionsContainer {
                 .or_default()
                 .insert(args.vote.voter);
         }
+        self.record_votes(&args);
         let mut apply_helper = ApplyVoteHelper {
             args: &args,
             recently_confirmed: &mut self.recently_confirmed,
@@ -2186,6 +2197,58 @@ impl ActiveElectionsContainer {
             }
         }
         per_block
+    }
+
+    /// RAI: keeps the account votes received, by epoch and voter, for the
+    /// derivation of the voters' residual objects. A vote for a block this
+    /// node holds in an instance of the epoch, or finalized there, is
+    /// placed by that block's parent; one for a block it does not hold
+    /// waits in the vote cache and is recorded when it is replayed.
+    fn record_votes(&mut self, args: &ApplyVoteArgs) {
+        let vote = &args.vote;
+        let kind = match vote.kind() {
+            VoteKind::First => ResidualKind::First,
+            VoteKind::Notar => ResidualKind::Notar,
+            VoteKind::Final => ResidualKind::Final,
+            VoteKind::Timeout | VoteKind::Abstain => return,
+        };
+        for hash in vote.filtered_blocks() {
+            let placed = self
+                .roots
+                .election_for_block_in_epoch(hash, vote.epoch)
+                .map(|election| {
+                    (
+                        election.account(),
+                        election.height(),
+                        election.qualified_root().previous,
+                    )
+                })
+                .or_else(|| {
+                    self.epoch_states
+                        .instance(hash, vote.epoch)
+                        .map(|instance| (instance.account, instance.height, instance.root.previous))
+                });
+            let Some((account, height, previous)) = placed else {
+                continue;
+            };
+            self.vote_records.record(
+                vote.epoch,
+                vote.voter,
+                CertifiedBlock::new(account, height, *hash),
+                kind,
+                previous,
+            );
+        }
+    }
+
+    /// RAI: the votes of one voter received for one epoch, with the parent
+    /// each voted block names
+    pub fn vote_records_of(
+        &self,
+        epoch: ConsensusEpoch,
+        voter: &PublicKey,
+    ) -> Vec<(CertifiedBlock, ResidualKind, BlockHash)> {
+        self.vote_records.votes_of(epoch, voter)
     }
 
     pub fn force_confirm(&mut self, block_hash: &BlockHash, now: Timestamp) {
@@ -2955,6 +3018,104 @@ mod tests {
             closed_at,
         );
         assert_eq!(result.get(&another.hash()), Some(&Err(VoteError::Late)));
+    }
+
+    /// RAI: the account votes received are kept by epoch and voter, placed
+    /// by the block's parent, so that a reporter's residual object can be
+    /// derived here. A vote for a block whose instance already finalized and
+    /// left the AEC is placed by the finalized instance; a timeout vote is
+    /// no part of a residual object and is not kept.
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn keeps_the_votes_received_by_epoch_and_voter() {
+        let mut container = ActiveElectionsContainer::new(
+            ActiveElectionsConfig {
+                epoch_terminated_elections: 1,
+                ..Default::default()
+            },
+            Duration::from_secs(1),
+        );
+        let rep_key = PrivateKey::from(1);
+        let other_key = PrivateKey::from(2);
+        let mut rep_weights = RepWeights::default();
+        rep_weights.put(rep_key.public_key(), Amount::MAX);
+        let now = Timestamp::new_test_instance();
+        container.start_epochs(now);
+        let block = SavedBlock::new_test_instance_with_key(1);
+        container
+            .insert(
+                AecInsertRequest::new_priority(block.clone(), BlockPriority::new_test_instance()),
+                now,
+            )
+            .unwrap();
+        let apply = |container: &mut ActiveElectionsContainer, vote: Vote| {
+            container.apply_vote(ApplyVoteArgs {
+                vote: &ReceivedVote::new(Arc::new(vote), VoteDelivery::Direct, None).into(),
+                rep_weights: &rep_weights,
+                quorum_snapshot: &QuorumSnapshot::new_test_instance(),
+                now,
+            })
+        };
+        let placed = |kind: ResidualKind| {
+            (
+                CertifiedBlock::new(block.account(), block.height(), block.hash()),
+                kind,
+                block.previous(),
+            )
+        };
+        apply(
+            &mut container,
+            Vote::new_in_epoch(
+                &other_key,
+                VoteKind::First,
+                ConsensusEpoch::ZERO,
+                vec![block.hash()],
+            ),
+        );
+        apply(
+            &mut container,
+            Vote::new_in_epoch(
+                &other_key,
+                VoteKind::Timeout,
+                ConsensusEpoch::ZERO,
+                vec![block.hash()],
+            ),
+        );
+        assert_eq!(
+            container.vote_records_of(ConsensusEpoch::ZERO, &other_key.public_key()),
+            vec![placed(ResidualKind::First)]
+        );
+
+        // Finalized by the weighty representative and erased; the other's
+        // final vote arrives afterwards and is placed by the finalized
+        // instance
+        apply(
+            &mut container,
+            Vote::new_final(&rep_key, vec![block.hash()]),
+        );
+        assert!(container.election_for_block(&block.hash()).is_none());
+        apply(
+            &mut container,
+            Vote::new_in_epoch(
+                &other_key,
+                VoteKind::Final,
+                ConsensusEpoch::ZERO,
+                vec![block.hash()],
+            ),
+        );
+        assert_eq!(
+            container.vote_records_of(ConsensusEpoch::ZERO, &other_key.public_key()),
+            vec![placed(ResidualKind::First), placed(ResidualKind::Final)]
+        );
+        assert_eq!(
+            container.vote_records_of(ConsensusEpoch::ZERO, &rep_key.public_key()),
+            vec![placed(ResidualKind::Final)]
+        );
+        assert!(
+            container
+                .vote_records_of(ConsensusEpoch::new(1), &other_key.public_key())
+                .is_empty()
+        );
     }
 
     /// RAI, "Only the joint decision installs its checkpoint": a block the

@@ -8,11 +8,9 @@ pub use report_service::ReportService;
 
 use std::collections::{BTreeMap, HashMap};
 
-use rsnano_messages::{
-    CertifiedEntry, ReconReply, ReconReq, Report, ResidualEntry, ResidualReply, ResidualReq,
-};
+use rsnano_messages::{CertifiedEntry, ReconReply, ReconReq, Report};
 use rsnano_nullable_clock::Timestamp;
-use rsnano_types::{BlockHash, ConsensusEpoch, PrivateKey, PublicKey, Signature};
+use rsnano_types::{BlockHash, ConsensusEpoch, PrivateKey, PublicKey};
 
 use crate::consensus::election::{
     Certification, CertifiedBlock, CertifiedState, CertifiedStatus, ReportCommitment, ResidualKind,
@@ -57,12 +55,7 @@ struct EpochReports {
     /// froze, and the ones it passed through, which are what it can bridge
     /// from
     history: BTreeMap<BlockHash, CertifiedState>,
-    /// The residual votes this node signed for
-    residual: ResidualVotes,
-    /// The residual objects this node can serve, by their roots: its own,
-    /// and the ones it reconstructed from other reporters. A residual object
-    /// never changes after its report is signed, so a root identifies it for
-    /// good.
+    /// The residual object this node's reports committed to, by its root
     residuals: HashMap<BlockHash, ResidualVotes>,
     /// One signed report per representative this node votes with
     signed: Vec<Report>,
@@ -79,11 +72,12 @@ struct TheirReport {
     /// The state reconstructed for the signed root, once a difference has
     /// rebuilt it
     reconstructed: Option<CertifiedState>,
-    /// RAI: the residual object `g_i` commits to, once fetched and checked
-    /// against the signed root. A report is usable only with both.
+    /// RAI: the residual object `g_i` commits to, once derived from the
+    /// reporter's votes held here and checked against the signed root. A
+    /// report is usable only with both.
     residual: Option<ResidualVotes>,
-    /// The residual object being fetched, in canonical order
-    residual_partial: Option<ResidualVotes>,
+    /// When the derivation was last tried
+    derived: Option<Timestamp>,
 }
 
 impl TheirReport {
@@ -105,10 +99,6 @@ pub(crate) enum ReportMessage {
     Request(ReconReq),
     /// Answer a request with the difference between two states this node knows
     Reply(ReconReply),
-    /// Ask for the residual object a report committed to
-    ResidualRequest(ResidualReq),
-    /// Answer a residual fetch with the part of the object asked for
-    ResidualAnswer(ResidualReply),
 }
 
 /// Why a request for a difference is not answered: no answer is not a
@@ -169,8 +159,7 @@ impl ReportExchange {
     /// boundary and signs one report per representative it votes with,
     /// against the closed predecessor checkpoint. The certified state is
     /// frozen as the report's snapshot; the live state carries on from
-    /// there. The residual object is signed by each representative, record
-    /// by record, so each signs a root of its own.
+    /// there.
     pub fn report_epoch(
         &mut self,
         epoch: ConsensusEpoch,
@@ -185,13 +174,10 @@ impl ReportExchange {
             return Vec::new();
         }
         let certified_root = certified.root();
-        let mut residuals = Vec::new();
+        let residual_root = residual.root();
         held.signed = keys
             .iter()
             .map(|key| {
-                let signed = residual.signed(epoch, key);
-                let residual_root = signed.root();
-                residuals.push(signed);
                 let payload = ReportCommitment {
                     epoch,
                     committee,
@@ -216,10 +202,7 @@ impl ReportExchange {
         for (block, entry) in certified.entries() {
             held.live.certify(*block, entry.previous, entry.status);
         }
-        held.residual = residuals.first().cloned().unwrap_or_default();
-        for signed in residuals {
-            held.residuals.insert(signed.root(), signed);
-        }
+        held.residuals.insert(residual_root, residual);
         let messages = held
             .signed
             .iter()
@@ -392,19 +375,75 @@ impl ReportExchange {
                 asked: None,
                 reconstructed: None,
                 residual,
-                residual_partial: None,
+                derived: None,
             },
         );
         true
     }
 
-    /// RAI: make a report usable. The certified state is reconstructed from
-    /// a difference: a state this node already holds that hashes to the
+    /// RAI: whether the report's residual object is still to be derived:
+    /// its certified state is reconstructed and its residual is not settled
+    pub fn needs_residual(
+        &self,
+        epoch: ConsensusEpoch,
+        reporter: &PublicKey,
+        now: Timestamp,
+    ) -> bool {
+        self.epochs
+            .get(&epoch)
+            .and_then(|held| held.theirs.get(reporter))
+            .is_some_and(|their| {
+                their.reconstructed.is_some()
+                    && their.residual.is_none()
+                    && their
+                        .derived
+                        .is_none_or(|last| last.elapsed(now) >= Self::RETRY_INTERVAL)
+            })
+    }
+
+    /// RAI: derive a report's residual object from the reporter's votes
+    /// held here and the certified state reconstructed for it, by the rule
+    /// the reporter itself applied, and accept it exactly when it hashes to
+    /// the root the reporter signed. Nothing is fetched: the votes were
+    /// gossiped and checked when they arrived, and a vote still missing
+    /// here arrives with the gossip that keeps the live inventories
+    /// converging, after which the derivation is tried again.
+    pub fn derive_residual(
+        &mut self,
+        epoch: ConsensusEpoch,
+        reporter: PublicKey,
+        votes: impl IntoIterator<Item = (CertifiedBlock, ResidualKind, BlockHash)>,
+        now: Timestamp,
+    ) -> Option<ReconcileResult> {
+        let held = self.epochs.get_mut(&epoch)?;
+        let their = held.theirs.get_mut(&reporter)?;
+        let certified = their.reconstructed.as_ref()?;
+        if their.residual.is_some() {
+            return None;
+        }
+        their.derived = Some(now);
+        let derived = ResidualVotes::derive(certified, votes);
+        let total = derived.len();
+        let complete = derived.root() == their.report.residual;
+        if complete {
+            their.residual = Some(derived);
+        }
+        Some(ReconcileResult {
+            epoch,
+            reporter,
+            complete,
+            entries: total,
+            total,
+        })
+    }
+
+    /// RAI: make a report's certified state usable: reconstructed from a
+    /// difference. A state this node already holds that hashes to the
     /// signed root needs no message at all, which is the common case between
     /// validators that saw the same evidence; otherwise the request names
     /// the roots this node holds and a replica that knows one of them and the
-    /// target answers. The residual object is fetched whole, and is often
-    /// empty, in which case the signed root settles it without a message.
+    /// target answers. The residual object is derived, not fetched (see
+    /// `derive_residual`).
     ///
     /// A request that goes unanswered is repeated after `RETRY_INTERVAL`,
     /// with the live root as it stands then. That is the whole of the retry:
@@ -418,17 +457,12 @@ impl ReportExchange {
         now: Timestamp,
     ) -> Option<(Vec<ReportMessage>, Option<ReconcileResult>)> {
         let held = self.epochs.get_mut(&epoch)?;
-        let own_residual = held.residuals.get(&held.residual.root()).cloned();
-        let (target, residual_target, needs_state) = {
+        let (target, needs_state) = {
             let their = held.theirs.get(&reporter)?;
             if their.is_complete() {
                 return None;
             }
-            (
-                their.report.certified,
-                their.report.residual,
-                their.reconstructed.is_none(),
-            )
+            (their.report.certified, their.reconstructed.is_none())
         };
         // A state already held that hashes to the target: nothing to ask for
         let known = if needs_state {
@@ -443,28 +477,6 @@ impl ReportExchange {
         let may_ask = their
             .asked
             .is_none_or(|asked| asked.elapsed(now) >= Self::RETRY_INTERVAL);
-
-        if their.residual.is_none() {
-            if own_residual
-                .as_ref()
-                .is_some_and(|own| own.root() == residual_target)
-            {
-                // This node's own residual object hashes to the same root:
-                // the two reporters recorded the same votes
-                their.residual = own_residual;
-            } else if may_ask {
-                let offset = their
-                    .residual_partial
-                    .as_ref()
-                    .map(ResidualVotes::len)
-                    .unwrap_or(0);
-                messages.push(ReportMessage::ResidualRequest(ResidualReq {
-                    epoch,
-                    root: residual_target,
-                    offset: offset as u32,
-                }));
-            }
-        }
 
         if needs_state {
             if let Some(state) = known {
@@ -590,97 +602,6 @@ impl ReportExchange {
             reporter,
             complete: complete && their.is_complete(),
             entries: reply.added.len() + reply.removed.len(),
-            total,
-        })
-    }
-
-    /// RAI: serve the residual object a report committed to. It never
-    /// changes, so it is fetched whole rather than differenced; anyone that
-    /// has reconstructed it serves it, not only its reporter.
-    pub fn handle_residual_request(&self, request: &ResidualReq) -> Option<ResidualReply> {
-        let held = self.epochs.get(&request.epoch)?;
-        let object = held.residuals.get(&request.root)?;
-        let entries = object
-            .entries()
-            .skip(request.offset as usize)
-            .take(ResidualReply::MAX_ENTRIES)
-            .map(|(block, kind, record)| ResidualEntry {
-                account: block.account,
-                height: block.height,
-                hash: block.hash,
-                previous: record.previous,
-                kind: kind.as_byte(),
-                signature: record.signature.clone().unwrap_or_else(Signature::new),
-            })
-            .collect();
-        Some(ResidualReply {
-            epoch: request.epoch,
-            root: request.root,
-            offset: request.offset,
-            entries,
-        })
-    }
-
-    /// RAI: accumulate a residual object and accept it exactly when what has
-    /// been accumulated hashes to the root its reporter signed. Every record
-    /// is checked against the reporter's signature first: "a Byzantine
-    /// reporter may omit facts, but cannot make missing signatures ...
-    /// valid", and a record it did not sign is not its vote. The fetch is
-    /// gossiped and answered by several replicas, so the parts arrive in any
-    /// order: only the part that continues what is held is taken, in
-    /// canonical order, and the others are asked for again.
-    pub fn handle_residual_reply(&mut self, reply: &ResidualReply) -> Option<ReconcileResult> {
-        let held = self.epochs.get_mut(&reply.epoch)?;
-        let reporter = held
-            .theirs
-            .iter()
-            .find(|(_, their)| their.report.residual == reply.root && their.residual.is_none())
-            .map(|(reporter, _)| *reporter)?;
-        let their = held.theirs.get_mut(&reporter)?;
-        let mut object = their.residual_partial.clone().unwrap_or_default();
-        if reply.offset as usize != object.len() {
-            return None;
-        }
-        let mut last = object
-            .entries()
-            .next_back()
-            .map(|(block, kind, _)| (block, kind));
-        for entry in &reply.entries {
-            let block = CertifiedBlock::new(entry.account, entry.height, entry.hash);
-            let Some(kind) = ResidualKind::from_byte(entry.kind) else {
-                continue;
-            };
-            if last.is_some_and(|held| (block, kind) <= held) {
-                continue;
-            }
-            if !ResidualVotes::verify_record(
-                reply.epoch,
-                &reporter,
-                &block,
-                entry.previous,
-                kind,
-                &entry.signature,
-            ) {
-                continue;
-            }
-            last = Some((block, kind));
-            object.record_signed(block, entry.previous, kind, entry.signature.clone());
-        }
-        let complete = object.root() == reply.root;
-        let total = object.len();
-        if complete {
-            their.residual_partial = None;
-            their.residual = Some(object.clone());
-            held.residuals.insert(reply.root, object);
-        } else {
-            their.residual_partial = (!reply.entries.is_empty()).then_some(object);
-        }
-        let complete_report = held.theirs.get(&reporter)?.is_complete();
-        Some(ReconcileResult {
-            epoch: reply.epoch,
-            reporter,
-            complete: complete_report,
-            entries: reply.entries.len(),
             total,
         })
     }
@@ -1204,18 +1125,32 @@ mod tests {
     }
 
     /// RAI: "A report is usable only after reconstructing T_i and G_i". The
-    /// certified state alone does not make it usable; the residual object is
-    /// fetched whole, because it holds the reporter's own votes and no state
-    /// of the requester's can be differenced against it.
+    /// residual object is derived from the reporter's votes this node
+    /// received, against the certified state reconstructed for the report:
+    /// what that state summarizes is left out, and the rest has to hash to
+    /// the signed root. A vote not received here leaves the report
+    /// unusable until it is.
     #[test]
-    fn a_report_is_usable_only_once_its_residual_object_is_fetched_too() {
+    fn a_residual_object_is_derived_from_the_reporters_votes() {
         let epoch = ConsensusEpoch::ZERO;
         let key = PrivateKey::from(1);
-        let theirs = state_of(0..10);
-        let mut residual = ResidualVotes::new();
-        for i in 20..24 {
-            residual.record(block(i), parent(i), ResidualKind::First);
-        }
+        let mut theirs = state_of(0..10);
+        theirs.certify(block(3), parent(3), CertifiedStatus::Finalized);
+        // The reporter's votes: summarized ones and residual ones
+        let votes = vec![
+            (block(3), ResidualKind::First, parent(3)),
+            (block(3), ResidualKind::Final, parent(3)),
+            (block(5), ResidualKind::First, parent(5)),
+            (block(5), ResidualKind::Final, parent(5)),
+            (block(20), ResidualKind::First, parent(20)),
+            (block(21), ResidualKind::Notar, parent(21)),
+        ];
+        let residual = ResidualVotes::derive(&theirs, votes.clone());
+        assert_eq!(
+            residual.len(),
+            3,
+            "a final vote on a notarized block, and two unsummarized"
+        );
 
         let mut reporter = ReportExchange::new();
         reporter.report_epoch(
@@ -1226,7 +1161,6 @@ mod tests {
             BlockHash::ZERO,
             &[key.clone()],
         );
-
         let mut ours = ReportExchange::new();
         ours.report_epoch(
             epoch,
@@ -1236,92 +1170,82 @@ mod tests {
             BlockHash::ZERO,
             &[PrivateKey::from(2)],
         );
-        assert!(ours.handle_report(signed_with(
-            &key,
-            epoch,
-            &theirs,
-            &residual.signed(epoch, &key)
-        )));
+        assert!(ours.handle_report(signed_with(&key, epoch, &theirs, &residual)));
 
         // The certified state matches at once, but the report is not usable
         let (messages, result) = ours.reconcile(epoch, key.public_key(), later()).unwrap();
+        assert!(messages.is_empty());
         assert!(!result.expect("the state matched").complete);
         assert!(theirs_usable(&ours, epoch).is_empty());
+        let start = later();
+        assert!(ours.needs_residual(epoch, &key.public_key(), start));
 
-        let Some(ReportMessage::ResidualRequest(request)) = messages
-            .into_iter()
-            .find(|m| matches!(m, ReportMessage::ResidualRequest(_)))
-        else {
-            panic!("expected a residual fetch");
-        };
-        let reply = reporter
-            .handle_residual_request(&request)
-            .expect("the reporter serves its own object");
-        assert_eq!(reply.entries.len(), 4);
-        assert!(ours.handle_residual_reply(&reply).unwrap().complete);
+        // One vote short: no object, and not tried again before the interval
+        let short = ours
+            .derive_residual(epoch, key.public_key(), votes[..5].to_vec(), start)
+            .unwrap();
+        assert!(!short.complete);
+        assert_eq!(short.total, 2);
+        assert!(theirs_usable(&ours, epoch).is_empty());
+        assert!(!ours.needs_residual(epoch, &key.public_key(), start));
+        assert!(ours.needs_residual(
+            epoch,
+            &key.public_key(),
+            start + ReportExchange::RETRY_INTERVAL
+        ));
 
+        // Every vote, in another order: derived and usable
+        let mut shuffled = votes.clone();
+        shuffled.reverse();
+        let done = ours
+            .derive_residual(epoch, key.public_key(), shuffled, later())
+            .unwrap();
+        assert!(done.complete);
+        assert_eq!(done.total, 3);
         let usable = theirs_usable(&ours, epoch);
-        assert_eq!(usable.len(), 1);
-        let signed_root = residual.signed(epoch, &key).root();
-        assert_eq!(usable[0].1, signed_root);
-
-        // And a reconstructor serves the object in turn, so an unavailable
-        // reporter does not make it unfetchable
-        let second = ours
-            .handle_residual_request(&ResidualReq {
-                epoch,
-                root: signed_root,
-                offset: 0,
-            })
-            .expect("a reconstructor serves it too");
-        assert_eq!(second.entries.len(), 4);
+        assert_eq!(usable, vec![(theirs.root(), residual.root())]);
+        assert!(!ours.needs_residual(epoch, &key.public_key(), later()));
+        assert!(
+            ours.derive_residual(epoch, key.public_key(), votes, later())
+                .is_none()
+        );
     }
 
-    /// A record the reporter did not sign is not its vote: dropped, and the
-    /// object then never reaches the signed root
+    /// The derivation waits for the certified state: without it, what the
+    /// inventory summarizes is unknown
     #[test]
-    fn a_residual_record_without_the_reporters_signature_is_dropped() {
+    fn the_residual_is_not_derived_before_the_certified_state() {
         let epoch = ConsensusEpoch::ZERO;
         let key = PrivateKey::from(1);
-        let theirs = state_of(0..3);
+        let theirs = state_of(0..10);
         let mut residual = ResidualVotes::new();
         residual.record(block(20), parent(20), ResidualKind::First);
-        let signed = residual.signed(epoch, &key);
         let mut ours = ReportExchange::new();
         ours.report_epoch(
             epoch,
-            theirs.clone(),
+            state_of(0..8),
             ResidualVotes::new(),
             BlockHash::from(7),
             BlockHash::ZERO,
             &[PrivateKey::from(2)],
         );
-        assert!(ours.handle_report(signed_with(&key, epoch, &theirs, &signed)));
-        let forged = residual.signed(epoch, &PrivateKey::from(3));
-        let (block20, kind, record) = forged.entries().next().unwrap();
-        let reply = ResidualReply {
-            epoch,
-            root: signed.root(),
-            offset: 0,
-            entries: vec![ResidualEntry {
-                account: block20.account,
-                height: block20.height,
-                hash: block20.hash,
-                previous: record.previous,
-                kind: kind.as_byte(),
-                signature: record.signature.clone().unwrap(),
-            }],
-        };
-        let result = ours.handle_residual_reply(&reply).unwrap();
-        assert!(!result.complete);
-        assert_eq!(result.total, 0);
-        assert!(theirs_usable(&ours, epoch).is_empty());
+        assert!(ours.handle_report(signed_with(&key, epoch, &theirs, &residual)));
+        assert!(!ours.needs_residual(epoch, &key.public_key(), later()));
+        assert!(
+            ours.derive_residual(
+                epoch,
+                key.public_key(),
+                vec![(block(20), ResidualKind::First, parent(20))],
+                later()
+            )
+            .is_none()
+        );
     }
 
-    /// A residual object that is empty needs no fetch at all: its signed root
-    /// is the root of the empty object, which every replica knows
+    /// A residual object that is empty needs no derivation at all: its
+    /// signed root is the root of the empty object, which every replica knows
     #[test]
-    fn an_empty_residual_object_needs_no_fetch() {
+    fn an_empty_residual_object_needs_no_derivation() {
         let epoch = ConsensusEpoch::ZERO;
         let key = PrivateKey::from(1);
         let theirs = state_of(0..10);
@@ -1339,122 +1263,6 @@ mod tests {
         let (messages, result) = ours.reconcile(epoch, key.public_key(), later()).unwrap();
         assert!(messages.is_empty());
         assert!(result.unwrap().complete);
-        assert_eq!(theirs_usable(&ours, epoch).len(), 1);
-    }
-
-    /// A residual object larger than one reply is fetched in canonical
-    /// chunks, each continuing where the last left off
-    #[test]
-    fn a_large_residual_object_is_fetched_in_chunks() {
-        let epoch = ConsensusEpoch::ZERO;
-        let key = PrivateKey::from(1);
-        let theirs = state_of(0..4);
-        let mut residual = ResidualVotes::new();
-        for i in 0..(ResidualReply::MAX_ENTRIES as u64 + 30) {
-            residual.record(block(1000 + i), parent(1000 + i), ResidualKind::First);
-        }
-        let mut reporter = ReportExchange::new();
-        reporter.report_epoch(
-            epoch,
-            theirs.clone(),
-            residual.clone(),
-            BlockHash::from(7),
-            BlockHash::ZERO,
-            &[key.clone()],
-        );
-        let mut ours = ReportExchange::new();
-        ours.report_epoch(
-            epoch,
-            theirs.clone(),
-            ResidualVotes::new(),
-            BlockHash::from(7),
-            BlockHash::ZERO,
-            &[PrivateKey::from(2)],
-        );
-        assert!(ours.handle_report(signed_with(
-            &key,
-            epoch,
-            &theirs,
-            &residual.signed(epoch, &key)
-        )));
-
-        let mut replies = 0;
-        loop {
-            let (messages, _) = ours.reconcile(epoch, key.public_key(), later()).unwrap();
-            let Some(ReportMessage::ResidualRequest(request)) = messages
-                .into_iter()
-                .find(|m| matches!(m, ReportMessage::ResidualRequest(_)))
-            else {
-                panic!("expected a residual fetch");
-            };
-            let reply = reporter.handle_residual_request(&request).unwrap();
-            assert!(reply.entries.len() <= ResidualReply::MAX_ENTRIES);
-            replies += 1;
-            assert!(replies < 10, "the fetch has to terminate");
-            if ours.handle_residual_reply(&reply).unwrap().complete {
-                break;
-            }
-        }
-        assert_eq!(replies, 2);
-        assert_eq!(theirs_usable(&ours, epoch).len(), 1);
-    }
-
-    /// The parts of a residual object arrive in any order, from different
-    /// replicas: a part that does not continue what is held is not applied,
-    /// and the fetch goes on from where it stands
-    #[test]
-    fn a_residual_part_out_of_order_is_not_applied() {
-        let epoch = ConsensusEpoch::ZERO;
-        let key = PrivateKey::from(1);
-        let theirs = state_of(0..4);
-        let mut residual = ResidualVotes::new();
-        for i in 0..(ResidualReply::MAX_ENTRIES as u64 + 30) {
-            residual.record(block(1000 + i), parent(1000 + i), ResidualKind::First);
-        }
-        let mut reporter = ReportExchange::new();
-        reporter.report_epoch(
-            epoch,
-            theirs.clone(),
-            residual.clone(),
-            BlockHash::from(7),
-            BlockHash::ZERO,
-            &[key.clone()],
-        );
-        let mut ours = ReportExchange::new();
-        ours.report_epoch(
-            epoch,
-            theirs.clone(),
-            ResidualVotes::new(),
-            BlockHash::from(7),
-            BlockHash::ZERO,
-            &[PrivateKey::from(2)],
-        );
-        assert!(ours.handle_report(signed_with(
-            &key,
-            epoch,
-            &theirs,
-            &residual.signed(epoch, &key)
-        )));
-        let (messages, _) = ours.reconcile(epoch, key.public_key(), later()).unwrap();
-        let Some(ReportMessage::ResidualRequest(first)) = messages
-            .into_iter()
-            .find(|m| matches!(m, ReportMessage::ResidualRequest(_)))
-        else {
-            panic!("expected a residual fetch");
-        };
-        assert_eq!(first.offset, 0);
-        let second = ResidualReq {
-            offset: ResidualReply::MAX_ENTRIES as u32,
-            ..first.clone()
-        };
-        // The second part arrives first: ignored
-        let tail = reporter.handle_residual_request(&second).unwrap();
-        assert_eq!(tail.entries.len(), 30);
-        assert!(ours.handle_residual_reply(&tail).is_none());
-        // Then the first, then the second again: complete
-        let head = reporter.handle_residual_request(&first).unwrap();
-        assert!(!ours.handle_residual_reply(&head).unwrap().complete);
-        assert!(ours.handle_residual_reply(&tail).unwrap().complete);
         assert_eq!(theirs_usable(&ours, epoch).len(), 1);
     }
 
@@ -1486,7 +1294,7 @@ mod tests {
         assert_eq!(usable.len(), 1);
         assert_eq!(usable[0].0.reporter, key.public_key());
         assert_eq!(usable[0].1.root(), certified.root());
-        let signed_root = residual.signed(epoch, &key).root();
+        let signed_root = residual.root();
         assert_eq!(usable[0].2.root(), signed_root);
 
         let named = exchange

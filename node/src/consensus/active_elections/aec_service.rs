@@ -276,6 +276,19 @@ impl AecService {
     /// RAI: `S_{e-1}` for the close of an epoch, the state its derivation
     /// builds on
     #[cfg(feature = "rai_protocol")]
+    /// RAI: the votes of one voter received for one epoch
+    pub fn vote_records_of(
+        &self,
+        epoch: ConsensusEpoch,
+        voter: &PublicKey,
+    ) -> Vec<(
+        crate::consensus::election::CertifiedBlock,
+        crate::consensus::election::ResidualKind,
+        BlockHash,
+    )> {
+        self.aec.read().unwrap().vote_records_of(epoch, voter)
+    }
+
     pub fn epoch_previous_state(
         &self,
         epoch: ConsensusEpoch,
