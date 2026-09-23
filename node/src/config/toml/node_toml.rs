@@ -390,6 +390,9 @@ impl NodeConfig {
             if let Some(ms) = i.close_round_timeout_ms {
                 self.active_elections.close_round_timeout = Duration::from_millis(ms);
             }
+            if let Some(voting) = i.account_voting {
+                self.active_elections.account_voting = voting;
+            }
         }
         if let Some(vote_processor_toml) = &toml.vote_processor {
             self.vote_processor.merge_toml(vote_processor_toml);

@@ -102,6 +102,12 @@ pub(crate) struct CliArgs {
     /// their share of the weight in the ledger
     #[arg(long, default_value_t = 0)]
     pub offline: usize,
+
+    /// RAI: this many principal representatives run a node that casts no
+    /// account votes: absent from the epoch's voting, present for the
+    /// handoff, where they sign their report and vote in the close
+    #[arg(long, default_value_t = 0)]
+    pub silent: usize,
 }
 
 impl CliArgs {
@@ -131,12 +137,25 @@ impl CliArgs {
         self.prs - self.byzantine - self.offline
     }
 
+    /// RAI: whether the running representative casts account votes; the
+    /// last `silent` of the running ones do not
+    pub(crate) fn votes_in_accounts(&self, node_index: usize) -> bool {
+        node_index + self.silent < self.honest_prs()
+    }
+
     pub(crate) fn validate(&self) -> anyhow::Result<()> {
         if self.byzantine + self.offline >= self.prs {
             return Err(anyhow!(
                 "{} of {} representatives would run no node; at least one must",
                 self.byzantine + self.offline,
                 self.prs
+            ));
+        }
+        if self.silent >= self.honest_prs() {
+            return Err(anyhow!(
+                "{} of {} running representatives would cast no account vote; at least one must",
+                self.silent,
+                self.honest_prs()
             ));
         }
         Ok(())

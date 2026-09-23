@@ -164,10 +164,12 @@ pub(crate) async fn create_wallets(
     wait_until_confirmed(genesis_rpc, genesis_send).await;
     info!("Receiving initial spam amount...");
     let initial_account = initial_key.account();
+    // The initial account delegates to itself: its balance is the spam
+    // funds, which would give one representative more weight than the rest
     let genesis_receive: Block = StateBlockArgs {
         key: &initial_key,
         previous: BlockHash::ZERO,
-        representative: representative_of(&initial_account, representatives),
+        representative: initial_key.public_key(),
         balance: INITIAL_AMOUNT,
         link: genesis_send.into(),
         work: 0.into(),
@@ -236,7 +238,7 @@ async fn seed_representatives(
         let send: Block = StateBlockArgs {
             key: &initial_key,
             previous: frontier,
-            representative: representative_of(&initial_account, representatives),
+            representative: initial_key.public_key(),
             balance,
             link: seed.into(),
             work: 0.into(),

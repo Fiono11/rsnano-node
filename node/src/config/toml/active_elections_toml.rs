@@ -16,6 +16,9 @@ pub struct ActiveElectionsToml {
     /// RAI: a replica abstains in a round of an epoch's close election after
     /// waiting this long for a valid proposal
     pub close_round_timeout_ms: Option<u64>,
+    /// RAI: whether this node casts account votes; false makes a silent
+    /// representative, which reports and votes in the close only
+    pub account_voting: Option<bool>,
 }
 
 impl From<&NodeConfig> for ActiveElectionsToml {
@@ -34,6 +37,7 @@ impl From<&NodeConfig> for ActiveElectionsToml {
             close_round_timeout_ms: Some(
                 config.active_elections.close_round_timeout.as_millis() as u64
             ),
+            account_voting: Some(config.active_elections.account_voting),
         }
     }
 }

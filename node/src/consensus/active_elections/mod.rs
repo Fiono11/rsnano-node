@@ -48,6 +48,11 @@ pub struct ActiveElectionsConfig {
     /// proposal. A slot led by a representative which does not propose
     /// costs this long; a leader proposes as soon as it can derive a value
     pub close_round_timeout: Duration,
+    /// RAI: whether this node casts account votes. A representative that
+    /// does not still receives the epoch's votes, signs its report at the
+    /// boundary and votes in the close: present for the handoff, absent
+    /// from the voting. For the benchmark's silent representative.
+    pub account_voting: bool,
 }
 
 impl Default for ActiveElectionsConfig {
@@ -58,6 +63,7 @@ impl Default for ActiveElectionsConfig {
             epoch_terminated_elections: 0,
             epoch_duration: Duration::ZERO,
             close_round_timeout: Duration::from_secs(2),
+            account_voting: true,
         }
     }
 }

@@ -118,6 +118,9 @@ pub(crate) struct ActiveElectionsContainer {
     /// RAI: the current epoch's duration has ended: no new election starts
     /// in it, its instances run to their outcome, then it is left
     draining: bool,
+    /// RAI: whether this node casts account votes at all (see
+    /// `ActiveElectionsConfig::account_voting`)
+    account_voting: bool,
     /// RAI, Algorithm 1 line 8: the epochs this node stopped signing in, at
     /// their boundary. Their instances still collect the votes of the other
     /// replicas and construct certificates; this node issues no vote in them.
@@ -197,6 +200,7 @@ impl ActiveElectionsContainer {
             pending_kudzu_votes: Vec::new(),
             current_epoch: ConsensusEpoch::ZERO,
             draining: false,
+            account_voting: config.account_voting,
             frozen: BTreeSet::new(),
             vote_records: VoteRecords::default(),
             checkpoint_delegations: BTreeMap::new(),
@@ -1439,7 +1443,7 @@ impl ActiveElectionsContainer {
         let mut targets: Vec<VoteTarget> = self
             .pending_kudzu_votes
             .iter()
-            .filter(|target| !self.frozen.contains(&target.election.epoch))
+            .filter(|target| self.account_voting && !self.frozen.contains(&target.election.epoch))
             .cloned()
             .collect();
         let empty = LocalSlotState::default();
@@ -1448,7 +1452,7 @@ impl ActiveElectionsContainer {
         // against the same slot state before either is recorded
         let mut one_shot: FxHashSet<(EpochSlot, VoteKind)> = FxHashSet::default();
         for election in self.roots.round_robin().map(|e| &e.election) {
-            if self.frozen.contains(&election.epoch()) {
+            if !self.account_voting || self.frozen.contains(&election.epoch()) {
                 continue;
             }
             let slot = self.slots.get(&election.epoch_slot()).unwrap_or(&empty);
@@ -1506,7 +1510,7 @@ impl ActiveElectionsContainer {
                 accepted.push(target);
                 continue;
             };
-            if self.frozen.contains(&election.epoch()) {
+            if !self.account_voting || self.frozen.contains(&election.epoch()) {
                 continue;
             }
             let previous = election.qualified_root().previous;
@@ -1536,6 +1540,7 @@ impl ActiveElectionsContainer {
         // Only explicitly finalized elections: an implicitly finalized block is
         // already cemented, and its slot state has been dropped.
         if !cfg!(feature = "rai_protocol")
+            || !self.account_voting
             || !election.certificates().is_finalized()
             || self.frozen.contains(&election.epoch())
         {

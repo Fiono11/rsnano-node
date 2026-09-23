@@ -34,6 +34,10 @@ pub(crate) struct AccountState {
     pub confirmed_frontier: BlockHash,
     pub unconfirmed_frontier: BlockHash,
     pub balance: Amount,
+    /// RAI: the account delegates to itself rather than to a principal
+    /// representative: the initial spam account, whose balance would
+    /// otherwise give one representative more weight than the others
+    pub own_representative: bool,
 }
 
 impl AccountState {
@@ -102,6 +106,10 @@ impl AccountMap {
                 confirmed_frontier: BlockHash::ZERO,
                 unconfirmed_frontier: BlockHash::ZERO,
                 balance: Amount::ZERO,
+                // The first account is the initial one, which funds the run:
+                // it delegates to nobody, so that every principal
+                // representative holds an equal share
+                own_representative: self.all_accounts.len() == 1,
             },
         );
         self.confirmed_accounts.insert(account);

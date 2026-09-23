@@ -110,8 +110,12 @@ impl BlockFactory {
 }
 
 /// The representative of an account's blocks: the one it delegates to, or
-/// the account itself in a run without representatives
+/// the account itself in a run without representatives and for the
+/// initial account, whose balance counts for no representative
 fn representative(state: &AccountState, representatives: &Representatives) -> PublicKey {
+    if state.own_representative {
+        return state.key.public_key();
+    }
     representatives
         .of(&state.key.account())
         .unwrap_or_else(|| state.key.public_key())
