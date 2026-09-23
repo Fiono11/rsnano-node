@@ -142,7 +142,7 @@ impl Election {
             account: block.account(),
             height: block.height(),
             winner: MaybeSavedBlock::Saved(block),
-            kudzu: SlotVotes::default(),
+            kudzu: SlotVotes::account_domain(),
             certificates: Certificates::default(),
             committees: None,
             predecessor_decided: true,

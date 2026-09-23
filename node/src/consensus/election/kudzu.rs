@@ -149,16 +149,30 @@ pub struct RepSlotVotes {
     pub notar: Vec<BlockHash>,
     pub timeout: bool,
     pub final_: Option<BlockHash>,
+    /// RAI: the further first and final votes of an identity that signed
+    /// more than one block in an account domain, an equivocator. Kept: a
+    /// certificate is a set of signatures, and a signature this identity
+    /// put on a block is evidence for it wherever it arrives, so every
+    /// correct validator that received the votes constructs the same
+    /// certificates. The proofs need only that a correct identity supports
+    /// one block. An epoch-election slot keeps one first vote per identity,
+    /// which its split-timeout count depends on.
+    pub also: Vec<(VoteKind, BlockHash)>,
 }
 
 impl RepSlotVotes {
     const MAX_NOTAR_VOTES: usize = 3;
 
-    fn add(&mut self, hash: BlockHash, kind: VoteKind) -> Result<(), VoteError> {
+    fn add(
+        &mut self,
+        hash: BlockHash,
+        kind: VoteKind,
+        keep_equivocations: bool,
+    ) -> Result<(), VoteError> {
         match kind {
             VoteKind::First => {
                 if self.first.is_some() {
-                    return Err(VoteError::Replay);
+                    return self.add_equivocation(hash, kind, keep_equivocations);
                 }
                 self.first = Some(hash);
                 self.ensure_notar(hash);
@@ -190,7 +204,7 @@ impl RepSlotVotes {
             }
             VoteKind::Final => {
                 if self.final_.is_some() {
-                    return Err(VoteError::Replay);
+                    return self.add_equivocation(hash, kind, keep_equivocations);
                 }
                 self.final_ = Some(hash);
                 // An honest replica final votes only if it notarized nothing else in
@@ -202,6 +216,56 @@ impl RepSlotVotes {
         Ok(())
     }
 
+    /// A second first or final vote of one identity: the same vote again is
+    /// a replay; a vote for another block is an equivocation, kept in an
+    /// account domain and refused in an epoch-election slot
+    fn add_equivocation(
+        &mut self,
+        hash: BlockHash,
+        kind: VoteKind,
+        keep: bool,
+    ) -> Result<(), VoteError> {
+        if self.voted(kind, &hash) {
+            return Err(VoteError::Replay);
+        }
+        if !keep {
+            return Err(VoteError::Replay);
+        }
+        self.also.push((kind, hash));
+        self.ensure_notar(hash);
+        Ok(())
+    }
+
+    fn voted(&self, kind: VoteKind, hash: &BlockHash) -> bool {
+        let held = match kind {
+            VoteKind::First => self.first,
+            VoteKind::Final => self.final_,
+            _ => None,
+        };
+        held == Some(*hash) || self.also.contains(&(kind, *hash))
+    }
+
+    /// Every block this identity first-voted: the one recorded first and,
+    /// in an account domain, the ones it equivocated with
+    pub fn first_votes(&self) -> impl Iterator<Item = BlockHash> + '_ {
+        self.first.into_iter().chain(
+            self.also
+                .iter()
+                .filter(|(kind, _)| *kind == VoteKind::First)
+                .map(|(_, hash)| *hash),
+        )
+    }
+
+    /// Every block this identity final-voted, likewise
+    pub fn final_votes(&self) -> impl Iterator<Item = BlockHash> + '_ {
+        self.final_.into_iter().chain(
+            self.also
+                .iter()
+                .filter(|(kind, _)| *kind == VoteKind::Final)
+                .map(|(_, hash)| *hash),
+        )
+    }
+
     fn ensure_notar(&mut self, hash: BlockHash) {
         if !self.notar.contains(&hash) {
             self.notar.push(hash);
@@ -209,7 +273,10 @@ impl RepSlotVotes {
     }
 
     fn has_voted_for(&self, hash: &BlockHash) -> bool {
-        self.first == Some(*hash) || self.notar.contains(hash) || self.final_ == Some(*hash)
+        self.first == Some(*hash)
+            || self.notar.contains(hash)
+            || self.final_ == Some(*hash)
+            || self.also.iter().any(|(_, h)| h == hash)
     }
 
     /// RAI: the representative abstained from proposing in this instance
@@ -225,6 +292,7 @@ impl RepSlotVotes {
             self.final_ = None;
         }
         self.notar.retain(|h| h != hash);
+        self.also.retain(|(_, h)| h != hash);
     }
 }
 
@@ -235,6 +303,9 @@ pub struct SlotVotes {
     reps: HashMap<PublicKey, RepSlotVotes>,
     /// One per committee, the instance's own committee first
     tallies: Vec<CommitteeTallies>,
+    /// RAI: an account domain keeps an equivocator's every first and final
+    /// vote (see `RepSlotVotes::also`); an epoch-election slot does not
+    keep_equivocations: bool,
 }
 
 /// The tallies of the vote pool in one committee
@@ -256,13 +327,20 @@ impl CommitteeTallies {
                 .map(|(voter, rep)| (rep, committee.weight(voter)))
         };
         let mut first_tallies = BlockTallies::new();
-        first_tallies.calculate_from(weighted().filter_map(|(r, w)| r.first.map(|h| (h, w))));
+        first_tallies
+            .calculate_from(weighted().flat_map(|(r, w)| r.first_votes().map(move |h| (h, w))));
         let mut notar_tallies = BlockTallies::new();
         notar_tallies
             .calculate_from(weighted().flat_map(|(r, w)| r.notar.iter().map(move |h| (*h, w))));
         let mut final_tallies = BlockTallies::new();
-        final_tallies.calculate_from(weighted().filter_map(|(r, w)| r.final_.map(|h| (h, w))));
-        let all_first = first_tallies.sum();
+        final_tallies
+            .calculate_from(weighted().flat_map(|(r, w)| r.final_votes().map(move |h| (h, w))));
+        // allVotes(firstVote) counts identities once: an equivocator's
+        // weight is in the tally of each block it voted, not in the sum twice
+        let all_first = weighted()
+            .filter(|(r, _)| r.first.is_some())
+            .map(|(_, w)| w)
+            .sum();
         let timeout_weight = weighted().filter(|(r, _)| r.timeout).map(|(_, w)| w).sum();
         Self {
             committee,
@@ -418,13 +496,23 @@ impl CommitteeTallies {
 }
 
 impl SlotVotes {
+    /// RAI: the vote pool of an account domain, which keeps an equivocator's
+    /// every first and final vote
+    pub fn account_domain() -> Self {
+        Self {
+            keep_equivocations: true,
+            ..Self::default()
+        }
+    }
+
     pub fn add(
         &mut self,
         voter: PublicKey,
         hash: BlockHash,
         kind: VoteKind,
     ) -> Result<(), VoteError> {
-        self.reps.entry(voter).or_default().add(hash, kind)
+        let keep = self.keep_equivocations;
+        self.reps.entry(voter).or_default().add(hash, kind, keep)
     }
 
     pub fn rep(&self, voter: &PublicKey) -> Option<&RepSlotVotes> {
@@ -794,6 +882,39 @@ mod tests {
         assert_eq!(pool.first_tallies().get(&hash(1)), Amount::raw(10));
         assert_eq!(pool.notar_tallies().get(&hash(1)), Amount::raw(10));
         assert_eq!(pool.all_first(), Amount::raw(10));
+    }
+
+    /// RAI: an account domain keeps an equivocator's every first and final
+    /// vote, so that the certificates it took part in form here too; the
+    /// same vote twice is still a replay, and allVotes counts it once
+    #[test]
+    fn an_account_domain_keeps_an_equivocators_votes_for_every_block() {
+        let mut pool = SlotVotes::account_domain();
+        assert_eq!(pool.add(rep(1), hash(1), VoteKind::First), Ok(()));
+        assert_eq!(pool.add(rep(1), hash(2), VoteKind::First), Ok(()));
+        assert_eq!(
+            pool.add(rep(1), hash(2), VoteKind::First),
+            Err(VoteError::Replay)
+        );
+        assert_eq!(pool.add(rep(1), hash(1), VoteKind::Final), Ok(()));
+        assert_eq!(pool.add(rep(1), hash(2), VoteKind::Final), Ok(()));
+        assert_eq!(
+            pool.add(rep(1), hash(1), VoteKind::Final),
+            Err(VoteError::Replay)
+        );
+        pool.calculate(&committees(&[(1, 10)]));
+        for h in [hash(1), hash(2)] {
+            assert_eq!(pool.first_tallies().get(&h), Amount::raw(10));
+            assert_eq!(pool.notar_tallies().get(&h), Amount::raw(10));
+            assert_eq!(pool.final_tallies().get(&h), Amount::raw(10));
+        }
+        assert_eq!(pool.all_first(), Amount::raw(10));
+        assert!(pool.has_voted_for(&rep(1), &hash(2)));
+
+        // Removing a block drops the equivocating votes for it too
+        pool.remove_block(&hash(2));
+        assert!(!pool.has_voted_for(&rep(1), &hash(2)));
+        assert!(pool.has_voted_for(&rep(1), &hash(1)));
     }
 
     #[test]
