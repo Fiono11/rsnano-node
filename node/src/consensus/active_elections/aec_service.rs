@@ -75,6 +75,14 @@ impl AecService {
         self.aec.read().unwrap().next_checkpoint()
     }
 
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn epoch_decided_state(
+        &self,
+        epoch: ConsensusEpoch,
+    ) -> Option<std::sync::Arc<crate::consensus::election::EpochLedger>> {
+        self.aec.read().unwrap().epoch_decided_state(epoch)
+    }
+
     // --- Read forwarding ---
 
     pub fn check_vacancy<T>(&self, source: &T) -> bool

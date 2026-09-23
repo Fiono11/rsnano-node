@@ -230,6 +230,12 @@ impl NetworkMessageProcessor {
             #[cfg(feature = "rai_protocol")]
             Message::EpochProp(prop) => self.epoch_decision.handle_proposal(prop, channel),
             #[cfg(feature = "rai_protocol")]
+            Message::CheckpointReq(req) => {
+                self.epoch_decision.handle_checkpoint_request(req, channel)
+            }
+            #[cfg(feature = "rai_protocol")]
+            Message::CheckpointReply(reply) => self.epoch_decision.handle_checkpoint_reply(reply),
+            #[cfg(feature = "rai_protocol")]
             Message::CloseProofReq(req) => {
                 self.epoch_decision.handle_close_proof_request(req, channel)
             }

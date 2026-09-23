@@ -30,6 +30,10 @@ pub enum Message {
     #[cfg(feature = "rai_protocol")]
     EpochProp(EpochProp),
     #[cfg(feature = "rai_protocol")]
+    CheckpointReply(CheckpointReply),
+    #[cfg(feature = "rai_protocol")]
+    CheckpointReq(CheckpointReq),
+    #[cfg(feature = "rai_protocol")]
     CloseProofReply(CloseProofReply),
     #[cfg(feature = "rai_protocol")]
     CloseProofReq(CloseProofReq),
@@ -122,6 +126,12 @@ impl From<&ParseMessageError> for DetailType {
             #[cfg(feature = "rai_protocol")]
             ParseMessageError::InvalidMessage(MessageType::EpochProp) => Self::EpochProp,
             #[cfg(feature = "rai_protocol")]
+            ParseMessageError::InvalidMessage(MessageType::CheckpointReply) => {
+                Self::CheckpointReply
+            }
+            #[cfg(feature = "rai_protocol")]
+            ParseMessageError::InvalidMessage(MessageType::CheckpointReq) => Self::CheckpointReq,
+            #[cfg(feature = "rai_protocol")]
             ParseMessageError::InvalidMessage(MessageType::CloseProofReply) => {
                 Self::CloseProofReply
             }
@@ -191,6 +201,10 @@ impl Message {
             #[cfg(feature = "rai_protocol")]
             Message::EpochProp(_) => MessageType::EpochProp,
             #[cfg(feature = "rai_protocol")]
+            Message::CheckpointReply(_) => MessageType::CheckpointReply,
+            #[cfg(feature = "rai_protocol")]
+            Message::CheckpointReq(_) => MessageType::CheckpointReq,
+            #[cfg(feature = "rai_protocol")]
             Message::CloseProofReply(_) => MessageType::CloseProofReply,
             #[cfg(feature = "rai_protocol")]
             Message::CloseProofReq(_) => MessageType::CloseProofReq,
@@ -235,6 +249,10 @@ impl Message {
             #[cfg(feature = "rai_protocol")]
             Message::EpochProp(x) => Some(x),
             #[cfg(feature = "rai_protocol")]
+            Message::CheckpointReply(x) => Some(x),
+            #[cfg(feature = "rai_protocol")]
+            Message::CheckpointReq(x) => Some(x),
+            #[cfg(feature = "rai_protocol")]
             Message::CloseProofReply(x) => Some(x),
             #[cfg(feature = "rai_protocol")]
             Message::CloseProofReq(x) => Some(x),
@@ -278,6 +296,10 @@ impl Message {
             Message::ReconReply(m) => m.serialize(writer),
             #[cfg(feature = "rai_protocol")]
             Message::EpochProp(m) => m.serialize(writer),
+            #[cfg(feature = "rai_protocol")]
+            Message::CheckpointReply(m) => m.serialize(writer),
+            #[cfg(feature = "rai_protocol")]
+            Message::CheckpointReq(m) => m.serialize(writer),
             #[cfg(feature = "rai_protocol")]
             Message::CloseProofReply(m) => m.serialize(writer),
             #[cfg(feature = "rai_protocol")]
@@ -338,6 +360,14 @@ impl Message {
             MessageType::ReconReply => Message::ReconReply(ReconReply::deserialize(payload)?),
             #[cfg(feature = "rai_protocol")]
             MessageType::EpochProp => Message::EpochProp(EpochProp::deserialize(payload)?),
+            #[cfg(feature = "rai_protocol")]
+            MessageType::CheckpointReply => {
+                Message::CheckpointReply(CheckpointReply::deserialize(payload)?)
+            }
+            #[cfg(feature = "rai_protocol")]
+            MessageType::CheckpointReq => {
+                Message::CheckpointReq(CheckpointReq::deserialize(payload)?)
+            }
             #[cfg(feature = "rai_protocol")]
             MessageType::CloseProofReply => {
                 Message::CloseProofReply(CloseProofReply::deserialize(payload)?)

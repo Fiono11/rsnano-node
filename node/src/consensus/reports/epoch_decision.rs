@@ -10,6 +10,7 @@ use rsnano_types::{Amount, BlockHash, ConsensusEpoch, PublicKey};
 use rsnano_utils::stats::{DetailType, Direction, StatType, Stats};
 
 use super::ReportExchange;
+use super::checkpoint::{CheckpointDifference, CheckpointTransfer};
 use super::close_proof::{VerifiedCheckpoint, verify_close_proof};
 use crate::{
     consensus::{
@@ -24,6 +25,7 @@ use crate::{
     utils::diagnostic,
     wallets::WalletRepresentatives,
 };
+use rsnano_messages::{CheckpointReply, CheckpointReq};
 use rsnano_messages::{CloseProofReply, CloseProofReq};
 
 /// RAI, "The joint epoch election": the part of the close that reads and
@@ -53,6 +55,10 @@ pub struct EpochDecisionService {
     /// When this node last said why it could not derive a value
     unready_logged: Mutex<HashMap<ConsensusEpoch, Timestamp>>,
     verified_checkpoint: Mutex<Option<VerifiedCheckpoint>>,
+    transfer: Mutex<Option<CheckpointTransfer>>,
+    page_requested: Mutex<Option<(ConsensusEpoch, u32, Timestamp)>>,
+    transferred: Mutex<Option<(ConsensusEpoch, Arc<EpochLedger>)>>,
+    differences: Mutex<std::collections::BTreeMap<ConsensusEpoch, CheckpointDifference>>,
 }
 
 impl EpochDecisionService {
@@ -84,6 +90,10 @@ impl EpochDecisionService {
             repeated: Mutex::new(None),
             unready_logged: Mutex::new(HashMap::new()),
             verified_checkpoint: Mutex::new(None),
+            transfer: Mutex::new(None),
+            page_requested: Mutex::new(None),
+            transferred: Mutex::new(None),
+            differences: Mutex::new(std::collections::BTreeMap::new()),
         }
     }
 
@@ -111,6 +121,7 @@ impl EpochDecisionService {
             self.propose(context);
         }
         self.repeat_proposals();
+        self.request_checkpoint_page();
     }
 
     /// RAI: a leader's proposal. It is validated like any other: this node
@@ -167,7 +178,105 @@ impl EpochDecisionService {
         let Some(verified) = verify_close_proof(&proof, next, &committees) else {
             return;
         };
-        *self.verified_checkpoint.lock().unwrap() = Some(verified);
+        let mut held = self.verified_checkpoint.lock().unwrap();
+        if held.as_ref() == Some(&verified) {
+            return;
+        }
+        let Some(previous) = self.active_elections.epoch_previous_state(next) else {
+            return;
+        };
+        *self.transfer.lock().unwrap() = Some(CheckpointTransfer::new(verified.clone(), previous));
+        *held = Some(verified);
+    }
+
+    fn request_checkpoint_page(&self) {
+        let request = self.transfer.lock().unwrap().as_ref().map(|t| t.request());
+        if let Some(request) = request {
+            let now = self.clock.now();
+            let mut last = self.page_requested.lock().unwrap();
+            if last.is_some_and(|(epoch, offset, at)| {
+                epoch == request.epoch
+                    && offset == request.offset
+                    && at.elapsed(now) < Self::REPEAT_INTERVAL
+            }) {
+                return;
+            }
+            *last = Some((request.epoch, request.offset, now));
+            drop(last);
+            self.flooder.lock().unwrap().flood_prs_and_some_non_prs(
+                &Message::CheckpointReq(request),
+                TrafficType::Generic,
+                1.0,
+            );
+        }
+    }
+
+    pub fn handle_checkpoint_request(&self, request: CheckpointReq, channel: &Arc<Channel>) {
+        let reply = {
+            let mut differences = self.differences.lock().unwrap();
+            if !differences.contains_key(&request.epoch) {
+                let Some(source) = self.active_elections.epoch_previous_state(request.epoch) else {
+                    return;
+                };
+                let Some(target) = self.active_elections.epoch_decided_state(request.epoch) else {
+                    return;
+                };
+                if source.state_hash() != request.source || target.state_hash() != request.target {
+                    return;
+                }
+                differences.insert(
+                    request.epoch,
+                    CheckpointDifference::new(request.epoch, &source, &target),
+                );
+                // Pages are reproducible from decided states; eight cached deltas
+                // bound this acceleration cache independently of archive history.
+                while differences.len() > 8 {
+                    differences.pop_first();
+                }
+            }
+            differences
+                .get(&request.epoch)
+                .and_then(|d| d.page(&request))
+        };
+        if let Some(reply) = reply {
+            self.flooder.lock().unwrap().try_send(
+                channel,
+                &Message::CheckpointReply(reply),
+                TrafficType::Generic,
+            );
+        }
+    }
+
+    pub fn handle_checkpoint_reply(&self, reply: CheckpointReply) {
+        let mut transfer = self.transfer.lock().unwrap();
+        let Some(pending) = transfer.as_mut() else {
+            return;
+        };
+        // Other responders may send the preceding page; ignore it.
+        if reply.offset != pending.request().offset {
+            return;
+        }
+        match pending.accept(&reply) {
+            Ok(Some(state)) => {
+                *self.transferred.lock().unwrap() = Some((reply.difference.epoch, state));
+                *transfer = None;
+            }
+            Ok(None) => {}
+            Err(()) => {
+                // Discard the partial state on a corrupt page, then retry from
+                // the same installed predecessor and verified commitment.
+                let request = pending.request();
+                if let Some(previous) = self.active_elections.epoch_previous_state(request.epoch) {
+                    *transfer = Some(CheckpointTransfer::new(
+                        VerifiedCheckpoint {
+                            epoch: request.epoch,
+                            state: request.target,
+                        },
+                        previous,
+                    ));
+                }
+            }
+        }
     }
 
     /// Whether this node can derive a value for an epoch's close: it holds

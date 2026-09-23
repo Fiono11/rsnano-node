@@ -49,6 +49,10 @@ pub enum MessageType {
     #[cfg(feature = "rai_protocol")]
     EpochProp = 0x16,
     #[cfg(feature = "rai_protocol")]
+    CheckpointReply = 0x1c,
+    #[cfg(feature = "rai_protocol")]
+    CheckpointReq = 0x1b,
+    #[cfg(feature = "rai_protocol")]
     CloseProofReply = 0x1a,
     #[cfg(feature = "rai_protocol")]
     CloseProofReq = 0x19,
@@ -86,6 +90,10 @@ impl MessageType {
             #[cfg(feature = "rai_protocol")]
             MessageType::EpochProp => "epoch_prop",
             #[cfg(feature = "rai_protocol")]
+            MessageType::CheckpointReply => "checkpointreply",
+            #[cfg(feature = "rai_protocol")]
+            MessageType::CheckpointReq => "checkpointreq",
+            #[cfg(feature = "rai_protocol")]
             MessageType::CloseProofReply => "closeproofreply",
             #[cfg(feature = "rai_protocol")]
             MessageType::CloseProofReq => "closeproofreq",
@@ -107,7 +115,7 @@ impl MessageType {
     pub const fn max_id() -> usize {
         #[cfg(feature = "rai_protocol")]
         {
-            Self::CloseProofReply as usize
+            Self::CheckpointReply as usize
         }
         #[cfg(all(not(feature = "rai_protocol"), feature = "ledger_snapshots"))]
         {
@@ -242,6 +250,10 @@ impl MessageHeader {
             #[cfg(feature = "rai_protocol")]
             MessageType::EpochProp => EpochProp::serialized_size(self.extensions),
             #[cfg(feature = "rai_protocol")]
+            MessageType::CheckpointReply => CheckpointReply::serialized_size(self.extensions),
+            #[cfg(feature = "rai_protocol")]
+            MessageType::CheckpointReq => CheckpointReq::serialized_size(self.extensions),
+            #[cfg(feature = "rai_protocol")]
             MessageType::CloseProofReply => CloseProofReply::serialized_size(self.extensions),
             #[cfg(feature = "rai_protocol")]
             MessageType::CloseProofReq => CloseProofReq::serialized_size(self.extensions),
@@ -324,6 +336,10 @@ impl From<MessageType> for DetailType {
             MessageType::ReconReply => DetailType::ReconReply,
             #[cfg(feature = "rai_protocol")]
             MessageType::EpochProp => DetailType::EpochProp,
+            #[cfg(feature = "rai_protocol")]
+            MessageType::CheckpointReply => DetailType::CheckpointReply,
+            #[cfg(feature = "rai_protocol")]
+            MessageType::CheckpointReq => DetailType::CheckpointReq,
             #[cfg(feature = "rai_protocol")]
             MessageType::CloseProofReply => DetailType::CloseProofReply,
             #[cfg(feature = "rai_protocol")]

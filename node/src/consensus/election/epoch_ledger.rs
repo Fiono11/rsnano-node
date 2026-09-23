@@ -93,6 +93,57 @@ impl EpochLedger {
         Self::default()
     }
 
+    /// Canonical checkpoint records. Unlike reports, these include inherited
+    /// history as well as retained branches.
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn checkpoint_entries(&self) -> Vec<rsnano_messages::CertifiedEntry> {
+        let entry =
+            |slot: &AccountSlot, block: &PlacedBlock, status| rsnano_messages::CertifiedEntry {
+                account: slot.account,
+                height: slot.height,
+                hash: block.hash,
+                previous: block.previous,
+                status,
+            };
+        self.finalized
+            .iter()
+            .map(|(s, b)| entry(s, b, 1))
+            .chain(
+                self.notarized
+                    .iter()
+                    .flat_map(|(s, bs)| bs.iter().map(move |b| entry(s, b, 0))),
+            )
+            .collect()
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn from_checkpoint_entries(
+        entries: &[rsnano_messages::CertifiedEntry],
+    ) -> Option<Self> {
+        let mut state = Self::new();
+        for e in entries {
+            if e.height == 0 || e.hash.is_zero() || e.status > 1 {
+                return None;
+            }
+            let slot = AccountSlot::new(e.account, e.height);
+            let block = PlacedBlock::new(e.hash, e.previous);
+            if e.status == 1 {
+                if state.finalized.insert(slot, block).is_some()
+                    || state.notarized.contains_key(&slot)
+                {
+                    return None;
+                }
+            } else {
+                if state.finalized.contains_key(&slot)
+                    || !state.notarized.entry(slot).or_default().insert(block)
+                {
+                    return None;
+                }
+            }
+        }
+        Some(state)
+    }
+
     pub fn finalized(&self, slot: &AccountSlot) -> Option<BlockHash> {
         self.finalized.get(slot).map(|block| block.hash)
     }

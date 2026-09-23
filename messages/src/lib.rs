@@ -122,3 +122,8 @@ pub(crate) fn assert_deserializable(original: &Message) {
 mod close_proof;
 #[cfg(feature = "rai_protocol")]
 pub use close_proof::*;
+
+#[cfg(feature = "rai_protocol")]
+mod checkpoint;
+#[cfg(feature = "rai_protocol")]
+pub use checkpoint::*;

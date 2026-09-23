@@ -1059,6 +1059,18 @@ impl ActiveElectionsContainer {
         self.derive_committee(epoch, frontiers, now);
         self.release_undecided_instances(epoch);
         self.release_predecessor_gate(epoch.next(), now);
+        self.trim_checkpoint_history(epoch);
+    }
+
+    /// Keep 256 close proofs and their states, plus the predecessor needed
+    /// to serve the oldest difference. An older offline node must obtain
+    /// history from an archival peer; absence is never replaced by trust.
+    fn trim_checkpoint_history(&mut self, latest: ConsensusEpoch) {
+        const HISTORY: u64 = 256;
+        let first = latest.as_u64().saturating_sub(HISTORY - 1);
+        self.closes.retain(|epoch, _| epoch.as_u64() >= first);
+        self.decided
+            .retain(|epoch, _| epoch.as_u64() >= first.saturating_sub(1));
     }
 
     /// RAI: the instances of a decided epoch that the checkpoint did not
