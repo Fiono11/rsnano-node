@@ -29,6 +29,11 @@ pub enum Message {
     /// RAI: a leader's proposal of an epoch value in one election slot
     #[cfg(feature = "rai_protocol")]
     EpochProp(EpochProp),
+    /// RAI: the reconciliation of a residual object a derivation missed
+    #[cfg(feature = "rai_protocol")]
+    ResidualSketchReq(ResidualSketchReq),
+    #[cfg(feature = "rai_protocol")]
+    ResidualSketchReply(ResidualSketchReply),
     #[cfg(feature = "ledger_snapshots")]
     SnapshotPreproposal(Preproposal),
     #[cfg(feature = "ledger_snapshots")]
@@ -112,6 +117,12 @@ impl From<&ParseMessageError> for DetailType {
             ParseMessageError::InvalidMessage(MessageType::ReconReply) => Self::ReconReply,
             #[cfg(feature = "rai_protocol")]
             ParseMessageError::InvalidMessage(MessageType::EpochProp) => Self::EpochProp,
+            #[cfg(feature = "rai_protocol")]
+            ParseMessageError::InvalidMessage(MessageType::ResidualSketchReq) => Self::ResidualReq,
+            #[cfg(feature = "rai_protocol")]
+            ParseMessageError::InvalidMessage(MessageType::ResidualSketchReply) => {
+                Self::ResidualReply
+            }
             #[cfg(feature = "ledger_snapshots")]
             ParseMessageError::InvalidMessage(MessageType::Preproposal) => todo!(),
             #[cfg(feature = "ledger_snapshots")]
@@ -169,6 +180,10 @@ impl Message {
             Message::ReconReply(_) => MessageType::ReconReply,
             #[cfg(feature = "rai_protocol")]
             Message::EpochProp(_) => MessageType::EpochProp,
+            #[cfg(feature = "rai_protocol")]
+            Message::ResidualSketchReq(_) => MessageType::ResidualSketchReq,
+            #[cfg(feature = "rai_protocol")]
+            Message::ResidualSketchReply(_) => MessageType::ResidualSketchReply,
             #[cfg(feature = "ledger_snapshots")]
             Message::SnapshotPreproposal(_) => MessageType::Preproposal,
             #[cfg(feature = "ledger_snapshots")]
@@ -205,6 +220,10 @@ impl Message {
             Message::ReconReply(x) => Some(x),
             #[cfg(feature = "rai_protocol")]
             Message::EpochProp(x) => Some(x),
+            #[cfg(feature = "rai_protocol")]
+            Message::ResidualSketchReq(x) => Some(x),
+            #[cfg(feature = "rai_protocol")]
+            Message::ResidualSketchReply(x) => Some(x),
             _ => None,
         }
     }
@@ -241,6 +260,10 @@ impl Message {
             Message::ReconReply(m) => m.serialize(writer),
             #[cfg(feature = "rai_protocol")]
             Message::EpochProp(m) => m.serialize(writer),
+            #[cfg(feature = "rai_protocol")]
+            Message::ResidualSketchReq(m) => m.serialize(writer),
+            #[cfg(feature = "rai_protocol")]
+            Message::ResidualSketchReply(m) => m.serialize(writer),
             #[cfg(feature = "ledger_snapshots")]
             Message::SnapshotPreproposal(m) => m.serialize(writer),
             #[cfg(feature = "ledger_snapshots")]
@@ -293,6 +316,14 @@ impl Message {
             MessageType::ReconReply => Message::ReconReply(ReconReply::deserialize(payload)?),
             #[cfg(feature = "rai_protocol")]
             MessageType::EpochProp => Message::EpochProp(EpochProp::deserialize(payload)?),
+            #[cfg(feature = "rai_protocol")]
+            MessageType::ResidualSketchReq => {
+                Message::ResidualSketchReq(ResidualSketchReq::deserialize(payload)?)
+            }
+            #[cfg(feature = "rai_protocol")]
+            MessageType::ResidualSketchReply => {
+                Message::ResidualSketchReply(ResidualSketchReply::deserialize(payload)?)
+            }
             #[cfg(feature = "ledger_snapshots")]
             MessageType::Preproposal => {
                 Message::SnapshotPreproposal(Preproposal::deserialize(payload)?)

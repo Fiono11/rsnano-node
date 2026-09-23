@@ -377,19 +377,56 @@ impl ResidualVotes {
         if self.entries.contains_key(&(block, kind)) {
             return false;
         }
-        let entry = Blake2HashBuilder::new()
+        self.toggle(&Self::entry_digest(&block, kind, previous));
+        self.entries.insert((block, kind), previous);
+        true
+    }
+
+    /// Drops a record: what a sketch exchange found on this side only
+    pub fn remove(&mut self, block: &CertifiedBlock, kind: ResidualKind) -> bool {
+        let Some(previous) = self.entries.remove(&(*block, kind)) else {
+            return false;
+        };
+        self.toggle(&Self::entry_digest(block, kind, previous));
+        true
+    }
+
+    /// The digest one record contributes to the root, and the key a sketch
+    /// reconciles on: two objects hold the same record exactly when they
+    /// hold the same digest
+    pub fn entry_digest(
+        block: &CertifiedBlock,
+        kind: ResidualKind,
+        previous: BlockHash,
+    ) -> BlockHash {
+        Blake2HashBuilder::new()
             .update(b"RAI residual vote")
             .update(block.account.as_bytes())
             .update(block.height.to_le_bytes())
             .update(block.hash.as_bytes())
             .update(previous.as_bytes())
             .update([kind.as_byte()])
-            .build();
-        for (d, e) in self.digest.iter_mut().zip(entry.as_bytes()) {
+            .build()
+    }
+
+    /// Every record with the digest that stands for it
+    pub fn digests(
+        &self,
+    ) -> impl Iterator<Item = (BlockHash, CertifiedBlock, ResidualKind, BlockHash)> + '_ {
+        self.entries().map(|(block, kind, previous)| {
+            (
+                Self::entry_digest(&block, kind, previous),
+                block,
+                kind,
+                previous,
+            )
+        })
+    }
+
+    fn toggle(&mut self, digest: &BlockHash) {
+        for (d, e) in self.digest.iter_mut().zip(digest.as_bytes()) {
             *d ^= e;
         }
-        self.entries.insert((block, kind), previous);
-        true
     }
 
     pub fn root(&self) -> BlockHash {

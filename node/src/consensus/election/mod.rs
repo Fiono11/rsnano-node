@@ -9,6 +9,7 @@ mod epoch_ledger;
 mod epoch_value;
 mod final_state;
 mod kudzu;
+mod sketch;
 
 pub use certified_state::*;
 pub use committee::*;
@@ -20,3 +21,4 @@ pub use epoch_ledger::*;
 pub use epoch_value::*;
 pub use final_state::*;
 pub use kudzu::*;
+pub use sketch::*;

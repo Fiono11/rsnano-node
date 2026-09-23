@@ -335,6 +335,255 @@ impl MessageVariant for ReconReply {
     }
 }
 
+/// One entry of a residual-vote object on the wire: the block the reporter
+/// voted for, which of its own votes it recorded, and the parent the block
+/// names. Unsigned: the reporter's report signature commits to the object
+/// the entry is part of, and the requester accepts the object only when it
+/// hashes to that root.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ResidualEntry {
+    pub account: Account,
+    pub height: u64,
+    pub hash: BlockHash,
+    /// The parent the block names; zero when it opens the account
+    pub previous: BlockHash,
+    /// 0 first, 1 notarization support, 2 final
+    pub kind: u8,
+}
+
+impl ResidualEntry {
+    pub const SERIALIZED_SIZE: usize =
+        Account::SERIALIZED_SIZE + 8 + BlockHash::SERIALIZED_SIZE * 2 + 1;
+
+    fn serialize<T: std::io::Write>(&self, writer: &mut T) -> std::io::Result<()> {
+        self.account.serialize(writer)?;
+        writer.write_all(&self.height.to_le_bytes())?;
+        self.hash.serialize(writer)?;
+        self.previous.serialize(writer)?;
+        writer.write_all(&[self.kind])
+    }
+
+    fn deserialize(bytes: &mut &[u8]) -> Result<Self, DeserializationError> {
+        let account = Account::deserialize(bytes)?;
+        let mut height = [0u8; 8];
+        read_exact(bytes, &mut height)?;
+        let hash = BlockHash::deserialize(bytes)?;
+        let previous = BlockHash::deserialize(bytes)?;
+        let mut kind = [0u8; 1];
+        read_exact(bytes, &mut kind)?;
+        if kind[0] > 2 {
+            return Err(DeserializationError::InvalidData);
+        }
+        Ok(Self {
+            account,
+            height: u64::from_le_bytes(height),
+            hash,
+            previous,
+            kind: kind[0],
+        })
+    }
+}
+
+/// One cell of a set sketch on the wire
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SketchCellWire {
+    pub count: i32,
+    pub key: [u8; 32],
+    pub check: u32,
+}
+
+impl SketchCellWire {
+    pub const SERIALIZED_SIZE: usize = 4 + 32 + 4;
+
+    fn serialize<T: std::io::Write>(&self, writer: &mut T) -> std::io::Result<()> {
+        writer.write_all(&self.count.to_le_bytes())?;
+        writer.write_all(&self.key)?;
+        writer.write_all(&self.check.to_le_bytes())
+    }
+
+    fn deserialize(bytes: &mut &[u8]) -> Result<Self, DeserializationError> {
+        let mut count = [0u8; 4];
+        read_exact(bytes, &mut count)?;
+        let mut key = [0u8; 32];
+        read_exact(bytes, &mut key)?;
+        let mut check = [0u8; 4];
+        read_exact(bytes, &mut check)?;
+        Ok(Self {
+            count: i32::from_le_bytes(count),
+            key,
+            check: u32::from_le_bytes(check),
+        })
+    }
+}
+
+/// RAI: a request to reconcile a residual object. The requester derived the
+/// object from the reporter's votes it holds and it did not hash to the
+/// signed root: a vote was lost on the way. It names the root and sends a
+/// sketch of what it derived; a replica holding the object answers with
+/// what the two differ in.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResidualSketchReq {
+    pub epoch: ConsensusEpoch,
+    /// g_i: the root the reporter signed
+    pub root: BlockHash,
+    pub cells: Vec<SketchCellWire>,
+}
+
+impl ResidualSketchReq {
+    /// Cells in one request: 40 KiB on the wire
+    pub const MAX_CELLS: usize = 1024;
+
+    pub fn new_test_instance() -> Self {
+        Self {
+            epoch: ConsensusEpoch::new(1),
+            root: BlockHash::from(2),
+            cells: vec![SketchCellWire {
+                count: -1,
+                key: [7; 32],
+                check: 9,
+            }],
+        }
+    }
+
+    pub fn serialize<T>(&self, writer: &mut T) -> std::io::Result<()>
+    where
+        T: std::io::Write,
+    {
+        self.epoch.serialize(writer)?;
+        self.root.serialize(writer)?;
+        for cell in &self.cells {
+            cell.serialize(writer)?;
+        }
+        Ok(())
+    }
+
+    pub const fn serialized_size(extensions: BitArray<u16>) -> usize {
+        extensions.data as usize
+    }
+
+    pub fn deserialize(mut bytes: &[u8]) -> Result<Self, DeserializationError> {
+        let bytes = &mut bytes;
+        let epoch = ConsensusEpoch::deserialize(bytes)?;
+        let root = BlockHash::deserialize(bytes)?;
+        let mut cells = Vec::new();
+        while !bytes.is_empty() {
+            if cells.len() >= Self::MAX_CELLS {
+                return Err(DeserializationError::InvalidData);
+            }
+            cells.push(SketchCellWire::deserialize(bytes)?);
+        }
+        if cells.is_empty() {
+            return Err(DeserializationError::InvalidData);
+        }
+        Ok(Self { epoch, root, cells })
+    }
+}
+
+impl MessageVariant for ResidualSketchReq {
+    fn header_extensions(&self, payload_len: u16) -> BitArray<u16> {
+        BitArray::new(payload_len)
+    }
+}
+
+/// RAI: what a residual object and the requester's derivation of it differ
+/// in, as the responder peeled it out of the sketch: the records the
+/// requester lacks, and the digests of records it has that the object does
+/// not. Or nothing but `incomplete`, when the difference did not peel out
+/// of a sketch that size.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResidualSketchReply {
+    pub epoch: ConsensusEpoch,
+    pub root: BlockHash,
+    pub incomplete: bool,
+    pub added: Vec<ResidualEntry>,
+    pub removed: Vec<BlockHash>,
+}
+
+impl ResidualSketchReply {
+    /// Edits in one reply, bounded by the message size: 105 bytes an added
+    /// record and 32 a removed digest, against a payload of 64 KiB
+    pub const MAX_ADDED: usize = 400;
+    pub const MAX_REMOVED: usize = 400;
+
+    pub fn new_test_instance() -> Self {
+        Self {
+            epoch: ConsensusEpoch::new(1),
+            root: BlockHash::from(2),
+            incomplete: false,
+            added: vec![ResidualEntry {
+                account: Account::from(3),
+                height: 4,
+                hash: BlockHash::from(5),
+                previous: BlockHash::from(6),
+                kind: 1,
+            }],
+            removed: vec![BlockHash::from(8)],
+        }
+    }
+
+    pub fn serialize<T>(&self, writer: &mut T) -> std::io::Result<()>
+    where
+        T: std::io::Write,
+    {
+        self.epoch.serialize(writer)?;
+        self.root.serialize(writer)?;
+        writer.write_all(&[u8::from(self.incomplete)])?;
+        writer.write_all(&(self.added.len() as u16).to_le_bytes())?;
+        for entry in &self.added {
+            entry.serialize(writer)?;
+        }
+        for digest in &self.removed {
+            digest.serialize(writer)?;
+        }
+        Ok(())
+    }
+
+    pub const fn serialized_size(extensions: BitArray<u16>) -> usize {
+        extensions.data as usize
+    }
+
+    pub fn deserialize(mut bytes: &[u8]) -> Result<Self, DeserializationError> {
+        let bytes = &mut bytes;
+        let epoch = ConsensusEpoch::deserialize(bytes)?;
+        let root = BlockHash::deserialize(bytes)?;
+        let mut incomplete = [0u8; 1];
+        read_exact(bytes, &mut incomplete)?;
+        if incomplete[0] > 1 {
+            return Err(DeserializationError::InvalidData);
+        }
+        let mut added_len = [0u8; 2];
+        read_exact(bytes, &mut added_len)?;
+        let added_len = u16::from_le_bytes(added_len) as usize;
+        if added_len > Self::MAX_ADDED {
+            return Err(DeserializationError::InvalidData);
+        }
+        let mut added = Vec::with_capacity(added_len);
+        for _ in 0..added_len {
+            added.push(ResidualEntry::deserialize(bytes)?);
+        }
+        let mut removed = Vec::new();
+        while !bytes.is_empty() {
+            if removed.len() >= Self::MAX_REMOVED {
+                return Err(DeserializationError::InvalidData);
+            }
+            removed.push(BlockHash::deserialize(bytes)?);
+        }
+        Ok(Self {
+            epoch,
+            root,
+            incomplete: incomplete[0] == 1,
+            added,
+            removed,
+        })
+    }
+}
+
+impl MessageVariant for ResidualSketchReply {
+    fn header_extensions(&self, payload_len: u16) -> BitArray<u16> {
+        BitArray::new(payload_len)
+    }
+}
+
 fn read_exact(bytes: &mut &[u8], buffer: &mut [u8]) -> Result<(), DeserializationError> {
     if bytes.len() < buffer.len() {
         return Err(DeserializationError::InvalidData);
@@ -381,6 +630,48 @@ mod tests {
     #[test]
     fn serialize_recon_reply() {
         assert_deserializable(&Message::ReconReply(ReconReply::new_test_instance()));
+    }
+
+    #[test]
+    fn serialize_residual_sketch_req() {
+        assert_deserializable(&Message::ResidualSketchReq(
+            ResidualSketchReq::new_test_instance(),
+        ));
+        let cells = (0..200)
+            .map(|i| SketchCellWire {
+                count: i as i32 - 100,
+                key: [i as u8; 32],
+                check: i,
+            })
+            .collect();
+        assert_deserializable(&Message::ResidualSketchReq(ResidualSketchReq {
+            cells,
+            ..ResidualSketchReq::new_test_instance()
+        }));
+    }
+
+    #[test]
+    fn serialize_residual_sketch_reply() {
+        assert_deserializable(&Message::ResidualSketchReply(
+            ResidualSketchReply::new_test_instance(),
+        ));
+        assert_deserializable(&Message::ResidualSketchReply(ResidualSketchReply {
+            incomplete: true,
+            added: Vec::new(),
+            removed: Vec::new(),
+            ..ResidualSketchReply::new_test_instance()
+        }));
+    }
+
+    #[test]
+    fn a_residual_entry_with_an_unknown_kind_is_refused() {
+        let mut reply = ResidualSketchReply::new_test_instance();
+        reply.removed.clear();
+        let mut bytes = Vec::new();
+        reply.serialize(&mut bytes).unwrap();
+        // The kind is the last byte of the only entry
+        *bytes.last_mut().unwrap() = 7;
+        assert!(ResidualSketchReply::deserialize(&bytes).is_err());
     }
 
     #[test]

@@ -4,7 +4,9 @@ use std::{
     time::Duration,
 };
 
-use rsnano_messages::{Message, ReconReply, ReconReq, Report};
+use rsnano_messages::{
+    Message, ReconReply, ReconReq, Report, ResidualSketchReply, ResidualSketchReq,
+};
 use rsnano_network::{Channel, TrafficType};
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_types::{ConsensusEpoch, PublicKey};
@@ -245,18 +247,74 @@ impl ReportService {
         }
         let votes = self.active_elections.vote_records_of(epoch, &reporter);
         let held = votes.len();
-        let result = self
-            .exchange
-            .lock()
-            .unwrap()
-            .derive_residual(epoch, reporter, votes, now);
+        let (result, request) = {
+            let mut exchange = self.exchange.lock().unwrap();
+            let result = exchange.derive_residual(epoch, reporter, votes, now);
+            let request = match result {
+                Some(result) if !result.complete => exchange.residual_request(epoch, &reporter),
+                _ => None,
+            };
+            (result, request)
+        };
         if let Some(result) = result {
             crate::utils::diagnostic!(
-                "EPOCH_RESIDUAL epoch={} reporter={} votes={} derived={} complete={}",
+                "EPOCH_RESIDUAL epoch={} reporter={} votes={} derived={} complete={} sketch_cells={}",
                 epoch,
                 reporter,
                 held,
                 result.total,
+                result.complete,
+                request
+                    .as_ref()
+                    .map(|request| request.cells.len())
+                    .unwrap_or(0)
+            );
+        }
+        // The derivation missed the root: a vote was lost on the way, and
+        // the sketch finds which
+        if let Some(request) = request {
+            self.send(vec![ReportMessage::ResidualSketch(request)], None);
+        }
+    }
+
+    /// RAI: a residual sketch. This node answers if it holds the object.
+    pub fn handle_residual_sketch(&self, request: ResidualSketchReq, channel: &Arc<Channel>) {
+        self.stats
+            .inc_dir(StatType::Message, DetailType::ResidualReq, Direction::In);
+        let reply = self
+            .exchange
+            .lock()
+            .unwrap()
+            .handle_residual_sketch(&request);
+        if let Some(reply) = reply {
+            self.send(
+                vec![ReportMessage::ResidualSketchAnswer(reply)],
+                Some(channel),
+            );
+        }
+    }
+
+    /// RAI: the difference a residual sketch peeled out, applied to the
+    /// derived object and accepted exactly when it reaches the signed root
+    pub fn handle_residual_sketch_reply(
+        &self,
+        reply: ResidualSketchReply,
+        _channel: &Arc<Channel>,
+    ) {
+        self.stats
+            .inc_dir(StatType::Message, DetailType::ResidualReply, Direction::In);
+        let result = self
+            .exchange
+            .lock()
+            .unwrap()
+            .handle_residual_sketch_reply(&reply);
+        if let Some(result) = result {
+            crate::utils::diagnostic!(
+                "EPOCH_RESIDUAL_SKETCH epoch={} reporter={} incomplete={} edits={} complete={}",
+                result.epoch,
+                result.reporter,
+                reply.incomplete,
+                result.entries,
                 result.complete
             );
         }
@@ -371,6 +429,32 @@ impl ReportService {
                     self.sender.lock().unwrap().try_send(
                         target,
                         &Message::ReconReply(reply),
+                        TrafficType::Generic,
+                    );
+                }
+                ReportMessage::ResidualSketch(request) => {
+                    // Any replica holding the object answers, so the sketch
+                    // is gossiped rather than addressed
+                    self.stats
+                        .inc_dir(StatType::Message, DetailType::ResidualReq, Direction::Out);
+                    self.flooder.lock().unwrap().flood_prs_and_some_non_prs(
+                        &Message::ResidualSketchReq(request),
+                        TrafficType::Generic,
+                        1.0,
+                    );
+                }
+                ReportMessage::ResidualSketchAnswer(reply) => {
+                    let Some(target) = channel else {
+                        continue;
+                    };
+                    self.stats.inc_dir(
+                        StatType::Message,
+                        DetailType::ResidualReply,
+                        Direction::Out,
+                    );
+                    self.sender.lock().unwrap().try_send(
+                        target,
+                        &Message::ResidualSketchReply(reply),
                         TrafficType::Generic,
                     );
                 }

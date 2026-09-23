@@ -48,6 +48,11 @@ pub enum MessageType {
     /// RAI: a leader's proposal of an epoch value in one election slot
     #[cfg(feature = "rai_protocol")]
     EpochProp = 0x16,
+    /// RAI: the reconciliation of a residual object a derivation missed
+    #[cfg(feature = "rai_protocol")]
+    ResidualSketchReq = 0x17,
+    #[cfg(feature = "rai_protocol")]
+    ResidualSketchReply = 0x18,
 }
 
 impl MessageType {
@@ -76,6 +81,10 @@ impl MessageType {
             MessageType::ReconReply => "report_ack",
             #[cfg(feature = "rai_protocol")]
             MessageType::EpochProp => "epoch_prop",
+            #[cfg(feature = "rai_protocol")]
+            MessageType::ResidualSketchReq => "residual_req",
+            #[cfg(feature = "rai_protocol")]
+            MessageType::ResidualSketchReply => "residual_ack",
             #[cfg(feature = "ledger_snapshots")]
             MessageType::Preproposal => "preproposal",
             #[cfg(feature = "ledger_snapshots")]
@@ -90,7 +99,7 @@ impl MessageType {
     pub const fn max_id() -> usize {
         #[cfg(feature = "rai_protocol")]
         {
-            Self::EpochProp as usize
+            Self::ResidualSketchReply as usize
         }
         #[cfg(all(not(feature = "rai_protocol"), feature = "ledger_snapshots"))]
         {
@@ -224,6 +233,12 @@ impl MessageHeader {
             MessageType::ReconReply => ReconReply::serialized_size(self.extensions),
             #[cfg(feature = "rai_protocol")]
             MessageType::EpochProp => EpochProp::serialized_size(self.extensions),
+            #[cfg(feature = "rai_protocol")]
+            MessageType::ResidualSketchReq => ResidualSketchReq::serialized_size(self.extensions),
+            #[cfg(feature = "rai_protocol")]
+            MessageType::ResidualSketchReply => {
+                ResidualSketchReply::serialized_size(self.extensions)
+            }
             #[cfg(feature = "ledger_snapshots")]
             MessageType::Preproposal => Preproposal::serialized_size(self.extensions),
             #[cfg(feature = "ledger_snapshots")]
@@ -297,6 +312,10 @@ impl From<MessageType> for DetailType {
             MessageType::ReconReply => DetailType::ReconReply,
             #[cfg(feature = "rai_protocol")]
             MessageType::EpochProp => DetailType::EpochProp,
+            #[cfg(feature = "rai_protocol")]
+            MessageType::ResidualSketchReq => DetailType::ResidualReq,
+            #[cfg(feature = "rai_protocol")]
+            MessageType::ResidualSketchReply => DetailType::ResidualReply,
             #[cfg(feature = "ledger_snapshots")]
             MessageType::Preproposal => DetailType::Preproposal,
             #[cfg(feature = "ledger_snapshots")]
