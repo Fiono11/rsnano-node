@@ -14,7 +14,10 @@ use crate::{
     setup::{genesis_key, pr_key},
 };
 
-const INITIAL_AMOUNT: Amount = Amount::nano(100_000_000);
+/// The spam funds. Small against the supply: they delegate to no
+/// representative, and their weight is a committee member with no node,
+/// which a close's `n - f` would count against the honest reporters
+const INITIAL_AMOUNT: Amount = Amount::nano(1_000_000);
 
 /// The weight shared equally by the principal representatives; the rest funds the spam
 pub(crate) fn voting_weight() -> Amount {
