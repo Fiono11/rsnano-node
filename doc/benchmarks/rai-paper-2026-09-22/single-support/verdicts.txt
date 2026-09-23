@@ -1,0 +1,12 @@
+fork0 exit=4 | SETTLED_CONSISTENT after 0s: epochs [0, 1, 2] identical on all PRs, cemented=['45065', '45065', '45065', '45065', '45065 CLOSED_CONSISTENT after 5s: epochs [0, 1, 2] closed identically on all PRs COMMITTEES_INCONSISTENT ['0', '1', '2'] SAFE checks failed (settle=0 committees=1 safety=0): nodes kept running 
+    published=45000 in 23.17s rate=1942 cps avg=241 ms | busy_s=20 rate=2200 cps median=98 ms weighted=244 ms spikes=[(7, 816), (14, 919)]
+    discards: 0 closes:   18 round=0 
+fork5 exit=0 | SETTLED_CONSISTENT after 0s: epochs [0, 1, 2] identical on all PRs, cemented=['44590', '44590', '44590', '44590', '44590 CLOSED_CONSISTENT after 0s: epochs [0, 1, 2] closed identically on all PRs COMMITTEES_CONSISTENT SAFE 
+    DID NOT FINISH | busy_s=19 rate=2256 cps median=106 ms weighted=625 ms spikes=[(7, 1676), (14, 2280), (15, 1898)]
+    discards: 0 closes:   18 round=0 
+offline1 exit=0 | SETTLED_CONSISTENT after 0s: epochs [0, 1, 2] identical on all PRs, cemented=['45065', '45063', '45065', '45061', '45065 CLOSED_CONSISTENT after 0s: epochs [0, 1, 2] closed identically on all PRs COMMITTEES_CONSISTENT SAFE 
+    DID NOT FINISH | busy_s=20 rate=2095 cps median=110 ms weighted=206 ms spikes=[(7, 617), (14, 659)]
+    discards: 0 closes:   10 round=0    5 round=1 
+byz1 exit=4 | INCONSISTENT (with pending: [3]) COMMITTEES_CONSISTENT SAFE checks failed (settle=2 committees=0 safety=0): nodes kept running 
+    DID NOT FINISH | busy_s=19 rate=2199 cps median=107 ms weighted=356 ms spikes=[(7, 757), (14, 1809), (15, 556)]
+    discards: 0 closes:   10 round=0    5 round=1 

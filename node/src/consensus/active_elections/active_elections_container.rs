@@ -125,6 +125,11 @@ pub(crate) struct ActiveElectionsContainer {
     /// RAI: the votes received, by epoch and voter, from which another
     /// reporter's residual object is derived
     vote_records: VoteRecords,
+    /// RAI: what the blocks a checkpoint finalized delegate, by epoch: read
+    /// from the block held in the instance the checkpoint confirmed, which
+    /// is erased on confirmation. `Sigma_e` derives the committee from them
+    /// like from any finalized block.
+    checkpoint_delegations: BTreeMap<ConsensusEpoch, HashMap<BlockHash, Delegation>>,
     /// RAI: elections of the current epoch which got a certificate so far
     decided_in_current_epoch: usize,
     /// RAI: `decided_in_current_epoch` at which the epoch advances; 0 never
@@ -194,6 +199,7 @@ impl ActiveElectionsContainer {
             draining: false,
             frozen: BTreeSet::new(),
             vote_records: VoteRecords::default(),
+            checkpoint_delegations: BTreeMap::new(),
             decided_in_current_epoch: 0,
             epoch_terminated_elections: config.epoch_terminated_elections,
             epoch_duration: config.epoch_duration,
@@ -594,6 +600,8 @@ impl ActiveElectionsContainer {
         if let Some(kept_from) = left.as_u64().checked_sub(Self::VOTE_RECORD_EPOCHS_KEPT) {
             self.vote_records
                 .trim_before(ConsensusEpoch::new(kept_from));
+            self.checkpoint_delegations
+                .retain(|epoch, _| epoch.as_u64() >= kept_from);
         }
         self.pending_kudzu_votes
             .retain(|target| target.election.epoch != left);
@@ -672,6 +680,9 @@ impl ActiveElectionsContainer {
         let mut delegations_by_hash: HashMap<BlockHash, Delegation> = HashMap::new();
         for block in self.epoch_states.finalized_blocks_in(epoch) {
             delegations_by_hash.insert(block.delegation.hash, block.delegation);
+        }
+        if let Some(installed) = self.checkpoint_delegations.get(&epoch) {
+            delegations_by_hash.extend(installed.iter().map(|(hash, d)| (*hash, *d)));
         }
         for election in self.roots.iter().map(|entry| &entry.election) {
             if election.epoch() != epoch {
@@ -995,9 +1006,12 @@ impl ActiveElectionsContainer {
         else {
             return;
         };
-        let frontiers = self.decided_frontiers(epoch, &state);
         self.decided.insert(epoch, state.clone());
+        // Installed before the committee is derived: a block the checkpoint
+        // finalized delegates like any other, and its instance goes with
+        // the installation
         self.install_checkpoint(epoch, &state, now);
+        let frontiers = self.decided_frontiers(epoch, &state);
         let live: FxHashSet<(Account, u64)> = self
             .roots
             .iter()
@@ -1147,6 +1161,12 @@ impl ActiveElectionsContainer {
             let Some(election) = self.roots.election_for_block_mut(hash) else {
                 continue;
             };
+            if let Some(delegation) = delegation_of(election, hash) {
+                self.checkpoint_delegations
+                    .entry(epoch)
+                    .or_default()
+                    .insert(*hash, delegation);
+            }
             let Some(replaced) = election.finalize_by_checkpoint(hash) else {
                 continue;
             };
@@ -2410,6 +2430,16 @@ pub struct ApplyVoteArgs<'a> {
     pub rep_weights: &'a RepWeights,
     pub quorum_snapshot: &'a QuorumSnapshot,
     pub now: Timestamp,
+}
+
+/// RAI: what one candidate of an election delegates, if it is a state block
+fn delegation_of(election: &Election, hash: &BlockHash) -> Option<Delegation> {
+    let block = election.candidate_blocks().get(hash)?;
+    Some(Delegation {
+        hash: *hash,
+        representative: block.representative_field()?,
+        balance: block.balance_field()?,
+    })
 }
 
 fn delegations(election: &Election) -> Vec<Delegation> {
