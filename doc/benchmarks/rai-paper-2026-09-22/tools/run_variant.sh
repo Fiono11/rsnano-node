@@ -24,16 +24,37 @@ LAST=$((NODES - 1))
 RESTARTS=${RESTARTS:-3}
 SETTLE_DEADLINE=${SETTLE_DEADLINE:-30}
 : > "$SNAP"
-DATA=$HOME/NanoSpam
+DATA=$(mktemp -d /tmp/rai-benchmark.XXXXXX)
+echo "$DATA" > "$OUT.data-dir"
 T=$REPO/doc/benchmarks/rai-paper-2026-09-22/tools
 
 teardown() {
-  kill ${NSPID:-0} 2>/dev/null
-  pkill -f "rsnano --network test" 2>/dev/null; sleep 3
-  pkill -9 -f "rsnano --network test" 2>/dev/null
-  pkill -f nanospam 2>/dev/null; pkill -f caffeinate 2>/dev/null
-  rm -rf "$DATA"
+  # Only stop processes launched in this unique temporary directory. Never
+  # signal process group 0 or match unrelated node/nanospam command lines.
+  if [ -f "$DATA/node-pids" ]; then
+    while read -r pid; do
+      local command=$(ps -p "$pid" -o command= 2>/dev/null)
+      if [[ "$command" == *"--data-path $DATA/"* ]]; then
+        kill "$pid" 2>/dev/null
+      fi
+    done < "$DATA/node-pids"
+    sleep 3
+    while read -r pid; do
+      local command=$(ps -p "$pid" -o command= 2>/dev/null)
+      if [[ "$command" == *"--data-path $DATA/"* ]]; then
+        kill -9 "$pid" 2>/dev/null
+      fi
+    done < "$DATA/node-pids"
+  fi
+  if [ -n "${NSPID:-}" ]; then
+    local command=$(ps -p "$NSPID" -o command= 2>/dev/null)
+    if [[ "$command" == *"--data-dir $DATA"* ]]; then kill "$NSPID" 2>/dev/null; fi
+  fi
+  # mktemp created this directory for this invocation; no home data is used.
+  [[ "$DATA" == /tmp/rai-benchmark.* ]] && rm -rf -- "$DATA"
 }
+trap teardown EXIT
+trap 'exit 130' INT TERM
 
 for attempt in {1..60}; do
   busy=$(top -l 2 -o cpu -n 5 -stats cpu,command | awk '/^PID|^Processes|^$|^[0-9]{4}\//{next} { if ($1+0 > 25 && $2 != "top") print }' | tail -5)
@@ -41,16 +62,21 @@ for attempt in {1..60}; do
   echo "machine busy, waiting: $busy"; sleep 10
 done
 
+if [ -n "$busy" ]; then
+  echo "machine still busy; benchmark not started"
+  exit 7
+fi
+
 which rsnano
 stalled=0
 for attempt in $(seq 1 $RESTARTS); do
   rm -rf "$DATA"; mkdir -p "$DATA"
   START=$(date +%s)
-  caffeinate -i nanospam --prs 6 --no-prio --blocks 45000 --accounts 45000 --rate 2000 --fork-percentage $FORKS --epoch-duration-ms 8000 --no-kill "$@" > "$OUT" 2>&1 &
+  RUST_LOG=nanospam=info NANO_LOG=noansi nanospam --data-dir "$DATA" --prs 6 --no-prio --blocks 45000 --accounts 45000 --rate 2000 --fork-percentage $FORKS --epoch-duration-ms 8000 --no-kill "$@" > "$OUT" 2>&1 &
   NSPID=$!
   zeros() { local n=$(grep -a -c "cps |" "$OUT"); [ "$n" -ge 15 ] && [ "$(grep -a "cps |" "$OUT" | tail -15 | grep -a -c '| 0 cps |')" -ge 15 ]; }
   until zeros; do
-    if grep -a -q "never saw the full quorum\|^Error" "$OUT"; then
+    if grep -a -q "never saw the full quorum\|never held the same ledger\|^Error" "$OUT"; then
       echo "nanospam aborted: $(grep -a 'never saw\|^Error' "$OUT" | head -1 | cut -c1-200)" | tee -a "$SNAP"
       teardown
       exit 3

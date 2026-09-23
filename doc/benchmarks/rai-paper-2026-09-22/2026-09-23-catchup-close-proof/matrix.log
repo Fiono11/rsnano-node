@@ -1,0 +1,42 @@
+
+########## fork0 ##########
+fork0 exit=0 | SETTLED_CONSISTENT after 0s: epochs [0, 1, 2] identical on all PRs, cemented=['45065', '45065', '45065', '45065', '45065 CLOSED_CONSISTENT after 5s: epochs [0, 1, 2] closed identically on all PRs COMMITTEES_CONSISTENT SAFE 
+    published=45000 in 22.95s rate=1960 cps avg=587 ms | busy_s=18 rate=2406 cps median=94 ms weighted=606 ms spikes=[(8, 2578), (9, 1966), (13, 1025)]
+    discards: 0 closes:   12 round=0    6 round=1 
+
+########## fork5 ##########
+fork5 exit=0 | SETTLED_CONSISTENT after 0s: epochs [0, 1, 2] identical on all PRs, cemented=['45063', '45063', '45063', '45063', '45063 CLOSED_CONSISTENT after 0s: epochs [0, 1, 2] closed identically on all PRs COMMITTEES_CONSISTENT SAFE 
+    DID NOT FINISH | busy_s=17 rate=2518 cps median=103 ms weighted=858 ms spikes=[(7, 2875), (11, 2594), (12, 583)]
+    discards: 0 closes:   12 round=0    6 round=1 
+
+########## offline1 ##########
+offline1 exit=0 | SETTLED_CONSISTENT after 0s: epochs [0, 1, 2] identical on all PRs, cemented=['45065', '45065', '45065', '45064', '45065 CLOSED_CONSISTENT after 0s: epochs [0, 1, 2] closed identically on all PRs COMMITTEES_CONSISTENT SAFE 
+    DID NOT FINISH | busy_s=20 rate=2096 cps median=109 ms weighted=220 ms spikes=[(7, 679), (14, 755)]
+    discards: 0 closes:   10 round=0    5 round=1 
+
+########## byz1 ##########
+byz1 exit=4 | INCONSISTENT (with pending: [3]) COMMITTEES_INCONSISTENT ['1', '2'] SAFE checks failed (settle=2 committees=1 safety=0): nodes kept running 
+    DID NOT FINISH | busy_s=20 rate=2086 cps median=111 ms weighted=270 ms spikes=[(7, 802), (14, 1281), (15, 380)]
+    discards: 0 closes:   10 round=0    5 round=1 
+
+########## fork5-silent1-byz1 ##########
+fork5-silent1-byz1 exit=0 | SETTLED_CONSISTENT after 0s: epochs [0, 1, 2, 3] identical on all PRs, cemented=['42843', '42843', '42843', '42843', '42 CLOSED_CONSISTENT after 0s: epochs [0, 1, 2, 3] closed identically on all PRs COMMITTEES_CONSISTENT SAFE 
+    DID NOT FINISH | busy_s=16 rate=2572 cps median=218 ms weighted=891 ms spikes=[(6, 2737), (11, 2422), (12, 691)]
+    discards: 0 closes:   10 round=0   10 round=1 
+
+########## verdicts ##########
+fork0 exit=0 | SETTLED_CONSISTENT after 0s: epochs [0, 1, 2] identical on all PRs, cemented=['45065', '45065', '45065', '45065', '45065 CLOSED_CONSISTENT after 5s: epochs [0, 1, 2] closed identically on all PRs COMMITTEES_CONSISTENT SAFE 
+    published=45000 in 22.95s rate=1960 cps avg=587 ms | busy_s=18 rate=2406 cps median=94 ms weighted=606 ms spikes=[(8, 2578), (9, 1966), (13, 1025)]
+    discards: 0 closes:   12 round=0    6 round=1 
+fork5 exit=0 | SETTLED_CONSISTENT after 0s: epochs [0, 1, 2] identical on all PRs, cemented=['45063', '45063', '45063', '45063', '45063 CLOSED_CONSISTENT after 0s: epochs [0, 1, 2] closed identically on all PRs COMMITTEES_CONSISTENT SAFE 
+    DID NOT FINISH | busy_s=17 rate=2518 cps median=103 ms weighted=858 ms spikes=[(7, 2875), (11, 2594), (12, 583)]
+    discards: 0 closes:   12 round=0    6 round=1 
+offline1 exit=0 | SETTLED_CONSISTENT after 0s: epochs [0, 1, 2] identical on all PRs, cemented=['45065', '45065', '45065', '45064', '45065 CLOSED_CONSISTENT after 0s: epochs [0, 1, 2] closed identically on all PRs COMMITTEES_CONSISTENT SAFE 
+    DID NOT FINISH | busy_s=20 rate=2096 cps median=109 ms weighted=220 ms spikes=[(7, 679), (14, 755)]
+    discards: 0 closes:   10 round=0    5 round=1 
+byz1 exit=4 | INCONSISTENT (with pending: [3]) COMMITTEES_INCONSISTENT ['1', '2'] SAFE checks failed (settle=2 committees=1 safety=0): nodes kept running 
+    DID NOT FINISH | busy_s=20 rate=2086 cps median=111 ms weighted=270 ms spikes=[(7, 802), (14, 1281), (15, 380)]
+    discards: 0 closes:   10 round=0    5 round=1 
+fork5-silent1-byz1 exit=0 | SETTLED_CONSISTENT after 0s: epochs [0, 1, 2, 3] identical on all PRs, cemented=['42843', '42843', '42843', '42843', '42 CLOSED_CONSISTENT after 0s: epochs [0, 1, 2, 3] closed identically on all PRs COMMITTEES_CONSISTENT SAFE 
+    DID NOT FINISH | busy_s=16 rate=2572 cps median=218 ms weighted=891 ms spikes=[(6, 2737), (11, 2422), (12, 691)]
+    discards: 0 closes:   10 round=0   10 round=1 

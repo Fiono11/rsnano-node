@@ -54,6 +54,15 @@ pub(crate) async fn start_nodes(
 
         info!("Starting node: {cmd:?}");
         children.push(cmd.spawn().unwrap());
+        // Let the harness stop precisely the children of this run.
+        std::fs::write(
+            data_dir.join("node-pids"),
+            children
+                .iter()
+                .map(|child| format!("{}\n", child.id()))
+                .collect::<String>(),
+        )
+        .unwrap();
 
         info!("Waiting for RPC...");
         while rpc_client.version().await.is_err() {

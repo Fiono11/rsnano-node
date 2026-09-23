@@ -1,3 +1,4 @@
+mod close_proof;
 mod epoch_decision;
 mod report_plugin;
 mod report_service;

@@ -1,0 +1,42 @@
+
+########## fork0 ##########
+fork0 exit=3 | nanospam aborted: Error: Address already in use (os error 48) 
+    no second reached 1000 cps (0 status lines)
+    discards: 0 closes: 
+
+########## fork5 ##########
+fork5 exit=3 | nanospam aborted: Error: Address already in use (os error 48) 
+    no second reached 1000 cps (0 status lines)
+    discards: 0 closes: 
+
+########## offline1 ##########
+offline1 exit=3 | nanospam aborted: Error: Address already in use (os error 48) 
+    no second reached 1000 cps (0 status lines)
+    discards: 0 closes: 
+
+########## byz1 ##########
+byz1 exit=3 | nanospam aborted: Error: Address already in use (os error 48) 
+    no second reached 1000 cps (0 status lines)
+    discards: 0 closes: 
+
+########## fork5-silent1-byz1 ##########
+fork5-silent1-byz1 exit=3 | nanospam aborted: Error: Address already in use (os error 48) 
+    no second reached 1000 cps (0 status lines)
+    discards: 0 closes: 
+
+########## verdicts ##########
+fork0 exit=3 | nanospam aborted: Error: Address already in use (os error 48) 
+    no second reached 1000 cps (0 status lines)
+    discards: 0 closes: 
+fork5 exit=3 | nanospam aborted: Error: Address already in use (os error 48) 
+    no second reached 1000 cps (0 status lines)
+    discards: 0 closes: 
+offline1 exit=3 | nanospam aborted: Error: Address already in use (os error 48) 
+    no second reached 1000 cps (0 status lines)
+    discards: 0 closes: 
+byz1 exit=3 | nanospam aborted: Error: Address already in use (os error 48) 
+    no second reached 1000 cps (0 status lines)
+    discards: 0 closes: 
+fork5-silent1-byz1 exit=3 | nanospam aborted: Error: Address already in use (os error 48) 
+    no second reached 1000 cps (0 status lines)
+    discards: 0 closes: 

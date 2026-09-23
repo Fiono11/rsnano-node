@@ -147,6 +147,8 @@ pub enum DetailType {
     EpochProp,
     ResidualReq,
     ResidualReply,
+    CloseProofReq,
+    CloseProofReply,
     #[cfg(feature = "ledger_snapshots")]
     Preproposal,
     #[cfg(feature = "ledger_snapshots")]

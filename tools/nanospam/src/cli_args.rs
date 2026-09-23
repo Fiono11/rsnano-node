@@ -13,6 +13,10 @@ const DEFAULT_RATE: &str = "1+50@3s";
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 pub(crate) struct CliArgs {
+    /// Directory owned by this run (defaults to ~/NanoSpam).
+    #[arg(long)]
+    pub data_dir: Option<std::path::PathBuf>,
+
     /// Number of principal representatives
     #[arg(long, default_value_t = 1)]
     pub prs: usize,

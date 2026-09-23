@@ -86,6 +86,10 @@ pub(crate) struct EpochClose {
     /// Δ_timeout of Protocol 1, line 22
     round_timeout: Duration,
     events: Vec<CloseEvent>,
+    #[cfg(feature = "rai_protocol")]
+    signed_proposals: HashMap<BlockHash, rsnano_messages::EpochProp>,
+    #[cfg(feature = "rai_protocol")]
+    signed_votes: BTreeMap<u32, Vec<Arc<rsnano_types::Vote>>>,
 }
 
 /// One round of the close election: a Kudzu slot
@@ -185,6 +189,10 @@ impl EpochClose {
             reported: false,
             round_timeout,
             events: Vec::new(),
+            #[cfg(feature = "rai_protocol")]
+            signed_proposals: HashMap::new(),
+            #[cfg(feature = "rai_protocol")]
+            signed_votes: BTreeMap::new(),
         }
     }
 
@@ -196,6 +204,51 @@ impl EpochClose {
             .update(epoch.as_u64().to_le_bytes())
             .build();
         QualifiedRoot::new(Root::from(root), BlockHash::ZERO)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn retain_proposal(&mut self, proposal: rsnano_messages::EpochProp, hash: BlockHash) {
+        if self.values.contains_key(&hash) {
+            self.signed_proposals.entry(hash).or_insert(proposal);
+        }
+    }
+
+    /// Preserve the original signed object, including all batched hashes.
+    #[cfg(feature = "rai_protocol")]
+    pub fn retain_vote(&mut self, vote: Arc<rsnano_types::Vote>, round: u32) {
+        if !matches!(vote.kind(), VoteKind::First | VoteKind::Final) {
+            return;
+        }
+        let votes = self.signed_votes.entry(round).or_default();
+        if votes.len() < 2 * rsnano_messages::CloseProofReply::MAX_VOTES
+            && !votes
+                .iter()
+                .any(|v| v.voter == vote.voter && v.kind() == vote.kind())
+        {
+            votes.push(vote);
+        }
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn close_proof(&self) -> Option<rsnano_messages::CloseProofReply> {
+        let (round, hash) = self.closed?;
+        let proposal = self.signed_proposals.get(&hash)?.clone();
+        let kind = if self.rounds[round as usize].certificates.fast == Some(hash) {
+            VoteKind::First
+        } else {
+            VoteKind::Final
+        };
+        let votes = self
+            .signed_votes
+            .get(&round)?
+            .iter()
+            .filter(|v| v.kind() == kind && v.hashes.contains(&hash))
+            .map(|v| v.as_ref().clone())
+            .collect();
+        let proof = rsnano_messages::CloseProofReply { proposal, votes };
+        // Framing is u16-sized. Never hand an oversized object to the sender.
+        proof.serialize(&mut Vec::new()).ok()?;
+        Some(proof)
     }
 
     pub fn epoch(&self) -> ConsensusEpoch {

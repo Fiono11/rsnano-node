@@ -230,6 +230,12 @@ impl NetworkMessageProcessor {
             #[cfg(feature = "rai_protocol")]
             Message::EpochProp(prop) => self.epoch_decision.handle_proposal(prop, channel),
             #[cfg(feature = "rai_protocol")]
+            Message::CloseProofReq(req) => {
+                self.epoch_decision.handle_close_proof_request(req, channel)
+            }
+            #[cfg(feature = "rai_protocol")]
+            Message::CloseProofReply(proof) => self.epoch_decision.handle_close_proof(proof),
+            #[cfg(feature = "rai_protocol")]
             Message::ResidualSketchReq(request) => {
                 self.reports.handle_residual_sketch(request, channel)
             }

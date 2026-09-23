@@ -48,6 +48,10 @@ pub enum MessageType {
     /// RAI: a leader's proposal of an epoch value in one election slot
     #[cfg(feature = "rai_protocol")]
     EpochProp = 0x16,
+    #[cfg(feature = "rai_protocol")]
+    CloseProofReply = 0x1a,
+    #[cfg(feature = "rai_protocol")]
+    CloseProofReq = 0x19,
     /// RAI: the reconciliation of a residual object a derivation missed
     #[cfg(feature = "rai_protocol")]
     ResidualSketchReq = 0x17,
@@ -82,6 +86,10 @@ impl MessageType {
             #[cfg(feature = "rai_protocol")]
             MessageType::EpochProp => "epoch_prop",
             #[cfg(feature = "rai_protocol")]
+            MessageType::CloseProofReply => "closeproofreply",
+            #[cfg(feature = "rai_protocol")]
+            MessageType::CloseProofReq => "closeproofreq",
+            #[cfg(feature = "rai_protocol")]
             MessageType::ResidualSketchReq => "residual_req",
             #[cfg(feature = "rai_protocol")]
             MessageType::ResidualSketchReply => "residual_ack",
@@ -99,7 +107,7 @@ impl MessageType {
     pub const fn max_id() -> usize {
         #[cfg(feature = "rai_protocol")]
         {
-            Self::ResidualSketchReply as usize
+            Self::CloseProofReply as usize
         }
         #[cfg(all(not(feature = "rai_protocol"), feature = "ledger_snapshots"))]
         {
@@ -234,6 +242,10 @@ impl MessageHeader {
             #[cfg(feature = "rai_protocol")]
             MessageType::EpochProp => EpochProp::serialized_size(self.extensions),
             #[cfg(feature = "rai_protocol")]
+            MessageType::CloseProofReply => CloseProofReply::serialized_size(self.extensions),
+            #[cfg(feature = "rai_protocol")]
+            MessageType::CloseProofReq => CloseProofReq::serialized_size(self.extensions),
+            #[cfg(feature = "rai_protocol")]
             MessageType::ResidualSketchReq => ResidualSketchReq::serialized_size(self.extensions),
             #[cfg(feature = "rai_protocol")]
             MessageType::ResidualSketchReply => {
@@ -312,6 +324,10 @@ impl From<MessageType> for DetailType {
             MessageType::ReconReply => DetailType::ReconReply,
             #[cfg(feature = "rai_protocol")]
             MessageType::EpochProp => DetailType::EpochProp,
+            #[cfg(feature = "rai_protocol")]
+            MessageType::CloseProofReply => DetailType::CloseProofReply,
+            #[cfg(feature = "rai_protocol")]
+            MessageType::CloseProofReq => DetailType::CloseProofReq,
             #[cfg(feature = "rai_protocol")]
             MessageType::ResidualSketchReq => DetailType::ResidualReq,
             #[cfg(feature = "rai_protocol")]

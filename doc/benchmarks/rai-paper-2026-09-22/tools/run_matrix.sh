@@ -9,7 +9,6 @@ T=/Users/ruimorais/rsnano-node/doc/benchmarks/rai-paper-2026-09-22/tools
 D=$1
 mkdir -p $D
 V=$D/verdicts.txt; : > $V
-teardown() { pkill -f "rsnano --network test" 2>/dev/null; sleep 3; pkill -9 -f "rsnano --network test" 2>/dev/null; pkill -f nanospam 2>/dev/null; pkill -f caffeinate 2>/dev/null; rm -rf ~/NanoSpam; }
 run() {
   local name=$1 nodes=$2 forks=$3; shift 3
   echo "\n########## $name ##########"
@@ -26,9 +25,7 @@ run() {
   echo "$name exit=$code | $verdict" | tee -a $V
   echo "    $perf" | tee -a $V
   echo "    discards: $(grep -a -c "EPOCH_DISCARDED" $D/$name.log) closes: $(grep -a -o 'EPOCH_CLOSED[^\n]*round=[0-9]*' $D/$name.log | grep -o 'round=[0-9]*' | sort | uniq -c | tr '\n' ' ')" | tee -a $V
-  teardown
 }
-teardown
 run fork0     6 0
 run fork5     6 5
 run offline1  5 5 --offline 1

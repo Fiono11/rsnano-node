@@ -73,8 +73,12 @@ impl NanoSpamApp {
         let protocol = ProtocolInfo::default_for(NetworkType::NanoTestNetwork);
         let genesis_hash = get_genesis_hash();
 
-        let mut data_dir = dirs::home_dir().ok_or_else(|| anyhow!("No home dir found"))?;
-        data_dir.push("NanoSpam");
+        let data_dir = match &self.args.data_dir {
+            Some(path) => path.clone(),
+            None => dirs::home_dir()
+                .ok_or_else(|| anyhow!("No home dir found"))?
+                .join("NanoSpam"),
+        };
 
         let mut account_map = create_account_map(&data_dir, self.args.accounts);
 

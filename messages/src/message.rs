@@ -29,6 +29,10 @@ pub enum Message {
     /// RAI: a leader's proposal of an epoch value in one election slot
     #[cfg(feature = "rai_protocol")]
     EpochProp(EpochProp),
+    #[cfg(feature = "rai_protocol")]
+    CloseProofReply(CloseProofReply),
+    #[cfg(feature = "rai_protocol")]
+    CloseProofReq(CloseProofReq),
     /// RAI: the reconciliation of a residual object a derivation missed
     #[cfg(feature = "rai_protocol")]
     ResidualSketchReq(ResidualSketchReq),
@@ -118,6 +122,12 @@ impl From<&ParseMessageError> for DetailType {
             #[cfg(feature = "rai_protocol")]
             ParseMessageError::InvalidMessage(MessageType::EpochProp) => Self::EpochProp,
             #[cfg(feature = "rai_protocol")]
+            ParseMessageError::InvalidMessage(MessageType::CloseProofReply) => {
+                Self::CloseProofReply
+            }
+            #[cfg(feature = "rai_protocol")]
+            ParseMessageError::InvalidMessage(MessageType::CloseProofReq) => Self::CloseProofReq,
+            #[cfg(feature = "rai_protocol")]
             ParseMessageError::InvalidMessage(MessageType::ResidualSketchReq) => Self::ResidualReq,
             #[cfg(feature = "rai_protocol")]
             ParseMessageError::InvalidMessage(MessageType::ResidualSketchReply) => {
@@ -181,6 +191,10 @@ impl Message {
             #[cfg(feature = "rai_protocol")]
             Message::EpochProp(_) => MessageType::EpochProp,
             #[cfg(feature = "rai_protocol")]
+            Message::CloseProofReply(_) => MessageType::CloseProofReply,
+            #[cfg(feature = "rai_protocol")]
+            Message::CloseProofReq(_) => MessageType::CloseProofReq,
+            #[cfg(feature = "rai_protocol")]
             Message::ResidualSketchReq(_) => MessageType::ResidualSketchReq,
             #[cfg(feature = "rai_protocol")]
             Message::ResidualSketchReply(_) => MessageType::ResidualSketchReply,
@@ -221,6 +235,10 @@ impl Message {
             #[cfg(feature = "rai_protocol")]
             Message::EpochProp(x) => Some(x),
             #[cfg(feature = "rai_protocol")]
+            Message::CloseProofReply(x) => Some(x),
+            #[cfg(feature = "rai_protocol")]
+            Message::CloseProofReq(x) => Some(x),
+            #[cfg(feature = "rai_protocol")]
             Message::ResidualSketchReq(x) => Some(x),
             #[cfg(feature = "rai_protocol")]
             Message::ResidualSketchReply(x) => Some(x),
@@ -260,6 +278,10 @@ impl Message {
             Message::ReconReply(m) => m.serialize(writer),
             #[cfg(feature = "rai_protocol")]
             Message::EpochProp(m) => m.serialize(writer),
+            #[cfg(feature = "rai_protocol")]
+            Message::CloseProofReply(m) => m.serialize(writer),
+            #[cfg(feature = "rai_protocol")]
+            Message::CloseProofReq(m) => m.serialize(writer),
             #[cfg(feature = "rai_protocol")]
             Message::ResidualSketchReq(m) => m.serialize(writer),
             #[cfg(feature = "rai_protocol")]
@@ -316,6 +338,14 @@ impl Message {
             MessageType::ReconReply => Message::ReconReply(ReconReply::deserialize(payload)?),
             #[cfg(feature = "rai_protocol")]
             MessageType::EpochProp => Message::EpochProp(EpochProp::deserialize(payload)?),
+            #[cfg(feature = "rai_protocol")]
+            MessageType::CloseProofReply => {
+                Message::CloseProofReply(CloseProofReply::deserialize(payload)?)
+            }
+            #[cfg(feature = "rai_protocol")]
+            MessageType::CloseProofReq => {
+                Message::CloseProofReq(CloseProofReq::deserialize(payload)?)
+            }
             #[cfg(feature = "rai_protocol")]
             MessageType::ResidualSketchReq => {
                 Message::ResidualSketchReq(ResidualSketchReq::deserialize(payload)?)

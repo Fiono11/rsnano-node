@@ -52,6 +52,29 @@ impl AecService {
         }
     }
 
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn retain_close_proposal(&self, prop: rsnano_messages::EpochProp, hash: BlockHash) {
+        self.aec.write().unwrap().retain_close_proposal(prop, hash);
+    }
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn close_proof(
+        &self,
+        epoch: ConsensusEpoch,
+    ) -> Option<rsnano_messages::CloseProofReply> {
+        self.aec.read().unwrap().close_proof(epoch)
+    }
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn close_committees(
+        &self,
+        epoch: ConsensusEpoch,
+    ) -> Option<crate::consensus::election::Committees> {
+        self.aec.read().unwrap().close_committees(epoch)
+    }
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn next_checkpoint(&self) -> ConsensusEpoch {
+        self.aec.read().unwrap().next_checkpoint()
+    }
+
     // --- Read forwarding ---
 
     pub fn check_vacancy<T>(&self, source: &T) -> bool

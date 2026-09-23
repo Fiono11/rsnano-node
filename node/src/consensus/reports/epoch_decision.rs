@@ -10,6 +10,7 @@ use rsnano_types::{Amount, BlockHash, ConsensusEpoch, PublicKey};
 use rsnano_utils::stats::{DetailType, Direction, StatType, Stats};
 
 use super::ReportExchange;
+use super::close_proof::{VerifiedCheckpoint, verify_close_proof};
 use crate::{
     consensus::{
         AecService,
@@ -23,6 +24,7 @@ use crate::{
     utils::diagnostic,
     wallets::WalletRepresentatives,
 };
+use rsnano_messages::{CloseProofReply, CloseProofReq};
 
 /// RAI, "The joint epoch election": the part of the close that reads and
 /// writes. The election itself is in the active elections - it is Kudzu over
@@ -50,6 +52,7 @@ pub struct EpochDecisionService {
     repeated: Mutex<Option<Timestamp>>,
     /// When this node last said why it could not derive a value
     unready_logged: Mutex<HashMap<ConsensusEpoch, Timestamp>>,
+    verified_checkpoint: Mutex<Option<VerifiedCheckpoint>>,
 }
 
 impl EpochDecisionService {
@@ -80,6 +83,7 @@ impl EpochDecisionService {
             proposals: Mutex::new(HashMap::new()),
             repeated: Mutex::new(None),
             unready_logged: Mutex::new(HashMap::new()),
+            verified_checkpoint: Mutex::new(None),
         }
     }
 
@@ -133,12 +137,37 @@ impl EpochDecisionService {
         // A leader repeats its proposal while its round stands, and
         // deriving the state walks the whole predecessor: check once
         if self.active_elections.holds_epoch_value(prop.epoch, &hash) {
+            self.active_elections.retain_close_proposal(prop, hash);
             return;
         }
         let Some((_, state)) = self.validate(&value) else {
             return;
         };
         self.active_elections.accept_epoch_value(value, state);
+        self.active_elections
+            .retain_close_proposal(prop.clone(), hash);
+    }
+
+    pub fn handle_close_proof_request(&self, request: CloseProofReq, channel: &Arc<Channel>) {
+        let Some(proof) = self.active_elections.close_proof(request.epoch) else {
+            return;
+        };
+        self.flooder.lock().unwrap().try_send(
+            channel,
+            &Message::CloseProofReply(proof),
+            TrafficType::Generic,
+        );
+    }
+
+    pub fn handle_close_proof(&self, proof: CloseProofReply) {
+        let next = self.active_elections.next_checkpoint();
+        let Some(committees) = self.active_elections.close_committees(next) else {
+            return;
+        };
+        let Some(verified) = verify_close_proof(&proof, next, &committees) else {
+            return;
+        };
+        *self.verified_checkpoint.lock().unwrap() = Some(verified);
     }
 
     /// Whether this node can derive a value for an epoch's close: it holds
@@ -274,6 +303,8 @@ impl EpochDecisionService {
             hash,
         );
         self.active_elections.accept_epoch_value(value, state);
+        self.active_elections
+            .retain_close_proposal(prop.clone(), hash);
         self.active_elections
             .record_epoch_proposal(epoch, round, hash);
         self.proposals

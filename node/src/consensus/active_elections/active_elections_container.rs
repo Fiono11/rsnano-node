@@ -803,6 +803,38 @@ impl ActiveElectionsContainer {
         }
     }
 
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn retain_close_proposal(
+        &mut self,
+        prop: rsnano_messages::EpochProp,
+        hash: BlockHash,
+    ) {
+        if let Some(close) = self.closes.get_mut(&prop.epoch) {
+            close.retain_proposal(prop, hash);
+        }
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn close_proof(
+        &self,
+        epoch: ConsensusEpoch,
+    ) -> Option<rsnano_messages::CloseProofReply> {
+        self.closes.get(&epoch)?.close_proof()
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn close_committees(&self, epoch: ConsensusEpoch) -> Option<Committees> {
+        self.committees.for_close(epoch)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn next_checkpoint(&self) -> ConsensusEpoch {
+        self.decided
+            .keys()
+            .next_back()
+            .map_or(ConsensusEpoch::ZERO, |e| e.next())
+    }
+
     /// RAI: `S_e` once the epoch's joint election decided and this node
     /// derived the state the finalized value names
     #[allow(dead_code)] // the RAI epoch decision uses these
@@ -1235,7 +1267,20 @@ impl ActiveElectionsContainer {
             // gets there. Left before this node ran: nothing to close here.
             let result = match (self.closes.get_mut(&epoch), &committees) {
                 (Some(close), Some(committees)) => {
-                    close.apply_vote(vote.voter, *hash, vote.kind(), round, committees, args.now)
+                    let result = close.apply_vote(
+                        vote.voter,
+                        *hash,
+                        vote.kind(),
+                        round,
+                        committees,
+                        args.now,
+                    );
+                    #[cfg(feature = "rai_protocol")]
+                    if result.is_ok() && committees.iter().any(|c| !c.weight(&vote.voter).is_zero())
+                    {
+                        close.retain_vote(vote.vote.vote.clone(), round);
+                    }
+                    result
                 }
                 (Some(_), None) => Err(VoteError::Indeterminate),
                 (None, _) if epoch >= self.current_epoch => Err(VoteError::Indeterminate),

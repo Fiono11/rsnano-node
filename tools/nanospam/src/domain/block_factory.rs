@@ -334,7 +334,11 @@ mod tests {
                 panic!("expected a block");
             };
             let account = forks.block.account_field().unwrap();
-            let rep = representatives.of(&account).unwrap();
+            let rep = if account == initial_test_key().account() {
+                initial_test_key().public_key()
+            } else {
+                representatives.of(&account).unwrap()
+            };
             assert_eq!(forks.block.representative_field(), Some(rep));
             if let Some(fork) = &forks.fork {
                 assert_eq!(fork.representative_field(), representatives.other_than(rep));
