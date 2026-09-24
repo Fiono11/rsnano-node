@@ -17,7 +17,10 @@ use rsnano_utils::{
     sync::backpressure_channel::Sender,
 };
 
-use super::{AecFact, FilteredVote, ReceivedVote, VoteApplier, VoteProcessorQueue};
+use super::{
+    AecFact, FilteredVote, ReceivedVote, VoteApplier, VoteProcessorQueue,
+    vote_signature_cache::{SignatureValidation, VoteSignatureCache},
+};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct VoteProcessorConfig {
@@ -52,6 +55,7 @@ pub struct VoteProcessor {
     stats: Arc<Stats>,
     pub total_processed: AtomicU64,
     cool_down: AtomicBool,
+    signature_cache: VoteSignatureCache,
 }
 
 impl VoteProcessor {
@@ -67,6 +71,7 @@ impl VoteProcessor {
             threads: Mutex::new(Vec::new()),
             total_processed: AtomicU64::new(0),
             cool_down: AtomicBool::new(false),
+            signature_cache: VoteSignatureCache::new(32 * 1024),
         }
     }
 
@@ -147,7 +152,15 @@ impl VoteProcessor {
         // A replayed vote comes from the vote cache, which holds only votes that
         // passed this check already: the hash over all its blocks and the
         // signature check are not repeated for every election it is replayed to
-        let validated = vote.delivery == VoteDelivery::Replayed || vote.validate().is_ok();
+        let validated = vote.delivery == VoteDelivery::Replayed
+            || match self.signature_cache.validate(vote) {
+                SignatureValidation::Cached => {
+                    self.stats.inc(StatType::VoteProcessor, DetailType::Cache);
+                    true
+                }
+                SignatureValidation::Verified => true,
+                SignatureValidation::Invalid => false,
+            };
         if validated {
             let vote_results = self.vote_applier.vote(vote);
             result = aggregate_vote_results(&vote_results);
