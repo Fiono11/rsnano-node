@@ -59,7 +59,11 @@ mod asc_pull_ack;
 pub use asc_pull_ack::*;
 
 #[cfg(feature = "rai_protocol")]
+mod evidence_req;
+#[cfg(feature = "rai_protocol")]
 mod report;
+#[cfg(feature = "rai_protocol")]
+pub use evidence_req::*;
 #[cfg(feature = "rai_protocol")]
 pub use report::*;
 

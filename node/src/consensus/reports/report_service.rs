@@ -5,14 +5,15 @@ use std::{
 };
 
 use rsnano_messages::{
-    ConfirmAck, LedgerSketchReply, LedgerSketchReq, Message, Publish, ReconReply, ReconReq, Report,
+    ConfirmAck, EvidenceReq, LedgerSketchReply, LedgerSketchReq, Message, Publish, ReconReply,
+    ReconReq, Report,
 };
 use rsnano_network::{Channel, TrafficType};
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_types::{ConsensusEpoch, PublicKey};
 use rsnano_utils::stats::{DetailType, Direction, StatType, Stats};
 
-use super::{ReconRefusal, ReconcileResult, ReportExchange, ReportMessage};
+use super::{CertificateSource, ReconRefusal, ReconcileResult, ReportExchange, ReportMessage};
 use crate::{
     consensus::{AecService, EpochReport},
     transport::{MessageFlooder, MessageSender},
@@ -42,6 +43,9 @@ pub struct ReportService {
     pending: Mutex<HashMap<ConsensusEpoch, Arc<EpochReport>>>,
     source_refreshed: Mutex<HashMap<ConsensusEpoch, Timestamp>>,
     votes_repeated: Mutex<Option<Timestamp>>,
+    /// When the signed votes behind unjustified entries were last asked
+    /// for, per epoch
+    evidence_requested: Mutex<HashMap<ConsensusEpoch, Timestamp>>,
     data: super::residual_data::ResidualData,
 }
 
@@ -72,6 +76,7 @@ impl ReportService {
             pending: Mutex::new(HashMap::new()),
             source_refreshed: Mutex::new(HashMap::new()),
             votes_repeated: Mutex::new(None),
+            evidence_requested: Mutex::new(HashMap::new()),
         }
     }
 
@@ -113,6 +118,7 @@ impl ReportService {
                 "received": held.theirs.values().map(|r| serde_json::json!({
                     "reporter": r.report.reporter, "target": r.report.certified,
                     "reconstructed": r.reconstructed.is_some(), "complete": r.is_complete(),
+                    "usable": r.is_usable(), "evidence": format!("{:?}", r.evidence),
                     "expected_residual_root": r.report.residual,
                     "residual_evidence": r.residual.as_ref().or(r.working.as_ref()).map(&residual)
                 })).collect::<Vec<_>>()
@@ -379,6 +385,134 @@ impl ReportService {
         // cannot authenticate vote-kind metadata supplied by a sketch.
     }
 
+    /// RAI, "Reconstructing a report": "an entry tagged N must have a valid
+    /// NC, an entry tagged F must have an explicit valid finality proof".
+    /// Check the memberships of a reconstructed report against the
+    /// certificates assembled here from retained signed votes, and collect
+    /// the hashes whose votes are missing so that they can be asked for.
+    fn verify_evidence(
+        &self,
+        epoch: ConsensusEpoch,
+        reporter: PublicKey,
+        missing: &mut Vec<rsnano_types::BlockHash>,
+    ) {
+        let now = self.clock.now();
+        let Some(hashes) = self
+            .exchange
+            .lock()
+            .unwrap()
+            .evidence_to_check(epoch, &reporter, now)
+        else {
+            return;
+        };
+        // The certificates are assembled outside the exchange lock: an epoch
+        // and the one before it, for finality exposed late
+        let mut kinds: HashMap<
+            (ConsensusEpoch, rsnano_types::BlockHash),
+            crate::consensus::election::CertificateKinds,
+        > = HashMap::new();
+        let mut epochs = vec![epoch];
+        if let Some(before) = epoch.as_u64().checked_sub(1) {
+            epochs.push(ConsensusEpoch::new(before));
+        }
+        for vote_epoch in epochs {
+            for (hash, kind) in self.active_elections.certificate_kinds(vote_epoch, &hashes) {
+                kinds.insert((vote_epoch, hash), kind);
+            }
+        }
+        let checked = hashes.len();
+        let result = self.exchange.lock().unwrap().verify_evidence(
+            epoch,
+            &reporter,
+            &kinds as &dyn CertificateSource,
+            now,
+        );
+        let Some(unjustified) = result else {
+            return;
+        };
+        if checked > 0 && self.log_due(epoch, false) {
+            crate::utils::diagnostic!(
+                "EPOCH_EVIDENCE epoch={} reporter={} checked={} missing={}",
+                epoch,
+                reporter,
+                checked,
+                unjustified.len()
+            );
+        }
+        missing.extend(unjustified);
+    }
+
+    /// RAI: ask every replica for the retained signed votes behind the
+    /// entries this node can not justify, at most once a second per epoch
+    /// and a bounded number of hashes at a time
+    fn request_evidence(&self, epoch: ConsensusEpoch, mut missing: Vec<rsnano_types::BlockHash>) {
+        if missing.is_empty() {
+            return;
+        }
+        let now = self.clock.now();
+        {
+            let mut requested = self.evidence_requested.lock().unwrap();
+            if requested
+                .get(&epoch)
+                .is_some_and(|last| last.elapsed(now) < ReportExchange::REPEAT_INTERVAL)
+            {
+                return;
+            }
+            requested.insert(epoch, now);
+        }
+        missing.sort();
+        missing.dedup();
+        missing.truncate(EvidenceReq::MAX_HASHES);
+        self.stats
+            .inc_dir(StatType::Message, DetailType::EvidenceReq, Direction::Out);
+        self.flooder.lock().unwrap().flood_prs_and_some_non_prs(
+            &Message::EvidenceReq(EvidenceReq {
+                epoch,
+                hashes: missing,
+            }),
+            TrafficType::Generic,
+            1.0,
+        );
+    }
+
+    /// RAI: relay the original signed vote batches this node retains for the
+    /// hashes asked for, in the epoch named and the one before it, as
+    /// certificate evidence. Only signed votes are relayed; the requester
+    /// assembles its certificates and verifies every signature itself.
+    pub fn handle_evidence_request(&self, request: EvidenceReq, channel: &Arc<Channel>) {
+        self.stats
+            .inc_dir(StatType::Message, DetailType::EvidenceReq, Direction::In);
+        let mut epochs = vec![request.epoch];
+        if let Some(before) = request.epoch.as_u64().checked_sub(1) {
+            epochs.push(ConsensusEpoch::new(before));
+        }
+        let mut sent = 0;
+        for epoch in epochs {
+            let votes = self
+                .active_elections
+                .signed_votes_for_hashes(epoch, &request.hashes);
+            let mut sender = self.sender.lock().unwrap();
+            for vote in votes {
+                sender.try_send(
+                    channel,
+                    &Message::ConfirmAck(ConfirmAck::new_with_certificate_evidence(
+                        (*vote).clone(),
+                    )),
+                    TrafficType::Vote,
+                );
+                sent += 1;
+            }
+        }
+        if self.log_due(request.epoch, true) {
+            crate::utils::diagnostic!(
+                "EPOCH_EVIDENCE_SERVED epoch={} hashes={} batches={}",
+                request.epoch,
+                request.hashes.len(),
+                sent
+            );
+        }
+    }
+
     /// RAI, "Reconstructing a report": a sketch of a requester's tagged
     /// ledger set. This node answers if it holds the target, with the pages
     /// of the difference peeled out of the sketch.
@@ -571,10 +705,13 @@ impl ReportService {
             }
             let live = self.active_elections.epoch_certified(epoch);
             self.exchange.lock().unwrap().refresh_live(epoch, live);
+            let mut missing = Vec::new();
             for reporter in reporters {
                 self.reconcile(epoch, reporter);
                 self.derive_residual(epoch, reporter);
+                self.verify_evidence(epoch, reporter, &mut missing);
             }
+            self.request_evidence(epoch, missing);
         }
     }
 

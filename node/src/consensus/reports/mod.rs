@@ -1,6 +1,7 @@
 mod checkpoint;
 mod close_proof;
 mod epoch_decision;
+mod ledger_evidence;
 mod report_plugin;
 mod report_service;
 mod residual_data;
@@ -22,6 +23,8 @@ use crate::consensus::election::{
     Certification, CertifiedBlock, CertifiedState, CertifiedStatus, ReportCommitment, ResidualKind,
     ResidualVotes, Sketch, SketchCell,
 };
+pub(crate) use ledger_evidence::CertificateSource;
+use ledger_evidence::unjustified_entries;
 
 /// RAI, "Reports that remain reconstructible": the reports of one run.
 ///
@@ -85,6 +88,11 @@ struct TheirReport {
     /// The state reconstructed for the signed root, once a difference has
     /// rebuilt it
     reconstructed: Option<CertifiedState>,
+    /// RAI, "Reconstructing a report": whether every N and F membership of
+    /// the reconstructed state is justified by a certificate assembled here
+    /// from retained signed votes, or by the verified predecessor. Hash
+    /// equality authenticates the tag; it does not prove the quorum.
+    evidence: EvidenceState,
     transfer: Option<ReconTransfer>,
     /// RAI: the residual object `g_i` commits to, once derived from the
     /// reporter's votes held here and checked against the signed root. A
@@ -105,6 +113,21 @@ struct TheirReport {
     /// Cells in the sketch sent for it; grows while the difference does not
     /// peel out
     cells: usize,
+}
+
+/// RAI: how far the N/F memberships of a reconstructed report are justified
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum EvidenceState {
+    /// Not checked yet, or the predecessor was not known when it was tried
+    Unchecked,
+    /// Checked; these entries lack their certificate here. Their signed
+    /// votes are asked for and the check is repeated.
+    Missing {
+        hashes: Vec<BlockHash>,
+        checked: Timestamp,
+    },
+    /// Every N and F entry has its certificate or inherited justification
+    Verified,
 }
 
 /// One bounded transfer per report. Partial pages are never usable evidence.
@@ -128,6 +151,11 @@ impl TheirReport {
     /// certificate, which is what `Include_Q` and `A_Q` rest on.
     fn is_complete(&self) -> bool {
         self.reconstructed.is_some() && self.residual.is_some()
+    }
+
+    /// Usable: both roots reconstructed and every membership justified
+    fn is_usable(&self) -> bool {
+        self.is_complete() && self.evidence == EvidenceState::Verified
     }
 }
 
@@ -382,7 +410,7 @@ impl ReportExchange {
             return None;
         }
         let state = their.reconstructed.as_ref()?;
-        if !held.valid_recovery(&their.report, state) {
+        if !held.valid_recovery(&their.report, state) || !their.is_usable() {
             return None;
         }
         let votes = their.residual.as_ref()?;
@@ -406,13 +434,17 @@ impl ReportExchange {
                 held.residuals.get(&report.residual)?,
             ))
         });
-        let theirs = held.theirs.values().filter_map(|their| {
-            Some((
-                &their.report,
-                their.reconstructed.as_ref()?,
-                their.residual.as_ref()?,
-            ))
-        });
+        let theirs = held
+            .theirs
+            .values()
+            .filter(|their| their.is_usable())
+            .filter_map(|their| {
+                Some((
+                    &their.report,
+                    their.reconstructed.as_ref()?,
+                    their.residual.as_ref()?,
+                ))
+            });
         own.chain(theirs)
             .filter(|(report, state, votes)| {
                 held.valid_recovery(report, state) && votes.first_evidence_complete()
@@ -452,6 +484,7 @@ impl ReportExchange {
                 asked: None,
                 first_asked: None,
                 reconstructed: None,
+                evidence: EvidenceState::Unchecked,
                 transfer: None,
                 residual,
                 derived: None,
@@ -462,6 +495,67 @@ impl ReportExchange {
             },
         );
         true
+    }
+
+    /// RAI: the tagged entries of a reconstructed report whose certificates
+    /// are still to be checked here: every N and F entry the first time, the
+    /// ones found missing afterwards, at most once per `RETRY_INTERVAL`. None
+    /// while there is nothing to check or the report is verified.
+    pub fn evidence_to_check(
+        &self,
+        epoch: ConsensusEpoch,
+        reporter: &PublicKey,
+        now: Timestamp,
+    ) -> Option<Vec<BlockHash>> {
+        let held = self.epochs.get(&epoch)?;
+        let their = held.theirs.get(reporter)?;
+        let state = their.reconstructed.as_ref()?;
+        match &their.evidence {
+            EvidenceState::Verified => None,
+            EvidenceState::Unchecked => Some(
+                state
+                    .entries()
+                    .filter(|(_, entry)| entry.status != CertifiedStatus::Recovery)
+                    .map(|(block, _)| block.hash)
+                    .collect(),
+            ),
+            EvidenceState::Missing { hashes, checked } => {
+                (checked.elapsed(now) >= Self::RETRY_INTERVAL).then(|| hashes.clone())
+            }
+        }
+    }
+
+    /// RAI, "Reconstructing a report": check every N and F membership of a
+    /// reconstructed report against the certificates the caller assembled
+    /// from retained signed votes and against the verified predecessor. The
+    /// report becomes usable only when nothing is missing; what is missing
+    /// is returned so that its votes can be asked for. None while the
+    /// predecessor is not known here: inherited finality can not be told
+    /// from an unjustified tag without it.
+    pub fn verify_evidence(
+        &mut self,
+        epoch: ConsensusEpoch,
+        reporter: &PublicKey,
+        certificates: &dyn CertificateSource,
+        now: Timestamp,
+    ) -> Option<Vec<BlockHash>> {
+        let held = self.epochs.get_mut(&epoch)?;
+        let (_, predecessor) = held.predecessor.as_ref()?;
+        let their = held.theirs.get_mut(reporter)?;
+        if their.evidence == EvidenceState::Verified {
+            return Some(Vec::new());
+        }
+        let state = their.reconstructed.as_ref()?;
+        let missing = unjustified_entries(epoch, state, predecessor, certificates);
+        their.evidence = if missing.is_empty() {
+            EvidenceState::Verified
+        } else {
+            EvidenceState::Missing {
+                hashes: missing.clone(),
+                checked: now,
+            }
+        };
+        Some(missing)
     }
 
     /// RAI: whether the report's residual object is still to be derived:
@@ -1128,14 +1222,116 @@ mod tests {
                 .unwrap()
                 .complete
         );
-        assert!(theirs_usable(&exchange, epoch).is_empty());
+        assert!(theirs_usable(&mut exchange, epoch).is_empty());
         assert!(
             exchange
                 .derive_residual(epoch, key.public_key(), g.entries(), later())
                 .unwrap()
                 .complete
         );
-        assert_eq!(theirs_usable(&exchange, epoch).len(), 1);
+        assert_eq!(theirs_usable(&mut exchange, epoch).len(), 1);
+    }
+
+    /// RAI, "Reconstructing a report": a reconstructed root authenticates
+    /// the tags, not the quorums behind them. A report is usable only once
+    /// every N and F entry has its certificate here, and what is missing is
+    /// what the exchange asks the votes for.
+    #[test]
+    fn a_reconstructed_report_is_not_usable_until_its_certificates_are_justified() {
+        use crate::consensus::election::CertificateKinds;
+        let epoch = ConsensusEpoch::ZERO;
+        let key = PrivateKey::from(1);
+        let mut frozen = state_of(0..3);
+        frozen.certify(block(2), parent(2), CertifiedStatus::Finalized);
+        let mut ours = ReportExchange::new();
+        ours.report_epoch(
+            epoch,
+            frozen.clone(),
+            ResidualVotes::new(),
+            BlockHash::from(7),
+            BlockHash::ZERO,
+            &[PrivateKey::from(2)],
+        );
+        assert!(ours.handle_report(signed(&key, epoch, &frozen)));
+        // Nothing to check before the state is reconstructed
+        assert!(
+            ours.evidence_to_check(epoch, &key.public_key(), later())
+                .is_none()
+        );
+        ours.reconcile(epoch, key.public_key(), later()).unwrap();
+        let mut to_check = ours
+            .evidence_to_check(epoch, &key.public_key(), later())
+            .unwrap();
+        to_check.sort();
+        let mut expected: Vec<_> = (0..3).map(|i| block(i).hash).collect();
+        expected.sort();
+        assert_eq!(to_check, expected);
+        // Without the predecessor nothing can be verified
+        assert!(
+            ours.verify_evidence(epoch, &key.public_key(), &AllCertified, later())
+                .is_none()
+        );
+        let genesis = crate::consensus::election::EpochLedger::new();
+        ours.set_predecessor(epoch, std::sync::Arc::new(genesis));
+        // Reconstructed, but not usable: no certificate is assembled here
+        let none: HashMap<(ConsensusEpoch, BlockHash), CertificateKinds> = HashMap::new();
+        let checked = later();
+        let missing = ours
+            .verify_evidence(epoch, &key.public_key(), &none, checked)
+            .unwrap();
+        assert_eq!(missing.len(), 3);
+        assert_eq!(ours.usable(epoch).len(), 1, "own report only");
+        assert!(
+            ours.evidence_to_check(epoch, &key.public_key(), checked)
+                .is_none(),
+            "not rechecked before the retry interval"
+        );
+        assert_eq!(
+            ours.evidence_to_check(epoch, &key.public_key(), later())
+                .unwrap()
+                .len(),
+            3
+        );
+        // The votes arrive for two of them: the third is still missing
+        let nc_only = CertificateKinds {
+            nc: true,
+            fc: false,
+            ff: false,
+        };
+        let mut some = HashMap::new();
+        for i in 0..2 {
+            some.insert((epoch, block(i).hash), nc_only);
+        }
+        let missing = ours
+            .verify_evidence(epoch, &key.public_key(), &some, later())
+            .unwrap();
+        assert_eq!(missing, vec![block(2).hash]);
+        assert_eq!(ours.usable(epoch).len(), 1);
+        // An NC does not justify F; a final certificate does
+        some.insert((epoch, block(2).hash), nc_only);
+        assert_eq!(
+            ours.verify_evidence(epoch, &key.public_key(), &some, later())
+                .unwrap(),
+            vec![block(2).hash]
+        );
+        some.insert(
+            (epoch, block(2).hash),
+            CertificateKinds {
+                nc: true,
+                fc: true,
+                ff: false,
+            },
+        );
+        assert!(
+            ours.verify_evidence(epoch, &key.public_key(), &some, later())
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(ours.usable(epoch).len(), 2);
+        assert!(
+            ours.evidence_to_check(epoch, &key.public_key(), later())
+                .is_none()
+        );
     }
 
     #[test]
@@ -1244,7 +1440,7 @@ mod tests {
         let result = result.expect("complete at once");
         assert!(result.complete);
         assert_eq!(result.entries, 0);
-        assert_eq!(theirs_usable(&ours, epoch).len(), 1);
+        assert_eq!(theirs_usable(&mut ours, epoch).len(), 1);
         // And it is not reconciled twice
         assert!(ours.reconcile(epoch, key.public_key(), later()).is_none());
     }
@@ -1293,7 +1489,7 @@ mod tests {
         assert!(result.complete);
         assert_eq!(result.entries, 5);
         assert_eq!(result.total, 40);
-        let usable = theirs_usable(&ours, epoch);
+        let usable = theirs_usable(&mut ours, epoch);
         assert_eq!(usable.len(), 1);
         assert_eq!(usable[0].0, theirs.root());
     }
@@ -1339,7 +1535,7 @@ mod tests {
 
         assert!(ours.handle_reply(&reply).unwrap().complete);
         assert_eq!(
-            theirs_usable(&ours, epoch),
+            theirs_usable(&mut ours, epoch),
             vec![(theirs.root(), ResidualVotes::new().root())]
         );
     }
@@ -1494,7 +1690,7 @@ mod tests {
         };
         let result = ours.handle_reply(&reply).unwrap();
         assert!(!result.complete);
-        assert!(theirs_usable(&ours, epoch).is_empty());
+        assert!(theirs_usable(&mut ours, epoch).is_empty());
         // The request is repeated until an answer reaches the root
         assert!(
             !request_of(&mut ours, epoch, key.public_key())
@@ -1538,15 +1734,15 @@ mod tests {
         assert!(!receiver.handle_reply(&pages[2]).unwrap().complete);
         assert!(!receiver.handle_reply(&pages[2]).unwrap().complete);
         assert!(!receiver.handle_reply(&pages[0]).unwrap().complete);
-        assert!(theirs_usable(&receiver, epoch).is_empty());
+        assert!(theirs_usable(&mut receiver, epoch).is_empty());
         let mut corrupted = pages[1].clone();
         corrupted.removed[0].hash = BlockHash::from(999999);
         assert!(!receiver.handle_reply(&corrupted).unwrap().complete);
-        assert!(theirs_usable(&receiver, epoch).is_empty());
+        assert!(theirs_usable(&mut receiver, epoch).is_empty());
         for page in &pages {
             receiver.handle_reply(page);
         }
-        assert_eq!(theirs_usable(&receiver, epoch).len(), 1);
+        assert_eq!(theirs_usable(&mut receiver, epoch).len(), 1);
         assert_eq!(
             receiver.epochs[&epoch].theirs[&key.public_key()]
                 .reconstructed
@@ -1621,7 +1817,7 @@ mod tests {
         assert_eq!(reply.added.len(), 1);
         assert_eq!(reply.removed.len(), 1);
         assert!(ours.handle_reply(&reply).unwrap().complete);
-        assert_eq!(theirs_usable(&ours, epoch).len(), 2);
+        assert_eq!(theirs_usable(&mut ours, epoch).len(), 2);
     }
 
     /// RAI: "A report is usable only after reconstructing T_i and G_i". The
@@ -1676,7 +1872,7 @@ mod tests {
         let (messages, result) = ours.reconcile(epoch, key.public_key(), later()).unwrap();
         assert!(messages.is_empty());
         assert!(!result.expect("the state matched").complete);
-        assert!(theirs_usable(&ours, epoch).is_empty());
+        assert!(theirs_usable(&mut ours, epoch).is_empty());
         let start = later();
         assert!(ours.needs_residual(epoch, &key.public_key(), start));
 
@@ -1686,7 +1882,7 @@ mod tests {
             .unwrap();
         assert!(!short.complete);
         assert_eq!(short.total, 1);
-        assert!(theirs_usable(&ours, epoch).is_empty());
+        assert!(theirs_usable(&mut ours, epoch).is_empty());
         assert!(!ours.needs_residual(epoch, &key.public_key(), start));
         assert!(ours.needs_residual(
             epoch,
@@ -1702,7 +1898,7 @@ mod tests {
             .unwrap();
         assert!(done.complete);
         assert_eq!(done.total, 2);
-        let usable = theirs_usable(&ours, epoch);
+        let usable = theirs_usable(&mut ours, epoch);
         assert_eq!(usable, vec![(theirs.root(), residual.root())]);
         assert!(!ours.needs_residual(epoch, &key.public_key(), later()));
         assert!(
@@ -1763,7 +1959,7 @@ mod tests {
             reporter.handle_request_pages(request),
             Err(ReconRefusal::UnknownSource)
         );
-        assert!(theirs_usable(&ours, epoch).is_empty());
+        assert!(theirs_usable(&mut ours, epoch).is_empty());
 
         // The retry adds a sketch of the live state
         let (messages, _) = ours.reconcile(epoch, key.public_key(), later()).unwrap();
@@ -1790,7 +1986,7 @@ mod tests {
         assert_eq!(done.entries, 6);
         assert_eq!(done.total, 12);
         assert_eq!(
-            theirs_usable(&ours, epoch),
+            theirs_usable(&mut ours, epoch),
             vec![(frozen.root(), ResidualVotes::new().root())]
         );
         // And this node serves the state it reconstructed in turn
@@ -1867,7 +2063,7 @@ mod tests {
             break;
         }
         assert!(rounds > 1);
-        assert_eq!(theirs_usable(&ours, epoch).len(), 1);
+        assert_eq!(theirs_usable(&mut ours, epoch).len(), 1);
     }
 
     /// A reply naming a snapshot this node no longer sketches is ignored,
@@ -1927,7 +2123,7 @@ mod tests {
                 .unwrap()
                 .complete
         );
-        assert!(theirs_usable(&ours, epoch).is_empty());
+        assert!(theirs_usable(&mut ours, epoch).is_empty());
         // The untampered pages still do
         let replies = reporter.handle_ledger_sketch(&sketch).unwrap();
         assert!(
@@ -1949,7 +2145,7 @@ mod tests {
                 .unwrap()
                 .complete
         );
-        assert_eq!(theirs_usable(&ours, epoch).len(), 1);
+        assert_eq!(theirs_usable(&mut ours, epoch).len(), 1);
     }
 
     /// The derivation waits for the certified state: without it, what the
@@ -2004,7 +2200,7 @@ mod tests {
         let (messages, result) = ours.reconcile(epoch, key.public_key(), later()).unwrap();
         assert!(messages.is_empty());
         assert!(result.unwrap().complete);
-        assert_eq!(theirs_usable(&ours, epoch).len(), 1);
+        assert_eq!(theirs_usable(&mut ours, epoch).len(), 1);
     }
 
     /// RAI: a proposal selects `N - f` reports from distinct old-committee
@@ -2217,7 +2413,7 @@ mod tests {
     /// usable by construction and are left out here so that the tests count
     /// what a reconciliation achieved
     fn theirs_usable(
-        exchange: &ReportExchange,
+        exchange: &mut ReportExchange,
         epoch: ConsensusEpoch,
     ) -> Vec<(BlockHash, BlockHash)> {
         let own: Vec<PublicKey> = exchange
@@ -2225,12 +2421,46 @@ mod tests {
             .get(&epoch)
             .map(|held| held.signed.iter().map(|report| report.reporter).collect())
             .unwrap_or_default();
+        // The exchange tests exercise reconstruction; every certificate is
+        // taken as assembled, and the predecessor as the empty genesis
+        let reporters: Vec<PublicKey> = exchange
+            .epochs
+            .get(&epoch)
+            .map(|held| held.theirs.keys().copied().collect())
+            .unwrap_or_default();
+        if let Some(held) = exchange.epochs.get_mut(&epoch) {
+            held.predecessor.get_or_insert_with(|| {
+                let genesis = crate::consensus::election::EpochLedger::new();
+                (genesis.state_hash(), std::sync::Arc::new(genesis))
+            });
+        }
+        for reporter in reporters {
+            exchange.verify_evidence(epoch, &reporter, &AllCertified, later());
+        }
         exchange
             .usable(epoch)
             .into_iter()
             .filter(|(report, _, _)| !own.contains(&report.reporter))
             .map(|(_, certified, residual)| (certified.root(), residual.root()))
             .collect()
+    }
+
+    /// Every certificate assembled: the exchange tests are about
+    /// reconstruction, not about the votes behind the tags
+    struct AllCertified;
+
+    impl CertificateSource for AllCertified {
+        fn kinds(
+            &self,
+            _: ConsensusEpoch,
+            _: &BlockHash,
+        ) -> crate::consensus::election::CertificateKinds {
+            crate::consensus::election::CertificateKinds {
+                nc: true,
+                fc: true,
+                ff: true,
+            }
+        }
     }
 
     /// A time later than any handed out before: every call to the exchange

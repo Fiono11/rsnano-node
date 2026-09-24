@@ -148,6 +148,7 @@ pub enum DetailType {
     LedgerSketchReq,
     LedgerSketchReply,
     CloseProofReq,
+    EvidenceReq,
     CloseProofReply,
     CheckpointReq,
     CheckpointReply,

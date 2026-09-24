@@ -56,6 +56,9 @@ pub enum MessageType {
     CloseProofReply = 0x1a,
     #[cfg(feature = "rai_protocol")]
     CloseProofReq = 0x19,
+    /// RAI: a request for the retained signed votes behind tagged entries
+    #[cfg(feature = "rai_protocol")]
+    EvidenceReq = 0x1d,
     /// RAI: the sketch-based authenticated difference towards a frozen T root
     #[cfg(feature = "rai_protocol")]
     LedgerSketchReq = 0x17,
@@ -98,6 +101,8 @@ impl MessageType {
             #[cfg(feature = "rai_protocol")]
             MessageType::CloseProofReq => "closeproofreq",
             #[cfg(feature = "rai_protocol")]
+            MessageType::EvidenceReq => "evidence_req",
+            #[cfg(feature = "rai_protocol")]
             MessageType::LedgerSketchReq => "ledger_sketch_req",
             #[cfg(feature = "rai_protocol")]
             MessageType::LedgerSketchReply => "ledger_sketch_ack",
@@ -115,7 +120,7 @@ impl MessageType {
     pub const fn max_id() -> usize {
         #[cfg(feature = "rai_protocol")]
         {
-            Self::CheckpointReply as usize
+            Self::EvidenceReq as usize
         }
         #[cfg(all(not(feature = "rai_protocol"), feature = "ledger_snapshots"))]
         {
@@ -258,6 +263,8 @@ impl MessageHeader {
             #[cfg(feature = "rai_protocol")]
             MessageType::CloseProofReq => CloseProofReq::serialized_size(self.extensions),
             #[cfg(feature = "rai_protocol")]
+            MessageType::EvidenceReq => EvidenceReq::serialized_size(self.extensions),
+            #[cfg(feature = "rai_protocol")]
             MessageType::LedgerSketchReq => LedgerSketchReq::serialized_size(self.extensions),
             #[cfg(feature = "rai_protocol")]
             MessageType::LedgerSketchReply => LedgerSketchReply::serialized_size(self.extensions),
@@ -342,6 +349,8 @@ impl From<MessageType> for DetailType {
             MessageType::CloseProofReply => DetailType::CloseProofReply,
             #[cfg(feature = "rai_protocol")]
             MessageType::CloseProofReq => DetailType::CloseProofReq,
+            #[cfg(feature = "rai_protocol")]
+            MessageType::EvidenceReq => DetailType::EvidenceReq,
             #[cfg(feature = "rai_protocol")]
             MessageType::LedgerSketchReq => DetailType::LedgerSketchReq,
             #[cfg(feature = "rai_protocol")]

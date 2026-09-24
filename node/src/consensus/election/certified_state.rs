@@ -42,6 +42,16 @@ impl CertifiedStatus {
     }
 }
 
+/// RAI: the certificates a validator can assemble for one block from the
+/// signed votes it retains: a notarization certificate, a normal final
+/// certificate, a fast final certificate
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CertificateKinds {
+    pub nc: bool,
+    pub fc: bool,
+    pub ff: bool,
+}
+
 /// A block of the certified tree: where it sits and which block it is
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct CertifiedBlock {

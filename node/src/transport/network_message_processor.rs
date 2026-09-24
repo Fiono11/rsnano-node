@@ -246,6 +246,8 @@ impl NetworkMessageProcessor {
             #[cfg(feature = "rai_protocol")]
             Message::CloseProofReply(proof) => self.epoch_decision.handle_close_proof(proof),
             #[cfg(feature = "rai_protocol")]
+            Message::EvidenceReq(request) => self.reports.handle_evidence_request(request, channel),
+            #[cfg(feature = "rai_protocol")]
             Message::LedgerSketchReq(request) => {
                 self.reports.handle_ledger_sketch(request, channel)
             }

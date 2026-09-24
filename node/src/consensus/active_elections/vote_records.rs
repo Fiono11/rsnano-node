@@ -1,11 +1,21 @@
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     sync::Arc,
 };
 
 use rsnano_types::{BlockHash, ConsensusEpoch, PublicKey, Vote, VoteKind};
 
 use crate::consensus::election::{CertifiedBlock, ResidualKind};
+
+/// RAI: the identities whose signed votes of one kind this node retains for
+/// one block in one epoch. Each identity counts once per kind; a certificate
+/// is assembled from these against the committee of the epoch.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct HashSupport {
+    pub first: BTreeSet<PublicKey>,
+    pub notar: BTreeSet<PublicKey>,
+    pub final_: BTreeSet<PublicKey>,
+}
 
 /// RAI, "Reports that remain reconstructible": the votes this node received,
 /// by epoch and voter. A reporter's residual object is its own votes that
@@ -24,6 +34,9 @@ pub(crate) struct VoteRecords {
         ConsensusEpoch,
         HashMap<PublicKey, BTreeMap<(BlockHash, ResidualKind), Arc<Vote>>>,
     >,
+    /// The identities behind every retained signed vote, by epoch and block:
+    /// what a tagged N or F entry of a report is checked against
+    support: BTreeMap<ConsensusEpoch, HashMap<BlockHash, HashSupport>>,
 }
 
 impl VoteRecords {
@@ -46,9 +59,49 @@ impl VoteRecords {
             .or_default()
             .entry(vote.voter)
             .or_default();
+        let support = self.support.entry(vote.epoch).or_default();
         for hash in &vote.hashes {
             held.entry((*hash, kind)).or_insert_with(|| vote.clone());
+            let identities = support.entry(*hash).or_default();
+            match kind {
+                ResidualKind::First => identities.first.insert(vote.voter),
+                ResidualKind::Notar => identities.notar.insert(vote.voter),
+                ResidualKind::Final => identities.final_.insert(vote.voter),
+            };
         }
+    }
+
+    /// The identities whose signed votes this node retains for a block in
+    /// an epoch, if any
+    pub fn support(&self, epoch: ConsensusEpoch, hash: &BlockHash) -> Option<&HashSupport> {
+        self.support.get(&epoch)?.get(hash)
+    }
+
+    /// Every retained signed batch of any voter covering one of the hashes
+    /// in the epoch: what is relayed to a replica that can not justify a
+    /// tagged entry from the votes it holds
+    pub fn signed_for_hashes(&self, epoch: ConsensusEpoch, hashes: &[BlockHash]) -> Vec<Arc<Vote>> {
+        let Some(voters) = self.signed.get(&epoch) else {
+            return Vec::new();
+        };
+        let mut seen = HashSet::new();
+        let mut result = Vec::new();
+        for held in voters.values() {
+            for hash in hashes {
+                for kind in [
+                    ResidualKind::First,
+                    ResidualKind::Notar,
+                    ResidualKind::Final,
+                ] {
+                    if let Some(vote) = held.get(&(*hash, kind))
+                        && seen.insert(Arc::as_ptr(vote) as usize)
+                    {
+                        result.push(vote.clone());
+                    }
+                }
+            }
+        }
+        result
     }
 
     pub fn signed_for(
@@ -160,6 +213,7 @@ impl VoteRecords {
     /// Drops the epochs before the given one
     pub fn trim_before(&mut self, epoch: ConsensusEpoch) {
         self.signed.retain(|held, _| *held >= epoch);
+        self.support.retain(|held, _| *held >= epoch);
         while let Some(oldest) = self.by_epoch.keys().next().copied() {
             if oldest >= epoch {
                 break;

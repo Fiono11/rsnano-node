@@ -37,6 +37,9 @@ pub enum Message {
     CloseProofReply(CloseProofReply),
     #[cfg(feature = "rai_protocol")]
     CloseProofReq(CloseProofReq),
+    /// RAI: a request for the retained signed votes behind tagged entries
+    #[cfg(feature = "rai_protocol")]
+    EvidenceReq(EvidenceReq),
     /// RAI: the sketch-based authenticated difference towards a frozen T root
     #[cfg(feature = "rai_protocol")]
     LedgerSketchReq(LedgerSketchReq),
@@ -138,6 +141,8 @@ impl From<&ParseMessageError> for DetailType {
             #[cfg(feature = "rai_protocol")]
             ParseMessageError::InvalidMessage(MessageType::CloseProofReq) => Self::CloseProofReq,
             #[cfg(feature = "rai_protocol")]
+            ParseMessageError::InvalidMessage(MessageType::EvidenceReq) => Self::EvidenceReq,
+            #[cfg(feature = "rai_protocol")]
             ParseMessageError::InvalidMessage(MessageType::LedgerSketchReq) => {
                 Self::LedgerSketchReq
             }
@@ -211,6 +216,8 @@ impl Message {
             #[cfg(feature = "rai_protocol")]
             Message::CloseProofReq(_) => MessageType::CloseProofReq,
             #[cfg(feature = "rai_protocol")]
+            Message::EvidenceReq(_) => MessageType::EvidenceReq,
+            #[cfg(feature = "rai_protocol")]
             Message::LedgerSketchReq(_) => MessageType::LedgerSketchReq,
             #[cfg(feature = "rai_protocol")]
             Message::LedgerSketchReply(_) => MessageType::LedgerSketchReply,
@@ -259,6 +266,8 @@ impl Message {
             #[cfg(feature = "rai_protocol")]
             Message::CloseProofReq(x) => Some(x),
             #[cfg(feature = "rai_protocol")]
+            Message::EvidenceReq(x) => Some(x),
+            #[cfg(feature = "rai_protocol")]
             Message::LedgerSketchReq(x) => Some(x),
             #[cfg(feature = "rai_protocol")]
             Message::LedgerSketchReply(x) => Some(x),
@@ -306,6 +315,8 @@ impl Message {
             Message::CloseProofReply(m) => m.serialize(writer),
             #[cfg(feature = "rai_protocol")]
             Message::CloseProofReq(m) => m.serialize(writer),
+            #[cfg(feature = "rai_protocol")]
+            Message::EvidenceReq(m) => m.serialize(writer),
             #[cfg(feature = "rai_protocol")]
             Message::LedgerSketchReq(m) => m.serialize(writer),
             #[cfg(feature = "rai_protocol")]
@@ -378,6 +389,8 @@ impl Message {
             MessageType::CloseProofReq => {
                 Message::CloseProofReq(CloseProofReq::deserialize(payload)?)
             }
+            #[cfg(feature = "rai_protocol")]
+            MessageType::EvidenceReq => Message::EvidenceReq(EvidenceReq::deserialize(payload)?),
             #[cfg(feature = "rai_protocol")]
             MessageType::LedgerSketchReq => {
                 Message::LedgerSketchReq(LedgerSketchReq::deserialize(payload)?)

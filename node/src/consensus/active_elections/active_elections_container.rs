@@ -2514,6 +2514,56 @@ impl ActiveElectionsContainer {
         self.vote_records.signed_for(epoch, voter, hashes)
     }
 
+    /// RAI: every retained signed batch of any voter for these hashes in
+    /// the epoch: what is relayed to a replica that asked for evidence
+    #[cfg(feature = "rai_protocol")]
+    pub fn signed_votes_for_hashes(
+        &self,
+        epoch: ConsensusEpoch,
+        hashes: &[BlockHash],
+    ) -> Vec<Arc<rsnano_types::Vote>> {
+        self.vote_records.signed_for_hashes(epoch, hashes)
+    }
+
+    /// RAI: the certificates this node can assemble for each hash from the
+    /// signed votes it retains for the epoch, counted in the committee that
+    /// issued the epoch's votes. Nothing without a known committee.
+    #[cfg(feature = "rai_protocol")]
+    pub fn certificate_kinds(
+        &self,
+        epoch: ConsensusEpoch,
+        hashes: &[BlockHash],
+    ) -> Vec<(BlockHash, crate::consensus::election::CertificateKinds)> {
+        use crate::consensus::election::CertificateKinds;
+        let Some(committee) = self.committees.committee(epoch) else {
+            return Vec::new();
+        };
+        let thresholds = committee.thresholds();
+        let weight_of = |identities: &BTreeSet<PublicKey>| {
+            identities
+                .iter()
+                .fold(Amount::ZERO, |sum, id| sum + committee.weight(id))
+        };
+        hashes
+            .iter()
+            .map(|hash| {
+                let kinds = match self.vote_records.support(epoch, hash) {
+                    Some(support) => {
+                        let notarizing: BTreeSet<PublicKey> =
+                            support.first.union(&support.notar).copied().collect();
+                        CertificateKinds {
+                            nc: weight_of(&notarizing) >= thresholds.certificate,
+                            fc: weight_of(&support.final_) >= thresholds.certificate,
+                            ff: weight_of(&support.first) >= thresholds.fast,
+                        }
+                    }
+                    None => CertificateKinds::default(),
+                };
+                (*hash, kinds)
+            })
+            .collect()
+    }
+
     /// RAI: the votes of one voter received for one epoch, with the parent
     /// each voted block names
     pub fn vote_records_of(

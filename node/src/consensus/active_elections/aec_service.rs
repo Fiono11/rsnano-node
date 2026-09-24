@@ -395,6 +395,29 @@ impl AecService {
             .signed_votes_for(epoch, voter, hashes)
     }
 
+    #[cfg(feature = "rai_protocol")]
+    pub fn signed_votes_for_hashes(
+        &self,
+        epoch: ConsensusEpoch,
+        hashes: &[BlockHash],
+    ) -> Vec<std::sync::Arc<rsnano_types::Vote>> {
+        self.aec
+            .read()
+            .unwrap()
+            .signed_votes_for_hashes(epoch, hashes)
+    }
+
+    /// RAI: the certificates assembled here from retained signed votes, per
+    /// hash, for the votes of one epoch
+    #[cfg(feature = "rai_protocol")]
+    pub fn certificate_kinds(
+        &self,
+        epoch: ConsensusEpoch,
+        hashes: &[BlockHash],
+    ) -> Vec<(BlockHash, crate::consensus::election::CertificateKinds)> {
+        self.aec.read().unwrap().certificate_kinds(epoch, hashes)
+    }
+
     pub fn epoch_previous_state(
         &self,
         epoch: ConsensusEpoch,
