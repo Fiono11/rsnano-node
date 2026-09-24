@@ -175,7 +175,11 @@ impl RpcCommandHandler {
                     })).collect::<Vec<_>>()})
             });
             #[cfg(feature = "rai_protocol")]
-            let reports = self.node.reports.diagnostic_snapshot();
+            let reports = if args.checkpoint_only.is_some_and(|v| v.into()) {
+                serde_json::Value::Null
+            } else {
+                self.node.reports.diagnostic_snapshot()
+            };
             #[cfg(not(feature = "rai_protocol"))]
             let reports = serde_json::Value::Null;
             Some(

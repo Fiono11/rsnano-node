@@ -10,7 +10,7 @@ import signal
 import subprocess
 import time
 import urllib.request
-from run import occupied_ports, prune_run_data, sha256
+from run import occupied_ports, prune_run_data, sha256, stop_run_process_group
 
 
 def checkpoint_index(checkpoint):
@@ -78,6 +78,11 @@ def retain_terminal_witnesses(rows, witnesses):
     return result
 
 
+def installed_checkpoints_consistent(keys):
+    return (set(keys) == set(range(6)) and all(v is not None for v in keys.values())
+            and len(set(keys.values())) == 1)
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--node', type=Path, required=True)
@@ -100,7 +105,7 @@ def main():
                 'termination_rule': 'both branch hashes included or conflict-discarded on all six nodes with a common checkpoint',
                 'sampling': 'poll installed epoch/root ~2s plus RPC time; reuse contents only for matching roots; latency is an observation upper bound'}
     (args.out/'manifest.json').write_text(json.dumps(manifest, indent=2)+'\n')
-    started = time.time(); checkpoints = {}; seen_epochs = {}; publications = {}; generated = {}; checkpoint_cache = {}
+    started = time.time(); checkpoints = {}; seen_epochs = {}; publications = {}; generated = {}; checkpoint_cache = {}; latest_installed = {}
     first_terminal = {}; terminal_witnesses = {}; load_complete = False; position = 0; forced = False; sequence = 0
     result = {'kind': manifest['kind'], 'started': started, 'complete': False}
     with (d/'run.log').open('w') as log, (d/'observations.jsonl').open('w') as observations:
@@ -123,6 +128,11 @@ def main():
                     try:
                         state = rpc(node, {'action': 'epoch_locks'})
                         epoch = state.get('epoch')
+                        key = checkpoint_key(state)
+                        if latest_installed.get(node) != key:
+                            observations.write(json.dumps({'node': node, 'observed_unix_ms': int(time.time()*1000),
+                                                            'installed_epoch': epoch, 'installed_state_hash': state.get('state_hash')})+'\n'); observations.flush()
+                        latest_installed[node] = key
                         cached = cached_checkpoint(state, checkpoint_cache)
                         if cached is not None:
                             if checkpoints.get(node) is not cached:
@@ -131,12 +141,13 @@ def main():
                             checkpoints[node] = cached
                             seen_epochs[node] = epoch
                         if (epoch is not None and seen_epochs.get(node) != epoch) or force:
-                            full = rpc(node, {'action': 'final_state', 'diagnostic': 'true'}, timeout=5)
+                            full = rpc(node, {'action': 'final_state', 'diagnostic': 'true', 'checkpoint_only': 'true'}, timeout=5)
                             diagnostic = full.get('checkpoint_diagnostics')
                             if not diagnostic: raise ValueError('Node lacks diagnostic schema')
                             checkpoints[node] = diagnostic['checkpoint']
                             if diagnostic['checkpoint']:
                                 checkpoint_cache[checkpoint_key(diagnostic['checkpoint'])] = diagnostic['checkpoint']
+                                latest_installed[node] = checkpoint_key(diagnostic['checkpoint'])
                                 seen_epochs[node] = str(diagnostic['checkpoint']['epoch'])
                             else:
                                 seen_epochs[node] = epoch
@@ -147,7 +158,8 @@ def main():
                     except Exception as error:
                         observations.write(json.dumps({'node': node, 'time': time.time(), 'error': str(error)})+'\n')
                 if force: forced = True
-                rows, consistent = evaluate(publications, checkpoints)
+                rows, _ = evaluate(publications, checkpoints)
+                consistent = installed_checkpoints_consistent(latest_installed)
                 rows = retain_terminal_witnesses(rows, terminal_witnesses)
                 now = int(time.time()*1000)
                 for row in rows:
@@ -167,15 +179,15 @@ def main():
             if (d/'data/node-pids').exists():
                 (d/'node-pids').write_bytes((d/'data/node-pids').read_bytes())
         finally:
-            try: os.killpg(process.pid, signal.SIGTERM)
-            except ProcessLookupError: pass
-            try: process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                os.killpg(process.pid, signal.SIGKILL); process.wait(timeout=5)
+            try:
+                stop_run_process_group(process)
+            except (OSError, RuntimeError, subprocess.TimeoutExpired) as error:
+                result['cleanup_error'] = str(error)
             until = time.time()+10
             while occupied_ports() and time.time()<until: time.sleep(.5)
             if occupied_ports(): result['cleanup_error'] = 'Node ports still occupied'
-    rows, consistent = evaluate(publications, checkpoints)
+    rows, _ = evaluate(publications, checkpoints)
+    consistent = installed_checkpoints_consistent(latest_installed)
     rows = retain_terminal_witnesses(rows, terminal_witnesses)
     for row in rows:
         published = publications[row['primary']]['published_unix_ms']

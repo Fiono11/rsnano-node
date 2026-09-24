@@ -291,3 +291,55 @@ supported outcomes for every recorded branch before declaring completion.
 Predeclared next attempt: one 156-second diagnostic for this specific cache and
 ancestry change, with the same client/workload. Preserve all preceding attempts;
 this changes observation overhead and does not support a performance comparison.
+
+
+### Pending-ledger evidence result (0b6a0cba5)
+
+The 156-second attempt completed publication of 45,000 primary blocks and
+2,218 fork pairs (4,436 branches). The observer supports 870 branch outcomes:
+761 included and 109 discarded by a conflicting finalized checkpoint entry.
+The remaining 3,566 lack an all-node witness; this does not establish that all
+of them failed to terminate. Conditional publication-to-observation upper
+bounds for the 870 supported branches are p50 17,231 ms, p95 20,200 ms and
+p99 20,621 ms. This candidate-only diagnostic is not a performance comparison.
+
+Five nodes installed epoch 2; PR2 remained at epoch 0. Full checkpoint contents
+were obtained only for epoch 0; eight diagnostic RPCs timed out. The old raw
+result's `checkpoint_consistent=true` describes cached epoch-0 contents, not
+the latest installed network state. The controller now checks latest reported
+installed roots independently from its historical contents cache.
+
+The controller also previously waited only for its client leader after sending
+SIGTERM. A child could remain alive after the leader exited and RPC ports
+closed. The latest log continued about 156.6 seconds beyond the reported end.
+All recorded task node PIDs were subsequently checked and had exited. The
+49-run timestamp audit found no logged activity overlapping the next recorded
+run, but log silence does not prove process exit. Historical raw results are
+preserved. Future cleanup waits for the entire task process group, escalates
+to SIGKILL if necessary, and preserves databases if cleanup fails.
+
+Evidence: `fork-raw-evidence-diagnostic-v1/` and
+`process-lifetime-log-audit.json`; generated databases were deleted.
+
+### Election-lifetime certificate retention
+
+PR2 held six epoch-1 report commitments but only its own was usable. Other
+replicas rejected its advertised sources as unknown. A regression test shows
+that removing a notarized election erased its N entry from the live epoch
+projection. Checkpoint installation removes retained/omitted elections, so
+nodes at different closure progress can lose their common reconstruction view.
+This is a concrete source bug; the logs alone do not prove it is the only cause.
+
+Retain historical certificate observations across election deletion, scoped to
+the original epoch and the existing vote-evidence retention window. Apply the
+usual selected-final-prefix projection afterwards; do not change a frozen
+report, create finality from N, or import successor observations. The regression
+test fails before this change and passes afterwards. This archive remains
+in-memory and is not full durable certificate verification.
+
+The observer requests checkpoint contents without the expensive report inventory
+snapshot. Predeclare one bounded diagnostic at the same 156-second baseline-
+derived ceiling to test this fix. Preserve its result even if incomplete. Only
+after a complete correctness outcome should matched fork performance comparisons
+resume. Baseline instrumentation must be identified separately from its frozen
+protocol source; inclusion and explicit finality must be reported separately.

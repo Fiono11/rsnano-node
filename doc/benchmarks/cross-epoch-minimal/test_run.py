@@ -105,3 +105,21 @@ class DataCleanupTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class ProcessGroupCleanupTests(unittest.TestCase):
+    def test_child_group_is_killed_even_after_leader_exits(self):
+        from unittest.mock import Mock, patch
+        import signal
+        from run import stop_run_process_group
+        process = Mock(pid=12345)
+        process.poll.return_value = 0
+        state = {'alive': True}
+        def killpg(pid, sig):
+            self.assertEqual(pid, process.pid)
+            if not state['alive']: raise ProcessLookupError()
+            if sig == signal.SIGKILL: state['alive'] = False
+        with patch('run.os.killpg', side_effect=killpg) as kill:
+            stop_run_process_group(process, grace=0)
+            self.assertIn(((12345, signal.SIGKILL),), [tuple(c)[:1] for c in kill.call_args_list])
+        self.assertFalse(state['alive'])
+        process.wait.assert_called_once_with(timeout=5)

@@ -24,6 +24,9 @@ pub struct FinalStateArgs {
     /// Explicit opt-in: potentially large checkpoint/reconstruction snapshots.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub diagnostic: Option<RpcBool>,
+    /// Omit expensive per-report inventories when only checkpoint contents are needed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub checkpoint_only: Option<RpcBool>,
 }
 
 /// Order-independent hash of the final ledger state: per account the settled

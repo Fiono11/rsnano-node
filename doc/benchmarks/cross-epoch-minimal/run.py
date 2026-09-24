@@ -56,6 +56,35 @@ def settled(states):
     ) and len({s["final_state"].get("hash") for s in states}) == 1
 
 
+def stop_run_process_group(process, grace=5):
+    """Stop only our own session, including nodes that outlive the client."""
+    def alive():
+        process.poll()  # Reap the leader; its exit does not imply group exit.
+        try:
+            os.killpg(process.pid, 0)
+            return True
+        except ProcessLookupError:
+            return False
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    deadline = time.monotonic() + grace
+    while alive() and time.monotonic() < deadline:
+        time.sleep(.05)
+    if alive():
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    process.wait(timeout=5)
+    deadline = time.monotonic() + 5
+    while alive() and time.monotonic() < deadline:
+        time.sleep(.05)
+    if alive():
+        raise RuntimeError('Task process group still exists; preserve run databases')
+
+
 def occupied_ports():
     occupied = []
     for i in range(6):
@@ -174,22 +203,10 @@ def run(args, label, binary, pair):
             # Preserve evidence even if OS process cleanup is refused.
             (directory / "rpc.json").write_text(json.dumps(snapshots, indent=2) + "\n")
             (directory / "attempt.json").write_text(json.dumps(result, indent=2) + "\n")
-            # Only the process group created for this run; never global pkill.
             try:
-                os.killpg(process.pid, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
-            except OSError as error:
+                stop_run_process_group(process)
+            except (OSError, RuntimeError, subprocess.TimeoutExpired) as error:
                 result["cleanup_error"] = str(error)
-            try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                # Escalate only if our child actually ignored graceful stop.
-                try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                    process.wait(timeout=5)
-                except (OSError, subprocess.TimeoutExpired) as error:
-                    result["cleanup_error"] = str(error)
             stop_deadline = time.monotonic() + 10
             while occupied_ports() and time.monotonic() < stop_deadline:
                 time.sleep(.5)

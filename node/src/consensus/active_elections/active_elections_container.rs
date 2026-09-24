@@ -202,6 +202,8 @@ pub(crate) struct ActiveElectionsContainer {
     /// the epochs started. The first epoch's derivation builds on it.
     genesis_state: Arc<EpochLedger>,
     report_bases: BTreeMap<ConsensusEpoch, Arc<crate::consensus::election::CertifiedState>>,
+    /// Historical certificate observations must outlive election deletion.
+    report_observations: BTreeMap<ConsensusEpoch, crate::consensus::election::CertifiedState>,
     /// RAI: the committees the instances of each epoch are counted in
     committees: EpochCommittees,
     /// RAI: Δ_timeout of a close round
@@ -255,6 +257,7 @@ impl ActiveElectionsContainer {
             decided: DecidedStates::new(),
             genesis_state: Arc::new(EpochLedger::new()),
             report_bases: BTreeMap::new(),
+            report_observations: BTreeMap::new(),
             committees: EpochCommittees::default(),
             close_round_timeout: config.close_round_timeout,
             local_reps: Vec::new(),
@@ -652,6 +655,8 @@ impl ActiveElectionsContainer {
                 .trim_before(ConsensusEpoch::new(kept_from));
             #[cfg(feature = "rai_protocol")]
             self.report_blocks
+                .retain(|epoch, _| epoch.as_u64() >= kept_from);
+            self.report_observations
                 .retain(|epoch, _| epoch.as_u64() >= kept_from);
             self.checkpoint_delegations
                 .retain(|epoch, _| epoch.as_u64() >= kept_from);
@@ -1462,6 +1467,13 @@ impl ActiveElectionsContainer {
             .cloned()
             .unwrap_or_else(|| Arc::new(CertifiedState::new()));
         let mut observations = Vec::new();
+        if let Some(retained) = self.report_observations.get(&epoch) {
+            observations.extend(
+                retained
+                    .entries()
+                    .map(|(block, entry)| (*block, entry.previous, entry.status, false)),
+            );
+        }
         for instance in self.epoch_states.instances_through(epoch) {
             observations.push((
                 CertifiedBlock::new(instance.account, instance.height, instance.winner),
@@ -2181,6 +2193,28 @@ impl ActiveElectionsContainer {
     fn cleanup_election(&mut self, entry: Entry) {
         let election = &entry.election;
         self.keep_exit_final_vote(election);
+        if cfg!(feature = "rai_protocol") && !election.epoch().is_close_round() {
+            use crate::consensus::election::CertifiedStatus;
+            let retained = self
+                .report_observations
+                .entry(election.epoch())
+                .or_default();
+            let certificates = election.certificates();
+            for hash in &certificates.notar {
+                retained.certify(
+                    CertifiedBlock::new(election.account(), election.height(), *hash),
+                    election.qualified_root().previous,
+                    CertifiedStatus::Notarized,
+                );
+            }
+            if let Some(hash) = certificates.finalized() {
+                retained.certify(
+                    CertifiedBlock::new(election.account(), election.height(), hash),
+                    election.qualified_root().previous,
+                    CertifiedStatus::Finalized,
+                );
+            }
+        }
         // A late instance's blocks are discarded - never one finalized in
         // another epoch: what an epoch finalized stays finalized
         let discarded: Vec<BlockHash> = if is_late(&self.decided, election) {
@@ -2650,6 +2684,45 @@ mod tests {
     };
     use rsnano_types::{PrivateKey, TimePriority, Vote, VoteDelivery};
     use std::sync::Arc;
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn report_notarization_survives_election_erasure() {
+        let mut container = ActiveElectionsContainer::default();
+        let now = Timestamp::new_test_instance();
+        container.start_epochs(now);
+        let block = SavedBlock::new_test_instance();
+        let hash = block.hash();
+        container
+            .insert(
+                AecInsertRequest::new_priority(block.clone(), BlockPriority::new_test_instance()),
+                now,
+            )
+            .unwrap();
+        let key = PrivateKey::from(1);
+        let mut weights = RepWeights::default();
+        weights.put(key.public_key(), Amount::nano(70_000_000));
+        let vote = Vote::new_in_epoch(&key, VoteKind::First, ConsensusEpoch::ZERO, vec![hash]);
+        container.apply_vote(ApplyVoteArgs {
+            vote: &ReceivedVote::new(Arc::new(vote), VoteDelivery::Direct, None).into(),
+            rep_weights: &weights,
+            quorum_snapshot: &QuorumSnapshot::new_test_instance(),
+            now,
+        });
+        let before = container.epoch_certified(ConsensusEpoch::ZERO);
+        assert_eq!(before.len(), 1);
+        assert_eq!(
+            before.entries().next().unwrap().1.status,
+            crate::consensus::election::CertifiedStatus::Notarized
+        );
+        container.erase(&block.qualified_root());
+        assert_eq!(container.len(), 0);
+        assert_eq!(
+            container.epoch_certified(ConsensusEpoch::ZERO).root(),
+            before.root()
+        );
+        assert!(container.epoch_certified(ConsensusEpoch::new(1)).is_empty());
+    }
 
     #[test]
     fn inherited_r_uses_known_old_finality_but_not_successor_work() {

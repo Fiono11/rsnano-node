@@ -1,5 +1,5 @@
 import unittest
-from fork_diagnostic import disposition, evaluate, cached_checkpoint, retain_terminal_witnesses
+from fork_diagnostic import disposition, evaluate, cached_checkpoint, retain_terminal_witnesses, installed_checkpoints_consistent
 
 class ForkOutcomeTests(unittest.TestCase):
     fork = dict(account='a', previous='p', primary='x', alternative='y')
@@ -40,3 +40,14 @@ class HistoricalTerminationTests(unittest.TestCase):
         self.assertTrue(result['terminated_on_all_nodes'])
         self.assertEqual(result['nodes']['0']['checkpoint_epoch'], 0)
         self.assertTrue(result['historical_checkpoint_witness'])
+
+class InstalledCheckpointConsistencyTests(unittest.TestCase):
+    def test_historical_common_contents_do_not_mask_a_lagging_node(self):
+        keys = {n: (2, 'new') for n in range(6)}
+        self.assertTrue(installed_checkpoints_consistent(keys))
+        keys[2] = (0, 'old')
+        self.assertFalse(installed_checkpoints_consistent(keys))
+        keys[2] = None
+        self.assertFalse(installed_checkpoints_consistent(keys))
+        del keys[2]
+        self.assertFalse(installed_checkpoints_consistent(keys))
