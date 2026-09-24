@@ -125,12 +125,19 @@ impl NetworkMessageProcessor {
 
                 if ok {
                     #[cfg(feature = "rai_protocol")]
-                    if publish.is_evidence {
+                    let follows_retained = publish.is_evidence && {
                         self.reports.retain_received_block(&publish.block);
-                    }
+                        self.reports.follows_retained_branch(&publish.block)
+                    };
+                    #[cfg(not(feature = "rai_protocol"))]
+                    let follows_retained = false;
                     // Put blocks that are being initially broadcasted in a separate queue, so that they won't have to compete with rebroadcasted blocks
                     // Both queues have the same priority and size, so the potential for exploiting this is limited
-                    let source = if publish.is_originator {
+                    let source = if follows_retained {
+                        // RAI: a retained checkpoint block this ledger lacks
+                        // replaces the omitted rival it holds at that position
+                        BlockSource::Forced
+                    } else if publish.is_originator {
                         BlockSource::LiveOriginator
                     } else {
                         BlockSource::Live

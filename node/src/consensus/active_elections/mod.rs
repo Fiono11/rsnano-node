@@ -21,7 +21,7 @@ pub use epoch_committees::CommitteeInfo;
 use std::{collections::HashMap, isize, sync::Arc, time::Duration};
 
 use rsnano_types::{
-    Amount, Block, BlockHash, BlockPriority, ConsensusEpoch, QualifiedRoot, SavedBlock,
+    Account, Amount, Block, BlockHash, BlockPriority, ConsensusEpoch, QualifiedRoot, SavedBlock,
     TimePriority, VoteError,
 };
 
@@ -105,6 +105,14 @@ pub enum AecFact {
     /// RAI: the decided checkpoint of an epoch finalized these blocks beyond
     /// its predecessor. Installed: cemented in the ledger, where they are
     /// not already
+    /// RAI: the unresolved branches a decided checkpoint retains, parents
+    /// before children. A ledger that holds an omitted rival at one of these
+    /// positions follows the checkpoint: the rival is rolled back and the
+    /// retained block installed, so that the owner's fresh child can attach
+    CheckpointRetained {
+        epoch: ConsensusEpoch,
+        retained: Vec<(Account, u64, BlockHash)>,
+    },
     CheckpointFinalized {
         epoch: ConsensusEpoch,
         hashes: Vec<BlockHash>,

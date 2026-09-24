@@ -195,7 +195,7 @@ def main():
                                 'final_state': rpc(node, {'action': 'final_state'}),
                                 'epoch_locks': rpc(node, {'action': 'epoch_locks'}, timeout=5)}
                     # Blocks waiting for a parent this node lacks: which parents, for the record
-                    try: snapshot['unchecked_keys'] = rpc(node, {'action': 'unchecked_keys', 'count': '64'}, timeout=5)
+                    try: snapshot['unchecked_keys'] = rpc(node, {'action': 'unchecked_keys', 'key': '0' * 64, 'count': '64'}, timeout=5)
                     except Exception as error: snapshot['unchecked_keys'] = {'error': str(error)}
                     snapshots.append(snapshot)
                 except Exception as error: snapshots.append({'node': node, 'error': str(error)})

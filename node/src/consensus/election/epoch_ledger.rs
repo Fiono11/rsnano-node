@@ -296,6 +296,22 @@ impl EpochLedger {
         self.finalized.len()
     }
 
+    /// Every retained (unresolved) block with its position, parents before
+    /// children: the branches a ledger must hold to follow this checkpoint
+    pub fn retained_blocks(&self) -> Vec<(AccountSlot, PlacedBlock)> {
+        self.notarized
+            .iter()
+            .flat_map(|(slot, blocks)| blocks.iter().map(move |block| (*slot, *block)))
+            .collect()
+    }
+
+    /// Whether the checkpoint retains this block on an unresolved branch
+    pub fn retains_block(&self, hash: &BlockHash) -> bool {
+        self.notarized
+            .values()
+            .any(|blocks| blocks.iter().any(|block| block.hash == *hash))
+    }
+
     /// The finalized positions the unique-branch variant decided
     pub fn derived_count(&self) -> usize {
         self.derived.len()

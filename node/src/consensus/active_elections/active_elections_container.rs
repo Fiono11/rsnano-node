@@ -1363,6 +1363,14 @@ impl ActiveElectionsContainer {
         if !hashes.is_empty() {
             self.notify(AecFact::CheckpointFinalized { epoch, hashes });
         }
+        let retained: Vec<(Account, u64, BlockHash)> = state
+            .retained_blocks()
+            .into_iter()
+            .map(|(slot, block)| (slot.account, slot.height, block.hash))
+            .collect();
+        if !retained.is_empty() {
+            self.notify(AecFact::CheckpointRetained { epoch, retained });
+        }
     }
 
     /// RAI: whether a decided checkpoint finalized this block of the

@@ -1,5 +1,5 @@
 use crate::consensus::{AecService, ForkCache, election::CertifiedBlock};
-use rsnano_ledger::{AnySet, Ledger};
+use rsnano_ledger::{AnySet, Ledger, LedgerSet};
 use rsnano_types::{Block, BlockBase, BlockHash, ConsensusEpoch};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
@@ -45,6 +45,10 @@ impl ResidualData {
         received.insert(hash, block.clone());
         true
     }
+    pub fn ledger_holds(&self, hash: &BlockHash) -> bool {
+        self.ledger.any().block_exists(hash)
+    }
+
     fn block(&self, hash: &BlockHash) -> Option<Block> {
         if let Some(block) = self.received.lock().unwrap().get(hash).cloned() {
             return Some(block);

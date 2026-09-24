@@ -84,6 +84,18 @@ impl ReportService {
         self.data.receive(block);
     }
 
+    /// RAI: whether a block arriving as evidence is one the latest decided
+    /// checkpoint retains and this ledger lacks: it then replaces the omitted
+    /// rival the ledger holds at its position (see
+    /// `AecFactProcessor::follow_retained_branches`)
+    pub(crate) fn follows_retained_branch(&self, block: &rsnano_types::Block) -> bool {
+        let hash = block.hash();
+        self.active_elections
+            .latest_checkpoint()
+            .is_some_and(|state| state.retains_block(&hash))
+            && !self.data.ledger_holds(&hash)
+    }
+
     /// Explicit diagnostic RPC only; never used by consensus or normal polling.
     pub fn diagnostic_snapshot(&self) -> serde_json::Value {
         let exchange = self.exchange.lock().unwrap();

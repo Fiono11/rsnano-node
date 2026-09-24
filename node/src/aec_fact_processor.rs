@@ -93,6 +93,9 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
             AecFact::CheckpointFinalized { epoch, hashes } => {
                 self.install_checkpoint_blocks(epoch, hashes)
             }
+            AecFact::CheckpointRetained { epoch, retained } => {
+                self.follow_retained_branches(epoch, retained)
+            }
             AecFact::ElectionEnded(election) => {
                 self.election_schedulers.notify();
 
@@ -246,6 +249,55 @@ impl AecFactProcessor {
             hashes.len(),
             cemented,
             queued,
+            missing
+        );
+    }
+
+    /// RAI: "Recovery through a fresh child": the owner extends a retained
+    /// tip, so the ledger must hold the retained branch. A node whose ledger
+    /// holds an omitted rival at a retained position rolls it back and
+    /// installs the retained block, from the fork cache or the retained
+    /// report data; a retained block this node does not hold yet is
+    /// installed when it arrives as evidence (see the message processor).
+    /// Cemented blocks are never rolled back.
+    fn follow_retained_branches(
+        &mut self,
+        epoch: ConsensusEpoch,
+        retained: Vec<(rsnano_types::Account, u64, BlockHash)>,
+    ) {
+        let mut held = 0;
+        let mut forced = 0;
+        let mut missing = 0;
+        for (_, _, hash) in &retained {
+            if self.ledger.any().block_exists(hash) {
+                held += 1;
+                continue;
+            }
+            let block = self
+                .aec_fork_inserter
+                .fork_cache
+                .read()
+                .unwrap()
+                .block(hash)
+                .or_else(|| self.active_elections.report_block(hash));
+            match block {
+                Some(block) => {
+                    self.block_processor_queue.push(BlockContext::new(
+                        block,
+                        BlockSource::Forced,
+                        ChannelId::LOOPBACK,
+                    ));
+                    forced += 1;
+                }
+                None => missing += 1,
+            }
+        }
+        crate::utils::diagnostic!(
+            "EPOCH_RETAINED epoch={} retained={} held={} forced={} missing={}",
+            epoch,
+            retained.len(),
+            held,
+            forced,
             missing
         );
     }
