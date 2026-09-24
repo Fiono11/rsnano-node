@@ -1605,6 +1605,9 @@ impl ActiveElectionsContainer {
                 {
                     continue;
                 }
+                if kind == VoteKind::First && self.cross_epoch_locked(election, &hash) {
+                    continue;
+                }
                 targets.push(VoteTarget {
                     election: election.id(),
                     winner: hash,
@@ -1649,8 +1652,13 @@ impl ActiveElectionsContainer {
                 continue;
             }
             let previous = election.qualified_root().previous;
-            let slot = self.slots.get_or_default(&election.epoch_slot());
             let kind = VoteKind::from(target.vote_type);
+            // The decision is recorded here, before the signature escapes;
+            // the lock of the epoch before is checked on the record too
+            if kind == VoteKind::First && self.cross_epoch_locked(election, &target.winner) {
+                continue;
+            }
+            let slot = self.slots.get_or_default(&election.epoch_slot());
             // A first vote not cast before this node left the epoch is not cast
             // any more; one cast before is re-broadcast
             if kind == VoteKind::First && slot.stale && slot.first_voted.is_none() {
@@ -1675,6 +1683,36 @@ impl ActiveElectionsContainer {
             accepted.push(target);
         }
         accepted
+    }
+
+    /// RAI, "Cross-epoch lock": "A validator that released a first vote for
+    /// block B at (a, v) in epoch e−1 releases no first vote for a different
+    /// block at (a, v) in epoch e while S_{e−1} is unknown. A first vote for
+    /// B itself is permitted. Once S_{e−1} is known, the ordinary recheck
+    /// governs the position and the lock expires." The lock rests on the
+    /// first-vote record of the epoch before, which outlives its election
+    /// and is dropped only once that epoch is decided here.
+    fn cross_epoch_locked(&self, election: &Election, hash: &BlockHash) -> bool {
+        let Some(before) = election
+            .epoch()
+            .as_u64()
+            .checked_sub(1)
+            .map(ConsensusEpoch::new)
+        else {
+            return false;
+        };
+        if self.decided.contains_key(&before) {
+            return false;
+        }
+        let slot = EpochSlot {
+            account: election.account(),
+            height: election.height(),
+            epoch: before,
+        };
+        self.slots
+            .get(&slot)
+            .and_then(|state| state.first_voted)
+            .is_some_and(|voted| voted != *hash)
     }
 
     /// Kudzu: an election is erased as soon as it is finalized. Its exit final
@@ -3155,6 +3193,111 @@ mod tests {
         );
         assert_eq!(container.len(), 1);
     }
+    /// RAI, "Cross-epoch lock": a first vote released in the closing epoch
+    /// keeps this node from first-voting a different block at the same
+    /// position in the next epoch until the closing epoch's checkpoint is
+    /// known here. The same block may be first-voted again, and the record
+    /// is checked where the vote is recorded, not only where it is listed.
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn a_closing_epoch_first_vote_locks_the_position_until_its_checkpoint_is_known() {
+        let mut container = ActiveElectionsContainer::new(
+            ActiveElectionsConfig {
+                epoch_terminated_elections: 1,
+                ..Default::default()
+            },
+            Duration::from_secs(1),
+        );
+        let now = Timestamp::new_test_instance();
+        container.start_epochs(now);
+        let decided = SavedBlock::new_test_instance_with_key(1);
+        let locked = SavedBlock::new_test_instance_with_key(2);
+        let rival = sibling_of(&locked);
+        let again = SavedBlock::new_test_instance_with_key(3);
+        for block in [&decided, &locked, &again] {
+            container
+                .insert(
+                    AecInsertRequest::new_priority(
+                        block.clone(),
+                        BlockPriority::new_test_instance(),
+                    ),
+                    now,
+                )
+                .unwrap();
+        }
+        let first_votes: Vec<VoteTarget> = container
+            .kudzu_votes_due(|_| true)
+            .into_iter()
+            .filter(|target| {
+                target.vote_type == VoteType::NonFinal
+                    && [locked.hash(), again.hash()].contains(&target.winner)
+            })
+            .collect();
+        assert_eq!(first_votes.len(), 2);
+        assert_eq!(container.mark_kudzu_voted(first_votes).len(), 2);
+
+        // Epoch 0 ends and is left; its checkpoint is not decided here
+        let rep_key = PrivateKey::from(1);
+        let mut rep_weights = RepWeights::default();
+        rep_weights.put(rep_key.public_key(), Amount::MAX);
+        container.apply_vote(ApplyVoteArgs {
+            vote: &test_final_vote(&rep_key, decided.hash()).into(),
+            rep_weights: &rep_weights,
+            quorum_snapshot: &QuorumSnapshot::new_test_instance(),
+            now,
+        });
+        container.transition_time(now);
+        let epoch1 = ConsensusEpoch::new(1);
+        assert_eq!(container.current_epoch(), epoch1);
+
+        // The owner's other signature at the locked position reaches this
+        // node and is proposed in epoch 1; the same block is proposed again
+        container
+            .insert(
+                AecInsertRequest::new_priority(rival.clone(), BlockPriority::new_test_instance()),
+                now,
+            )
+            .unwrap();
+        container.insert_for_vote(again.clone(), epoch1, now);
+        let first_in = |container: &ActiveElectionsContainer, hash: BlockHash| {
+            container
+                .kudzu_votes_due(|_| true)
+                .into_iter()
+                .find(|target| {
+                    target.vote_type == VoteType::NonFinal
+                        && target.election.epoch == epoch1
+                        && target.winner == hash
+                })
+        };
+        assert!(first_in(&container, rival.hash()).is_none(), "locked");
+        assert!(
+            first_in(&container, again.hash()).is_some(),
+            "the same block"
+        );
+        // Not even when handed in directly
+        let smuggled = VoteTarget {
+            election: ElectionId::new(rival.qualified_root(), epoch1),
+            winner: rival.hash(),
+            vote_type: VoteType::NonFinal,
+        };
+        assert!(container.mark_kudzu_voted(vec![smuggled]).is_empty());
+        assert!(
+            container
+                .slot_state(&EpochSlot {
+                    account: rival.account(),
+                    height: rival.height(),
+                    epoch: epoch1,
+                })
+                .is_none_or(|state| state.first_voted.is_none())
+        );
+
+        // Once S_0 is known the lock expires and the ordinary recheck governs
+        container
+            .decided
+            .insert(ConsensusEpoch::ZERO, Arc::new(EpochLedger::new()));
+        assert!(first_in(&container, rival.hash()).is_some());
+    }
+
     /// RAI: after enough decided elections the epoch ends and is left at
     /// once, its open instances notwithstanding: what they leave unresolved
     /// goes to the epoch decision by the report. The finalized blocks are
@@ -4660,6 +4803,36 @@ mod tests {
                 residual: BlockHash::from(11),
             }],
             BlockHash::from(100),
+        )
+    }
+
+    /// A conflicting owner-signed block at the same position: the same
+    /// account and parent, another representative
+    #[cfg(feature = "rai_protocol")]
+    fn sibling_of(block: &SavedBlock) -> SavedBlock {
+        use rsnano_types::{BlockDetails, BlockSideband, Epoch, StateBlockArgs};
+        let key = PrivateKey::from(2);
+        assert_eq!(block.account(), key.account());
+        let sibling: Block = StateBlockArgs {
+            key: &key,
+            previous: block.previous(),
+            representative: 790.into(),
+            balance: block.balance(),
+            link: 111.into(),
+            work: 69420.into(),
+        }
+        .into();
+        assert_ne!(sibling.hash(), block.hash());
+        SavedBlock::new(
+            sibling,
+            BlockSideband {
+                height: block.height(),
+                timestamp: 222222.into(),
+                account: block.account(),
+                balance: block.balance(),
+                details: BlockDetails::new(Epoch::Epoch2, true, false, false),
+                source_epoch: Epoch::Epoch0,
+            },
         )
     }
 
