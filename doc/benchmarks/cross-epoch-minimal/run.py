@@ -45,6 +45,16 @@ def rpc(port, body):
         return json.load(response)
 
 
+def settled(states):
+    """Fault-free drain check; a client's last confirmation is not all-node drain."""
+    return bool(states) and all(
+        s["block_count"].get("count") == s["block_count"].get("cemented")
+        and "count" in s["block_count"]
+        and s["final_state"].get("pending") == "0"
+        for s in states
+    ) and len({s["final_state"].get("hash") for s in states}) == 1
+
+
 def run(args, label, binary, pair):
     directory = args.out / f"pair-{pair:02d}-{label}"
     directory.mkdir()
@@ -77,6 +87,22 @@ def run(args, label, binary, pair):
                 result["timed_out"] = False
             except subprocess.TimeoutExpired:
                 result.update(exit_code=None, timed_out=True)
+            # Drain is outside the measured publishing interval. Observe peers
+            # before stopping them instead of mistaking PR0's completion for
+            # network-wide finality. Fault runs retain their pending evidence.
+            if not result["timed_out"] and result["exit_code"] == 0:
+                deadline = time.monotonic() + args.settle_seconds
+                while True:
+                    try:
+                        states = [{action: rpc(17076 + 10 * i, {"action": action})
+                                   for action in ("block_count", "final_state")}
+                                  for i in range(6 - args.absent)]
+                        result["settled_consistent"] = settled(states)
+                    except Exception:
+                        result["settled_consistent"] = False
+                    if result["settled_consistent"] or time.monotonic() >= deadline:
+                        break
+                    time.sleep(1)
             for i in range(6 - args.absent):
                 snapshot = {"node": i}
                 for action in ("block_count", "final_state", "stats"):
@@ -130,6 +156,8 @@ def interval(values):
 def compare(results, repetitions):
     if not all(r["complete"] for r in results):
         return {"verdict": "FAIL_COMPLETION", "attempts": len(results)}
+    if any(r.get("settled_consistent") is False for r in results):
+        return {"verdict": "FAIL_SETTLEMENT", "attempts": len(results)}
     if repetitions < 5:
         return {"verdict": "SMOKE_ONLY", "attempts": len(results)}
     pairs = [{r["label"]: r for r in results if r["pair"] == i} for i in range(repetitions)]
@@ -154,6 +182,7 @@ def main():
     parser.add_argument("--epoch-ms", type=int, default=8000)
     parser.add_argument("--forks", type=int, default=0)
     parser.add_argument("--timeout", type=int, default=240)
+    parser.add_argument("--settle-seconds", type=int, default=30)
     parser.add_argument("--absent", type=int, default=0)
     parser.add_argument("--min-free-gib", type=float, default=8)
     parser.add_argument("extra", nargs=argparse.REMAINDER)

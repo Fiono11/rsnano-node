@@ -1,5 +1,5 @@
 import unittest
-from run import compare, quantile
+from run import compare, quantile, settled
 
 
 class PerformanceGateTests(unittest.TestCase):
@@ -26,6 +26,18 @@ class PerformanceGateTests(unittest.TestCase):
     def test_histogram_percentile_uses_observation_counts(self):
         self.assertEqual(quantile({"1": 99, "1000": 1}, .99), 1)
         self.assertEqual(quantile({"1": 99, "1000": 1}, 1), 1000)
+
+    def test_lagging_peer_is_not_network_wide_completion(self):
+        states = [{"block_count": {"count": "100", "cemented": str(n)},
+                   "final_state": {"hash": "same", "pending": "0"}} for n in [100, 99]]
+        self.assertFalse(settled(states))
+        states[1]["block_count"]["cemented"] = "100"
+        self.assertTrue(settled(states))
+
+    def test_settlement_failure_is_not_a_performance_pass(self):
+        results = self.results()
+        results[3]["settled_consistent"] = False
+        self.assertEqual(compare(results, 5)["verdict"], "FAIL_SETTLEMENT")
 
 
 if __name__ == "__main__":
