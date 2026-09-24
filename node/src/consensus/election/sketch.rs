@@ -1,3 +1,5 @@
+use std::collections::{HashSet, VecDeque};
+
 use rsnano_types::{Blake2HashBuilder, BlockHash};
 
 /// RAI: one cell of an invertible Bloom lookup table over 32-byte keys: how
@@ -145,17 +147,33 @@ impl Sketch {
     /// key, removing the key frees other cells, until every cell is empty.
     /// None when the difference is too large for the cells.
     pub fn peel(mut self) -> Option<Peeled> {
+        if self.cells.len() < Self::HASHES {
+            return None;
+        }
         let mut peeled = Peeled::default();
-        loop {
-            let Some((key, sign)) = self.cells.iter().find_map(SketchCell::pure_key) else {
-                break;
+        let mut recovered = HashSet::new();
+        let mut pending: VecDeque<_> = (0..self.cells.len()).collect();
+        while let Some(index) = pending.pop_front() {
+            // A queued cell may have changed since it became pure.
+            let Some((key, sign)) = self.cells[index].pure_key() else {
+                continue;
             };
+            let positions = self.positions(&key);
+            // A malformed partial key can otherwise alternate forever between
+            // positive and negative purity. A set difference contains each key
+            // once, and only in the positions determined by that key.
+            if !positions.contains(&index) || !recovered.insert(key) {
+                return None;
+            }
             if sign > 0 {
                 peeled.ours.push(key);
             } else {
                 peeled.theirs.push(key);
             }
             self.toggle(&key, -sign);
+            // Only these cells changed: avoid rescanning the whole table for
+            // every recovered key, including repeated checksum hashing.
+            pending.extend(positions);
         }
         self.cells
             .iter()
@@ -166,11 +184,9 @@ impl Sketch {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::time::Instant;
 
-    fn key(i: u64) -> BlockHash {
-        Blake2HashBuilder::new().update(i.to_le_bytes()).build()
-    }
+    use super::*;
 
     #[test]
     fn identical_sets_have_no_difference() {
@@ -219,6 +235,24 @@ mod tests {
     }
 
     #[test]
+    fn a_large_bidirectional_difference_peels_completely() {
+        let mut ours = Sketch::over((0..20_000).map(key), 4096);
+        let theirs = Sketch::over((1000..21_000).map(key), 4096);
+        assert!(ours.subtract(&theirs));
+        let start = Instant::now();
+        let mut peeled = ours.peel().unwrap();
+        eprintln!("peel 2000 keys from 4096 cells: {:?}", start.elapsed());
+        peeled.ours.sort();
+        peeled.theirs.sort();
+        let mut expected_ours: Vec<_> = (0..1000).map(key).collect();
+        let mut expected_theirs: Vec<_> = (20_000..21_000).map(key).collect();
+        expected_ours.sort();
+        expected_theirs.sort();
+        assert_eq!(peeled.ours, expected_ours);
+        assert_eq!(peeled.theirs, expected_theirs);
+    }
+
+    #[test]
     fn sketches_of_different_sizes_do_not_subtract() {
         let mut ours = Sketch::new(64);
         assert!(!ours.subtract(&Sketch::new(128)));
@@ -238,5 +272,27 @@ mod tests {
             let p = sketch.positions(&key(i));
             assert!(p[0] != p[1] && p[1] != p[2] && p[0] != p[2]);
         }
+    }
+    #[test]
+    fn malformed_pure_cells_are_rejected_without_cycling() {
+        let hash = key(1);
+        let valid = Sketch::over([hash], 64);
+        let position = valid.positions(&hash)[0];
+        let pure = valid.cells[position];
+        let mut partial = Sketch::new(64);
+        partial.cells[position] = pure;
+        assert_eq!(partial.peel(), None);
+
+        let wrong = (0..64)
+            .find(|i| !valid.positions(&hash).contains(i))
+            .unwrap();
+        let mut misplaced = Sketch::new(64);
+        misplaced.cells[wrong] = pure;
+        assert_eq!(misplaced.peel(), None);
+        assert_eq!(Sketch::from_cells(vec![pure]).peel(), None);
+    }
+
+    fn key(i: u64) -> BlockHash {
+        Blake2HashBuilder::new().update(i.to_le_bytes()).build()
     }
 }

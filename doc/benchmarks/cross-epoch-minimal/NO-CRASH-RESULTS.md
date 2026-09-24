@@ -725,3 +725,50 @@ copy-on-write inventory draft remains unapplied.
 
 After the fix, the same debug snapshot took 34.5 ms (22.6× faster;
 `v30-snapshot-after.log`). All 847 node unit tests pass; formatting passes.
+
+Pinned v30 binaries:
+
+```text
+ce8f78b981e4e379bc02efb10d1bfae2f94c0dd76b99625f8e4bc0c6deb93dec  rsnano
+9135ae7b7cbe7b8194351765700bf3810710fa5d494cfb6f222ef99577635dc7  nanospam
+```
+
+| Run | Non-fork goodput | p50 / p95 / p99 (ms) | Same end state on all six PRs |
+|---|---:|---:|---|
+| v30 one #1 | 1442 | 168 / 1817 / 2240 | yes |
+| v30 two #1 | 1327 | 676 / 3805 / 4983 | yes |
+
+v30 converged in both runs, but two-checkpoint latency is still high
+(676/3,805 ms versus 168/1,817 ms). The targeted installation pause is removed:
+one-checkpoint install-to-close intervals are 107–164 ms across six nodes,
+compared with multi-second pauses in v29. This is a verified local improvement,
+not completion of the overall latency goal.
+
+### v31: share immutable certified-state snapshots
+
+Apply the previously saved copy-on-write draft. `CertifiedState::clone` copied
+its entire entry tree, hash index, and cached digest vector even when a snapshot
+was only being read while serving reconstruction. Share those immutable parts
+using `Arc`; actual changes copy a shared map and invalidate only the changed
+snapshot's caches. Hashes, canonical roots, signed commitments, and validation
+rules are unchanged. A regression upgrades, removes, weakens, and adds entries
+to cloned snapshots, checking that the frozen root/digests/hash membership remain
+unchanged and that applying the reverse difference restores the exact original.
+Existing alias-removal and frozen-report tests also cover mutation isolation.
+
+The same iteration also removes quadratic sketch peeling. Previously each
+recovered key restarted a scan of all cells, repeatedly hashing candidate-cell
+checksums. Queue the cells initially, then only the three cells changed by each
+peel. Recheck queued cells before using them. Reject misplaced pure cells,
+undersized tables, and repeated recovered keys (malformed partial keys could
+otherwise cycle). Successful decoding still requires every cell to be empty,
+and report acceptance still requires the exact signed target root. A 2,000-key
+bidirectional difference in 4,096 cells took 605.3 ms before this change in a
+focused debug test (`v31-peel-before.log`). New tests check the complete recovered
+sets and malformed-input termination. The initial COW compile attempt needed one
+additional `.iter()` adaptation in `difference`; no benchmark used that attempt.
+
+After queued peeling, the same debug case took 35.7 ms (17× faster;
+`v31-peel-after.log`). All 850 node unit tests pass; formatting passes.
+At 8.11 GiB free, only the authorized `target/debug/incremental` cache was
+deleted; `no-crash-cleanup.log` records the cleanup and 9.78 GiB free afterwards.
