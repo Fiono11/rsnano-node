@@ -18,8 +18,8 @@ where
 }
 
 pub struct EventHandlerRegistry<T> {
-    mut_handlers: Vec<Box<dyn EventHandlerMut<T>>>,
-    handlers: Vec<Box<dyn EventHandler<T>>>,
+    mut_handlers: Vec<(&'static str, Box<dyn EventHandlerMut<T>>)>,
+    handlers: Vec<(&'static str, Box<dyn EventHandler<T>>)>,
 }
 
 impl<T> Default for EventHandlerRegistry<T> {
@@ -32,23 +32,33 @@ impl<T> Default for EventHandlerRegistry<T> {
 }
 
 impl<T> EventHandlerRegistry<T> {
-    pub fn add_mut(&mut self, handler: impl EventHandlerMut<T> + 'static) {
-        self.mut_handlers.push(Box::new(handler));
+    pub fn add_mut<H: EventHandlerMut<T> + 'static>(&mut self, handler: H) {
+        self.mut_handlers
+            .push((std::any::type_name::<H>(), Box::new(handler)));
     }
 
-    pub fn add(&mut self, handler: impl EventHandler<T> + 'static) {
-        self.handlers.push(Box::new(handler));
+    pub fn add<H: EventHandler<T> + 'static>(&mut self, handler: H) {
+        self.handlers
+            .push((std::any::type_name::<H>(), Box::new(handler)));
+    }
+
+    /// Hands the event to every handler, calling `handled` with the type
+    /// name of each handler once it is done, so that callers can time them
+    pub fn handle_each(&mut self, event: &T, mut handled: impl FnMut(&'static str)) {
+        for (name, handler) in &mut self.mut_handlers {
+            handler.handle(event);
+            handled(name);
+        }
+        for (name, handler) in &mut self.handlers {
+            handler.handle(event);
+            handled(name);
+        }
     }
 }
 
 impl<T> EventHandlerMut<T> for EventHandlerRegistry<T> {
     fn handle(&mut self, event: &T) {
-        for handler in &mut self.mut_handlers {
-            handler.handle(event);
-        }
-        for handler in &mut self.handlers {
-            handler.handle(event);
-        }
+        self.handle_each(event, |_| {});
     }
 }
 
@@ -74,6 +84,28 @@ where
 mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn each_handler_is_reported_by_type_name_after_it_ran() {
+        struct First;
+        impl EventHandler<i32> for First {
+            fn handle(&self, _event: &i32) {}
+        }
+        struct Second;
+        impl EventHandlerMut<i32> for Second {
+            fn handle(&mut self, _event: &i32) {}
+        }
+        let mut registry = EventHandlerRegistry::<i32>::default();
+        registry.add(First);
+        registry.add_mut(Second);
+
+        let mut handled = Vec::new();
+        registry.handle_each(&1, |name| handled.push(name));
+
+        assert_eq!(handled.len(), 2);
+        assert!(handled[0].ends_with("Second"));
+        assert!(handled[1].ends_with("First"));
+    }
 
     #[test]
     fn raise_with_no_handlers_does_nothing() {

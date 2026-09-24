@@ -11,7 +11,7 @@ use rsnano_network::ChannelId;
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{Account, Block, BlockHash, ConsensusEpoch, SavedBlock, VoteDelivery};
 use rsnano_utils::{
-    EventHandlerMut, EventHandlerRegistry,
+    EventHandlerRegistry,
     stats::{Sample, Stats},
 };
 
@@ -90,7 +90,13 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
     fn process(&mut self, event: AecFact) {
         let kind = event.kind();
         let started = Instant::now();
-        self.plugins.handle(&event);
+        let mut per_event: Vec<(&'static str, Duration)> = Vec::with_capacity(8);
+        let mut mark = started;
+        self.plugins.handle_each(&event, |name| {
+            let now = Instant::now();
+            per_event.push((short_type_name(name), now - mark));
+            mark = now;
+        });
         let plugins = started.elapsed();
         self.cement_awaited_checkpoint_blocks();
         let awaited = started.elapsed() - plugins;
@@ -101,11 +107,8 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
         self.handle_fact(event);
         if cfg!(feature = "rai_protocol") {
             let handling = started.elapsed() - plugins - awaited - activation;
-            let per_event = [
-                ("plugins", plugins),
-                ("awaited_cement", awaited),
-                ("activation", activation),
-            ];
+            per_event.push(("awaited_cement", awaited));
+            per_event.push(("activation", activation));
             if let Some(line) =
                 self.fact_timings
                     .record(unix_ms() as u64, kind, handling, &per_event)
@@ -505,4 +508,11 @@ impl AecFactProcessor {
             .expect("Should serialize block successfully");
         self.network_filter.clear_bytes(&buffer);
     }
+}
+
+/// Diagnostic: `rsnano_node::consensus::VoteCache` or
+/// `alloc::sync::Arc<rsnano_node::consensus::VoteCache>` as `VoteCache`
+fn short_type_name(name: &'static str) -> &'static str {
+    let name = name.trim_end_matches('>');
+    name.rsplit("::").next().unwrap_or(name)
 }
