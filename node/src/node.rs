@@ -849,6 +849,7 @@ impl Node {
             stats.clone(),
             ledger.clone(),
             fork_cache.clone(),
+            block_processor_queue.clone(),
         ));
         #[cfg(feature = "rai_protocol")]
         aec_event_handlers.add_mut(ReportPlugin::new(reports.clone()));

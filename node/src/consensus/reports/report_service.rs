@@ -4,17 +4,19 @@ use std::{
     time::Duration,
 };
 
+use rsnano_ledger::{AnySet, BlockSource, LedgerSet};
 use rsnano_messages::{
     ConfirmAck, EvidenceReq, LedgerSketchReply, LedgerSketchReq, Message, Publish, ReconReply,
     ReconReq, Report,
 };
-use rsnano_network::{Channel, TrafficType};
+use rsnano_network::{Channel, ChannelId, TrafficType};
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_types::{ConsensusEpoch, PublicKey};
 use rsnano_utils::stats::{DetailType, Direction, StatType, Stats};
 
 use super::{CertificateSource, ReconRefusal, ReconcileResult, ReportExchange, ReportMessage};
 use crate::{
+    block_processing::{BlockContext, BlockProcessorQueue},
     consensus::{AecService, EpochReport},
     transport::{MessageFlooder, MessageSender},
     wallets::WalletRepresentatives,
@@ -67,6 +69,10 @@ pub struct ReportService {
     /// Evidence blocks waiting to be checked and retained
     evidence_blocks: Mutex<std::collections::VecDeque<rsnano_types::Block>>,
     data: super::residual_data::ResidualData,
+    ledger: Arc<rsnano_ledger::Ledger>,
+    block_processor_queue: Arc<BlockProcessorQueue>,
+    /// When the retained branches were last checked against the ledger
+    retained_checked: Mutex<Option<Timestamp>>,
 }
 
 #[allow(dead_code)] // reconciled_count is read by the close, Section 9.1
@@ -124,10 +130,18 @@ impl ReportService {
         stats: Arc<Stats>,
         ledger: Arc<rsnano_ledger::Ledger>,
         forks: Arc<std::sync::RwLock<crate::consensus::ForkCache>>,
+        block_processor_queue: Arc<BlockProcessorQueue>,
     ) -> Self {
         Self {
             exchange: Arc::new(Mutex::new(ReportExchange::new())),
-            data: super::residual_data::ResidualData::new(ledger, forks, active_elections.clone()),
+            data: super::residual_data::ResidualData::new(
+                ledger.clone(),
+                forks,
+                active_elections.clone(),
+            ),
+            ledger,
+            block_processor_queue,
+            retained_checked: Mutex::new(None),
             active_elections,
             wallet_reps,
             flooder: Mutex::new(flooder),
@@ -224,6 +238,7 @@ impl ReportService {
             Arc::new(Stats::default()),
             Arc::new(rsnano_ledger::Ledger::new_null()),
             Arc::new(std::sync::RwLock::new(crate::consensus::ForkCache::new())),
+            Arc::new(BlockProcessorQueue::new_null()),
         )
     }
 
@@ -914,6 +929,94 @@ impl ReportService {
         }
     }
 
+    /// RAI: the ledger follows the branches the latest checkpoint retains.
+    /// A retained block the ledger lost after the checkpoint was installed,
+    /// or whose forced insert did not take, leaves the owner's extension of
+    /// the lock unattachable here for good. Every 2 s: force it in again,
+    /// unless the ledger holds another block the checkpoint retains at that
+    /// position or the rival it holds there is final; fetch it, or the
+    /// ancestor it lacks, when it is not held at all.
+    fn recheck_retained(&self) -> Vec<rsnano_types::BlockHash> {
+        const INTERVAL: Duration = Duration::from_secs(2);
+        let now = self.clock.now();
+        {
+            let mut checked = self.retained_checked.lock().unwrap();
+            if checked.is_some_and(|last| last.elapsed(now) < INTERVAL) {
+                return Vec::new();
+            }
+            *checked = Some(now);
+        }
+        let retained = self.active_elections.retained_to_follow();
+        if retained.is_empty() {
+            return Vec::new();
+        }
+        let any = self.ledger.any();
+        let mut at_position: HashMap<(rsnano_types::Account, u64), Vec<rsnano_types::BlockHash>> =
+            HashMap::new();
+        for (account, height, hash) in &retained {
+            at_position
+                .entry((*account, *height))
+                .or_default()
+                .push(*hash);
+        }
+        let mut counts: BTreeMap<&'static str, usize> = BTreeMap::new();
+        let mut missing = Vec::new();
+        for (account, height, hash) in &retained {
+            if any.block_exists(hash) {
+                continue;
+            }
+            let sibling_held = at_position[&(*account, *height)]
+                .iter()
+                .any(|other| other != hash && any.block_exists(other));
+            if sibling_held {
+                *counts.entry("sibling_held").or_default() += 1;
+                continue;
+            }
+            let Some(block) = self.data.evidence_block(hash) else {
+                *counts.entry("unavailable").or_default() += 1;
+                missing.push(*hash);
+                continue;
+            };
+            let previous = block.previous();
+            if !previous.is_zero() && !any.block_exists(&previous) {
+                *counts.entry("ancestor_missing").or_default() += 1;
+                missing.extend(self.data.missing_ancestor(hash));
+                continue;
+            }
+            let rival = if previous.is_zero() {
+                any.get_account(account).map(|info| info.open_block)
+            } else {
+                any.block_successor(&previous)
+            };
+            if rival.is_some_and(|rival| {
+                any.confirmed().block_exists(&rival) || self.active_elections.is_finalized(&rival)
+            }) {
+                *counts.entry("rival_final").or_default() += 1;
+                continue;
+            }
+            *counts
+                .entry(if rival.is_some() {
+                    "forced_over_rival"
+                } else {
+                    "forced_empty_position"
+                })
+                .or_default() += 1;
+            self.block_processor_queue.push(BlockContext::new(
+                block,
+                BlockSource::Forced,
+                ChannelId::LOOPBACK,
+            ));
+        }
+        if !counts.is_empty() {
+            crate::utils::diagnostic!(
+                "EPOCH_RETAINED_RECHECK retained={} {:?}",
+                retained.len(),
+                counts
+            );
+        }
+        missing
+    }
+
     pub fn tick(&self) -> Vec<(&'static str, u128)> {
         let mut spent: Vec<(&'static str, u128)> = Vec::new();
         let mut mark = std::time::Instant::now();
@@ -933,6 +1036,11 @@ impl ReportService {
         lap("inbound", &mut spent);
         self.log_unvoted();
         lap("unvoted_diagnostic", &mut spent);
+        let missing_retained = self.recheck_retained();
+        if !missing_retained.is_empty() {
+            self.request_evidence(self.active_elections.current_epoch(), missing_retained);
+        }
+        lap("retained_recheck", &mut spent);
         // A report deferred for want of its predecessor checkpoint is signed
         // once that checkpoint is decided here
         let deferred: Vec<ConsensusEpoch> = self.pending.lock().unwrap().keys().copied().collect();

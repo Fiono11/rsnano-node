@@ -369,6 +369,11 @@ impl AecService {
         self.aec.read().unwrap().report_block(hash)
     }
 
+    /// RAI: the retained blocks of the latest checkpoint the ledger follows
+    pub fn retained_to_follow(&self) -> Vec<(rsnano_types::Account, u64, BlockHash)> {
+        self.aec.read().unwrap().retained_to_follow().to_vec()
+    }
+
     /// RAI: whether a block is complete in the current epoch here: a child
     /// may be started and first-voted on it before it is cemented
     pub fn complete_in_current_epoch(&self, hash: &BlockHash) -> bool {

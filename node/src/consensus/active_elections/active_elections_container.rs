@@ -128,6 +128,9 @@ impl EpochReportProjection {
 }
 
 pub(crate) struct ActiveElectionsContainer {
+    /// RAI: the blocks the latest checkpoint retains that the ledger is to
+    /// follow, as last announced by `CheckpointRetained`
+    retained_to_follow: Vec<(Account, u64, BlockHash)>,
     roots: RootContainer,
     observer: Option<Sender<AecFact>>,
     stopped: bool,
@@ -223,6 +226,7 @@ impl ActiveElectionsContainer {
 
     pub fn new(config: ActiveElectionsConfig, base_latency: Duration) -> Self {
         Self {
+            retained_to_follow: Vec::new(),
             roots: RootContainer::new(config.max_elections),
             observer: None,
             stopped: false,
@@ -1407,6 +1411,7 @@ impl ActiveElectionsContainer {
                 superseded.len()
             );
         }
+        self.retained_to_follow = retained.clone();
         if !retained.is_empty() {
             self.notify(AecFact::CheckpointRetained { epoch, retained });
         }
@@ -1828,6 +1833,11 @@ impl ActiveElectionsContainer {
                 )
             })
             .collect()
+    }
+
+    /// RAI: the retained blocks of the latest checkpoint the ledger follows
+    pub fn retained_to_follow(&self) -> &[(Account, u64, BlockHash)] {
+        &self.retained_to_follow
     }
 
     fn parent_complete_in_epoch(&self, election: &Election) -> bool {
