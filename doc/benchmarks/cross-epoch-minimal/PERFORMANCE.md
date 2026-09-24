@@ -374,3 +374,10 @@ Compare each revision with its own interleaved baseline. The revision batches ar
 The frozen baseline can finalize weaker checkpoint evidence than the revised candidate. Completion is therefore not automatically correctness-equivalent. This limits paper claims, especially for forked workloads.
 
 Raw manifests retain binary/client/harness hashes, commands, order, deadline derivation and free-space observations. Per-attempt logs and RPC snapshots are preserved under the evidence paths above. Generated data from the reconciliation-refresh batch and fork diagnostic is deleted after saving evidence and TOML configuration; data-cleanup.json records each deletion. Earlier failure databases remain retained.
+
+
+The later signed-residual replay change (`0d933ad5c`) has only a bounded
+candidate diagnostic, with no accepted checkpoint and no completed latency
+population. Its termination p50/p95/p99 are unavailable; it adds no baseline
+comparison or performance-pass claim. See [FORK-DIAGNOSTIC.md](FORK-DIAGNOSTIC.md)
+for the full result and reconstruction evidence.

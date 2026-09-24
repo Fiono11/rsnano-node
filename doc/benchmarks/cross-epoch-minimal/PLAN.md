@@ -170,3 +170,21 @@ as well as in inclusive primary latency. The old baseline's weaker checkpoint
 finality can hide waiting; its lower latency is not equivalent correct work in
 this experiment. A fault-free performance pass cannot replace this semantic
 comparison or justify a universal preservation claim.
+
+
+## Fork termination blocks further performance advancement
+
+The fork criterion is checkpoint inclusion (R/N/F) or a concrete safe-discard
+witness for both branches, not finalization of each branch. The first instrumented
+run stalled with matching T views and incomplete G reconstruction. Before more
+performance pairs, retain and replay original signed residual votes and expose
+expected/derived G roots and missing first-vote evidence. Use one bounded
+diagnostic to assess this change; preserve unresolved hashes and incomplete
+workloads in the results. See [FORK-DIAGNOSTIC.md](FORK-DIAGNOSTIC.md).
+
+Resume baseline/candidate fork comparisons only after the correctness diagnostic
+completes and the same client/workload has a successful baseline calibration.
+Keep frozen HEAD as the original comparator; identify any separately repaired
+comparator explicitly. p50/p95 remain primary and p99 remains reported. A
+candidate-only diagnostic supplies no performance-pass claim. The carried-R
+coverage experiment above remains outstanding.

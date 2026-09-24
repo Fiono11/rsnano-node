@@ -222,3 +222,17 @@ Termination p50, p95 and p99 are unavailable. This diagnostic is not a paired
 performance comparison and does not change the earlier INCONCLUSIVE result.
 See [FORK-DIAGNOSTIC.md](FORK-DIAGNOSTIC.md) for results, limitations, validation
 and retained evidence. Generated databases were deleted after the run.
+
+
+## Signed residual replay diagnostic
+
+Candidate `0d933ad5c` retains original validated vote batches and periodically
+replays votes covering each own frozen G. Its one 156-second diagnostic recorded
+1,124 fork pairs / 2,248 branches, all unresolved under checkpoint tracking;
+input completion was not observed and no checkpoint was accepted. p50/p95/p99
+termination latencies are unavailable. Snapshots identify G-root mismatches
+with 72 distinct missing fork hashes, rather than missing first evidence among
+reconstructed hashes, and an additional oversized T-difference reply. The
+remaining fork-block availability/placement and T-transfer gaps are detailed in
+[FORK-DIAGNOSTIC.md](FORK-DIAGNOSTIC.md). This is not a performance comparison;
+earlier paired results remain unchanged. Generated node data was deleted.

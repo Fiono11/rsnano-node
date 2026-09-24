@@ -112,3 +112,65 @@ Opt-in diagnostics now include each report's expected G root, locally derived
 G root, vote-kind entries and first-evidence completeness, plus the reporter's
 frozen G evidence. These allow direct comparison of missing/extra hashes and
 missing first votes without treating a hash-only commitment as signed evidence.
+
+
+## Signed replay diagnostic: 0d933ad5c
+
+The single predeclared run reached the 156-second deadline (157.13 seconds
+including controller overhead). The input-complete marker was not observed.
+It recorded 1,124 generated/published fork pairs, 2,248 branch hashes, zero
+checkpoint-supported terminal branches and 2,248 unresolved branches. No node
+accepted a checkpoint. Termination **p50 / p95 / p99 are all unavailable**.
+No completed client latency histogram or paired performance comparison exists.
+
+Near-deadline snapshots distinguish the remaining reconstruction conditions:
+
+| Node | Peer T reconstructed / 5 | Peer G complete / 5 |
+|---|---:|---:|
+| 0 | 4 | 4 |
+| 1 | 5 | 0 |
+| 2 | 4 | 0 |
+| 3 | 4 | 4 |
+| 4 | 4 | 4 |
+| 5 | 4 | 1 |
+
+For the 12 incomplete G reconstructions whose T was available, the derived
+root differed from the signed root. Comparison against the reporters' frozen
+G evidence found missing hashes, no extra hashes, and no missing-first-vote
+condition among the locally reconstructed hashes. Across those reconstructions,
+72 distinct missing hashes were all published fork branches. None of a node's
+missing hashes appeared in its other reconstructed G sets or its own frozen G.
+The raw data distinguish this from a matching-root/missing-first-evidence failure.
+They do not establish whether each missing vote packet was received.
+
+Three nodes entered close round 0, while the others remained below the usable
+report threshold. One reporter's T also could not be reconstructed on five
+peers; logs include `TooLarge(766)` for the existing bounded difference reply.
+This run therefore does not establish that signed replay alone restores closure.
+The earlier run had different randomized forks and timing: the change in peer
+completion counts is descriptive, not a controlled effectiveness comparison.
+
+The source exposes a remaining availability/placement gap: `record_votes` places
+a hash only through an active election or retained finalized instance, otherwise
+skipping the metadata record. Evidence replay also skips election application
+for hashes absent from the vote router. The new signed archive preserves the
+message, but replaying signatures does not itself transfer a missing owner-signed
+fork block or establish its account/height/parent. The run is consistent with
+this gap; a per-hash received-message/placement trace is still needed to prove
+which path affected each missing branch. Reconstructed G metadata must not be
+used as an unauthenticated replacement for block data.
+
+Next implementation work is retained fork-block transfer and authenticated
+placement/replay, plus bounded multi-part T-difference reconstruction for the
+observed oversized reply. These are separate changes requiring focused tests;
+no repeated performance pairs should start before fork termination works.
+This in-memory signed replay is not the paper's complete durable evidence layer.
+
+Evidence: `/tmp/rai-cross-epoch-artifacts/fork-residual-replay-diagnostic-v1/`.
+The attempt retains `result.json`, per-fork manifest/outcomes, all six snapshots,
+`residual-analysis.json`, its analysis script, logs, RPC, saved configuration and
+`data-cleanup.json`. Generated databases were deleted after process shutdown.
+The release binary and unchanged repaired client are hashed in the run manifest;
+source and build details are in the artifact-root `build-manifest.json`.
+Validation: 799 RAI node tests passed, default RPC-server check passed, release
+build passed. No other benchmark or replacement attempt was run for this change.
