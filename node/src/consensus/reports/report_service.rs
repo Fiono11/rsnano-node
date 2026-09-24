@@ -431,10 +431,11 @@ impl ReportService {
             (ConsensusEpoch, rsnano_types::BlockHash),
             crate::consensus::election::CertificateKinds,
         > = HashMap::new();
-        let mut epochs = vec![epoch];
-        if let Some(before) = epoch.as_u64().checked_sub(1) {
-            epochs.push(ConsensusEpoch::new(before));
-        }
+        // Every retained epoch: a certificate exposed late may be older
+        // than the epoch before the closing one
+        let epochs: Vec<ConsensusEpoch> = (0..4)
+            .filter_map(|back| epoch.as_u64().checked_sub(back).map(ConsensusEpoch::new))
+            .collect();
         for vote_epoch in epochs {
             for (hash, kind) in self.active_elections.certificate_kinds(vote_epoch, &hashes) {
                 kinds.insert((vote_epoch, hash), kind);
@@ -451,12 +452,42 @@ impl ReportService {
             return;
         };
         if checked > 0 && self.log_due(epoch, false) {
+            let sample: Vec<String> = unjustified
+                .iter()
+                .take(3)
+                .map(|hash| {
+                    let status = self
+                        .exchange
+                        .lock()
+                        .unwrap()
+                        .reported_status(epoch, &reporter, hash)
+                        .map(|(block, status)| {
+                            format!("{:?}@{}:{}", status, block.account, block.height)
+                        })
+                        .unwrap_or_default();
+                    // How many retained signed batches this node holds for
+                    // it, per retained epoch: whether the votes ever arrived
+                    let held: Vec<usize> = (0..4)
+                        .filter_map(|back| epoch.as_u64().checked_sub(back))
+                        .map(|vote_epoch| {
+                            self.active_elections
+                                .signed_votes_for_hashes(
+                                    ConsensusEpoch::new(vote_epoch),
+                                    std::slice::from_ref(hash),
+                                )
+                                .len()
+                        })
+                        .collect();
+                    format!("{}={} votes={:?}", &hash.to_string()[..8], status, held)
+                })
+                .collect();
             crate::utils::diagnostic!(
-                "EPOCH_EVIDENCE epoch={} reporter={} checked={} missing={}",
+                "EPOCH_EVIDENCE epoch={} reporter={} checked={} missing={} sample={:?}",
                 epoch,
                 reporter,
                 checked,
-                unjustified.len()
+                unjustified.len(),
+                sample
             );
         }
         missing.extend(unjustified);

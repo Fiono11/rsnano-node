@@ -92,23 +92,21 @@ pub(crate) fn unjustified_entries(
     missing
 }
 
-/// Finality assembled from votes of the closing epoch, or of the epoch
-/// before it: a certificate assembled after the predecessor was decided
-/// is exposed by the next report as F for a block the predecessor carried
+/// Finality assembled from votes of the closing epoch or of a retained
+/// earlier one: a certificate assembled after a predecessor was decided is
+/// exposed by a later report as F for a block that predecessor carried
 /// only as a lock
 fn finalized_by_votes(
     epoch: ConsensusEpoch,
     hash: &BlockHash,
     certificates: &dyn CertificateSource,
 ) -> bool {
-    let mut epochs = vec![epoch];
-    if let Some(before) = epoch.as_u64().checked_sub(1) {
-        epochs.push(ConsensusEpoch::new(before));
-    }
-    epochs.into_iter().any(|epoch| {
-        let kinds = certificates.kinds(epoch, hash);
-        kinds.fc || kinds.ff
-    })
+    (0..4)
+        .filter_map(|back| epoch.as_u64().checked_sub(back).map(ConsensusEpoch::new))
+        .any(|epoch| {
+            let kinds = certificates.kinds(epoch, hash);
+            kinds.fc || kinds.ff
+        })
 }
 
 /// The certificates a validator has assembled locally from the signed

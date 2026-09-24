@@ -498,9 +498,10 @@ impl ReportExchange {
     }
 
     /// RAI: the tagged entries of a reconstructed report whose certificates
-    /// are still to be checked here: every N and F entry the first time, the
-    /// ones found missing afterwards, at most once per `RETRY_INTERVAL`. None
-    /// while there is nothing to check or the report is verified.
+    /// are to be checked here: every N and F entry, the first time and on
+    /// every retry (a check covers the whole state, so the certificates of
+    /// every entry are needed each time), at most once per `RETRY_INTERVAL`.
+    /// None while there is nothing to check or the report is verified.
     pub fn evidence_to_check(
         &self,
         epoch: ConsensusEpoch,
@@ -510,19 +511,38 @@ impl ReportExchange {
         let held = self.epochs.get(&epoch)?;
         let their = held.theirs.get(reporter)?;
         let state = their.reconstructed.as_ref()?;
-        match &their.evidence {
-            EvidenceState::Verified => None,
-            EvidenceState::Unchecked => Some(
-                state
-                    .entries()
-                    .filter(|(_, entry)| entry.status != CertifiedStatus::Recovery)
-                    .map(|(block, _)| block.hash)
-                    .collect(),
-            ),
-            EvidenceState::Missing { hashes, checked } => {
-                (checked.elapsed(now) >= Self::RETRY_INTERVAL).then(|| hashes.clone())
-            }
-        }
+        let due = match &their.evidence {
+            EvidenceState::Verified => false,
+            EvidenceState::Unchecked => true,
+            EvidenceState::Missing { checked, .. } => checked.elapsed(now) >= Self::RETRY_INTERVAL,
+        };
+        due.then(|| {
+            state
+                .entries()
+                .filter(|(_, entry)| entry.status != CertifiedStatus::Recovery)
+                .map(|(block, _)| block.hash)
+                .collect()
+        })
+    }
+
+    /// The status a reconstructed report gives a hash, for the diagnostics
+    pub fn reported_status(
+        &self,
+        epoch: ConsensusEpoch,
+        reporter: &PublicKey,
+        hash: &BlockHash,
+    ) -> Option<(CertifiedBlock, CertifiedStatus)> {
+        let state = self
+            .epochs
+            .get(&epoch)?
+            .theirs
+            .get(reporter)?
+            .reconstructed
+            .as_ref()?;
+        state
+            .entries()
+            .find(|(block, _)| block.hash == *hash)
+            .map(|(block, entry)| (*block, entry.status))
     }
 
     /// RAI, "Reconstructing a report": check every N and F membership of a
@@ -1316,7 +1336,8 @@ mod tests {
                 .len(),
             3
         );
-        // The votes arrive for two of them: the third is still missing
+        // The votes arrive for two of them: the third is still missing, and
+        // the recheck still covers every entry, not the missing one alone
         let nc_only = CertificateKinds {
             nc: true,
             fc: false,
@@ -1331,6 +1352,12 @@ mod tests {
             .unwrap();
         assert_eq!(missing, vec![block(2).hash]);
         assert_eq!(ours.usable(epoch).len(), 1);
+        assert_eq!(
+            ours.evidence_to_check(epoch, &key.public_key(), later())
+                .unwrap()
+                .len(),
+            3
+        );
         // An NC does not justify F; a final certificate does
         some.insert((epoch, block(2).hash), nc_only);
         assert_eq!(
