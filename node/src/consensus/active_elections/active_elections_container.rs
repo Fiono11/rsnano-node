@@ -1221,6 +1221,8 @@ impl ActiveElectionsContainer {
     /// vote comes due.
     fn release_predecessor_gate(&mut self, epoch: ConsensusEpoch, now: Timestamp) {
         #[cfg(feature = "rai_protocol")]
+        self.log_waiting_reasons(epoch);
+        #[cfg(feature = "rai_protocol")]
         self.recheck_provisional(epoch);
         let ids: Vec<ElectionId> = self
             .roots
@@ -1915,6 +1917,64 @@ impl ActiveElectionsContainer {
         for id in waiting {
             self.check_overlap_eligibility(&id, now);
         }
+    }
+
+    /// RAI diagnostics: why the instances still waiting for this epoch's
+    /// predecessor checkpoint were not eligible through an overlap exception
+    #[cfg(feature = "rai_protocol")]
+    fn log_waiting_reasons(&self, epoch: ConsensusEpoch) {
+        let Some(before) = epoch.as_u64().checked_sub(1).map(ConsensusEpoch::new) else {
+            return;
+        };
+        let closed = self.epoch_previous_state(before);
+        let mut counts: BTreeMap<&'static str, usize> = BTreeMap::new();
+        let mut first_votes: BTreeMap<usize, usize> = BTreeMap::new();
+        for election in self.roots.iter().map(|entry| &entry.election) {
+            if election.epoch() != epoch || election.predecessor_decided() {
+                continue;
+            }
+            *counts.entry("waiting").or_default() += 1;
+            if election.overlap_eligible() {
+                *counts.entry("eligible_unfinalized").or_default() += 1;
+                continue;
+            }
+            let voters = election
+                .candidate_blocks()
+                .keys()
+                .filter_map(|hash| self.vote_records.support(epoch, hash))
+                .map(|support| support.first.len())
+                .max()
+                .unwrap_or(0);
+            *first_votes.entry(voters).or_default() += 1;
+            let Some(&block) = election.certificates().notar.first() else {
+                *counts.entry("no_nc").or_default() += 1;
+                continue;
+            };
+            let previous = election.qualified_root().previous;
+            let height = election.height();
+            let parent_slot = AccountSlot::new(election.account(), height.saturating_sub(1));
+            let opens = height <= 1 && previous.is_zero();
+            let parent_finalized = opens
+                || self.epoch_states.is_finalized(&previous)
+                || closed
+                    .as_ref()
+                    .is_some_and(|state| state.is_finalized(&parent_slot, &previous));
+            let backed = self.predecessor_backed(epoch, &block);
+            *counts
+                .entry(match (backed, parent_finalized) {
+                    (true, true) => "nc_backed_parent_final",
+                    (true, false) => "nc_backed_parent_not_final",
+                    (false, true) => "nc_unbacked_parent_final",
+                    (false, false) => "nc_unbacked_parent_not_final",
+                })
+                .or_default() += 1;
+        }
+        diagnostic!(
+            "EPOCH_WAITING epoch={} reasons={:?} first_votes_histogram={:?}",
+            epoch,
+            counts,
+            first_votes
+        );
     }
 
     /// RAI: a block finalized; its children in the same epoch may have been
