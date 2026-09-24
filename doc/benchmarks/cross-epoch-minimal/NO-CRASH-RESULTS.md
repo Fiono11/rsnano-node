@@ -1024,3 +1024,33 @@ Once a second the AEC fact thread logs `AEC_FACTS`: its busy time, the number
 of facts, the time of the work done for every fact (plugins, awaited checkpoint
 cementation), and per fact kind the count, total and maximum milliseconds. No
 protocol change. Formatting and all 864 node unit tests pass.
+
+Pinned v38 binaries (commit 83f161cca):
+
+```text
+959d98d350416fcba4bbe7b3ca0c47152dff6d4db4099cfc573f3bc5bf03af59  rsnano
+9135ae7b7cbe7b8194351765700bf3810710fa5d494cfb6f222ef99577635dc7  nanospam
+```
+
+| Run | Non-fork goodput | p50 / p95 / p99 (ms) | Same end state on all six PRs |
+|---|---:|---:|---|
+| v38 one #1 | 1589 | 108 / 853 / 1184 | yes |
+| v38 two #1 | 1793 | 182 / 991 / 1129 | yes |
+
+Host load was quiet apart from this session (23% at the start of v38 one). The
+fact thread was 20–35% busy in epoch 0 and 80–100% busy on all six nodes from a
+boundary through the rest of the loaded run, so every cementation hand-over and
+publication queued. `election_terminated` (1,800–2,300 facts/s) dominated:
+110–150 ms/s in epoch 0, 300–700 ms/s afterwards at the same rate. Every other
+kind also slowed by 2–5x per fact, and its handler is only a ledger read and a
+channel send, which suggests the thread is starved of CPU or blocked, not
+running a newly expensive handler.
+
+### v39: thread and process CPU time in the fact summary (diagnostic)
+
+Each `AEC_FACTS` line now carries the CPU time the fact thread and the whole
+node used since the previous line (`clock_gettime(CLOCK_THREAD_CPUTIME_ID)`,
+`getrusage`). Busy wall time well above thread CPU time means waiting; a jump
+in process CPU after a boundary means extra work competing for eight cores
+shared by six nodes. `libc` is added as a Unix-only dependency of the node crate.
+Formatting and all 865 node unit tests pass.

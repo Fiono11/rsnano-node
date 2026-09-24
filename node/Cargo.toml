@@ -85,6 +85,9 @@ num-format = "0.4.4"
 rustc-hash = "2.1.2"
 const_format = "0.2.36"
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 mock_instant = "0"
 tracing-test = "0"

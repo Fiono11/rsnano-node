@@ -1,6 +1,6 @@
 use std::{
     sync::{Arc, Mutex, mpsc::SyncSender},
-    time::{Instant, SystemTime},
+    time::{Duration, Instant, SystemTime},
 };
 
 use tracing::debug;
@@ -30,8 +30,8 @@ use crate::{
     },
     recently_cemented_inserter::RecentlyCementedInserter,
     utils::{
-        BackpressureEventProcessor, ConfirmationStages, FactTimings, StageRecord, diagnostic,
-        unix_ms,
+        BackpressureEventProcessor, ConfirmationStages, FactTimings, StageRecord, cpu_times,
+        diagnostic, unix_ms,
     },
 };
 
@@ -64,6 +64,8 @@ pub(crate) struct AecFactProcessor {
     pub(crate) confirmation_stages: ConfirmationStages,
     /// Diagnostic: per-second time spent on each kind of fact
     pub(crate) fact_timings: FactTimings,
+    /// Diagnostic: thread and process CPU time at the last fact summary
+    pub(crate) last_cpu_times: Option<(Duration, Duration)>,
 }
 
 impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
@@ -94,7 +96,23 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
                 self.fact_timings
                     .record(unix_ms() as u64, kind, handling, &per_event)
             {
-                diagnostic!("{}", line);
+                // CPU spent since the last summary, by this thread and by
+                // the whole node
+                let cpu = cpu_times();
+                let (thread_ms, process_ms) = match (cpu, self.last_cpu_times) {
+                    (Some((thread, process)), Some((last_thread, last_process))) => (
+                        thread.saturating_sub(last_thread).as_millis(),
+                        process.saturating_sub(last_process).as_millis(),
+                    ),
+                    _ => (0, 0),
+                };
+                self.last_cpu_times = cpu;
+                diagnostic!(
+                    "{} thread_cpu_ms={} process_cpu_ms={}",
+                    line,
+                    thread_ms,
+                    process_ms
+                );
             }
         }
     }
