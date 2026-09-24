@@ -2028,11 +2028,71 @@ impl ActiveElectionsContainer {
                 })
                 .or_default() += 1;
         }
+        // Chains: a waiting instance whose parent is itself a waiting
+        // instance of the epoch is blocked by that parent; classify the
+        // roots of those chains, which are what actually stalls
+        let waiting: HashMap<BlockHash, &Election> = self
+            .roots
+            .iter()
+            .map(|entry| &entry.election)
+            .filter(|election| {
+                election.epoch() == epoch
+                    && !election.predecessor_decided()
+                    && election.candidate_blocks().len() == 1
+            })
+            .map(|election| (election.winner().hash(), election))
+            .collect();
+        let mut roots: BTreeMap<String, usize> = BTreeMap::new();
+        let mut depth_histogram: BTreeMap<usize, usize> = BTreeMap::new();
+        for election in waiting.values() {
+            let mut current = *election;
+            let mut depth = 0;
+            while let Some(parent) = waiting.get(&current.qualified_root().previous) {
+                current = parent;
+                depth += 1;
+                if depth > 64 {
+                    break;
+                }
+            }
+            *depth_histogram.entry(depth.min(8)).or_default() += 1;
+            if depth > 0 {
+                continue;
+            }
+            let hash = current.winner().hash();
+            let previous = current.qualified_root().previous;
+            let parent_cemented_here = self.epoch_states.is_finalized(&previous)
+                || previous.is_zero()
+                || closed.as_ref().is_some_and(|state| {
+                    state.is_finalized(
+                        &AccountSlot::new(current.account(), current.height().saturating_sub(1)),
+                        &previous,
+                    )
+                });
+            let first = self
+                .vote_records
+                .support(epoch, &hash)
+                .map_or(0, |support| support.first.len());
+            let own = self
+                .slots
+                .get(&current.epoch_slot())
+                .is_some_and(|slot| slot.first_voted.is_some());
+            let key = format!(
+                "nc={} eligible={} parent_final={} own_first={} first_votes={}",
+                current.certificates().has_block(),
+                current.overlap_eligible(),
+                parent_cemented_here,
+                own,
+                first.min(6)
+            );
+            *roots.entry(key).or_default() += 1;
+        }
         diagnostic!(
-            "EPOCH_WAITING epoch={} reasons={:?} first_votes_histogram={:?}",
+            "EPOCH_WAITING epoch={} reasons={:?} first_votes_histogram={:?} chain_depths={:?} chain_roots={:?}",
             epoch,
             counts,
-            first_votes
+            first_votes,
+            depth_histogram,
+            roots
         );
     }
 
