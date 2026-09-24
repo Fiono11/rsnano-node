@@ -167,8 +167,15 @@ impl AecService {
 
     /// RAI: the frontiers of every account at the end of the setup: the
     /// genesis committee, and the base the epochs' committees are counted on
-    pub fn set_genesis_committee(&self, frontiers: Vec<AccountFrontier>) {
-        self.aec.write().unwrap().set_genesis_committee(frontiers)
+    pub fn set_genesis_committee(
+        &self,
+        frontiers: Vec<AccountFrontier>,
+        history: crate::consensus::election::EpochLedger,
+    ) {
+        self.aec
+            .write()
+            .unwrap()
+            .set_genesis_committee(frontiers, Some(history))
     }
 
     /// RAI: the setup is over, epoch 0 starts now

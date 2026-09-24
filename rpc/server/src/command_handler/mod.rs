@@ -76,7 +76,7 @@ impl RpcCommandHandler {
             RpcCommand::ConfirmationActive(args) => to_value(self.confirmation_active(args)),
             RpcCommand::FinalState(args) => to_value(self.final_state(args)),
             RpcCommand::EpochAdvance => to_value(self.epoch_advance()),
-            RpcCommand::EpochStart => to_value(self.epoch_start()),
+            RpcCommand::EpochStart => to_value(self.epoch_start()?),
             RpcCommand::ConfirmationInfo(args) => to_value(self.confirmation_info(args)?),
             RpcCommand::ConfirmationQuorum(args) => to_value(self.confirmation_quorum(args)),
             RpcCommand::Delegators(args) => to_value(self.delegators(args)),

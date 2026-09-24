@@ -457,7 +457,11 @@ impl ActiveElectionsContainer {
     /// RAI: the frontiers of every account at the end of the setup: the
     /// genesis committee the first two epochs count in, and the base the
     /// committees of the epochs closed are derived on
-    pub fn set_genesis_committee(&mut self, frontiers: Vec<AccountFrontier>) {
+    pub fn set_genesis_committee(
+        &mut self,
+        frontiers: Vec<AccountFrontier>,
+        history: Option<EpochLedger>,
+    ) {
         if self.committees.started() {
             return;
         }
@@ -471,7 +475,7 @@ impl ActiveElectionsContainer {
                 frontier.hash,
             );
         }
-        self.genesis_state = Arc::new(genesis);
+        self.genesis_state = Arc::new(history.unwrap_or(genesis));
         let committee = self.committees.start(frontiers);
         self.log_committee("genesis", &committee);
     }
@@ -3645,13 +3649,16 @@ mod tests {
         // The genesis committee: representative 1 alone, delegated to by
         // one account which moves to representative 2 in epoch 0
         let mover = PrivateKey::from(10);
-        container.set_genesis_committee(vec![AccountFrontier {
-            account: mover.account(),
-            height: 1,
-            hash: BlockHash::from(77),
-            representative: rep1.public_key(),
-            balance: Amount::raw(100),
-        }]);
+        container.set_genesis_committee(
+            vec![AccountFrontier {
+                account: mover.account(),
+                height: 1,
+                hash: BlockHash::from(77),
+                representative: rep1.public_key(),
+                balance: Amount::raw(100),
+            }],
+            None,
+        );
         let block0 = SavedBlock::new_test_instance_with(
             StateBlockArgs {
                 key: &mover,

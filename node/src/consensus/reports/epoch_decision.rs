@@ -496,6 +496,14 @@ impl EpochDecisionService {
             &index,
             committee.thresholds().many,
         )
+        .inspect_err(|error| {
+            diagnostic!(
+                "EPOCH_BUILD_REJECTED epoch={} round={} error={:?}",
+                epoch,
+                round,
+                error
+            )
+        })
         .ok()?;
         Some((value, Arc::new(ledger)))
     }

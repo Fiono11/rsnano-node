@@ -269,6 +269,13 @@ impl EpochLedger {
         self.finalize(slot, PlacedBlock::new(hash, BlockHash::ZERO));
     }
 
+    /// Trusted genesis contains the complete finalized prefix, not synthetic
+    /// frontier records with missing parents. Closure may encounter its blocks
+    /// again in reports collected during benchmark setup.
+    pub fn finalize_genesis_block(&mut self, slot: AccountSlot, block: PlacedBlock) {
+        self.finalize(slot, block);
+    }
+
     fn finalize(&mut self, slot: AccountSlot, block: PlacedBlock) {
         self.finalized.insert(slot, block);
         // A finalized position keeps no conflicting survivor
@@ -1026,6 +1033,44 @@ mod tests {
         assert_eq!(
             recovered.notarized(&slot(1, 1)),
             notarized.notarized(&slot(1, 1))
+        );
+    }
+
+    #[test]
+    fn genesis_setup_reports_require_complete_history_not_synthetic_frontiers() {
+        let mut index = StubIndex::default();
+        let open = index.add(1, 1, BlockHash::ZERO);
+        let second = index.add(1, 2, open);
+        let frontier = index.add(1, 3, second);
+        let mut certified = CertifiedState::new();
+        for hash in [second, frontier] {
+            certify(&mut certified, &index, hash, CertifiedStatus::Finalized);
+        }
+        let residual = ResidualVotes::new();
+        let selection = [report(&certified, &residual)];
+        let mut sparse = EpochLedger::new();
+        sparse.finalize_genesis(slot(1, 3), frontier);
+        assert!(
+            build_state(
+                &sparse,
+                &selection,
+                &ReportIndex::new(&sparse, &selection),
+                MANY
+            )
+            .is_err()
+        );
+        let mut complete = EpochLedger::new();
+        for hash in [open, second, frontier] {
+            complete
+                .finalize_genesis_block(index.placement(&hash).unwrap().slot, placed(&index, hash));
+        }
+        assert_eq!(
+            derive(
+                &complete,
+                &selection,
+                &ReportIndex::new(&complete, &selection)
+            ),
+            complete
         );
     }
 
