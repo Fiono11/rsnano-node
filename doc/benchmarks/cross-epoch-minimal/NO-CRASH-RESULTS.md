@@ -1085,3 +1085,40 @@ stops, so a wake-up never makes it run early. It runs on its check interval
 and checks the vacancy itself then. `notify` now only wakes the condition
 variable, which stopping still relies on. No protocol change. Formatting and
 all 865 node unit tests pass.
+
+Pinned v40 binaries (commit 54f4356f4):
+
+```text
+cbc3fc94136ecd684f2df57370ecde6761d567f2c85adfbba9f0e3e15f76da5f  rsnano
+9135ae7b7cbe7b8194351765700bf3810710fa5d494cfb6f222ef99577635dc7  nanospam
+```
+
+| Run | Non-fork goodput | p50 / p95 / p99 (ms) | Same end state on all six PRs |
+|---|---:|---:|---|
+| v40 one #1 | 1550 | 106 / 1044 / 1383 | yes |
+| v40 two #1 | 1606 | 199 / 1194 / 1514 | yes |
+
+Host load was quiet for both v40 runs. Per fact kind, averaged over
+node-seconds before the first boundary and in the 13 s after it (two-checkpoint
+run): `election_terminated` now barely changes (81 to 96 us per fact; 162 to
+186 ms/s), while `election_started` grows from 39 to 110 us per fact (79 to
+213 ms/s), the per-fact plugins from 44 to 92 ms/s, and each checkpoint
+installation fact takes 200–265 ms. Fact-thread CPU stays at 50–130 ms per
+second, so the remaining time is still waiting. Epoch-0 busy time fell from
+~250–350 to ~130–250 ms per second.
+
+Clean pairs since the stage diagnostics (no profiling):
+
+| Build | one p50 / p95 | two p50 / p95 | two goodput |
+|---|---:|---:|---:|
+| v34 | 112 / 1,314 | 275 / 2,264 | 1,489 |
+| v35 | 113 / 1,216 | 212 / 869 | 1,590 |
+| v36 | 110 / 1,563 | 143 / 704 | 1,624 |
+| v37 | 111 / 1,105 | 295 / 1,462 | 1,596 |
+| v38 | 108 / 853 | 182 / 991 | 1,793 |
+| v39 | 115 / 633 | 170 / 1,213 | 1,578 |
+| v40 | 106 / 1,044 | 199 / 1,194 | 1,606 |
+
+Single pairs vary widely (two-checkpoint p95 704–1,462 ms across builds whose
+changes are diagnostics). No build has yet shown two-checkpoint p50 at the
+one-checkpoint level; it remains ~60–90 ms higher.
