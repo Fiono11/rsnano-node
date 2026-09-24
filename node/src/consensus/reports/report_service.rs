@@ -514,6 +514,15 @@ impl ReportService {
                     .filter_map(|hash| self.data.missing_ancestor(hash)),
             );
         }
+        // A derived G that does not hash to the signed root lacks some of
+        // the reporter's votes: the signed root asks the reporter for them
+        // (see `handle_evidence_request`)
+        let unmatched = self
+            .exchange
+            .lock()
+            .unwrap()
+            .unmatched_residual_root(epoch, &reporter);
+        missing.extend(unmatched);
         let now = self.clock.now();
         if !self
             .exchange
@@ -748,6 +757,33 @@ impl ReportService {
                 }
             }
         }
+        // A G root of this node's own report: the validator could not derive
+        // that G and gets every retained signed vote of the reporter for it
+        let own: Vec<(PublicKey, Vec<rsnano_types::BlockHash>)> = {
+            let exchange = self.exchange.lock().unwrap();
+            request
+                .hashes
+                .iter()
+                .filter_map(|hash| exchange.own_residual(request.epoch, hash))
+                .collect()
+        };
+        let mut residual_batches = 0;
+        for (reporter, hashes) in own {
+            let votes = self
+                .active_elections
+                .signed_votes_for(request.epoch, &reporter, &hashes);
+            let mut sender = self.sender.lock().unwrap();
+            for vote in votes {
+                sender.try_send(
+                    channel,
+                    &Message::ConfirmAck(ConfirmAck::new_with_certificate_evidence(
+                        (*vote).clone(),
+                    )),
+                    TrafficType::Vote,
+                );
+                residual_batches += 1;
+            }
+        }
         let mut sent = 0;
         for epoch in epochs {
             let votes = self
@@ -767,11 +803,12 @@ impl ReportService {
         }
         if self.log_due(request.epoch, true) {
             crate::utils::diagnostic!(
-                "EPOCH_EVIDENCE_SERVED epoch={} hashes={} batches={} blocks={}",
+                "EPOCH_EVIDENCE_SERVED epoch={} hashes={} batches={} blocks={} own_residual_batches={}",
                 request.epoch,
                 request.hashes.len(),
                 sent,
-                blocks
+                blocks,
+                residual_batches
             );
         }
     }

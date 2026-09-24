@@ -41,6 +41,16 @@ impl VoteBroadcaster {
         Self::new(queue, flooder, stats)
     }
 
+    /// RAI: a vote sent only to the requester that asked for it is still a
+    /// released vote. It goes through this node's own vote processing, as a
+    /// broadcast vote does, so that the node retains it and counts it in
+    /// its report's G ("all blocks for which i released an epoch-e account
+    /// vote before freezing").
+    pub fn process_locally(&self, vote: Arc<Vote>) {
+        self.vote_processor_queue
+            .enqueue(vote, None, VoteDelivery::Direct, None);
+    }
+
     /// Broadcast vote to PRs and some non-PRs
     pub fn broadcast(&self, vote: Arc<Vote>) {
         let ack = Message::ConfirmAck(ConfirmAck::new_with_own_vote(vote.deref().clone()));

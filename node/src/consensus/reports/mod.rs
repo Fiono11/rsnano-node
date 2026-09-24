@@ -10,7 +10,7 @@ pub use epoch_decision::EpochDecisionService;
 pub(crate) use report_plugin::{ReportPlugin, ReportTicker};
 pub use report_service::ReportService;
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use rsnano_messages::{
     CertifiedEntry, LedgerSketchReply, LedgerSketchReq, ReconReply, ReconReq, Report,
@@ -756,6 +756,33 @@ impl ReportExchange {
             entries: total,
             total,
         })
+    }
+
+    /// RAI: the signed G root of a report whose derived G does not hash to
+    /// it yet: what a validator asks the reporter for directly
+    pub fn unmatched_residual_root(
+        &self,
+        epoch: ConsensusEpoch,
+        reporter: &PublicKey,
+    ) -> Option<BlockHash> {
+        let their = self.epochs.get(&epoch)?.theirs.get(reporter)?;
+        let working = their.working.as_ref()?;
+        (working.root() != their.report.residual).then_some(their.report.residual)
+    }
+
+    /// RAI: the G hashes of this node's own report with that G root, and
+    /// the reporter, so that its retained signed votes for them can be
+    /// handed to a validator that could not derive the set
+    pub fn own_residual(
+        &self,
+        epoch: ConsensusEpoch,
+        root: &BlockHash,
+    ) -> Option<(PublicKey, Vec<BlockHash>)> {
+        let held = self.epochs.get(&epoch)?;
+        let report = held.signed.iter().find(|report| report.residual == *root)?;
+        let votes = held.residuals.get(root)?;
+        let hashes: BTreeSet<BlockHash> = votes.entries().map(|(b, _, _)| b.hash).collect();
+        Some((report.reporter, hashes.into_iter().collect()))
     }
 
     /// RAI: the G members of a report whose blocks are still to be fetched,
@@ -2586,6 +2613,55 @@ mod tests {
             theirs_usable(&mut ours, epoch),
             vec![(theirs.root(), residual.root())]
         );
+    }
+
+    /// A validator whose derived G misses the signed root names that root;
+    /// the reporter recognizes it as its own and lists the G hashes whose
+    /// signed votes it hands over
+    #[test]
+    fn an_unmatched_residual_root_is_answered_by_its_reporter() {
+        let epoch = ConsensusEpoch::ZERO;
+        let key = PrivateKey::from(1);
+        let theirs = state_of(0..10);
+        let votes = vec![
+            (block(20), ResidualKind::First, parent(20)),
+            (block(21), ResidualKind::First, parent(21)),
+        ];
+        let residual = ResidualVotes::derive(&theirs, votes.clone());
+        let mut reporter = ReportExchange::new();
+        reporter.report_epoch(
+            epoch,
+            theirs.clone(),
+            residual.clone(),
+            BlockHash::from(7),
+            BlockHash::ZERO,
+            &[key.clone()],
+        );
+        let mut ours = ReportExchange::new();
+        ours.report_epoch(
+            epoch,
+            theirs.clone(),
+            ResidualVotes::new(),
+            BlockHash::from(7),
+            BlockHash::ZERO,
+            &[PrivateKey::from(2)],
+        );
+        assert!(ours.handle_report(signed_with(&key, epoch, &theirs, &residual)));
+        ours.reconcile(epoch, key.public_key(), later()).unwrap();
+        ours.derive_residual(epoch, key.public_key(), votes[..1].to_vec(), later());
+
+        let root = ours
+            .unmatched_residual_root(epoch, &key.public_key())
+            .expect("one vote short");
+        assert_eq!(root, residual.root());
+        assert_eq!(
+            reporter.own_residual(epoch, &root),
+            Some((key.public_key(), vec![block(20).hash, block(21).hash]))
+        );
+        assert_eq!(ours.own_residual(epoch, &root), None);
+
+        ours.derive_residual(epoch, key.public_key(), votes, later());
+        assert_eq!(ours.unmatched_residual_root(epoch, &key.public_key()), None);
     }
 
     #[test]

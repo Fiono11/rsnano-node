@@ -417,6 +417,9 @@ impl SharedState {
                     } else {
                         ConfirmAck::new_with_own_vote((*vote).clone())
                     };
+                    if cfg!(feature = "rai_protocol") {
+                        self.vote_broadcaster.process_locally(vote.clone());
+                    }
                     let confirm = Message::ConfirmAck(ack);
                     self.message_sender.lock().unwrap().try_send(
                         &request.channel,

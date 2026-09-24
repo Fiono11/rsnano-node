@@ -299,3 +299,73 @@ agree everywhere. The data was deleted before the block could be
 identified, so the cause is not diagnosed. Latency is higher than with one
 checkpoint (p50 128–213 ms on a quiet host): with two boundaries, a larger
 share of the non-fork blocks wait at a boundary.
+
+## Two checkpoints: termination fixes and latency (v12c to v16, candidate only)
+
+Same workload: 45,000 blocks at 2,000/s, 5 % forks, six nodes, paper
+model `f = p = 1`, certificate-only, 214 s deadline, one run each, data
+deleted after every run. Two checkpoints means
+`--epoch-terminated-elections 20000`; one checkpoint means 40,000.
+
+| Run | Change | Same end state | Non-fork goodput | p50 / p95 / p99 |
+|---|---|---|---:|---:|
+| v12c two | chain-root diagnostic only | no, timed out: epoch 1 never closed | n/a | n/a |
+| v13 two | G derived from every signed vote hash; unplaced G blocks fetched | no: one node never decided checkpoint 1 | 1,109 blocks/s | 1,248 / 9,836 / 11,238 ms |
+| v14 two | children started and voted on complete current-epoch parents | yes, 44,767 cemented on all six | 1,516 blocks/s | 1,238 / 3,130 / 3,560 ms |
+| v14 one | same binary | no: two nodes lagged on 42 accounts, 0 conflicts | 1,186 blocks/s | 252 / 1,835 / 2,214 ms |
+| v15 one | retained branches re-checked every 2 s | yes | 1,071 blocks/s | 530 / 1,802 / 2,095 ms |
+| v15 two | same binary | no: two nodes lacked 522 and 2,889 checkpoint-1 finalized blocks, 0 conflicts | 1,290 blocks/s | 704 / 4,161 / 5,241 ms |
+| v16 two | missing checkpoint-finalized blocks fetched; re-gossiped evidence kept off the block processor | yes, 44,968 cemented on all six | 1,435 blocks/s | 946 / 2,118 / 2,606 ms |
+
+**Why epoch 1 never closed (v12c).** Three nodes could not derive the G
+set of the other reporters. The manuscript derives Ĝ from the hashes the
+reporter signed votes for, checks the root, and only then fetches blocks
+and ancestry. The implementation placed every vote before deriving and
+left out votes whose block it lacked. A lagging node missing 14 to 45 G
+blocks never matched the root. v13 derives G from all signed vote hashes,
+keeps a report unusable until every G member is placed, and fetches the
+missing block or its deepest missing ancestor with the evidence request,
+which now also returns blocks.
+
+**Why a node did not decide checkpoint 1 (v13).** It refused the decided
+value with `MissingAncestry`. The error now names the position and hash.
+It did not recur in v14 to v16, so it was not diagnosed further.
+
+**Children of non-final parents (v14).** The manuscript lets a validator
+first-vote a child on a complete current-epoch parent, one with an epoch
+NC, and finalizes an eligible child on its own certificate together with
+its unresolved ancestors. The scheduler only started a child once its
+parent was cemented here. It now walks past blocks complete in the current
+epoch and is woken when an instance gets its NC. A receive still needs a
+final send: attachment reports an unfinalized source before the parent. A
+unit test finalizes a child on its own certificate while its parent is
+only notarized. The benchmark client publishes a block only after its
+predecessor is confirmed, so this workload cannot show a latency effect.
+
+**Lagging nodes after installation (v14 one, v15 two).** Two failure
+modes, both liveness, never a conflicting account. A retained lock target
+forced in once at installation was not in the ledger afterwards, and the
+owner's extension stayed in the unchecked table. v15 re-checks every 2 s
+and re-forces unless a retained sibling is held or the rival is final.
+Separately, installation only looked for checkpoint-finalized blocks in the
+fork cache and report data; a node that never received 2,889 of them never
+got them. v16 fetches them with the evidence request and forces them in on
+arrival.
+
+**Latency.** In v12c about 3,000 epoch-1 instances per node waited at the
+predecessor gate. Every waiting chain root had a final parent, so parent
+cementing was not the cause. After v13 only exact three-three fork splits
+wait at the gate, which cannot finalize before the checkpoint. The rest of
+the two-checkpoint penalty is the close running during live load. Each
+node's report thread was busy about 15 of the 17 s the epoch-0 close took,
+and a CPU sample of one node during the close showed its block-processing
+thread spending the whole window verifying block signatures. Reporters
+re-gossip their G blocks with ancestry every few seconds, and every copy
+went through the live block processor. v16 sends an evidence block there
+only when the ledger can take it: 17,000 to 41,000 blocks per node stayed
+out. The host has 8 cores for six nodes and the client, and repeated runs
+of one binary vary widely, so single runs do not settle the comparison.
+
+In the v14 to v16 two-checkpoint runs the client finished before epoch 1's
+close was due, so only checkpoint 0 was exercised under load there; v15
+closed both checkpoints identically on all six nodes.
