@@ -293,6 +293,15 @@ fn enqueue_blocks(logic: &Mutex<SpamLogic>, tx_blocks: mpsc::Sender<Forks>, cloc
 
         match result {
             Some(BlockResult::Block(forks)) => {
+                if let Some(alternative) = &forks.fork {
+                    info!(
+                        "RAI_FORK_CREATED {}",
+                        serde_json::json!({
+                            "primary": forks.block.hash(), "alternative": alternative.hash(),
+                            "account": forks.block.account_field(), "previous": forks.block.previous(),
+                        })
+                    );
+                }
                 tx_blocks.blocking_send(forks).unwrap();
             }
             Some(BlockResult::Waiting) => {
@@ -300,6 +309,10 @@ fn enqueue_blocks(logic: &Mutex<SpamLogic>, tx_blocks: mpsc::Sender<Forks>, cloc
                 continue;
             }
             None => {
+                info!(
+                    "RAI_INPUT_COMPLETE created={}",
+                    logic.lock().unwrap().block_factory.created()
+                );
                 break;
             }
         };
@@ -328,6 +341,12 @@ async fn publish_blocks(
         let buffer = serializer.serialize(&publish);
         let mut fork_buffer = None;
 
+        let fork_manifest = forks.fork.as_ref().map(|fork| {
+            serde_json::json!({
+                "primary": hash, "alternative": fork.hash(), "account": forks.block.account_field(),
+                "previous": forks.block.previous()
+            })
+        });
         if let Some(fork) = forks.fork {
             let publish_fork = Message::Publish(Publish::new_from_originator(fork));
             fork_buffer = Some(fork_serializer.serialize(&publish_fork));
@@ -359,6 +378,15 @@ async fn publish_blocks(
         });
 
         let now = clock.now();
+        if let Some(mut manifest) = fork_manifest {
+            manifest["published_unix_ms"] = serde_json::json!(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis()
+            );
+            info!("RAI_FORK_PUBLISHED {manifest}");
+        }
 
         writer_index += 1;
         if writer_index >= CONNECTIONS_PER_NODE {

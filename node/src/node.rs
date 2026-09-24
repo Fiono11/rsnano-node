@@ -104,6 +104,8 @@ use crate::{
 
 #[allow(dead_code)]
 pub struct Node {
+    #[cfg(feature = "rai_protocol")]
+    pub reports: Arc<ReportService>,
     is_nulled: bool,
     pub runtime: tokio::runtime::Handle,
     pub data_path: PathBuf,
@@ -1334,6 +1336,8 @@ impl Node {
         container_info.add("backlog_scan", backlog_scan.clone());
 
         Self {
+            #[cfg(feature = "rai_protocol")]
+            reports,
             is_nulled,
             steady_clock,
             thread_factory,

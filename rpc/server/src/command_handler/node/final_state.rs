@@ -165,7 +165,29 @@ impl RpcCommandHandler {
             }
         }
 
+        let checkpoint_diagnostics = if args.diagnostic.is_some_and(|v| v.into()) {
+            let checkpoint = self.node.aec.checkpoint_snapshot().map(|(epoch, state)| {
+                let projection = state.report_ledger();
+                serde_json::json!({"epoch": epoch.as_u64(), "state_hash": state.state_hash(),
+                    "entries": projection.entries().map(|(b, e)| serde_json::json!({
+                        "account": b.account, "height": b.height, "hash": b.hash,
+                        "previous": e.previous, "status": format!("{:?}", e.status)
+                    })).collect::<Vec<_>>()})
+            });
+            #[cfg(feature = "rai_protocol")]
+            let reports = self.node.reports.diagnostic_snapshot();
+            #[cfg(not(feature = "rai_protocol"))]
+            let reports = serde_json::Value::Null;
+            Some(
+                serde_json::json!({"schema": 1, "checkpoint": checkpoint, "reports": reports,
+                "trust": "locally accepted experimental checkpoint; not a standalone verified proof"}),
+            )
+        } else {
+            None
+        };
+
         FinalStateResponse {
+            checkpoint_diagnostics,
             hash: hash.value(),
             all_terminated: all_terminated.into(),
             all_settled: all_settled.into(),

@@ -1,0 +1,164 @@
+#!/usr/bin/env python3
+"""One bounded candidate diagnostic; not a baseline performance comparison."""
+import argparse
+import collections
+import json
+import math
+import os
+from pathlib import Path
+import signal
+import subprocess
+import time
+import urllib.request
+from run import occupied_ports, prune_run_data, sha256
+
+
+def checkpoint_index(checkpoint):
+    entries = checkpoint.get('entries', []) if checkpoint else []
+    hashes = {e['hash']: e for e in entries}
+    finals = {(e['account'], e['previous']): e for e in entries if e['status'] == 'Finalized'}
+    return hashes, finals
+
+
+def disposition(fork, block_hash, checkpoint, index=None):
+    if not checkpoint:
+        return {'outcome': 'unresolved', 'reason': 'no_checkpoint'}
+    hashes, finals = index if index is not None else checkpoint_index(checkpoint)
+    context = {'checkpoint_epoch': checkpoint['epoch'], 'checkpoint_hash': checkpoint['state_hash']}
+    entry = hashes.get(block_hash)
+    if entry and (entry['account'], entry['previous']) == (fork['account'], fork['previous']):
+        return dict(context, outcome='included', status=entry['status'], height=entry['height'])
+    winner = finals.get((fork['account'], fork['previous']))
+    if winner and winner['hash'] != block_hash:
+        return dict(context, outcome='safely_discarded', reason='conflicting_finalized_checkpoint_block',
+                    witness=winner['hash'], height=winner['height'])
+    return dict(context, outcome='unresolved', reason='no_inclusion_or_finalized_conflict_witness')
+
+
+def evaluate(forks, checkpoints):
+    indexes = {n: checkpoint_index(c) for n, c in checkpoints.items()}
+    rows = []
+    for fork in forks.values():
+        for key in ('primary', 'alternative'):
+            h = fork[key]
+            nodes = {str(n): disposition(fork, h, checkpoints.get(n), indexes.get(n)) for n in range(6)}
+            rows.append({'hash': h, 'primary': fork['primary'], 'branch': key, 'nodes': nodes,
+                         'terminated_on_all_nodes': all(x['outcome'] != 'unresolved' for x in nodes.values())})
+    roots = {(c['epoch'], c['state_hash']) for c in checkpoints.values() if c}
+    consistent = len(checkpoints) == 6 and all(checkpoints.values()) and len(roots) == 1
+    return rows, bool(consistent)
+
+
+def rpc(node, body, timeout=3):
+    req = urllib.request.Request(f'http://[::1]:{17076+10*node}', json.dumps(body).encode(),
+                                 {'Content-Type': 'application/json'})
+    with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req, timeout=timeout) as reply:
+        return json.load(reply)
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument('--node', type=Path, required=True)
+    p.add_argument('--client', type=Path, required=True)
+    p.add_argument('--out', type=Path, required=True)
+    p.add_argument('--deadline', type=float, default=156)
+    args = p.parse_args()
+    args.out = args.out.resolve(); args.node = args.node.resolve(); args.client = args.client.resolve()
+    if occupied_ports(): raise RuntimeError('Benchmark ports occupied')
+    args.out.mkdir(parents=True, exist_ok=False)
+    d = args.out / 'pair-00-candidate'; d.mkdir(); (d/'data').mkdir(); (d/'bin').mkdir()
+    (d/'bin/rsnano').symlink_to(args.node)
+    cmd = [str(args.client), '--data-dir', str(d/'data'), '--prs', '6', '--no-prio', '--blocks', '45000',
+           '--accounts', '45000', '--rate', '2000', '--fork-percentage', '5', '--no-kill', '--epoch-duration-ms', '8000']
+    manifest = {'kind': 'fork termination diagnostic, not performance', 'command': cmd,
+                'node_sha256': sha256(args.node), 'client_sha256': sha256(args.client),
+                'controller_sha256': sha256(Path(__file__)), 'deadline_seconds': args.deadline,
+                'deadline_basis': 'bounded diagnostic uses prior baseline-derived 156s ceiling; no matching fork calibration',
+                'trust': 'locally accepted experimental checkpoint, not independently verified decision proof',
+                'termination_rule': 'both branch hashes included or conflict-discarded on all six nodes with a common checkpoint',
+                'sampling': 'poll ~2s plus RPC time; termination latency is an observation upper bound'}
+    (args.out/'manifest.json').write_text(json.dumps(manifest, indent=2)+'\n')
+    started = time.time(); checkpoints = {}; seen_epochs = {}; publications = {}; generated = {}
+    first_terminal = {}; load_complete = False; position = 0; forced = False; sequence = 0
+    result = {'kind': manifest['kind'], 'started': started, 'complete': False}
+    with (d/'run.log').open('w') as log, (d/'observations.jsonl').open('w') as observations:
+        process = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, start_new_session=True,
+                    env=os.environ | {'PATH': str(d/'bin')+os.pathsep+os.environ['PATH'],
+                                      'RUST_LOG': 'nanospam=info', 'NANO_LOG': 'noansi'})
+        try:
+            while time.time()-started < args.deadline:
+                with (d/'run.log').open() as stream:
+                    stream.seek(position)
+                    for line in stream:
+                        for marker, dest in [('RAI_FORK_CREATED ', generated), ('RAI_FORK_PUBLISHED ', publications)]:
+                            if marker in line:
+                                item = json.loads(line.split(marker, 1)[1]); dest[item['primary']] = item
+                        if 'RAI_INPUT_COMPLETE created=45000' in line: load_complete = True
+                    position = stream.tell()
+                force = not forced and time.time()-started > args.deadline-25
+                for node in range(6):
+                    if time.time()-started >= args.deadline: break
+                    try:
+                        state = rpc(node, {'action': 'epoch_locks'})
+                        epoch = state.get('epoch')
+                        if (epoch is not None and seen_epochs.get(node) != epoch) or force:
+                            full = rpc(node, {'action': 'final_state', 'diagnostic': 'true'}, timeout=5)
+                            diagnostic = full.get('checkpoint_diagnostics')
+                            if not diagnostic: raise ValueError('Node lacks diagnostic schema')
+                            checkpoints[node] = diagnostic['checkpoint']
+                            seen_epochs[node] = epoch
+                            file = f'node-{node}-snapshot-{sequence:03}.json'; sequence += 1
+                            (d/file).write_text(json.dumps(full)+'\n')
+                            observations.write(json.dumps({'node': node, 'observed_unix_ms': int(time.time()*1000),
+                                                            'file': file, 'checkpoint_epoch': epoch})+'\n'); observations.flush()
+                    except Exception as error:
+                        observations.write(json.dumps({'node': node, 'time': time.time(), 'error': str(error)})+'\n')
+                if force: forced = True
+                rows, consistent = evaluate(publications, checkpoints)
+                now = int(time.time()*1000)
+                for row in rows:
+                    if row['terminated_on_all_nodes']:
+                        first_terminal.setdefault(row['hash'], now)
+                if load_complete and generated and generated.keys() == publications.keys() and consistent and all(r['terminated_on_all_nodes'] for r in rows):
+                    result.update(complete=True, stop_reason='all_recorded_fork_branches_terminated'); break
+                time.sleep(2)
+            result.setdefault('stop_reason', 'diagnostic_deadline')
+            snapshots = []
+            for node in range(6):
+                try:
+                    snapshots.append({'node': node, 'block_count': rpc(node, {'action': 'block_count'}),
+                                      'final_state': rpc(node, {'action': 'final_state'})})
+                except Exception as error: snapshots.append({'node': node, 'error': str(error)})
+            (d/'rpc.json').write_text(json.dumps(snapshots, indent=2)+'\n')
+            if (d/'data/node-pids').exists():
+                (d/'node-pids').write_bytes((d/'data/node-pids').read_bytes())
+        finally:
+            try: os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError: pass
+            try: process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                os.killpg(process.pid, signal.SIGKILL); process.wait(timeout=5)
+            until = time.time()+10
+            while occupied_ports() and time.time()<until: time.sleep(.5)
+            if occupied_ports(): result['cleanup_error'] = 'Node ports still occupied'
+    rows, consistent = evaluate(publications, checkpoints)
+    for row in rows:
+        published = publications[row['primary']]['published_unix_ms']
+        row['first_all_node_terminal_observed_unix_ms'] = first_terminal.get(row['hash'])
+        row['latency_upper_bound_ms'] = first_terminal[row['hash']]-published if row['hash'] in first_terminal else None
+    (d/'fork-manifest.json').write_text(json.dumps({'generated': list(generated.values()), 'published': list(publications.values())}, indent=2)+'\n')
+    (d/'fork-outcomes.json').write_text(json.dumps(rows, indent=2)+'\n')
+    times = sorted(r['latency_upper_bound_ms'] for r in rows if r['latency_upper_bound_ms'] is not None)
+    result.update(wall_secs=time.time()-started, checkpoint_consistent=consistent, input_complete=load_complete,
+                  generated_forks=len(generated), published_forks=len(publications), branch_hashes=len(rows),
+                  terminal_branch_hashes=sum(r['terminated_on_all_nodes'] for r in rows),
+                  unresolved_branch_hashes=sum(not r['terminated_on_all_nodes'] for r in rows),
+                  termination_latency_observation_upper_bounds_ms={str(p): times[math.ceil(len(times)*p/100)-1] if times else None for p in (50,95,99)},
+                  latency_population='only observed terminal branch hashes; unresolved are censored, not excluded from completion')
+    (d/'result.json').write_text(json.dumps(result, indent=2)+'\n')
+    (args.out/'comparison.json').write_text(json.dumps({'verdict': 'TERMINATED' if result['complete'] else 'UNRESOLVED', 'performance_claim': False}, indent=2)+'\n')
+    prune_run_data(d, result)
+    print(json.dumps(result), flush=True)
+
+
+if __name__ == '__main__': main()

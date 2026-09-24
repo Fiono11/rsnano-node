@@ -1167,6 +1167,13 @@ impl ActiveElectionsContainer {
         self.decided.values().next_back().cloned()
     }
 
+    pub fn checkpoint_snapshot(&self) -> Option<(ConsensusEpoch, Arc<EpochLedger>)> {
+        self.decided
+            .iter()
+            .next_back()
+            .map(|(epoch, state)| (*epoch, state.clone()))
+    }
+
     pub fn checkpoint_locks(&self) -> Option<(ConsensusEpoch, Vec<(Account, u64, BlockHash)>)> {
         let (epoch, state) = self.decided.iter().next_back()?;
         let locks = state

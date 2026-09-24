@@ -69,6 +69,35 @@ impl ReportService {
         }
     }
 
+    /// Explicit diagnostic RPC only; never used by consensus or normal polling.
+    pub fn diagnostic_snapshot(&self) -> serde_json::Value {
+        let exchange = self.exchange.lock().unwrap();
+        let entries = |state: &crate::consensus::election::CertifiedState| {
+            state
+                .entries()
+                .map(|(block, entry)| {
+                    serde_json::json!({
+                        "account": block.account, "height": block.height, "hash": block.hash,
+                        "previous": entry.previous, "status": format!("{:?}", entry.status)
+                    })
+                })
+                .collect::<Vec<_>>()
+        };
+        serde_json::json!(exchange.epochs.iter().map(|(epoch, held)| {
+            serde_json::json!({
+                "epoch": epoch.as_u64(), "live_root": held.live.root(), "live": entries(&held.live),
+                "signed": held.signed.iter().map(|r| serde_json::json!({
+                    "reporter": r.reporter, "target": r.certified, "residual": r.residual,
+                    "snapshot": held.state(r.certified).map(&entries)
+                })).collect::<Vec<_>>(),
+                "received": held.theirs.values().map(|r| serde_json::json!({
+                    "reporter": r.report.reporter, "target": r.report.certified,
+                    "reconstructed": r.reconstructed.is_some(), "complete": r.is_complete()
+                })).collect::<Vec<_>>()
+            })
+        }).collect::<Vec<_>>())
+    }
+
     pub fn new_null() -> Self {
         Self::new(
             Arc::new(AecService::new_null()),

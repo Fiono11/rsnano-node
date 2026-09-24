@@ -118,6 +118,15 @@ impl AecService {
         self.aec.read().unwrap().latest_checkpoint()
     }
 
+    pub fn checkpoint_snapshot(
+        &self,
+    ) -> Option<(
+        ConsensusEpoch,
+        std::sync::Arc<crate::consensus::election::EpochLedger>,
+    )> {
+        self.aec.read().unwrap().checkpoint_snapshot()
+    }
+
     pub fn checkpoint_locks(&self) -> Option<(ConsensusEpoch, Vec<(Account, u64, BlockHash)>)> {
         self.aec.read().unwrap().checkpoint_locks()
     }

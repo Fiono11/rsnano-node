@@ -4,13 +4,14 @@ use serde::{Deserialize, Serialize};
 
 impl RpcCommand {
     pub fn final_state() -> Self {
-        Self::FinalState(FinalStateArgs { epoch: None })
+        Self::FinalState(FinalStateArgs::default())
     }
 
     /// With the entries of one epoch listed
     pub fn final_state_entries(epoch: u64) -> Self {
         Self::FinalState(FinalStateArgs {
             epoch: Some(epoch.into()),
+            ..Default::default()
         })
     }
 }
@@ -20,6 +21,9 @@ pub struct FinalStateArgs {
     /// RAI: list the entries of this epoch's state
     #[serde(skip_serializing_if = "Option::is_none")]
     pub epoch: Option<RpcU64>,
+    /// Explicit opt-in: potentially large checkpoint/reconstruction snapshots.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diagnostic: Option<RpcBool>,
 }
 
 /// Order-independent hash of the final ledger state: per account the settled
@@ -51,6 +55,8 @@ pub struct FinalStateResponse {
     /// RAI: the entries of the requested epoch's state
     #[serde(skip_serializing_if = "Option::is_none")]
     pub entries: Option<Vec<FinalStateEntry>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkpoint_diagnostics: Option<serde_json::Value>,
 }
 
 /// RAI: the voting weights of one consensus epoch, as derived on this node

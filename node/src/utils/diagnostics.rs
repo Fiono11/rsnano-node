@@ -5,7 +5,12 @@ use std::io::Write;
 /// assembled from several writes comes out interleaved with the others.
 pub(crate) fn emit_diagnostic(line: &str) {
     let mut out = Vec::with_capacity(line.len() + 32);
-    let _ = write!(&mut out, "{line} t={}\n", unix_ms());
+    let _ = write!(
+        &mut out,
+        "{line} t={} pid={}\n",
+        unix_ms(),
+        std::process::id()
+    );
     let _ = std::io::stderr().write_all(&out);
 }
 
