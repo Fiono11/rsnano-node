@@ -24,3 +24,11 @@ alongside timing instead of interpreting every old confirmation as equivalent
 to revised finality. Five performance pairs are appropriate only after the
 forked diagnostic completes and settles correctly. No committee/signing stage
 advancement is implied by running this diagnostic.
+
+## Superseding completion criterion
+
+Following the user's clarification, the original confirmation-only diagnostic
+is not a fork-termination evaluation. Use checkpoint inclusion or justified
+discard per fork, with unresolved outcomes explicit. See [FORK-DEBUG.md](FORK-DEBUG.md).
+Do not start a five-pair fork performance batch before this instrumentation and
+the reconstruction bottleneck are addressed.

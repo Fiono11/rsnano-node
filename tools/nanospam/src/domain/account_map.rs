@@ -248,6 +248,11 @@ impl AccountMap {
     }
 
     pub fn confirm(&mut self, hash: &BlockHash) {
+        // A directly confirmed alternative must take over bookkeeping even
+        // when no checkpoint recovery child was needed.
+        if self.forks.contains_key(hash) {
+            self.adopt_lock(hash);
+        }
         let Some(entry) = self.unconfirmed.remove(hash) else {
             return;
         };
@@ -511,6 +516,21 @@ mod tests {
 
         assert_eq!(map.adopt_lock(&FIRST), None);
         assert_eq!(map.adopt_lock(&SECOND), None);
+    }
+
+    #[test]
+    fn directly_confirmed_alternative_updates_frontier_and_receivable() {
+        let (mut map, sender, destination) = forked_send_fixture();
+        map.confirm(&SECOND);
+        assert!(map.state(&sender).unwrap().confirmed());
+        assert_eq!(map.state(&sender).unwrap().confirmed_frontier, SECOND);
+        assert!(
+            map.confirmed_receivable
+                .contains_key(&(destination, SECOND))
+        );
+        assert!(!map.confirmed_receivable.contains_key(&(destination, FIRST)));
+        map.confirm(&FIRST); // late losing-hash observation cannot roll it back
+        assert_eq!(map.state(&sender).unwrap().confirmed_frontier, SECOND);
     }
 
     /* Test helpers */

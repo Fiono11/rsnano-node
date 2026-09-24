@@ -31,8 +31,9 @@ pub(crate) struct SpamLogic {
     pub(crate) sum_conf_time_recent: Duration,
     pub(crate) sum_conf_time_total: Duration,
     pub(crate) cps_measure_start: Option<Timestamp>,
-    locked_forks: rustc_hash::FxHashMap<BlockHash, BlockHash>,
+    confirmation_aliases: rustc_hash::FxHashMap<BlockHash, BlockHash>,
     pub(crate) recovery_created: usize,
+    pub(crate) alternative_confirmed: usize,
     pub(crate) confirmation_histogram_ms: std::collections::BTreeMap<u64, usize>,
 }
 
@@ -57,8 +58,9 @@ impl SpamLogic {
             sum_conf_time_recent: Duration::ZERO,
             sum_conf_time_total: Duration::ZERO,
             cps_measure_start: None,
-            locked_forks: Default::default(),
+            confirmation_aliases: Default::default(),
             recovery_created: 0,
+            alternative_confirmed: 0,
             confirmation_histogram_ms: Default::default(),
         }
     }
@@ -66,7 +68,7 @@ impl SpamLogic {
     pub(crate) fn lock_child(&mut self, lock: &BlockHash) -> Option<Block> {
         let (child, first) = self.block_factory.create_lock_child(lock)?;
         if first != *lock {
-            self.locked_forks.insert(*lock, first);
+            self.confirmation_aliases.insert(*lock, first);
         }
         self.recovery_created += 1;
         Some(child)
@@ -105,7 +107,11 @@ impl SpamLogic {
         }
 
         let next = self.next_block.take().unwrap();
-        self.delayed.insert(next.block.clone()); // TODO: handle forks!
+        if let Some(fork) = &next.fork {
+            self.confirmation_aliases
+                .insert(fork.hash(), next.block.hash());
+        }
+        self.delayed.insert(next.block.clone());
 
         if self.bps_start.unwrap().elapsed(now) >= self.spec.rate.interval {
             self.current_bps += self.spec.rate.increment;
@@ -137,10 +143,16 @@ impl SpamLogic {
         timestamp: Timestamp,
     ) -> Option<Duration> {
         if self.spec.track_confirmations {
-            let tracked = self.locked_forks.remove(block_hash).unwrap_or(*block_hash);
+            let tracked = self
+                .confirmation_aliases
+                .remove(block_hash)
+                .unwrap_or(*block_hash);
             let conf_time = self.delayed.confirmed(&tracked, timestamp);
 
             if let Some(conf_time) = conf_time {
+                if tracked != *block_hash {
+                    self.alternative_confirmed += 1;
+                }
                 if self.cps_measure_start.is_none() {
                     self.cps_measure_start = Some(timestamp);
                 }
@@ -201,6 +213,51 @@ pub(crate) struct SpamStats {
 mod tests {
     use super::*;
     use rsnano_types::{Amount, BlockHash, PrivateKey};
+
+    #[test]
+    fn alternative_confirmation_counts_once_and_stops_primary_republication() {
+        use rsnano_types::{Link, PublicKey, StateBlockArgs, WorkNonce};
+        let key = PrivateKey::from(1);
+        let make = |rep| {
+            Block::from(StateBlockArgs {
+                key: &key,
+                previous: BlockHash::from(1),
+                representative: PublicKey::from(rep),
+                balance: Amount::nano(5),
+                link: Link::ZERO,
+                work: WorkNonce::new(0),
+            })
+        };
+        let primary = make(2);
+        let alternative = make(3);
+        let mut logic = SpamLogic::new(
+            AccountMap::default(),
+            SpamSpec {
+                spam_strategy: SpamStrategy::SendReceive,
+                max_blocks: 1,
+                rate: RateSpec::new(100),
+                fork_probability: 1.0,
+                track_confirmations: true,
+                representatives: Representatives::default(),
+            },
+        );
+        logic.next_block = Some(Forks::new_fork(primary.clone(), alternative.clone()));
+        let now = Timestamp::new_test_instance();
+        assert!(matches!(
+            logic.next_block(true, now),
+            Some(BlockResult::Block(_))
+        ));
+        logic.published(&primary.hash(), now);
+        logic.confirmed(&alternative.hash(), now + Duration::from_millis(7));
+        assert_eq!(logic.confirmed_total, 1);
+        assert_eq!(logic.alternative_confirmed, 1);
+        assert_eq!(logic.confirmation_histogram_ms.get(&7), Some(&1));
+        assert!(logic.next_delayed(now + Duration::from_secs(11)).is_none());
+        logic.confirmed(&alternative.hash(), now + Duration::from_secs(12));
+        logic.confirmed(&primary.hash(), now + Duration::from_secs(13));
+        assert_eq!(logic.confirmed_total, 1);
+        assert_eq!(logic.alternative_confirmed, 1);
+    }
 
     #[test]
     fn rate_limited_last_block_is_not_dropped() {

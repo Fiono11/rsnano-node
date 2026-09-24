@@ -196,3 +196,15 @@ user's cleanup instruction. No retry or replacement attempt was made.
 Before a larger fork comparison, diagnose baseline fork progress/client
 accounting and independently test candidate fork correctness. Any comparator
 repair must be a separately identified revision; frozen HEAD remains unchanged.
+
+## Fork-termination interpretation correction
+
+The user clarified that forks need checkpoint inclusion or justified discard,
+not finalization of every competing hash. The old fork run's confirmation-only
+completion and all-blocks-cemented settlement checks do not measure that.
+The saved evidence nevertheless shows epoch 2 never closed and all nodes
+reported `all_terminated=false`; report reconstruction was below threshold.
+See [FORK-DEBUG.md](FORK-DEBUG.md) for evidence, the independently reproduced
+alternative-hash client bug, its tested correction, and missing instrumentation.
+No per-hash termination count or fork performance claim is inferred from the
+716 unconfirmed primary publications.

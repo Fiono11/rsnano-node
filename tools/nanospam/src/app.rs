@@ -263,10 +263,14 @@ impl NanoSpamApp {
         let conf_time = logic.sum_conf_time_total.as_millis() / created_blocks as u128;
         info!("Average conf time: {conf_time} ms");
         // Shared measurement client for both baseline and candidate nodes.
-        // These are block-confirmation observations, not transfer latency.
+        // One confirmation per primary publication, allowing its fork alternative.
+        // This is neither transfer latency nor checkpoint-termination latency.
         let metrics = serde_json::json!({
             "created": created_blocks,
             "recovery_created": logic.recovery_created,
+            "alternative_confirmed": logic.alternative_confirmed,
+            "confirmation_unit": "primary publication or its confirmed fork alternative",
+            "checkpoint_termination_tracked": false,
             "confirmed": logic.confirmed_total,
             "duration_secs": duration_secs,
             "confirmation_histogram_ms": logic.confirmation_histogram_ms,
