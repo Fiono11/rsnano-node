@@ -13,6 +13,7 @@ from pathlib import Path
 import platform
 import random
 import signal
+import shutil
 import statistics
 import subprocess
 import time
@@ -64,7 +65,8 @@ def run(args, label, binary, pair):
                         "RUST_LOG": "nanospam=info", "NANO_LOG": "noansi"}
     result = {"pair": pair, "label": label, "command": command,
               "node": str(binary), "node_sha256": sha256(binary),
-              "client_sha256": sha256(args.client), "started": time.time()}
+              "client_sha256": sha256(args.client), "started": time.time(),
+              "disk_free_before": shutil.disk_usage(args.out).free}
     snapshots = []
     with (directory / "run.log").open("w") as log:
         process = subprocess.Popen(command, env=env, stdout=log, stderr=subprocess.STDOUT,
@@ -96,6 +98,7 @@ def run(args, label, binary, pair):
                 pass
             process.wait()
     result["wall_secs"] = time.time() - result["started"]
+    result["disk_free_after"] = shutil.disk_usage(args.out).free
     text = (directory / "run.log").read_text(errors="replace")
     summaries = [line.split("RAI_BENCH_METRICS ", 1)[1]
                  for line in text.splitlines() if "RAI_BENCH_METRICS " in line]
@@ -152,6 +155,7 @@ def main():
     parser.add_argument("--forks", type=int, default=0)
     parser.add_argument("--timeout", type=int, default=240)
     parser.add_argument("--absent", type=int, default=0)
+    parser.add_argument("--min-free-gib", type=float, default=8)
     parser.add_argument("extra", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     if args.extra[:1] == ["--"]:
@@ -171,6 +175,13 @@ def main():
         if pair % 2:
             order.reverse()
         for label, binary in order:
+            free = shutil.disk_usage(args.out).free
+            if free < args.min_free_gib * 1024 ** 3:
+                verdict = {"verdict": "DISK_SPACE_LIMIT", "free_bytes": free,
+                           "completed_attempts": len(results)}
+                (args.out / "comparison.json").write_text(json.dumps(verdict, indent=2) + "\n")
+                print(json.dumps(verdict), flush=True)
+                return 2
             results.append(run(args, label, binary, pair))
     verdict = compare(results, args.repetitions)
     (args.out / "comparison.json").write_text(json.dumps(verdict, indent=2) + "\n")
