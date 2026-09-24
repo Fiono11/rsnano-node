@@ -6,6 +6,7 @@ import json
 import math
 import os
 from pathlib import Path
+import shutil
 import signal
 import subprocess
 import time
@@ -95,15 +96,24 @@ def main():
     p.add_argument('--client', type=Path, required=True)
     p.add_argument('--out', type=Path, required=True)
     p.add_argument('--deadline', type=float, default=156)
+    p.add_argument('--min-free-gib', type=float, default=8)
+    p.add_argument('--label', default='candidate')
+    p.add_argument('--client-arg', action='append', default=[],
+                   help='extra client flag passed to every node, e.g. --client-arg=--committee-model=equal_weight')
     args = p.parse_args()
     args.out = args.out.resolve(); args.node = args.node.resolve(); args.client = args.client.resolve()
+    free_gib = shutil.disk_usage(args.out.parent if args.out.parent.exists() else '/').free / 2**30
+    if free_gib < args.min_free_gib:
+        raise RuntimeError(f'Only {free_gib:.1f} GiB free, below the {args.min_free_gib} GiB threshold')
     if occupied_ports(): raise RuntimeError('Benchmark ports occupied')
     args.out.mkdir(parents=True, exist_ok=False)
-    d = args.out / 'pair-00-candidate'; d.mkdir(); (d/'data').mkdir(); (d/'bin').mkdir()
+    d = args.out / f'pair-00-{args.label}'; d.mkdir(); (d/'data').mkdir(); (d/'bin').mkdir()
     (d/'bin/rsnano').symlink_to(args.node)
     cmd = [str(args.client), '--data-dir', str(d/'data'), '--prs', '6', '--no-prio', '--blocks', '45000',
            '--accounts', '45000', '--rate', '2000', '--fork-percentage', '5', '--no-kill', '--epoch-duration-ms', '8000']
-    manifest = {'kind': 'fork termination diagnostic, not performance', 'command': cmd,
+    for extra in args.client_arg:
+        cmd += extra.split('=', 1) if extra.startswith('--') and '=' in extra else [extra]
+    manifest = {'kind': 'fork termination diagnostic, not performance', 'command': cmd, 'free_gib_before': round(free_gib, 2),
                 'node_sha256': sha256(args.node), 'client_sha256': sha256(args.client),
                 'controller_sha256': sha256(Path(__file__)), 'deadline_seconds': args.deadline,
                 'deadline_basis': 'bounded diagnostic uses prior baseline-derived 156s ceiling; no matching fork calibration',
