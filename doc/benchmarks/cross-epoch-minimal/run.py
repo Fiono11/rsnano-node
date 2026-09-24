@@ -14,6 +14,7 @@ import platform
 import random
 import signal
 import shutil
+import socket
 import statistics
 import subprocess
 import time
@@ -53,6 +54,18 @@ def settled(states):
         and s["final_state"].get("pending") == "0"
         for s in states
     ) and len({s["final_state"].get("hash") for s in states}) == 1
+
+
+def occupied_ports():
+    occupied = []
+    for i in range(6):
+        for base in (17075, 17076, 17078):
+            port = base + 10 * i
+            with socket.socket(socket.AF_INET6, socket.SOCK_STREAM) as probe:
+                probe.settimeout(.2)
+                if probe.connect_ex(("::1", port)) == 0:
+                    occupied.append(port)
+    return occupied
 
 
 def run(args, label, binary, pair):
@@ -115,14 +128,30 @@ def run(args, label, binary, pair):
                         snapshot[action] = {"collection_error": str(error)}
                 snapshots.append(snapshot)
         finally:
+            # Preserve evidence even if OS process cleanup is refused.
+            (directory / "rpc.json").write_text(json.dumps(snapshots, indent=2) + "\n")
+            (directory / "attempt.json").write_text(json.dumps(result, indent=2) + "\n")
             # Only the process group created for this run; never global pkill.
             try:
                 os.killpg(process.pid, signal.SIGTERM)
-                time.sleep(1)
-                os.killpg(process.pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
-            process.wait()
+            except OSError as error:
+                result["cleanup_error"] = str(error)
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                # Escalate only if our child actually ignored graceful stop.
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                    process.wait(timeout=5)
+                except (OSError, subprocess.TimeoutExpired) as error:
+                    result["cleanup_error"] = str(error)
+            stop_deadline = time.monotonic() + 10
+            while occupied_ports() and time.monotonic() < stop_deadline:
+                time.sleep(.5)
+            if occupied_ports():
+                result["cleanup_error"] = "Benchmark ports still occupied after graceful stop"
     result["wall_secs"] = time.time() - result["started"]
     result["disk_free_after"] = shutil.disk_usage(args.out).free
     text = (directory / "run.log").read_text(errors="replace")
@@ -156,6 +185,8 @@ def interval(values):
 def compare(results, repetitions):
     if not all(r["complete"] for r in results):
         return {"verdict": "FAIL_COMPLETION", "attempts": len(results)}
+    if any("cleanup_error" in r for r in results):
+        return {"verdict": "CLEANUP_ERROR", "attempts": len(results)}
     if any(r.get("settled_consistent") is False for r in results):
         return {"verdict": "FAIL_SETTLEMENT", "attempts": len(results)}
     if repetitions < 5:
@@ -204,6 +235,13 @@ def main():
         if pair % 2:
             order.reverse()
         for label, binary in order:
+            ports = occupied_ports()
+            if ports:
+                verdict = {"verdict": "PORTS_OCCUPIED", "ports": ports,
+                           "completed_attempts": len(results)}
+                (args.out / "comparison.json").write_text(json.dumps(verdict, indent=2) + "\n")
+                print(json.dumps(verdict), flush=True)
+                return 2
             free = shutil.disk_usage(args.out).free
             if free < args.min_free_gib * 1024 ** 3:
                 verdict = {"verdict": "DISK_SPACE_LIMIT", "free_bytes": free,
