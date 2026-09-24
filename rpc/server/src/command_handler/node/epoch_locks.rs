@@ -10,12 +10,18 @@ impl RpcCommandHandler {
             return EpochLocksResponse {
                 epoch: None,
                 state_hash: None,
+                finalized_certificate: None,
+                finalized_derived: None,
                 locks: Vec::new(),
             };
         };
         EpochLocksResponse {
             epoch: Some(epoch.as_u64().into()),
             state_hash: Some(state.state_hash()),
+            finalized_certificate: Some(
+                ((state.finalized_count() - state.derived_count()) as u64).into(),
+            ),
+            finalized_derived: Some((state.derived_count() as u64).into()),
             locks: state
                 .locks()
                 .map(|(slot, hash)| EpochLock {

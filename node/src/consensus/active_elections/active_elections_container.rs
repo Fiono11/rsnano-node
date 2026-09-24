@@ -1284,15 +1284,42 @@ impl ActiveElectionsContainer {
     /// twice": a block already cemented is left as it is.
     fn install_checkpoint(&mut self, epoch: ConsensusEpoch, state: &EpochLedger, now: Timestamp) {
         let previous = self.epoch_previous_state(epoch);
-        let hashes: Vec<BlockHash> = state
-            .finalized_slots()
-            .filter(|(slot, block)| {
-                !previous
-                    .as_ref()
-                    .is_some_and(|previous| previous.is_finalized(slot, &block.hash))
-            })
-            .map(|(_, block)| block.hash)
-            .collect();
+        let mut hashes = Vec::new();
+        let mut derived = 0;
+        for (slot, block) in state.finalized_slots() {
+            if previous
+                .as_ref()
+                .is_some_and(|previous| previous.is_finalized(slot, &block.hash))
+            {
+                continue;
+            }
+            // "Installation preserves operations already finalized live":
+            // a certificate-backed block at the position stays; a checkpoint
+            // that finalized another one contradicts it, which the paper's
+            // rule never does and the unique-branch variant can (see
+            // CHECKPOINT-FINALIZATION-VARIANT.md)
+            if let Some(live) = self.epoch_states.finalized_at(&slot.account, slot.height)
+                && live != block.hash
+            {
+                self.stats.checkpoint_conflicts += 1;
+                diagnostic!(
+                    "CHECKPOINT_FINALITY_CONFLICT epoch={} account={} height={} live={} checkpoint={} origin={:?}",
+                    epoch,
+                    slot.account,
+                    slot.height,
+                    live,
+                    block.hash,
+                    state.finality_origin(slot)
+                );
+                continue;
+            }
+            if state.finality_origin(slot)
+                == Some(crate::consensus::election::FinalityOrigin::Derived)
+            {
+                derived += 1;
+            }
+            hashes.push(block.hash);
+        }
         let mut confirmed = 0;
         for hash in &hashes {
             let Some(election) = self.roots.election_for_block_mut(hash) else {
@@ -1326,9 +1353,10 @@ impl ActiveElectionsContainer {
         }
         if cfg!(feature = "rai_protocol") {
             diagnostic!(
-                "EPOCH_INSTALL epoch={} finalized={} instances_confirmed={}",
+                "EPOCH_INSTALL epoch={} finalized={} derived={} instances_confirmed={}",
                 epoch,
                 hashes.len(),
+                derived,
                 confirmed
             );
         }
@@ -3791,6 +3819,124 @@ mod tests {
             assert!(container.election_for_block(&block.hash()).is_none());
         }
         assert_eq!(container.stats.rechecked_discarded, 3);
+    }
+
+    /// The counterexample of CHECKPOINT-FINALIZATION-VARIANT.md: the
+    /// unique-branch variant checkpoint-finalizes a recovery-locked block X
+    /// that is the sole preserved branch of the closing epoch, while the
+    /// paper's second overlap exception finalizes a rival Y at the same
+    /// position in the successor epoch before that checkpoint is known. The
+    /// two finalities conflict; installation refuses the checkpoint's block
+    /// and reports the conflict. The certificate-only control carries X as
+    /// a recovery lock and conflicts with nothing.
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn unique_branch_variant_conflicts_with_a_predecessor_backed_successor_certificate() {
+        use crate::consensus::election::{
+            BuildRules, CertifiedBlock, CertifiedState, CheckpointFinalization, FinalityOrigin,
+            ReportIndex, ResidualKind, ResidualVotes, SelectedReport, build_state,
+        };
+        let x = SavedBlock::new_test_instance_with_key(2);
+        let y = sibling_of(&x);
+        let (mut container, reps, rep_weights, now) = overlap_fixture(|history| {
+            history.finalize_genesis(AccountSlot::new(x.account(), 1), x.previous());
+        });
+        let epoch1 = ConsensusEpoch::new(1);
+        let slot = AccountSlot::new(x.account(), x.height());
+
+        // Closing epoch 0: A, B and Z first-voted X; the leader selected
+        // their reports and X is the unique preserved branch
+        let previous = container
+            .epoch_previous_state(ConsensusEpoch::ZERO)
+            .unwrap();
+        let empty = CertifiedState::new();
+        let mut voted_x = ResidualVotes::new();
+        voted_x.record(
+            CertifiedBlock::new(x.account(), x.height(), x.hash()),
+            x.previous(),
+            ResidualKind::First,
+        );
+        let reports: Vec<SelectedReport> = reps[..3]
+            .iter()
+            .map(|rep| SelectedReport {
+                reporter: rep.public_key(),
+                weight: Amount::raw(25),
+                certified: &empty,
+                residual: &voted_x,
+            })
+            .collect();
+        let index = ReportIndex::new(&previous, &reports);
+        let rules = |finalization| BuildRules {
+            many: Amount::raw(39),
+            backing: &(),
+            finalization,
+        };
+        let variant = build_state(
+            &previous,
+            &reports,
+            &index,
+            rules(CheckpointFinalization::UniqueBranch),
+        )
+        .unwrap();
+        assert_eq!(variant.finalized(&slot), Some(x.hash()));
+        assert_eq!(
+            variant.finality_origin(&slot),
+            Some(FinalityOrigin::Derived)
+        );
+        let control = build_state(
+            &previous,
+            &reports,
+            &index,
+            rules(CheckpointFinalization::CertificateOnly),
+        )
+        .unwrap();
+        assert!(control.finalized(&slot).is_none());
+        assert_eq!(control.notarized(&slot), vec![x.hash()]);
+        assert_eq!(
+            control.retained_kind(&x.hash()),
+            crate::consensus::election::RetainedKind::Recovery
+        );
+
+        // Successor epoch 1, S_0 unknown: C, D and Z first-vote Y, a
+        // predecessor-backed NC on the finalized parent; its FC finalizes Y
+        container
+            .insert(
+                AecInsertRequest::new_priority(y.clone(), BlockPriority::new_test_instance()),
+                now,
+            )
+            .unwrap();
+        for kind in [VoteKind::First, VoteKind::Final] {
+            for rep in &reps[1..4] {
+                vote_in(
+                    &mut container,
+                    rep,
+                    kind,
+                    epoch1,
+                    y.hash(),
+                    &rep_weights,
+                    now,
+                );
+            }
+        }
+        assert!(container.finalized_in_epoch(&y.hash(), epoch1));
+
+        // The variant's checkpoint finalizes X at the position Y holds by
+        // certificate: conflicting finality, refused on installation
+        container
+            .decided
+            .insert(ConsensusEpoch::ZERO, Arc::new(variant.clone()));
+        container.install_checkpoint(ConsensusEpoch::ZERO, &variant, now);
+        assert_eq!(container.stats.checkpoint_conflicts, 1);
+        assert!(container.finalized_in_epoch(&y.hash(), epoch1));
+        assert!(!container.is_finalized(&x.hash()));
+
+        // The paper's rule carries a lock that the certificate supersedes
+        container.stats.checkpoint_conflicts = 0;
+        container
+            .decided
+            .insert(ConsensusEpoch::ZERO, Arc::new(control.clone()));
+        container.install_checkpoint(ConsensusEpoch::ZERO, &control, now);
+        assert_eq!(container.stats.checkpoint_conflicts, 0);
     }
 
     /// RAI: after enough decided elections the epoch ends and is left at

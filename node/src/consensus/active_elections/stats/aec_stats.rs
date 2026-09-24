@@ -58,6 +58,9 @@ pub(crate) struct AecStats {
     /// RAI: provisional instances discarded by the recheck against the
     /// decided predecessor checkpoint
     pub rechecked_discarded: u64,
+    /// RAI: checkpoint positions whose finalized block contradicts a block
+    /// finalized live by a certificate; never under the paper's rule
+    pub checkpoint_conflicts: u64,
     /// RAI: epochs left while still draining because a certificate quorum was ahead
     pub epochs_left_behind: u64,
     /// RAI: instances erased at their epoch's close for lack of a block in the state
@@ -232,6 +235,11 @@ impl StatsSource for AecStats {
             AEC_STAT_KEY,
             "rechecked_discarded",
             self.rechecked_discarded,
+        );
+        result.insert(
+            AEC_STAT_KEY,
+            "checkpoint_conflicts",
+            self.checkpoint_conflicts,
         );
         result.insert(AEC_STAT_KEY, "stale_started", self.stale_started);
         result.insert(AEC_STAT_KEY, "started_for_vote", self.started_for_vote);

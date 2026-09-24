@@ -80,11 +80,26 @@ pub enum RetainedKind {
     Recovery = 3,
 }
 
+/// RAI: how a checkpoint position came to be final. Certificate-backed
+/// finality is the paper's; derived finality exists only under the
+/// experimental unique-branch variant and is never equivalent to it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FinalityOrigin {
+    /// Inherited or exposed by an explicit FC or FF
+    Certificate,
+    /// Checkpoint-finalized as the unique preserved branch (variant)
+    Derived,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct EpochLedger {
     /// The finalized block at a slot, by account finalization or by the
     /// epoch decision
     finalized: BTreeMap<AccountSlot, PlacedBlock>,
+    /// The finalized positions the unique-branch variant decided without a
+    /// certificate: part of the versioned commitment, so that a state built
+    /// under the variant never hashes like one built under the paper's rule
+    derived: BTreeSet<AccountSlot>,
     /// The conflicting blocks a slot kept: checkpoint-notarized, provisional,
     /// with no application effect
     notarized: BTreeMap<AccountSlot, BTreeSet<PlacedBlock>>,
@@ -162,25 +177,32 @@ impl EpochLedger {
         Self::default()
     }
 
-    /// Canonical checkpoint records. Unlike reports, these include inherited
-    /// history as well as retained branches.
+    /// Canonical checkpoint records with their wire status: 1 finalized by
+    /// certificate or inherited, 4 finalized by the unique-branch variant,
+    /// 2 a represented notarization lock, 3 a recovery lock, 0 retained
+    /// ancestry of a lock. Unlike reports, these include inherited history.
+    pub fn checkpoint_records(&self) -> Vec<(AccountSlot, PlacedBlock, u8)> {
+        self.finalized
+            .iter()
+            .map(|(s, b)| (*s, *b, if self.derived.contains(s) { 4 } else { 1 }))
+            .chain(self.notarized.iter().flat_map(|(s, bs)| {
+                bs.iter()
+                    .map(move |b| (*s, *b, self.retained_kind(&b.hash) as u8))
+            }))
+            .collect()
+    }
+
     #[cfg(feature = "rai_protocol")]
     pub(crate) fn checkpoint_entries(&self) -> Vec<rsnano_messages::CertifiedEntry> {
-        let entry =
-            |slot: &AccountSlot, block: &PlacedBlock, status| rsnano_messages::CertifiedEntry {
+        self.checkpoint_records()
+            .into_iter()
+            .map(|(slot, block, status)| rsnano_messages::CertifiedEntry {
                 account: slot.account,
                 height: slot.height,
                 hash: block.hash,
                 previous: block.previous,
                 status,
-            };
-        self.finalized
-            .iter()
-            .map(|(s, b)| entry(s, b, 1))
-            .chain(self.notarized.iter().flat_map(|(s, bs)| {
-                bs.iter()
-                    .map(move |b| entry(s, b, self.retained_kind(&b.hash) as u8))
-            }))
+            })
             .collect()
     }
 
@@ -190,16 +212,19 @@ impl EpochLedger {
     ) -> Option<Self> {
         let mut state = Self::new();
         for e in entries {
-            if e.height == 0 || e.hash.is_zero() || e.status > 3 {
+            if e.height == 0 || e.hash.is_zero() || e.status > 4 {
                 return None;
             }
             let slot = AccountSlot::new(e.account, e.height);
             let block = PlacedBlock::new(e.hash, e.previous);
-            if e.status == 1 {
+            if e.status == 1 || e.status == 4 {
                 if state.finalized.insert(slot, block).is_some()
                     || state.notarized.contains_key(&slot)
                 {
                     return None;
+                }
+                if e.status == 4 {
+                    state.derived.insert(slot);
                 }
             } else {
                 if state.finalized.contains_key(&slot)
@@ -271,6 +296,21 @@ impl EpochLedger {
         self.finalized.len()
     }
 
+    /// The finalized positions the unique-branch variant decided
+    pub fn derived_count(&self) -> usize {
+        self.derived.len()
+    }
+
+    /// How a finalized position came to be final, if it is
+    pub fn finality_origin(&self, slot: &AccountSlot) -> Option<FinalityOrigin> {
+        self.finalized.get(slot)?;
+        Some(if self.derived.contains(slot) {
+            FinalityOrigin::Derived
+        } else {
+            FinalityOrigin::Certificate
+        })
+    }
+
     pub fn notarized_count(&self) -> usize {
         self.notarized.values().map(|hashes| hashes.len()).sum()
     }
@@ -325,6 +365,12 @@ impl EpochLedger {
                     .update(block.previous.as_bytes());
             }
         }
+        for slot in &self.derived {
+            builder = builder
+                .update(b"d")
+                .update(slot.account.as_bytes())
+                .update(slot.height.to_le_bytes());
+        }
         builder.build()
     }
 
@@ -344,12 +390,19 @@ impl EpochLedger {
 
     fn finalize(&mut self, slot: AccountSlot, block: PlacedBlock) {
         self.finalized.insert(slot, block);
+        self.derived.remove(&slot);
         // A finalized position keeps no conflicting survivor
         if let Some(blocks) = self.notarized.remove(&slot) {
             for block in blocks {
                 self.locks.remove(&block.hash);
             }
         }
+    }
+
+    /// The unique-branch variant: finalized without a certificate
+    fn finalize_derived(&mut self, slot: AccountSlot, block: PlacedBlock) {
+        self.finalize(slot, block);
+        self.derived.insert(slot);
     }
 
     fn keep(&mut self, slot: AccountSlot, block: PlacedBlock) {
@@ -631,7 +684,55 @@ pub fn build_state(
         }
     }
     ledger.notarized.retain(|_, blocks| !blocks.is_empty());
+    if rules.finalization == CheckpointFinalization::UniqueBranch {
+        finalize_unique_branches(&mut ledger);
+    }
     Ok(ledger)
+}
+
+/// The requested experimental variant, applied after every step of the
+/// paper's construction (see CHECKPOINT-FINALIZATION-VARIANT.md): for each
+/// account, walk the preserved positions upward from the finalized
+/// frontier; while a position holds exactly one preserved block and that
+/// block attaches to the block finalized below it, checkpoint-finalize it
+/// with origin `Derived`. A position with two preserved rivals stops the
+/// walk; so does a sole block that does not attach. Uniqueness is decided
+/// among preserved branches only, never from missing evidence. This
+/// departs from the paper's prohibition on sole-survivor finality and is
+/// not covered by its safety proof.
+fn finalize_unique_branches(ledger: &mut EpochLedger) {
+    let accounts: BTreeSet<Account> = ledger.notarized.keys().map(|slot| slot.account).collect();
+    for account in accounts {
+        let Some(lowest) = ledger
+            .notarized
+            .range(AccountSlot::new(account, 0)..=AccountSlot::new(account, u64::MAX))
+            .next()
+            .map(|(slot, _)| slot.height)
+        else {
+            continue;
+        };
+        let mut height = lowest;
+        loop {
+            let slot = AccountSlot::new(account, height);
+            let Some(blocks) = ledger.notarized.get(&slot) else {
+                break;
+            };
+            if blocks.len() != 1 {
+                break;
+            }
+            let block = *blocks.iter().next().unwrap();
+            let attached = if height <= 1 {
+                block.previous.is_zero()
+            } else {
+                ledger.finalized(&AccountSlot::new(account, height - 1)) == Some(block.previous)
+            };
+            if !attached {
+                break;
+            }
+            ledger.finalize_derived(slot, block);
+            height += 1;
+        }
+    }
 }
 
 /// Return a complete selected prefix ending at already-final history or an
@@ -1167,6 +1268,91 @@ mod tests {
             vec_sorted(&[carried, fresh])
         );
         assert_eq!(kept.notarized(&slot(1, 3)), vec![child]);
+    }
+
+    /// The unique-branch variant: a sole preserved block is finalized with
+    /// origin Derived, the walk continues up a unique prefix and stops at a
+    /// position with two preserved rivals; a preserved rival at the same
+    /// position prevents finalization even for a one-block branch. The
+    /// certificate-only control carries the same blocks as locks, and the
+    /// two states never hash alike.
+    #[test]
+    fn the_unique_branch_variant_finalizes_sole_preserved_branches_only() {
+        let mut index = StubIndex::default();
+        // Account 1: a unique recovery-locked block over a finalized base
+        let base = index.add(1, 1, BlockHash::ZERO);
+        let sole = index.add(1, 2, base);
+        // Account 2: a unique block with two rival children above it
+        let root = index.add(2, 1, BlockHash::ZERO);
+        let child_a = index.add(2, 2, root);
+        let child_b = index.add(2, 2, root);
+        // Account 3: two rivals at the first position
+        let rival_a = index.add(3, 1, BlockHash::ZERO);
+        let rival_b = index.add(3, 1, BlockHash::ZERO);
+        let mut previous = EpochLedger::new();
+        previous.finalize_genesis_block(slot(1, 1), PlacedBlock::new(base, BlockHash::ZERO));
+        let empty = CertifiedState::new();
+        let mut votes = ResidualVotes::new();
+        for hash in [sole, root, child_a, child_b, rival_a, rival_b] {
+            record(&mut votes, &index, hash, ResidualKind::First);
+        }
+        let selected: Vec<_> = (1..=3).map(|i| reported_by(i, &empty, &votes)).collect();
+        let variant = BuildRules {
+            many: MANY,
+            backing: &(),
+            finalization: CheckpointFinalization::UniqueBranch,
+        };
+        // Recovery counts: every block has three first votes, so each
+        // position with one candidate is a recovery lock; the two-candidate
+        // positions retain nothing, as under the paper's Rule 2
+        let control = build_state(&previous, &selected, &index, certificate_rules()).unwrap();
+        assert_eq!(control.retained_kind(&sole), RetainedKind::Recovery);
+        assert_eq!(control.retained_kind(&root), RetainedKind::Recovery);
+        assert!(control.finalized(&slot(1, 2)).is_none());
+        assert_eq!(control.derived_count(), 0);
+
+        let derived = build_state(&previous, &selected, &index, variant).unwrap();
+        assert_eq!(derived.finalized(&slot(1, 2)), Some(sole));
+        assert_eq!(
+            derived.finality_origin(&slot(1, 2)),
+            Some(FinalityOrigin::Derived)
+        );
+        assert_eq!(
+            derived.finality_origin(&slot(1, 1)),
+            Some(FinalityOrigin::Certificate)
+        );
+        assert_eq!(derived.finalized(&slot(2, 1)), Some(root));
+        assert!(derived.finalized(&slot(2, 2)).is_none());
+        assert!(derived.finalized(&slot(3, 1)).is_none());
+        assert_eq!(derived.derived_count(), 2);
+        assert_ne!(derived.state_hash(), control.state_hash());
+        // The origin survives the checkpoint wire records
+        #[cfg(feature = "rai_protocol")]
+        {
+            let rebuilt =
+                EpochLedger::from_checkpoint_entries(&derived.checkpoint_entries()).unwrap();
+            assert_eq!(rebuilt, derived);
+            assert_eq!(rebuilt.state_hash(), derived.state_hash());
+        }
+        assert_eq!(
+            derived
+                .checkpoint_records()
+                .iter()
+                .filter(|(_, _, s)| *s == 4)
+                .count(),
+            2
+        );
+
+        // With rivals preserved at the first position (two locks inherited),
+        // a one-block branch is not unique
+        let mut contested = EpochLedger::new();
+        contested.keep(slot(3, 1), PlacedBlock::new(rival_a, BlockHash::ZERO));
+        contested.keep(slot(3, 1), PlacedBlock::new(rival_b, BlockHash::ZERO));
+        contested.locks.insert(rival_a, RetainedKind::Recovery);
+        contested.locks.insert(rival_b, RetainedKind::Recovery);
+        let still = build_state(&contested, &[], &index, variant).unwrap();
+        assert!(still.finalized(&slot(3, 1)).is_none());
+        assert_eq!(still.notarized(&slot(3, 1)).len(), 2);
     }
 
     #[test]

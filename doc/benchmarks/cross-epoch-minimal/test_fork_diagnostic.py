@@ -12,6 +12,13 @@ class ForkOutcomeTests(unittest.TestCase):
         got = disposition(self.fork, 'y', self.checkpoint('Finalized'))
         self.assertEqual(got['outcome'], 'safely_discarded')
         self.assertEqual(got['witness'], 'x')
+    def test_a_derived_final_winner_is_a_discard_witness_reported_apart(self):
+        got = disposition(self.fork, 'y', self.checkpoint('FinalizedDerived'))
+        self.assertEqual(got['outcome'], 'safely_discarded')
+        self.assertEqual(got['witness_origin'], 'derived')
+        got = disposition(self.fork, 'y', self.checkpoint('Finalized'))
+        self.assertEqual(got['witness_origin'], 'certificate')
+
     def test_absence_and_wrong_parent_are_not_discard(self):
         c=self.checkpoint('Finalized');c['entries'][0]['previous']='different'
         self.assertEqual(disposition(self.fork, 'y', c)['outcome'], 'unresolved')

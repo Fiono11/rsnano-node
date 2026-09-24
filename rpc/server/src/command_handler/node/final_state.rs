@@ -166,12 +166,24 @@ impl RpcCommandHandler {
         }
 
         let checkpoint_diagnostics = if args.diagnostic.is_some_and(|v| v.into()) {
+            // The checkpoint records themselves, with their finality origin:
+            // "Finalized" is certificate-backed or inherited, "FinalizedDerived"
+            // the unique-branch variant's, "Notarized" and "Recovery" the two
+            // lock kinds, "Ancestor" retained ancestry of a lock
             let checkpoint = self.node.aec.checkpoint_snapshot().map(|(epoch, state)| {
-                let projection = state.report_ledger();
+                let name = |status: u8| match status {
+                    1 => "Finalized",
+                    4 => "FinalizedDerived",
+                    2 => "Notarized",
+                    3 => "Recovery",
+                    _ => "Ancestor",
+                };
                 serde_json::json!({"epoch": epoch.as_u64(), "state_hash": state.state_hash(),
-                    "entries": projection.entries().map(|(b, e)| serde_json::json!({
-                        "account": b.account, "height": b.height, "hash": b.hash,
-                        "previous": e.previous, "status": format!("{:?}", e.status)
+                    "finalized_certificate": state.finalized_count() - state.derived_count(),
+                    "finalized_derived": state.derived_count(),
+                    "entries": state.checkpoint_records().into_iter().map(|(slot, block, status)| serde_json::json!({
+                        "account": slot.account, "height": slot.height, "hash": block.hash,
+                        "previous": block.previous, "status": name(status)
                     })).collect::<Vec<_>>()})
             });
             #[cfg(feature = "rai_protocol")]

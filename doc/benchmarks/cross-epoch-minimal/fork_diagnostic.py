@@ -13,10 +13,13 @@ import urllib.request
 from run import occupied_ports, prune_run_data, sha256, stop_run_process_group
 
 
+FINAL_STATUSES = ('Finalized', 'FinalizedDerived')
+
+
 def checkpoint_index(checkpoint):
     entries = checkpoint.get('entries', []) if checkpoint else []
     hashes = {e['hash']: e for e in entries}
-    finals = {(e['account'], e['previous']): e for e in entries if e['status'] == 'Finalized'}
+    finals = {(e['account'], e['previous']): e for e in entries if e['status'] in FINAL_STATUSES}
     return hashes, finals
 
 
@@ -30,8 +33,11 @@ def disposition(fork, block_hash, checkpoint, index=None):
         return dict(context, outcome='included', status=entry['status'], height=entry['height'])
     winner = finals.get((fork['account'], fork['previous']))
     if winner and winner['hash'] != block_hash:
+        # A certificate-backed winner is the paper's discard justification; a
+        # winner the unique-branch variant derived is reported apart from it
+        origin = 'derived' if winner['status'] == 'FinalizedDerived' else 'certificate'
         return dict(context, outcome='safely_discarded', reason='conflicting_finalized_checkpoint_block',
-                    witness=winner['hash'], height=winner['height'])
+                    witness=winner['hash'], witness_origin=origin, height=winner['height'])
     return dict(context, outcome='unresolved', reason='no_inclusion_or_finalized_conflict_witness')
 
 
@@ -196,10 +202,21 @@ def main():
     (d/'fork-manifest.json').write_text(json.dumps({'generated': list(generated.values()), 'published': list(publications.values())}, indent=2)+'\n')
     (d/'fork-outcomes.json').write_text(json.dumps(rows, indent=2)+'\n')
     times = sorted(r['latency_upper_bound_ms'] for r in rows if r['latency_upper_bound_ms'] is not None)
+    by_kind = collections.Counter()
+    for row in rows:
+        for node in row['nodes'].values():
+            if node['outcome'] == 'included':
+                by_kind['included_' + node['status']] += 1
+            elif node['outcome'] == 'safely_discarded':
+                by_kind['discarded_by_' + node['witness_origin'] + '_final'] += 1
+            else:
+                by_kind['unresolved'] += 1
     result.update(wall_secs=time.time()-started, checkpoint_consistent=consistent, input_complete=load_complete,
                   generated_forks=len(generated), published_forks=len(publications), branch_hashes=len(rows),
                   terminal_branch_hashes=sum(r['terminated_on_all_nodes'] for r in rows),
                   unresolved_branch_hashes=sum(not r['terminated_on_all_nodes'] for r in rows),
+                  per_node_dispositions=dict(by_kind),
+                  finality_semantics='certificate-backed and variant-derived checkpoint finality are counted apart; equal counts are not equivalent outcomes',
                   termination_latency_observation_upper_bounds_ms={str(p): times[math.ceil(len(times)*p/100)-1] if times else None for p in (50,95,99)},
                   latency_population='only observed terminal branch hashes; unresolved are censored, not excluded from completion')
     (d/'result.json').write_text(json.dumps(result, indent=2)+'\n')

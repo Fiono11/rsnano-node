@@ -20,6 +20,13 @@ pub struct EpochLocksResponse {
     pub epoch: Option<RpcU64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub state_hash: Option<BlockHash>,
+    /// Positions finalized by an explicit certificate or inherited finality
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finalized_certificate: Option<RpcU64>,
+    /// Positions finalized by the unique-branch variant without a
+    /// certificate; zero under the paper's rule
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finalized_derived: Option<RpcU64>,
     pub locks: Vec<EpochLock>,
 }
 
