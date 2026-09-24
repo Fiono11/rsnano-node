@@ -12,7 +12,7 @@ use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_types::{ConsensusEpoch, PublicKey};
 use rsnano_utils::stats::{DetailType, Direction, StatType, Stats};
 
-use super::{ReconcileResult, ReportExchange, ReportMessage};
+use super::{ReconRefusal, ReconcileResult, ReportExchange, ReportMessage};
 use crate::{
     consensus::{AecService, EpochReport},
     transport::{MessageFlooder, MessageSender},
@@ -40,6 +40,7 @@ pub struct ReportService {
     /// Reports taken at a boundary whose predecessor checkpoint was not
     /// decided here yet: signed once it is
     pending: Mutex<HashMap<ConsensusEpoch, Arc<EpochReport>>>,
+    source_refreshed: Mutex<HashMap<ConsensusEpoch, Timestamp>>,
 }
 
 #[allow(dead_code)] // reconciled_count is read by the close, Section 9.1
@@ -64,6 +65,7 @@ impl ReportService {
             stats,
             logged: Mutex::new(HashMap::new()),
             pending: Mutex::new(HashMap::new()),
+            source_refreshed: Mutex::new(HashMap::new()),
         }
     }
 
@@ -211,7 +213,7 @@ impl ReportService {
     pub fn handle_request(&self, request: ReconReq, channel: &Arc<Channel>) {
         self.stats
             .inc_dir(StatType::Message, DetailType::ReconReq, Direction::In);
-        let reply = self.exchange.lock().unwrap().handle_request(&request);
+        let reply = self.answer_request(&request);
         match reply {
             Ok(reply) => self.send(vec![ReportMessage::Reply(reply)], Some(channel)),
             Err(refusal) => {
@@ -230,6 +232,32 @@ impl ReportService {
                 }
             }
         }
+    }
+
+    /// A completed handoff must still serve lagging validators. Its periodic
+    /// reconstruction loop has stopped, so refresh on an unknown source.
+    /// Known sources take the existing fast path; unknown targets do no work.
+    fn answer_request(&self, request: &ReconReq) -> Result<ReconReply, ReconRefusal> {
+        let reply = self.exchange.lock().unwrap().handle_request(request);
+        if !matches!(reply, Err(ReconRefusal::UnknownSource)) {
+            return reply;
+        }
+        let now = self.clock.now();
+        {
+            let mut refreshed = self.source_refreshed.lock().unwrap();
+            if refreshed
+                .get(&request.epoch)
+                .is_some_and(|last| last.elapsed(now) < Duration::from_millis(200))
+            {
+                return reply;
+            }
+            refreshed.retain(|_, last| last.elapsed(now) < Duration::from_secs(1));
+            refreshed.insert(request.epoch, now);
+        }
+        let projection = self.active_elections.epoch_certified(request.epoch);
+        let mut exchange = self.exchange.lock().unwrap();
+        exchange.refresh_live(request.epoch, projection);
+        exchange.handle_request(request)
     }
 
     /// RAI: a difference towards a report this node is reconstructing. It is
@@ -475,4 +503,66 @@ fn log_reconciled(result: Option<ReconcileResult>) {
         result.entries,
         result.total
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::consensus::election::{
+        CertifiedBlock, CertifiedState, CertifiedStatus, ResidualVotes,
+    };
+    use rsnano_types::{Account, BlockHash, PrivateKey};
+
+    #[test]
+    fn serving_a_known_report_refreshes_an_unknown_source_without_periodic_tick() {
+        let service = ReportService::new_null();
+        let epoch = ConsensusEpoch::ZERO;
+        let mut frozen = CertifiedState::new();
+        frozen.certify(
+            CertifiedBlock::new(Account::from(1), 1, BlockHash::from(2)),
+            BlockHash::ZERO,
+            CertifiedStatus::Notarized,
+        );
+        service.exchange.lock().unwrap().report_epoch(
+            epoch,
+            frozen.clone(),
+            ResidualVotes::new(),
+            BlockHash::from(7),
+            BlockHash::ZERO,
+            &[PrivateKey::from(1)],
+        );
+        // The null AEC's complete projection is empty; the report exchange
+        // still holds its earlier nonempty view, like a completed handoff.
+        let request = ReconReq {
+            epoch,
+            target: frozen.root(),
+            sources: vec![CertifiedState::new().root()],
+        };
+        assert_eq!(
+            service.exchange.lock().unwrap().handle_request(&request),
+            Err(ReconRefusal::UnknownSource)
+        );
+        let reply = service.answer_request(&request).unwrap();
+        assert_eq!(reply.target, frozen.root());
+        assert_eq!(reply.added.len(), 1);
+        assert_eq!(
+            service.exchange.lock().unwrap().own_reports(epoch)[0].certified,
+            frozen.root()
+        );
+    }
+
+    #[test]
+    fn unknown_target_does_not_trigger_projection_work() {
+        let service = ReportService::new_null();
+        let request = ReconReq {
+            epoch: ConsensusEpoch::ZERO,
+            target: BlockHash::from(42),
+            sources: vec![BlockHash::from(43)],
+        };
+        assert_eq!(
+            service.answer_request(&request),
+            Err(ReconRefusal::UnknownTarget)
+        );
+        assert!(service.source_refreshed.lock().unwrap().is_empty());
+    }
 }

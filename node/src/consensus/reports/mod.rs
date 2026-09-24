@@ -262,22 +262,14 @@ impl ReportExchange {
             .unwrap_or_default()
     }
 
-    /// RAI: the certified state of an epoch grows here as gossip delivers the
-    /// votes behind a certificate. What is delivered is merged in, never
-    /// replaced: a certificate constructed in an instance since erased is
-    /// still a historical record of the epoch. The state a report signed
-    /// stays in the history, so this node can still bridge to it, and so
-    /// does the state it was asked to bridge from: a requester which
-    /// advertised a root has to be answerable once this node reaches it.
+    /// Install the complete canonical epoch projection, including removals
+    /// caused by selected-prefix finality. Signed snapshots remain in history.
     pub fn refresh_live(&mut self, epoch: ConsensusEpoch, live: CertifiedState) {
         let held = self.epochs.entry(epoch).or_default();
-        let before = held.live.clone();
-        for (block, entry) in live.entries() {
-            held.live.certify(*block, entry.previous, entry.status);
-        }
-        if held.live.root() == before.root() {
+        if held.live.root() == live.root() {
             return;
         }
+        let before = std::mem::replace(&mut held.live, live);
         // Keep the state left behind: it is a common descendant for anyone
         // who advertised it, and the bridge to every root before it
         if !before.is_empty() {
@@ -1876,25 +1868,33 @@ mod tests {
         );
     }
 
-    /// The live state only ever grows: a certificate the active elections no
-    /// longer hold stays a record of the epoch, so a refresh merges rather
-    /// than replaces
     #[test]
-    fn the_live_state_is_monotone() {
+    fn canonical_projection_removes_stale_entries_but_preserves_signed_snapshots() {
         let epoch = ConsensusEpoch::ZERO;
         let mut exchange = ReportExchange::new();
-        exchange.refresh_live(epoch, state_of(0..10));
-        exchange.refresh_live(epoch, state_of(5..12));
-        let mut expected = state_of(0..12);
-        assert_eq!(exchange.live_root(epoch), Some(expected.root()));
-        // A status upgrade is taken, a downgrade is not
-        let mut upgraded = CertifiedState::new();
-        upgraded.certify(block(3), parent(3), CertifiedStatus::Finalized);
-        exchange.refresh_live(epoch, upgraded);
-        expected.certify(block(3), parent(3), CertifiedStatus::Finalized);
-        assert_eq!(exchange.live_root(epoch), Some(expected.root()));
-        exchange.refresh_live(epoch, state_of(3..4));
-        assert_eq!(exchange.live_root(epoch), Some(expected.root()));
+        let frozen = state_of(0..12);
+        exchange.report_epoch(
+            epoch,
+            frozen.clone(),
+            ResidualVotes::new(),
+            BlockHash::from(7),
+            BlockHash::ZERO,
+            &[PrivateKey::from(1)],
+        );
+        let mut selected = state_of(0..10);
+        selected.certify(block(3), parent(3), CertifiedStatus::Finalized);
+        exchange.refresh_live(epoch, selected.clone());
+        assert_eq!(exchange.live_root(epoch), Some(selected.root()));
+        let reply = exchange
+            .handle_request(&ReconReq {
+                epoch,
+                target: frozen.root(),
+                sources: vec![selected.root()],
+            })
+            .unwrap();
+        assert_eq!(reply.target, frozen.root());
+        assert_eq!(reply.added.len(), 3); // two removed positions + old status
+        assert_eq!(exchange.own_reports(epoch)[0].certified, frozen.root());
     }
 
     /// Only the recent epochs are kept
