@@ -1413,7 +1413,10 @@ impl ActiveElectionsContainer {
         // certificate that finalized it. The parent goes with it: an epoch
         // derivation places a candidate by the branch it continues, and two
         // blocks at one slot are told apart by nothing else.
-        for instance in self.epoch_states.instances_of(epoch) {
+        for instance in self.epoch_states.instances_through(epoch) {
+            if instance.epoch != epoch && !certified.contains_hash(&instance.winner) {
+                continue;
+            }
             certified.certify(
                 CertifiedBlock::new(instance.account, instance.height, instance.winner),
                 instance.root.previous,
@@ -1435,6 +1438,7 @@ impl ActiveElectionsContainer {
                 certified.certify(at(hash), previous, CertifiedStatus::Finalized);
             }
         }
+        certified.project_final_prefixes();
         certified
     }
 
@@ -2556,6 +2560,45 @@ mod tests {
     };
     use rsnano_types::{PrivateKey, TimePriority, Vote, VoteDelivery};
     use std::sync::Arc;
+
+    #[test]
+    fn inherited_r_uses_known_old_finality_but_not_successor_work() {
+        use crate::consensus::election::{CertifiedState, CertifiedStatus};
+        let mut container = ActiveElectionsContainer::default();
+        let mut base = CertifiedState::new();
+        for id in [1u64, 2] {
+            base.certify(
+                CertifiedBlock::new(Account::from(id), 1, BlockHash::from(id)),
+                BlockHash::ZERO,
+                CertifiedStatus::Recovery,
+            );
+        }
+        container.report_bases.insert(ConsensusEpoch::new(1), base);
+        for (id, epoch) in [(1u64, 0u64), (2, 2), (3, 0)] {
+            let hash = BlockHash::from(id);
+            container.epoch_states.record_finalized(FinalizedInstance {
+                root: QualifiedRoot::default(),
+                account: Account::from(id),
+                height: 1,
+                epoch: ConsensusEpoch::new(epoch),
+                winner: hash,
+                candidates: vec![hash],
+                delegation: None,
+                slot: LocalSlotState::default(),
+            });
+        }
+        let projection = container.epoch_certified(ConsensusEpoch::new(1));
+        let at = |id| CertifiedBlock::new(Account::from(id), 1, BlockHash::from(id));
+        assert_eq!(
+            projection.status(&at(1u64)),
+            Some(CertifiedStatus::Finalized)
+        );
+        assert_eq!(
+            projection.status(&at(2u64)),
+            Some(CertifiedStatus::Recovery)
+        );
+        assert_eq!(projection.status(&at(3u64)), None);
+    }
 
     #[test]
     fn empty() {

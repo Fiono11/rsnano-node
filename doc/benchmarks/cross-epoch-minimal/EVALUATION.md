@@ -60,3 +60,18 @@ byte-identical copied object files with hard links, reclaiming 11,260,580,387
 logical duplicate bytes (~10.5 GiB). Git connectivity verification passed.
 No source contents, dirty backup or benchmark evidence were deleted.
 The audit is `/tmp/rai-cross-epoch-artifacts/git-deduplication.jsonl`.
+
+## Initial R/N/F smoke comparison
+
+Revision `dd1e743e4`, one pair, same workload and shared client, both using
+156-second deadlines derived from the preceding five baselines. Both completed
+and settled. Baseline: 1948.29 blocks/s, p99 1514 ms. Candidate: 1947.94 blocks/s,
+p99 3972 ms, 25 extra recovery children. Verdict: SMOKE_ONLY. The candidate's
+first close required an extra round. Its second report included 153 R entries,
+confirming inherited recovery actually entered T rather than only the checkpoint.
+
+Inspection then identified a strongest-status projection gap: known old finality
+and finality of a fresh descendant must upgrade inherited R to F in the live
+report. That correction and frozen-snapshot/successor-exclusion tests are a
+separate revision; this smoke result does not evaluate it. Evidence remains in
+`/tmp/rai-cross-epoch-artifacts/step1-rnf-smoke/`.

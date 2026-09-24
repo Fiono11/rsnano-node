@@ -947,6 +947,47 @@ mod tests {
     use std::time::Duration;
 
     #[test]
+    fn matching_g_hashes_without_first_vote_evidence_are_not_usable() {
+        let epoch = ConsensusEpoch::ZERO;
+        let key = PrivateKey::from(1);
+        let t = CertifiedState::new();
+        let mut g = ResidualVotes::new();
+        g.record(block(20), parent(20), ResidualKind::First);
+        let mut exchange = ReportExchange::new();
+        exchange.report_epoch(
+            epoch,
+            t.clone(),
+            ResidualVotes::new(),
+            BlockHash::from(7),
+            BlockHash::ZERO,
+            &[PrivateKey::from(2)],
+        );
+        assert!(exchange.handle_report(signed_with(&key, epoch, &t, &g)));
+        exchange
+            .reconcile(epoch, key.public_key(), later())
+            .unwrap();
+        let only_final = vec![(block(20), ResidualKind::Final, parent(20))];
+        assert_eq!(
+            ResidualVotes::derive(&t, only_final.clone()).root(),
+            g.root()
+        );
+        assert!(
+            !exchange
+                .derive_residual(epoch, key.public_key(), only_final, later())
+                .unwrap()
+                .complete
+        );
+        assert!(theirs_usable(&exchange, epoch).is_empty());
+        assert!(
+            exchange
+                .derive_residual(epoch, key.public_key(), g.entries(), later())
+                .unwrap()
+                .complete
+        );
+        assert_eq!(theirs_usable(&exchange, epoch).len(), 1);
+    }
+
+    #[test]
     fn r_membership_needs_the_matching_verified_predecessor() {
         use crate::consensus::election::EpochLedger;
         use std::sync::Arc;

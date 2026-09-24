@@ -184,6 +184,20 @@ impl EpochStates {
         })
     }
 
+    /// Already known finality from this handoff or an older epoch, excluding
+    /// successor work. Callers decide which old blocks belong to its ledger.
+    pub fn instances_through(
+        &self,
+        epoch: ConsensusEpoch,
+    ) -> impl Iterator<Item = &FinalizedInstance> {
+        self.instances.iter().filter_map(move |(hash, instances)| {
+            instances
+                .iter()
+                .find(|i| i.epoch <= epoch && i.winner == *hash)
+                .map(|i| i.as_ref())
+        })
+    }
+
     pub fn len(&self) -> usize {
         self.len
     }

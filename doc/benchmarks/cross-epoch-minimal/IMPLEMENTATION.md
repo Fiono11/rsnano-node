@@ -51,7 +51,8 @@ semantics, not a replacement for certificate verification.
   remains authenticated in this experimental wire encoding. It replaces the
   earlier XOR accumulator, not just its domain string.
 * The report projection includes predecessor finality and retained branches,
-  then merges closing-epoch observations. Explicit retained NCs stay N;
+  then merges closing-epoch observations and known older finality for inherited
+  blocks. Explicit retained NCs stay N;
   noncertified protected ancestors and recovery tips enter as R. Neither an
   R tag nor inherited ancestry manufactures an NC. Cached predecessor
   projections avoid rehashing inherited entries individually every refresh.
@@ -71,6 +72,8 @@ semantics, not a replacement for certificate verification.
 * A report waiting for its predecessor refreshes the complete projection before
   its first signature. Once signed, its T/G snapshot stays immutable while
   live observations can advance R → N → F. Successor elections are excluded.
+* Live projection promotes selected ancestors of an F descendant to F and
+  removes excluded unresolved branches. Frozen reports remain unchanged.
 * Freeze diagnostics now expose R/N/F and distinct G counts. Unit tests cover
   frozen upgrades, exact T/G partition, repeated inherited recovery without
   fresh support, forged R, matching predecessor requirements, and rejecting

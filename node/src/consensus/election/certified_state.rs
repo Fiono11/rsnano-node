@@ -198,6 +198,59 @@ impl CertifiedState {
         })
     }
 
+    /// F applies to the selected inherited prefix as well as the explicit
+    /// certificate target. Competing unresolved branches leave the live ledger.
+    pub fn project_final_prefixes(&mut self) {
+        let targets: Vec<_> = self
+            .entries
+            .iter()
+            .filter(|(_, e)| e.status.is_finalized())
+            .map(|(b, e)| (*b, *e))
+            .collect();
+        for (mut block, mut entry) in targets {
+            while block.height > 1 && !entry.previous.is_zero() {
+                let parent = CertifiedBlock::new(block.account, block.height - 1, entry.previous);
+                let Some(held) = self.entries.get(&parent).copied() else {
+                    break;
+                };
+                if held.status.is_finalized() {
+                    break;
+                }
+                self.certify(parent, held.previous, CertifiedStatus::Finalized);
+                block = parent;
+                entry = held;
+            }
+        }
+        let finals: std::collections::BTreeMap<_, _> = self
+            .entries
+            .iter()
+            .filter(|(_, e)| e.status.is_finalized())
+            .map(|(b, _)| ((b.account, b.height), b.hash))
+            .collect();
+        let excluded: Vec<_> = self
+            .entries
+            .iter()
+            .filter(|(_, e)| !e.status.is_finalized())
+            .filter_map(|(candidate, _)| {
+                let mut current = *candidate;
+                loop {
+                    if let Some(final_hash) = finals.get(&(current.account, current.height)) {
+                        return (*final_hash != current.hash).then_some(*candidate);
+                    }
+                    let entry = self.entries.get(&current)?;
+                    if current.height <= 1 || entry.previous.is_zero() {
+                        return None;
+                    }
+                    current =
+                        CertifiedBlock::new(current.account, current.height - 1, entry.previous);
+                }
+            })
+            .collect();
+        for block in excluded {
+            self.remove(&block);
+        }
+    }
+
     pub fn has_unique_hashes(&self) -> bool {
         self.entries.len() == self.hashes.len()
     }
@@ -516,6 +569,26 @@ impl ReportCommitment {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn descendant_finality_upgrades_its_selected_r_prefix_and_removes_the_rival() {
+        let parent = CertifiedBlock::new(Account::from(1), 1, BlockHash::from(10));
+        let rival = CertifiedBlock::new(parent.account, 1, BlockHash::from(20));
+        let child = CertifiedBlock::new(parent.account, 2, BlockHash::from(30));
+        let rival_child = CertifiedBlock::new(parent.account, 2, BlockHash::from(40));
+        let mut live = CertifiedState::new();
+        live.certify(parent, BlockHash::ZERO, CertifiedStatus::Recovery);
+        live.certify(rival, BlockHash::ZERO, CertifiedStatus::Recovery);
+        live.certify(rival_child, rival.hash, CertifiedStatus::Recovery);
+        let frozen = live.clone();
+        live.certify(child, parent.hash, CertifiedStatus::Finalized);
+        live.project_final_prefixes();
+        assert_eq!(live.status(&parent), Some(CertifiedStatus::Finalized));
+        assert_eq!(live.status(&rival), None);
+        assert_eq!(live.status(&rival_child), None);
+        assert_eq!(frozen.status(&parent), Some(CertifiedStatus::Recovery));
+        assert_eq!(frozen.len(), 3);
+    }
 
     #[test]
     fn recovery_upgrade_does_not_mutate_a_frozen_report() {
