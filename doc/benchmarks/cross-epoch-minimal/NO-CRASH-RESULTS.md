@@ -369,3 +369,45 @@ of one binary vary widely, so single runs do not settle the comparison.
 In the v14 to v16 two-checkpoint runs the client finished before epoch 1's
 close was due, so only checkpoint 0 was exercised under load there; v15
 closed both checkpoints identically on all six nodes.
+
+### Alternating one- and two-checkpoint runs (v16 to v21)
+
+Each version ran one-checkpoint and two-checkpoint back to back, twice, on
+the same host. Single runs of one binary vary widely here, so only the
+ranges across the pairs are meaningful.
+
+| Version | Change | One checkpoint p50 / p95 (ms) | Two checkpoints p50 / p95 (ms) | Runs with identical end state |
+|---|---|---|---|---|
+| v16 | (above) | 252 / 1,245; 116 / 1,696 | 622 / 2,300; 1,204 / 3,928 | 2 of 4 |
+| v17 | G votes pulled by signed root; reply votes retained | 813 / 3,394; 560 / 1,616 | 1,636 / 2,740; 1,057 / 2,503 | 3 of 4; the fourth had identical cemented ledgers but one node without checkpoint 1 |
+| v19 | G placed from block data; cached fork blocks not reprocessed | 238 / 1,478; 153 / 1,644 | 362 / 4,388; 483 / 3,810 | 4 of 4 |
+| v20 | G derived from signed vote keys; final certificates shared across report checks | 171 / 1,296; 119 / 1,072 | 724 / 3,027; 440 / 2,750 | 4 of 4 |
+| v21 | placements memoized; G blocks gossiped once per epoch | 266 / 2,304; 388 / 2,795 | 787 / 4,224; 2,841 / 6,717 | 3 of 4; the fourth: 51 blocks cemented on one node only, 0 conflicts |
+
+**v17: a node without checkpoint 1.** Its derived G for one reporter
+missed 5 of 1,300 hashes. It had dropped thousands of inbound messages under
+load, and the reporter's periodic re-gossip was dropped too. A validator
+whose G misses the signed root now names that root in its evidence request,
+and the reporter answers with its retained signed votes. Separately, votes
+signed to answer a vote request went only to the requester and were never
+retained by the signer, so its own G could omit a hash others held a signed
+vote for.
+
+**v18: a refused checkpoint-1 value.** One node placed a G block at height 5
+with a zero parent and refused the value the others built. G commits hashes
+only, and each node placed G blocks from its own election metadata. G
+members are now placed from the owner-signed block.
+
+**v19: fork reprocessing.** Each node processed 42,000 to 62,000 fork
+results for about 2,250 forks, twice the one-checkpoint count, because
+unresolved positions wait for the checkpoint and their forks keep arriving.
+A published block already in the fork cache now skips the block processor.
+
+**Why two checkpoints stay slower.** Checkpoint 0 took 13 to 18 s to close
+while an epoch lasts about 11 s at this rate. A node stops signing epoch-1
+votes when epoch 1 ends and cannot open epoch 2 before checkpoint 0 is
+decided, as the manuscript prescribes, so blocks published in between wait.
+The close time is dominated by readiness: 4 to 23 s until N−f reports are
+usable, on nodes whose report thread runs 3 to 7 s ticks and whose frozen
+ledger lags the others. v21's once-per-epoch G gossip made readiness wait on
+pulls with a 5 s retry, which v22 shortens to 1 s.
