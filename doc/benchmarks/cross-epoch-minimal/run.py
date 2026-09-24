@@ -65,9 +65,14 @@ def stop_run_process_group(process, grace=5):
             return True
         except ProcessLookupError:
             return False
+        except PermissionError:
+            # Not signalable by us: treat as gone only if nothing listens
+            return bool(occupied_ports())
+    # macOS raises EPERM for a group whose remaining members are already
+    # reaped or belong to another user; the liveness checks below decide
     try:
         os.killpg(process.pid, signal.SIGTERM)
-    except ProcessLookupError:
+    except (ProcessLookupError, PermissionError):
         pass
     deadline = time.monotonic() + grace
     while alive() and time.monotonic() < deadline:
@@ -75,7 +80,7 @@ def stop_run_process_group(process, grace=5):
     if alive():
         try:
             os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
+        except (ProcessLookupError, PermissionError):
             pass
     process.wait(timeout=5)
     deadline = time.monotonic() + 5

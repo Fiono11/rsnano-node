@@ -69,3 +69,34 @@ sketches could not peel (109 incomplete at 1,024 cells): that is the
 expected consequence of the missing predecessor, not a separate fault.
 The 1,553 terminations include certificate-backed finality on both sides
 of forks for the first time in this series.
+
+## Attempt 3: paper-model fork diagnostic, recheck fixed (`no-crash-fork-paper-v3`)
+
+Candidate `bin/no-crash-v3` (recheck fix), same workload and switches,
+156 s ceiling (163 s wall). Not a performance run.
+
+| Observation | Result |
+|---|---:|
+| Input complete | yes |
+| Fork pairs published / branch hashes | 2,257 / 4,514 |
+| Epochs closed on all six nodes | 0 (round 0) and 1 (round 6) |
+| Epoch 2 | not closed anywhere: `usable` 1–2 of 6 reports on every node |
+| Evidence checks with missing entries | 0 of 40 (every reconstructed report fully justified) |
+| Sketch replies | 184: 171 incomplete at up to 1,024 cells, 13 partial pages, none completed a state |
+| Root-based reconstructions | 159 reconciled events, 206 refusals (143 unknown target, 63 unknown source) |
+| Branches terminal on all six nodes | 866 (included Finalized 559, Notarized 28, Recovery 4,679 node-observations; 559 discarded by certificate-final witness) |
+| Unresolved by the observer | 3,648 |
+| Derived-final entries, checkpoint conflicts | 0, 0 |
+| Conditional termination upper bounds p50/p95/p99 (866 branches) | 19,788 / 22,467 / 22,795 ms |
+
+The evidence path is now clean; the blocker is T reconstruction alone.
+Each node sketched its *live* projection, which by the time the sketch is
+sent has moved past a reporter's frozen snapshot by thousands of entries
+(finalizations and N→F upgrades after the boundary), beyond what a
+1,024-cell sketch peels; root-based requests find a shared root only
+rarely for the same reason. Epoch 1 closed only after six timed-out rounds.
+Fixed after this run: the sketch describes the node's own frozen snapshot
+of the same epoch, taken at the same boundary as the reporter's, whose
+difference from it is what the two nodes saw in between.
+The controller reported a process-group cleanup permission error; the
+nodes had exited and the data was removed by hand after verification.

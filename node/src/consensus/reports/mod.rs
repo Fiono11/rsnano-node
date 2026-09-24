@@ -669,7 +669,16 @@ impl ReportExchange {
             None
         };
         let sources = held.shared_sources();
-        let live_root = held.live.root();
+        // The snapshot a sketch describes: this node's own frozen report of
+        // the epoch when it has one, which was taken at the same boundary as
+        // the reporter's and differs from it by what the two saw in between;
+        // the live state, which has moved on since, only without one
+        let sketch_root = held
+            .signed
+            .first()
+            .map(|report| report.certified)
+            .filter(|root| held.history.contains_key(root))
+            .unwrap_or_else(|| held.live.root());
         let their = held.theirs.get_mut(&reporter)?;
         let mut messages = Vec::new();
         let mut result = None;
@@ -710,7 +719,7 @@ impl ReportExchange {
                     their.sketched = Some(now);
                     // The snapshot the sketch describes is kept until the
                     // pages arrive; a newer sketch replaces it
-                    let base = held.live.clone();
+                    let base = held.state(sketch_root)?.clone();
                     let sketch = Sketch::over(base.digests().map(|(digest, ..)| digest), cells);
                     let their = held.theirs.get_mut(&reporter)?;
                     their.sketch = Some(LedgerSketch {
@@ -720,7 +729,7 @@ impl ReportExchange {
                     messages.push(ReportMessage::Sketch(LedgerSketchReq {
                         epoch,
                         target,
-                        source: live_root,
+                        source: sketch_root,
                         cells: sketch.cells().iter().map(cell_wire).collect(),
                     }));
                 }
@@ -2056,6 +2065,8 @@ mod tests {
             BlockHash::ZERO,
             &[PrivateKey::from(2)],
         );
+        // The live state moves on; the sketch describes the frozen one
+        ours.refresh_live(epoch, state_of(0..30));
         assert!(ours.handle_report(signed(&key, epoch, &frozen)));
 
         // The first attempt names roots only, and nobody knows them
@@ -2175,8 +2186,9 @@ mod tests {
         assert_eq!(theirs_usable(&mut ours, epoch).len(), 1);
     }
 
-    /// A reply naming a snapshot this node no longer sketches is ignored,
-    /// and a reply that does not reach the root leaves nothing behind
+    /// A node that has not reported sketches its live state; a reply naming
+    /// a snapshot it no longer sketches is ignored, and a reply that does
+    /// not reach the root leaves nothing behind
     #[test]
     fn a_sketch_reply_for_another_snapshot_or_root_is_not_applied() {
         let epoch = ConsensusEpoch::ZERO;
@@ -2192,14 +2204,7 @@ mod tests {
             &[key.clone()],
         );
         let mut ours = ReportExchange::new();
-        ours.report_epoch(
-            epoch,
-            state_of(0..10),
-            ResidualVotes::new(),
-            BlockHash::from(7),
-            BlockHash::ZERO,
-            &[PrivateKey::from(2)],
-        );
+        ours.refresh_live(epoch, state_of(0..10));
         assert!(ours.handle_report(signed(&key, epoch, &frozen)));
         ours.reconcile(epoch, key.public_key(), later()).unwrap();
         let (messages, _) = ours.reconcile(epoch, key.public_key(), later()).unwrap();
