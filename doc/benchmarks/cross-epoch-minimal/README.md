@@ -71,3 +71,10 @@ protocol: it can finalize weaker checkpoint evidence. In forked workloads,
 compare certificate-backed goodput and pending work rather than treating all
 old confirmations as equivalent to revised finality. Preserve stalled fork
 runs; do not retry them until one succeeds.
+
+For baseline-derived timeouts, pass `--baseline-reference /path/to/prior-run`.
+The default deadline is 1.5× the slowest matching completed baseline wall time,
+rounded up. Current-batch baseline observations update it; candidate durations
+never do. `--timeout` is only the first calibration ceiling if no reference
+exists. Failed baseline calibration stops the batch. Every result records its
+timeout and derivation. See [EVALUATION.md](EVALUATION.md) for current results.

@@ -68,6 +68,51 @@ def occupied_ports():
     return occupied
 
 
+def workload_args(args):
+    command = ["--prs", "6", "--no-prio", "--blocks", str(args.blocks),
+               "--accounts", str(args.accounts), "--rate", str(args.rate),
+               "--fork-percentage", str(args.forks), "--no-kill"]
+    if args.epoch_ms:
+        command += ["--epoch-duration-ms", str(args.epoch_ms)]
+    return command + args.extra
+
+
+def baseline_timeout(wall_times, factor, calibration_ceiling):
+    if not wall_times:
+        return calibration_ceiling, {"rule": "initial baseline calibration ceiling"}
+    slowest = max(wall_times)
+    return math.ceil(slowest * factor), {
+        "rule": "ceil(slowest matching completed baseline wall time * factor)",
+        "baseline_count": len(wall_times), "slowest_baseline_wall_secs": slowest,
+        "factor": factor,
+    }
+
+
+def load_baseline_times(args):
+    times = []
+    expected = workload_args(args)
+    baseline_sha, client_sha = sha256(args.baseline), sha256(args.client)
+    for reference in args.baseline_reference:
+        files = [reference] if reference.is_file() else sorted(reference.glob("pair-*-baseline/result.json"))
+        accepted = 0
+        for path in files:
+            result = json.loads(path.read_text())
+            command = result.get("command", [])[1:]
+            if "--data-dir" in command:
+                i = command.index("--data-dir")
+                command = command[:i] + command[i + 2:]
+            if (result.get("label") == "baseline" and result.get("complete")
+                    and result.get("settled_consistent") is True
+                    and result.get("node_sha256") == baseline_sha
+                    and result.get("client_sha256") == client_sha
+                    and command == expected):
+                times.append(result["wall_secs"])
+                accepted += 1
+        if not accepted:
+            raise ValueError(f"No completed baseline with matching binaries/workload in {reference}")
+    return times
+
+
 def run(args, label, binary, pair):
     directory = args.out / f"pair-{pair:02d}-{label}"
     directory.mkdir()
@@ -78,17 +123,15 @@ def run(args, label, binary, pair):
     (bindir / "rsnano").symlink_to(binary)
     data = directory / "data"
     data.mkdir()
-    command = [str(args.client), "--data-dir", str(data), "--prs", "6",
-               "--no-prio", "--blocks", str(args.blocks), "--accounts", str(args.accounts),
-               "--rate", str(args.rate), "--fork-percentage", str(args.forks), "--no-kill"]
-    if args.epoch_ms:
-        command += ["--epoch-duration-ms", str(args.epoch_ms)]
-    command += args.extra
+    command = [str(args.client), "--data-dir", str(data)] + workload_args(args)
+    timeout_seconds, timeout_basis = baseline_timeout(
+        args.baseline_wall_times, args.timeout_factor, args.timeout)
     env = os.environ | {"PATH": str(bindir) + os.pathsep + os.environ["PATH"],
                         "RUST_LOG": "nanospam=info", "NANO_LOG": "noansi"}
     result = {"pair": pair, "label": label, "command": command,
               "node": str(binary), "node_sha256": sha256(binary),
               "client_sha256": sha256(args.client), "started": time.time(),
+              "timeout_seconds": timeout_seconds, "timeout_basis": timeout_basis,
               "disk_free_before": shutil.disk_usage(args.out).free}
     snapshots = []
     with (directory / "run.log").open("w") as log:
@@ -96,7 +139,7 @@ def run(args, label, binary, pair):
                                    start_new_session=True)
         try:
             try:
-                result["exit_code"] = process.wait(timeout=args.timeout)
+                result["exit_code"] = process.wait(timeout=timeout_seconds)
                 result["timed_out"] = False
             except subprocess.TimeoutExpired:
                 result.update(exit_code=None, timed_out=True)
@@ -212,7 +255,11 @@ def main():
     parser.add_argument("--rate", type=int, default=2000)
     parser.add_argument("--epoch-ms", type=int, default=8000)
     parser.add_argument("--forks", type=int, default=0)
-    parser.add_argument("--timeout", type=int, default=240)
+    parser.add_argument("--timeout", type=int, default=240,
+                        help="Ceiling only for initial baseline calibration when no reference exists")
+    parser.add_argument("--timeout-factor", type=float, default=1.5)
+    parser.add_argument("--baseline-reference", type=Path, action="append", default=[],
+                        help="Prior run directory or baseline result.json matching binaries/workload")
     parser.add_argument("--settle-seconds", type=int, default=30)
     parser.add_argument("--absent", type=int, default=0)
     parser.add_argument("--min-free-gib", type=float, default=8)
@@ -224,13 +271,16 @@ def main():
         args.extra.pop(0)
     for name in ("baseline", "candidate", "client", "out"):
         setattr(args, name, getattr(args, name).resolve())
+    if args.timeout_factor <= 1:
+        parser.error("--timeout-factor must exceed 1")
+    args.baseline_wall_times = load_baseline_times(args)
     args.out.mkdir(parents=True, exist_ok=False)
     manifest = {k: str(v) if isinstance(v, Path) else v for k, v in vars(args).items()}
     manifest.update(platform=platform.platform(), machine=platform.machine(),
                     harness_sha256=sha256(Path(__file__)),
                     workload_seed=None,
                     workload_note="Shared pinned client and parameters; HEAD generator is not seeded.")
-    (args.out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    (args.out / "manifest.json").write_text(json.dumps(manifest, indent=2, default=str) + "\n")
     results = []
     for pair in range(args.repetitions):
         order = [("baseline", args.baseline), ("candidate", args.candidate)]
@@ -253,6 +303,13 @@ def main():
                 return 2
             results.append(run(args, label, binary, pair))
             last = results[-1]
+            if label == "baseline" and last["complete"] and last.get("settled_consistent") is True:
+                args.baseline_wall_times.append(last["wall_secs"])
+            if not args.baseline_wall_times and label == "baseline":
+                verdict = {"verdict": "BASELINE_CALIBRATION_FAILED", "attempts": len(results)}
+                (args.out / "comparison.json").write_text(json.dumps(verdict, indent=2) + "\n")
+                print(json.dumps(verdict), flush=True)
+                return 1
             if args.stop_on_failure and (not last["complete"] or "cleanup_error" in last
                                         or last.get("settled_consistent") is False):
                 verdict = compare(results, args.repetitions)

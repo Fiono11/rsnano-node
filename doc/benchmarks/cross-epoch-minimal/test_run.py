@@ -1,5 +1,5 @@
 import unittest
-from run import compare, quantile, settled
+from run import compare, quantile, settled, baseline_timeout
 
 
 class PerformanceGateTests(unittest.TestCase):
@@ -8,6 +8,12 @@ class PerformanceGateTests(unittest.TestCase):
                      goodput=100 if label == "baseline" else throughput,
                      p99_ms=10 if label == "baseline" else latency)
                 for i in range(5) for label in ("baseline", "candidate")]
+
+    def test_timeout_is_derived_only_from_baseline_wall_times(self):
+        seconds, basis = baseline_timeout([100, 102.1, 99], 1.5, 240)
+        self.assertEqual(seconds, 154)
+        self.assertEqual(basis["baseline_count"], 3)
+        self.assertEqual(baseline_timeout([], 1.5, 240)[0], 240)
 
     def test_failed_attempt_is_not_discarded(self):
         results = self.results()
