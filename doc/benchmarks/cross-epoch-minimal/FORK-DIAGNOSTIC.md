@@ -209,3 +209,28 @@ requested publications and 8-second epochs. Rebuild the client for the wire
 change without changing workload logic. This is not a matching baseline
 calibration or a performance comparison. Preserve the attempt whether or not
 termination succeeds; delete its generated databases after evidence capture.
+
+
+### First data-transfer attempt and earlier retention fix
+
+Candidate `c9668a484` reached the 156-second deadline (157.88 seconds with
+controller overhead): 1,069 fork pairs / 2,138 branches, all unresolved under
+checkpoint tracking; no checkpoint or input-complete marker. Termination
+p50/p95/p99 remain unavailable. All six nodes reconstructed all five peer T
+sets. Completed peer G counts were 4, 3, 2, 3, 0, 4. Remaining G mismatches
+contained missing hashes, no extra hashes and no missing-first condition among
+reconstructed hashes. Evidence is in `fork-data-diagnostic-v1/` in the artifact
+root; databases were deleted after shutdown.
+
+The new data counters exposed the retention timing gap directly: one reporter
+could serve only 824 of its 852 frozen G block hashes, and other reporters also
+had deficits. Copying blocks at the report boundary cannot recover a branch
+already discarded by the election and ledger. The follow-up retains each
+locally voted block at `mark_kudzu_voted`, under the same AEC lock as the local
+vote record, before election deletion. These payloads survive election erasure
+and use the existing vote-epoch retention boundary. A focused regression test
+erases the election after its first vote and verifies the original block remains
+available. This remains in-memory retention, not durable vote persistence.
+
+A second 156-second diagnostic is justified by this specific new source change;
+it is not a replacement for the first attempt and both results remain reported.

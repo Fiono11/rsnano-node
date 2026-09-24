@@ -159,6 +159,9 @@ pub(crate) struct ActiveElectionsContainer {
     /// RAI: the votes received, by epoch and voter, from which another
     /// reporter's residual object is derived
     vote_records: VoteRecords,
+    /// Retain locally voted payloads before election deletion can lose a fork.
+    #[cfg(feature = "rai_protocol")]
+    report_blocks: BTreeMap<ConsensusEpoch, HashMap<BlockHash, Block>>,
     /// RAI: what the blocks a checkpoint finalized delegate, by epoch: read
     /// from the block held in the instance the checkpoint confirmed, which
     /// is erased on confirmation. `Sigma_e` derives the committee from them
@@ -235,6 +238,8 @@ impl ActiveElectionsContainer {
             account_voting: config.account_voting,
             frozen: BTreeSet::new(),
             vote_records: VoteRecords::default(),
+            #[cfg(feature = "rai_protocol")]
+            report_blocks: BTreeMap::new(),
             checkpoint_delegations: BTreeMap::new(),
             decided_in_current_epoch: 0,
             epoch_terminated_elections: config.epoch_terminated_elections,
@@ -645,6 +650,9 @@ impl ActiveElectionsContainer {
         if let Some(kept_from) = left.as_u64().checked_sub(Self::VOTE_RECORD_EPOCHS_KEPT) {
             self.vote_records
                 .trim_before(ConsensusEpoch::new(kept_from));
+            #[cfg(feature = "rai_protocol")]
+            self.report_blocks
+                .retain(|epoch, _| epoch.as_u64() >= kept_from);
             self.checkpoint_delegations
                 .retain(|epoch, _| epoch.as_u64() >= kept_from);
         }
@@ -1644,6 +1652,14 @@ impl ActiveElectionsContainer {
             }
             slot.mark_voted(target.winner, kind);
             self.slots.record_parent(target.winner, previous);
+            #[cfg(feature = "rai_protocol")]
+            if let Some(block) = election.candidate_blocks().get(&target.winner) {
+                self.report_blocks
+                    .entry(election.epoch())
+                    .or_default()
+                    .entry(target.winner)
+                    .or_insert_with(|| (**block).clone());
+            }
             accepted.push(target);
         }
         accepted
@@ -2422,10 +2438,14 @@ impl ActiveElectionsContainer {
     #[cfg(feature = "rai_protocol")]
     pub fn report_block(&self, hash: &BlockHash) -> Option<Block> {
         self.roots
-            .election_for_block(hash)?
-            .candidate_blocks()
-            .get(hash)
+            .election_for_block(hash)
+            .and_then(|e| e.candidate_blocks().get(hash))
             .map(|b| (**b).clone())
+            .or_else(|| {
+                self.report_blocks
+                    .values()
+                    .find_map(|blocks| blocks.get(hash).cloned())
+            })
     }
 
     #[cfg(feature = "rai_protocol")]
@@ -4189,6 +4209,26 @@ mod tests {
 
         assert_eq!(container.info(start).stale, 0);
         assert_eq!(container.info(start + Duration::from_secs(60)).stale, 1);
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn locally_voted_block_remains_available_after_election_erasure() {
+        let mut container = ActiveElectionsContainer::default();
+        let block = SavedBlock::new_test_instance();
+        container
+            .insert(
+                AecInsertRequest::new_priority(block.clone(), BlockPriority::new_test_instance()),
+                Timestamp::new_test_instance(),
+            )
+            .unwrap();
+        let votes = container.kudzu_votes_due(|_| true);
+        container.mark_kudzu_voted(votes);
+        assert!(container.erase(&block.qualified_root()));
+        assert_eq!(
+            container.report_block(&block.hash()),
+            Some((*block).clone())
+        );
     }
 
     #[test]
