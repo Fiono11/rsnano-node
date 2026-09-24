@@ -125,7 +125,7 @@ impl CheckpointTransfer {
             || added
                 .iter()
                 .any(|e| self.working.contains(e) && !removed.contains(e))
-            || d.added.iter().chain(d.removed.iter()).any(|e| e.status > 1)
+            || d.added.iter().chain(d.removed.iter()).any(|e| e.status > 3)
         {
             return Err(());
         }
@@ -248,6 +248,49 @@ mod tests {
         assert_eq!(transfer.request().offset, 0);
     }
     /* Test helpers */
+    #[test]
+    fn paginated_transfer_preserves_distinct_lock_kinds_and_their_commitment() {
+        let previous = Arc::new(EpochLedger::new());
+        let entries: Vec<_> = (1..=1300)
+            .map(|i| CertifiedEntry {
+                account: Account::from(i),
+                height: 1,
+                hash: BlockHash::from(i),
+                previous: BlockHash::ZERO,
+                status: (i % 4) as u8,
+            })
+            .collect();
+        let target = EpochLedger::from_checkpoint_entries(&entries).unwrap();
+        let difference = CheckpointDifference::new(ConsensusEpoch::ZERO, &previous, &target);
+        let mut transfer = transfer(previous, &target);
+        let rebuilt = loop {
+            let page = difference.page(&transfer.request()).unwrap();
+            if let Some(state) = transfer.accept(&page).unwrap() {
+                break state;
+            }
+        };
+        assert_eq!(*rebuilt, target);
+        assert_eq!(rebuilt.state_hash(), target.state_hash());
+    }
+
+    #[test]
+    fn changing_a_recovery_lock_to_notarized_fails_authentication() {
+        let previous = Arc::new(EpochLedger::new());
+        let target = EpochLedger::from_checkpoint_entries(&[CertifiedEntry {
+            account: Account::from(1),
+            height: 1,
+            hash: BlockHash::from(1),
+            previous: BlockHash::ZERO,
+            status: 3,
+        }])
+        .unwrap();
+        let difference = CheckpointDifference::new(ConsensusEpoch::ZERO, &previous, &target);
+        let mut transfer = transfer(previous, &target);
+        let mut page = difference.page(&transfer.request()).unwrap();
+        page.difference.added[0].status = 2;
+        assert!(transfer.accept(&page).is_err());
+    }
+
     fn transfer(previous: Arc<EpochLedger>, target: &EpochLedger) -> CheckpointTransfer {
         CheckpointTransfer::new(
             VerifiedCheckpoint {

@@ -495,7 +495,8 @@ impl EpochDecisionService {
             &resolved,
             &index,
             committee.thresholds().many,
-        );
+        )
+        .ok()?;
         Some((value, Arc::new(ledger)))
     }
 

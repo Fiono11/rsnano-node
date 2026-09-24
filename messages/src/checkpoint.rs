@@ -58,7 +58,7 @@ impl CheckpointReply {
     pub fn deserialize(mut bytes: &[u8]) -> Result<Self, DeserializationError> {
         let offset = take_u32(&mut bytes)?;
         let total = take_u32(&mut bytes)?;
-        let difference = ReconReply::deserialize(bytes)?;
+        let difference = ReconReply::deserialize_with_status(bytes, 3)?;
         let count = difference.added.len() + difference.removed.len();
         if count > ReconReply::MAX_ENTRIES || offset as u64 + count as u64 > total as u64 {
             return Err(DeserializationError::InvalidData);
@@ -113,5 +113,21 @@ mod tests {
         let mut bytes = Vec::new();
         page.serialize(&mut bytes).unwrap();
         assert!(CheckpointReply::deserialize(&bytes).is_err());
+    }
+
+    #[test]
+    fn checkpoint_lock_tags_roundtrip_but_are_not_report_tags() {
+        for status in [2, 3] {
+            let mut difference = ReconReply::new_test_instance();
+            difference.added[0].status = status;
+            let mut report_bytes = Vec::new();
+            difference.serialize(&mut report_bytes).unwrap();
+            assert!(ReconReply::deserialize(&report_bytes).is_err());
+            assert_deserializable(&Message::CheckpointReply(CheckpointReply {
+                offset: 0,
+                total: 2,
+                difference,
+            }));
+        }
     }
 }

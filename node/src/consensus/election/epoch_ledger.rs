@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use rsnano_types::{Account, Amount, Blake2HashBuilder, BlockHash, PublicKey};
 
-use super::{CertifiedBlock, CertifiedState, ResidualVotes};
+use super::{CertifiedState, ResidualVotes};
 
 /// A position in an account forest. The slot follows from the parent: a block
 /// whose parent sits at slot v-1 is at slot v.
@@ -15,13 +15,6 @@ pub struct AccountSlot {
 impl AccountSlot {
     pub fn new(account: Account, height: u64) -> Self {
         Self { account, height }
-    }
-
-    fn parent(&self) -> Option<AccountSlot> {
-        self.height
-            .checked_sub(1)
-            .filter(|height| *height > 0)
-            .map(|height| AccountSlot::new(self.account, height))
     }
 }
 
@@ -78,6 +71,15 @@ pub struct SelectedReport<'a> {
 /// the replay of the finalized blocks alone, which here is the finalized
 /// frontier of every account: what the committee of the epoch is derived
 /// from, and what never rolls back.
+/// Checkpoint retention is not a report N/F tag and never implies finality.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum RetainedKind {
+    Ancestor = 0,
+    Notarized = 2,
+    Recovery = 3,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct EpochLedger {
     /// The finalized block at a slot, by account finalization or by the
@@ -86,6 +88,7 @@ pub struct EpochLedger {
     /// The conflicting blocks a slot kept: checkpoint-notarized, provisional,
     /// with no application effect
     notarized: BTreeMap<AccountSlot, BTreeSet<PlacedBlock>>,
+    locks: BTreeMap<BlockHash, RetainedKind>,
 }
 
 impl EpochLedger {
@@ -108,11 +111,10 @@ impl EpochLedger {
         self.finalized
             .iter()
             .map(|(s, b)| entry(s, b, 1))
-            .chain(
-                self.notarized
-                    .iter()
-                    .flat_map(|(s, bs)| bs.iter().map(move |b| entry(s, b, 0))),
-            )
+            .chain(self.notarized.iter().flat_map(|(s, bs)| {
+                bs.iter()
+                    .map(move |b| entry(s, b, self.retained_kind(&b.hash) as u8))
+            }))
             .collect()
     }
 
@@ -122,7 +124,7 @@ impl EpochLedger {
     ) -> Option<Self> {
         let mut state = Self::new();
         for e in entries {
-            if e.height == 0 || e.hash.is_zero() || e.status > 1 {
+            if e.height == 0 || e.hash.is_zero() || e.status > 3 {
                 return None;
             }
             let slot = AccountSlot::new(e.account, e.height);
@@ -139,9 +141,25 @@ impl EpochLedger {
                 {
                     return None;
                 }
+                let kind = match e.status {
+                    0 => RetainedKind::Ancestor,
+                    2 => RetainedKind::Notarized,
+                    3 => RetainedKind::Recovery,
+                    _ => return None,
+                };
+                if kind != RetainedKind::Ancestor {
+                    state.locks.insert(e.hash, kind);
+                }
             }
         }
         Some(state)
+    }
+
+    pub fn retained_kind(&self, hash: &BlockHash) -> RetainedKind {
+        self.locks
+            .get(hash)
+            .copied()
+            .unwrap_or(RetainedKind::Ancestor)
     }
 
     pub fn finalized(&self, slot: &AccountSlot) -> Option<BlockHash> {
@@ -162,11 +180,6 @@ impl EpochLedger {
 
     pub fn finalized_slots(&self) -> impl Iterator<Item = (&AccountSlot, &PlacedBlock)> {
         self.finalized.iter()
-    }
-
-    /// The blocks a slot kept, with the branch each continues
-    fn notarized_slots(&self) -> impl Iterator<Item = (&AccountSlot, &BTreeSet<PlacedBlock>)> {
-        self.notarized.iter()
     }
 
     /// Where every block this state holds sits: what places an inherited
@@ -227,7 +240,7 @@ impl EpochLedger {
     /// `d_e`: the hash an epoch proposal carries. Two validators that derived
     /// the same state from the same reports obtain the same hash.
     pub fn state_hash(&self) -> BlockHash {
-        let mut builder = Blake2HashBuilder::new().update(b"RAI epoch state");
+        let mut builder = Blake2HashBuilder::new().update(b"RAI epoch state v2 locks");
         for (slot, block) in &self.finalized {
             builder = builder
                 .update(b"f")
@@ -239,7 +252,7 @@ impl EpochLedger {
         for (slot, blocks) in &self.notarized {
             for block in blocks {
                 builder = builder
-                    .update(b"n")
+                    .update([self.retained_kind(&block.hash) as u8])
                     .update(slot.account.as_bytes())
                     .update(slot.height.to_le_bytes())
                     .update(block.hash.as_bytes())
@@ -259,7 +272,11 @@ impl EpochLedger {
     fn finalize(&mut self, slot: AccountSlot, block: PlacedBlock) {
         self.finalized.insert(slot, block);
         // A finalized position keeps no conflicting survivor
-        self.notarized.remove(&slot);
+        if let Some(blocks) = self.notarized.remove(&slot) {
+            for block in blocks {
+                self.locks.remove(&block.hash);
+            }
+        }
     }
 
     fn keep(&mut self, slot: AccountSlot, block: PlacedBlock) {
@@ -312,239 +329,173 @@ impl BlockIndex for ReportIndex {
     }
 }
 
-/// RAI, "Deriving the epoch state from reports": `BuildState(S_{e-1}, Q_e)`.
-/// Every validator that accepts a proposal reconstructs the selected reports
-/// and derives this same state, so the proposal carries only its hash.
-///
-/// The rules are applied to a fixed point: what the predecessor finalized
-/// stays finalized; a block the reports show finalized is finalized with its
-/// unresolved ancestor prefix; a slot with one surviving block is
-/// checkpoint-finalized, which may in turn leave its parent slot with one
-/// survivor; a slot with several keeps them all as checkpoint-notarized,
-/// without application effect; and a provisional block of the predecessor
-/// that no longer appears is rolled back.
+/// Structural errors in closure inputs. Cryptographic evidence and application
+/// validity must be checked by the caller before a selected report is usable.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BuildStateError {
+    MissingAncestry,
+    InvalidAncestry,
+    ConflictingFinality,
+    ConflictingNotarizations,
+    RepeatedReporter,
+}
+
+/// Revised BuildState: explicit F entries alone extend finality. A represented
+/// NC or enough reporter first votes retain a parent-closed lock, without any
+/// application effect. Inherited unresolved branches survive report omission.
+/// No fixed-point or sole-survivor finalization is performed.
 pub fn build_state(
     previous: &EpochLedger,
     selection: &[SelectedReport],
     index: &dyn BlockIndex,
     many: Amount,
-) -> EpochLedger {
-    let mut ledger = EpochLedger::new();
-
-    // Rule 1: the predecessor's finalized state is never rolled back
-    for (slot, block) in previous.finalized_slots() {
-        ledger.finalize(*slot, *block);
+) -> Result<EpochLedger, BuildStateError> {
+    #[derive(Default)]
+    struct Evidence {
+        notarized: BTreeSet<BlockHash>,
+        finalized: BTreeSet<BlockHash>,
+        first: BTreeMap<BlockHash, Amount>,
     }
-
-    // The candidates: what the reports show certified, and what a single
-    // selected reporter supported with a vote its certified state does not
-    // summarize (Include_Q). Rule 2 drops what this validator can not place.
-    let mut candidates: BTreeMap<AccountSlot, BTreeSet<BlockHash>> = BTreeMap::new();
-    let mut final_visible: BTreeSet<BlockHash> = BTreeSet::new();
-    let place = |hash: BlockHash, candidates: &mut BTreeMap<_, BTreeSet<_>>| {
-        if let Some(placement) = index.placement(&hash) {
-            candidates.entry(placement.slot).or_default().insert(hash);
-        }
-    };
+    let mut evidence: BTreeMap<AccountSlot, Evidence> = BTreeMap::new();
+    let mut reporters = BTreeSet::new();
     for report in selection {
+        if !reporters.insert(report.reporter) {
+            return Err(BuildStateError::RepeatedReporter);
+        }
         for (block, entry) in report.certified.entries() {
-            place(block.hash, &mut candidates);
-            if entry.status.is_finalized() {
-                final_visible.insert(block.hash);
-            }
-        }
-        for block in report.residual.supported() {
-            place(block.hash, &mut candidates);
-        }
-    }
-    // Rule 1: "Inherited provisional forks are not omitted merely because the
-    // current reports contain no new vote for them." A block the predecessor
-    // kept is a candidate of this epoch too, and rule 5 removes it only when
-    // a finalized branch excludes it: a promised recovery tip can not
-    // disappear through report omission.
-    for (slot, blocks) in previous.notarized_slots() {
-        for block in blocks {
-            candidates.entry(*slot).or_default().insert(block.hash);
-        }
-    }
-
-    // Rule 2: a block incompatible with an already finalized position is
-    // excluded, and so is one whose parent slot finalized a different block
-    let compatible = |ledger: &EpochLedger, slot: &AccountSlot, hash: &BlockHash| -> bool {
-        if let Some(finalized) = ledger.finalized(slot) {
-            return finalized == *hash;
-        }
-        let Some(placement) = index.placement(hash) else {
-            return false;
-        };
-        match slot.parent() {
-            Some(parent) => match ledger.finalized(&parent) {
-                Some(finalized) => placement.previous == finalized,
-                None => true,
-            },
-            None => true,
-        }
-    };
-
-    let placed = |hash: &BlockHash| {
-        PlacedBlock::new(
-            *hash,
-            index
-                .placement(hash)
-                .map(|placement| placement.previous)
-                .unwrap_or(BlockHash::ZERO),
-        )
-    };
-
-    // RAI, before any pruning: the mandatory recovery targets, which
-    // preserve a finalization the reports do not show because it was
-    // assembled after they were signed.
-    //
-    // V_Q(a,v) are the hashes at the slot whose notarization certificate the
-    // selected reports make visible; a finalization annotation establishes
-    // the certificate too, so every certified status counts. A_Q(a,v) are
-    // the hashes f + p + 1 of the selected weight first voted: enough to
-    // cover the q_fast first voters of a fast certificate nobody reported.
-    //
-    // A unique member of V_Q is protected because a final voter records the
-    // certificate before it final votes, so a certificate assembled later
-    // rests on it. When no certificate is visible at all, a unique member of
-    // A_Q is protected in its place. A slot with two of either is left to the
-    // ordinary rules: a conflict there cannot have finalized (Lemma 3.3).
-    let mut protect: BTreeMap<AccountSlot, BlockHash> = BTreeMap::new();
-    for (slot, hashes) in &candidates {
-        let certified_visible: Vec<BlockHash> = hashes
-            .iter()
-            .copied()
-            .filter(|hash| {
-                selection.iter().any(|report| {
-                    report
-                        .certified
-                        .status(&CertifiedBlock::new(slot.account, slot.height, *hash))
-                        .is_some()
+            let slot = AccountSlot::new(block.account, block.height);
+            if index.placement(&block.hash)
+                != Some(BlockPlacement {
+                    slot,
+                    previous: entry.previous,
                 })
-            })
-            .collect();
-        let target = match certified_visible.as_slice() {
-            [unique] => Some(*unique),
-            [] => {
-                let first_voted: Vec<BlockHash> = hashes
-                    .iter()
-                    .copied()
-                    .filter(|hash| {
-                        let block = CertifiedBlock::new(slot.account, slot.height, *hash);
-                        // A reporter counts once however many votes it
-                        // recorded, and the selection holds distinct
-                        // identities, so the set guards against a repeat
-                        let mut counted: BTreeSet<PublicKey> = BTreeSet::new();
-                        let mut weight = Amount::ZERO;
-                        for report in selection {
-                            if report.residual.first_votes().any(|voted| *voted == block)
-                                && counted.insert(report.reporter)
-                            {
-                                weight = weight.checked_add(report.weight).unwrap_or(Amount::MAX);
-                            }
-                        }
-                        weight >= many
-                    })
-                    .collect();
-                match first_voted.as_slice() {
-                    [unique] => Some(*unique),
-                    _ => None,
-                }
+            {
+                return Err(BuildStateError::InvalidAncestry);
             }
-            _ => None,
-        };
-        if let Some(target) = target {
-            protect.insert(*slot, target);
-        }
-    }
-
-    // Rule 3: a block the reports show finalized is finalized here, and so is
-    // every mandatory recovery target, each with the unresolved ancestors it
-    // rests on
-    for (slot, hashes) in &candidates {
-        for hash in hashes {
-            let mandatory = final_visible.contains(hash) || protect.get(slot) == Some(hash);
-            if mandatory && compatible(&ledger, slot, hash) {
-                finalize_with_ancestors(&mut ledger, index, *slot, *hash);
+            let at = evidence.entry(slot).or_default();
+            if entry.status.is_finalized() {
+                at.finalized.insert(block.hash);
+            } else {
+                at.notarized.insert(block.hash);
             }
         }
-    }
-
-    // Rules 4 and 5 to a fixed point: a slot with one surviving compatible
-    // block is checkpoint-finalized, which can leave the slot after it with
-    // one survivor in turn
-    loop {
-        let mut changed = false;
-        for (slot, hashes) in &candidates {
-            if ledger.finalized(slot).is_some() {
+        // A reporter is counted only for its own first vote outside T_i.
+        // The residual set is canonical, and the identity is counted once.
+        for block in report.residual.first_votes() {
+            if report.certified.status(block).is_some() {
                 continue;
             }
-            let surviving: Vec<BlockHash> = hashes
-                .iter()
-                .copied()
-                .filter(|hash| compatible(&ledger, slot, hash))
-                .collect();
-            if let [unique] = surviving.as_slice() {
-                // Rule 4: with the eligible unresolved ancestor prefix, so a
-                // unique child selects the branch its parent belongs to
-                finalize_with_ancestors(&mut ledger, index, *slot, *unique);
-                changed = true;
-            }
-        }
-        if !changed {
-            break;
+            let at = evidence
+                .entry(AccountSlot::new(block.account, block.height))
+                .or_default();
+            let weight = at.first.entry(block.hash).or_insert(Amount::ZERO);
+            *weight = weight.checked_add(report.weight).unwrap_or(Amount::MAX);
         }
     }
-
-    // Rule 5: the slots that kept more than one compatible block keep them
-    // all, without application effect
-    for (slot, hashes) in &candidates {
+    let mut ledger = previous.clone();
+    for (slot, at) in &evidence {
+        for hash in &at.finalized {
+            let path = selected_path(&ledger, index, *slot, *hash)?;
+            for (slot, block) in path.into_iter().rev() {
+                ledger.finalize(slot, block);
+            }
+        }
+    }
+    for (slot, at) in &evidence {
         if ledger.finalized(slot).is_some() {
             continue;
         }
-        for hash in hashes {
-            if compatible(&ledger, slot, hash) {
-                ledger.keep(*slot, placed(hash));
+        let represented: Vec<_> = at.notarized.iter().copied().collect();
+        let target = match represented.as_slice() {
+            [hash] => Some((*hash, RetainedKind::Notarized)),
+            [] => {
+                let recovered: Vec<_> = at
+                    .first
+                    .iter()
+                    .filter(|(_, weight)| **weight >= many)
+                    .map(|(hash, _)| *hash)
+                    .collect();
+                match recovered.as_slice() {
+                    [hash] => Some((*hash, RetainedKind::Recovery)),
+                    _ => None,
+                }
+            }
+            _ => return Err(BuildStateError::ConflictingNotarizations),
+        };
+        if let Some((hash, kind)) = target {
+            match selected_path(&ledger, index, *slot, hash) {
+                Ok(path) => {
+                    for (slot, block) in path.into_iter().rev() {
+                        ledger.keep(slot, block);
+                    }
+                    // Do not weaken inherited represented notarization.
+                    if ledger.retained_kind(&hash) != RetainedKind::Notarized {
+                        ledger.locks.insert(hash, kind);
+                    }
+                }
+                // Explicit finality excludes an incompatible nonfinal branch.
+                Err(BuildStateError::ConflictingFinality) => {}
+                Err(error) => return Err(error),
             }
         }
     }
-
-    ledger
+    // Prune the full incompatible branch, including descendants several
+    // positions beyond the finalized fork; checking only its parent is unsafe.
+    let retained: Vec<_> = ledger
+        .notarized
+        .iter()
+        .flat_map(|(slot, blocks)| blocks.iter().map(move |b| (*slot, *b)))
+        .collect();
+    for (slot, block) in retained {
+        if let Err(error) = selected_path(&ledger, index, slot, block.hash) {
+            if error != BuildStateError::ConflictingFinality {
+                return Err(error);
+            }
+            ledger.notarized.get_mut(&slot).unwrap().remove(&block);
+            ledger.locks.remove(&block.hash);
+        }
+    }
+    ledger.notarized.retain(|_, blocks| !blocks.is_empty());
+    Ok(ledger)
 }
 
-/// RAI, ancestral finalization closure: finalizing a block finalizes the
-/// unresolved notarized ancestors it rests on, walking back until the first
-/// ancestor that is already finalized. An ancestor slot that finalized a
-/// different block is left alone: rule 1 protects it, and a block resting on
-/// it would not have been compatible in the first place.
-fn finalize_with_ancestors(
-    ledger: &mut EpochLedger,
+/// Return a complete selected prefix ending at already-final history or an
+/// account open. Strictly decreasing heights bound traversal and reject cycles.
+fn selected_path(
+    ledger: &EpochLedger,
     index: &dyn BlockIndex,
     slot: AccountSlot,
     hash: BlockHash,
-) {
-    let mut at = (slot, hash);
+) -> Result<Vec<(AccountSlot, PlacedBlock)>, BuildStateError> {
+    let mut path = Vec::new();
+    let (mut at, mut hash) = (slot, hash);
     loop {
-        if ledger.is_finalized(&at.0, &at.1) {
-            return;
+        if let Some(finalized) = ledger.finalized(&at) {
+            return if finalized == hash {
+                Ok(path)
+            } else {
+                Err(BuildStateError::ConflictingFinality)
+            };
         }
-        let Some(placement) = index.placement(&at.1) else {
-            ledger.finalize(at.0, PlacedBlock::new(at.1, BlockHash::ZERO));
-            return;
-        };
-        ledger.finalize(at.0, PlacedBlock::new(at.1, placement.previous));
+        let placement = index
+            .placement(&hash)
+            .ok_or(BuildStateError::MissingAncestry)?;
+        if placement.slot != at || at.height == 0 || hash.is_zero() {
+            return Err(BuildStateError::InvalidAncestry);
+        }
+        path.push((at, PlacedBlock::new(hash, placement.previous)));
+        if at.height == 1 {
+            return if placement.previous.is_zero() {
+                Ok(path)
+            } else {
+                Err(BuildStateError::InvalidAncestry)
+            };
+        }
         if placement.previous.is_zero() {
-            return;
+            return Err(BuildStateError::MissingAncestry);
         }
-        let Some(parent) = at.0.parent() else {
-            return;
-        };
-        if ledger.finalized(&parent).is_some() {
-            return;
-        }
-        at = (parent, placement.previous);
+        at = AccountSlot::new(at.account, at.height - 1);
+        hash = placement.previous;
     }
 }
 
@@ -555,10 +506,9 @@ mod tests {
     use rsnano_types::PrivateKey;
     use std::collections::HashMap;
 
-    /// A slot whose only included block is the one the reports certified is
-    /// checkpoint-finalized (rule 4)
+    /// A unique represented NC is a lock, not application finality.
     #[test]
-    fn a_unique_survivor_is_finalized() {
+    fn a_unique_notarization_is_retained_without_finality() {
         let mut index = StubIndex::default();
         let block = index.add(1, 1, BlockHash::ZERO);
         let mut certified = CertifiedState::new();
@@ -571,40 +521,32 @@ mod tests {
             &index,
         );
 
-        assert_eq!(ledger.finalized(&slot(1, 1)), Some(block));
-        assert!(ledger.notarized(&slot(1, 1)).is_empty());
-        assert_eq!(ledger.finalized_count(), 1);
+        assert_eq!(ledger.finalized(&slot(1, 1)), None);
+        assert_eq!(ledger.notarized(&slot(1, 1)), vec![block]);
+        assert_eq!(ledger.retained_kind(&block), RetainedKind::Notarized);
+        assert_eq!(ledger.finalized_count(), 0);
     }
 
-    /// Two conflicting blocks at one slot are both kept, without application
-    /// effect, and neither is finalized (rule 5)
     #[test]
-    fn conflicting_survivors_are_checkpoint_notarized() {
+    fn conflicting_new_notarizations_are_rejected() {
         let mut index = StubIndex::default();
         let one = index.add(1, 1, BlockHash::ZERO);
         let other = index.add(1, 1, BlockHash::ZERO);
         let mut certified = CertifiedState::new();
         certify(&mut certified, &index, one, CertifiedStatus::Notarized);
         certify(&mut certified, &index, other, CertifiedStatus::Notarized);
-        let residual = ResidualVotes::new();
-
-        let ledger = derive(
-            &EpochLedger::new(),
-            &[report(&certified, &residual)],
-            &index,
+        assert_eq!(
+            build_state(
+                &EpochLedger::new(),
+                &[report(&certified, &ResidualVotes::new())],
+                &index,
+                MANY
+            ),
+            Err(BuildStateError::ConflictingNotarizations)
         );
-
-        assert_eq!(ledger.finalized(&slot(1, 1)), None);
-        assert_eq!(ledger.notarized(&slot(1, 1)), vec_sorted(&[one, other]));
-        assert!(ledger.frontiers().is_empty(), "no application effect");
     }
 
-    /// Include_Q: one selected reporter's residual support is enough to make
-    /// RAI: a unique certified-visible block is a mandatory recovery target,
-    /// so a single residual conflict cannot defeat it. A correct final voter
-    /// records the notarization certificate before it final votes, so a
-    /// finalization assembled after the reports were signed rests on this
-    /// block, and keeping it merely provisional would lose that obligation.
+    /// Represented notarization outranks weaker residual support.
     #[test]
     fn a_unique_certified_block_outranks_a_residual_conflict() {
         let mut index = StubIndex::default();
@@ -626,13 +568,15 @@ mod tests {
             &index,
         );
 
-        assert_eq!(ledger.finalized(&slot(1, 1)), Some(certified_block));
-        assert_eq!(ledger.notarized(&slot(1, 1)), vec![]);
+        assert_eq!(ledger.finalized(&slot(1, 1)), None);
+        assert_eq!(ledger.notarized(&slot(1, 1)), vec![certified_block]);
+        assert_eq!(
+            ledger.retained_kind(&certified_block),
+            RetainedKind::Notarized
+        );
     }
 
-    /// RAI: with no certificate visible at all, f + p + 1 of the selected
-    /// weight having first voted one block stands for a fast finalization
-    /// certificate nobody reported, and recovers it
+    /// Recovery preserves the branch of a possible latent FF, not finality.
     #[test]
     fn a_hidden_fast_certificate_is_recovered_from_first_votes() {
         let mut index = StubIndex::default();
@@ -656,11 +600,13 @@ mod tests {
             &index,
         );
 
-        assert_eq!(ledger.finalized(&slot(1, 1)), Some(hidden));
+        assert_eq!(ledger.finalized(&slot(1, 1)), None);
+        assert_eq!(ledger.notarized(&slot(1, 1)), vec![hidden]);
+        assert_eq!(ledger.retained_kind(&hidden), RetainedKind::Recovery);
+        assert!(ledger.frontiers().is_empty());
     }
 
-    /// Below the threshold nothing is recovered and the slot keeps both
-    /// blocks: two reporters are short of f + p + 1
+    /// Below-threshold new residual branches may be omitted.
     #[test]
     fn first_votes_below_the_threshold_recover_nothing() {
         let mut index = StubIndex::default();
@@ -683,7 +629,7 @@ mod tests {
         );
 
         assert_eq!(ledger.finalized(&slot(1, 1)), None);
-        assert_eq!(ledger.notarized(&slot(1, 1)), vec_sorted(&[one, other]));
+        assert!(ledger.notarized(&slot(1, 1)).is_empty());
     }
 
     /// Only first votes build a fast certificate, so second-look notarization
@@ -712,10 +658,7 @@ mod tests {
         );
 
         assert_eq!(ledger.finalized(&slot(1, 1)), None);
-        assert_eq!(
-            ledger.notarized(&slot(1, 1)),
-            vec_sorted(&[supported, other])
-        );
+        assert!(ledger.notarized(&slot(1, 1)).is_empty());
     }
 
     /// Rule 3: a block the reports show finalized is finalized, and the
@@ -740,31 +683,39 @@ mod tests {
         assert!(ledger.notarized(&slot(1, 1)).is_empty());
     }
 
-    /// Rule 4 to a fixed point: a unique block at the next slot selects the
-    /// branch its parent belongs to, and the sibling of that parent goes
     #[test]
-    fn a_unique_child_selects_its_parent_branch() {
+    fn a_notarized_child_retains_ancestry_but_does_not_finalize_it() {
         let mut index = StubIndex::default();
         let parent = index.add(1, 1, BlockHash::ZERO);
-        let sibling = index.add(1, 1, BlockHash::ZERO);
         let child = index.add(1, 2, parent);
         let mut certified = CertifiedState::new();
-        for hash in [parent, sibling, child] {
-            certify(&mut certified, &index, hash, CertifiedStatus::Notarized);
-        }
-        let residual = ResidualVotes::new();
-
+        certify(&mut certified, &index, child, CertifiedStatus::Notarized);
         let ledger = derive(
             &EpochLedger::new(),
-            &[report(&certified, &residual)],
+            &[report(&certified, &ResidualVotes::new())],
             &index,
         );
+        assert_eq!(ledger.notarized(&slot(1, 1)), vec![parent]);
+        assert_eq!(ledger.notarized(&slot(1, 2)), vec![child]);
+        assert_eq!(ledger.retained_kind(&parent), RetainedKind::Ancestor);
+        assert_eq!(ledger.retained_kind(&child), RetainedKind::Notarized);
+        assert!(ledger.frontiers().is_empty());
+    }
 
-        // The child is the only block at slot 2, so it is finalized; its
-        // parent is then the only compatible block at slot 1
-        assert_eq!(ledger.finalized(&slot(1, 2)), Some(child));
+    #[test]
+    fn an_explicitly_final_child_finalizes_its_selected_prefix() {
+        let mut index = StubIndex::default();
+        let parent = index.add(1, 1, BlockHash::ZERO);
+        let child = index.add(1, 2, parent);
+        let mut certified = CertifiedState::new();
+        certify(&mut certified, &index, child, CertifiedStatus::Finalized);
+        let ledger = derive(
+            &EpochLedger::new(),
+            &[report(&certified, &ResidualVotes::new())],
+            &index,
+        );
         assert_eq!(ledger.finalized(&slot(1, 1)), Some(parent));
-        assert!(ledger.notarized(&slot(1, 1)).is_empty());
+        assert_eq!(ledger.finalized(&slot(1, 2)), Some(child));
         assert_eq!(ledger.frontiers()[&Account::from(1)], (2, child));
     }
 
@@ -839,23 +790,11 @@ mod tests {
         let sibling = index.add(1, 3, second);
         let later = index.add(1, 4, conflicting);
 
-        let mut certified = CertifiedState::new();
-        for hash in [first, second, conflicting, sibling] {
-            certify(&mut certified, &index, hash, CertifiedStatus::Notarized);
-        }
-        // The block above the conflict is represented but its slot is not
-        // decided, so the account's chain has a gap at slot 3
-        let residual = ResidualVotes::new();
-        let mut ledger = derive(
-            &EpochLedger::new(),
-            &[report(&certified, &residual)],
-            &index,
-        );
-        assert_eq!(
-            ledger.notarized(&slot(1, 3)).len(),
-            2,
-            "slot 3 is undecided"
-        );
+        let mut ledger = EpochLedger::new();
+        ledger.finalize(slot(1, 1), placed(&index, first));
+        ledger.finalize(slot(1, 2), placed(&index, second));
+        ledger.keep(slot(1, 3), placed(&index, conflicting));
+        ledger.keep(slot(1, 3), placed(&index, sibling));
         ledger.finalize(slot(1, 4), placed(&index, later));
 
         let frontiers = ledger.frontiers();
@@ -885,9 +824,8 @@ mod tests {
         assert_ne!(first.state_hash(), third.state_hash());
     }
 
-    /// Rule 2: a block the derivation can not place is not included.
     #[test]
-    fn a_block_without_a_placement_is_not_included() {
+    fn a_block_without_a_placement_is_rejected() {
         let index = StubIndex::default();
         let mut certified = CertifiedState::new();
         certified.certify(
@@ -895,16 +833,15 @@ mod tests {
             BlockHash::ZERO,
             CertifiedStatus::Notarized,
         );
-        let residual = ResidualVotes::new();
-
-        let ledger = derive(
-            &EpochLedger::new(),
-            &[report(&certified, &residual)],
-            &index,
+        assert_eq!(
+            build_state(
+                &EpochLedger::new(),
+                &[report(&certified, &ResidualVotes::new())],
+                &index,
+                MANY
+            ),
+            Err(BuildStateError::InvalidAncestry)
         );
-
-        assert_eq!(ledger.finalized_count(), 0);
-        assert_eq!(ledger.notarized_count(), 0);
     }
 
     /// RAI: the reports themselves place every block they name, so a
@@ -922,7 +859,7 @@ mod tests {
 
         let from_reports = ReportIndex::new(&EpochLedger::new(), &selection);
         let ledger = derive(&EpochLedger::new(), &selection, &from_reports);
-        assert_eq!(ledger.finalized(&slot(1, 1)), Some(block));
+        assert_eq!(ledger.notarized(&slot(1, 1)), vec![block]);
     }
 
     /// Rule 1: "Inherited provisional forks are not omitted merely because
@@ -951,9 +888,148 @@ mod tests {
         assert_eq!(ledger.finalized(&slot(1, 1)), None);
     }
 
-    /*
-     * Test helpers
-     */
+    #[test]
+    fn recovery_lock_survives_omission_and_later_explicit_finality_promotes_it() {
+        let mut index = StubIndex::default();
+        let block = index.add(1, 1, BlockHash::ZERO);
+        let empty = CertifiedState::new();
+        let mut votes = ResidualVotes::new();
+        record(&mut votes, &index, block, ResidualKind::First);
+        let selected: Vec<_> = (1..=3).map(|i| reported_by(i, &empty, &votes)).collect();
+        let locked = derive(&EpochLedger::new(), &selected, &index);
+        let carried = derive(&locked, &[], &index);
+        assert_eq!(locked, carried);
+        assert_eq!(carried.retained_kind(&block), RetainedKind::Recovery);
+        let mut finalized = CertifiedState::new();
+        certify(&mut finalized, &index, block, CertifiedStatus::Finalized);
+        let promoted = derive(
+            &carried,
+            &[report(&finalized, &ResidualVotes::new())],
+            &index,
+        );
+        assert_eq!(promoted.finalized(&slot(1, 1)), Some(block));
+        assert!(promoted.notarized(&slot(1, 1)).is_empty());
+        assert!(promoted.locks.is_empty());
+        assert_eq!(derive(&promoted, &[], &index), promoted);
+    }
+
+    #[test]
+    fn duplicate_reporter_cannot_create_recovery_support() {
+        let mut index = StubIndex::default();
+        let block = index.add(1, 1, BlockHash::ZERO);
+        let certified = CertifiedState::new();
+        let mut votes = ResidualVotes::new();
+        record(&mut votes, &index, block, ResidualKind::First);
+        assert_eq!(
+            build_state(
+                &EpochLedger::new(),
+                &[report(&certified, &votes); 3],
+                &index,
+                MANY
+            ),
+            Err(BuildStateError::RepeatedReporter)
+        );
+    }
+
+    #[test]
+    fn missing_or_wrong_account_ancestry_never_finalizes_a_prefix() {
+        let mut index = StubIndex::default();
+        let parent = index.add(2, 1, BlockHash::ZERO);
+        let child = index.add(1, 2, parent);
+        let mut certified = CertifiedState::new();
+        certify(&mut certified, &index, child, CertifiedStatus::Finalized);
+        let residual = ResidualVotes::new();
+        assert_eq!(
+            build_state(
+                &EpochLedger::new(),
+                &[report(&certified, &residual)],
+                &index,
+                MANY
+            ),
+            Err(BuildStateError::InvalidAncestry)
+        );
+        index.blocks.remove(&parent);
+        assert_eq!(
+            build_state(
+                &EpochLedger::new(),
+                &[report(&certified, &residual)],
+                &index,
+                MANY
+            ),
+            Err(BuildStateError::MissingAncestry)
+        );
+    }
+
+    #[test]
+    fn conflicting_explicit_finality_is_rejected() {
+        let mut index = StubIndex::default();
+        let a = index.add(1, 1, BlockHash::ZERO);
+        let b = index.add(1, 1, BlockHash::ZERO);
+        let mut certified = CertifiedState::new();
+        for hash in [a, b] {
+            certify(&mut certified, &index, hash, CertifiedStatus::Finalized);
+        }
+        assert_eq!(
+            build_state(
+                &EpochLedger::new(),
+                &[report(&certified, &ResidualVotes::new())],
+                &index,
+                MANY
+            ),
+            Err(BuildStateError::ConflictingFinality)
+        );
+    }
+
+    #[test]
+    fn explicit_finality_prunes_all_descendants_of_an_inherited_conflict() {
+        let mut index = StubIndex::default();
+        let winner = index.add(1, 1, BlockHash::ZERO);
+        let loser = index.add(1, 1, BlockHash::ZERO);
+        let child = index.add(1, 2, loser);
+        let grandchild = index.add(1, 3, child);
+        let mut previous = EpochLedger::new();
+        for hash in [loser, child, grandchild] {
+            previous.keep(index.placement(&hash).unwrap().slot, placed(&index, hash));
+            previous.locks.insert(hash, RetainedKind::Recovery);
+        }
+        let mut certified = CertifiedState::new();
+        certify(&mut certified, &index, winner, CertifiedStatus::Finalized);
+        let ledger = derive(
+            &previous,
+            &[report(&certified, &ResidualVotes::new())],
+            &index,
+        );
+        assert_eq!(ledger.finalized(&slot(1, 1)), Some(winner));
+        assert_eq!(ledger.notarized_count(), 0);
+        assert!(ledger.locks.is_empty());
+    }
+
+    #[test]
+    fn lock_kind_is_committed_and_report_order_does_not_change_state() {
+        let mut index = StubIndex::default();
+        let block = index.add(1, 1, BlockHash::ZERO);
+        let empty = CertifiedState::new();
+        let mut votes = ResidualVotes::new();
+        record(&mut votes, &index, block, ResidualKind::First);
+        let mut selected: Vec<_> = (1..=3).map(|i| reported_by(i, &empty, &votes)).collect();
+        let recovered = derive(&EpochLedger::new(), &selected, &index);
+        selected.reverse();
+        assert_eq!(recovered, derive(&EpochLedger::new(), &selected, &index));
+        let mut certified = CertifiedState::new();
+        certify(&mut certified, &index, block, CertifiedStatus::Notarized);
+        let notarized = derive(
+            &EpochLedger::new(),
+            &[report(&certified, &ResidualVotes::new())],
+            &index,
+        );
+        assert_ne!(recovered.state_hash(), notarized.state_hash());
+        assert_eq!(
+            recovered.notarized(&slot(1, 1)),
+            notarized.notarized(&slot(1, 1))
+        );
+    }
+
+    /* Test helpers */
 
     /// f + p + 1 for the tests. A reporter weighs `REPORTER_WEIGHT`, so one
     /// report never reaches the recovery threshold and three do: a test that
@@ -966,7 +1042,7 @@ mod tests {
         selection: &[SelectedReport],
         index: &dyn BlockIndex,
     ) -> EpochLedger {
-        build_state(previous, selection, index, MANY)
+        build_state(previous, selection, index, MANY).unwrap()
     }
 
     fn report<'a>(

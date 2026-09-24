@@ -1,6 +1,6 @@
 use rsnano_types::{Amount, Blake2HashBuilder, BlockHash, ConsensusEpoch, PublicKey};
 
-use super::{BlockIndex, EpochLedger, SelectedReport, build_state};
+use super::{BlockIndex, BuildStateError, EpochLedger, SelectedReport, build_state};
 
 /// RAI: one of the reports an epoch value selects, by its reporter and the
 /// two roots the reporter signed. The value names the reports; the contents
@@ -103,11 +103,11 @@ impl EpochValue {
         selection: &[(ReportRef, SelectedReport)],
         index: &dyn BlockIndex,
         many: Amount,
-    ) -> (Self, EpochLedger) {
+    ) -> Result<(Self, EpochLedger), BuildStateError> {
         let mut reports: Vec<ReportRef> = selection.iter().map(|(report, _)| *report).collect();
         reports.sort();
         let states: Vec<SelectedReport> = selection.iter().map(|(_, state)| *state).collect();
-        let ledger = build_state(previous, &states, index, many);
+        let ledger = build_state(previous, &states, index, many)?;
         let value = Self {
             epoch,
             slot,
@@ -115,7 +115,7 @@ impl EpochValue {
             reports,
             state: ledger.state_hash(),
         };
-        (value, ledger)
+        Ok((value, ledger))
     }
 
     /// The hash a proposal binds and the votes name
@@ -183,7 +183,8 @@ impl EpochValue {
                 required: quorum,
             });
         }
-        let ledger = build_state(previous, &states, index, many);
+        let ledger =
+            build_state(previous, &states, index, many).map_err(EpochValueError::InvalidState)?;
         if ledger.state_hash() != self.state {
             return Err(EpochValueError::StateMismatch {
                 derived: ledger.state_hash(),
@@ -203,9 +204,13 @@ pub trait ReportSource {
 /// Why a validator does not vote for an epoch value
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EpochValueError {
+    InvalidState(BuildStateError),
     /// A proposal selects reports carrying at least N−f of the old
     /// committee's weight
-    WrongSelectionSize { selected: Amount, required: Amount },
+    WrongSelectionSize {
+        selected: Amount,
+        required: Amount,
+    },
     /// One reporter named twice would count as several reports
     RepeatedReporter,
     /// The reports are not in the canonical order, so two leaders naming the
@@ -213,7 +218,9 @@ pub enum EpochValueError {
     NotCanonical,
     /// This validator has not reconstructed one of the reports, so it can not
     /// derive the state and has nothing to check the value against
-    NotReconstructed { reporter: PublicKey },
+    NotReconstructed {
+        reporter: PublicKey,
+    },
     /// The state the reports determine is not the one the value carries
     StateMismatch {
         derived: BlockHash,
@@ -344,8 +351,10 @@ mod tests {
             &fewer,
             &world.index,
             MANY,
-        );
-        assert_ne!(all.state, some.state);
+        )
+        .unwrap();
+        // Below-threshold residuals need not be retained, but Q is still bound.
+        assert_eq!(all.state, some.state);
         assert_ne!(all.hash(), some.hash());
     }
 
@@ -364,7 +373,8 @@ mod tests {
             &world.selection(),
             &world.index,
             MANY,
-        );
+        )
+        .unwrap();
 
         assert_eq!(first.reports(), second.reports());
         assert_eq!(first.state, second.state);
@@ -473,6 +483,7 @@ mod tests {
                 &self.index,
                 MANY,
             )
+            .unwrap()
         }
     }
 

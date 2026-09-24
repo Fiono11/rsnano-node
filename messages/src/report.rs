@@ -208,7 +208,7 @@ impl CertifiedEntry {
         writer.write_all(&[self.status])
     }
 
-    fn deserialize(bytes: &mut &[u8]) -> Result<Self, DeserializationError> {
+    fn deserialize(bytes: &mut &[u8], max_status: u8) -> Result<Self, DeserializationError> {
         let account = Account::deserialize(bytes)?;
         let mut height = [0u8; 8];
         read_exact(bytes, &mut height)?;
@@ -216,7 +216,7 @@ impl CertifiedEntry {
         let previous = BlockHash::deserialize(bytes)?;
         let mut status = [0u8; 1];
         read_exact(bytes, &mut status)?;
-        if status[0] > 1 {
+        if status[0] > max_status {
             return Err(DeserializationError::InvalidData);
         }
         Ok(Self {
@@ -297,7 +297,14 @@ impl ReconReply {
         extensions.data as usize
     }
 
-    pub fn deserialize(mut bytes: &[u8]) -> Result<Self, DeserializationError> {
+    pub fn deserialize(bytes: &[u8]) -> Result<Self, DeserializationError> {
+        Self::deserialize_with_status(bytes, 1)
+    }
+
+    pub(crate) fn deserialize_with_status(
+        mut bytes: &[u8],
+        max_status: u8,
+    ) -> Result<Self, DeserializationError> {
         let bytes = &mut bytes;
         let epoch = ConsensusEpoch::deserialize(bytes)?;
         let source = BlockHash::deserialize(bytes)?;
@@ -310,14 +317,14 @@ impl ReconReply {
         }
         let mut added = Vec::with_capacity(added_len);
         for _ in 0..added_len {
-            added.push(CertifiedEntry::deserialize(bytes)?);
+            added.push(CertifiedEntry::deserialize(bytes, max_status)?);
         }
         let mut removed = Vec::new();
         while !bytes.is_empty() {
             if added.len() + removed.len() >= Self::MAX_ENTRIES {
                 return Err(DeserializationError::InvalidData);
             }
-            removed.push(CertifiedEntry::deserialize(bytes)?);
+            removed.push(CertifiedEntry::deserialize(bytes, max_status)?);
         }
         Ok(Self {
             epoch,
