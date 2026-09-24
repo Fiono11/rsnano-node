@@ -188,6 +188,15 @@ impl ReportService {
             && !self.data.ledger_holds(&hash)
     }
 
+    /// RAI: whether a published block is a fork candidate this node already
+    /// holds in its fork cache. Processing it again only checks its
+    /// signature and finds the same fork; an election that starts later
+    /// takes it from the cache, and the paths that make the ledger follow a
+    /// checkpoint read it from there too.
+    pub(crate) fn known_fork(&self, block: &rsnano_types::Block) -> bool {
+        self.data.cached_fork(block)
+    }
+
     /// RAI: whether an evidence block goes to the block processor as well
     /// as to the report data. Reporters re-gossip their G blocks and the
     /// ancestry of them every few seconds while an epoch closes; processing
@@ -1392,6 +1401,28 @@ mod tests {
             "its position is taken and no election decides it here"
         );
         assert!(service.evidence_for_ledger(&next), "extends the frontier");
+    }
+
+    #[test]
+    fn a_block_held_in_the_fork_cache_is_a_known_fork() {
+        let forks = Arc::new(std::sync::RwLock::new(crate::consensus::ForkCache::new()));
+        let service = ReportService::new(
+            Arc::new(AecService::new_null()),
+            Arc::new(Mutex::new(WalletRepresentatives::new_null())),
+            MessageFlooder::new_null(),
+            MessageSender::new_null(),
+            Arc::new(SteadyClock::new_null()),
+            Arc::new(Stats::default()),
+            Arc::new(rsnano_ledger::Ledger::new_null()),
+            forks.clone(),
+            Arc::new(BlockProcessorQueue::new_null()),
+        );
+        let block = rsnano_types::Block::new_test_instance();
+        assert!(!service.known_fork(&block));
+
+        forks.write().unwrap().add(block.clone());
+
+        assert!(service.known_fork(&block));
     }
 
     /// A checkpoint-finalized block the ledger lacked at installation is

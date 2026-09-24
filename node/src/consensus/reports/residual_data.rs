@@ -76,6 +76,16 @@ impl ResidualData {
         }
     }
 
+    /// Whether this exact block is already held as a fork candidate
+    pub fn cached_fork(&self, block: &Block) -> bool {
+        let hash = block.hash();
+        self.forks
+            .read()
+            .unwrap()
+            .get_forks(&block.qualified_root())
+            .any(|fork| fork.hash() == hash)
+    }
+
     pub fn ledger_holds(&self, hash: &BlockHash) -> bool {
         self.ledger.any().block_exists(hash)
     }

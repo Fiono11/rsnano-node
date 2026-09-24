@@ -265,6 +265,7 @@ pub enum DetailType {
     EvidenceFinal,
     ForkCandidate,
     EvidenceOnly,
+    KnownFork,
 
     // duplicate
     DuplicatePublishMessage,

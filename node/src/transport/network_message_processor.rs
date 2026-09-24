@@ -134,11 +134,19 @@ impl NetworkMessageProcessor {
                     // RAI: re-gossiped report evidence the ledger does not
                     // need stays out of the live block path
                     #[cfg(feature = "rai_protocol")]
-                    let skip = publish.is_evidence
-                        && !follows_retained
-                        && !self.reports.evidence_for_ledger(&publish.block);
+                    let skip = if follows_retained {
+                        None
+                    } else if publish.is_evidence
+                        && !self.reports.evidence_for_ledger(&publish.block)
+                    {
+                        Some(DetailType::EvidenceOnly)
+                    } else if self.reports.known_fork(&publish.block) {
+                        Some(DetailType::KnownFork)
+                    } else {
+                        None
+                    };
                     #[cfg(not(feature = "rai_protocol"))]
-                    let skip = false;
+                    let skip: Option<DetailType> = None;
                     // Put blocks that are being initially broadcasted in a separate queue, so that they won't have to compete with rebroadcasted blocks
                     // Both queues have the same priority and size, so the potential for exploiting this is limited
                     let source = if follows_retained {
@@ -153,9 +161,8 @@ impl NetworkMessageProcessor {
 
                     trace!(block_hash = ?publish.block.hash(), channel_id = ?channel.channel_id(), "Received publish");
 
-                    if skip {
-                        self.stats
-                            .inc(StatType::BlockProcessor, DetailType::EvidenceOnly);
+                    if let Some(reason) = skip {
+                        self.stats.inc(StatType::BlockProcessor, reason);
                     } else if self.bootstrapper.is_bootstrapping() {
                         // We ignore live blocks during bootstrap, so that those live blocks won't
                         // fill up the bootstrap queue
