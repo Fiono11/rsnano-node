@@ -1145,3 +1145,43 @@ one-checkpoint level; it remains ~60–90 ms higher.
 
 No protocol change. Formatting, all 870 node unit tests (`rai_protocol`) and
 the workspace unit tests pass.
+
+Pinned v41 binaries (commit 6f67f33f1). At the user's request, v41 gets four
+pairs for a noise band (pair 1 checked alone first because installation moved).
+
+```text
+32e0a47c618d0e04c9620de9edeed8e831c00adb83e0d8f236ff42eb7ead5115  rsnano
+9135ae7b7cbe7b8194351765700bf3810710fa5d494cfb6f222ef99577635dc7  nanospam
+```
+
+| Run | Non-fork goodput | p50 / p95 / p99 (ms) | Same end state on all six PRs |
+|---|---:|---:|---|
+| v41 one #1 | 1533 | 109 / 730 / 1101 | yes |
+| v41 two #1 | 1558 | 170 / 1102 / 1582 | yes |
+| v41 one #2 | 1542 | 107 / 672 / 1115 | yes |
+| v41 two #2 | 1586 | 195 / 1044 / 1292 | yes |
+| v41 one #3 | 1553 | 115 / 948 / 1540 | yes |
+| v41 two #3 | 1614 | 219 / 1300 / 1762 | yes |
+
+v41 noise band, three clean pairs with the same pinned binaries (a fourth was
+cancelled by the user). Host load at the start of each run was quiet except
+v41 one #3 (Cursor renderer at 69%) and this session (25–30% at the start of
+one #1 and #2).
+
+| v41, 3 pairs | p50 range (mean) | p95 range (mean) | p99 range | goodput range |
+|---|---:|---:|---:|---:|
+| one checkpoint | 107–115 (110) | 672–948 (783) | 1,101–1,540 | 1,533–1,553 |
+| two checkpoints | 170–219 (195) | 1,044–1,300 (1,149) | 1,292–1,762 | 1,558–1,614 |
+
+The bands do not overlap on p50 or p95: two checkpoints stay ~85 ms slower at
+p50 and ~370 ms slower at p95, while goodput is equal or higher (the second
+run's shorter epochs). All six runs converged with the required checkpoints.
+
+The v41 fact-thread diagnostics (pair 1, before vs after the first boundary):
+checkpoint installation no longer runs on the fact thread; election starts fell
+from 213 to 48 ms/s, but the batched activations still wait 136 ms/s on the
+AEC write lock; `election_terminated` rose to 247 ms/s and the representative
+tracker plugin to 45 ms/s. Busy time after a boundary stayed ~650–690 ms/s on
+~80 ms/s of thread CPU: the waiting moved between handlers rather than
+disappearing, which points at contention the whole node shares after a
+boundary rather than at any one handler.
