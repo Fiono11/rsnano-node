@@ -1149,10 +1149,11 @@ impl ActiveElectionsContainer {
     /// finalized nor retained is omitted: "an omitted candidate can be
     /// retried with fresh epoch votes", so it is erased and its block, still
     /// in the ledger, is proposed again in the open epoch. One whose
-    /// position the checkpoint retained as a fork is closed: "a checkpoint
-    /// never reopens a retained position", the owner resolves it with a
-    /// child, and the instance is erased with nothing rolled back. A late
-    /// one is discarded instead.
+    /// position the checkpoint retained cannot receive new votes, but its
+    /// old-domain instance must still collect certificates released before
+    /// the freeze. The owner may also resolve it with a fresh child. Keeping
+    /// the instance is evidence collection, not reopening its voting slot.
+    /// A late incompatible instance is discarded instead.
     fn release_undecided_instances(&mut self, epoch: ConsensusEpoch) {
         let Some(state) = self.decided.get(&epoch).cloned() else {
             return;
@@ -1176,8 +1177,13 @@ impl ActiveElectionsContainer {
                 retained.push(election.id());
             }
         }
-        for id in omitted.iter().chain(&retained) {
+        for id in &omitted {
             self.erase_election(id);
+        }
+        if !cfg!(feature = "rai_protocol") {
+            for id in &retained {
+                self.erase_election(id);
+            }
         }
         if cfg!(feature = "rai_protocol") && !(omitted.is_empty() && retained.is_empty()) {
             diagnostic!(
@@ -4727,6 +4733,109 @@ mod tests {
         assert_eq!(result.get(&another.hash()), Some(&Err(VoteError::Late)));
     }
 
+    /// Closing a position to new voting does not invalidate an old-domain
+    /// certificate that arrives after the checkpoint retained its branch.
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn retained_old_instance_can_learn_late_finality_without_signing() {
+        let mut container = ActiveElectionsContainer::default();
+        let now = Timestamp::new_test_instance();
+        let epoch = ConsensusEpoch::ZERO;
+        let block = SavedBlock::new_test_instance_with_key(2);
+        let rep = PrivateKey::from(1);
+        let mut weights = RepWeights::default();
+        weights.put(rep.public_key(), Amount::nano(70_000_000));
+        container
+            .insert(
+                AecInsertRequest::new_priority(block.clone(), BlockPriority::new_test_instance()),
+                now,
+            )
+            .unwrap();
+        vote_in(
+            &mut container,
+            &rep,
+            VoteKind::First,
+            epoch,
+            block.hash(),
+            &weights,
+            now,
+        );
+        assert!(!container.is_finalized(&block.hash()));
+        assert!(
+            container
+                .election_for_block(&block.hash())
+                .unwrap()
+                .certificates()
+                .is_notarized(&block.hash())
+        );
+        retain_instance_in_decided_epoch(&mut container, &block, epoch, 2);
+        assert!(!container.signs_account_votes_in(epoch));
+        assert!(container.kudzu_votes_due(|_| Ok(())).is_empty());
+        vote_in(
+            &mut container,
+            &rep,
+            VoteKind::Final,
+            epoch,
+            block.hash(),
+            &weights,
+            now,
+        );
+        assert!(container.finalized_in_epoch(&block.hash(), epoch));
+        assert!(!container.signs_account_votes_in(epoch));
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn recovery_retained_instance_can_collect_a_late_fast_certificate() {
+        let mut container = ActiveElectionsContainer::default();
+        let now = Timestamp::new_test_instance();
+        let epoch = ConsensusEpoch::ZERO;
+        let block = SavedBlock::new_test_instance_with_key(2);
+        let first = PrivateKey::from(1);
+        let late = PrivateKey::from(3);
+        let mut weights = RepWeights::default();
+        weights.put(first.public_key(), Amount::nano(50_000_000));
+        weights.put(late.public_key(), Amount::nano(40_000_000));
+        container
+            .insert(
+                AecInsertRequest::new_priority(block.clone(), BlockPriority::new_test_instance()),
+                now,
+            )
+            .unwrap();
+        vote_in(
+            &mut container,
+            &first,
+            VoteKind::First,
+            epoch,
+            block.hash(),
+            &weights,
+            now,
+        );
+        assert!(
+            !container
+                .election_for_block(&block.hash())
+                .unwrap()
+                .certificates()
+                .is_notarized(&block.hash())
+        );
+        retain_instance_in_decided_epoch(&mut container, &block, epoch, 3);
+        // The retained position still cannot start fresh successor voting.
+        container.insert_for_vote(block.clone(), epoch.next(), now);
+        assert_eq!(container.len(), 1);
+        assert!(container.kudzu_votes_due(|_| Ok(())).is_empty());
+        vote_in(
+            &mut container,
+            &late,
+            VoteKind::First,
+            epoch,
+            block.hash(),
+            &weights,
+            now,
+        );
+        assert!(container.finalized_in_epoch(&block.hash(), epoch));
+        assert!(!container.signs_account_votes_in(epoch));
+    }
+
     /// RAI: the account votes received are kept by epoch and voter, placed
     /// by the block's parent, so that a reporter's residual object can be
     /// derived here. A vote for a block whose instance already finalized and
@@ -5922,6 +6031,27 @@ mod tests {
             }],
             BlockHash::from(100),
         )
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    fn retain_instance_in_decided_epoch(
+        container: &mut ActiveElectionsContainer,
+        block: &SavedBlock,
+        epoch: ConsensusEpoch,
+        status: u8,
+    ) {
+        let state = EpochLedger::from_checkpoint_entries(&[rsnano_messages::CertifiedEntry {
+            account: block.account(),
+            height: block.height(),
+            hash: block.hash(),
+            previous: block.previous(),
+            status,
+        }])
+        .unwrap();
+        container.decided.insert(epoch, Arc::new(state));
+        container.frozen.insert(epoch);
+        container.set_current_epoch(epoch.next());
+        container.release_undecided_instances(epoch);
     }
 
     /// An owner-signed state block of the test key at a position: the

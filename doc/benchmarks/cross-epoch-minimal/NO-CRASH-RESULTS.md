@@ -525,3 +525,23 @@ Future failed runs save `failure-node-N.json` with checkpoint contents and
 per-epoch entries after the settlement verdict, before deleting databases.
 This evidence capture does not extend the measurement or revise a failed verdict.
 All 24 harness tests pass.
+
+### v25: retained positions still collect old-domain certificates
+
+A deterministic regression demonstrates a protocol mismatch: after the
+checkpoint retained an unresolved notarized block, `release_undecided_instances`
+erased its old election. A valid old-epoch final vote arriving afterwards could
+not finalize it. The pre-fix failing test output is retained in
+`v25-late-finality-before.log`. This is consistent with the observed extra
+cemented fork blocks, but does not prove the exact cause of every historical
+failure whose full election evidence was not saved.
+
+RAI freezes signing and forbids reopening retained positions for new voting;
+it does not revoke certificates released in the old domain. The fix keeps
+retained old elections for evidence collection. Omitted instances are still
+released and incompatible late instances still discarded. Frozen-epoch signing
+remains disabled; the tests also verify a retained position cannot start new
+successor voting. A second regression delivers a late fast certificate to a
+recovery-only retained position. Both pass after the fix, and all 839 node unit
+tests pass. The shared checkpoint-transition fixture is at the bottom of the
+test module. Formatting passes. No protocol validation was removed.
