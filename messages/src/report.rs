@@ -298,7 +298,7 @@ impl ReconReply {
     }
 
     pub fn deserialize(bytes: &[u8]) -> Result<Self, DeserializationError> {
-        Self::deserialize_with_status(bytes, 1)
+        Self::deserialize_with_status(bytes, 2)
     }
 
     pub(crate) fn deserialize_with_status(

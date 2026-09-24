@@ -92,6 +92,34 @@ pub struct EpochLedger {
 }
 
 impl EpochLedger {
+    /// Canonical inherited report projection. Uncertified selected ancestors
+    /// retain their predecessor protection; they never acquire an NC here.
+    pub fn report_ledger(&self) -> CertifiedState {
+        use super::{CertifiedBlock, CertifiedStatus};
+        let mut report = CertifiedState::new();
+        for (slot, block) in &self.finalized {
+            report.certify(
+                CertifiedBlock::new(slot.account, slot.height, block.hash),
+                block.previous,
+                CertifiedStatus::Finalized,
+            );
+        }
+        for (slot, blocks) in &self.notarized {
+            for block in blocks {
+                let status = match self.retained_kind(&block.hash) {
+                    RetainedKind::Notarized => CertifiedStatus::Notarized,
+                    RetainedKind::Recovery | RetainedKind::Ancestor => CertifiedStatus::Recovery,
+                };
+                report.certify(
+                    CertifiedBlock::new(slot.account, slot.height, block.hash),
+                    block.previous,
+                    status,
+                );
+            }
+        }
+        report
+    }
+
     pub fn retains(&self, slot: &AccountSlot) -> bool {
         self.notarized.contains_key(slot)
     }
@@ -100,6 +128,19 @@ impl EpochLedger {
         self.notarized
             .get(slot)
             .is_some_and(|blocks| blocks.iter().any(|b| b.hash == *hash))
+    }
+
+    pub fn valid_recovery_entry(
+        &self,
+        slot: &AccountSlot,
+        hash: BlockHash,
+        previous: BlockHash,
+    ) -> bool {
+        self.retained_kind(&hash) != RetainedKind::Notarized
+            && self
+                .notarized
+                .get(slot)
+                .is_some_and(|blocks| blocks.contains(&PlacedBlock::new(hash, previous)))
     }
 
     pub fn retained_depth(&self, account: Account) -> Option<u64> {
@@ -370,6 +411,7 @@ pub enum BuildStateError {
     ConflictingFinality,
     ConflictingNotarizations,
     RepeatedReporter,
+    InvalidRecoveryEntry,
 }
 
 /// Revised BuildState: explicit F entries alone extend finality. A represented
@@ -405,16 +447,25 @@ pub fn build_state(
                 return Err(BuildStateError::InvalidAncestry);
             }
             let at = evidence.entry(slot).or_default();
-            if entry.status.is_finalized() {
-                at.finalized.insert(block.hash);
-            } else {
-                at.notarized.insert(block.hash);
+            match entry.status {
+                super::CertifiedStatus::Finalized => {
+                    at.finalized.insert(block.hash);
+                }
+                super::CertifiedStatus::Notarized => {
+                    at.notarized.insert(block.hash);
+                }
+                super::CertifiedStatus::Recovery => {
+                    if !previous.valid_recovery_entry(&slot, block.hash, entry.previous) {
+                        return Err(BuildStateError::InvalidRecoveryEntry);
+                    }
+                    // Already carried by `previous`; R supplies no new support.
+                }
             }
         }
         // A reporter is counted only for its own first vote outside T_i.
         // The residual set is canonical, and the identity is counted once.
         for block in report.residual.first_votes() {
-            if report.certified.status(block).is_some() {
+            if report.certified.contains_hash(&block.hash) {
                 continue;
             }
             let at = evidence
@@ -880,6 +931,37 @@ mod tests {
     /// validator derives the same state whether or not it holds the bodies.
     /// This is what `ReportIndex` is for; without it two validators holding
     /// different bodies would derive different states from one selection.
+    #[test]
+    fn r_reports_carry_protection_without_notarization_or_fresh_support() {
+        let mut index = StubIndex::default();
+        let hash = index.add(1, 1, BlockHash::ZERO);
+        let mut previous = EpochLedger::new();
+        previous.keep(slot(1, 1), PlacedBlock::new(hash, BlockHash::ZERO));
+        previous.locks.insert(hash, RetainedKind::Recovery);
+        let t = previous.report_ledger();
+        let g = ResidualVotes::new();
+        let reports: Vec<_> = (1..=6)
+            .map(|i| SelectedReport {
+                reporter: PublicKey::from(i),
+                weight: MANY,
+                certified: &t,
+                residual: &g,
+            })
+            .collect();
+        let next = build_state(&previous, &reports, &index, MANY).unwrap();
+        assert_eq!(next, previous);
+        assert_eq!(next.retained_kind(&hash), RetainedKind::Recovery);
+        assert_eq!(
+            build_state(&EpochLedger::new(), &reports, &index, MANY),
+            Err(BuildStateError::InvalidRecoveryEntry)
+        );
+        let t2 = next.report_ledger();
+        assert_eq!(
+            build_state(&next, &[report(&t2, &g)], &index, MANY).unwrap(),
+            previous
+        );
+    }
+
     #[test]
     fn the_reports_place_the_blocks_they_name() {
         let mut index = StubIndex::default();

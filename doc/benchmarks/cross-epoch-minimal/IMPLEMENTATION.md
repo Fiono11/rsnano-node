@@ -4,8 +4,9 @@ This branch starts at `5e037cfe0527d7b06b573456c7c876568ce179ea` and implements
 the first closure correction and the measurement gate. It does **not** yet
 implement every requirement of the updated `RAI.pdf`. The PDF supersedes the
 earlier DOCX; [PLAN.md](PLAN.md) adds the required immediate R/N/F report stage.
-Current report inventories still support N/F only: checkpoint recovery metadata
-and fresh-child recovery do **not** implement R membership in `T_i`.
+The new report implementation supports R/N/F membership in `T_i`; its
+integration/performance gate is pending. Earlier binary evaluations still
+cover the N/F-only intermediate revision.
 
 ## Implemented in step 1
 
@@ -40,6 +41,45 @@ have validated. Its F tags do not themselves constitute cryptographic finality
 proofs. Complete verification of the signed evidence, transfer dependencies and
 application replay is still required below. Unit-test fixtures exercise state
 semantics, not a replacement for certificate verification.
+
+## Updated PDF report stage
+
+* Report status has explicit R < N < F strength and a separate wire mapping
+  (N=0, F=1, R=2). It is not the checkpoint tag mapping. Report decoding rejects
+  other tags. The version-2 T commitment hashes canonical entries in block-hash
+  order and caches the result until mutation; redundant placement metadata
+  remains authenticated in this experimental wire encoding. It replaces the
+  earlier XOR accumulator, not just its domain string.
+* The report projection includes predecessor finality and retained branches,
+  then merges closing-epoch observations. Explicit retained NCs stay N;
+  noncertified protected ancestors and recovery tips enter as R. Neither an
+  R tag nor inherited ancestry manufactures an NC. Cached predecessor
+  projections avoid rehashing inherited entries individually every refresh.
+* Reports containing R are not usable until their signed predecessor binding,
+  retained position, hash and parent match the locally decided predecessor.
+  BuildState repeats that check and adds no support or finality for R. Full
+  cryptographic proof validation of the predecessor remains part of the
+  successor/evidence stage below, not a property of this local membership check.
+* G commits distinct hashes outside **every** T status, regardless of vote
+  kind. A G hash needs the reporter's first-vote evidence before usability;
+  a final-vote record alone cannot make a matching hash root sufficient.
+  First-vote kinds remain separate evidence and are not themselves G members.
+* Residual inventory sketches are no longer requested, and received sketch
+  metadata cannot make a report usable. G is rebuilt from the reporter votes
+  that passed the existing ingress validation. Complete retained signed-vote
+  objects and proof-context validation are still required in the later stage.
+* A report waiting for its predecessor refreshes the complete projection before
+  its first signature. Once signed, its T/G snapshot stays immutable while
+  live observations can advance R → N → F. Successor elections are excluded.
+* Freeze diagnostics now expose R/N/F and distinct G counts. Unit tests cover
+  frozen upgrades, exact T/G partition, repeated inherited recovery without
+  fresh support, forged R, matching predecessor requirements, and rejecting
+  unsigned sketch metadata as recovery evidence.
+
+This finishes the report-model portion of the revised closure experiment; it
+is not an accepted performance stage or full revised-protocol implementation.
+The previous five-pair handoff gate is inconclusive on p99. Its results remain
+in EVALUATION.md, and the updated report stage must be evaluated independently.
 
 ## Required before claiming the revised protocol
 

@@ -7,6 +7,8 @@ use rsnano_types::{Account, Blake2HashBuilder, BlockHash, ConsensusEpoch, Public
 /// may later gain a finalization status, never the other way round.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CertifiedStatus {
+    /// Inherited unresolved protection; neither notarization nor finality.
+    Recovery,
     /// A vote-notarization certificate: the block is complete
     Notarized,
     /// A finalization certificate, normal or fast. The inventory does not
@@ -20,6 +22,7 @@ pub enum CertifiedStatus {
 impl CertifiedStatus {
     pub fn as_byte(self) -> u8 {
         match self {
+            CertifiedStatus::Recovery => 2,
             CertifiedStatus::Notarized => 0,
             CertifiedStatus::Finalized => 1,
         }
@@ -27,6 +30,7 @@ impl CertifiedStatus {
 
     pub fn from_byte(byte: u8) -> Option<Self> {
         match byte {
+            2 => Some(CertifiedStatus::Recovery),
             0 => Some(CertifiedStatus::Notarized),
             1 => Some(CertifiedStatus::Finalized),
             _ => None,
@@ -34,7 +38,7 @@ impl CertifiedStatus {
     }
 
     pub fn is_finalized(self) -> bool {
-        !matches!(self, CertifiedStatus::Notarized)
+        matches!(self, CertifiedStatus::Finalized)
     }
 }
 
@@ -80,13 +84,20 @@ pub struct Certification {
 /// order the votes reached them in. A report signs the root of a frozen
 /// snapshot; the live tree goes on growing as gossip delivers more votes,
 /// which is what lets a later common state bridge to a historical root.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default)]
 pub struct CertifiedState {
     entries: BTreeMap<CertifiedBlock, Certification>,
-    /// The XOR of the entry digests, so that a status upgrade or an added
-    /// block is a constant-time update of the root
-    digest: [u8; 32],
+    hashes: std::collections::BTreeSet<BlockHash>,
+    /// A canonical cryptographic commitment, cached until entries change.
+    root_cache: std::sync::OnceLock<BlockHash>,
 }
+
+impl PartialEq for CertifiedState {
+    fn eq(&self, other: &Self) -> bool {
+        self.entries == other.entries
+    }
+}
+impl Eq for CertifiedState {}
 
 impl CertifiedState {
     pub fn new() -> Self {
@@ -99,6 +110,22 @@ impl CertifiedState {
 
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
+    }
+
+    pub fn status_counts(&self) -> [usize; 3] {
+        let mut counts = [0; 3];
+        for entry in self.entries.values() {
+            counts[match entry.status {
+                CertifiedStatus::Recovery => 0,
+                CertifiedStatus::Notarized => 1,
+                CertifiedStatus::Finalized => 2,
+            }] += 1;
+        }
+        counts
+    }
+
+    pub fn contains_hash(&self, hash: &BlockHash) -> bool {
+        self.hashes.contains(hash)
     }
 
     pub fn status(&self, block: &CertifiedBlock) -> Option<CertifiedStatus> {
@@ -131,10 +158,8 @@ impl CertifiedState {
                     status,
                     previous: held.map(|held| held.previous).unwrap_or(previous),
                 };
-                if let Some(held) = held {
-                    self.toggle(&block, held);
-                }
-                self.toggle(&block, entry);
+                self.root_cache.take();
+                self.hashes.insert(block.hash);
                 self.entries.insert(block, entry);
                 true
             }
@@ -143,11 +168,38 @@ impl CertifiedState {
 
     /// The root the report signs
     pub fn root(&self) -> BlockHash {
-        Blake2HashBuilder::new()
-            .update(b"RAI certified state")
-            .update(self.digest)
-            .update(self.entries.len().to_le_bytes())
-            .build()
+        *self.root_cache.get_or_init(|| {
+            let mut entries: Vec<_> = self
+                .entries
+                .iter()
+                .map(|(block, entry)| {
+                    (
+                        block.hash,
+                        entry.status.as_byte(),
+                        block.account,
+                        block.height,
+                        entry.previous,
+                    )
+                })
+                .collect();
+            entries.sort_unstable();
+            let mut builder = Blake2HashBuilder::new().update(b"RAI report ledger v2 RNF");
+            for (hash, status, account, height, previous) in entries {
+                // Placement is redundant for a validated block hash, but
+                // remains authenticated in this experimental wire encoding.
+                builder = builder
+                    .update(hash.as_bytes())
+                    .update([status])
+                    .update(account.as_bytes())
+                    .update(height.to_le_bytes())
+                    .update(previous.as_bytes());
+            }
+            builder.build()
+        })
+    }
+
+    pub fn has_unique_hashes(&self) -> bool {
+        self.entries.len() == self.hashes.len()
     }
 
     /// RAI: "It may add or remove blocks and change status annotations."
@@ -188,34 +240,17 @@ impl CertifiedState {
     /// reconstruction rebuilds the reporter's state, which is not this
     /// node's own and is not required to grow
     pub fn set(&mut self, block: CertifiedBlock, entry: Certification) {
-        if let Some(held) = self.entries.insert(block, entry) {
-            self.toggle(&block, held);
-        }
-        self.toggle(&block, entry);
+        self.hashes.insert(block.hash);
+        self.entries.insert(block, entry);
+        self.root_cache.take();
     }
 
     pub fn remove(&mut self, block: &CertifiedBlock) {
-        if let Some(held) = self.entries.remove(block) {
-            self.toggle(block, held);
-        }
-    }
-
-    /// RAI: the digest one entry contributes to the state root
-    fn entry_digest(block: &CertifiedBlock, entry: &Certification) -> BlockHash {
-        Blake2HashBuilder::new()
-            .update(b"RAI certified entry")
-            .update(block.account.as_bytes())
-            .update(block.height.to_le_bytes())
-            .update(block.hash.as_bytes())
-            .update(entry.previous.as_bytes())
-            .update([entry.status.as_byte()])
-            .build()
-    }
-
-    fn toggle(&mut self, block: &CertifiedBlock, entry: Certification) {
-        let digest = Self::entry_digest(block, &entry);
-        for (d, e) in self.digest.iter_mut().zip(digest.as_bytes()) {
-            *d ^= e;
+        if self.entries.remove(block).is_some() {
+            self.root_cache.take();
+            if !self.entries.keys().any(|b| b.hash == block.hash) {
+                self.hashes.remove(&block.hash);
+            }
         }
     }
 }
@@ -291,33 +326,36 @@ impl ResidualVotes {
         Self::default()
     }
 
-    /// RAI, "Reports that remain reconstructible": the residual object a
-    /// reporter's votes and its certified inventory determine. "An
-    /// unsummarized first or notarization vote remains ... A final vote on a
-    /// notarized but not yet finalized block also remains. A summarized vote
-    /// must instead be covered by its corresponding certified status." The
-    /// reporter derives it from the votes it issued; a validator that holds
-    /// those votes, gossiped and signature-checked on receipt, derives the
-    /// same object from them and the reconstructed inventory, and checks it
-    /// against the signed root. Timeout and abstaining votes are no part of
-    /// it: an account domain has none.
+    /// Exact G = V \ keys(T): no vote for a hash under any R/N/F tag
+    /// remains in G. The evidence records retain vote kinds independently;
+    /// only a verified first vote is eligible for recovery support.
     pub fn derive(
         certified: &CertifiedState,
         votes: impl IntoIterator<Item = (CertifiedBlock, ResidualKind, BlockHash)>,
     ) -> Self {
         let mut residual = Self::new();
         for (block, kind, previous) in votes {
-            let summarized = match kind {
-                ResidualKind::First | ResidualKind::Notar => certified.status(&block).is_some(),
-                ResidualKind::Final => certified
-                    .status(&block)
-                    .is_some_and(|status| status.is_finalized()),
-            };
+            let summarized = certified.contains_hash(&block.hash);
             if !summarized {
                 residual.record(block, previous, kind);
             }
         }
         residual
+    }
+
+    /// Account votes are single-support: a G hash is counted only once
+    /// its reporter's first vote is available, not just a final-vote record.
+    pub fn first_evidence_complete(&self) -> bool {
+        let first: std::collections::BTreeSet<_> = self.first_votes().map(|b| b.hash).collect();
+        self.entries.keys().all(|(b, _)| first.contains(&b.hash))
+    }
+
+    pub fn hash_count(&self) -> usize {
+        self.entries
+            .keys()
+            .map(|(b, _)| b.hash)
+            .collect::<std::collections::BTreeSet<_>>()
+            .len()
     }
 
     pub fn len(&self) -> usize {
@@ -430,11 +468,15 @@ impl ResidualVotes {
     }
 
     pub fn root(&self) -> BlockHash {
-        Blake2HashBuilder::new()
-            .update(b"RAI residual votes")
-            .update(self.digest)
-            .update(self.entries.len().to_le_bytes())
-            .build()
+        // G commits distinct block hashes. Vote kinds and placements are
+        // separately validated evidence, not authenticated-set members.
+        let hashes: std::collections::BTreeSet<_> =
+            self.entries.keys().map(|(b, _)| b.hash).collect();
+        let mut builder = Blake2HashBuilder::new().update(b"RAI report G v2 hashes");
+        for hash in hashes {
+            builder = builder.update(hash.as_bytes());
+        }
+        builder.build()
     }
 }
 
@@ -474,6 +516,41 @@ impl ReportCommitment {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recovery_upgrade_does_not_mutate_a_frozen_report() {
+        let mut live = CertifiedState::new();
+        live.certify(block(1), parent(block(1)), CertifiedStatus::Recovery);
+        assert!(!CertifiedStatus::Recovery.is_finalized());
+        let frozen = live.clone();
+        assert!(live.certify(block(1), parent(block(1)), CertifiedStatus::Notarized));
+        assert_ne!(live.root(), frozen.root());
+        assert!(live.certify(block(1), parent(block(1)), CertifiedStatus::Finalized));
+        assert!(!live.certify(block(1), parent(block(1)), CertifiedStatus::Recovery));
+        assert_eq!(frozen.status(&block(1)), Some(CertifiedStatus::Recovery));
+        let delta = live.difference(&frozen);
+        live.apply(&delta);
+        assert_eq!(live, frozen);
+    }
+
+    #[test]
+    fn every_t_status_excludes_every_vote_kind_from_g() {
+        for status in [
+            CertifiedStatus::Recovery,
+            CertifiedStatus::Notarized,
+            CertifiedStatus::Finalized,
+        ] {
+            let mut t = CertifiedState::new();
+            t.certify(block(1), parent(block(1)), status);
+            let votes = [
+                ResidualKind::First,
+                ResidualKind::Notar,
+                ResidualKind::Final,
+            ]
+            .map(|kind| (block(1), kind, parent(block(1))));
+            assert!(ResidualVotes::derive(&t, votes).is_empty());
+        }
+    }
 
     #[test]
     fn an_empty_state_has_a_root_of_its_own() {
@@ -646,21 +723,21 @@ mod tests {
         assert_eq!(votes.first_votes().collect::<Vec<_>>(), vec![&block(1)]);
     }
 
-    /// The same block first voted and then notarized is two entries, and the
-    /// root distinguishes them from either alone
+    /// Evidence kinds remain separate, but G authenticates only block hashes.
     #[test]
-    fn the_two_support_kinds_hash_apart() {
+    fn g_hashes_blocks_while_first_vote_evidence_stays_separate() {
         let mut first_only = ResidualVotes::new();
         first_only.record(block(1), parent(block(1)), ResidualKind::First);
         let mut notar_only = ResidualVotes::new();
         notar_only.record(block(1), parent(block(1)), ResidualKind::Notar);
-        assert_ne!(first_only.root(), notar_only.root());
+        assert_eq!(first_only.root(), notar_only.root());
+        assert_eq!(notar_only.first_votes().count(), 0);
 
         let mut both = ResidualVotes::new();
         both.record(block(1), parent(block(1)), ResidualKind::First);
         both.record(block(1), parent(block(1)), ResidualKind::Notar);
         assert_eq!(both.len(), 2);
-        assert_ne!(both.root(), first_only.root());
+        assert_eq!(both.root(), first_only.root());
         assert_eq!(both.first_votes().collect::<Vec<_>>(), vec![&block(1)]);
     }
 
@@ -686,8 +763,8 @@ mod tests {
             (block(3), ResidualKind::Notar, parent(block(3))),
         ];
         let derived = ResidualVotes::derive(&certified, votes.clone());
-        assert_eq!(derived.len(), 3);
-        assert!(derived.contains(&block(1), ResidualKind::Final));
+        assert_eq!(derived.len(), 2);
+        assert!(!derived.contains(&block(1), ResidualKind::Final));
         assert!(derived.contains(&block(3), ResidualKind::First));
         assert!(derived.contains(&block(3), ResidualKind::Notar));
         assert!(!derived.contains(&block(1), ResidualKind::First));
@@ -701,7 +778,7 @@ mod tests {
         );
         // A vote missing on one side changes the root
         assert_ne!(
-            ResidualVotes::derive(&certified, votes[..5].to_vec()).root(),
+            ResidualVotes::derive(&certified, votes[..4].to_vec()).root(),
             derived.root()
         );
     }

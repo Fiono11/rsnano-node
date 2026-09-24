@@ -122,6 +122,13 @@ impl AecService {
         self.aec.read().unwrap().checkpoint_locks()
     }
 
+    pub(crate) fn epoch_report_snapshot(
+        &self,
+        epoch: ConsensusEpoch,
+    ) -> Option<super::EpochReport> {
+        self.aec.read().unwrap().epoch_report(epoch)
+    }
+
     pub fn current_epoch(&self) -> ConsensusEpoch {
         self.aec.read().unwrap().current_epoch()
     }

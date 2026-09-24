@@ -49,6 +49,10 @@ pub(crate) struct ReportExchange {
 
 #[derive(Default)]
 struct EpochReports {
+    predecessor: Option<(
+        BlockHash,
+        std::sync::Arc<crate::consensus::election::EpochLedger>,
+    )>,
     /// The certified state as it stands here. It only ever grows: "correct
     /// validators continuously update their canonical local inventories and
     /// roots as historical records arrive", and a certificate once
@@ -111,7 +115,6 @@ pub(crate) enum ReportMessage {
     /// Answer a request with the difference between two states this node knows
     Reply(ReconReply),
     /// Ask what a derived residual object and the reporter's differ in
-    ResidualSketch(ResidualSketchReq),
     /// Answer a sketch with the difference peeled out of it
     ResidualSketchAnswer(ResidualSketchReply),
 }
@@ -166,6 +169,22 @@ impl ReportExchange {
     }
 
     /// The root of the epoch's certified state as it stands here
+    pub fn set_predecessor(
+        &mut self,
+        epoch: ConsensusEpoch,
+        state: std::sync::Arc<crate::consensus::election::EpochLedger>,
+    ) {
+        let held = self.epochs.entry(epoch).or_default();
+        if held
+            .predecessor
+            .as_ref()
+            .is_some_and(|(_, old)| std::sync::Arc::ptr_eq(old, &state))
+        {
+            return;
+        }
+        held.predecessor = Some((state.state_hash(), state));
+    }
+
     pub fn live_root(&self, epoch: ConsensusEpoch) -> Option<BlockHash> {
         self.epochs.get(&epoch).map(|held| held.live.root())
     }
@@ -322,7 +341,15 @@ impl ReportExchange {
             {
                 return None;
             }
-            return Some((held.state(certified)?, held.residuals.get(&residual)?));
+            let state = held.state(certified)?;
+            if !held.valid_recovery(own, state) {
+                return None;
+            }
+            let votes = held.residuals.get(&residual)?;
+            if !votes.first_evidence_complete() {
+                return None;
+            }
+            return Some((state, votes));
         }
         let their = held.theirs.get(reporter)?;
         if their.report.certified != certified
@@ -331,7 +358,15 @@ impl ReportExchange {
         {
             return None;
         }
-        Some((their.reconstructed.as_ref()?, their.residual.as_ref()?))
+        let state = their.reconstructed.as_ref()?;
+        if !held.valid_recovery(&their.report, state) {
+            return None;
+        }
+        let votes = their.residual.as_ref()?;
+        if !votes.first_evidence_complete() {
+            return None;
+        }
+        Some((state, votes))
     }
 
     /// The reports whose certified state and residual object have both been
@@ -355,7 +390,11 @@ impl ReportExchange {
                 their.residual.as_ref()?,
             ))
         });
-        own.chain(theirs).collect()
+        own.chain(theirs)
+            .filter(|(report, state, votes)| {
+                held.valid_recovery(report, state) && votes.first_evidence_complete()
+            })
+            .collect()
     }
 
     /// RAI: a report is taken only with a valid signature over its epoch,
@@ -441,7 +480,7 @@ impl ReportExchange {
         their.derived = Some(now);
         let derived = ResidualVotes::derive(certified, votes);
         let total = derived.len();
-        let complete = derived.root() == their.report.residual;
+        let complete = derived.root() == their.report.residual && derived.first_evidence_complete();
         if complete {
             their.residual = Some(derived);
             their.working = None;
@@ -661,11 +700,11 @@ impl ReportExchange {
                 kind,
             );
         }
-        let complete = working.root() == reply.root;
+        // The hash-only G root does not authenticate these vote-kind claims.
+        // Hints never establish usability; only derive_residual from validated
+        // reporter votes can do that.
+        let complete = false;
         let total = working.len();
-        if complete {
-            their.residual = their.working.take();
-        }
         Some(ReconcileResult {
             epoch: reply.epoch,
             reporter,
@@ -789,6 +828,26 @@ impl ReportExchange {
 }
 
 impl EpochReports {
+    fn valid_recovery(&self, report: &Report, state: &CertifiedState) -> bool {
+        if !state.has_unique_hashes() {
+            return false;
+        }
+        use crate::consensus::election::AccountSlot;
+        state
+            .entries()
+            .filter(|(_, entry)| entry.status == CertifiedStatus::Recovery)
+            .all(|(block, entry)| {
+                self.predecessor.as_ref().is_some_and(|(hash, previous)| {
+                    *hash == report.predecessor
+                        && previous.valid_recovery_entry(
+                            &AccountSlot::new(block.account, block.height),
+                            block.hash,
+                            entry.previous,
+                        )
+                })
+            })
+    }
+
     /// The states an epoch retains besides the live one: the report's own
     /// snapshot and the states this node passed through, which are what it
     /// can bridge from
@@ -886,6 +945,37 @@ mod tests {
     use super::*;
     use rsnano_types::Account;
     use std::time::Duration;
+
+    #[test]
+    fn r_membership_needs_the_matching_verified_predecessor() {
+        use crate::consensus::election::EpochLedger;
+        use std::sync::Arc;
+        let b = block(1);
+        let previous = Arc::new(
+            EpochLedger::from_checkpoint_entries(&[CertifiedEntry {
+                account: b.account,
+                height: b.height,
+                hash: b.hash,
+                previous: parent(1),
+                status: 3,
+            }])
+            .unwrap(),
+        );
+        let mut exchange = ReportExchange::new();
+        exchange.report_epoch(
+            ConsensusEpoch::ZERO,
+            previous.report_ledger(),
+            ResidualVotes::new(),
+            BlockHash::from(7),
+            previous.state_hash(),
+            &[PrivateKey::from(1)],
+        );
+        assert!(exchange.usable(ConsensusEpoch::ZERO).is_empty());
+        exchange.set_predecessor(ConsensusEpoch::ZERO, previous.clone());
+        assert_eq!(exchange.usable(ConsensusEpoch::ZERO).len(), 1);
+        exchange.set_predecessor(ConsensusEpoch::ZERO, Arc::new(EpochLedger::new()));
+        assert!(exchange.usable(ConsensusEpoch::ZERO).is_empty());
+    }
 
     #[test]
     fn reporting_an_epoch_signs_one_report_per_representative() {
@@ -1343,13 +1433,13 @@ mod tests {
             (block(5), ResidualKind::First, parent(5)),
             (block(5), ResidualKind::Final, parent(5)),
             (block(20), ResidualKind::First, parent(20)),
-            (block(21), ResidualKind::Notar, parent(21)),
+            (block(21), ResidualKind::First, parent(21)),
         ];
         let residual = ResidualVotes::derive(&theirs, votes.clone());
         assert_eq!(
             residual.len(),
-            3,
-            "a final vote on a notarized block, and two unsummarized"
+            2,
+            "only hashes outside every T tag remain in G"
         );
 
         let mut reporter = ReportExchange::new();
@@ -1385,7 +1475,7 @@ mod tests {
             .derive_residual(epoch, key.public_key(), votes[..5].to_vec(), start)
             .unwrap();
         assert!(!short.complete);
-        assert_eq!(short.total, 2);
+        assert_eq!(short.total, 1);
         assert!(theirs_usable(&ours, epoch).is_empty());
         assert!(!ours.needs_residual(epoch, &key.public_key(), start));
         assert!(ours.needs_residual(
@@ -1401,7 +1491,7 @@ mod tests {
             .derive_residual(epoch, key.public_key(), shuffled, later())
             .unwrap();
         assert!(done.complete);
-        assert_eq!(done.total, 3);
+        assert_eq!(done.total, 2);
         let usable = theirs_usable(&ours, epoch);
         assert_eq!(usable, vec![(theirs.root(), residual.root())]);
         assert!(!ours.needs_residual(epoch, &key.public_key(), later()));
@@ -1471,7 +1561,14 @@ mod tests {
         assert_eq!(reply.removed.len(), 1);
 
         let done = ours.handle_residual_sketch_reply(&reply).unwrap();
-        assert!(done.complete);
+        assert!(!done.complete);
+        assert!(theirs_usable(&ours, epoch).is_empty());
+        let verified = residual.entries().collect::<Vec<_>>();
+        assert!(
+            ours.derive_residual(epoch, key.public_key(), verified, later())
+                .unwrap()
+                .complete
+        );
         assert_eq!(done.entries, 3);
         assert_eq!(done.total, 20);
         assert_eq!(
@@ -1531,13 +1628,20 @@ mod tests {
             rounds += 1;
             assert!(rounds <= 4, "the sketch grows to the difference");
             let result = ours.handle_residual_sketch_reply(&reply).unwrap();
-            if result.complete {
+            assert!(!result.complete);
+            if !reply.incomplete {
                 assert_eq!(result.entries, 150);
                 break;
             }
             assert!(reply.incomplete);
         }
         assert!(rounds > 1);
+        assert!(theirs_usable(&ours, epoch).is_empty());
+        assert!(
+            ours.derive_residual(epoch, key.public_key(), votes, later())
+                .unwrap()
+                .complete
+        );
         assert_eq!(theirs_usable(&ours, epoch).len(), 1);
     }
 

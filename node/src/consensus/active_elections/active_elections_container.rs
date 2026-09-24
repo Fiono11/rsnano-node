@@ -167,6 +167,7 @@ pub(crate) struct ActiveElectionsContainer {
     /// RAI: `S_{-1}`, the closed genesis state: the ledger as it stood when
     /// the epochs started. The first epoch's derivation builds on it.
     genesis_state: Arc<EpochLedger>,
+    report_bases: BTreeMap<ConsensusEpoch, crate::consensus::election::CertifiedState>,
     /// RAI: the committees the instances of each epoch are counted in
     committees: EpochCommittees,
     /// RAI: Δ_timeout of a close round
@@ -217,6 +218,7 @@ impl ActiveElectionsContainer {
             closes: BTreeMap::new(),
             decided: DecidedStates::new(),
             genesis_state: Arc::new(EpochLedger::new()),
+            report_bases: BTreeMap::new(),
             committees: EpochCommittees::default(),
             close_round_timeout: config.close_round_timeout,
             local_reps: Vec::new(),
@@ -476,6 +478,8 @@ impl ActiveElectionsContainer {
             );
         }
         self.genesis_state = Arc::new(history.unwrap_or(genesis));
+        self.report_bases
+            .insert(ConsensusEpoch::ZERO, self.genesis_state.report_ledger());
         let committee = self.committees.start(frontiers);
         self.log_committee("genesis", &committee);
     }
@@ -1046,6 +1050,8 @@ impl ActiveElectionsContainer {
         else {
             return;
         };
+        self.report_bases
+            .insert(epoch.next(), state.report_ledger());
         self.decided.insert(epoch, state.clone());
         // Installed before the committee is derived: a block the checkpoint
         // finalized delegates like any other, and its instance goes with
@@ -1398,7 +1404,11 @@ impl ActiveElectionsContainer {
         epoch: ConsensusEpoch,
     ) -> crate::consensus::election::CertifiedState {
         use crate::consensus::election::{CertifiedBlock, CertifiedState, CertifiedStatus};
-        let mut certified = CertifiedState::new();
+        let mut certified = self
+            .report_bases
+            .get(&epoch)
+            .cloned()
+            .unwrap_or_else(CertifiedState::new);
         // What finalized in the epoch and left the AEC is certified by the
         // certificate that finalized it. The parent goes with it: an epoch
         // derivation places a candidate by the branch it continues, and two

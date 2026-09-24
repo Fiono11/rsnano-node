@@ -127,10 +127,15 @@ impl ReportService {
             return;
         }
         let certified = report.certified.len();
-        let residual = report.residual.len();
+        let residual = report.residual.hash_count();
+        let [r, n, f] = report.certified.status_counts();
         let root = report.certified.root();
+        let previous = self.active_elections.epoch_previous_state(epoch);
         let messages = {
             let mut exchange = self.exchange.lock().unwrap();
+            if let Some(previous) = previous {
+                exchange.set_predecessor(epoch, previous);
+            }
             exchange.report_epoch(
                 epoch,
                 report.certified.clone(),
@@ -144,12 +149,15 @@ impl ReportService {
             return;
         }
         crate::utils::diagnostic!(
-            "EPOCH_REPORT epoch={} certified={} residual={} root={} reports={}",
+            "EPOCH_REPORT epoch={} certified={} residual={} root={} reports={} R={} N={} F={}",
             epoch,
             certified,
             residual,
             root,
-            messages.len()
+            messages.len(),
+            r,
+            n,
+            f
         );
         self.send(messages, None);
     }
@@ -247,34 +255,23 @@ impl ReportService {
         }
         let votes = self.active_elections.vote_records_of(epoch, &reporter);
         let held = votes.len();
-        let (result, request) = {
-            let mut exchange = self.exchange.lock().unwrap();
-            let result = exchange.derive_residual(epoch, reporter, votes, now);
-            let request = match result {
-                Some(result) if !result.complete => exchange.residual_request(epoch, &reporter),
-                _ => None,
-            };
-            (result, request)
-        };
+        let result = self
+            .exchange
+            .lock()
+            .unwrap()
+            .derive_residual(epoch, reporter, votes, now);
         if let Some(result) = result {
             crate::utils::diagnostic!(
-                "EPOCH_RESIDUAL epoch={} reporter={} votes={} derived={} complete={} sketch_cells={}",
+                "EPOCH_RESIDUAL epoch={} reporter={} votes={} derived={} complete={}",
                 epoch,
                 reporter,
                 held,
                 result.total,
-                result.complete,
-                request
-                    .as_ref()
-                    .map(|request| request.cells.len())
-                    .unwrap_or(0)
+                result.complete
             );
         }
-        // The derivation missed the root: a vote was lost on the way, and
-        // the sketch finds which
-        if let Some(request) = request {
-            self.send(vec![ReportMessage::ResidualSketch(request)], None);
-        }
+        // Retry from validated reporter votes. A hash-only G commitment
+        // cannot authenticate vote-kind metadata supplied by a sketch.
     }
 
     /// RAI: a residual sketch. This node answers if it holds the object.
@@ -335,6 +332,13 @@ impl ReportService {
             let Some(report) = self.pending.lock().unwrap().remove(&epoch) else {
                 continue;
             };
+            // Signing had stopped, but T could not be frozen without its
+            // predecessor. Freeze the complete projection now, once only.
+            let report = self
+                .active_elections
+                .epoch_report_snapshot(epoch)
+                .map(Arc::new)
+                .unwrap_or(report);
             self.sign_report(epoch, report, predecessor);
         }
         // This node's own reports go out again for as long as it holds them:
@@ -357,6 +361,12 @@ impl ReportService {
             .map(|close| close.epoch)
             .collect();
         for epoch in epochs {
+            if let Some(previous) = self.active_elections.epoch_previous_state(epoch) {
+                self.exchange
+                    .lock()
+                    .unwrap()
+                    .set_predecessor(epoch, previous);
+            }
             let reporters: Vec<PublicKey> = {
                 let exchange = self.exchange.lock().unwrap();
                 let usable: Vec<PublicKey> = exchange
@@ -430,17 +440,6 @@ impl ReportService {
                         target,
                         &Message::ReconReply(reply),
                         TrafficType::Generic,
-                    );
-                }
-                ReportMessage::ResidualSketch(request) => {
-                    // Any replica holding the object answers, so the sketch
-                    // is gossiped rather than addressed
-                    self.stats
-                        .inc_dir(StatType::Message, DetailType::ResidualReq, Direction::Out);
-                    self.flooder.lock().unwrap().flood_prs_and_some_non_prs(
-                        &Message::ResidualSketchReq(request),
-                        TrafficType::Generic,
-                        1.0,
                     );
                 }
                 ReportMessage::ResidualSketchAnswer(reply) => {

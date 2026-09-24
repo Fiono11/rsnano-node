@@ -116,13 +116,13 @@ mod tests {
     }
 
     #[test]
-    fn checkpoint_lock_tags_roundtrip_but_are_not_report_tags() {
+    fn checkpoint_lock_tags_have_a_separate_report_domain() {
         for status in [2, 3] {
             let mut difference = ReconReply::new_test_instance();
             difference.added[0].status = status;
             let mut report_bytes = Vec::new();
             difference.serialize(&mut report_bytes).unwrap();
-            assert!(ReconReply::deserialize(&report_bytes).is_err());
+            assert_eq!(ReconReply::deserialize(&report_bytes).is_ok(), status == 2);
             assert_deserializable(&Message::CheckpointReply(CheckpointReply {
                 offset: 0,
                 total: 2,
