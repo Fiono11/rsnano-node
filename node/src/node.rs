@@ -852,7 +852,7 @@ impl Node {
             block_processor_queue.clone(),
         ));
         #[cfg(feature = "rai_protocol")]
-        aec_event_handlers.add_mut(ReportPlugin::new(reports.clone()));
+        aec_event_handlers.add_mut(ReportPlugin::new(reports.clone(), workers.clone()));
 
         // RAI, "The joint epoch election": the value half of the close - the
         // report selection, the derivation and the proposal

@@ -959,3 +959,39 @@ with ~5 ms cementation before its boundary. v36 splits that stage into the
 hand-over to the confirming set, cementation up to the dependents callback,
 and publication, and clamps milestones that predate an election's start
 (a vote's time can be taken first, which wrapped the max column).
+
+### v36: cementation stage split (diagnostic)
+
+Pinned v36 binaries (commit 7ab07472f):
+
+```text
+3c997f671e31a02743ceaf40c5400976dda1e192a2f3a4be2c1c0adb3b6b20ac  rsnano
+9135ae7b7cbe7b8194351765700bf3810710fa5d494cfb6f222ef99577635dc7  nanospam
+```
+
+| Run | Non-fork goodput | p50 / p95 / p99 (ms) | Same end state on all six PRs |
+|---|---:|---:|---|
+| v36 one #1 | 1617 | 110 / 1563 / 1871 | yes |
+| v36 two #1 | 1624 | 143 / 704 / 1051 | yes |
+
+The v36 split located the post-boundary cementation delay: the confirming set
+itself stays at 1–58 ms, but the hand-over to it (829–835 ms p50 right after the
+one-checkpoint boundary; 253 ms at the two-checkpoint close) and the publication
+back (309–373 ms; 162 ms) both wait in the single AEC fact thread. That thread
+signs this node's report at the boundary (`ReportPlugin` → `epoch_left` →
+`sign_report`: residual placement, roots, sketches, signatures, broadcast).
+EPOCH_ENDED to EPOCH_REPORT took 260–1,148 ms per node at the one-checkpoint
+boundary (a 40k-block epoch) and 110–269 ms at the first two-checkpoint boundary
+(a 20k-block epoch). Every cementation and confirmation queued behind it, and a
+full fact queue also cools the AEC down, pausing vote processing. This explains
+the extra to-NC and NC-to-final time after a boundary as well.
+
+### v37: sign the boundary report on a worker
+
+`ReportPlugin` now hands `epoch_left` to the node's worker pool. The report
+content is unchanged: it was frozen under the AEC lock when signing stopped, and
+`epoch_left` already ran concurrently with the report ticker, so no new
+concurrency is introduced. A deferred report still waits for its predecessor
+and is re-snapshotted on the ticker as before. Tests cover that the report goes
+to the worker pool and that nothing is queued without one. Formatting and all
+862 node unit tests pass.
