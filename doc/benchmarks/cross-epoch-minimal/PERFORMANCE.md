@@ -381,3 +381,39 @@ candidate diagnostic, with no accepted checkpoint and no completed latency
 population. Its termination p50/p95/p99 are unavailable; it adds no baseline
 comparison or performance-pass claim. See [FORK-DIAGNOSTIC.md](FORK-DIAGNOSTIC.md)
 for the full result and reconstruction evidence.
+
+
+## Subsequent candidate-only fork diagnostics
+
+These are different implementation revisions, not matched baseline/candidate
+pairs. All used a 156-second baseline-derived diagnostic ceiling. Percentiles
+are conditional publication-to-observation upper bounds for branches with
+supported inclusion/discard witnesses, not full-workload confirmation latency.
+
+| Revision | Published pairs | Branches | Supported terminal | Unresolved by observer | p50 ms | p95 ms | p99 ms | Input complete |
+|---|---:|---:|---:|---:|---:|---:|---:|---|
+| c9668a484, paged differences and fork data | 1,069 | 2,138 | 0 | 2,138 | unavailable | unavailable | unavailable | no |
+| a808dba3b, early payload retention | 1,746 | 3,492 | 867* | 2,625 | 10,731* | 13,165* | 13,611* | no |
+| 0b6a0cba5, pending-ledger evidence | 2,218 | 4,436 | 870 | 3,566 | 17,231 | 20,200 | 20,621 | yes |
+
+*The a808 result is separately corroborated from full checkpoint contents,
+matching installed roots on six nodes and post-install close events. The raw
+online observation was incomplete and remains unchanged. The 0b6 observer's
+cached-root consistency flag does not mean all nodes reached the latest epoch:
+PR2 stayed at epoch 0 while five peers installed epoch 2. Generated databases
+were deleted; logs, manifests and per-branch witnesses remain.
+
+Process-group cleanup was subsequently corrected: closed RPC ports and an
+exited client leader do not establish that all child nodes exited. See
+[FORK-DIAGNOSTIC.md](FORK-DIAGNOSTIC.md) for the audit and interpretation.
+There is no new performance gate, baseline ratio or confidence interval from
+these diagnostics. The preceding paired comparison remains inconclusive.
+
+
+The next certificate-retention diagnostic (`a456618d7`) published 2,000 pairs
+(4,000 branches) before its 156-second ceiling, with incomplete primary input.
+Five nodes installed epochs 0 and 1; PR4 installed no checkpoint. Consequently
+zero branches had all-six-node witnesses and all 4,000 remained unresolved by
+the observer. p50/p95/p99 are unavailable. This is an incomplete diagnostic,
+not a matched performance comparison; see FORK-DIAGNOSTIC.md for the additional
+RPC overhead and remaining reconstruction blocker.

@@ -343,3 +343,42 @@ derived ceiling to test this fix. Preserve its result even if incomplete. Only
 after a complete correctness outcome should matched fork performance comparisons
 resume. Baseline instrumentation must be identified separately from its frozen
 protocol source; inclusion and explicit finality must be reported separately.
+
+
+### Certificate-retention diagnostic result (a456618d7)
+
+The predeclared attempt hit its 156-second deadline. It published 2,000 fork
+pairs (4,000 branches) but did not complete the 45,000-primary workload. Five
+nodes installed checkpoints 0 and 1; PR4 installed neither. PR4's final RPC
+held the epoch-0 decision certificate (`closed_value`) but no derived/installed
+checkpoint (`value` absent), and its logs showed six held reports with only its
+own usable. This is report reconstruction failure, not lack of an agreement
+certificate. The old PR2-specific observation is therefore an instance of a
+more general lagging-replica problem, not a fixed node identity problem.
+
+The all-six-node observer supports zero terminal branches in this attempt;
+4,000 remain unresolved by that criterion. No conditional p50/p95/p99 exists.
+This does not mean the other five nodes made no progress. Do not compare this
+zero with prior supported counts as a controlled performance effect: publication,
+fork selection, lagging replica and observation coverage differ.
+
+Checkpoint-only polling collected snapshots without serializing report
+inventories. Two additional targeted full-report RPCs (PR4 and PR0, five-second
+timeouts) both timed out; their diagnostic overhead is another reason not to
+treat this as a performance run. The full-report RPC currently serializes large
+inventories while holding the report-exchange mutex; avoid it during subsequent
+performance measurement. The bounded event analysis is `deadline-progress.json`.
+
+Validation: 805 RAI node tests, 324 RPC-message tests, 28 RPC-server tests,
+20 Python harness tests and default-feature node check passed. The release
+binary is pinned in `bin/fork-cert-retention/`. Process-group cleanup succeeded
+and databases were removed, preserving configuration, logs and per-branch data.
+
+No matched comparison was started: its correctness prerequisite remains unmet.
+Next isolate certificate-evidence convergence for a replica missing T evidence.
+Current explicit replay covers frozen G, while T proof availability still relies
+on existing certificate dissemination. Retaining observations fixes their loss
+on deletion but cannot supply observations a replica never obtained. This is a
+source-level gap to test, not yet proof of every missing hash in this run. Do
+not make arbitrary report metadata usable, use empty/full-set reconciliation
+fallbacks, or classify absence alone as safe discard to bypass this blocker.
