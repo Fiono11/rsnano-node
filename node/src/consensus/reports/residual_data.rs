@@ -109,18 +109,23 @@ impl ResidualData {
             .filter_map(|hash| retained.get(&epoch)?.get(hash).cloned())
             .collect()
     }
+    /// The retained blocks of these hashes with the ancestry a peer needs to
+    /// place them, down to the first block cemented here: a cemented block
+    /// is final and every correct peer obtains it through the ledger, so
+    /// re-gossiping it only costs every receiver a signature check
     pub fn with_ancestry(&self, epoch: ConsensusEpoch, hashes: &[BlockHash]) -> Vec<Block> {
         let retained = self.retained.lock().unwrap();
         let Some(blocks) = retained.get(&epoch) else {
             return Vec::new();
         };
+        let confirmed = self.ledger.confirmed();
         let mut seen = HashSet::new();
         let mut result = Vec::new();
         for hash in hashes {
             let mut current = *hash;
             let mut chain = Vec::new();
             for _ in 0..256 {
-                if current.is_zero() || !seen.insert(current) {
+                if current.is_zero() || !seen.insert(current) || confirmed.block_exists(&current) {
                     break;
                 }
                 let Some(block) = blocks.get(&current) else {

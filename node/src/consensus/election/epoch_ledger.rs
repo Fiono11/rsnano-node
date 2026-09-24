@@ -306,10 +306,11 @@ impl EpochLedger {
     }
 
     /// Whether the checkpoint retains this block on an unresolved branch
+    /// Whether the checkpoint retains this block as a lock target. Called
+    /// per evidence block on the network path, so a map lookup: retained
+    /// ancestors without a lock of their own are not followed individually.
     pub fn retains_block(&self, hash: &BlockHash) -> bool {
-        self.notarized
-            .values()
-            .any(|blocks| blocks.iter().any(|block| block.hash == *hash))
+        self.locks.contains_key(hash)
     }
 
     /// The finalized positions the unique-branch variant decided

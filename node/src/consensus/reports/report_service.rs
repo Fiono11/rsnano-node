@@ -58,6 +58,8 @@ pub struct ReportService {
     inbound: Mutex<std::collections::VecDeque<(Message, Arc<Channel>)>>,
     /// The vote count a reporter's G was last derived from, and when
     derived_at: Mutex<HashMap<(ConsensusEpoch, PublicKey), (usize, Timestamp)>>,
+    /// Evidence blocks waiting to be checked and retained
+    evidence_blocks: Mutex<std::collections::VecDeque<rsnano_types::Block>>,
     data: super::residual_data::ResidualData,
 }
 
@@ -85,6 +87,13 @@ impl ReportService {
     }
 
     fn process_inbound(&self) {
+        let blocks: Vec<rsnano_types::Block> =
+            self.evidence_blocks.lock().unwrap().drain(..).collect();
+        for block in blocks {
+            if !self.data.ledger_holds(&block.hash()) {
+                self.data.receive(&block);
+            }
+        }
         let queued: Vec<(Message, Arc<Channel>)> = self.inbound.lock().unwrap().drain(..).collect();
         for (message, channel) in queued {
             match message {
@@ -129,11 +138,19 @@ impl ReportService {
             projected: Mutex::new(HashMap::new()),
             inbound: Mutex::new(std::collections::VecDeque::new()),
             derived_at: Mutex::new(HashMap::new()),
+            evidence_blocks: Mutex::new(std::collections::VecDeque::new()),
         }
     }
 
+    /// An evidence block arrived: retained on the report thread (see
+    /// `process_inbound`), where its owner signature is checked, unless the
+    /// ledger already holds it
     pub(crate) fn retain_received_block(&self, block: &rsnano_types::Block) {
-        self.data.receive(block);
+        let mut queued = self.evidence_blocks.lock().unwrap();
+        if queued.len() >= Self::MAX_INBOUND {
+            queued.pop_front();
+        }
+        queued.push_back(block.clone());
     }
 
     /// RAI: whether a block arriving as evidence is one the latest decided
