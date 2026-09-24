@@ -13,7 +13,7 @@ use rsnano_ledger::RepWeights;
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{
     Account, Amount, Block, BlockHash, BlockPriority, ConsensusEpoch, PublicKey, QualifiedRoot,
-    SavedBlock, TimePriority, VoteError, VoteKind,
+    SavedBlock, TimePriority, VoteDelivery, VoteError, VoteKind,
 };
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -3012,7 +3012,12 @@ impl ActiveElectionsContainer {
                 .insert(args.vote.voter);
         }
         #[cfg(feature = "rai_protocol")]
-        self.vote_records.retain_signed(&args.vote.vote.vote);
+        if args.vote.delivery != VoteDelivery::Replayed {
+            // The cache receives VoteProcessed only after this full signed
+            // batch was retained. Its replay is filtered to one newly available
+            // block; re-indexing all other hashes on each replay is redundant.
+            self.vote_records.retain_signed(&args.vote.vote.vote);
+        }
         self.record_votes(&args);
         let mut apply_helper = ApplyVoteHelper {
             args: &args,
@@ -5823,6 +5828,81 @@ mod tests {
         );
         container.mark_kudzu_voted(vec![expected]);
         assert!(container.kudzu_votes_due(|_| Ok(())).is_empty());
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn cached_replay_places_new_block_without_losing_the_original_batch() {
+        let mut container = ActiveElectionsContainer::default();
+        let block = SavedBlock::new_test_instance();
+        let hash = block.hash();
+        let other_hash = BlockHash::from(999);
+        let key = PrivateKey::from(1);
+        let mut weights = RepWeights::default();
+        weights.put(key.public_key(), Amount::nano(70_000_000));
+        let epoch = ConsensusEpoch::ZERO;
+        let now = Timestamp::new_test_instance();
+        let vote = Arc::new(Vote::new_in_epoch(
+            &key,
+            VoteKind::First,
+            epoch,
+            vec![hash, other_hash],
+        ));
+        // The original delivery precedes both block bodies.
+        container.apply_vote(ApplyVoteArgs {
+            vote: &ReceivedVote::new(vote.clone(), VoteDelivery::Direct, None).into(),
+            rep_weights: &weights,
+            quorum_snapshot: &QuorumSnapshot::new_test_instance(),
+            now,
+        });
+        assert!(
+            container
+                .vote_records
+                .votes_of(epoch, &key.public_key())
+                .is_empty()
+        );
+        assert_eq!(
+            container
+                .vote_records
+                .signed_count(epoch, &key.public_key()),
+            2
+        );
+
+        container.insert_for_vote(block, epoch, now);
+        container.apply_vote(ApplyVoteArgs {
+            vote: &FilteredVote::new(
+                ReceivedVote::new(vote.clone(), VoteDelivery::Replayed, None),
+                hash,
+            ),
+            rep_weights: &weights,
+            quorum_snapshot: &QuorumSnapshot::new_test_instance(),
+            now,
+        });
+        assert_eq!(
+            container
+                .vote_records
+                .votes_of(epoch, &key.public_key())
+                .len(),
+            1
+        );
+        assert!(
+            container
+                .roots
+                .election_for_block_in_epoch(&hash, epoch)
+                .unwrap()
+                .certificates()
+                .has_block()
+        );
+        let retained = container.signed_votes_for_hashes(epoch, &[other_hash]);
+        assert_eq!(retained.len(), 1);
+        assert!(Arc::ptr_eq(&retained[0], &vote));
+        assert!(retained[0].validate().is_ok());
+        assert_eq!(
+            container
+                .vote_records
+                .signed_count(epoch, &key.public_key()),
+            2
+        );
     }
 
     #[cfg(feature = "rai_protocol")]
