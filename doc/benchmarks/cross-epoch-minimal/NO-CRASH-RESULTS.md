@@ -276,3 +276,26 @@ deadline, v8 client.
 The two slow v8 runs are environmental: the same binary on a quiet host
 with free space gives p50 128 ms. They stay recorded as measured. The A/B
 pair is one run each, not a gate.
+
+## Two checkpoints (v8, candidate only)
+
+`--epoch-terminated-elections 20000`: epochs 0 and 1 end and close, epoch 2
+stays open for the tail. Same workload, paper model, 214 s deadline; the
+run's database was deleted after evidence capture (`data-cleanup.json`).
+
+| | |
+|---|---:|
+| Non-fork blocks confirmed | 42,740 / 42,740 in 36.6 s |
+| Non-fork throughput | 1,167 blocks/s |
+| Non-fork p50 / p95 / p99 | 1,896 / 5,423 / 9,247 ms |
+| Checkpoints | epoch 0 (round 1) and epoch 1 (round 0) closed and installed identically on all six nodes: 19,216 and 22,915 finalized, none missing, 0 derived, 0 conflicts |
+| Retained branches followed | epoch 0: 939 (up to 780 forced per node); epoch 1: 2,262 (1,180 forced on three nodes) |
+| Recovery children | 793, for checkpoint 0 only: the client stops once the non-fork blocks are confirmed, before checkpoint 1's locks could be extended |
+| Forks unresolved at the end | 1,226 of 2,260 |
+| Same end state on all six PRs | no: five nodes at 44,636 cemented with one hash; one node at 44,635 with another, after the 30 s settle window |
+
+Only one cemented block differs, in the open epoch 2; both checkpoints
+agree everywhere. The data was deleted before the block could be
+identified, so the cause is not diagnosed. Latency is higher than with one
+checkpoint (p50 128–213 ms on a quiet host): with two boundaries, a larger
+share of the non-fork blocks wait at a boundary.
