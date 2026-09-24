@@ -446,12 +446,10 @@ impl ActiveElectionsContainer {
         }
     }
 
-    /// RAI: the current epoch's duration ends. No new election starts in it
-    /// any more; its instances run to their outcome, and once they have all
-    /// terminated and the epoch before is closed, the epoch is left: its close
-    /// election starts and the next epoch starts with it. The close election
-    /// proposes and votes once the instances have also settled (see
-    /// `tick_closes`), which they do while the next epoch runs.
+    /// RAI: mark the boundary due. If the preceding checkpoint is still
+    /// closing, defer this boundary while account voting continues. Otherwise
+    /// freeze this epoch's report and open its successor immediately; unresolved
+    /// instances do not delay the boundary.
     fn end_epoch(&mut self, now: Timestamp) {
         self.draining = true;
         self.stats.epochs_ended += 1;

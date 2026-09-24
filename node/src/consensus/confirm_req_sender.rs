@@ -18,9 +18,9 @@ pub(crate) enum Urgency {
     /// joins it and agrees on the epoch's state
     Slow,
     /// RAI: an instance of an epoch this node has left which has not settled
-    /// yet: its epoch's close waits for it
+    /// yet: keep collecting its old-domain evidence
     Soon,
-    /// RAI: an instance the ending epoch waits for
+    /// Legacy draining election: ask again without a retry delay
     Now,
 }
 
@@ -88,5 +88,26 @@ impl ConfirmReqSender {
                 ElectionBehavior::Optimistic => election.base_latency() * 2,
             },
         }
+    }
+}
+
+#[cfg(all(test, feature = "rai_protocol"))]
+mod tests {
+    use rsnano_types::SavedBlock;
+
+    use super::*;
+
+    #[test]
+    fn unresolved_account_retries_after_one_base_latency() {
+        let clock = Arc::new(SteadyClock::new_null());
+        let mut sender = ConfirmReqSender::new(Arc::new(Stats::default()), clock.clone());
+        let election = Election::new_test_instance_with(SavedBlock::new_test_instance());
+        assert!(sender.should_send_confirm_req(&election, Urgency::Normal));
+        sender.last_requests.insert(election.id(), clock.now());
+
+        clock.advance(election.base_latency() - Duration::from_millis(1));
+        assert!(!sender.should_send_confirm_req(&election, Urgency::Normal));
+        clock.advance(Duration::from_millis(1));
+        assert!(sender.should_send_confirm_req(&election, Urgency::Normal));
     }
 }

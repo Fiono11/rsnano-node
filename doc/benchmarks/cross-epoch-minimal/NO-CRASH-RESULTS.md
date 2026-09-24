@@ -545,3 +545,44 @@ successor voting. A second regression delivers a late fast certificate to a
 recovery-only retained position. Both pass after the fix, and all 839 node unit
 tests pass. The shared checkpoint-transition fixture is at the bottom of the
 test module. Formatting passes. No protocol validation was removed.
+
+Pinned v25 binaries:
+
+```text
+51874dab273edbdcb5420cc775eaa227696aa6d6de09c48254ce428a8989968d  rsnano
+9135ae7b7cbe7b8194351765700bf3810710fa5d494cfb6f222ef99577635dc7  nanospam
+```
+
+| Run | Non-fork goodput | p50 / p95 / p99 (ms) | Same end state on all six PRs |
+|---|---:|---:|---|
+| v25 one #1 | 1120 | 1135 / 3873 / 4557 | yes |
+| v25 two #1 | 1379 | 1208 / 3661 / 4580 | yes |
+| v25 one #2 | 1155 | 685 / 3170 / 4036 | yes |
+
+The user changed debug cadence to **one alternating pair per iteration** during
+one #2. The extra one #2 completed before cancellation. Two #2 started during
+controller shutdown and was cancelled by terminating its verified dedicated
+process group; it has no valid performance result. Partial artifacts remain in
+`ab-v25-two-2`; no manual database deletion was performed. The external batch
+script now runs one pair only.
+
+The complete v25 pair agrees on every required installed and decided checkpoint
+and on all six ledger hashes/cemented counts. Two-checkpoint p50 is 6.4% higher,
+p95 5.5% lower, and goodput 23.1% higher than one checkpoint. This pair is
+promising, but by itself does not establish repeatability. The extra one #2
+also converged (not an additional alternating pair).
+
+### v26: bound retries during a deferred boundary
+
+The old solicitation rule treats a deferred boundary as if it waits for account
+instances to drain, sending requests on every tick. Section 5.1 instead keeps
+account voting open while the preceding checkpoint closes. Use normal account
+retry intervals in this state (one base latency for unresolved RAI accounts),
+retaining non-RAI behavior and old-epoch evidence retries. No voting or evidence
+validation changes. v24 pair #2 sent 336,542 election requests with two checkpoints
+versus 241,005 with one; that supports investigating traffic but does not prove
+this rule accounts for the measured gap. Tests cover selection during the deferred
+boundary and the retry deadline with a nullable clock. The stale boundary comment
+was corrected to match the implemented protocol.
+
+Validation: all 841 node unit tests pass; `cargo fmt --all` passes.

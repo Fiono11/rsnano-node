@@ -4,6 +4,7 @@ use std::{
 };
 
 use rsnano_nullable_clock::Timestamp;
+use rsnano_types::ConsensusEpoch;
 
 use super::{
     AecService, AecTickerPlugin, ConfirmationSolicitor,
@@ -64,22 +65,7 @@ impl AecTickerPlugin for ConfirmationSolicitorPlugin {
                 .lock()
                 .unwrap()
                 .try_broadcast_winner(&election.winner().clone(), election.votes());
-            // RAI: the ending epoch is left once its instances have terminated,
-            // and its close waits for them to settle: the instances still
-            // waiting for a certificate are asked at every tick, those of an
-            // epoch left which are not settled every base latency
-            let urgency = if draining == Some(election.epoch()) && !election.state().is_terminated()
-            {
-                Urgency::Now
-            } else if election.epoch() < current_epoch {
-                if election.state() == ElectionState::Settled {
-                    Urgency::Slow
-                } else {
-                    Urgency::Soon
-                }
-            } else {
-                Urgency::Normal
-            };
+            let urgency = Self::request_urgency(election, current_epoch, draining);
             self.confirm_req_sender
                 .send_confirm_req(&mut solicitor, election, urgency);
         }
@@ -97,6 +83,30 @@ impl AecTickerPlugin for ConfirmationSolicitorPlugin {
 }
 
 impl ConfirmationSolicitorPlugin {
+    fn request_urgency(
+        election: &Election,
+        current_epoch: ConsensusEpoch,
+        draining: Option<ConsensusEpoch>,
+    ) -> Urgency {
+        // RAI defers the boundary while the previous checkpoint closes;
+        // account voting continues normally. Retrying every tick here only
+        // adds traffic to the same workers needed to finish that checkpoint.
+        if !cfg!(feature = "rai_protocol")
+            && draining == Some(election.epoch())
+            && !election.state().is_terminated()
+        {
+            Urgency::Now
+        } else if election.epoch() < current_epoch {
+            if election.state() == ElectionState::Settled {
+                Urgency::Slow
+            } else {
+                Urgency::Soon
+            }
+        } else {
+            Urgency::Normal
+        }
+    }
+
     fn should_solicit(election: &Election, now: Timestamp, epoch_left: bool) -> bool {
         match election.state() {
             ElectionState::Active => true,
@@ -107,5 +117,31 @@ impl ConfirmationSolicitorPlugin {
             }
             _ => false,
         }
+    }
+}
+
+#[cfg(all(test, feature = "rai_protocol"))]
+mod tests {
+    use rsnano_types::SavedBlock;
+
+    use super::*;
+
+    #[test]
+    fn deferred_boundary_keeps_normal_account_retry_rate() {
+        let election = Election::new_test_instance_with(SavedBlock::new_test_instance());
+
+        assert_eq!(
+            ConfirmationSolicitorPlugin::request_urgency(
+                &election,
+                election.epoch(),
+                Some(election.epoch()),
+            ),
+            Urgency::Normal
+        );
+        // Frozen elections still retry evidence collection at the old rate.
+        assert_eq!(
+            ConfirmationSolicitorPlugin::request_urgency(&election, election.epoch().next(), None,),
+            Urgency::Soon
+        );
     }
 }
