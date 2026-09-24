@@ -53,6 +53,7 @@ def run(args, label, binary, pair):
     bindir.mkdir()
     (bindir / "rsnano").symlink_to(binary)
     data = directory / "data"
+    data.mkdir()
     command = [str(args.client), "--data-dir", str(data), "--prs", "6",
                "--no-prio", "--blocks", str(args.blocks), "--accounts", str(args.accounts),
                "--rate", str(args.rate), "--fork-percentage", str(args.forks), "--no-kill"]
