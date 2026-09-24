@@ -13,18 +13,26 @@ pub(crate) struct BootstrapElectionActivator {
     pub stats: Arc<Stats>,
 }
 impl BootstrapElectionActivator {
-    pub(crate) fn election_started(&self, hash: BlockHash) {
-        let in_cache = self.vote_cache.contains(&hash);
-        if in_cache {
-            // Probably not a bootstrap election
+    /// The elections started for blocks without cached votes skip their
+    /// passive phase. Done for a batch under one AEC lock: taken for each
+    /// start, the lock held up the AEC fact thread behind the AEC's writers.
+    pub(crate) fn elections_started(&self, hashes: &[BlockHash]) {
+        // A block with cached votes is probably not a bootstrap election
+        let uncached: Vec<BlockHash> = hashes
+            .iter()
+            .filter(|hash| !self.vote_cache.contains(hash))
+            .copied()
+            .collect();
+        if uncached.is_empty() {
             return;
         }
 
-        let activated = self.active_elections.transition_active(&hash);
+        let activated = self.active_elections.transition_active_batch(&uncached);
 
-        if activated {
-            self.stats
-                .inc(StatType::ActiveElections, DetailType::ActivateImmediately);
-        }
+        self.stats.add(
+            StatType::ActiveElections,
+            DetailType::ActivateImmediately,
+            activated as u64,
+        );
     }
 }

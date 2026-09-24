@@ -66,6 +66,8 @@ pub(crate) struct AecFactProcessor {
     pub(crate) fact_timings: FactTimings,
     /// Diagnostic: thread and process CPU time at the last fact summary
     pub(crate) last_cpu_times: Option<(Duration, Duration)>,
+    /// Elections started whose activation is batched
+    pub(crate) started_elections: Vec<BlockHash>,
 }
 
 impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
@@ -81,6 +83,10 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
         self.vote_processor.recovered();
     }
 
+    fn idle(&mut self) {
+        self.activate_started_elections();
+    }
+
     fn process(&mut self, event: AecFact) {
         let kind = event.kind();
         let started = Instant::now();
@@ -88,10 +94,18 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
         let plugins = started.elapsed();
         self.cement_awaited_checkpoint_blocks();
         let awaited = started.elapsed() - plugins;
+        if !matches!(event, AecFact::ElectionStarted(..)) {
+            self.activate_started_elections();
+        }
+        let activation = started.elapsed() - plugins - awaited;
         self.handle_fact(event);
         if cfg!(feature = "rai_protocol") {
-            let handling = started.elapsed() - plugins - awaited;
-            let per_event = [("plugins", plugins), ("awaited_cement", awaited)];
+            let handling = started.elapsed() - plugins - awaited - activation;
+            let per_event = [
+                ("plugins", plugins),
+                ("awaited_cement", awaited),
+                ("activation", activation),
+            ];
             if let Some(line) =
                 self.fact_timings
                     .record(unix_ms() as u64, kind, handling, &per_event)
@@ -119,11 +133,29 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
 }
 
 impl AecFactProcessor {
+    const ACTIVATION_BATCH: usize = 64;
+
+    /// The elections started since the last call skip their passive phase,
+    /// under one AEC lock. Called for a full batch, before any other kind of
+    /// fact and when the queue is drained, so an activation waits at most
+    /// for a run of consecutive starts.
+    fn activate_started_elections(&mut self) {
+        if self.started_elections.is_empty() {
+            return;
+        }
+        self.bootstrap_election_activator
+            .elections_started(&self.started_elections);
+        self.started_elections.clear();
+    }
+
     fn handle_fact(&mut self, event: AecFact) {
         match event {
             AecFact::ElectionStarted(hash, root) => {
                 self.aec_fork_inserter.try_add_cached_forks(&root);
-                self.bootstrap_election_activator.election_started(hash);
+                self.started_elections.push(hash);
+                if self.started_elections.len() >= Self::ACTIVATION_BATCH {
+                    self.activate_started_elections();
+                }
                 if let Some(tx) = &self.node_observer {
                     tx.send(NodeEvent::ElectionStarted(hash)).unwrap();
                 }

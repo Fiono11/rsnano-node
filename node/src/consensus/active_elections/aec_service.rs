@@ -618,6 +618,16 @@ impl AecService {
         self.aec.write().unwrap().transition_active(block_hash)
     }
 
+    /// `transition_active` for several blocks under one lock; returns how
+    /// many had an election
+    pub fn transition_active_batch(&self, block_hashes: &[BlockHash]) -> usize {
+        let mut aec = self.aec.write().unwrap();
+        block_hashes
+            .iter()
+            .filter(|hash| aec.transition_active(hash))
+            .count()
+    }
+
     pub fn refill<T>(&self, source: &mut T, now: Timestamp)
     where
         T: ElectionCandidateSource,
@@ -753,6 +763,29 @@ mod tests {
         assert!(!aec.contains_election(&ElectionId::new(id.root.clone(), id.epoch.next())));
         aec.erase(&id.root);
         assert!(!aec.contains_election(&id));
+    }
+
+    #[test]
+    fn a_batch_activates_the_elections_it_finds() {
+        let aec = AecService::new_null();
+        let block = SavedBlock::new_test_instance();
+        aec.insert(
+            AecInsertRequest::new_hinted(block.clone(), BlockPriority::new_test_instance()),
+            Timestamp::new_test_instance(),
+        )
+        .unwrap();
+        assert_eq!(
+            aec.election_for_block(&block.hash()).unwrap().state(),
+            ElectionState::Passive
+        );
+
+        let activated = aec.transition_active_batch(&[block.hash(), BlockHash::from(999)]);
+
+        assert_eq!(activated, 1);
+        assert_eq!(
+            aec.election_for_block(&block.hash()).unwrap().state(),
+            ElectionState::Active
+        );
     }
 
     #[test]

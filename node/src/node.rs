@@ -1251,6 +1251,7 @@ impl Node {
             confirmation_stages: Default::default(),
             fact_timings: Default::default(),
             last_cpu_times: None,
+            started_elections: Vec::new(),
             node_observer: node_observer.clone(),
             election_schedulers: election_schedulers.clone(),
             network_filter: network_filter.clone(),

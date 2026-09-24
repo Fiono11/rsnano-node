@@ -4,6 +4,8 @@ pub(crate) trait BackpressureEventProcessor<T> {
     fn cool_down(&mut self);
     fn recovered(&mut self);
     fn process(&mut self, event: T);
+    /// Called whenever the queue has been drained
+    fn idle(&mut self) {}
 }
 
 pub(crate) fn spawn_backpressure_processor<T, I>(
@@ -46,6 +48,9 @@ where
     fn run(&mut self) {
         while let Ok(event) = self.receiver.recv() {
             self.process_event(event);
+            if self.receiver.is_empty() {
+                self.processor.idle();
+            }
         }
     }
 
@@ -123,6 +128,40 @@ mod tests {
             std::thread::yield_now();
         }
         assert_eq!(processor.log(), ["test1", "test2"])
+    }
+
+    #[test]
+    fn the_processor_is_told_when_the_queue_is_drained() {
+        let (tx, rx) = channel::<&'static str>(4);
+        tx.send("a").unwrap();
+        tx.send("b").unwrap();
+        drop(tx);
+        let mut ev_loop = BackpressureEventLoop::new(rx, IdleLoggingProcessor::default());
+
+        ev_loop.run();
+
+        assert_eq!(ev_loop.processor.log, ["a", "b", "idle"]);
+    }
+
+    /* Test helpers */
+
+    #[derive(Default)]
+    struct IdleLoggingProcessor {
+        log: Vec<&'static str>,
+    }
+
+    impl BackpressureEventProcessor<&'static str> for IdleLoggingProcessor {
+        fn cool_down(&mut self) {}
+
+        fn recovered(&mut self) {}
+
+        fn process(&mut self, event: &'static str) {
+            self.log.push(event);
+        }
+
+        fn idle(&mut self) {
+            self.log.push("idle");
+        }
     }
 
     #[derive(Clone)]
