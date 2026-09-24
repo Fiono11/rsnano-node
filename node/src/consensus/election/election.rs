@@ -820,9 +820,16 @@ impl Election {
             block_count: self.block_count() as u32,
             voter_count: self.votes().len() as u32,
             election_duration: self.start().elapsed(now),
-            notarized_after: self.notarized_at.map(|at| self.start.elapsed(at)),
-            eligible_after: self.eligible_at.map(|at| self.start.elapsed(at)),
+            // A vote's time may be taken before the election started
+            notarized_after: self
+                .notarized_at
+                .map(|at| self.start.elapsed(at.max(self.start))),
+            eligible_after: self
+                .eligible_at
+                .map(|at| self.start.elapsed(at.max(self.start))),
             election_end: SystemTime::now(),
+            handed_to_cementing: None,
+            cemented_seen: None,
             confirmation_type: result,
             votes,
         }

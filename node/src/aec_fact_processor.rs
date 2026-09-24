@@ -1,4 +1,7 @@
-use std::sync::{Arc, Mutex, mpsc::SyncSender};
+use std::{
+    sync::{Arc, Mutex, mpsc::SyncSender},
+    time::SystemTime,
+};
 
 use tracing::debug;
 
@@ -82,7 +85,8 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
                     tx.send(NodeEvent::ElectionStarted(hash)).unwrap();
                 }
             }
-            AecFact::ElectionConfirmed(election) => {
+            AecFact::ElectionConfirmed(mut election) => {
+                election.handed_to_cementing = Some(SystemTime::now());
                 self.confirming_set.add(election.clone());
                 // We don't rebroadcast winners during bootstrap, because it would just
                 // spam the network with blocks that the other nodes already have

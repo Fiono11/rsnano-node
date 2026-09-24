@@ -915,3 +915,47 @@ checkpoint (`EPOCH_RETAINED ... forced`) is its only route to finality. That
 attribution is inferred from timing and counts, not traced per block. The p50
 gap is instead the ~20,000 non-fork blocks in the 300–4,000 ms band, published
 during the two roughly six-second close windows that span most of epoch 1.
+
+### v35: per-second confirmation stages (diagnostic)
+
+Each election records when it was notarized and when finality was first
+allowed (the predecessor checkpoint decided, or an overlap exception). Once a
+second each node logs `CONFIRM_STAGES`: for the blocks cemented in the second
+before, p50/p90/max of ledger insertion to election start, start to NC, NC to
+finality, start to finality allowed, finality to cementation, and total, with
+fork, dependent and election-less counts and the block, vote, cementing and AEC
+queue depths. The cost is one timestamp and one vector push per cemented block,
+so the pair is treated as comparable but labelled diagnostic. No protocol change.
+Formatting and all 859 node unit tests pass.
+
+Pinned v35 binaries (commit 7a1f11fb2):
+
+```text
+d3ff32db7a6c16832cff64591ac754303d44077a8a4e5fc8c7542bc9b04172e3  rsnano
+9135ae7b7cbe7b8194351765700bf3810710fa5d494cfb6f222ef99577635dc7  nanospam
+```
+
+| Run | Non-fork goodput | p50 / p95 / p99 (ms) | Same end state on all six PRs |
+|---|---:|---:|---|
+| v35 one #1 | 1557 | 113 / 1216 / 1748 | yes |
+| v35 two #1 | 1590 | 212 / 869 / 1088 | yes |
+
+v35 two was the best two-checkpoint pair so far (p95 869 ms, below its own
+one-checkpoint partner) with no protocol change, which shows how wide the
+single-pair spread is. Stage medians from `CONFIRM_STAGES` on the first node:
+
+| Period | to NC | NC to final | queued before election | final to cemented | total |
+|---|---:|---:|---:|---:|---:|
+| epoch 0, steady | ~75 | ~13 | 2 | ~5 | ~100 |
+| two: 1–6 s after boundary 0 | 62–111 | 16–26 | 17–75 | 28–122 | 197–391 |
+| two: 7–13 s (close, install, boundary 1) | 79–185 | 38–98 | 23–158 | 200–515 | 379–885 |
+| one: 1–2 s after its boundary | 131–156 | 22–34 | 69–211 | 493–1,324 | 951–1,575 |
+
+After a boundary, finality is allowed as soon as the NC forms (the overlap
+exception), so the gate itself adds little. The largest new cost is finality
+to cementation, which grows from ~5 ms to hundreds of milliseconds in both
+runs. AEC size is not the cause: the one-checkpoint run held ~2,800 elections
+with ~5 ms cementation before its boundary. v36 splits that stage into the
+hand-over to the confirming set, cementation up to the dependents callback,
+and publication, and clamps milestones that predate an election's start
+(a vote's time can be taken first, which wrapped the max column).

@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::SystemTime};
 
 use super::{AecService, election::ConfirmedElection};
 use crate::cementation::ConfirmingSet;
@@ -35,9 +35,14 @@ impl DependentElectionsConfirmer {
     ) -> Vec<(SavedBlock, Option<ConfirmedElection>)> {
         let mut blocks_with_election = Vec::with_capacity(blocks.len());
 
+        let now = SystemTime::now();
         self.confirming_set.do_election_cache(|cache| {
             for (confirmed_block, _) in blocks {
-                let source_election = cache.get(&confirmed_block.hash()).cloned();
+                let source_election = cache.get(&confirmed_block.hash()).map(|election| {
+                    let mut election = election.clone();
+                    election.cemented_seen = Some(now);
+                    election
+                });
                 blocks_with_election.push((confirmed_block.clone(), source_election));
             }
         });

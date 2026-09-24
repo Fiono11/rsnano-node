@@ -31,6 +31,12 @@ pub(crate) struct StageSample {
     pub gate_ms: u64,
     /// Finality to cementation
     pub cement_ms: u64,
+    /// Finality to the hand-over to the confirming set
+    pub handoff_ms: Option<u64>,
+    /// Hand-over to the cemented block coming back for its dependents
+    pub cementing_ms: Option<u64>,
+    /// Cemented block back to its confirmation being published
+    pub publish_ms: Option<u64>,
     /// Ledger insertion to cementation
     pub total_ms: u64,
 }
@@ -69,12 +75,19 @@ impl StageRecord {
         let duration = millis(election.election_duration);
         let started_ms = finalized_ms.saturating_sub(duration);
         let to_nc_ms = election.notarized_after.map(millis);
+        let handed_ms = election.handed_to_cementing.map(unix_ms);
+        let seen_ms = election.cemented_seen.map(unix_ms);
         Self::Sample(StageSample {
             queued_ms: started_ms.saturating_sub(inserted_ms),
             to_nc_ms,
             nc_to_final_ms: to_nc_ms.map(|to_nc| duration.saturating_sub(to_nc)),
             gate_ms: election.eligible_after.map(millis).unwrap_or(duration),
             cement_ms: cemented_ms.saturating_sub(finalized_ms),
+            handoff_ms: handed_ms.map(|handed| handed.saturating_sub(finalized_ms)),
+            cementing_ms: handed_ms
+                .zip(seen_ms)
+                .map(|(handed, seen)| seen.saturating_sub(handed)),
+            publish_ms: seen_ms.map(|seen| cemented_ms.saturating_sub(seen)),
             total_ms: cemented_ms.saturating_sub(inserted_ms),
         })
     }
@@ -117,7 +130,8 @@ impl ConfirmationStages {
         let gated = self.samples.iter().filter(|s| s.gate_ms > 0).count();
         format!(
             "CONFIRM_STAGES second={} n={} gated={} forks={} dependents={} no_election={} \
-             queued={} to_nc={} nc_to_final={} gate={} cement={} total={}",
+             queued={} to_nc={} nc_to_final={} gate={} cement={} handoff={} cementing={} \
+             publish={} total={}",
             second,
             self.samples.len(),
             gated,
@@ -129,6 +143,9 @@ impl ConfirmationStages {
             stage(|s| s.nc_to_final_ms),
             stage(|s| Some(s.gate_ms)),
             stage(|s| Some(s.cement_ms)),
+            stage(|s| s.handoff_ms),
+            stage(|s| s.cementing_ms),
+            stage(|s| s.publish_ms),
             stage(|s| Some(s.total_ms)),
         )
     }
@@ -177,6 +194,9 @@ mod tests {
                 nc_to_final_ms: Some(200),
                 gate_ms: 0,
                 cement_ms: 20,
+                handoff_ms: None,
+                cementing_ms: None,
+                publish_ms: None,
                 total_ms: 370,
             })
         );
@@ -197,6 +217,28 @@ mod tests {
         };
 
         assert_eq!(sample.gate_ms, 5_800);
+    }
+
+    #[test]
+    fn cementation_is_split_at_the_hand_over_and_the_return() {
+        let block = SavedBlock::new_test_instance();
+        let mut election = election_for(&block, 1_000_300, 300, Some(100), Some(0));
+        election.handed_to_cementing = Some(UNIX_EPOCH + Duration::from_millis(1_000_310));
+        election.cemented_seen = Some(UNIX_EPOCH + Duration::from_millis(1_000_450));
+
+        let StageRecord::Sample(sample) = StageRecord::new(
+            &block.hash(),
+            UnixMillisTimestamp::new(999_950),
+            &election,
+            1_000_470,
+        ) else {
+            panic!("expected a sample");
+        };
+
+        assert_eq!(sample.cement_ms, 170);
+        assert_eq!(sample.handoff_ms, Some(10));
+        assert_eq!(sample.cementing_ms, Some(140));
+        assert_eq!(sample.publish_ms, Some(20));
     }
 
     #[test]
@@ -245,7 +287,7 @@ mod tests {
             line,
             "CONFIRM_STAGES second=5 n=2 gated=0 forks=1 dependents=0 no_election=0 \
              queued=0/0/0 to_nc=10/10/10 nc_to_final=100/100/300 gate=0/0/0 cement=0/0/0 \
-             total=100/100/300"
+             handoff=0/0/0 cementing=0/0/0 publish=0/0/0 total=100/100/300"
         );
         let next = stages.record(7_000, StageRecord::NoElection).unwrap();
         assert!(next.starts_with("CONFIRM_STAGES second=6 n=1 "));
@@ -276,6 +318,9 @@ mod tests {
             nc_to_final_ms: Some(total_ms),
             gate_ms: 0,
             cement_ms: 0,
+            handoff_ms: None,
+            cementing_ms: None,
+            publish_ms: None,
             total_ms,
         }
     }

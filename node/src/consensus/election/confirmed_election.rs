@@ -57,6 +57,10 @@ pub struct ConfirmedElection {
     /// Diagnostic: from the start of the election to when its finality was
     /// first allowed
     pub eligible_after: Option<Duration>,
+    /// Diagnostic: when the election was handed to the confirming set
+    pub handed_to_cementing: Option<SystemTime>,
+    /// Diagnostic: when the cemented block came back for its dependents
+    pub cemented_seen: Option<SystemTime>,
     pub confirmation_type: ConfirmationType,
     pub votes: HashMap<PublicKey, VoteSummary>,
 }
@@ -74,6 +78,8 @@ impl ConfirmedElection {
             election_duration: Duration::ZERO,
             notarized_after: None,
             eligible_after: None,
+            handed_to_cementing: None,
+            cemented_seen: None,
             votes: Default::default(),
         }
     }
