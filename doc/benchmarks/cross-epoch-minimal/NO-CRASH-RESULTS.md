@@ -878,3 +878,40 @@ it establishes notarization, so the test now supplies the required final vote.
 
 All 854 node unit tests pass after correcting the fixture; formatting passes.
 v34 is not yet release-built or benchmarked. Paused for a new-chat handoff.
+
+Pinned v34 binaries (commit ad279e092):
+
+```text
+a2660aff05a8515b600a64f395a346ae716e62ad1cad03ffd00b188b0c832b09  rsnano
+9135ae7b7cbe7b8194351765700bf3810710fa5d494cfb6f222ef99577635dc7  nanospam
+```
+
+| Run | Non-fork goodput | p50 / p95 / p99 (ms) | Same end state on all six PRs |
+|---|---:|---:|---|
+| v34 one #1 | 1562 | 112 / 1314 / 1621 | yes |
+| v34 two #1 | 1489 | 275 / 2264 / 2905 | yes |
+
+v34 two improved p50 over v33 two (275 versus 374 ms) but p95 was higher
+(2,264 versus 1,783 ms); within single-pair noise, the vote-start batching is
+not a demonstrated gain. Both runs converged with all required checkpoints.
+
+Latency bands (non-fork blocks; forks listed separately because nanospam's
+per-second "avg conf time" mixes them in):
+
+| Band (ms) | v34 one non-fork | v34 two non-fork | v34 two fork |
+|---|---:|---:|---:|
+| < 300 | 37,445 | 22,068 | 12 |
+| 300–1,000 | 2,206 | 11,542 | 74 |
+| 1,000–2,000 | 2,933 | 5,958 | 46 |
+| 2,000–4,000 | 68 | 2,862 | 5 |
+| >= 4,000 | 47 | 325 | 1,860 |
+
+Correction to an earlier reading: the 6–8 s per-second averages right after a
+checkpoint closes are dominated by fork blocks resolved at installation. Only
+325 (v34) / 355 (v33) non-fork blocks waited out a whole close. These are
+consistent with epoch-0 instances notarized but unfinalized when signing froze:
+a replica holding such an instance does not vote it in the new epoch, so the
+checkpoint (`EPOCH_RETAINED ... forced`) is its only route to finality. That
+attribution is inferred from timing and counts, not traced per block. The p50
+gap is instead the ~20,000 non-fork blocks in the 300–4,000 ms band, published
+during the two roughly six-second close windows that span most of epoch 1.
