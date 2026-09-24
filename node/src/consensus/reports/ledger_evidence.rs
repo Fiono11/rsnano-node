@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{HashMap, HashSet};
 
 use rsnano_types::{BlockHash, ConsensusEpoch};
 
@@ -26,7 +26,7 @@ pub(crate) fn unjustified_entries(
     predecessor: &EpochLedger,
     certificates: &dyn CertificateSource,
 ) -> Vec<BlockHash> {
-    let mut justified: BTreeSet<CertifiedBlock> = BTreeSet::new();
+    let mut justified: HashSet<CertifiedBlock> = HashSet::with_capacity(state.len());
     let mut anchors: Vec<CertifiedBlock> = Vec::new();
     let mut missing = Vec::new();
     for (block, entry) in state.entries() {
@@ -203,6 +203,23 @@ mod tests {
         gap.certify(block(1, 3, 3), hash(2), CertifiedStatus::Finalized);
         assert_eq!(
             unjustified_entries(epoch, &gap, &predecessor, &votes),
+            vec![hash(1)]
+        );
+    }
+
+    #[test]
+    fn finality_walk_rejects_wrong_account_or_height() {
+        let epoch = ConsensusEpoch::new(1);
+        let predecessor = EpochLedger::new();
+        let mut state = CertifiedState::new();
+        state.certify(block(1, 1, 1), BlockHash::ZERO, CertifiedStatus::Finalized);
+        state.certify(block(2, 2, 2), hash(1), CertifiedStatus::Finalized);
+        state.certify(block(1, 3, 3), hash(1), CertifiedStatus::Finalized);
+        let mut votes = HashMap::new();
+        votes.insert((epoch, hash(2)), kinds(true, true, false));
+        votes.insert((epoch, hash(3)), kinds(true, true, false));
+        assert_eq!(
+            unjustified_entries(epoch, &state, &predecessor, &votes),
             vec![hash(1)]
         );
     }

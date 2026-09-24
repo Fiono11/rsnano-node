@@ -211,17 +211,16 @@ impl ResidualData {
     }
 
     pub fn placement(&self, hash: &BlockHash) -> Option<(CertifiedBlock, BlockHash)> {
+        self.place(hash, 0)
+    }
+
+    fn cache_placement(&self, hash: BlockHash, placed: (CertifiedBlock, BlockHash)) {
         const MAX_PLACED: usize = 262_144;
-        if let Some(placed) = self.placed.lock().unwrap().get(hash) {
-            return Some(*placed);
-        }
-        let placed = self.place(hash, 0)?;
         let mut cache = self.placed.lock().unwrap();
         if cache.len() >= MAX_PLACED {
             cache.clear();
         }
-        cache.insert(*hash, placed);
-        Some(placed)
+        cache.insert(hash, placed);
     }
 
     /// Whether this evidence block was received and retained already
@@ -232,11 +231,16 @@ impl ResidualData {
         if depth >= 256 {
             return None;
         }
+        if let Some(placed) = self.placed.lock().unwrap().get(hash) {
+            return Some(*placed);
+        }
         if let Some(block) = self.ledger.any().get_block(hash) {
-            return Some((
+            let placed = (
                 CertifiedBlock::new(block.account(), block.height(), *hash),
                 block.previous(),
-            ));
+            );
+            self.cache_placement(*hash, placed);
+            return Some(placed);
         }
         // Legacy/epoch-signer variants are deliberately not inferred here.
         let Block::State(block) = self.block(hash)? else {
@@ -253,10 +257,14 @@ impl ResidualData {
             }
             parent.height.checked_add(1)?
         };
-        Some((
+        let placed = (
             CertifiedBlock::new(block.account(), height, *hash),
             previous,
-        ))
+        );
+        // A validated parent's immutable placement can be reused by every
+        // descendant. Failed signature/ancestry checks never enter the cache.
+        self.cache_placement(*hash, placed);
+        Some(placed)
     }
 }
 
@@ -364,6 +372,38 @@ mod tests {
         forks.write().unwrap().add(bad.clone());
         assert!(data.placement(&bad.hash()).is_none());
     }
+    #[test]
+    fn shared_ancestry_is_placed_once_and_still_requires_matching_owner() {
+        let (data, forks) = fixture();
+        let parent: Block = StateBlockArgs {
+            previous: BlockHash::ZERO,
+            ..StateBlockArgs::new_test_instance()
+        }
+        .into();
+        let child: Block = StateBlockArgs {
+            previous: parent.hash(),
+            ..StateBlockArgs::new_test_instance()
+        }
+        .into();
+        forks.write().unwrap().add(parent.clone());
+        forks.write().unwrap().add(child.clone());
+        assert_eq!(data.placement(&child.hash()).unwrap().0.height, 2);
+        // Retaining the validated placement also makes it usable after the
+        // original fork payload has left this bounded cache.
+        *forks.write().unwrap() = ForkCache::new();
+        assert_eq!(data.placement(&parent.hash()).unwrap().0.height, 1);
+        let other_owner = rsnano_types::PrivateKey::from(99);
+        let mismatch: Block = StateBlockArgs {
+            key: &other_owner,
+            previous: parent.hash(),
+            ..StateBlockArgs::new_test_instance()
+        }
+        .into();
+        forks.write().unwrap().add(mismatch.clone());
+        assert!(data.placement(&mismatch.hash()).is_none());
+        assert!(!data.placed.lock().unwrap().contains_key(&mismatch.hash()));
+    }
+
     /* Test helpers */
 
     fn fixture() -> (ResidualData, Arc<RwLock<ForkCache>>) {

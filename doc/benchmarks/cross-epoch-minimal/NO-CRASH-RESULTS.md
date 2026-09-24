@@ -806,3 +806,39 @@ remaining bottleneck after the earlier global-lock and reconstruction fixes.
 
 The merged difference took 4.08 ms in the focused debug case (6.1× faster).
 All 851 node unit tests pass.
+
+Pinned v32 binaries (two-checkpoint member profiled):
+
+```text
+6671cfd5a57b5f81440a8a5d89909dcf0c94a544bcc4ebf7f75cb772cd7d77d2  rsnano
+9135ae7b7cbe7b8194351765700bf3810710fa5d494cfb6f222ef99577635dc7  nanospam
+```
+
+| Run | Non-fork goodput | p50 / p95 / p99 (ms) | Same end state on all six PRs |
+|---|---:|---:|---|
+| v32 one #1 | 1484 | 127 / 1512 / 1881 | yes |
+| v32 two #1 | 1300 | 418 / 5299 / 6152 | yes |
+
+The two-checkpoint member above was sampled for five seconds at the first
+boundary (`profile-v32-two-1-pr0.sample.txt`), so its 418/5,299 ms latency is
+diagnostic, not a clean comparison. Both runs installed the required checkpoints
+and ended equal on all six nodes. In 3,551 samples of the report ticker,
+1,177 were in evidence checking (501 waiting and 444 in membership verification),
+and 702 were in residual placement (430 verifying owner signatures, 174 waiting
+for a report-block lookup). Other threads also waited on the AEC lock.
+Slow inbound message timings across six nodes totaled 2,732 ms reconstruction
+requests, 1,195 ms replies, 1,143 ms sketch requests, and 180 ms evidence requests.
+These sums are overlapping wall times, not elapsed run time.
+
+### v33: reuse validated ancestors and use unordered evidence membership
+
+Memoize every successfully validated residual ancestor placement, including
+ledger-backed parents, rather than only the outermost requested block. Failed
+signature, account and height checks never enter the cache; its existing bound
+is preserved. Placement is still metadata, not a certificate or admission result.
+Use a hash set for justified memberships, which need no ordering; missing hashes
+are still sorted and deduplicated. Regressions cover a cached parent reused after
+fork-cache eviction, rejection of a different owner extending it, and selected
+prefix checks rejecting wrong account or height. One clean pair will follow.
+
+Formatting and all 853 node unit tests pass.
