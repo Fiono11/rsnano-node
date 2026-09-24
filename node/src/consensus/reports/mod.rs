@@ -57,6 +57,9 @@ struct EpochReports {
         BlockHash,
         std::sync::Arc<crate::consensus::election::EpochLedger>,
     )>,
+    /// H(K_e): the digest of the committee that issued the epoch's votes,
+    /// which every report of the epoch must bind
+    committee: Option<BlockHash>,
     /// The certified state as it stands here. It only ever grows: "correct
     /// validators continuously update their canonical local inventories and
     /// roots as historical records arrive", and a certificate once
@@ -244,6 +247,11 @@ impl ReportExchange {
         held.predecessor = Some((state.state_hash(), state));
     }
 
+    /// The committee the epoch's reports must bind, once known here
+    pub fn set_committee(&mut self, epoch: ConsensusEpoch, digest: BlockHash) {
+        self.epochs.entry(epoch).or_default().committee = Some(digest);
+    }
+
     pub fn live_root(&self, epoch: ConsensusEpoch) -> Option<BlockHash> {
         self.epochs.get(&epoch).map(|held| held.live.root())
     }
@@ -393,11 +401,8 @@ impl ReportExchange {
                 return None;
             }
             let state = held.state(certified)?;
-            if !held.valid_recovery(own, state) {
-                return None;
-            }
             let votes = held.residuals.get(&residual)?;
-            if !votes.first_evidence_complete() {
+            if !held.valid_membership(own, state, votes) {
                 return None;
             }
             return Some((state, votes));
@@ -410,11 +415,8 @@ impl ReportExchange {
             return None;
         }
         let state = their.reconstructed.as_ref()?;
-        if !held.valid_recovery(&their.report, state) || !their.is_usable() {
-            return None;
-        }
         let votes = their.residual.as_ref()?;
-        if !votes.first_evidence_complete() {
+        if !their.is_usable() || !held.valid_membership(&their.report, state, votes) {
             return None;
         }
         Some((state, votes))
@@ -446,9 +448,7 @@ impl ReportExchange {
                 ))
             });
         own.chain(theirs)
-            .filter(|(report, state, votes)| {
-                held.valid_recovery(report, state) && votes.first_evidence_complete()
-            })
+            .filter(|(report, state, votes)| held.valid_membership(report, state, votes))
             .collect()
     }
 
@@ -1085,8 +1085,32 @@ impl ReportExchange {
 }
 
 impl EpochReports {
-    fn valid_recovery(&self, report: &Report, state: &CertifiedState) -> bool {
-        if !state.has_unique_hashes() {
+    /// RAI, "Reconstructing a report": what the reconstructed sets must
+    /// satisfy besides hashing to the signed roots. The report binds the
+    /// committee that issued the epoch's votes; one hash sits at one place;
+    /// every R entry is a recovery-protected unresolved block of the verified
+    /// predecessor the report is signed against; `G_i = V_i \ keys(T_i)` is
+    /// exact, so no G hash is under any T tag; and every G hash has the
+    /// reporter's own first vote behind it.
+    fn valid_membership(
+        &self,
+        report: &Report,
+        state: &CertifiedState,
+        votes: &ResidualVotes,
+    ) -> bool {
+        if self
+            .committee
+            .is_some_and(|committee| committee != report.committee)
+        {
+            return false;
+        }
+        if !state.has_unique_hashes() || !votes.first_evidence_complete() {
+            return false;
+        }
+        if votes
+            .entries()
+            .any(|(block, _, _)| state.contains_hash(&block.hash))
+        {
             return false;
         }
         use crate::consensus::election::AccountSlot;
@@ -1332,6 +1356,64 @@ mod tests {
             ours.evidence_to_check(epoch, &key.public_key(), later())
                 .is_none()
         );
+    }
+
+    /// RAI: a report must bind the committee that issued the epoch's votes,
+    /// and its G must be exactly the reporter's votes outside T: a hash that
+    /// is under a T tag and in G makes the report unusable
+    #[test]
+    fn a_report_of_another_committee_or_with_a_g_hash_in_t_is_not_usable() {
+        let epoch = ConsensusEpoch::ZERO;
+        let key = PrivateKey::from(1);
+        let t = state_of(0..3);
+        let mut ours = ReportExchange::new();
+        ours.report_epoch(
+            epoch,
+            t.clone(),
+            ResidualVotes::new(),
+            BlockHash::from(7),
+            BlockHash::ZERO,
+            &[PrivateKey::from(2)],
+        );
+        assert!(ours.handle_report(signed(&key, epoch, &t)));
+        ours.reconcile(epoch, key.public_key(), later()).unwrap();
+        assert_eq!(theirs_usable(&mut ours, epoch).len(), 1);
+        ours.set_committee(epoch, BlockHash::from(8));
+        assert!(theirs_usable(&mut ours, epoch).is_empty());
+        ours.set_committee(epoch, BlockHash::from(7));
+        assert_eq!(theirs_usable(&mut ours, epoch).len(), 1);
+
+        // A G that names a hash of T: not the exact difference
+        let mut g = ResidualVotes::new();
+        g.record(block(1), parent(1), ResidualKind::First);
+        let key = PrivateKey::from(3);
+        let mut overlapping = ReportExchange::new();
+        overlapping.report_epoch(
+            epoch,
+            t.clone(),
+            ResidualVotes::new(),
+            BlockHash::from(7),
+            BlockHash::ZERO,
+            &[PrivateKey::from(2)],
+        );
+        assert!(overlapping.handle_report(signed_with(&key, epoch, &t, &g)));
+        overlapping
+            .reconcile(epoch, key.public_key(), later())
+            .unwrap();
+        // The honest derivation is exact, so the object never reaches the
+        // signed root; the membership check would refuse it even if it did
+        assert!(
+            !overlapping
+                .derive_residual(epoch, key.public_key(), g.entries(), later())
+                .unwrap()
+                .complete
+        );
+        assert!(theirs_usable(&mut overlapping, epoch).is_empty());
+        assert!(!overlapping.epochs[&epoch].valid_membership(
+            &signed_with(&key, epoch, &t, &g),
+            &t,
+            &g
+        ));
     }
 
     #[test]

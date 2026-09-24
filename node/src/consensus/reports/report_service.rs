@@ -232,7 +232,27 @@ impl ReportService {
     pub fn handle_report(&self, report: Report, _channel: &Arc<Channel>) {
         self.stats
             .inc_dir(StatType::Message, DetailType::Report, Direction::In);
-        self.exchange.lock().unwrap().handle_report(report);
+        // A report binds the committee that issued the epoch's votes; one
+        // bound to another is not a report of this epoch
+        let committee = self
+            .active_elections
+            .epoch_committee(report.epoch)
+            .map(|committee| committee.digest());
+        let mut exchange = self.exchange.lock().unwrap();
+        if let Some(digest) = committee {
+            exchange.set_committee(report.epoch, digest);
+            if digest != report.committee {
+                if self.log_due(report.epoch, true) {
+                    crate::utils::diagnostic!(
+                        "EPOCH_REPORT_REFUSED epoch={} reporter={} reason=committee",
+                        report.epoch,
+                        report.reporter
+                    );
+                }
+                return;
+            }
+        }
+        exchange.handle_report(report);
     }
 
     /// RAI: reconcile a stored report, which an epoch proposal has to be
@@ -685,6 +705,12 @@ impl ReportService {
                     .lock()
                     .unwrap()
                     .set_predecessor(epoch, previous);
+            }
+            if let Some(committee) = self.active_elections.epoch_committee(epoch) {
+                self.exchange
+                    .lock()
+                    .unwrap()
+                    .set_committee(epoch, committee.digest());
             }
             let reporters: Vec<PublicKey> = {
                 let exchange = self.exchange.lock().unwrap();
