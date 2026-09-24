@@ -52,6 +52,11 @@ pub struct ConfirmedElection {
     pub voter_count: u32,
     pub election_end: SystemTime,
     pub election_duration: Duration,
+    /// Diagnostic: from the start of the election to its notarization
+    pub notarized_after: Option<Duration>,
+    /// Diagnostic: from the start of the election to when its finality was
+    /// first allowed
+    pub eligible_after: Option<Duration>,
     pub confirmation_type: ConfirmationType,
     pub votes: HashMap<PublicKey, VoteSummary>,
 }
@@ -67,6 +72,8 @@ impl ConfirmedElection {
             final_tally: Amount::ZERO,
             voter_count: 0,
             election_duration: Duration::ZERO,
+            notarized_after: None,
+            eligible_after: None,
             votes: Default::default(),
         }
     }

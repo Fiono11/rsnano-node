@@ -79,6 +79,11 @@ impl VoteProcessor {
         self.vote_applier.add_event_sink(sink);
     }
 
+    /// Votes waiting to be processed
+    pub fn queue_len(&self) -> usize {
+        self.queue.len()
+    }
+
     pub fn cool_down(&self) {
         self.cool_down.store(true, Ordering::Relaxed);
     }

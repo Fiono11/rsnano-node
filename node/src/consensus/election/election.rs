@@ -113,6 +113,11 @@ pub struct Election {
     /// because it carries a verified closing-epoch NC and is complete here,
     /// or holds a predecessor-backed NC on an admissible parent
     overlap_eligible: bool,
+    /// Diagnostic: when the instance got its notarization certificate
+    notarized_at: Option<Timestamp>,
+    /// Diagnostic: when finality was first allowed, by a decided predecessor
+    /// checkpoint or an overlap exception
+    eligible_at: Option<Timestamp>,
 }
 
 impl Election {
@@ -152,6 +157,8 @@ impl Election {
             committees: None,
             predecessor_decided: true,
             overlap_eligible: false,
+            notarized_at: None,
+            eligible_at: None,
         }
     }
 
@@ -704,6 +711,17 @@ impl Election {
         }
     }
 
+    /// Diagnostic: remember when the instance was first notarized and when
+    /// its finality was first allowed
+    pub fn note_milestones(&mut self, now: Timestamp) {
+        if self.notarized_at.is_none() && self.certificates.has_block() {
+            self.notarized_at = Some(now);
+        }
+        if self.eligible_at.is_none() && (self.predecessor_decided || self.overlap_eligible) {
+            self.eligible_at = Some(now);
+        }
+    }
+
     /// RAI: whether an overlap exception lets this instance finalize before
     /// the predecessor checkpoint is decided
     pub fn overlap_eligible(&self) -> bool {
@@ -802,6 +820,8 @@ impl Election {
             block_count: self.block_count() as u32,
             voter_count: self.votes().len() as u32,
             election_duration: self.start().elapsed(now),
+            notarized_after: self.notarized_at.map(|at| self.start.elapsed(at)),
+            eligible_after: self.eligible_at.map(|at| self.start.elapsed(at)),
             election_end: SystemTime::now(),
             confirmation_type: result,
             votes,

@@ -6,7 +6,7 @@ use rsnano_ledger::{AnySet, BlockSource, Ledger, LedgerSet, RollbackError};
 use rsnano_messages::NetworkFilter;
 use rsnano_network::ChannelId;
 use rsnano_nullable_clock::SteadyClock;
-use rsnano_types::{Account, Block, BlockHash, ConsensusEpoch, VoteDelivery};
+use rsnano_types::{Account, Block, BlockHash, ConsensusEpoch, SavedBlock, VoteDelivery};
 use rsnano_utils::{
     EventHandlerMut, EventHandlerRegistry,
     stats::{Sample, Stats},
@@ -20,11 +20,13 @@ use crate::{
     consensus::{
         AecCooldownReason, AecFact, AecForkInserter, AecService, BootstrapElectionActivator,
         LocalVotesRemover, VoteProcessor, VoteRebroadcastQueue, WinnerBlockBroadcaster,
-        aggregate_vote_results, election::ElectionId, election_schedulers::ElectionSchedulers,
+        aggregate_vote_results,
+        election::{ConfirmedElection, ElectionId},
+        election_schedulers::ElectionSchedulers,
         vote_cache::VoteCache,
     },
     recently_cemented_inserter::RecentlyCementedInserter,
-    utils::BackpressureEventProcessor,
+    utils::{BackpressureEventProcessor, ConfirmationStages, StageRecord, diagnostic, unix_ms},
 };
 
 /// Processes facts from the active election container (AEC)
@@ -52,6 +54,8 @@ pub(crate) struct AecFactProcessor {
     /// force-inserted and cemented once present
     pub(crate) awaiting_cement: std::collections::HashSet<BlockHash>,
     pub(crate) events_since_cement_check: usize,
+    /// Diagnostic: per-second stages of the blocks cemented
+    pub(crate) confirmation_stages: ConfirmationStages,
 }
 
 impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
@@ -172,6 +176,9 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
                 }
             }
             AecFact::BlockConfirmed(block, election) => {
+                if cfg!(feature = "rai_protocol") {
+                    self.record_confirmation_stages(&block, &election);
+                }
                 if let Some(tx) = &self.node_observer {
                     tx.send(NodeEvent::BlockConfirmed(block, election.clone()))
                         .unwrap();
@@ -184,6 +191,23 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
 }
 
 impl AecFactProcessor {
+    /// Diagnostic: once a second, the stages of the blocks cemented in the
+    /// second before, with the queue depths at that moment
+    fn record_confirmation_stages(&mut self, block: &SavedBlock, election: &ConfirmedElection) {
+        let now_ms = unix_ms() as u64;
+        let record = StageRecord::new(&block.hash(), block.timestamp(), election, now_ms);
+        if let Some(line) = self.confirmation_stages.record(now_ms, record) {
+            diagnostic!(
+                "{} block_queue={} vote_queue={} cementing={} aec={}",
+                line,
+                self.block_processor_queue.total_queue_len(),
+                self.vote_processor.queue_len(),
+                self.confirming_set.len(),
+                self.active_elections.len()
+            );
+        }
+    }
+
     /// The account whose position an instance decides: its parent's, or
     /// the root's for an open block
     fn account_of_instance(&self, id: &ElectionId) -> Option<Account> {

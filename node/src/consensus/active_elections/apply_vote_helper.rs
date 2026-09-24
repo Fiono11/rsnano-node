@@ -277,6 +277,7 @@ pub(super) fn count_kudzu_election(
     let was_in_block_tree = election.certificates().has_block();
     let old_state = election.state();
     election.update_kudzu_tallies(committees);
+    election.note_milestones(now);
     stats.kudzu_transition(old_state, election, was_in_block_tree, now);
     notify_winner_changed(election, old_winner, observer);
     if election.is_confirmed() {

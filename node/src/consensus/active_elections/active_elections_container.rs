@@ -1245,6 +1245,7 @@ impl ActiveElectionsContainer {
                 continue;
             };
             election.set_predecessor_decided(true);
+            election.note_milestones(now);
             if election.is_confirmed() {
                 election_got_confirmed(
                     election,
@@ -2520,6 +2521,7 @@ impl ActiveElectionsContainer {
             now,
         );
         election.set_predecessor_decided(self.predecessor_decided_for(epoch));
+        election.note_milestones(now);
 
         self.roots.insert(Entry {
             id: election.id(),

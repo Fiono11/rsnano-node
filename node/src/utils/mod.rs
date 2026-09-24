@@ -1,4 +1,5 @@
 mod backpressure_event_processor;
+mod confirmation_stages;
 mod diagnostics;
 mod processing_queue;
 mod rate_calculator;
@@ -14,6 +15,7 @@ use rand::RngExt;
 pub(crate) use backpressure_event_processor::{
     BackpressureEventProcessor, spawn_backpressure_processor,
 };
+pub(crate) use confirmation_stages::{ConfirmationStages, StageRecord};
 #[allow(unused_imports)]
 pub(crate) use diagnostics::{diagnostic, emit_diagnostic, unix_ms};
 pub use processing_queue::*;
