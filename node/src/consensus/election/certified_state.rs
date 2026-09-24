@@ -3,8 +3,8 @@ use std::collections::BTreeMap;
 use rsnano_types::{Account, Blake2HashBuilder, BlockHash, ConsensusEpoch, PublicKey};
 
 /// RAI: what a validator has locally constructed for a block of one epoch.
-/// The statuses are ordered: a block enters the certified tree notarized and
-/// may later gain a finalization status, never the other way round.
+/// Status strength is F > N > R: inherited recovery protection is upgraded
+/// when a stronger certificate becomes available.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CertifiedStatus {
     /// Inherited unresolved protection; neither notarization nor finality.
@@ -75,9 +75,9 @@ pub struct Certification {
 }
 
 /// RAI, "Certified-state reports and reconciliation": the canonical certified
-/// block tree of one validator for one epoch. It holds every complete
-/// notarized block the validator knows, with the finalization status it has
-/// been able to construct for it, and nothing else: no votes, no bodies.
+/// block tree of one validator for one epoch. It includes inherited recovery
+/// protection and known notarized/finalized blocks, with required ancestry.
+/// Entries carry status and placement metadata, not votes or block bodies.
 ///
 /// The root is an order-independent hash of the entries, so two validators
 /// that have constructed the same certificates hold the same root whatever
@@ -87,7 +87,7 @@ pub struct Certification {
 #[derive(Clone, Debug, Default)]
 pub struct CertifiedState {
     entries: BTreeMap<CertifiedBlock, Certification>,
-    hashes: std::collections::BTreeSet<BlockHash>,
+    hashes: rustc_hash::FxHashSet<BlockHash>,
     /// A canonical cryptographic commitment, cached until entries change.
     root_cache: std::sync::OnceLock<BlockHash>,
 }
@@ -201,12 +201,24 @@ impl CertifiedState {
     /// F applies to the selected inherited prefix as well as the explicit
     /// certificate target. Competing unresolved branches leave the live ledger.
     pub fn project_final_prefixes(&mut self) {
-        let targets: Vec<_> = self
-            .entries
-            .iter()
-            .filter(|(_, e)| e.status.is_finalized())
-            .map(|(b, e)| (*b, *e))
-            .collect();
+        let mut targets = Vec::new();
+        let mut needs_pruning = false;
+        let mut previous_slot = None;
+        for (block, entry) in &self.entries {
+            let slot = (block.account, block.height);
+            needs_pruning |= previous_slot == Some(slot);
+            previous_slot = Some(slot);
+            if block.height > 1 && !entry.previous.is_zero() {
+                let parent = CertifiedBlock::new(block.account, block.height - 1, entry.previous);
+                match self.entries.get(&parent) {
+                    Some(held) if entry.status.is_finalized() && !held.status.is_finalized() => {
+                        targets.push((*block, *entry));
+                    }
+                    None => needs_pruning = true,
+                    _ => {}
+                }
+            }
+        }
         for (mut block, mut entry) in targets {
             while block.height > 1 && !entry.previous.is_zero() {
                 let parent = CertifiedBlock::new(block.account, block.height - 1, entry.previous);
@@ -220,6 +232,11 @@ impl CertifiedState {
                 block = parent;
                 entry = held;
             }
+        }
+        // A parent-closed projection with one block per position cannot
+        // contain an excluded branch. Avoid rebuilding an all-history index.
+        if !needs_pruning {
+            return;
         }
         let finals: std::collections::BTreeMap<_, _> = self
             .entries
@@ -299,9 +316,10 @@ impl CertifiedState {
     }
 
     pub fn remove(&mut self, block: &CertifiedBlock) {
+        let unique = self.has_unique_hashes();
         if self.entries.remove(block).is_some() {
             self.root_cache.take();
-            if !self.entries.keys().any(|b| b.hash == block.hash) {
+            if unique || !self.entries.keys().any(|b| b.hash == block.hash) {
                 self.hashes.remove(&block.hash);
             }
         }
@@ -569,6 +587,32 @@ impl ReportCommitment {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn missing_ancestry_does_not_skip_conflicting_finality_pruning() {
+        let parent = CertifiedBlock::new(Account::from(1), 1, BlockHash::from(10));
+        let child = CertifiedBlock::new(parent.account, 2, BlockHash::from(30));
+        let mut state = CertifiedState::new();
+        state.certify(parent, BlockHash::ZERO, CertifiedStatus::Finalized);
+        state.certify(child, BlockHash::from(20), CertifiedStatus::Recovery);
+        state.project_final_prefixes();
+        assert_eq!(state.status(&child), None);
+    }
+
+    #[test]
+    fn removing_a_duplicate_hash_placement_keeps_the_remaining_key() {
+        let one = block(1);
+        let alias = CertifiedBlock::new(Account::from(999), one.height, one.hash);
+        let mut state = CertifiedState::new();
+        state.certify(one, BlockHash::ZERO, CertifiedStatus::Recovery);
+        state.certify(alias, BlockHash::ZERO, CertifiedStatus::Recovery);
+        assert!(!state.has_unique_hashes());
+        state.remove(&one);
+        assert!(state.contains_hash(&one.hash));
+        assert!(state.has_unique_hashes());
+        state.remove(&alias);
+        assert!(!state.contains_hash(&one.hash));
+    }
 
     #[test]
     fn descendant_finality_upgrades_its_selected_r_prefix_and_removes_the_rival() {

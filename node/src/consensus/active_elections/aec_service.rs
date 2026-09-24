@@ -325,7 +325,8 @@ impl AecService {
         &self,
         epoch: ConsensusEpoch,
     ) -> crate::consensus::election::CertifiedState {
-        self.aec.read().unwrap().epoch_certified(epoch)
+        let inputs = self.aec.read().unwrap().epoch_report_projection(epoch);
+        inputs.finish()
     }
 
     /// RAI: `S_{e-1}` for the close of an epoch, the state its derivation

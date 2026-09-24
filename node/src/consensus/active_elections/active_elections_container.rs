@@ -96,6 +96,37 @@ pub struct EpochReport {
     pub residual: crate::consensus::election::ResidualVotes,
 }
 
+/// Owned inputs captured under the election lock; reconstruction can then run
+/// without blocking account vote processing. The predecessor is immutable.
+pub(crate) struct EpochReportProjection {
+    base: Arc<crate::consensus::election::CertifiedState>,
+    observations: Vec<(
+        CertifiedBlock,
+        BlockHash,
+        crate::consensus::election::CertifiedStatus,
+        bool,
+    )>,
+}
+
+impl EpochReportProjection {
+    pub(crate) fn finish(self) -> crate::consensus::election::CertifiedState {
+        use crate::consensus::election::CertifiedStatus;
+        let mut state = (*self.base).clone();
+        for (block, previous, status, older) in self.observations {
+            if older {
+                match state.status(&block) {
+                    Some(CertifiedStatus::Finalized) => continue,
+                    None if !state.contains_hash(&block.hash) => continue,
+                    _ => {}
+                }
+            }
+            state.certify(block, previous, status);
+        }
+        state.project_final_prefixes();
+        state
+    }
+}
+
 pub(crate) struct ActiveElectionsContainer {
     roots: RootContainer,
     observer: Option<Sender<AecFact>>,
@@ -167,7 +198,7 @@ pub(crate) struct ActiveElectionsContainer {
     /// RAI: `S_{-1}`, the closed genesis state: the ledger as it stood when
     /// the epochs started. The first epoch's derivation builds on it.
     genesis_state: Arc<EpochLedger>,
-    report_bases: BTreeMap<ConsensusEpoch, crate::consensus::election::CertifiedState>,
+    report_bases: BTreeMap<ConsensusEpoch, Arc<crate::consensus::election::CertifiedState>>,
     /// RAI: the committees the instances of each epoch are counted in
     committees: EpochCommittees,
     /// RAI: Δ_timeout of a close round
@@ -478,8 +509,10 @@ impl ActiveElectionsContainer {
             );
         }
         self.genesis_state = Arc::new(history.unwrap_or(genesis));
-        self.report_bases
-            .insert(ConsensusEpoch::ZERO, self.genesis_state.report_ledger());
+        self.report_bases.insert(
+            ConsensusEpoch::ZERO,
+            Arc::new(self.genesis_state.report_ledger()),
+        );
         let committee = self.committees.start(frontiers);
         self.log_committee("genesis", &committee);
     }
@@ -1051,7 +1084,7 @@ impl ActiveElectionsContainer {
             return;
         };
         self.report_bases
-            .insert(epoch.next(), state.report_ledger());
+            .insert(epoch.next(), Arc::new(state.report_ledger()));
         self.decided.insert(epoch, state.clone());
         // Installed before the committee is derived: a block the checkpoint
         // finalized delegates like any other, and its instance goes with
@@ -1403,27 +1436,25 @@ impl ActiveElectionsContainer {
         &self,
         epoch: ConsensusEpoch,
     ) -> crate::consensus::election::CertifiedState {
-        use crate::consensus::election::{CertifiedBlock, CertifiedState, CertifiedStatus};
-        let mut certified = self
+        self.epoch_report_projection(epoch).finish()
+    }
+
+    pub(crate) fn epoch_report_projection(&self, epoch: ConsensusEpoch) -> EpochReportProjection {
+        use crate::consensus::election::{CertifiedState, CertifiedStatus};
+        let base = self
             .report_bases
             .get(&epoch)
             .cloned()
-            .unwrap_or_else(CertifiedState::new);
-        // What finalized in the epoch and left the AEC is certified by the
-        // certificate that finalized it. The parent goes with it: an epoch
-        // derivation places a candidate by the branch it continues, and two
-        // blocks at one slot are told apart by nothing else.
+            .unwrap_or_else(|| Arc::new(CertifiedState::new()));
+        let mut observations = Vec::new();
         for instance in self.epoch_states.instances_through(epoch) {
-            if instance.epoch != epoch && !certified.contains_hash(&instance.winner) {
-                continue;
-            }
-            certified.certify(
+            observations.push((
                 CertifiedBlock::new(instance.account, instance.height, instance.winner),
                 instance.root.previous,
                 CertifiedStatus::Finalized,
-            );
+                instance.epoch != epoch,
+            ));
         }
-        // What the instances still in the AEC have certified
         for election in self.roots.iter().map(|entry| &entry.election) {
             if election.epoch() != epoch {
                 continue;
@@ -1432,30 +1463,19 @@ impl ActiveElectionsContainer {
             let at = |hash| CertifiedBlock::new(election.account(), election.height(), hash);
             let certificates = election.certificates();
             for hash in &certificates.notar {
-                certified.certify(at(*hash), previous, CertifiedStatus::Notarized);
+                observations.push((at(*hash), previous, CertifiedStatus::Notarized, false));
             }
             if let Some(hash) = certificates.finalized() {
-                certified.certify(at(hash), previous, CertifiedStatus::Finalized);
+                observations.push((at(hash), previous, CertifiedStatus::Finalized, false));
             }
         }
-        certified.project_final_prefixes();
-        certified
+        EpochReportProjection { base, observations }
     }
 
-    /// RAI, "Certified-state reports and reconciliation": what this node
-    /// reports for one epoch. The certified state holds every complete
-    /// notarized block of the epoch with the finalization status this node
-    /// has been able to construct for it; the residual votes hold this
-    /// node's own votes that the certified state does not summarize - its
-    /// support for a block with no notarization certificate, and its final
-    /// vote for a block that is notarized but not finalized. Lemma 3.7 is
-    /// what the second one is for: a certificate constructible only from
-    /// votes issued before the boundary stays report-visible.
-    ///
-    /// The certified state is read from the instances themselves, which keep
-    /// their certificates, and from the instances that finalized and left
-    /// the AEC; the residual votes from the slot states, which hold this
-    /// node's one-shot votes per slot and epoch.
+    /// Frozen report inputs for the closing epoch: inherited protection and
+    /// certificates form T with strongest R/N/F status; G contains hashes of
+    /// this validator's votes absent from T. Vote records retain kinds and
+    /// parents for reconstruction, but G membership is by hash alone.
     pub fn epoch_report(&self, epoch: ConsensusEpoch) -> Option<EpochReport> {
         use crate::consensus::election::{ResidualVotes, TIMEOUT_BLOCK};
         let committee = self.committees.committee(epoch)?;
@@ -2573,7 +2593,9 @@ mod tests {
                 CertifiedStatus::Recovery,
             );
         }
-        container.report_bases.insert(ConsensusEpoch::new(1), base);
+        container
+            .report_bases
+            .insert(ConsensusEpoch::new(1), Arc::new(base));
         for (id, epoch) in [(1u64, 0u64), (2, 2), (3, 0)] {
             let hash = BlockHash::from(id);
             container.epoch_states.record_finalized(FinalizedInstance {
@@ -2598,6 +2620,28 @@ mod tests {
             Some(CertifiedStatus::Recovery)
         );
         assert_eq!(projection.status(&at(3u64)), None);
+        let frozen_inputs = container.epoch_report_projection(ConsensusEpoch::new(1));
+        let hash = BlockHash::from(2);
+        container.epoch_states.record_finalized(FinalizedInstance {
+            root: QualifiedRoot::default(),
+            account: Account::from(2),
+            height: 1,
+            epoch: ConsensusEpoch::new(1),
+            winner: hash,
+            candidates: vec![hash],
+            delegation: None,
+            slot: LocalSlotState::default(),
+        });
+        assert_eq!(
+            frozen_inputs.finish().status(&at(2u64)),
+            Some(CertifiedStatus::Recovery)
+        );
+        assert_eq!(
+            container
+                .epoch_certified(ConsensusEpoch::new(1))
+                .status(&at(2u64)),
+            Some(CertifiedStatus::Finalized)
+        );
     }
 
     #[test]

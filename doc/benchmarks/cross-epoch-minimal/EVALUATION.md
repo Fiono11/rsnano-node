@@ -75,3 +75,43 @@ and finality of a fresh descendant must upgrade inherited R to F in the live
 report. That correction and frozen-snapshot/successor-exclusion tests are a
 separate revision; this smoke result does not evaluate it. Evidence remains in
 `/tmp/rai-cross-epoch-artifacts/step1-rnf-smoke/`.
+
+## Measurement scope and primary metrics
+
+The measured host is a MacBookAir10,1 with eight physical/logical CPUs and
+16 GiB RAM, running macOS 14.6.1 on arm64. All six nodes run on this host
+using loopback networking. The inherited LMDB configuration is `nosync_unsafe`;
+these measurements do not establish crash durability or distributed deployment
+performance. The fixed offered load does not measure saturation capacity.
+
+At the user's request, subsequent batches use p50 and p95 as the primary
+latency measures (both paired bootstrap upper bounds must be <= 1.10), with
+the existing goodput lower bound >= 0.95. p99 remains diagnostic. The harness
+labels this policy `p50-p95-v1`; preceding results retain their original gates.
+
+## R/N/F selected-prefix comparison
+
+Revision `c0f4c0057`, five alternating pairs, same workload/client and
+156-second baseline-derived deadlines. All ten attempts completed and settled.
+
+| Pair | Baseline p50 ms | Candidate p50 ms | Baseline p95 ms | Candidate p95 ms |
+| --- | ---: | ---: | ---: | ---: |
+| 0 | 105 | 146 | 2664 | 3440 |
+| 1 | 111 | 115 | 3283 | 3081 |
+| 2 | 111 | 102 | 3311 | 1211 |
+| 3 | 105 | 103 | 1223 | 1113 |
+| 4 | 111 | 102 | 3359 | 1739 |
+
+Verdict: **INCONCLUSIVE** under `p50-p95-v1`. Paired bootstrap 95% ratio
+intervals: goodput [0.99001, 1.00305], p50 [0.93133, 1.22528],
+p95 [0.51069, 1.07392]. Goodput and p95 meet their respective bounds,
+but p50 does not establish non-inferiority. Diagnostic p99 interval:
+[0.59618, 1.05466]. No runs were excluded. Evidence:
+`/tmp/rai-cross-epoch-artifacts/step1-rnf-prefix-p50-p95/`.
+
+A subsequent optimization moves live report projection outside the AEC read
+lock using owned observations and an immutable predecessor snapshot, avoids
+building a finalized-position index when a projection is already parent-closed
+with unique positions, and removes an unnecessary full scan for unique hash
+deletions. Its correctness tests cover frozen inputs and fork/ancestry cases.
+It is a separate candidate and is not evaluated by the results above.
