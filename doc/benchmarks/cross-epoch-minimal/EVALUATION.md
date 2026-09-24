@@ -208,3 +208,17 @@ See [FORK-DEBUG.md](FORK-DEBUG.md) for evidence, the independently reproduced
 alternative-hash client bug, its tested correction, and missing instrumentation.
 No per-hash termination count or fork performance claim is inferred from the
 716 unconfirmed primary publications.
+
+
+## Instrumented fork termination diagnostic
+
+Candidate `1d9680f64` was run once with the repaired client and per-branch
+checkpoint tracking. At the baseline-derived deadline, 1,123 fork pairs had
+been generated and published, input completion was not observed, and all
+2,246 branch hashes remained unresolved by checkpoint evidence. No node had
+accepted a checkpoint. T reconstruction converged across all six nodes;
+G reconstruction/evidence left too few usable reports to close epoch 0.
+Termination p50, p95 and p99 are unavailable. This diagnostic is not a paired
+performance comparison and does not change the earlier INCONCLUSIVE result.
+See [FORK-DIAGNOSTIC.md](FORK-DIAGNOSTIC.md) for results, limitations, validation
+and retained evidence. Generated databases were deleted after the run.
