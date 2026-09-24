@@ -100,6 +100,9 @@ pub struct CertifiedState {
     hashes: rustc_hash::FxHashSet<BlockHash>,
     /// A canonical cryptographic commitment, cached until entries change.
     root_cache: std::sync::OnceLock<BlockHash>,
+    /// Every entry with its sketch digest, cached until entries change: a
+    /// responder answers many sketches of one frozen state
+    digest_cache: std::sync::OnceLock<Vec<(BlockHash, CertifiedBlock, Certification)>>,
 }
 
 impl PartialEq for CertifiedState {
@@ -169,6 +172,7 @@ impl CertifiedState {
                     previous: held.map(|held| held.previous).unwrap_or(previous),
                 };
                 self.root_cache.take();
+                self.digest_cache.take();
                 self.hashes.insert(block.hash);
                 self.entries.insert(block, entry);
                 true
@@ -297,9 +301,15 @@ impl CertifiedState {
 
     /// Every entry with the digest that stands for it
     pub fn digests(&self) -> impl Iterator<Item = (BlockHash, CertifiedBlock, Certification)> + '_ {
-        self.entries
+        self.digest_cache
+            .get_or_init(|| {
+                self.entries
+                    .iter()
+                    .map(|(block, entry)| (Self::entry_digest(block, entry), *block, *entry))
+                    .collect()
+            })
             .iter()
-            .map(|(block, entry)| (Self::entry_digest(block, entry), *block, *entry))
+            .copied()
     }
 
     /// RAI: "It may add or remove blocks and change status annotations."
@@ -343,12 +353,14 @@ impl CertifiedState {
         self.hashes.insert(block.hash);
         self.entries.insert(block, entry);
         self.root_cache.take();
+        self.digest_cache.take();
     }
 
     pub fn remove(&mut self, block: &CertifiedBlock) {
         let unique = self.has_unique_hashes();
         if self.entries.remove(block).is_some() {
             self.root_cache.take();
+            self.digest_cache.take();
             if unique || !self.entries.keys().any(|b| b.hash == block.hash) {
                 self.hashes.remove(&block.hash);
             }

@@ -52,6 +52,12 @@ pub struct ReportService {
     retained_epochs: Mutex<std::collections::HashSet<ConsensusEpoch>>,
     /// When each epoch's live projection was last refreshed
     projected: Mutex<HashMap<ConsensusEpoch, Timestamp>>,
+    /// Report-protocol requests and replies, handled on the report thread:
+    /// on the network thread their state differences and sketches delayed
+    /// the votes and blocks queued behind them
+    inbound: Mutex<std::collections::VecDeque<(Message, Arc<Channel>)>>,
+    /// The vote count a reporter's G was last derived from, and when
+    derived_at: Mutex<HashMap<(ConsensusEpoch, PublicKey), (usize, Timestamp)>>,
     data: super::residual_data::ResidualData,
 }
 
@@ -63,6 +69,36 @@ impl ReportService {
     const PROJECTION_INTERVAL: Duration = Duration::from_secs(1);
     /// Hashes per AEC read-lock acquisition when assembling certificates
     const CERTIFICATE_CHUNK: usize = 2048;
+    /// Report-protocol messages waiting for the report thread
+    const MAX_INBOUND: usize = 16_384;
+    /// A G derivation with no new vote of its reporter is retried this rarely
+    const RESIDUAL_IDLE_RETRY: Duration = Duration::from_secs(5);
+
+    /// Queue a report-protocol request or reply for the report thread. The
+    /// oldest is dropped when the queue is full; a peer repeats its requests.
+    pub fn enqueue(&self, message: Message, channel: &Arc<Channel>) {
+        let mut inbound = self.inbound.lock().unwrap();
+        if inbound.len() >= Self::MAX_INBOUND {
+            inbound.pop_front();
+        }
+        inbound.push_back((message, channel.clone()));
+    }
+
+    fn process_inbound(&self) {
+        let queued: Vec<(Message, Arc<Channel>)> = self.inbound.lock().unwrap().drain(..).collect();
+        for (message, channel) in queued {
+            match message {
+                Message::ReconReq(request) => self.handle_request(request, &channel),
+                Message::ReconReply(reply) => self.handle_reply(reply, &channel),
+                Message::EvidenceReq(request) => self.handle_evidence_request(request, &channel),
+                Message::LedgerSketchReq(request) => self.handle_ledger_sketch(request, &channel),
+                Message::LedgerSketchReply(reply) => {
+                    self.handle_ledger_sketch_reply(reply, &channel)
+                }
+                _ => {}
+            }
+        }
+    }
 
     pub(crate) fn new(
         active_elections: Arc<AecService>,
@@ -91,6 +127,8 @@ impl ReportService {
             votes_repeated_at: Mutex::new(HashMap::new()),
             retained_epochs: Mutex::new(std::collections::HashSet::new()),
             projected: Mutex::new(HashMap::new()),
+            inbound: Mutex::new(std::collections::VecDeque::new()),
+            derived_at: Mutex::new(HashMap::new()),
         }
     }
 
@@ -362,7 +400,7 @@ impl ReportService {
             let mut refreshed = self.source_refreshed.lock().unwrap();
             if refreshed
                 .get(&request.epoch)
-                .is_some_and(|last| last.elapsed(now) < Duration::from_millis(200))
+                .is_some_and(|last| last.elapsed(now) < Self::PROJECTION_INTERVAL)
             {
                 return reply;
             }
@@ -395,6 +433,18 @@ impl ReportService {
             .needs_residual(epoch, &reporter, now)
         {
             return;
+        }
+        // Deriving copies every vote of the reporter: only when a new one
+        // arrived since the last attempt, or rarely otherwise
+        let count = self.active_elections.vote_record_count(epoch, &reporter);
+        {
+            let mut derived = self.derived_at.lock().unwrap();
+            if derived.get(&(epoch, reporter)).is_some_and(|(last, at)| {
+                *last == count && at.elapsed(now) < Self::RESIDUAL_IDLE_RETRY
+            }) {
+                return;
+            }
+            derived.insert((epoch, reporter), (count, now));
         }
         let unplaced = self.active_elections.unplaced_signed(epoch, &reporter);
         let unplaced_count = unplaced.len();
@@ -767,6 +817,8 @@ impl ReportService {
             }
             mark = now;
         };
+        self.process_inbound();
+        lap("inbound", &mut spent);
         // A report deferred for want of its predecessor checkpoint is signed
         // once that checkpoint is decided here
         let deferred: Vec<ConsensusEpoch> = self.pending.lock().unwrap().keys().copied().collect();

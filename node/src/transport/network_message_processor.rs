@@ -235,9 +235,9 @@ impl NetworkMessageProcessor {
             #[cfg(feature = "rai_protocol")]
             Message::Report(report) => self.reports.handle_report(report, channel),
             #[cfg(feature = "rai_protocol")]
-            Message::ReconReq(request) => self.reports.handle_request(request, channel),
+            Message::ReconReq(request) => self.reports.enqueue(Message::ReconReq(request), channel),
             #[cfg(feature = "rai_protocol")]
-            Message::ReconReply(reply) => self.reports.handle_reply(reply, channel),
+            Message::ReconReply(reply) => self.reports.enqueue(Message::ReconReply(reply), channel),
             #[cfg(feature = "rai_protocol")]
             Message::EpochProp(prop) => self.epoch_decision.handle_proposal(prop, channel),
             #[cfg(feature = "rai_protocol")]
@@ -253,15 +253,17 @@ impl NetworkMessageProcessor {
             #[cfg(feature = "rai_protocol")]
             Message::CloseProofReply(proof) => self.epoch_decision.handle_close_proof(proof),
             #[cfg(feature = "rai_protocol")]
-            Message::EvidenceReq(request) => self.reports.handle_evidence_request(request, channel),
-            #[cfg(feature = "rai_protocol")]
-            Message::LedgerSketchReq(request) => {
-                self.reports.handle_ledger_sketch(request, channel)
+            Message::EvidenceReq(request) => {
+                self.reports.enqueue(Message::EvidenceReq(request), channel)
             }
             #[cfg(feature = "rai_protocol")]
-            Message::LedgerSketchReply(reply) => {
-                self.reports.handle_ledger_sketch_reply(reply, channel)
-            }
+            Message::LedgerSketchReq(request) => self
+                .reports
+                .enqueue(Message::LedgerSketchReq(request), channel),
+            #[cfg(feature = "rai_protocol")]
+            Message::LedgerSketchReply(reply) => self
+                .reports
+                .enqueue(Message::LedgerSketchReply(reply), channel),
             #[cfg(feature = "ledger_snapshots")]
             Message::SnapshotPreproposal(preproposal) => {
                 self.ledger_snapshots.handle_preproposal(preproposal);

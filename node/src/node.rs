@@ -1245,6 +1245,8 @@ impl Node {
         }
 
         let aec_fact_processor = AecFactProcessor {
+            awaiting_cement: Default::default(),
+            events_since_cement_check: 0,
             node_observer: node_observer.clone(),
             election_schedulers: election_schedulers.clone(),
             network_filter: network_filter.clone(),

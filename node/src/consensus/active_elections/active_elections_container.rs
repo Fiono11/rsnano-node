@@ -1365,11 +1365,48 @@ impl ActiveElectionsContainer {
         if !hashes.is_empty() {
             self.notify(AecFact::CheckpointFinalized { epoch, hashes });
         }
+        #[cfg(feature = "rai_protocol")]
+        let superseded: std::collections::HashSet<AccountSlot> = {
+            let positions: std::collections::BTreeSet<AccountSlot> = state
+                .retained_blocks()
+                .into_iter()
+                .map(|(slot, _)| slot)
+                .collect();
+            let mut notarized_live: HashMap<(Account, u64), Vec<BlockHash>> = HashMap::new();
+            for election in self.roots.iter().map(|entry| &entry.election) {
+                if election.certificates().has_block() {
+                    notarized_live
+                        .entry((election.account(), election.height()))
+                        .or_default()
+                        .extend(election.certificates().notar.iter().copied());
+                }
+            }
+            positions
+                .into_iter()
+                .filter(|slot| self.lock_superseded_here(state, slot, &notarized_live))
+                .collect()
+        };
+        #[cfg(not(feature = "rai_protocol"))]
+        let superseded: std::collections::HashSet<AccountSlot> = Default::default();
+        // A superseded recovery lock and everything the checkpoint retains
+        // above it on that account are left to the live instances
         let retained: Vec<(Account, u64, BlockHash)> = state
             .retained_blocks()
             .into_iter()
+            .filter(|(slot, _)| {
+                !superseded
+                    .iter()
+                    .any(|held| held.account == slot.account && held.height <= slot.height)
+            })
             .map(|(slot, block)| (slot.account, slot.height, block.hash))
             .collect();
+        if cfg!(feature = "rai_protocol") && !superseded.is_empty() {
+            diagnostic!(
+                "EPOCH_LOCKS_SUPERSEDED epoch={} positions={}",
+                epoch,
+                superseded.len()
+            );
+        }
         if !retained.is_empty() {
             self.notify(AecFact::CheckpointRetained { epoch, retained });
         }
@@ -2039,6 +2076,16 @@ impl ActiveElectionsContainer {
             let slot = AccountSlot::new(account, height);
             let previous = election.qualified_root().previous;
             let candidates: Vec<BlockHash> = election.candidate_blocks().keys().copied().collect();
+            // RAI, §6.2: "an instance whose block holds [a valid closing-epoch
+            // NC or a predecessor-backed NC] continues at a position the
+            // checkpoint locked only for recovery"
+            let holds_nc = election.certificates().has_block()
+                && (election.overlap_eligible()
+                    || election
+                        .certificates()
+                        .notar
+                        .iter()
+                        .any(|hash| self.predecessor_backed(epoch, hash)));
             let invalid = if let Some(finalized) = state.finalized(&slot) {
                 !candidates.contains(&finalized)
             } else if state
@@ -2048,6 +2095,7 @@ impl ActiveElectionsContainer {
                 !candidates
                     .iter()
                     .any(|candidate| state.is_locked(&slot, candidate))
+                    && !(holds_nc && Self::recovery_only(&state, &slot))
             } else if height > 1 {
                 // The parent position is decided or locked for another
                 // branch: the instance continues a branch the checkpoint
@@ -2057,7 +2105,12 @@ impl ActiveElectionsContainer {
                 match state.finalized(&parent_slot) {
                     Some(finalized) => finalized != previous,
                     None => {
-                        state.retains(&parent_slot) && !state.is_locked(&parent_slot, &previous)
+                        state.retains(&parent_slot)
+                            && !state.is_locked(&parent_slot, &previous)
+                            // A parent that superseded a recovery-only lock
+                            // and finalized live is a valid anchor
+                            && !(Self::recovery_only(&state, &parent_slot)
+                                && self.epoch_states.is_finalized(&previous))
                     }
                 }
             } else {
@@ -2074,6 +2127,43 @@ impl ActiveElectionsContainer {
             self.stats.rechecked_discarded += discard.len() as u64;
             diagnostic!("EPOCH_RECHECK epoch={} discarded={}", epoch, discard.len());
         }
+    }
+
+    /// Whether every lock a checkpoint carries at a position is recovery-only
+    fn recovery_only(state: &EpochLedger, slot: &AccountSlot) -> bool {
+        let locked = state.notarized(slot);
+        !locked.is_empty()
+            && locked.iter().all(|hash| {
+                state.retained_kind(hash) != crate::consensus::election::RetainedKind::Notarized
+            })
+    }
+
+    /// RAI: whether a retained position's recovery-only lock is superseded
+    /// here by a conflicting block that finalized live or holds a
+    /// notarization certificate in a successor instance. The ledger then
+    /// keeps that block: following the lock would roll back work the paper
+    /// keeps (§4.3, §6.2).
+    #[cfg(feature = "rai_protocol")]
+    fn lock_superseded_here(
+        &self,
+        state: &EpochLedger,
+        slot: &AccountSlot,
+        notarized_live: &HashMap<(Account, u64), Vec<BlockHash>>,
+    ) -> bool {
+        if !Self::recovery_only(state, slot) {
+            return false;
+        }
+        let locked = state.notarized(slot);
+        if self
+            .epoch_states
+            .finalized_at(&slot.account, slot.height)
+            .is_some_and(|hash| !locked.contains(&hash))
+        {
+            return true;
+        }
+        notarized_live
+            .get(&(slot.account, slot.height))
+            .is_some_and(|hashes| hashes.iter().any(|hash| !locked.contains(hash)))
     }
 
     /// RAI, "Cross-epoch lock": "A validator that released a first vote for
@@ -3024,6 +3114,11 @@ impl ActiveElectionsContainer {
                 (*hash, kinds)
             })
             .collect()
+    }
+
+    /// RAI: how many votes of one voter this node holds for an epoch
+    pub fn vote_record_count(&self, epoch: ConsensusEpoch, voter: &PublicKey) -> usize {
+        self.vote_records.count_of(epoch, voter)
     }
 
     /// RAI: the votes of one voter received for one epoch, with the parent

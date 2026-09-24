@@ -192,6 +192,22 @@ impl VoteRecords {
         }
     }
 
+    /// How many votes of one voter in one epoch are held here, placed or
+    /// only signed: what changes when a new vote arrives
+    pub fn count_of(&self, epoch: ConsensusEpoch, voter: &PublicKey) -> usize {
+        let placed = self
+            .by_epoch
+            .get(&epoch)
+            .and_then(|voters| voters.get(voter))
+            .map_or(0, BTreeMap::len);
+        let signed = self
+            .signed
+            .get(&epoch)
+            .and_then(|voters| voters.get(voter))
+            .map_or(0, BTreeMap::len);
+        placed + signed
+    }
+
     /// The votes of one voter in one epoch, in canonical order
     pub fn votes_of(
         &self,

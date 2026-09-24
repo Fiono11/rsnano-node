@@ -359,6 +359,11 @@ impl AecService {
         self.aec.read().unwrap().vote_records_of(epoch, voter)
     }
 
+    /// RAI: how many votes of one voter this node holds for an epoch
+    pub fn vote_record_count(&self, epoch: ConsensusEpoch, voter: &PublicKey) -> usize {
+        self.aec.read().unwrap().vote_record_count(epoch, voter)
+    }
+
     #[cfg(feature = "rai_protocol")]
     pub(crate) fn report_block(&self, hash: &BlockHash) -> Option<Block> {
         self.aec.read().unwrap().report_block(hash)

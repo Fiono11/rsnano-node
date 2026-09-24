@@ -47,6 +47,10 @@ pub(crate) struct AecFactProcessor {
     pub(crate) ledger: Arc<Ledger>,
     pub(crate) vote_cache: Arc<VoteCache>,
     pub(crate) plugins: EventHandlerRegistry<AecFact>,
+    /// RAI: blocks a decided checkpoint finalized that this ledger lacked;
+    /// force-inserted and cemented once present
+    pub(crate) awaiting_cement: std::collections::HashSet<BlockHash>,
+    pub(crate) events_since_cement_check: usize,
 }
 
 impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
@@ -64,6 +68,7 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
 
     fn process(&mut self, event: AecFact) {
         self.plugins.handle(&event);
+        self.cement_awaited_checkpoint_blocks();
         match event {
             AecFact::ElectionStarted(hash, root) => {
                 self.aec_fork_inserter.try_add_cached_forks(&root);
@@ -229,6 +234,8 @@ impl AecFactProcessor {
         let mut cemented = 0;
         let mut queued = 0;
         let mut missing = 0;
+        let mut fetched = 0;
+        let mut absent = Vec::new();
         {
             let any = self.ledger.any();
             let confirmed = self.ledger.confirmed();
@@ -240,8 +247,41 @@ impl AecFactProcessor {
                     queued += 1;
                 } else {
                     missing += 1;
+                    absent.push(*hash);
                 }
             }
+        }
+        // A finalized block this ledger lacks - its rival held here instead,
+        // or never received - is inserted in place of the rival, parents
+        // first (the hashes come in position order), and cemented once present
+        for hash in absent {
+            #[cfg(feature = "rai_protocol")]
+            let block = self
+                .aec_fork_inserter
+                .fork_cache
+                .read()
+                .unwrap()
+                .block(&hash)
+                .or_else(|| self.active_elections.report_block(&hash));
+            #[cfg(not(feature = "rai_protocol"))]
+            let block: Option<Block> = None;
+            if let Some(block) = block {
+                self.block_processor_queue.push(BlockContext::new(
+                    block,
+                    BlockSource::Forced,
+                    ChannelId::LOOPBACK,
+                ));
+                fetched += 1;
+            }
+            self.awaiting_cement.insert(hash);
+        }
+        if missing > 0 {
+            crate::utils::diagnostic!(
+                "EPOCH_INSTALL_FETCH epoch={} missing={} fetched={}",
+                epoch,
+                missing,
+                fetched
+            );
         }
         crate::utils::diagnostic!(
             "EPOCH_INSTALLED epoch={} finalized={} cemented={} queued={} missing={}",
@@ -303,6 +343,31 @@ impl AecFactProcessor {
             forced,
             missing
         );
+    }
+
+    /// RAI: cement the checkpoint-finalized blocks that arrived since they
+    /// were found missing; checked every few hundred events, not each one
+    fn cement_awaited_checkpoint_blocks(&mut self) {
+        if self.awaiting_cement.is_empty() {
+            return;
+        }
+        self.events_since_cement_check += 1;
+        if self.events_since_cement_check < 256 {
+            return;
+        }
+        self.events_since_cement_check = 0;
+        let arrived: Vec<BlockHash> = {
+            let any = self.ledger.any();
+            self.awaiting_cement
+                .iter()
+                .filter(|hash| any.block_exists(hash))
+                .copied()
+                .collect()
+        };
+        for hash in arrived {
+            self.awaiting_cement.remove(&hash);
+            self.confirming_set.add_block(hash);
+        }
     }
 
     fn clear_network_filter(&mut self, block: &Block) {
