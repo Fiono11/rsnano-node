@@ -66,6 +66,14 @@ pub struct ReportService {
         Option<Timestamp>,
         std::collections::HashSet<rsnano_types::BlockHash>,
     )>,
+    /// Final certificates assembled while checking reports, by epoch and
+    /// block: they stay valid, and the reports of an epoch share them
+    final_certificates: Mutex<
+        HashMap<
+            (ConsensusEpoch, rsnano_types::BlockHash),
+            crate::consensus::election::CertificateKinds,
+        >,
+    >,
     /// Evidence blocks waiting to be checked and retained
     evidence_blocks: Mutex<std::collections::VecDeque<rsnano_types::Block>>,
     data: super::residual_data::ResidualData,
@@ -160,6 +168,7 @@ impl ReportService {
             derived_at: Mutex::new(HashMap::new()),
             evidence_blocks: Mutex::new(std::collections::VecDeque::new()),
             unvoted: Mutex::new((None, std::collections::HashSet::new())),
+            final_certificates: Mutex::new(HashMap::new()),
         }
     }
 
@@ -558,36 +567,31 @@ impl ReportService {
             }
             derived.insert((epoch, reporter), (count, now));
         }
-        let unplaced = self.active_elections.unplaced_signed(epoch, &reporter);
+        // RAI, "Reconstruction and report usability": Ĝ is the set of
+        // hashes the reporter signed an epoch vote for, minus keys(T). Only
+        // those outside T are placed, from owner-signed block data; the rest
+        // of the reporter's votes are not copied.
+        let signed = self.active_elections.signed_keys_of(epoch, &reporter);
+        let held = signed.len();
+        let outside = self
+            .exchange
+            .lock()
+            .unwrap()
+            .outside_certified(epoch, &reporter, signed);
+        let mut votes = Vec::with_capacity(outside.len());
+        let mut unplaced = Vec::new();
+        for (hash, kind) in outside {
+            match self.data.placement(&hash) {
+                Some((block, previous)) => votes.push((block, kind, previous)),
+                None => unplaced.push(hash),
+            }
+        }
         let unplaced_count = unplaced.len();
-        let placements: Vec<_> = unplaced
-            .into_iter()
-            .filter_map(|(hash, kind)| {
-                let (block, previous) = self.data.placement(&hash)?;
-                Some((block, kind, previous))
-            })
-            .collect();
-        let placed_count = placements.len();
-        self.active_elections
-            .place_signed(epoch, reporter, placements);
-        let votes = self.active_elections.vote_records_of(epoch, &reporter);
-        let held = votes.len();
-        let still_unplaced: Vec<_> = self
-            .active_elections
-            .unplaced_signed(epoch, &reporter)
-            .into_iter()
-            .map(|(hash, _)| hash)
-            .collect();
+        let placed_count = votes.len();
         let result = {
             let mut exchange = self.exchange.lock().unwrap();
-            let result = exchange.derive_residual_placed(
-                epoch,
-                reporter,
-                votes,
-                still_unplaced,
-                |hash| self.data.placement(hash),
-                now,
-            );
+            let result =
+                exchange.derive_residual_with_unplaced(epoch, reporter, votes, unplaced, now);
             result.map(|result| (result, exchange.residual_progress(epoch, &reporter)))
         };
         if let Some((result, progress)) = result {
@@ -643,13 +647,42 @@ impl ReportService {
             .filter_map(|back| epoch.as_u64().checked_sub(back).map(ConsensusEpoch::new))
             .collect();
         for vote_epoch in epochs {
+            // A final certificate assembled from retained votes stays valid:
+            // the reports of one epoch share most of their entries, so what
+            // one reporter's check found final is not assembled again
+            let wanted: Vec<rsnano_types::BlockHash> = {
+                let cache = self.final_certificates.lock().unwrap();
+                hashes
+                    .iter()
+                    .filter(|hash| match cache.get(&(vote_epoch, **hash)) {
+                        Some(kind) => {
+                            kinds.insert((vote_epoch, **hash), *kind);
+                            false
+                        }
+                        None => true,
+                    })
+                    .copied()
+                    .collect()
+            };
             // In chunks: each call holds the AEC read lock, which vote
             // processing needs for writing
-            for chunk in hashes.chunks(Self::CERTIFICATE_CHUNK) {
-                for (hash, kind) in self.active_elections.certificate_kinds(vote_epoch, chunk) {
+            for chunk in wanted.chunks(Self::CERTIFICATE_CHUNK) {
+                let found = self.active_elections.certificate_kinds(vote_epoch, chunk);
+                let mut cache = self.final_certificates.lock().unwrap();
+                for (hash, kind) in found {
+                    if kind.fc || kind.ff {
+                        cache.insert((vote_epoch, hash), kind);
+                    }
                     kinds.insert((vote_epoch, hash), kind);
                 }
             }
+        }
+        // Kept for the epochs still checked
+        if let Some(oldest) = epoch.as_u64().checked_sub(4) {
+            self.final_certificates
+                .lock()
+                .unwrap()
+                .retain(|(held, _), _| held.as_u64() > oldest);
         }
         let checked = hashes.len();
         let result = self.exchange.lock().unwrap().verify_evidence(

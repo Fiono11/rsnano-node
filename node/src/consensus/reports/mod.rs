@@ -774,6 +774,28 @@ impl ReportExchange {
         })
     }
 
+    /// RAI: the signed votes of a reporter for hashes the certified state
+    /// reconstructed for its report does not hold: the G candidates
+    pub fn outside_certified(
+        &self,
+        epoch: ConsensusEpoch,
+        reporter: &PublicKey,
+        signed: Vec<(BlockHash, ResidualKind)>,
+    ) -> Vec<(BlockHash, ResidualKind)> {
+        let Some(certified) = self
+            .epochs
+            .get(&epoch)
+            .and_then(|held| held.theirs.get(reporter))
+            .and_then(|their| their.reconstructed.as_ref())
+        else {
+            return Vec::new();
+        };
+        signed
+            .into_iter()
+            .filter(|(hash, _)| !certified.contains_hash(hash))
+            .collect()
+    }
+
     /// RAI: the signed G root of a report whose derived G does not hash to
     /// it yet: what a validator asks the reporter for directly
     pub fn unmatched_residual_root(

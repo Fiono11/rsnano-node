@@ -3135,28 +3135,6 @@ impl ActiveElectionsContainer {
     }
 
     #[cfg(feature = "rai_protocol")]
-    pub fn unplaced_signed(
-        &self,
-        epoch: ConsensusEpoch,
-        voter: &PublicKey,
-    ) -> Vec<(BlockHash, ResidualKind)> {
-        self.vote_records.unplaced_signed(epoch, voter)
-    }
-
-    #[cfg(feature = "rai_protocol")]
-    pub fn place_signed(
-        &mut self,
-        epoch: ConsensusEpoch,
-        voter: PublicKey,
-        votes: Vec<(CertifiedBlock, ResidualKind, BlockHash)>,
-    ) {
-        for (block, kind, previous) in votes {
-            self.vote_records
-                .place_signed(epoch, voter, block, kind, previous);
-        }
-    }
-
-    #[cfg(feature = "rai_protocol")]
     pub fn signed_votes_for(
         &self,
         epoch: ConsensusEpoch,
@@ -3218,7 +3196,16 @@ impl ActiveElectionsContainer {
 
     /// RAI: how many votes of one voter this node holds for an epoch
     pub fn vote_record_count(&self, epoch: ConsensusEpoch, voter: &PublicKey) -> usize {
-        self.vote_records.count_of(epoch, voter)
+        self.vote_records.signed_count(epoch, voter)
+    }
+
+    /// RAI: the (hash, kind) of every retained signed vote of a voter
+    pub fn signed_keys_of(
+        &self,
+        epoch: ConsensusEpoch,
+        voter: &PublicKey,
+    ) -> Vec<(BlockHash, crate::consensus::election::ResidualKind)> {
+        self.vote_records.signed_keys_of(epoch, voter)
     }
 
     /// RAI: the votes of one voter received for one epoch, with the parent

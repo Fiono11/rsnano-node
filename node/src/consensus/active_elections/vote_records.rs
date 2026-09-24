@@ -139,44 +139,25 @@ impl VoteRecords {
         result
     }
 
-    pub fn unplaced_signed(
+    /// The (hash, kind) of every retained signed vote of a voter in an epoch
+    pub fn signed_keys_of(
         &self,
         epoch: ConsensusEpoch,
         voter: &PublicKey,
     ) -> Vec<(BlockHash, ResidualKind)> {
-        let placed: HashSet<_> = self
-            .votes_of(epoch, voter)
-            .into_iter()
-            .map(|(b, k, _)| (b.hash, k))
-            .collect();
         self.signed
             .get(&epoch)
             .and_then(|e| e.get(voter))
-            .into_iter()
-            .flat_map(|votes| votes.keys())
-            .filter(|key| !placed.contains(key))
-            .copied()
-            .collect()
+            .map(|votes| votes.keys().copied().collect())
+            .unwrap_or_default()
     }
 
-    /// Placement comes from owner-signed block data, never a report/sketch hint.
-    /// A matching original signature must already have passed vote ingress.
-    pub fn place_signed(
-        &mut self,
-        epoch: ConsensusEpoch,
-        voter: PublicKey,
-        block: CertifiedBlock,
-        kind: ResidualKind,
-        previous: BlockHash,
-    ) {
-        if self
-            .signed
+    /// How many signed votes of a voter in an epoch are retained
+    pub fn signed_count(&self, epoch: ConsensusEpoch, voter: &PublicKey) -> usize {
+        self.signed
             .get(&epoch)
-            .and_then(|e| e.get(&voter))
-            .is_some_and(|v| v.contains_key(&(block.hash, kind)))
-        {
-            self.record(epoch, voter, block, kind, previous);
-        }
+            .and_then(|e| e.get(voter))
+            .map_or(0, BTreeMap::len)
     }
 
     /// Records one vote of a voter for a block of an epoch, with the parent
@@ -198,22 +179,6 @@ impl VoteRecords {
         if votes.insert((block, kind), previous).is_none() {
             self.len += 1;
         }
-    }
-
-    /// How many votes of one voter in one epoch are held here, placed or
-    /// only signed: what changes when a new vote arrives
-    pub fn count_of(&self, epoch: ConsensusEpoch, voter: &PublicKey) -> usize {
-        let placed = self
-            .by_epoch
-            .get(&epoch)
-            .and_then(|voters| voters.get(voter))
-            .map_or(0, BTreeMap::len);
-        let signed = self
-            .signed
-            .get(&epoch)
-            .and_then(|voters| voters.get(voter))
-            .map_or(0, BTreeMap::len);
-        placed + signed
     }
 
     /// The votes of one voter in one epoch, in canonical order
@@ -259,50 +224,22 @@ mod tests {
     use rsnano_types::Account;
 
     #[test]
-    fn placement_requires_a_matching_retained_signature() {
+    fn signed_keys_list_every_retained_vote_of_a_voter() {
         let mut records = VoteRecords::default();
         let key = rsnano_types::PrivateKey::from(7);
-        let b = CertifiedBlock::new(Account::from(1), 1, BlockHash::from(2));
         let epoch = ConsensusEpoch::ZERO;
-        records.place_signed(
-            epoch,
-            key.public_key(),
-            b,
-            ResidualKind::First,
-            BlockHash::ZERO,
-        );
-        assert!(records.votes_of(epoch, &key.public_key()).is_empty());
-        let vote = Arc::new(Vote::new_in_epoch(
-            &key,
-            VoteKind::First,
-            epoch,
-            vec![b.hash],
-        ));
-        records.retain_signed(&vote);
+        let hash = BlockHash::from(2);
+        assert!(records.signed_keys_of(epoch, &key.public_key()).is_empty());
+
+        for kind in [VoteKind::First, VoteKind::Final] {
+            records.retain_signed(&Arc::new(Vote::new_in_epoch(&key, kind, epoch, vec![hash])));
+        }
+
         assert_eq!(
-            records.unplaced_signed(epoch, &key.public_key()),
-            vec![(b.hash, ResidualKind::First)]
+            records.signed_keys_of(epoch, &key.public_key()),
+            vec![(hash, ResidualKind::First), (hash, ResidualKind::Final)]
         );
-        records.place_signed(
-            epoch,
-            key.public_key(),
-            b,
-            ResidualKind::Final,
-            BlockHash::ZERO,
-        );
-        assert!(records.votes_of(epoch, &key.public_key()).is_empty());
-        records.place_signed(
-            epoch,
-            key.public_key(),
-            b,
-            ResidualKind::First,
-            BlockHash::ZERO,
-        );
-        assert_eq!(
-            records.votes_of(epoch, &key.public_key()),
-            vec![(b, ResidualKind::First, BlockHash::ZERO)]
-        );
-        assert!(records.unplaced_signed(epoch, &key.public_key()).is_empty());
+        assert_eq!(records.signed_count(epoch, &key.public_key()), 2);
     }
 
     #[test]

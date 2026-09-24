@@ -426,27 +426,12 @@ impl AecService {
             .first_voted_elsewhere(epoch, voters)
     }
 
-    #[cfg(feature = "rai_protocol")]
-    pub(crate) fn unplaced_signed(
+    pub(crate) fn signed_keys_of(
         &self,
         epoch: ConsensusEpoch,
         voter: &PublicKey,
     ) -> Vec<(BlockHash, crate::consensus::election::ResidualKind)> {
-        self.aec.read().unwrap().unplaced_signed(epoch, voter)
-    }
-
-    #[cfg(feature = "rai_protocol")]
-    pub(crate) fn place_signed(
-        &self,
-        epoch: ConsensusEpoch,
-        voter: PublicKey,
-        votes: Vec<(
-            crate::consensus::election::CertifiedBlock,
-            crate::consensus::election::ResidualKind,
-            BlockHash,
-        )>,
-    ) {
-        self.aec.write().unwrap().place_signed(epoch, voter, votes);
+        self.aec.read().unwrap().signed_keys_of(epoch, voter)
     }
 
     #[cfg(feature = "rai_protocol")]
