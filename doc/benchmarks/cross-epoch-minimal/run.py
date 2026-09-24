@@ -216,6 +216,8 @@ def main():
     parser.add_argument("--settle-seconds", type=int, default=30)
     parser.add_argument("--absent", type=int, default=0)
     parser.add_argument("--min-free-gib", type=float, default=8)
+    parser.add_argument("--stop-on-failure", action="store_true",
+                        help="Stop the development gate at the first failed attempt; retain its evidence")
     parser.add_argument("extra", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     if args.extra[:1] == ["--"]:
@@ -250,6 +252,14 @@ def main():
                 print(json.dumps(verdict), flush=True)
                 return 2
             results.append(run(args, label, binary, pair))
+            last = results[-1]
+            if args.stop_on_failure and (not last["complete"] or "cleanup_error" in last
+                                        or last.get("settled_consistent") is False):
+                verdict = compare(results, args.repetitions)
+                verdict["stopped_early"] = True
+                (args.out / "comparison.json").write_text(json.dumps(verdict, indent=2) + "\n")
+                print(json.dumps(verdict), flush=True)
+                return 1
     verdict = compare(results, args.repetitions)
     (args.out / "comparison.json").write_text(json.dumps(verdict, indent=2) + "\n")
     print(json.dumps(verdict), flush=True)
