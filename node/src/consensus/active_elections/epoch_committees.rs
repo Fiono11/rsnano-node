@@ -4,7 +4,9 @@ use rsnano_ledger::RepWeights;
 use rsnano_types::{Account, Amount, BlockHash, ConsensusEpoch, PublicKey};
 
 use crate::{
-    consensus::election::{AccountFrontier, Committee, CommitteeWeights, Committees},
+    consensus::election::{
+        AccountFrontier, Committee, CommitteeModel, CommitteeWeights, Committees,
+    },
     representatives::QuorumSnapshot,
 };
 
@@ -25,14 +27,27 @@ pub(crate) struct EpochCommittees {
     /// The frontiers of epochs agreed on before the epoch before them: the
     /// weights are cumulative, so they wait for their turn
     pending: BTreeMap<ConsensusEpoch, Vec<AccountFrontier>>,
+    /// RAI: how the committees count (see `CommitteeModel`)
+    model: CommitteeModel,
 }
 
 impl EpochCommittees {
+    pub fn with_model(model: CommitteeModel) -> Self {
+        Self {
+            model,
+            ..Default::default()
+        }
+    }
+
+    pub fn model(&self) -> CommitteeModel {
+        self.model
+    }
+
     /// The frontiers of every account at the end of the setup: the genesis
     /// committee, and the base the epochs' frontiers are counted on
     pub fn start(&mut self, frontiers: Vec<AccountFrontier>) -> Arc<Committee> {
         self.weights.count_all(frontiers);
-        let genesis = Arc::new(self.weights.committee());
+        let genesis = Arc::new(self.weights.committee_under(self.model));
         self.genesis = Some(genesis.clone());
         genesis
     }
@@ -67,7 +82,7 @@ impl EpochCommittees {
                 break;
             };
             self.weights.count_all(frontiers);
-            let committee = Arc::new(self.weights.committee());
+            let committee = Arc::new(self.weights.committee_under(self.model));
             self.derived.insert(next, committee.clone());
             derived.push((next, committee));
         }
@@ -100,6 +115,13 @@ impl EpochCommittees {
     /// committees certify it, and a round times out once either does.
     pub fn for_close(&self, epoch: ConsensusEpoch) -> Option<Committees> {
         let old = self.committee(epoch)?;
+        // RAI, "Lagged committees and lifecycle": under the paper's model
+        // "handoff for e is decided by C_{e-2} and verified and installed by
+        // the already known successor committee C_{e-1}": the closing
+        // committee decides alone; the joint count is the baseline's
+        if matches!(self.model, CommitteeModel::EqualWeight { .. }) {
+            return Some(Committees::single(old));
+        }
         let new = self.committee(epoch.next())?;
         if Arc::ptr_eq(&old, &new) {
             Some(Committees::single(old))
@@ -165,6 +187,23 @@ pub(crate) fn live_committees(rep_weights: &RepWeights, quorum: &QuorumSnapshot)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// RAI: under the paper's model the closing committee decides alone,
+    /// whatever the successor committee is
+    #[test]
+    fn the_closing_committee_decides_alone_under_the_equal_weight_model() {
+        let mut committees =
+            EpochCommittees::with_model(CommitteeModel::EqualWeight { f: 0, p: 0 });
+        committees.start(vec![frontier(1, 1, 1, 10)]);
+        // Epoch 0 derives a different committee for epoch 2
+        committees.derive(ConsensusEpoch::ZERO, vec![frontier(2, 1, 2, 10)]);
+        let close = committees.for_close(ConsensusEpoch::ZERO).unwrap();
+        assert!(!close.is_joint());
+        assert_eq!(close.primary().len(), 1);
+        assert_eq!(close.primary().online(), Amount::raw(1));
+        let weighted = EpochCommittees::default();
+        assert_eq!(weighted.model(), CommitteeModel::Weighted);
+    }
     use rsnano_types::{Account, Amount, PrivateKey, PublicKey};
 
     #[test]

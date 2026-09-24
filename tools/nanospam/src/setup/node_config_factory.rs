@@ -36,6 +36,9 @@ pub(crate) const NODE_CONFIG: &str = r#"
     epoch_duration_ms = EPOCH_DURATION_MS
     account_voting = ACCOUNT_VOTING
     checkpoint_finalization = "CHECKPOINT_FINALIZATION"
+    committee_model = "COMMITTEE_MODEL"
+    committee_f = COMMITTEE_F
+    committee_p = COMMITTEE_P
 
 [node.lmdb]
     sync = "nosync_unsafe"
@@ -120,6 +123,9 @@ pub(crate) fn configure_nodes(args: &CliArgs, data_dir: &Path) {
                 .replace("EPOCH_DURATION_MS", &args.epoch_duration_ms.to_string())
                 .replace("ACCOUNT_VOTING", &args.votes_in_accounts(i).to_string())
                 .replace("CHECKPOINT_FINALIZATION", &args.checkpoint_finalization)
+                .replace("COMMITTEE_MODEL", &args.committee_model)
+                .replace("COMMITTEE_F", &args.committee_f.to_string())
+                .replace("COMMITTEE_P", &args.committee_p.to_string())
                 .replace(
                     "ONLINE_WEIGHT_MINIMUM",
                     &voting_weight().number().to_string(),

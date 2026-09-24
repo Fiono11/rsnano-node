@@ -258,7 +258,7 @@ impl ActiveElectionsContainer {
             genesis_state: Arc::new(EpochLedger::new()),
             report_bases: BTreeMap::new(),
             report_observations: BTreeMap::new(),
-            committees: EpochCommittees::default(),
+            committees: EpochCommittees::with_model(config.committee_model),
             close_round_timeout: config.close_round_timeout,
             local_reps: Vec::new(),
         }
@@ -620,15 +620,26 @@ impl ActiveElectionsContainer {
                 format!("{}:{:.1}%", &rep.to_string()[..8], share * 100.0)
             })
             .collect();
+        let expected = self.committees.model().expected_members();
         diagnostic!(
-            "EPOCH_COMMITTEE derived_by={} members={} accounts={} n={} digest={} shares={:?}",
+            "EPOCH_COMMITTEE derived_by={} model={} members={} expected={} accounts={} n={} q={} digest={} shares={:?}",
             derived_by,
+            self.committees.model().as_str(),
             committee.len(),
+            expected.map_or("any".to_string(), |n| n.to_string()),
             self.committees.counted(),
             committee.online().number(),
+            committee.thresholds().certificate.number(),
             committee.digest(),
             shares
         );
+        if expected.is_some_and(|n| n != committee.len()) {
+            diagnostic!(
+                "COMMITTEE_MODEL_MISMATCH members={} expected={} : N is not 3f + 2p + 1",
+                committee.len(),
+                expected.unwrap()
+            );
+        }
     }
 
     /// RAI: leave the current epoch and start the next one. The instances of

@@ -5,6 +5,39 @@ use rustc_hash::FxHashMap;
 
 use super::KudzuThresholds;
 
+/// RAI: how a committee counts. The weighted model of the baseline counts
+/// each member with the balance delegated to it and derives the thresholds
+/// as shares of the whole. The paper's model has N = 3f + 2p + 1 members of
+/// equal weight with explicit integer thresholds (Section 3.2).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CommitteeModel {
+    Weighted,
+    EqualWeight { f: u32, p: u32 },
+}
+
+impl Default for CommitteeModel {
+    fn default() -> Self {
+        Self::Weighted
+    }
+}
+
+impl CommitteeModel {
+    /// N = 3f + 2p + 1 under the equal-weight model
+    pub fn expected_members(&self) -> Option<usize> {
+        match self {
+            Self::Weighted => None,
+            Self::EqualWeight { f, p } => Some(3 * *f as usize + 2 * *p as usize + 1),
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Weighted => "weighted",
+            Self::EqualWeight { .. } => "equal_weight",
+        }
+    }
+}
+
 /// RAI: the voting weights the instances of one consensus epoch are counted
 /// with, and the Kudzu thresholds derived from them. The committee's members
 /// are the same throughout a run; the weight of each moves with the balances
@@ -35,6 +68,23 @@ impl Committee {
         Self {
             weights,
             thresholds: KudzuThresholds::new(online),
+        }
+    }
+
+    /// RAI, "Participants, faults, and membership": the members of equal
+    /// weight one, with the paper's explicit thresholds. The members are the
+    /// identities holding delegated weight; a member count other than
+    /// N = 3f + 2p + 1 is reported by the caller, the thresholds still
+    /// follow the configured f and p.
+    pub fn equal_weight(members: impl IntoIterator<Item = PublicKey>, f: u32, p: u32) -> Self {
+        let weights: FxHashMap<PublicKey, Amount> = members
+            .into_iter()
+            .map(|member| (member, Amount::raw(1)))
+            .collect();
+        let thresholds = KudzuThresholds::explicit(weights.len() as u128, f as u128, p as u128);
+        Self {
+            weights,
+            thresholds,
         }
     }
 
@@ -175,6 +225,22 @@ impl CommitteeWeights {
         Committee::new(self.weights.clone())
     }
 
+    /// The committee of these weights under a model: weighted, or the
+    /// identities holding weight as equal members
+    pub fn committee_under(&self, model: CommitteeModel) -> Committee {
+        match model {
+            CommitteeModel::Weighted => self.committee(),
+            CommitteeModel::EqualWeight { f, p } => Committee::equal_weight(
+                self.weights
+                    .iter()
+                    .filter(|(_, weight)| !weight.is_zero())
+                    .map(|(rep, _)| *rep),
+                f,
+                p,
+            ),
+        }
+    }
+
     /// The height counted for an account, if any
     pub fn counted_height(&self, account: &Account) -> Option<u64> {
         self.counted.get(account).map(|frontier| frontier.height)
@@ -231,6 +297,62 @@ impl CommitteeWeights {
 
 #[cfg(test)]
 mod tests {
+    /// RAI, Table 1: f = p = 1, N = 6: four notarize or finalize, five
+    /// finalize fast, three first votes recover, five reports close
+    #[test]
+    fn six_equal_members_have_the_papers_thresholds() {
+        let members: Vec<PublicKey> = (1..=6).map(|i| PrivateKey::from(i).public_key()).collect();
+        let committee = Committee::equal_weight(members.iter().copied(), 1, 1);
+        let thresholds = committee.thresholds();
+        assert_eq!(committee.len(), 6);
+        assert_eq!(committee.online(), Amount::raw(6));
+        assert_eq!(thresholds.certificate, Amount::raw(4));
+        assert_eq!(thresholds.fast, Amount::raw(5));
+        assert_eq!(thresholds.many, Amount::raw(3));
+        assert_eq!(thresholds.report, Amount::raw(5));
+        assert_eq!(thresholds.f, Amount::raw(1));
+        assert_eq!(committee.weight(&members[0]), Amount::raw(1));
+        assert_eq!(
+            CommitteeModel::EqualWeight { f: 1, p: 1 }.expected_members(),
+            Some(6)
+        );
+    }
+
+    /// Under the equal-weight model an identity without delegated weight
+    /// is not a member, and balances do not tilt the count
+    #[test]
+    fn equal_weight_members_are_the_identities_holding_weight() {
+        let mut weights = CommitteeWeights::default();
+        for (i, balance) in [(1u64, 1000u128), (2, 1), (3, 0)] {
+            weights.count(AccountFrontier {
+                hash: BlockHash::from(i),
+                account: Account::from(i),
+                height: 1,
+                representative: PrivateKey::from(i).public_key(),
+                balance: Amount::raw(balance),
+            });
+        }
+        let committee = weights.committee_under(CommitteeModel::EqualWeight { f: 0, p: 0 });
+        assert_eq!(committee.len(), 2);
+        assert_eq!(
+            committee.weight(&PrivateKey::from(1).public_key()),
+            Amount::raw(1)
+        );
+        assert_eq!(
+            committee.weight(&PrivateKey::from(2).public_key()),
+            Amount::raw(1)
+        );
+        assert_eq!(
+            committee.weight(&PrivateKey::from(3).public_key()),
+            Amount::ZERO
+        );
+        let weighted = weights.committee_under(CommitteeModel::Weighted);
+        assert_eq!(
+            weighted.weight(&PrivateKey::from(1).public_key()),
+            Amount::raw(1000)
+        );
+    }
+
     /// The members of a committee hold the whole supply between them, so an
     /// account counted twice has nowhere to go. The sum is held at the
     /// maximum rather than wrapping to a small number, which would have let

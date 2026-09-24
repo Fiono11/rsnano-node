@@ -390,6 +390,15 @@ impl NodeConfig {
             if let Some(ms) = i.close_round_timeout_ms {
                 self.active_elections.close_round_timeout = Duration::from_millis(ms);
             }
+            if let Some(model) = &i.committee_model {
+                self.active_elections.committee_model = match model.as_str() {
+                    "equal_weight" => crate::consensus::election::CommitteeModel::EqualWeight {
+                        f: i.committee_f.unwrap_or(1),
+                        p: i.committee_p.unwrap_or(1),
+                    },
+                    _ => crate::consensus::election::CommitteeModel::Weighted,
+                };
+            }
             if let Some(rule) = &i.checkpoint_finalization {
                 self.active_elections.checkpoint_finalization = match rule.as_str() {
                     "unique_branch" => {

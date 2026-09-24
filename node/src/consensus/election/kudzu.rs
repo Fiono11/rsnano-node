@@ -50,6 +50,22 @@ impl KudzuThresholds {
     pub fn from_quorum(quorum: &QuorumSnapshot) -> Self {
         Self::new(max(quorum.online_weight, quorum.trended_or_min_weight))
     }
+
+    /// RAI, "Thresholds and the role of p": the paper's explicit integer
+    /// parameters for N equal-weight members, f Byzantine and p the fast path
+    /// may do without: q = N − f − p, r = f + p + 1, fast N − p, and N − f
+    /// selected reports. Counts of identities, each of weight one.
+    pub fn explicit(members: u128, f: u128, p: u128) -> Self {
+        let n = members;
+        Self {
+            online: Amount::raw(n),
+            f: Amount::raw(f),
+            certificate: Amount::raw(n.saturating_sub(f + p)),
+            fast: Amount::raw(n.saturating_sub(p)),
+            many: Amount::raw(f + p + 1),
+            report: Amount::raw(n.saturating_sub(f)),
+        }
+    }
 }
 
 fn percent_of(amount: Amount, percent: u128) -> Amount {

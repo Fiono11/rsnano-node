@@ -57,6 +57,10 @@ pub struct ActiveElectionsConfig {
     /// doc/benchmarks/cross-epoch-minimal/CHECKPOINT-FINALIZATION-VARIANT.md).
     /// The paper's certificate-only rule by default.
     pub checkpoint_finalization: crate::consensus::election::CheckpointFinalization,
+    /// RAI: how committees count: the baseline's weighted joint agreement,
+    /// or the paper's equal-weight members with explicit f and p and the
+    /// closing committee deciding alone
+    pub committee_model: crate::consensus::election::CommitteeModel,
 }
 
 impl Default for ActiveElectionsConfig {
@@ -69,6 +73,7 @@ impl Default for ActiveElectionsConfig {
             close_round_timeout: Duration::from_secs(2),
             account_voting: true,
             checkpoint_finalization: Default::default(),
+            committee_model: Default::default(),
         }
     }
 }

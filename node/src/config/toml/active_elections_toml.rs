@@ -23,6 +23,13 @@ pub struct ActiveElectionsToml {
     /// "unique_branch" (the experimental variant that checkpoint-finalizes
     /// a unique preserved branch; not covered by the paper's safety proof)
     pub checkpoint_finalization: Option<String>,
+    /// RAI: "weighted" (the baseline's weighted joint agreement, default) or
+    /// "equal_weight" (the paper's model: N = 3f + 2p + 1 equal members,
+    /// explicit thresholds, the closing committee decides alone)
+    pub committee_model: Option<String>,
+    /// RAI: f and p of the equal-weight model
+    pub committee_f: Option<u32>,
+    pub committee_p: Option<u32>,
 }
 
 impl From<&NodeConfig> for ActiveElectionsToml {
@@ -42,6 +49,15 @@ impl From<&NodeConfig> for ActiveElectionsToml {
                 config.active_elections.close_round_timeout.as_millis() as u64
             ),
             account_voting: Some(config.active_elections.account_voting),
+            committee_model: Some(config.active_elections.committee_model.as_str().to_string()),
+            committee_f: match config.active_elections.committee_model {
+                crate::consensus::election::CommitteeModel::EqualWeight { f, .. } => Some(f),
+                _ => None,
+            },
+            committee_p: match config.active_elections.committee_model {
+                crate::consensus::election::CommitteeModel::EqualWeight { p, .. } => Some(p),
+                _ => None,
+            },
             checkpoint_finalization: Some(
                 match config.active_elections.checkpoint_finalization {
                     crate::consensus::election::CheckpointFinalization::CertificateOnly => {

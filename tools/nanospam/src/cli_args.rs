@@ -119,6 +119,20 @@ pub(crate) struct CliArgs {
     /// paper's safety proof)
     #[arg(long, default_value = "certificate_only")]
     pub checkpoint_finalization: String,
+
+    /// RAI: how every node's committees count: "weighted" (the baseline's
+    /// weighted joint agreement) or "equal_weight" (the paper's model with
+    /// N = 3f + 2p + 1 equal members and the closing committee deciding)
+    #[arg(long, default_value = "weighted")]
+    pub committee_model: String,
+
+    /// RAI: f of the equal-weight model
+    #[arg(long, default_value_t = 1)]
+    pub committee_f: u32,
+
+    /// RAI: p of the equal-weight model
+    #[arg(long, default_value_t = 1)]
+    pub committee_p: u32,
 }
 
 impl CliArgs {
