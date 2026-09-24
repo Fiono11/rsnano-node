@@ -2334,6 +2334,8 @@ impl ActiveElectionsContainer {
                 .or_default()
                 .insert(args.vote.voter);
         }
+        #[cfg(feature = "rai_protocol")]
+        self.vote_records.retain_signed(&args.vote.vote.vote);
         self.record_votes(&args);
         let mut apply_helper = ApplyVoteHelper {
             args: &args,
@@ -2415,6 +2417,16 @@ impl ActiveElectionsContainer {
                 previous,
             );
         }
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn signed_votes_for(
+        &self,
+        epoch: ConsensusEpoch,
+        voter: &PublicKey,
+        hashes: &[BlockHash],
+    ) -> Vec<Arc<rsnano_types::Vote>> {
+        self.vote_records.signed_for(epoch, voter, hashes)
     }
 
     /// RAI: the votes of one voter received for one epoch, with the parent

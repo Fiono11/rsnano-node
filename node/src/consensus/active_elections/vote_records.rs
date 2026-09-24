@@ -1,6 +1,9 @@
-use std::collections::{BTreeMap, HashMap};
+use std::{
+    collections::{BTreeMap, HashMap, HashSet},
+    sync::Arc,
+};
 
-use rsnano_types::{BlockHash, ConsensusEpoch, PublicKey};
+use rsnano_types::{BlockHash, ConsensusEpoch, PublicKey, Vote, VoteKind};
 
 use crate::consensus::election::{CertifiedBlock, ResidualKind};
 
@@ -17,9 +20,64 @@ pub(crate) struct VoteRecords {
         HashMap<PublicKey, BTreeMap<(CertifiedBlock, ResidualKind), BlockHash>>,
     >,
     len: usize,
+    signed: BTreeMap<
+        ConsensusEpoch,
+        HashMap<PublicKey, BTreeMap<(BlockHash, ResidualKind), Arc<Vote>>>,
+    >,
 }
 
 impl VoteRecords {
+    /// Called only after ingress signature validation. Keep the original batch,
+    /// including its signature: splitting or re-signing would change the proof.
+    /// Placement may not yet be known when the signed vote arrives.
+    pub fn retain_signed(&mut self, vote: &Arc<Vote>) {
+        let kind = match vote.kind() {
+            VoteKind::First => ResidualKind::First,
+            VoteKind::Notar => ResidualKind::Notar,
+            VoteKind::Final => ResidualKind::Final,
+            _ => return,
+        };
+        if vote.epoch.is_close_round() {
+            return;
+        }
+        let held = self
+            .signed
+            .entry(vote.epoch)
+            .or_default()
+            .entry(vote.voter)
+            .or_default();
+        for hash in &vote.hashes {
+            held.entry((*hash, kind)).or_insert_with(|| vote.clone());
+        }
+    }
+
+    pub fn signed_for(
+        &self,
+        epoch: ConsensusEpoch,
+        voter: &PublicKey,
+        hashes: &[BlockHash],
+    ) -> Vec<Arc<Vote>> {
+        let Some(held) = self.signed.get(&epoch).and_then(|e| e.get(voter)) else {
+            return Vec::new();
+        };
+        let mut seen = HashSet::new();
+        let mut result = Vec::new();
+        for hash in hashes {
+            for kind in [
+                ResidualKind::First,
+                ResidualKind::Notar,
+                ResidualKind::Final,
+            ] {
+                if let Some(vote) = held.get(&(*hash, kind)) {
+                    if seen.insert(Arc::as_ptr(vote) as usize) {
+                        result.push(vote.clone());
+                    }
+                }
+            }
+        }
+        result
+    }
+
     /// Records one vote of a voter for a block of an epoch, with the parent
     /// the block names. A vote seen twice is one vote.
     pub fn record(
@@ -61,6 +119,7 @@ impl VoteRecords {
 
     /// Drops the epochs before the given one
     pub fn trim_before(&mut self, epoch: ConsensusEpoch) {
+        self.signed.retain(|held, _| *held >= epoch);
         while let Some(oldest) = self.by_epoch.keys().next().copied() {
             if oldest >= epoch {
                 break;
@@ -80,6 +139,50 @@ impl VoteRecords {
 mod tests {
     use super::*;
     use rsnano_types::Account;
+
+    #[test]
+    fn signed_replay_preserves_batches_and_is_scoped_and_trimmed() {
+        let key = rsnano_types::PrivateKey::from(7);
+        let hashes = vec![BlockHash::from(1), BlockHash::from(2)];
+        let first = Arc::new(Vote::new_in_epoch(
+            &key,
+            VoteKind::First,
+            ConsensusEpoch::ZERO,
+            hashes.clone(),
+        ));
+        let final_vote = Arc::new(Vote::new_in_epoch(
+            &key,
+            VoteKind::Final,
+            ConsensusEpoch::ZERO,
+            hashes.clone(),
+        ));
+        let mut records = VoteRecords::default();
+        records.retain_signed(&first);
+        records.retain_signed(&first);
+        records.retain_signed(&final_vote);
+        let replay = records.signed_for(ConsensusEpoch::ZERO, &key.public_key(), &hashes);
+        assert_eq!(replay.len(), 2);
+        assert!(Arc::ptr_eq(&replay[0], &first));
+        assert!(Arc::ptr_eq(&replay[1], &final_vote));
+        assert!(replay.iter().all(|v| v.validate().is_ok()));
+        assert_eq!(replay[0].hashes, hashes);
+        assert!(
+            records
+                .signed_for(ConsensusEpoch::new(1), &key.public_key(), &hashes)
+                .is_empty()
+        );
+        assert!(
+            records
+                .signed_for(ConsensusEpoch::ZERO, &PublicKey::from(8), &hashes)
+                .is_empty()
+        );
+        records.trim_before(ConsensusEpoch::new(1));
+        assert!(
+            records
+                .signed_for(ConsensusEpoch::ZERO, &key.public_key(), &hashes)
+                .is_empty()
+        );
+    }
 
     #[test]
     fn records_votes_by_epoch_and_voter_once() {

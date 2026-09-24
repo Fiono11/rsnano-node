@@ -87,3 +87,28 @@ repair authenticated epoch-scoped vote availability/replay with focused tests.
 Do not weaken evidence checks or treat missing branches as discarded. Run one
 bounded termination diagnostic after the repair; resume paired fork performance
 measurements only after completion and a matching baseline calibration.
+
+
+## Signed residual replay implementation
+
+Validated account-vote batches are now retained with their original signatures,
+indexed by epoch, reporter, block hash and vote kind. Retention begins before
+block placement, so an initially unknown fork does not lose its signed message.
+The existing epoch retention boundary also trims these message references.
+Once per second, each node replays the original batches covering its own frozen
+G using the existing certificate-evidence message flag. Receivers still verify
+signatures; the flag permits retained evidence past the duplicate filter. A
+batch is sent once per report per tick even if it covers several G hashes.
+Retained reports continue serving lagging peers after local checkpoint closure.
+
+This is periodic gossip of retained signed votes, not a new hash/sketch trust
+path. It does not weaken the signed G-root or first-evidence checks. The archive
+is in memory, not crash-durable storage, and is bounded by retained epochs rather
+than a byte budget. Replaying a batch may also carry votes for hashes summarized
+by T because changing its hash list would invalidate its signature. Its memory,
+network and verification costs still require paired performance evaluation.
+
+Opt-in diagnostics now include each report's expected G root, locally derived
+G root, vote-kind entries and first-evidence completeness, plus the reporter's
+frozen G evidence. These allow direct comparison of missing/extra hashes and
+missing first votes without treating a hash-only commitment as signed evidence.

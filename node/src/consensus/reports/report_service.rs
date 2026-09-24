@@ -5,7 +5,7 @@ use std::{
 };
 
 use rsnano_messages::{
-    Message, ReconReply, ReconReq, Report, ResidualSketchReply, ResidualSketchReq,
+    ConfirmAck, Message, ReconReply, ReconReq, Report, ResidualSketchReply, ResidualSketchReq,
 };
 use rsnano_network::{Channel, TrafficType};
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
@@ -41,6 +41,7 @@ pub struct ReportService {
     /// decided here yet: signed once it is
     pending: Mutex<HashMap<ConsensusEpoch, Arc<EpochReport>>>,
     source_refreshed: Mutex<HashMap<ConsensusEpoch, Timestamp>>,
+    votes_repeated: Mutex<Option<Timestamp>>,
 }
 
 #[allow(dead_code)] // reconciled_count is read by the close, Section 9.1
@@ -66,6 +67,7 @@ impl ReportService {
             logged: Mutex::new(HashMap::new()),
             pending: Mutex::new(HashMap::new()),
             source_refreshed: Mutex::new(HashMap::new()),
+            votes_repeated: Mutex::new(None),
         }
     }
 
@@ -83,16 +85,28 @@ impl ReportService {
                 })
                 .collect::<Vec<_>>()
         };
+        let residual = |votes: &crate::consensus::election::ResidualVotes| {
+            serde_json::json!({
+                "root": votes.root(), "first_evidence_complete": votes.first_evidence_complete(),
+                "entries": votes.entries().map(|(b,k,p)| serde_json::json!({
+                    "account": b.account, "height": b.height, "hash": b.hash,
+                    "previous": p, "kind": format!("{:?}", k)
+                })).collect::<Vec<_>>()
+            })
+        };
         serde_json::json!(exchange.epochs.iter().map(|(epoch, held)| {
             serde_json::json!({
                 "epoch": epoch.as_u64(), "live_root": held.live.root(), "live": entries(&held.live),
                 "signed": held.signed.iter().map(|r| serde_json::json!({
                     "reporter": r.reporter, "target": r.certified, "residual": r.residual,
-                    "snapshot": held.state(r.certified).map(&entries)
+                    "snapshot": held.state(r.certified).map(&entries),
+                    "residual_evidence": held.residuals.get(&r.residual).map(&residual)
                 })).collect::<Vec<_>>(),
                 "received": held.theirs.values().map(|r| serde_json::json!({
                     "reporter": r.report.reporter, "target": r.report.certified,
-                    "reconstructed": r.reconstructed.is_some(), "complete": r.is_complete()
+                    "reconstructed": r.reconstructed.is_some(), "complete": r.is_complete(),
+                    "expected_residual_root": r.report.residual,
+                    "residual_evidence": r.residual.as_ref().or(r.working.as_ref()).map(&residual)
                 })).collect::<Vec<_>>()
             })
         }).collect::<Vec<_>>())
@@ -374,6 +388,57 @@ impl ReportService {
         }
     }
 
+    /// Replay original signed messages for our frozen G through ordinary vote
+    /// ingress. Keep serving retained reports after local closure for lagging
+    /// peers. Never manufacture vote-kind evidence from a G hash/sketch.
+    fn repeat_residual_votes(&self) {
+        let now = self.clock.now();
+        {
+            let mut repeated = self.votes_repeated.lock().unwrap();
+            if repeated.is_some_and(|last| last.elapsed(now) < ReportExchange::REPEAT_INTERVAL) {
+                return;
+            }
+            *repeated = Some(now);
+        }
+        let requests: Vec<_> = {
+            let exchange = self.exchange.lock().unwrap();
+            exchange
+                .epochs
+                .iter()
+                .flat_map(|(epoch, held)| {
+                    held.signed.iter().filter_map(|report| {
+                        let votes = held.residuals.get(&report.residual)?;
+                        let hashes: std::collections::BTreeSet<_> =
+                            votes.entries().map(|(b, _, _)| b.hash).collect();
+                        Some((
+                            *epoch,
+                            report.reporter,
+                            hashes.into_iter().collect::<Vec<_>>(),
+                        ))
+                    })
+                })
+                .collect()
+        };
+        for (epoch, reporter, hashes) in requests {
+            let votes = self
+                .active_elections
+                .signed_votes_for(epoch, &reporter, &hashes);
+            if votes.is_empty() {
+                continue;
+            }
+            let mut flooder = self.flooder.lock().unwrap();
+            for vote in votes {
+                flooder.flood_prs_and_some_non_prs(
+                    &Message::ConfirmAck(ConfirmAck::new_with_certificate_evidence(
+                        (*vote).clone(),
+                    )),
+                    TrafficType::Vote,
+                    1.0,
+                );
+            }
+        }
+    }
+
     /// Drives the reconciliations of the epochs still closing. The live
     /// certified state is refreshed from the active elections first: gossip
     /// keeps delivering the votes of a closed epoch, and it is that growth
@@ -407,6 +472,7 @@ impl ReportService {
             .unwrap()
             .repeat_reports(self.clock.now());
         self.send(repeated, None);
+        self.repeat_residual_votes();
         // Until the epoch is decided here, not until its election closes: a
         // replica that learned the certificate before it could derive the
         // value still needs the reports that value names
@@ -541,6 +607,57 @@ mod tests {
         CertifiedBlock, CertifiedState, CertifiedStatus, ResidualVotes,
     };
     use rsnano_types::{Account, BlockHash, PrivateKey};
+
+    #[test]
+    fn diagnostics_distinguish_matching_hashes_from_missing_first_evidence() {
+        let service = ReportService::new_null();
+        let epoch = ConsensusEpoch::ZERO;
+        let key = PrivateKey::from(1);
+        let t = CertifiedState::new();
+        let block = CertifiedBlock::new(Account::from(1), 1, BlockHash::from(2));
+        let mut g = ResidualVotes::new();
+        g.record(
+            block,
+            BlockHash::ZERO,
+            crate::consensus::election::ResidualKind::First,
+        );
+        let mut reporter = ReportExchange::new();
+        reporter.report_epoch(
+            epoch,
+            t.clone(),
+            g.clone(),
+            BlockHash::from(7),
+            BlockHash::ZERO,
+            &[key.clone()],
+        );
+        {
+            let mut exchange = service.exchange.lock().unwrap();
+            exchange.refresh_live(epoch, t);
+            exchange.handle_report(reporter.own_reports(epoch)[0].clone());
+            exchange.reconcile(epoch, key.public_key(), service.clock.now());
+            exchange.derive_residual(
+                epoch,
+                key.public_key(),
+                [(
+                    block,
+                    crate::consensus::election::ResidualKind::Final,
+                    BlockHash::ZERO,
+                )],
+                service.clock.now(),
+            );
+        }
+        let snapshot = service.diagnostic_snapshot();
+        let received = &snapshot[0]["received"][0];
+        assert_eq!(
+            received["expected_residual_root"],
+            received["residual_evidence"]["root"]
+        );
+        assert_eq!(
+            received["residual_evidence"]["first_evidence_complete"],
+            false
+        );
+        assert_eq!(received["complete"], false);
+    }
 
     #[test]
     fn serving_a_known_report_refreshes_an_unknown_source_without_periodic_tick() {

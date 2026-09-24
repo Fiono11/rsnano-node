@@ -354,6 +354,19 @@ impl AecService {
         self.aec.read().unwrap().vote_records_of(epoch, voter)
     }
 
+    #[cfg(feature = "rai_protocol")]
+    pub fn signed_votes_for(
+        &self,
+        epoch: ConsensusEpoch,
+        voter: &PublicKey,
+        hashes: &[BlockHash],
+    ) -> Vec<std::sync::Arc<rsnano_types::Vote>> {
+        self.aec
+            .read()
+            .unwrap()
+            .signed_votes_for(epoch, voter, hashes)
+    }
+
     pub fn epoch_previous_state(
         &self,
         epoch: ConsensusEpoch,
