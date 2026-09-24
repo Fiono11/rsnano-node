@@ -35,6 +35,16 @@ pub(crate) struct SpamLogic {
     pub(crate) recovery_created: usize,
     pub(crate) alternative_confirmed: usize,
     pub(crate) confirmation_histogram_ms: std::collections::BTreeMap<u64, usize>,
+    /// The primaries published with a fork alternative, until one of the
+    /// two is confirmed: their confirmations are kept apart from the
+    /// non-fork measurement
+    fork_primaries: rustc_hash::FxHashSet<BlockHash>,
+    pub(crate) fork_created: usize,
+    pub(crate) fork_confirmed: usize,
+    pub(crate) nonfork_created: usize,
+    pub(crate) nonfork_confirmed: usize,
+    /// Confirmation latency of blocks published without a fork alternative
+    pub(crate) nonfork_histogram_ms: std::collections::BTreeMap<u64, usize>,
 }
 
 impl SpamLogic {
@@ -62,6 +72,12 @@ impl SpamLogic {
             recovery_created: 0,
             alternative_confirmed: 0,
             confirmation_histogram_ms: Default::default(),
+            fork_primaries: Default::default(),
+            fork_created: 0,
+            fork_confirmed: 0,
+            nonfork_created: 0,
+            nonfork_confirmed: 0,
+            nonfork_histogram_ms: Default::default(),
         }
     }
 
@@ -74,9 +90,14 @@ impl SpamLogic {
         Some(child)
     }
 
+    /// Every block is created and every non-fork block is confirmed. A
+    /// fork position may never resolve (an exact split of first votes), so
+    /// forks do not hold the measurement open; they are counted apart.
     pub(crate) fn is_finished(&self) -> bool {
         self.block_factory.max_blocks() > 0
-            && self.confirmed_total >= self.block_factory.max_blocks()
+            && self.block_factory.created() >= self.block_factory.max_blocks()
+            && self.next_block.is_none()
+            && self.nonfork_confirmed >= self.nonfork_created
     }
 
     pub(crate) fn fork_propability(&self) -> f64 {
@@ -110,6 +131,10 @@ impl SpamLogic {
         if let Some(fork) = &next.fork {
             self.confirmation_aliases
                 .insert(fork.hash(), next.block.hash());
+            self.fork_primaries.insert(next.block.hash());
+            self.fork_created += 1;
+        } else {
+            self.nonfork_created += 1;
         }
         self.delayed.insert(next.block.clone());
 
@@ -164,6 +189,15 @@ impl SpamLogic {
                     .confirmation_histogram_ms
                     .entry(conf_time.as_millis() as u64)
                     .or_default() += 1;
+                if self.fork_primaries.remove(&tracked) {
+                    self.fork_confirmed += 1;
+                } else {
+                    self.nonfork_confirmed += 1;
+                    *self
+                        .nonfork_histogram_ms
+                        .entry(conf_time.as_millis() as u64)
+                        .or_default() += 1;
+                }
             }
             self.block_factory.confirm(block_hash);
         }
@@ -257,6 +291,67 @@ mod tests {
         logic.confirmed(&primary.hash(), now + Duration::from_secs(13));
         assert_eq!(logic.confirmed_total, 1);
         assert_eq!(logic.alternative_confirmed, 1);
+        // A fork is measured apart from the non-fork blocks
+        assert_eq!((logic.fork_created, logic.fork_confirmed), (1, 1));
+        assert_eq!((logic.nonfork_created, logic.nonfork_confirmed), (0, 0));
+        assert!(logic.nonfork_histogram_ms.is_empty());
+    }
+
+    /// The measurement ends once every non-fork block is confirmed: an
+    /// unresolved fork does not hold it open, and a fork confirmation does
+    /// not enter the non-fork latency
+    #[test]
+    fn an_unresolved_fork_does_not_hold_the_non_fork_measurement_open() {
+        use rsnano_types::{Link, PublicKey, StateBlockArgs, WorkNonce};
+        let key = PrivateKey::from(1);
+        let make = |previous, rep| {
+            Block::from(StateBlockArgs {
+                key: &key,
+                previous: BlockHash::from(previous),
+                representative: PublicKey::from(rep),
+                balance: Amount::nano(5),
+                link: Link::ZERO,
+                work: WorkNonce::new(0),
+            })
+        };
+        let mut logic = SpamLogic::new(
+            AccountMap::default(),
+            SpamSpec {
+                spam_strategy: SpamStrategy::SendReceive,
+                max_blocks: 0,
+                rate: RateSpec::new(100),
+                fork_probability: 0.5,
+                track_confirmations: true,
+                representatives: Representatives::default(),
+            },
+        );
+        let now = Timestamp::new_test_instance();
+        let plain = make(1, 2);
+        let primary = make(2, 2);
+        let alternative = make(2, 3);
+        logic.next_block = Some(Forks::new(plain.clone()));
+        assert!(matches!(
+            logic.next_block(false, now),
+            Some(BlockResult::Block(_))
+        ));
+        logic.next_block = Some(Forks::new_fork(primary.clone(), alternative.clone()));
+        assert!(matches!(
+            logic.next_block(true, now),
+            Some(BlockResult::Block(_))
+        ));
+        logic.published(&plain.hash(), now);
+        logic.published(&primary.hash(), now);
+        assert_eq!((logic.nonfork_created, logic.fork_created), (1, 1));
+        assert!(logic.nonfork_confirmed < logic.nonfork_created);
+        logic.confirmed(&plain.hash(), now + Duration::from_millis(40));
+        assert_eq!(logic.nonfork_confirmed, 1);
+        assert_eq!(logic.nonfork_histogram_ms.get(&40), Some(&1));
+        // The fork stays unresolved; the non-fork measurement is complete
+        assert_eq!(logic.fork_confirmed, 0);
+        assert!(logic.nonfork_confirmed >= logic.nonfork_created);
+        logic.confirmed(&primary.hash(), now + Duration::from_millis(900));
+        assert_eq!(logic.fork_confirmed, 1);
+        assert_eq!(logic.nonfork_histogram_ms.len(), 1);
     }
 
     #[test]

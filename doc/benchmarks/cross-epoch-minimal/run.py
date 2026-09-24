@@ -46,14 +46,28 @@ def rpc(port, body):
         return json.load(response)
 
 
-def settled(states):
-    """Fault-free drain check; a client's last confirmation is not all-node drain."""
-    return bool(states) and all(
-        s["block_count"].get("count") == s["block_count"].get("cemented")
-        and "count" in s["block_count"]
-        and s["final_state"].get("pending") == "0"
-        for s in states
-    ) and len({s["final_state"].get("hash") for s in states}) == 1
+def settled(states, forks=0):
+    """All PRs terminated with the same state: every node's final-state hash
+    (its cemented frontiers) and cemented count are equal and no election is
+    still collecting votes. Without forks every held block must also be
+    cemented; with forks an exactly split position may stay unresolved on
+    every node, and is reported rather than required."""
+    if not states or any("count" not in s["block_count"] for s in states):
+        return False
+    if any(s["final_state"].get("pending") != "0" for s in states):
+        return False
+    if forks == 0 and any(s["block_count"].get("count") != s["block_count"].get("cemented")
+                          for s in states):
+        return False
+    return (len({s["final_state"].get("hash") for s in states}) == 1
+            and len({s["block_count"].get("cemented") for s in states}) == 1)
+
+
+def state_summary(states):
+    """Per-node end state, for the record"""
+    return [{"cemented": s["block_count"].get("cemented"), "count": s["block_count"].get("count"),
+             "hash": s["final_state"].get("hash"), "pending": s["final_state"].get("pending"),
+             "empty": s["final_state"].get("empty")} for s in states]
 
 
 def stop_run_process_group(process, grace=5):
@@ -187,7 +201,8 @@ def run(args, label, binary, pair):
                         states = [{action: rpc(17076 + 10 * i, {"action": action})
                                    for action in ("block_count", "final_state")}
                                   for i in range(6 - args.absent)]
-                        result["settled_consistent"] = settled(states)
+                        result["settled_consistent"] = settled(states, args.forks)
+                        result["end_states"] = state_summary(states)
                     except Exception:
                         result["settled_consistent"] = False
                     if result["settled_consistent"] or time.monotonic() >= deadline:
@@ -225,12 +240,24 @@ def run(args, label, binary, pair):
     if summaries:
         metrics = json.loads(summaries[-1])
         result["metrics"] = metrics
-        result["complete"] = (not result["timed_out"] and result["exit_code"] == 0
-                              and metrics["confirmed"] == metrics["created"] == args.blocks)
-        result["goodput"] = metrics["confirmed"] / metrics["duration_secs"]
+        if "nonfork_confirmed" in metrics:
+            # The primary measure: blocks published without a fork. Forks
+            # are counted apart and do not hold the measurement open.
+            result["complete"] = (not result["timed_out"] and result["exit_code"] == 0
+                                  and metrics["created"] == args.blocks
+                                  and metrics["nonfork_confirmed"] == metrics["nonfork_created"])
+            result["goodput"] = metrics["nonfork_confirmed"] / metrics["duration_secs"]
+            histogram = metrics["nonfork_histogram_ms"]
+            result["measure"] = "non-fork blocks"
+            result["fork_unresolved_at_end"] = metrics.get("fork_unresolved_at_end")
+        else:
+            result["complete"] = (not result["timed_out"] and result["exit_code"] == 0
+                                  and metrics["confirmed"] == metrics["created"] == args.blocks)
+            result["goodput"] = metrics["confirmed"] / metrics["duration_secs"]
+            histogram = metrics["confirmation_histogram_ms"]
+            result["measure"] = "all primaries"
         for percentile in (50, 95, 99):
-            result[f"p{percentile}_ms"] = quantile(
-                metrics["confirmation_histogram_ms"], percentile / 100)
+            result[f"p{percentile}_ms"] = quantile(histogram, percentile / 100)
     else:
         result["complete"] = False
     (directory / "rpc.json").write_text(json.dumps(snapshots, indent=2) + "\n")

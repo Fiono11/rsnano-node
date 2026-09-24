@@ -60,6 +60,20 @@ class PerformanceGateTests(unittest.TestCase):
         states[1]["block_count"]["cemented"] = "100"
         self.assertTrue(settled(states))
 
+    def test_with_forks_an_unresolved_split_is_allowed_but_divergence_is_not(self):
+        states = [{"block_count": {"count": "103", "cemented": "100"},
+                   "final_state": {"hash": "same", "pending": "0"}} for _ in range(6)]
+        self.assertFalse(settled(states))
+        self.assertTrue(settled(states, forks=5))
+        states[2]["final_state"]["hash"] = "other"
+        self.assertFalse(settled(states, forks=5))
+        states[2]["final_state"]["hash"] = "same"
+        states[4]["block_count"]["cemented"] = "99"
+        self.assertFalse(settled(states, forks=5))
+        states[4]["block_count"]["cemented"] = "100"
+        states[5]["final_state"]["pending"] = "2"
+        self.assertFalse(settled(states, forks=5))
+
     def test_settlement_failure_is_not_a_performance_pass(self):
         results = self.results()
         results[3]["settled_consistent"] = False

@@ -274,6 +274,15 @@ impl NanoSpamApp {
             "confirmed": logic.confirmed_total,
             "duration_secs": duration_secs,
             "confirmation_histogram_ms": logic.confirmation_histogram_ms,
+            // Non-fork blocks alone: the primary throughput and latency.
+            // The measurement ends when every non-fork block is confirmed;
+            // unresolved forks are counted, not waited for.
+            "nonfork_created": logic.nonfork_created,
+            "nonfork_confirmed": logic.nonfork_confirmed,
+            "nonfork_histogram_ms": logic.nonfork_histogram_ms,
+            "fork_created": logic.fork_created,
+            "fork_confirmed": logic.fork_confirmed,
+            "fork_unresolved_at_end": logic.fork_created - logic.fork_confirmed,
         });
         info!("RAI_BENCH_METRICS {metrics}");
 
