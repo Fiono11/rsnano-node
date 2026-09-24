@@ -216,3 +216,37 @@ node remain, as in diag-v3. Verdict CANDIDATE_ONLY, incomplete. No
 performance result exists for the forked workload: the client's completion
 condition needs every primary (or its alternative) confirmed, which the
 tied positions prevent on both binaries.
+
+## One pair, non-fork metrics and end-state equality (`nonfork-forks5-one-checkpoint-*`)
+
+Requested measure: throughput and latency of non-fork blocks, and whether
+all PRs end with the same state. Client v7 counts fork and non-fork
+publications apart and ends when every non-fork block is confirmed.
+45,000 blocks at 2,000/s, 5 % forks, one count-based checkpoint (40,000
+decided elections), six nodes. Baseline: frozen HEAD, weighted model.
+Candidate: v7, equal-weight model `f = p = 1`, certificate-only. One pair;
+not a performance gate. The five-pair batch was stopped after the baseline
+attempt at the user's request; the baseline's recorded `settled=false`
+used the earlier predicate (pending elections required to be zero), and it
+meets the revised one (identical hash and cemented count on all PRs). The
+candidate then ran alone under the baseline-derived deadline
+ceil(1.5 × 142.5 s) = 214 s.
+
+| | Baseline | Candidate v7 |
+|---|---:|---:|
+| Non-fork blocks confirmed | 42,804 / 42,804 | 42,720 / 42,720 |
+| Measurement duration | 31.8 s | 61.6 s |
+| Non-fork throughput | 1,345 blocks/s | 693 blocks/s |
+| Non-fork p50 / p95 / p99 | 104 / 9,706 / 10,608 ms | 232 / 1,940 / 2,932 ms |
+| Forks unresolved at the end | 221 of 2,196 | 217 of 2,280 |
+| Recovery children | 0 | 1,600 |
+| Same end state on all six PRs | yes: hash CE05C468, 44,844 cemented on every node | no: five nodes BBFA707B with 46,455 cemented; PR2 9256A5EB with 46,260 and 1,847 pending |
+
+The candidate's PR2 never installed checkpoint 0: it had 2 of the 5
+required usable reports. Its frozen T (38,202 entries) differed from every
+other reporter's, the six frozen roots were all distinct, and its 15
+sketch replies were incomplete. This is the T-reconstruction straggler
+problem again, with a straggler whose snapshot is ~550 entries off. The
+baseline's p95/p99 come from a ~10 s confirmation stall at the checkpoint
+boundary; the candidate's lower throughput comes from a measurement twice
+as long, whose cause has not been diagnosed.
