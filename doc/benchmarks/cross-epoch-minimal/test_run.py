@@ -76,6 +76,15 @@ class PerformanceGateTests(unittest.TestCase):
         self.assertTrue(settled(states, forks=5))
         self.assertFalse(settled([dict(s, block_count={"count": "100", "cemented": "100"}) for s in states]))
 
+    def test_frontier_diff_separates_lag_from_conflicting_finality(self):
+        from run import frontier_diff
+        diff = frontier_diff({0: {"a": ("3", "x"), "b": ("1", "p")},
+                              1: {"a": ("2", "w"), "b": ("1", "q")},
+                              2: {"a": ("3", "x"), "b": ("1", "p")}})
+        self.assertEqual(diff["lagging_accounts"], 1)
+        self.assertEqual(diff["conflicting_accounts"], 1)
+        self.assertEqual(diff["conflicting_samples"][0]["account"], "b")
+
     def test_settlement_failure_is_not_a_performance_pass(self):
         results = self.results()
         results[3]["settled_consistent"] = False

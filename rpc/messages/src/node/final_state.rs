@@ -27,6 +27,9 @@ pub struct FinalStateArgs {
     /// Omit expensive per-report inventories when only checkpoint contents are needed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub checkpoint_only: Option<RpcBool>,
+    /// Post-mortem opt-in: every account's confirmed height and frontier
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frontiers: Option<RpcBool>,
 }
 
 /// Order-independent hash of the final ledger state: per account the settled
@@ -60,6 +63,9 @@ pub struct FinalStateResponse {
     pub entries: Option<Vec<FinalStateEntry>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub checkpoint_diagnostics: Option<serde_json::Value>,
+    /// Every account's confirmed (height, frontier), when asked for
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confirmed_frontiers: Option<Vec<(Account, RpcU64, BlockHash)>>,
 }
 
 /// RAI: the voting weights of one consensus epoch, as derived on this node

@@ -62,6 +62,29 @@ def settled(states, forks=0):
             and len({s["block_count"].get("cemented") for s in states}) == 1)
 
 
+def frontier_diff(frontiers):
+    """Compare every node's confirmed (height, frontier) per account. Nodes
+    at different heights are lagging; nodes at the same height with different
+    frontiers cemented conflicting blocks, which is a safety violation."""
+    accounts = set()
+    for per_node in frontiers.values():
+        accounts |= set(per_node)
+    lagging, conflicting = [], []
+    for account in sorted(accounts):
+        seen = {node: per_node.get(account) for node, per_node in frontiers.items()}
+        by_height = {}
+        for node, value in seen.items():
+            if value is not None:
+                by_height.setdefault(value[0], set()).add(value[1])
+        if any(len(hashes) > 1 for hashes in by_height.values()):
+            conflicting.append({"account": account, "nodes": seen})
+        elif len({v for v in seen.values()}) > 1:
+            lagging.append({"account": account, "nodes": seen})
+    return {"accounts": len(accounts), "lagging_accounts": len(lagging),
+            "conflicting_accounts": len(conflicting),
+            "conflicting_samples": conflicting[:20], "lagging_samples": lagging[:20]}
+
+
 def state_summary(states):
     """Per-node end state, for the record"""
     return [{"cemented": s["block_count"].get("cemented"), "count": s["block_count"].get("count"),
@@ -207,6 +230,20 @@ def run(args, label, binary, pair):
                     if result["settled_consistent"] or time.monotonic() >= deadline:
                         break
                     time.sleep(1)
+            # When the end states differ, find out how: lag or conflicting finality
+            if args.forks and result.get("settled_consistent") is False:
+                frontiers = {}
+                for i in range(6 - args.absent):
+                    try:
+                        reply = rpc(17076 + 10 * i, {"action": "final_state", "frontiers": "true"})
+                        frontiers[i] = {a: (h, f) for a, h, f in reply.get("confirmed_frontiers") or []}
+                    except Exception as error:
+                        frontiers[i] = {}
+                        result.setdefault("frontier_errors", []).append(str(error))
+                diff = frontier_diff(frontiers)
+                (directory / "finality-diff.json").write_text(json.dumps(diff, indent=2) + "\n")
+                result["conflicting_accounts"] = diff["conflicting_accounts"]
+                result["lagging_accounts"] = diff["lagging_accounts"]
             for i in range(6 - args.absent):
                 snapshot = {"node": i}
                 for action in ("block_count", "final_state", "stats"):

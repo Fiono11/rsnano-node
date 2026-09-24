@@ -42,12 +42,17 @@ impl RpcCommandHandler {
         let any = self.node.ledger.any();
         let mut hash = FinalStateHash::default();
         let mut accounts = 0;
+        let list_frontiers = args.frontiers.is_some_and(|v| v.into());
+        let mut frontiers = Vec::new();
         for (account, _) in any.iter_accounts() {
             if let Some(conf) = any.confirmed().get_conf_info(&account)
                 && conf.height > 0
             {
                 hash.add(&account, conf.height, &conf.frontier);
                 accounts += 1;
+                if list_frontiers {
+                    frontiers.push((account, conf.height.into(), conf.frontier));
+                }
             }
         }
 
@@ -203,6 +208,7 @@ impl RpcCommandHandler {
         };
 
         FinalStateResponse {
+            confirmed_frontiers: list_frontiers.then_some(frontiers),
             checkpoint_diagnostics,
             hash: hash.value(),
             all_terminated: all_terminated.into(),
