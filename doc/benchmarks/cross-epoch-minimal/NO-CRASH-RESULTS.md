@@ -686,3 +686,42 @@ work per single-block replay first.
 
 Validation: all 846 node unit tests pass; formatting passes. v28 two-checkpoint
 signature-cache hits totaled 19,159.
+
+Pinned v29 binaries:
+
+```text
+d0ce158c7560a8c5dec2962b528f1384b5054dbb8b0fef10d01ce7f4ff3c7774  rsnano
+9135ae7b7cbe7b8194351765700bf3810710fa5d494cfb6f222ef99577635dc7  nanospam
+```
+
+| Run | Non-fork goodput | p50 / p95 / p99 (ms) | Same end state on all six PRs |
+|---|---:|---:|---|
+| v29 one #1 | 1217 | 139 / 1662 / 2035 | yes |
+| v29 two #1 | 1328 | 443 / 2507 / 9942 | yes |
+
+v29 converged in both runs. One checkpoint: 139/1,662 ms; two checkpoints:
+443/2,507 ms p50/p95. The gap and high tail remain. In the two-checkpoint log,
+epoch 0 closes 6.95–7.88 s after its boundary, substantially before epoch 1 ends;
+the remaining latency cannot be attributed simply to waiting to open epoch 2.
+
+### v30: linear finalized-block collection during checkpoint installation
+
+A concrete global-lock pause appears in v29 one #1 (pid 96105):
+`EPOCH_INSTALL` at 1790277988951, committee derivation at 1790277994247,
+then `EPOCH_CLOSED` at 1790277994252. The report ticker spent 5,103 ms in
+`retained_recheck` waiting on this activity. `decided_frontiers` calls
+`EpochStates::finalized_blocks_in` under the AEC write lock; that method used
+`Vec::contains` for each finalized instance to deduplicate candidate aliases.
+This is quadratic in the number of finalized blocks. Use a hash set with the
+same full-entry equality and preserve the existing output traversal order.
+All finalized entries and delegations are still returned exactly once.
+
+The regression builds 20,000 finalized instances across two epochs, each with a
+losing-candidate alias, and checks exact account/height/winner membership plus
+delegations for the selected epoch. Before the fix, collecting its 10,000 winners
+took 779.1 ms in the debug test (`v30-snapshot-before.log`). This focused timing
+is diagnostic, not a substitute for the alternating release benchmark. The
+copy-on-write inventory draft remains unapplied.
+
+After the fix, the same debug snapshot took 34.5 ms (22.6× faster;
+`v30-snapshot-after.log`). All 847 node unit tests pass; formatting passes.

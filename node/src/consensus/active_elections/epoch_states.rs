@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     sync::Arc,
 };
 
@@ -26,7 +26,7 @@ pub(crate) struct FinalizedInstance {
 }
 
 /// RAI: what a block delegates: its balance to its representative
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Delegation {
     pub hash: BlockHash,
     pub representative: PublicKey,
@@ -34,7 +34,7 @@ pub struct Delegation {
 }
 
 /// RAI: a block finalized in an instance of an epoch, with what it delegates
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct FinalizedBlock {
     pub account: Account,
     pub height: u64,
@@ -151,7 +151,11 @@ impl EpochStates {
     /// The winner of every instance finalized in the given epoch, with what
     /// it delegates: what the epoch's state hashes for these instances
     pub fn finalized_blocks_in(&self, epoch: ConsensusEpoch) -> Vec<FinalizedBlock> {
-        let mut seen: Vec<FinalizedBlock> = Vec::new();
+        // Candidate aliases can point at the same finalized instance. A set
+        // keeps this snapshot linear; scanning the accumulated result for each
+        // block held the AEC write lock for seconds at checkpoint installation.
+        let mut seen = HashSet::new();
+        let mut finalized = Vec::new();
         for instances in self.instances.values() {
             for instance in instances.iter().filter(|i| i.epoch == epoch) {
                 let Some(delegation) = instance.delegation else {
@@ -162,12 +166,12 @@ impl EpochStates {
                     height: instance.height,
                     delegation,
                 };
-                if !seen.contains(&entry) {
-                    seen.push(entry);
+                if seen.insert(entry) {
+                    finalized.push(entry);
                 }
             }
         }
-        seen
+        finalized
     }
 
     /// The blocks finalized in the given epoch, as (account, height, hash)
@@ -215,6 +219,8 @@ impl EpochStates {
 
 #[cfg(test)]
 mod tests {
+    use std::{collections::BTreeSet, time::Instant};
+
     use super::*;
 
     #[test]
@@ -326,6 +332,43 @@ mod tests {
         assert_eq!(blocks.len(), 1);
         assert_eq!(blocks[0].delegation.hash, winner);
         assert_eq!(blocks[0].height, 1);
+    }
+
+    #[test]
+    fn large_finalized_snapshot_deduplicates_forks_and_scopes_epochs() {
+        let mut states = EpochStates::default();
+        for i in 1..=20_000u64 {
+            let winner = BlockHash::from(i);
+            states.record_finalized(instance(
+                &Account::from(i),
+                ConsensusEpoch::new(i % 2),
+                winner,
+                &[winner, BlockHash::from(i + 20_000)],
+                LocalSlotState::default(),
+            ));
+        }
+        let start = Instant::now();
+        let blocks = states.finalized_blocks_in(ConsensusEpoch::ZERO);
+        eprintln!(
+            "finalized snapshot: 10000 winners, 20000 candidate aliases, {:?}",
+            start.elapsed()
+        );
+        assert_eq!(blocks.len(), 10_000);
+        let actual: BTreeSet<_> = blocks
+            .iter()
+            .map(|b| (b.account, b.height, b.delegation.hash))
+            .collect();
+        let expected = (1..=20_000u64)
+            .filter(|i| i % 2 == 0)
+            .map(|i| (Account::from(i), 1, BlockHash::from(i)))
+            .collect();
+        assert_eq!(actual, expected);
+        assert!(
+            blocks
+                .iter()
+                .all(|b| b.delegation.representative == PublicKey::from(7)
+                    && b.delegation.balance == Amount::raw(10))
+        );
     }
 
     /*
