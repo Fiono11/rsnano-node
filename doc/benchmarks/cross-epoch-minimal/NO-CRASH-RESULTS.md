@@ -1185,3 +1185,22 @@ tracker plugin to 45 ms/s. Busy time after a boundary stayed ~650–690 ms/s on
 ~80 ms/s of thread CPU: the waiting moved between handlers rather than
 disappearing, which points at contention the whole node shares after a
 boundary rather than at any one handler.
+
+### v41 with three checkpoints (single run)
+
+Same settings, 40,000 elections split into three epochs of 13,333 terminated
+elections, strict `--required-checkpoints 3`. Host load was quiet apart from
+this session (26% at the start). Runner: `run-checkpoints.py v41 3`.
+
+| Run | Non-fork goodput | p50 / p95 / p99 (ms) | Same end state on all six PRs |
+|---|---:|---:|---|
+| v41 three #1 | 1686 | 284 / 854 / 1094 | yes |
+
+All three checkpoints were installed and matched on all six PRs. Boundaries
+came at 0, 6.8 and 14.0 s after the first; checkpoint 0 closed at 3.8–5.0 s,
+checkpoint 1 only at 18.0 s (about 11 s, with the third boundary deferred while
+it closed) and checkpoint 2 at 20.9–21.4 s. Non-fork latency bands: 21,995 under
+300 ms, 20,067 at 300–1,000 ms, 657 at 1–2 s, none at 2–4 s, 13 at 4 s or more.
+Compared with the two-checkpoint band, p95/p99 were lower but p50 higher: a
+larger share of the run falls after a boundary. 808 fork blocks were still
+unresolved when load ended (318 in the v33 two-checkpoint run).
