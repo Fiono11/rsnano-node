@@ -400,12 +400,8 @@ impl NodeConfig {
                 };
             }
             if let Some(rule) = &i.checkpoint_finalization {
-                self.active_elections.checkpoint_finalization = match rule.as_str() {
-                    "unique_branch" => {
-                        crate::consensus::election::CheckpointFinalization::UniqueBranch
-                    }
-                    _ => crate::consensus::election::CheckpointFinalization::CertificateOnly,
-                };
+                self.active_elections.checkpoint_finalization =
+                    crate::consensus::election::CheckpointFinalization::parse(rule);
             }
             if let Some(voting) = i.account_voting {
                 self.active_elections.account_voting = voting;

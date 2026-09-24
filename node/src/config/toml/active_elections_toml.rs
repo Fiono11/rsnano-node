@@ -19,9 +19,10 @@ pub struct ActiveElectionsToml {
     /// RAI: whether this node casts account votes; false makes a silent
     /// representative, which reports and votes in the close only
     pub account_voting: Option<bool>,
-    /// RAI: "certificate_only" (the paper's rule, default) or
-    /// "unique_branch" (the experimental variant that checkpoint-finalizes
-    /// a unique preserved branch; not covered by the paper's safety proof)
+    /// RAI: "certificate_only" (the R/N/F PDF's rule, default),
+    /// "notarized_unique_prefix" (the EuroSys manuscript's Rule 3) or
+    /// "unique_branch" (the requested variant, which also promotes
+    /// recovery-only branches; not covered by either safety proof)
     pub checkpoint_finalization: Option<String>,
     /// RAI: "weighted" (the baseline's weighted joint agreement, default) or
     /// "equal_weight" (the paper's model: N = 3f + 2p + 1 equal members,
@@ -59,15 +60,11 @@ impl From<&NodeConfig> for ActiveElectionsToml {
                 _ => None,
             },
             checkpoint_finalization: Some(
-                match config.active_elections.checkpoint_finalization {
-                    crate::consensus::election::CheckpointFinalization::CertificateOnly => {
-                        "certificate_only"
-                    }
-                    crate::consensus::election::CheckpointFinalization::UniqueBranch => {
-                        "unique_branch"
-                    }
-                }
-                .to_string(),
+                config
+                    .active_elections
+                    .checkpoint_finalization
+                    .as_str()
+                    .to_string(),
             ),
         }
     }

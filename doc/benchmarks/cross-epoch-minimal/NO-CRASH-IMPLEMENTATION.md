@@ -61,10 +61,20 @@ performance with volatile vote records".
   decided finality, reopen a retained position, or continue a branch the
   checkpoint excluded at the parent position; an instance whose parent the
   checkpoint does not mention is left to the ordinary eligibility rules.
-* **Equal-weight model** counts the identities holding delegated weight as
-  members. A member count other than `3f + 2p + 1` is logged
-  (`COMMITTEE_MODEL_MISMATCH`), and the thresholds still follow the
-  configured `f` and `p`.
+* **Equal-weight model** takes the `3f + 2p + 1` largest holders of
+  delegated weight as members (ties by identity). The first diagnostic
+  attempt used "every nonzero holder", which admitted the genesis funding
+  representative as a seventh member and required 6 of 7 reports; that
+  attempt is preserved as `no-crash-fork-paper-v1` and superseded. A
+  member count other than `3f + 2p + 1` is still logged.
+* **Two protocol revisions.** The branch follows the 2026-09-24 R/N/F PDF.
+  The later EuroSys manuscript narrows the overlap exception (closing-epoch
+  and current-epoch NC on every unresolved block of the finalized prefix,
+  no predecessor-backed route in the main theorem, matching-origin lock
+  discharge) and adds a promotion rule for uniquely retained notarized
+  prefixes. The promotion rule is available as
+  `checkpoint_finalization = notarized_unique_prefix`; the narrower overlap
+  rule is not implemented.
 * **No durability**, as stated above. Retained signed votes, blocks and
   observations are bounded by the four-epoch retention window; nothing
   still needed for a closure within that window is evicted, and nothing

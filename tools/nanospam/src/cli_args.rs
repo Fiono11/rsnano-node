@@ -114,9 +114,10 @@ pub(crate) struct CliArgs {
     pub silent: usize,
 
     /// RAI: the checkpoint-finalization rule of every node: "certificate_only"
-    /// (the paper's rule) or "unique_branch" (the experimental variant that
-    /// checkpoint-finalizes a unique preserved branch; not covered by the
-    /// paper's safety proof)
+    /// (the R/N/F PDF's rule), "notarized_unique_prefix" (the EuroSys
+    /// manuscript's Rule 3: promote a uniquely retained prefix of blocks with
+    /// closing-epoch NCs) or "unique_branch" (the requested variant, which
+    /// also promotes recovery-only branches; unsafe with overlap)
     #[arg(long, default_value = "certificate_only")]
     pub checkpoint_finalization: String,
 

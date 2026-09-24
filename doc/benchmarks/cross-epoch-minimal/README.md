@@ -89,7 +89,9 @@ their original gate labels and verdicts; do not silently relabel them as passes.
 Baseline-derived process deadlines remain unchanged.
 
 Full recorded results: [PERFORMANCE.md](PERFORMANCE.md), including the latest
-optimized batch stopped on a baseline settlement failure.
+optimized batch stopped on a baseline settlement failure. The 2026-09-24
+no-crash pass and its runs: [NO-CRASH-IMPLEMENTATION.md](NO-CRASH-IMPLEMENTATION.md),
+[NO-CRASH-RESULTS.md](NO-CRASH-RESULTS.md).
 
 ## Run data cleanup
 

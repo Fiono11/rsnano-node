@@ -1,5 +1,17 @@
 # Implementation boundary and remaining work
 
+**2026-09-24, second pass:** the no-crash mechanisms (T reconstruction by
+sketched difference, N/F evidence verification and relay, the cross-epoch
+lock, attachment and overlap exceptions, Rule 3, committee binding, the
+equal-weight model and the requested unique-branch variant) are described
+in [NO-CRASH-IMPLEMENTATION.md](NO-CRASH-IMPLEMENTATION.md); the variant's
+rule, proof obligations and counterexample in
+[CHECKPOINT-FINALIZATION-VARIANT.md](CHECKPOINT-FINALIZATION-VARIANT.md);
+their evaluation in [NO-CRASH-RESULTS.md](NO-CRASH-RESULTS.md). The text
+below describes the state before that pass and is kept as history.
+
+# Implementation boundary and remaining work
+
 This branch starts at `5e037cfe0527d7b06b573456c7c876568ce179ea` and implements
 the first closure correction and the measurement gate. It does **not** yet
 implement every requirement of the updated `RAI.pdf`. The PDF supersedes the

@@ -7,9 +7,11 @@ round creates finality"). The paper's safety proof (Theorem 7.4 and its
 lemmas) does **not** cover this variant. Nothing below claims it does.
 
 The certificate-only behaviour remains the default and the control:
-`checkpoint_finalization = "certificate_only"`. The variant is
+`checkpoint_finalization = "certificate_only"`. The requested variant is
 `checkpoint_finalization = "unique_branch"` (`[node.active_elections]` in
-the node TOML; `--checkpoint-finalization unique_branch` in nanospam).
+the node TOML; `--checkpoint-finalization unique_branch` in nanospam). A
+third value, `notarized_unique_prefix`, implements the EuroSys manuscript's
+rule described at the end of this document.
 
 ## The rule (exact)
 
@@ -139,3 +141,38 @@ Results obtained under `unique_branch` are labelled as such. They measure a
 different, weaker finality semantics than the certificate-only control and
 than the paper; equality of confirmation counts between the two settings is
 not evidence that performance is preserved for equivalent outcomes.
+
+## What the EuroSys manuscript allows (RAI_EuroSys2027_Manuscript.pdf, 2026-09-24)
+
+The later manuscript (SHA256 `70c4a735…`, in the original checkout) revises
+the closure rules and answers the question directly:
+
+* Its **Rule 3, checkpoint promotion**: "For each account, starting at the
+  tip of F★, repeatedly promote the next block only while (i) it is the
+  unique child retained in R_Q and (ii) the manifest verifies a
+  closing-epoch NC for that block. Stop at the first fork or block without
+  such an NC. … Recovery-only blocks are never promoted by this rule."
+  And in §4.3: "A decided checkpoint may promote only a uniquely retained
+  closing-epoch notarized prefix; recovery-only uniqueness remains a lock."
+* So a single-block preserved branch **is** checkpoint-finalized by the
+  manuscript when that block holds a verified closing-epoch NC, and is
+  **not** when it is preserved only by reporter first votes (Rule 2). The
+  requested `unique_branch` rule promotes both; the manuscript forbids the
+  second, which is exactly the counterexample above.
+* The manuscript's overlap rule is also narrower than the R/N/F PDF's: a
+  block finalizes before `S_{e-1}` only if every unresolved block of its
+  selected prefix, including the certificate target, holds both a
+  closing-epoch NC and a current-epoch NC, inherited notarization locks are
+  never bypassed, and a recovery lock is discharged only by a conflicting
+  NC of the very epoch whose finality it protects. The predecessor-backed
+  route becomes an optional supplement outside the main theorem. This
+  branch implements the R/N/F PDF's exceptions and Rule 3; the difference
+  is recorded in NO-CRASH-IMPLEMENTATION.md and not reworked here.
+
+`notarized_unique_prefix` is the manuscript's Rule 3 on this branch: the
+same walk as `unique_branch`, stopping at the first block whose retained
+kind is not a represented notarization. Positions it finalizes carry origin
+`Derived` like the requested variant; the run configuration says which
+rule produced them. The manuscript claims safety for this rule under its
+own overlap rule; that proof does not transfer to this branch's older
+overlap exceptions without checking, and none is claimed here.

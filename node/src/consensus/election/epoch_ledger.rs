@@ -491,13 +491,35 @@ impl PredecessorBacking for BTreeSet<BlockHash> {
 }
 
 /// The checkpoint-finalization rule (see CHECKPOINT-FINALIZATION-VARIANT.md).
-/// The paper's rule is `CertificateOnly`; `UniqueBranch` is the requested
-/// experimental variant and is not covered by the paper's safety proof.
+/// `CertificateOnly` is the 2026-09-24 R/N/F PDF's rule; `UniqueBranch` the
+/// requested experimental variant, which finalizes any sole preserved branch
+/// and is unsafe with the overlap exceptions; `NotarizedUniquePrefix` the
+/// EuroSys manuscript's Rule 3, which promotes only a uniquely retained
+/// prefix whose every block holds a verified closing-epoch NC.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CheckpointFinalization {
     #[default]
     CertificateOnly,
     UniqueBranch,
+    NotarizedUniquePrefix,
+}
+
+impl CheckpointFinalization {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::CertificateOnly => "certificate_only",
+            Self::UniqueBranch => "unique_branch",
+            Self::NotarizedUniquePrefix => "notarized_unique_prefix",
+        }
+    }
+
+    pub fn parse(name: &str) -> Self {
+        match name {
+            "unique_branch" => Self::UniqueBranch,
+            "notarized_unique_prefix" => Self::NotarizedUniquePrefix,
+            _ => Self::CertificateOnly,
+        }
+    }
 }
 
 /// What BuildState needs besides the predecessor and the selected reports
@@ -684,23 +706,31 @@ pub fn build_state(
         }
     }
     ledger.notarized.retain(|_, blocks| !blocks.is_empty());
-    if rules.finalization == CheckpointFinalization::UniqueBranch {
-        finalize_unique_branches(&mut ledger);
+    match rules.finalization {
+        CheckpointFinalization::CertificateOnly => {}
+        CheckpointFinalization::UniqueBranch => finalize_unique_branches(&mut ledger, false),
+        CheckpointFinalization::NotarizedUniquePrefix => {
+            finalize_unique_branches(&mut ledger, true)
+        }
     }
     Ok(ledger)
 }
 
-/// The requested experimental variant, applied after every step of the
-/// paper's construction (see CHECKPOINT-FINALIZATION-VARIANT.md): for each
-/// account, walk the preserved positions upward from the finalized
-/// frontier; while a position holds exactly one preserved block and that
-/// block attaches to the block finalized below it, checkpoint-finalize it
-/// with origin `Derived`. A position with two preserved rivals stops the
-/// walk; so does a sole block that does not attach. Uniqueness is decided
-/// among preserved branches only, never from missing evidence. This
-/// departs from the paper's prohibition on sole-survivor finality and is
-/// not covered by its safety proof.
-fn finalize_unique_branches(ledger: &mut EpochLedger) {
+/// Checkpoint promotion, applied after every step of the construction (see
+/// CHECKPOINT-FINALIZATION-VARIANT.md): for each account, walk the
+/// preserved positions upward from the finalized frontier; while a position
+/// holds exactly one preserved block and that block attaches to the block
+/// finalized below it, checkpoint-finalize it with origin `Derived`. A
+/// position with two preserved rivals stops the walk; so does a sole block
+/// that does not attach. Uniqueness is decided among preserved branches
+/// only, never from missing evidence.
+///
+/// With `notarized_only`, this is the EuroSys manuscript's Rule 3: the walk
+/// also stops at the first block without a represented closing-epoch NC,
+/// so "recovery-only blocks are never promoted". Without it, the requested
+/// variant promotes recovery-only branches too, which the manuscript
+/// forbids and which the counterexample shows unsafe.
+fn finalize_unique_branches(ledger: &mut EpochLedger, notarized_only: bool) {
     let accounts: BTreeSet<Account> = ledger.notarized.keys().map(|slot| slot.account).collect();
     for account in accounts {
         let Some(lowest) = ledger
@@ -726,7 +756,9 @@ fn finalize_unique_branches(ledger: &mut EpochLedger) {
             } else {
                 ledger.finalized(&AccountSlot::new(account, height - 1)) == Some(block.previous)
             };
-            if !attached {
+            if !attached
+                || (notarized_only && ledger.retained_kind(&block.hash) != RetainedKind::Notarized)
+            {
                 break;
             }
             ledger.finalize_derived(slot, block);
@@ -1353,6 +1385,63 @@ mod tests {
         let still = build_state(&contested, &[], &index, variant).unwrap();
         assert!(still.finalized(&slot(3, 1)).is_none());
         assert_eq!(still.notarized(&slot(3, 1)).len(), 2);
+    }
+
+    /// The EuroSys manuscript's Rule 3: promote the uniquely retained prefix
+    /// while each block holds a represented closing-epoch NC; a recovery-only
+    /// block stops the walk and is never promoted, unlike under the requested
+    /// unique-branch variant
+    #[test]
+    fn the_notarized_unique_prefix_rule_never_promotes_recovery_only_blocks() {
+        let mut index = StubIndex::default();
+        // Account 1: notarized base, notarized child, recovery-only grandchild
+        let base = index.add(1, 1, BlockHash::ZERO);
+        let child = index.add(1, 2, base);
+        let grandchild = index.add(1, 3, child);
+        // Account 2: a recovery-only sole block
+        let lone = index.add(2, 1, BlockHash::ZERO);
+        let mut certified = CertifiedState::new();
+        certify(&mut certified, &index, base, CertifiedStatus::Notarized);
+        certify(&mut certified, &index, child, CertifiedStatus::Notarized);
+        let mut votes = ResidualVotes::new();
+        record(&mut votes, &index, grandchild, ResidualKind::First);
+        record(&mut votes, &index, lone, ResidualKind::First);
+        let selected: Vec<_> = (1..=3)
+            .map(|i| reported_by(i, &certified, &votes))
+            .collect();
+        let rules = |finalization| BuildRules {
+            many: MANY,
+            backing: &(),
+            finalization,
+        };
+        let promoted = build_state(
+            &EpochLedger::new(),
+            &selected,
+            &index,
+            rules(CheckpointFinalization::NotarizedUniquePrefix),
+        )
+        .unwrap();
+        assert_eq!(promoted.finalized(&slot(1, 1)), Some(base));
+        assert_eq!(promoted.finalized(&slot(1, 2)), Some(child));
+        assert!(promoted.finalized(&slot(1, 3)).is_none());
+        assert_eq!(promoted.retained_kind(&grandchild), RetainedKind::Recovery);
+        assert!(promoted.finalized(&slot(2, 1)).is_none());
+        assert_eq!(promoted.retained_kind(&lone), RetainedKind::Recovery);
+        assert_eq!(promoted.derived_count(), 2);
+        let requested = build_state(
+            &EpochLedger::new(),
+            &selected,
+            &index,
+            rules(CheckpointFinalization::UniqueBranch),
+        )
+        .unwrap();
+        assert_eq!(requested.finalized(&slot(1, 3)), Some(grandchild));
+        assert_eq!(requested.finalized(&slot(2, 1)), Some(lone));
+        assert_eq!(requested.derived_count(), 4);
+        assert_eq!(
+            CheckpointFinalization::parse("notarized_unique_prefix").as_str(),
+            "notarized_unique_prefix"
+        );
     }
 
     #[test]

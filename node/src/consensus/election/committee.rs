@@ -227,17 +227,24 @@ impl CommitteeWeights {
 
     /// The committee of these weights under a model: weighted, or the
     /// identities holding weight as equal members
+    /// Under the equal-weight model the members are the N = 3f + 2p + 1
+    /// largest holders of delegated weight, ties by identity. The paper
+    /// leaves membership admission to the deployment; taking the largest
+    /// holders keeps a negligible funding account out and the member count
+    /// at N whenever at least N identities hold weight.
     pub fn committee_under(&self, model: CommitteeModel) -> Committee {
         match model {
             CommitteeModel::Weighted => self.committee(),
-            CommitteeModel::EqualWeight { f, p } => Committee::equal_weight(
-                self.weights
+            CommitteeModel::EqualWeight { f, p } => {
+                let mut holders: Vec<(&PublicKey, &Amount)> = self
+                    .weights
                     .iter()
                     .filter(|(_, weight)| !weight.is_zero())
-                    .map(|(rep, _)| *rep),
-                f,
-                p,
-            ),
+                    .collect();
+                holders.sort_by(|(a_key, a), (b_key, b)| b.cmp(a).then(a_key.cmp(b_key)));
+                let n = model.expected_members().unwrap_or(holders.len());
+                Committee::equal_weight(holders.into_iter().take(n).map(|(rep, _)| *rep), f, p)
+            }
         }
     }
 
@@ -332,18 +339,22 @@ mod tests {
                 balance: Amount::raw(balance),
             });
         }
+        // f = p = 0: N = 1, the largest holder alone
         let committee = weights.committee_under(CommitteeModel::EqualWeight { f: 0, p: 0 });
-        assert_eq!(committee.len(), 2);
+        assert_eq!(committee.len(), 1);
         assert_eq!(
             committee.weight(&PrivateKey::from(1).public_key()),
             Amount::raw(1)
         );
         assert_eq!(
             committee.weight(&PrivateKey::from(2).public_key()),
-            Amount::raw(1)
+            Amount::ZERO
         );
+        // More members expected than holders: every holder, none of weight zero
+        let short = weights.committee_under(CommitteeModel::EqualWeight { f: 1, p: 1 });
+        assert_eq!(short.len(), 2);
         assert_eq!(
-            committee.weight(&PrivateKey::from(3).public_key()),
+            short.weight(&PrivateKey::from(3).public_key()),
             Amount::ZERO
         );
         let weighted = weights.committee_under(CommitteeModel::Weighted);
