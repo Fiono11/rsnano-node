@@ -157,3 +157,51 @@ elections on PR1/PR3/PR5, so they never reached a quorum. Every node held
 43,014 cemented blocks with the same hash and 233 empty positions.
 Verdict CANDIDATE_ONLY, incomplete; no histogram. The recovery step is the
 remaining blocker; a focused diagnostic follows.
+
+## One-checkpoint fork diagnostics (`no-crash-forks5-one-checkpoint-diag-v1..`)
+
+The same count-based one-checkpoint workload under the fork-termination
+observer (checkpoint inclusion or certificate-backed discard on all six
+nodes), candidate only, 156 s ceiling.
+
+| Attempt | Binary | Checkpoint 0 installed | Terminal branches / total | Dispositions (node-observations) | Notes |
+|---|---|---|---:|---|---|
+| diag-v1 | v4 | PR1–PR5; PR0 never closed (froze 35,258 vs 38,852 entries; sketches stuck at 1,024 cells) | 0 / 4,432 | Recovery 6,685, Finalized 1,685, discarded-by-certificate 1,685, Notarized 1,520 on five nodes | client took locks from PR0, which had none: no recovery children |
+| diag-v2 | v5 (paged sketches, alternating base, client takes newest checkpoint) | all six, round 0, identical | 2,583 / 4,572 | Finalized 3,210, discarded-by-certificate 3,210, Notarized 366, Recovery 8,712, unresolved 11,934 | 1,525 recovery children published; ≈1,440 unchecked on PR0/PR2/PR4, pending on PR1/PR3/PR5 |
+
+diag-v2 conditional termination upper bounds over the 2,583 terminated
+branches: p50 39,033 ms, p95 47,136 ms, p99 47,957 ms (observation upper
+bounds, censored population). Confirmed 43,316 / 45,000 at the ceiling.
+
+Why the children stalled: the checkpoint retained the fork *primaries* as
+locks (1,507 recovery, 87 notarized), and the client sends every
+alternative to the even nodes and every primary to the odd nodes, so the
+even nodes' ledgers held the omitted rival at the locked position and the
+child of the retained primary had no parent there; the odd nodes could
+give it only three votes. The v6 change makes a ledger follow the retained
+branch on installation (roll back the omitted rival, install the retained
+block from the fork cache or retained report data, or when it arrives as
+evidence). diag-v3 below measures that.
+
+| diag-v3 | v6 (ledgers follow retained branches) | all six, round 0, identical | 2,282 / 4,406 | Finalized 1,926, discarded-by-certificate 1,926, Notarized 1,056, Recovery 8,784, unresolved 12,744 | 1,784 retained; even nodes forced 1,402–1,425 retained primaries into their ledgers, odd nodes 1–6; 1,642 children; every node ended with 46,707 blocks, 46,465 cemented, 0 unchecked, ≤ 11 pending, identical hash |
+
+diag-v3 confirmed 44,758 / 45,000 at the ceiling (168 s wall). Conditional
+termination upper bounds over 2,282 terminated branches: p50 38,290 ms,
+p95 46,536 ms, p99 46,866 ms. No evidence stayed missing, no conflicts, no
+derived finality.
+
+What remains unresolved and why: about 244 positions per node settled
+*empty*, identically on all six nodes. They are most likely exact 3–3
+first-vote ties (inferred from the workload, not checked per position):
+the workload sends each alternative to exactly half of six nodes, so with
+`r = 3` both branches reach the recovery threshold and Rule 2 retains
+neither, and no boundary or fresh child can decide them without an owner
+continuation, which the client only publishes for lock tips. The frozen
+baseline leaves the same ~250 positions empty (258 in its one-checkpoint
+attempt). The observer's remaining "unresolved" branch hashes are mostly
+the omitted rivals of recovery locks whose primaries the children then
+finalized live: with a single checkpoint there is no later checkpoint entry
+to witness the discard, so the conservative classifier cannot count them.
+A second checkpoint, or a fork distribution that is not an exact tie, is
+needed to measure full termination; this is a property of the workload
+and the observer, not evidence of a stalled node.

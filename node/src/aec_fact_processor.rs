@@ -273,6 +273,7 @@ impl AecFactProcessor {
                 held += 1;
                 continue;
             }
+            #[cfg(feature = "rai_protocol")]
             let block = self
                 .aec_fork_inserter
                 .fork_cache
@@ -280,6 +281,8 @@ impl AecFactProcessor {
                 .unwrap()
                 .block(hash)
                 .or_else(|| self.active_elections.report_block(hash));
+            #[cfg(not(feature = "rai_protocol"))]
+            let block: Option<Block> = None;
             match block {
                 Some(block) => {
                     self.block_processor_queue.push(BlockContext::new(
