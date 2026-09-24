@@ -144,3 +144,55 @@ occurred, but sustained carried-R inventory cost is not measured here.
 See [PERFORMANCE.md](PERFORMANCE.md) for every recorded comparison, earlier
 failures, all per-run percentiles, confidence intervals and evidence paths.
 The raw optimized batch is `step1-rnf-projection-p50-p95/` in the artifact root.
+
+## On-demand canonical reconciliation refresh — five-pair result
+
+Candidate `30c452080`, unchanged baseline/client/workload, 156-second
+deadlines. All ten attempts completed and settled. **INCONCLUSIVE**.
+
+Each cell below is baseline → candidate; latencies are milliseconds.
+
+| Pair | Goodput blocks/s | p50 | p95 | p99 | Candidate recovery children |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 0 | 1949.75 → 1960.57 | 106 → 100 | 3097 → 727 | 4032 → 1244 | 14 |
+| 1 | 1950.50 → 1945.18 | 102 → 101 | 957 → 945 | 1408 → 1674 | 45 |
+| 2 | 1945.55 → 1951.23 | 108 → 113 | 3527 → 3322 | 4451 → 4241 | 37 |
+| 3 | 1924.87 → 1890.12 | 112 → 741 | 2841 → 4978 | 3770 → 5919 | 376 |
+| 4 | 1951.69 → 1953.00 | 103 → 100 | 1516 → 908 | 2061 → 1418 | 7 |
+
+Candidate/baseline paired-bootstrap 95% intervals: goodput
+[0.98944, 1.00352], p50 [0.96375, 4.36758], p95 [0.45813, 1.36860],
+p99 [0.56051, 1.31740] (diagnostic). Goodput meets its bound; neither
+primary latency interval establishes non-inferiority. Pair 3's large latency
+spike is retained. These observations do not establish its root cause or
+isolate the optimization from host/checkpoint timing variation. No further
+five-pair rerun is planned merely to seek a pass.
+
+The correction passed 797 RAI and 733 default node tests. Successful-run data
+was deleted following the user's instruction; results, logs, RPC snapshots,
+TOML configuration and deletion audits remain. The companion cleanup watcher
+started after seven completed attempts, during attempt eight's setup. No data
+cleanup occurred during the candidate pair-3 measurement that exhibited the
+spike. The baseline settlement failure in the prior batch remains recorded.
+
+A separately predeclared 5%-fork diagnostic follows (one pair only). It is a
+correctness/coverage check, not advancement past this performance gate.
+
+## Five-percent fork diagnostic — baseline calibration failed
+
+One pair planned with `--forks 5`, otherwise unchanged workload/client and
+candidate `30c452080`. The baseline timed out at its initial 156-second
+calibration ceiling, with 44,284/45,000 primary blocks confirmed. All six
+nodes reported pending work (411–425 entries); one node had a different
+final-state hash and only 31,333 cemented blocks, versus 44,364 on the others.
+Verdict: **BASELINE_CALIBRATION_FAILED**. No candidate run started; no forked
+performance comparison or completed latency histogram is available.
+
+Evidence: `step1-reconciliation-refresh-forks5-smoke/` in the artifact root.
+Logs, RPC snapshots, configuration and `failure-summary.json` are retained.
+Generated node data was removed after saving that evidence, following the
+user's cleanup instruction. No retry or replacement attempt was made.
+
+Before a larger fork comparison, diagnose baseline fork progress/client
+accounting and independently test candidate fork correctness. Any comparator
+repair must be a separately identified revision; frozen HEAD remains unchanged.

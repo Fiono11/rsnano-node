@@ -214,19 +214,19 @@ def run(args, label, binary, pair):
     (directory / "rpc.json").write_text(json.dumps(snapshots, indent=2) + "\n")
     (directory / "result.json").write_text(json.dumps(result, indent=2) + "\n")
     if not args.keep_data:
-        prune_successful_data(directory, result)
+        prune_run_data(directory, result)
     print(json.dumps({k: v for k, v in result.items() if k != "metrics"}), flush=True)
     return result
 
 
-def prune_successful_data(directory, result):
+def prune_run_data(directory, result):
     """User-authorized cleanup after saved evidence and successful process cleanup."""
     directory = Path(directory).resolve()
     data = directory / "data"
     audit = directory / "data-cleanup.json"
     if audit.exists() or not data.exists():
         return
-    if not result.get("complete") or not result.get("settled_consistent") or result.get("cleanup_error"):
+    if result.get("cleanup_error"):
         return
     if data.is_symlink() or data.resolve().parent != directory:
         raise ValueError("Refusing unexpected data directory")
@@ -244,7 +244,7 @@ def prune_successful_data(directory, result):
                 target = configs / relative
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source, target)
-    evidence = {"policy": "delete successful run data after evidence; preserve failures",
+    evidence = {"policy": "delete completed run data after evidence; keep data if process cleanup failed",
                 "files": inventory, "disk_free_before": shutil.disk_usage(directory).free}
     shutil.rmtree(data)
     evidence["disk_free_after"] = shutil.disk_usage(directory).free
@@ -308,7 +308,7 @@ def main():
     parser.add_argument("--absent", type=int, default=0)
     parser.add_argument("--min-free-gib", type=float, default=8)
     parser.add_argument("--keep-data", action="store_true",
-                        help="Keep successful node data; failed run data is always retained")
+                        help="Keep generated node data after the run")
     parser.add_argument("--stop-on-failure", action="store_true",
                         help="Stop the development gate at the first failed attempt; retain its evidence")
     parser.add_argument("extra", nargs=argparse.REMAINDER)

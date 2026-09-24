@@ -2,7 +2,7 @@
 
 Baseline: `5e037cfe0527d7b06b573456c7c876568ce179ea` (clean rai_kudzu HEAD).
 
-Latest workload: 45,000 primary blocks, 45,000 accounts, 2,000 blocks/s, six representatives, no intentional forks, 8-second epochs. Five alternating AB/BA pairs per full batch. Both nodes use the same pinned recovery client. Earlier account-only smoke uses its own manifest workload.
+Zero-fork comparison workload: 45,000 primary blocks, 45,000 accounts, 2,000 blocks/s, six representatives, no intentional forks, 8-second epochs. Five alternating AB/BA pairs per full batch. Both nodes use the same pinned recovery client. Earlier account-only smoke uses its own manifest workload.
 
 Host: MacBookAir10,1, eight CPUs, 16 GiB RAM, macOS 14.6.1 arm64. Six processes on one host over loopback. LMDB uses inherited `nosync_unsafe`. Workload generation is unseeded. These are fixed offered-load measurements, not capacity, crash durability or multi-host results.
 
@@ -270,16 +270,107 @@ Observed checkpoint/report diagnostics (rounds are indexed from zero):
 
 A maximum R of zero means that attempt does not measure sustained carried-R inventories, even if it generated fresh recovery children.
 
-## Latest settlement failure
+## On-demand canonical reconciliation refresh, 30c452080
+
+Evidence: `/private/tmp/rai-cross-epoch-artifacts/step1-reconciliation-refresh-p50-p95`. Recorded verdict: **INCONCLUSIVE**.
+
+| Pair | Node | Goodput blocks/s | p50 ms | p95 ms | p99 ms | Recovery children | Complete | Settled | Wall s | Deadline s |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: | ---: |
+| 0 | baseline | 1949.75 | 106 | 3097 | 4032 | 0 | true | true | 103.38 | 156 |
+| 0 | candidate | 1960.57 | 100 | 727 | 1244 | 14 | true | true | 103.24 | 156 |
+| 1 | baseline | 1950.50 | 102 | 957 | 1408 | 0 | true | true | 103.19 | 156 |
+| 1 | candidate | 1945.18 | 101 | 945 | 1674 | 45 | true | true | 103.30 | 156 |
+| 2 | baseline | 1945.55 | 108 | 3527 | 4451 | 0 | true | true | 103.42 | 156 |
+| 2 | candidate | 1951.23 | 113 | 3322 | 4241 | 37 | true | true | 103.36 | 156 |
+| 3 | baseline | 1924.87 | 112 | 2841 | 3770 | 0 | true | true | 103.57 | 156 |
+| 3 | candidate | 1890.12 | 741 | 4978 | 5919 | 376 | true | true | 105.34 | 156 |
+| 4 | baseline | 1951.69 | 103 | 1516 | 2061 | 0 | true | true | 103.15 | 156 |
+| 4 | candidate | 1953.00 | 100 | 908 | 1418 | 7 | true | true | 103.34 | 156 |
+
+Recorded gate output:
+
+```json
+{
+  "verdict": "INCONCLUSIVE",
+  "gate_version": "p50-p95-v1",
+  "goodput_ratio_ci95": [
+    0.989435058503489,
+    1.003523999260787
+  ],
+  "p50_ratio_ci95": [
+    0.9637472208154191,
+    4.3675813616851356
+  ],
+  "p95_ratio_ci95": [
+    0.45812706119583557,
+    1.3686010389765608
+  ],
+  "diagnostic_only": {
+    "p99_ratio_ci95": [
+      0.5605062438168333,
+      1.3174031113171492
+    ]
+  }
+}
+```
+
+Arithmetic means of per-run metrics (not pooled percentiles):
+
+| Metric | Baseline mean | Candidate mean | Mean paired change |
+| --- | ---: | ---: | ---: |
+| goodput | 1944.47 | 1940.02 | -0.23% |
+| p50_ms | 106.20 | 231.00 | +111.34% |
+| p95_ms | 2387.60 | 2176.00 | -9.70% |
+| p99_ms | 3144.40 | 2899.20 | -5.83% |
+
+Observed checkpoint/report diagnostics (rounds are indexed from zero):
+
+| Attempt | Close rounds by epoch | Maximum R in a frozen report |
+| --- | --- | ---: |
+| 0 baseline | {'0': 1, '1': 0} | — |
+| 0 candidate | {'0': 0, '1': 0} | 0 |
+| 1 baseline | {'0': 0, '1': 0} | — |
+| 1 candidate | {'0': 0, '1': 0} | 0 |
+| 2 baseline | {'0': 1, '1': 0} | — |
+| 2 candidate | {'0': 1, '1': 0} | 0 |
+| 3 baseline | {'0': 1, '1': 0} | — |
+| 3 candidate | {'0': 1, '1': 0} | 0 |
+| 4 baseline | {'0': 0, '1': 0} | — |
+| 4 candidate | {'0': 0, '1': 0} | 0 |
+
+A maximum R of zero means that attempt does not measure sustained carried-R inventories, even if it generated fresh recovery children.
+
+## 5% fork diagnostic, 30c452080
+
+Evidence: `/private/tmp/rai-cross-epoch-artifacts/step1-reconciliation-refresh-forks5-smoke`. Recorded verdict: **BASELINE_CALIBRATION_FAILED**.
+
+| Pair | Node | Goodput blocks/s | p50 ms | p95 ms | p99 ms | Recovery children | Complete | Settled | Wall s | Deadline s |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: | ---: |
+| 0 | baseline | — | — | — | — | — | false | — | 156.26 | 156 |
+
+Recorded gate output:
+
+```json
+{
+  "verdict": "BASELINE_CALIBRATION_FAILED",
+  "attempts": 1
+}
+```
+
+## Five-percent fork outcome
+
+The baseline calibration timed out after 156 seconds at 44,284/45,000 confirmed primary blocks. All six nodes had pending work (411–425 entries), and one node had a different final-state hash and only 31,333 cemented blocks. Verdict: BASELINE_CALIBRATION_FAILED. No candidate attempt was started and no p50/p95/p99 or goodput comparison is available; the timed-out client did not emit a completed histogram. Logs, RPC snapshots, configuration and failure-summary.json are retained; generated run data was deleted as requested. This is not a performance pass or evidence that the candidate handles forks.
+
+## Earlier optimized-projection settlement failure
 
 The optimized batch stopped after four attempts (two pairs), as prescribed by --stop-on-failure. All four clients confirmed 45,000/45,000 primary blocks without a process timeout. Both candidate attempts settled. In baseline pair 1, PR4 held 45,065 blocks but had cemented only 16,243 and reported 13,528 pending entries with a different final-state hash; the other five nodes had cemented all 45,065 with zero pending and equal hashes. Logs repeatedly report unusable epoch-0 reports and missing predecessor state for epoch 1. These are observations, not a proven root cause. The 30-second settlement window expired, producing FAIL_SETTLEMENT. No confidence interval or non-inferiority verdict is issued for this incomplete batch; the failed baseline was not replaced.
 
-The latest candidate passed 795 RAI node unit tests and 733 default node unit tests. Both completed candidate runs had zero R entries in their observed frozen reports; repeated carried-R performance remains unmeasured.
+That candidate passed 795 RAI node unit tests and 733 default node unit tests. Both completed candidate runs had zero R entries in their observed frozen reports; repeated carried-R performance remains unmeasured.
 
 ## Interpretation
 
-Compare each revision with its own interleaved baseline. The two revision batches are sequential, not a randomized direct head-to-head comparison, so their difference cannot isolate the optimization effect. No failed attempt was retried to manufacture a passing result. Early batches have different measurement/settlement capabilities and should not be pooled with later batches. Missing candidate metrics after an early cleanup failure remain missing.
+Compare each revision with its own interleaved baseline. The revision batches are sequential, not a randomized direct head-to-head comparison, so their difference cannot isolate the optimization effect. No failed attempt was retried to manufacture a passing result. Early batches have different measurement/settlement capabilities and should not be pooled with later batches. Missing candidate metrics after an early cleanup failure remain missing.
 
 The frozen baseline can finalize weaker checkpoint evidence than the revised candidate. Completion is therefore not automatically correctness-equivalent. This limits paper claims, especially for forked workloads.
 
-Raw manifests retain binary/client/harness hashes, commands, order, deadline derivation and free-space observations. Per-attempt logs, node data and RPC snapshots are preserved under the evidence paths above.
+Raw manifests retain binary/client/harness hashes, commands, order, deadline derivation and free-space observations. Per-attempt logs and RPC snapshots are preserved under the evidence paths above. Generated data from the reconciliation-refresh batch and fork diagnostic is deleted after saving evidence and TOML configuration; data-cleanup.json records each deletion. Earlier failure databases remain retained.

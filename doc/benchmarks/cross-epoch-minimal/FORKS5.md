@@ -13,8 +13,8 @@ ceil(1.5 × successful matching forked baseline wall time). Do not use zero-fork
 runs as matched references or let candidate time extend the allowance.
 
 Record inclusive goodput, p50/p95/p99, recovery-child count, all-node settlement,
-checkpoint rounds, and R/N/F counts. Retain failed-run databases; delete successful
-run data only after results/logs/RPC/configuration evidence is saved. A failed
+checkpoint rounds, and R/N/F counts. Delete generated run data after results/logs/RPC/configuration evidence is
+saved, including a failure summary for an unsuccessful attempt. A failed
 baseline remains a failed attempt, not a reason to restart until it passes.
 
 The generator is unseeded. A 5% option means probabilistic fork injection,

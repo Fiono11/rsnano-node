@@ -2,7 +2,7 @@ import unittest
 import tempfile
 import json
 from pathlib import Path
-from run import compare, quantile, settled, baseline_timeout, prune_successful_data
+from run import compare, quantile, settled, baseline_timeout, prune_run_data
 
 
 class PerformanceGateTests(unittest.TestCase):
@@ -79,26 +79,29 @@ class DataCleanupTests(unittest.TestCase):
             for name in ("result.json", "rpc.json", "run.log"):
                 (root / name).write_text("{}")
             result = dict(complete=True, settled_consistent=True)
-            prune_successful_data(root, result)
+            prune_run_data(root, result)
             self.assertFalse((root / "data").exists())
             self.assertTrue((root / "result.json").exists())
             self.assertEqual((root / "saved-config/pr0/config-node.toml").read_text(), "test = true\n")
             self.assertEqual(len(json.loads((root / "data-cleanup.json").read_text())["files"]), 2)
-            prune_successful_data(root, result)  # repeat is harmless
+            prune_run_data(root, result)  # repeat is harmless
 
-    def test_failure_or_missing_evidence_preserves_database(self):
+    def test_running_process_or_missing_evidence_preserves_database(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "data").mkdir()
             database = root / "data/data.ldb"
             database.write_bytes(b"diagnostic evidence")
-            for result in [dict(complete=False), dict(complete=True, settled_consistent=False),
-                           dict(complete=True, settled_consistent=True, cleanup_error="still running")]:
-                prune_successful_data(root, result)
-                self.assertTrue(database.exists())
-            with self.assertRaises(ValueError):
-                prune_successful_data(root, dict(complete=True, settled_consistent=True))
+            prune_run_data(root, dict(cleanup_error="still running"))
             self.assertTrue(database.exists())
+            with self.assertRaises(ValueError):
+                prune_run_data(root, dict(complete=False, timed_out=True))
+            self.assertTrue(database.exists())
+            for name in ("result.json", "rpc.json", "run.log"):
+                (root / name).write_text("{}")
+            prune_run_data(root, dict(complete=False, timed_out=True))
+            self.assertFalse(database.exists())
+
 
 if __name__ == "__main__":
     unittest.main()
