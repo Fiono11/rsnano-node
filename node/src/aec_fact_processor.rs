@@ -13,6 +13,7 @@ use rsnano_types::{Account, Block, BlockHash, ConsensusEpoch, SavedBlock, VoteDe
 use rsnano_utils::{
     EventHandlerRegistry,
     stats::{Sample, Stats},
+    thread_pool::ThreadPool,
 };
 
 use crate::{
@@ -20,6 +21,7 @@ use crate::{
     block_processing::{BlockContext, BlockProcessorQueue},
     bootstrap::bootstrapper::Bootstrapper,
     cementation::ConfirmingSet,
+    checkpoint_installer::CheckpointInstaller,
     consensus::{
         AecCooldownReason, AecFact, AecForkInserter, AecService, BootstrapElectionActivator,
         LocalVotesRemover, VoteProcessor, VoteRebroadcastQueue, WinnerBlockBroadcaster,
@@ -56,9 +58,10 @@ pub(crate) struct AecFactProcessor {
     pub(crate) ledger: Arc<Ledger>,
     pub(crate) vote_cache: Arc<VoteCache>,
     pub(crate) plugins: EventHandlerRegistry<AecFact>,
-    /// RAI: blocks a decided checkpoint finalized that this ledger lacked;
-    /// force-inserted and cemented once present
-    pub(crate) awaiting_cement: std::collections::HashSet<BlockHash>,
+    /// RAI: follows decided checkpoints in the ledger, on its own worker
+    pub(crate) checkpoint_installer: Arc<CheckpointInstaller>,
+    /// One thread: the checkpoints are installed in the order decided
+    pub(crate) checkpoint_worker: Arc<ThreadPool>,
     pub(crate) events_since_cement_check: usize,
     /// Diagnostic: per-second stages of the blocks cemented
     pub(crate) confirmation_stages: ConfirmationStages,
@@ -192,11 +195,17 @@ impl AecFactProcessor {
             AecFact::LateBlocksDiscarded { epoch, hashes } => {
                 self.discard_late_blocks(epoch, hashes)
             }
+            // Off this thread: checking every finalized block against the
+            // ledger held up the cementations queued behind it
             AecFact::CheckpointFinalized { epoch, hashes } => {
-                self.install_checkpoint_blocks(epoch, hashes)
+                let installer = self.checkpoint_installer.clone();
+                self.checkpoint_worker
+                    .execute(move || installer.install(epoch, hashes));
             }
             AecFact::CheckpointRetained { epoch, retained } => {
-                self.follow_retained_branches(epoch, retained)
+                let installer = self.checkpoint_installer.clone();
+                self.checkpoint_worker
+                    .execute(move || installer.follow_retained_branches(epoch, retained));
             }
             AecFact::ElectionEnded(election) => {
                 self.election_schedulers.notify();
@@ -354,131 +363,10 @@ impl AecFactProcessor {
         );
     }
 
-    /// RAI: the blocks a decided checkpoint finalized are cemented. One the
-    /// ledger already cemented is left alone; one it holds unconfirmed is
-    /// handed to the confirming set, which cements it with its ancestors;
-    /// one it does not hold at all is reported, and the finality stands in
-    /// the decided state until the block arrives.
-    fn install_checkpoint_blocks(&mut self, epoch: ConsensusEpoch, hashes: Vec<BlockHash>) {
-        let mut cemented = 0;
-        let mut queued = 0;
-        let mut missing = 0;
-        let mut fetched = 0;
-        let mut absent = Vec::new();
-        {
-            let any = self.ledger.any();
-            let confirmed = self.ledger.confirmed();
-            for hash in &hashes {
-                if confirmed.block_exists(hash) {
-                    cemented += 1;
-                } else if any.block_exists(hash) {
-                    self.confirming_set.add_block(*hash);
-                    queued += 1;
-                } else {
-                    missing += 1;
-                    absent.push(*hash);
-                }
-            }
-        }
-        // A finalized block this ledger lacks - its rival held here instead,
-        // or never received - is inserted in place of the rival, parents
-        // first (the hashes come in position order), and cemented once present
-        for hash in absent {
-            #[cfg(feature = "rai_protocol")]
-            let block = self
-                .aec_fork_inserter
-                .fork_cache
-                .read()
-                .unwrap()
-                .block(&hash)
-                .or_else(|| self.active_elections.report_block(&hash));
-            #[cfg(not(feature = "rai_protocol"))]
-            let block: Option<Block> = None;
-            if let Some(block) = block {
-                self.block_processor_queue.push(BlockContext::new(
-                    block,
-                    BlockSource::Forced,
-                    ChannelId::LOOPBACK,
-                ));
-                fetched += 1;
-            }
-            self.awaiting_cement.insert(hash);
-            self.active_elections.await_checkpoint_blocks([hash]);
-        }
-        if missing > 0 {
-            crate::utils::diagnostic!(
-                "EPOCH_INSTALL_FETCH epoch={} missing={} fetched={}",
-                epoch,
-                missing,
-                fetched
-            );
-        }
-        crate::utils::diagnostic!(
-            "EPOCH_INSTALLED epoch={} finalized={} cemented={} queued={} missing={}",
-            epoch,
-            hashes.len(),
-            cemented,
-            queued,
-            missing
-        );
-    }
-
-    /// RAI: "Recovery through a fresh child": the owner extends a retained
-    /// tip, so the ledger must hold the retained branch. A node whose ledger
-    /// holds an omitted rival at a retained position rolls it back and
-    /// installs the retained block, from the fork cache or the retained
-    /// report data; a retained block this node does not hold yet is
-    /// installed when it arrives as evidence (see the message processor).
-    /// Cemented blocks are never rolled back.
-    fn follow_retained_branches(
-        &mut self,
-        epoch: ConsensusEpoch,
-        retained: Vec<(rsnano_types::Account, u64, BlockHash)>,
-    ) {
-        let mut held = 0;
-        let mut forced = 0;
-        let mut missing = 0;
-        for (_, _, hash) in &retained {
-            if self.ledger.any().block_exists(hash) {
-                held += 1;
-                continue;
-            }
-            #[cfg(feature = "rai_protocol")]
-            let block = self
-                .aec_fork_inserter
-                .fork_cache
-                .read()
-                .unwrap()
-                .block(hash)
-                .or_else(|| self.active_elections.report_block(hash));
-            #[cfg(not(feature = "rai_protocol"))]
-            let block: Option<Block> = None;
-            match block {
-                Some(block) => {
-                    self.block_processor_queue.push(BlockContext::new(
-                        block,
-                        BlockSource::Forced,
-                        ChannelId::LOOPBACK,
-                    ));
-                    forced += 1;
-                }
-                None => missing += 1,
-            }
-        }
-        crate::utils::diagnostic!(
-            "EPOCH_RETAINED epoch={} retained={} held={} forced={} missing={}",
-            epoch,
-            retained.len(),
-            held,
-            forced,
-            missing
-        );
-    }
-
     /// RAI: cement the checkpoint-finalized blocks that arrived since they
     /// were found missing; checked every few hundred events, not each one
     fn cement_awaited_checkpoint_blocks(&mut self) {
-        if self.awaiting_cement.is_empty() {
+        if !self.checkpoint_installer.is_awaiting() {
             return;
         }
         self.events_since_cement_check += 1;
@@ -486,19 +374,7 @@ impl AecFactProcessor {
             return;
         }
         self.events_since_cement_check = 0;
-        let arrived: Vec<BlockHash> = {
-            let any = self.ledger.any();
-            self.awaiting_cement
-                .iter()
-                .filter(|hash| any.block_exists(hash))
-                .copied()
-                .collect()
-        };
-        for hash in arrived {
-            self.awaiting_cement.remove(&hash);
-            self.active_elections.checkpoint_block_arrived(&hash);
-            self.confirming_set.add_block(hash);
-        }
+        self.checkpoint_installer.cement_arrived();
     }
 
     fn clear_network_filter(&mut self, block: &Block) {

@@ -1122,3 +1122,26 @@ Clean pairs since the stage diagnostics (no profiling):
 Single pairs vary widely (two-checkpoint p95 704–1,462 ms across builds whose
 changes are diagnostics). No build has yet shown two-checkpoint p50 at the
 one-checkpoint level; it remains ~60–90 ms higher.
+
+### v41: the three remaining fact-thread sources
+
+1. `election_started`: `BootstrapElectionActivator` took the AEC write lock
+   for every started election without cached votes, to skip its passive phase
+   (`Active` matters: the confirmation solicitor solicits only active
+   elections). Starts are now activated in batches under one write lock: at 64,
+   before any other kind of fact, and whenever the fact queue drains (a new
+   `idle` hook of the event loop). An activation waits at most for a run of
+   consecutive starts.
+2. Plugins: the handler registry now records each handler's type name, and
+   the fact summary reports each plugin's time separately (vote cache, rep
+   tracker, rep crawler, report plugin) instead of one total, so the next pair
+   shows which one grows after a boundary.
+3. Checkpoint installation: checking the ~19,000 finalized blocks of a
+   checkpoint against the ledger (and a fresh ledger read per retained block)
+   ran on the fact thread for 60–265 ms per installation. It moved unchanged
+   into `CheckpointInstaller`, run on a dedicated one-thread pool so the
+   finalized and retained steps keep their order; the awaited-block set is
+   shared with the fact thread. The retained step reuses one ledger read.
+
+No protocol change. Formatting, all 870 node unit tests (`rai_protocol`) and
+the workspace unit tests pass.

@@ -66,6 +66,7 @@ use crate::{
         responder::BootstrapResponder,
     },
     cementation::{ConfirmingSet, TrackConfirmationTimes},
+    checkpoint_installer::CheckpointInstaller,
     config::{GlobalConfig, NetworkParams, NodeConfig, NodeFlags},
     consensus::{
         AecFact, AecForkInserter, AecService, AecTicker, AecVoter, BootstrapElectionActivator,
@@ -1245,8 +1246,17 @@ impl Node {
             ));
         }
 
+        let checkpoint_installer = Arc::new(CheckpointInstaller::new(
+            ledger.clone(),
+            confirming_set.clone(),
+            aec_fork_inserter.fork_cache.clone(),
+            active_elections.clone(),
+            block_processor_queue.clone(),
+        ));
+
         let aec_fact_processor = AecFactProcessor {
-            awaiting_cement: Default::default(),
+            checkpoint_installer,
+            checkpoint_worker: Arc::new(ThreadPool::new(1, "Checkpoint".to_string())),
             events_since_cement_check: 0,
             confirmation_stages: Default::default(),
             fact_timings: Default::default(),
