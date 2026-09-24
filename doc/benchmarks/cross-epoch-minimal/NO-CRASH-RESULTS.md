@@ -1054,3 +1054,34 @@ node used since the previous line (`clock_gettime(CLOCK_THREAD_CPUTIME_ID)`,
 in process CPU after a boundary means extra work competing for eight cores
 shared by six nodes. `libc` is added as a Unix-only dependency of the node crate.
 Formatting and all 865 node unit tests pass.
+
+Pinned v39 binaries (commit 607f1db5a):
+
+```text
+3698408648ef249ce5f4cb4559e766dc8a6210acf85f314210320eca916e71b1  rsnano
+9135ae7b7cbe7b8194351765700bf3810710fa5d494cfb6f222ef99577635dc7  nanospam
+```
+
+| Run | Non-fork goodput | p50 / p95 / p99 (ms) | Same end state on all six PRs |
+|---|---:|---:|---|
+| v39 one #1 | 1537 | 115 / 633 / 826 | yes |
+| v39 two #1 | 1578 | 170 / 1213 / 1468 | yes |
+
+v39 host load was quiet apart from this session (33% at the start of v39 one).
+The fact thread is blocked, not starved: after a boundary it was busy
+800–1,200 ms per second on 50–110 ms of CPU, so about 90% of its handling
+time is waiting. All six nodes together used 5.4–7.3 of eight cores, only
+~10–15% more after a boundary. Even in epoch 0 the thread was busy ~300 ms
+per second on ~80 ms of CPU.
+
+### v40: the hinted scheduler's wake-up no longer reads the AEC
+
+`ElectionSchedulers::notify` runs on the fact thread for every terminated and
+ended election (about 4,000 facts per second). Its hinted part read the AEC
+vacancy first, taking the AEC read lock twice, so the fact thread queued
+behind the AEC's writers, which are busiest after a boundary. The check had no
+effect: the hinted scheduler waits with a predicate that stays true until it
+stops, so a wake-up never makes it run early. It runs on its check interval
+and checks the vacancy itself then. `notify` now only wakes the condition
+variable, which stopping still relies on. No protocol change. Formatting and
+all 865 node unit tests pass.

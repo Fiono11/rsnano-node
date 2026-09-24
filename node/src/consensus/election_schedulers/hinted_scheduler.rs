@@ -30,6 +30,8 @@ pub struct HintedSchedulerConfig {
     pub check_interval: Duration,
     pub block_cooldown: Duration,
     pub hinting_threshold_percent: u32,
+    /// Kept for configuration compatibility; notifications no longer read
+    /// the AEC vacancy
     pub vacancy_threshold_percent: u32,
     /// Limit of hinted elections as percentage of `active_elections_size`
     pub hinted_limit_percentage: usize,
@@ -73,7 +75,6 @@ pub struct HintedScheduler {
     stopped_mutex: Mutex<()>,
     cooldowns: Mutex<OrderedCooldowns>,
     pub max_elections: usize,
-    notification_threshold: usize,
 }
 
 impl HintedScheduler {
@@ -88,9 +89,6 @@ impl HintedScheduler {
         clock: Arc<SteadyClock>,
     ) -> Self {
         let max_elections = active_elections.max_len() * config.hinted_limit_percentage / 100;
-
-        let notification_threshold =
-            max_elections * config.vacancy_threshold_percent as usize / 100;
 
         Self {
             thread: Mutex::new(None),
@@ -107,7 +105,6 @@ impl HintedScheduler {
             stopped_mutex: Mutex::new(()),
             cooldowns: Mutex::new(OrderedCooldowns::new()),
             max_elections,
-            notification_threshold,
         }
     }
 
@@ -120,12 +117,14 @@ impl HintedScheduler {
         }
     }
 
-    /// Notify about changes in AEC vacancy
+    /// Notify about changes in AEC vacancy. The scheduler runs on its check
+    /// interval and checks the vacancy itself then (see `predicate`); a wake
+    /// up only matters for stopping. The vacancy is not read here: that took
+    /// the AEC lock twice for every election that terminated or ended, on the
+    /// AEC fact thread, which then waited behind the AEC's writers and held
+    /// up every cementation queued behind it.
     pub fn notify(&self) {
-        // Avoid notifying when there is very little space inside AEC
-        if self.aec_vacancy() >= self.notification_threshold as i64 {
-            self.condition.notify_all();
-        }
+        self.condition.notify_all();
     }
 
     fn aec_vacancy(&self) -> i64 {
