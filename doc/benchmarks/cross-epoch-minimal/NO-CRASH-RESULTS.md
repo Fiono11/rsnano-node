@@ -772,3 +772,37 @@ After queued peeling, the same debug case took 35.7 ms (17× faster;
 `v31-peel-after.log`). All 850 node unit tests pass; formatting passes.
 At 8.11 GiB free, only the authorized `target/debug/incremental` cache was
 deleted; `no-crash-cleanup.log` records the cleanup and 9.78 GiB free afterwards.
+
+Pinned v31 binaries:
+
+```text
+df586f9c9cbfdebe0d6bdec01aee6fa8f5dd309a479f02332a5f24b151a4fef7  rsnano
+9135ae7b7cbe7b8194351765700bf3810710fa5d494cfb6f222ef99577635dc7  nanospam
+```
+
+| Run | Non-fork goodput | p50 / p95 / p99 (ms) | Same end state on all six PRs |
+|---|---:|---:|---|
+| v31 one #1 | 1524 | 121 / 1470 / 1732 | yes |
+| v31 two #1 | 1482 | 450 / 3609 / 3893 | yes |
+
+v31 converged in both runs; throughput is close (1,524 versus 1,482 blocks/s),
+but two-checkpoint p50/p95 remain 450/3,609 ms versus 121/1,470 ms. Checkpoint 0
+closes in 5.82–5.99 s, so the gap is not simply a deferred epoch boundary.
+
+### v32: merge root inventories once; profile the remaining contention
+
+Ordinary root-difference replies performed tree lookups for every entry of both
+inventories, for every offered source. Merge the already-sorted inventories in
+one pass and return an empty difference immediately for a shared snapshot.
+Canonical addition/removal order and exact target-root validation are unchanged.
+A 20,000-entry regression includes additions, removals, and status changes;
+the pre-change debug difference took 24.9 ms (`v32-difference-before.log`).
+
+Add `SLOW_REPORT_INBOUND` wall-time breakdowns for evidence blocks, ordinary
+reconstruction, sketches, and evidence requests. The next iteration still uses
+one pair, but the two-checkpoint member is a **profiling run** and must not be
+used as a clean final performance comparison. The purpose is to locate the
+remaining bottleneck after the earlier global-lock and reconstruction fixes.
+
+The merged difference took 4.08 ms in the focused debug case (6.1× faster).
+All 851 node unit tests pass.

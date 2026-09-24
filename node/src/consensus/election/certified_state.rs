@@ -328,16 +328,26 @@ impl CertifiedState {
     /// reconciliation between them falls back to a full transfer.
     pub fn difference(&self, target: &CertifiedState) -> CertifiedDelta {
         let mut delta = CertifiedDelta::default();
+        if Arc::ptr_eq(&self.entries, &target.entries) {
+            return delta;
+        }
+        // Both inventories have the same canonical ordering. Merge them once
+        // instead of performing a tree lookup for every entry in both maps.
+        let mut source = self.entries.iter().peekable();
         for (block, entry) in target.entries.iter() {
-            if self.entries.get(block) != Some(entry) {
+            while source.peek().is_some_and(|(held, _)| *held < block) {
+                delta.removed.push(*source.next().unwrap().0);
+            }
+            if source.peek().is_some_and(|(held, _)| *held == block) {
+                let (_, held) = source.next().unwrap();
+                if held != entry {
+                    delta.added.push((*block, *entry));
+                }
+            } else {
                 delta.added.push((*block, *entry));
             }
         }
-        for block in self.entries.keys() {
-            if !target.entries.contains_key(block) {
-                delta.removed.push(*block);
-            }
-        }
+        delta.removed.extend(source.map(|(block, _)| *block));
         delta
     }
 
@@ -700,6 +710,10 @@ impl ReportCommitment {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Instant;
+
+    use super::*;
+
     /// A G record placed from local election metadata is placed again from
     /// the block itself; the hash-only root does not change
     #[test]
@@ -719,8 +733,6 @@ mod tests {
         );
         assert_eq!(placed.root(), root);
     }
-
-    use super::*;
 
     #[test]
     fn missing_ancestry_does_not_skip_conflicting_finality_pruning() {
@@ -883,6 +895,39 @@ mod tests {
 
     /// The reconciliation check: apply the difference to the source state and
     /// the root has to come out as the signed one
+    #[test]
+    fn large_difference_reconstructs_incomparable_snapshots() {
+        let mut source = CertifiedState::new();
+        let mut target = CertifiedState::new();
+        for i in 0..20_000 {
+            source.certify(block(i), parent(block(i)), CertifiedStatus::Notarized);
+        }
+        for i in 1000..21_000 {
+            target.certify(
+                block(i),
+                parent(block(i)),
+                if i % 2 == 0 {
+                    CertifiedStatus::Notarized
+                } else {
+                    CertifiedStatus::Finalized
+                },
+            );
+        }
+        let start = Instant::now();
+        let delta = source.difference(&target);
+        eprintln!(
+            "difference of two 20000-entry snapshots: {:?}",
+            start.elapsed()
+        );
+        assert_eq!(delta.added.len(), 10_500);
+        assert_eq!(delta.removed.len(), 1000);
+        source.apply(&delta);
+        assert_eq!(source, target);
+        assert_eq!(source.root(), target.root());
+        let same = source.difference(&source.clone());
+        assert!(same.added.is_empty() && same.removed.is_empty());
+    }
+
     #[test]
     fn a_difference_reconstructs_the_target_root() {
         let mut source = CertifiedState::new();

@@ -1,7 +1,7 @@
 use std::{
     collections::{BTreeMap, HashMap},
     sync::{Arc, Mutex},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use rsnano_ledger::{AnySet, BlockSource, LedgerSet};
@@ -108,26 +108,59 @@ impl ReportService {
     }
 
     fn process_inbound(&self) {
+        let start = Instant::now();
         let blocks: Vec<rsnano_types::Block> =
             self.evidence_blocks.lock().unwrap().drain(..).collect();
+        let block_count = blocks.len();
         for block in blocks {
             // Re-gossiped copies of blocks retained already cost a map lookup
             if !self.data.has_received(&block.hash()) && !self.data.ledger_holds(&block.hash()) {
                 self.data.receive(&block);
             }
         }
+        let blocks_ms = start.elapsed().as_millis();
         let queued: Vec<(Message, Arc<Channel>)> = self.inbound.lock().unwrap().drain(..).collect();
+        let mut timings: BTreeMap<&'static str, (usize, Duration)> = BTreeMap::new();
         for (message, channel) in queued {
-            match message {
-                Message::ReconReq(request) => self.handle_request(request, &channel),
-                Message::ReconReply(reply) => self.handle_reply(reply, &channel),
-                Message::EvidenceReq(request) => self.handle_evidence_request(request, &channel),
-                Message::LedgerSketchReq(request) => self.handle_ledger_sketch(request, &channel),
-                Message::LedgerSketchReply(reply) => {
-                    self.handle_ledger_sketch_reply(reply, &channel)
+            let message_start = Instant::now();
+            let kind = match message {
+                Message::ReconReq(request) => {
+                    self.handle_request(request, &channel);
+                    "recon_request"
                 }
-                _ => {}
-            }
+                Message::ReconReply(reply) => {
+                    self.handle_reply(reply, &channel);
+                    "recon_reply"
+                }
+                Message::EvidenceReq(request) => {
+                    self.handle_evidence_request(request, &channel);
+                    "evidence_request"
+                }
+                Message::LedgerSketchReq(request) => {
+                    self.handle_ledger_sketch(request, &channel);
+                    "sketch_request"
+                }
+                Message::LedgerSketchReply(reply) => {
+                    self.handle_ledger_sketch_reply(reply, &channel);
+                    "sketch_reply"
+                }
+                _ => "other",
+            };
+            let (count, elapsed) = timings.entry(kind).or_default();
+            *count += 1;
+            *elapsed += message_start.elapsed();
+        }
+        if start.elapsed() >= Duration::from_millis(100) {
+            let by_type: Vec<_> = timings
+                .into_iter()
+                .map(|(kind, (count, elapsed))| (kind, count, elapsed.as_millis()))
+                .collect();
+            crate::utils::diagnostic!(
+                "SLOW_REPORT_INBOUND blocks={} blocks_ms={} by_type={:?}",
+                block_count,
+                blocks_ms,
+                by_type
+            );
         }
     }
 
