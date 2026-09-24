@@ -16,12 +16,12 @@ use super::{PriorityBucketConfig, prio_bucket_count};
 use crate::{
     block_processing::backlog_scan::UnconfirmedInfo,
     consensus::{
-        AecService, dependencies_attachable,
+        AecService, Unattached,
         election::{AccountSlot, EpochLedger},
         election_schedulers::priority::{
             BucketInsertError, Eviction, priority_buckets::PriorityBuckets,
         },
-        first_unretained,
+        first_unretained, unattached_dependency,
     },
 };
 
@@ -125,6 +125,23 @@ impl PriorityScheduler {
         }
     }
 
+    /// Chains past which a child is started on complete parents
+    #[cfg(feature = "rai_protocol")]
+    const MAX_COMPLETE_WALK: usize = 64;
+
+    /// RAI: the first block from `hash` upwards that is not complete in the
+    /// current epoch, or None when the chain ends on complete blocks
+    #[cfg(feature = "rai_protocol")]
+    fn first_incomplete(&self, any: &impl AnySet, mut hash: BlockHash) -> Option<BlockHash> {
+        for _ in 0..Self::MAX_COMPLETE_WALK {
+            if !self.aec.complete_in_current_epoch(&hash) {
+                return Some(hash);
+            }
+            hash = any.block_successor(&hash)?;
+        }
+        Some(hash)
+    }
+
     fn activate_with_info(
         &self,
         any: &impl AnySet,
@@ -161,6 +178,16 @@ impl PriorityScheduler {
             return;
         };
 
+        // RAI, "Subsequent children require complete epoch-e parents": a
+        // block complete in the current epoch need not be cemented before
+        // its child is started; the child's certificate finalizes it too
+        #[cfg(feature = "rai_protocol")]
+        let Some(next_unconfirmed_hash) = self.first_incomplete(any, next_unconfirmed_hash) else {
+            self.stats
+                .inc(StatType::ElectionScheduler, DetailType::AlreadyActive);
+            return;
+        };
+
         // The backlog scan and the confirmation hooks re-activate every unconfirmed
         // frontier while its election is still running (under Kudzu until it is
         // finalized). The AEC rejects such a block as a duplicate only after the
@@ -176,7 +203,13 @@ impl PriorityScheduler {
             return;
         };
 
-        if !dependencies_attachable(any, &block, checkpoint) {
+        let attachable = match unattached_dependency(any, &block, checkpoint) {
+            None => true,
+            #[cfg(feature = "rai_protocol")]
+            Some(Unattached::Previous) => self.aec.complete_in_current_epoch(&block.previous()),
+            Some(_) => false,
+        };
+        if !attachable {
             self.stats
                 .inc(StatType::ElectionScheduler, DetailType::ActivateFailed);
             return;

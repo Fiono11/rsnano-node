@@ -2,11 +2,11 @@ use std::sync::{Arc, Mutex, mpsc::SyncSender};
 
 use tracing::debug;
 
-use rsnano_ledger::{BlockSource, Ledger, LedgerSet, RollbackError};
+use rsnano_ledger::{AnySet, BlockSource, Ledger, LedgerSet, RollbackError};
 use rsnano_messages::NetworkFilter;
 use rsnano_network::ChannelId;
 use rsnano_nullable_clock::SteadyClock;
-use rsnano_types::{Block, BlockHash, ConsensusEpoch, VoteDelivery};
+use rsnano_types::{Account, Block, BlockHash, ConsensusEpoch, VoteDelivery};
 use rsnano_utils::{
     EventHandlerMut, EventHandlerRegistry,
     stats::{Sample, Stats},
@@ -20,7 +20,8 @@ use crate::{
     consensus::{
         AecCooldownReason, AecFact, AecForkInserter, AecService, BootstrapElectionActivator,
         LocalVotesRemover, VoteProcessor, VoteRebroadcastQueue, WinnerBlockBroadcaster,
-        aggregate_vote_results, election_schedulers::ElectionSchedulers, vote_cache::VoteCache,
+        aggregate_vote_results, election::ElectionId, election_schedulers::ElectionSchedulers,
+        vote_cache::VoteCache,
     },
     recently_cemented_inserter::RecentlyCementedInserter,
     utils::BackpressureEventProcessor,
@@ -89,7 +90,17 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
                         .try_broadcast_winner(&election.winner, &election.votes);
                 }
             }
-            AecFact::ElectionTerminated(_) => self.election_schedulers.notify(),
+            AecFact::ElectionTerminated(id) => {
+                // RAI: the notarized block is a complete parent now; its
+                // child is started without waiting for it to be cemented
+                if cfg!(feature = "rai_protocol") {
+                    if let Some(account) = self.account_of_instance(&id) {
+                        self.election_schedulers
+                            .activate_after_notarization(account);
+                    }
+                }
+                self.election_schedulers.notify()
+            }
             // RAI: the blocks held back while the epoch drained start now
             AecFact::EpochAdvanced(_, _) => self.election_schedulers.notify(),
             AecFact::LateBlocksDiscarded { epoch, hashes } => {
@@ -173,6 +184,18 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
 }
 
 impl AecFactProcessor {
+    /// The account whose position an instance decides: its parent's, or
+    /// the root's for an open block
+    fn account_of_instance(&self, id: &ElectionId) -> Option<Account> {
+        if id.root.previous.is_zero() {
+            return Some(Account::from(id.root.root));
+        }
+        self.ledger
+            .any()
+            .get_block(&id.root.previous)
+            .map(|parent| parent.account())
+    }
+
     const ROLLBACK_BATCH: usize = 16;
 
     /// RAI: blocks notarized in a closed epoch after its certificate was

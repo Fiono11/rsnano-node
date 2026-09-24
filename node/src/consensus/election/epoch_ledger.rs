@@ -476,7 +476,8 @@ impl BlockIndex for ReportIndex {
 /// validity must be checked by the caller before a selected report is usable.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BuildStateError {
-    MissingAncestry,
+    /// No placement for the block a selected path needs at this position
+    MissingAncestry(AccountSlot, BlockHash),
     InvalidAncestry,
     ConflictingFinality,
     ConflictingNotarizations,
@@ -804,7 +805,7 @@ fn selected_path(
         }
         let placement = index
             .placement(&hash)
-            .ok_or(BuildStateError::MissingAncestry)?;
+            .ok_or(BuildStateError::MissingAncestry(at, hash))?;
         if placement.slot != at || at.height == 0 || hash.is_zero() {
             return Err(BuildStateError::InvalidAncestry);
         }
@@ -817,7 +818,7 @@ fn selected_path(
             };
         }
         if placement.previous.is_zero() {
-            return Err(BuildStateError::MissingAncestry);
+            return Err(BuildStateError::MissingAncestry(at, hash));
         }
         at = AccountSlot::new(at.account, at.height - 1);
         hash = placement.previous;
@@ -1497,15 +1498,15 @@ mod tests {
             Err(BuildStateError::InvalidAncestry)
         );
         index.blocks.remove(&parent);
-        assert_eq!(
+        assert!(matches!(
             build_state(
                 &EpochLedger::new(),
                 &[report(&certified, &residual)],
                 &index,
                 certificate_rules()
             ),
-            Err(BuildStateError::MissingAncestry)
-        );
+            Err(BuildStateError::MissingAncestry(_, missing)) if missing == parent
+        ));
     }
 
     #[test]

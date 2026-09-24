@@ -68,6 +68,7 @@ impl ResidualData {
             return "active_not_voted";
         }
         match crate::consensus::unattached_dependency(&any, &block, checkpoint) {
+            Some(crate::consensus::Unattached::Retained) => "retained_position",
             Some(crate::consensus::Unattached::Previous) => "previous_not_final",
             Some(crate::consensus::Unattached::Link) => "source_not_final",
             Some(crate::consensus::Unattached::Block) => "block_missing",

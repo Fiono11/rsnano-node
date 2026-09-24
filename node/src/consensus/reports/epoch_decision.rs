@@ -17,8 +17,9 @@ use crate::{
         AecService,
         active_elections::EpochProposalContext,
         election::{
-            BuildRules, CheckpointFinalization, Committee, EpochLedger, EpochValue,
-            PredecessorBacking, ReportIndex, ReportRef, ReportSource, SelectedReport,
+            BuildRules, BuildStateError, CheckpointFinalization, Committee, EpochLedger,
+            EpochValue, EpochValueError, PredecessorBacking, ReportIndex, ReportRef, ReportSource,
+            SelectedReport,
         },
     },
     transport::MessageFlooder,
@@ -562,12 +563,35 @@ impl EpochDecisionService {
         ) {
             Ok(ledger) => Some((value.hash(), Arc::new(ledger))),
             Err(error) => {
+                // What the previous checkpoint and the selected reports hold
+                // at a position whose block could not be placed
+                let context = match error {
+                    EpochValueError::InvalidState(BuildStateError::MissingAncestry(slot, hash)) => {
+                        let reports_hold = states.iter().any(|state| {
+                            state.certified.contains_hash(&hash)
+                                || state.residual.entries().any(|(b, _, _)| b.hash == hash)
+                        });
+                        format!(
+                            " missing={} at={}:{} previous_final={:?} previous_notarized={:?} previous_depth={:?} in_reports={} own_ledger_final={}",
+                            hash,
+                            slot.account,
+                            slot.height,
+                            previous.finalized(&slot),
+                            previous.notarized(&slot),
+                            previous.retained_depth(slot.account),
+                            reports_hold,
+                            self.active_elections.is_finalized(&hash)
+                        )
+                    }
+                    _ => String::new(),
+                };
                 diagnostic!(
-                    "EPOCH_VALUE_REFUSED epoch={} slot={} value={} reason={:?}",
+                    "EPOCH_VALUE_REFUSED epoch={} slot={} value={} reason={:?}{}",
                     value.epoch,
                     value.slot,
                     value.hash(),
-                    error
+                    error,
+                    context
                 );
                 None
             }

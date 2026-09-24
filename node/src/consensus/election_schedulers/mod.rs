@@ -206,6 +206,12 @@ impl ElectionSchedulers {
         self.optimistic.notify();
     }
 
+    /// RAI: a block of the account became complete in the current epoch:
+    /// its child may be started before it is cemented
+    pub fn activate_after_notarization(&self, account: Account) {
+        self.enqueue_activation(account);
+    }
+
     pub fn add_manual(&self, block: SavedBlock) {
         self.manual.push(block);
     }

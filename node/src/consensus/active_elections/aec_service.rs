@@ -369,6 +369,13 @@ impl AecService {
         self.aec.read().unwrap().report_block(hash)
     }
 
+    /// RAI: whether a block is complete in the current epoch here: a child
+    /// may be started and first-voted on it before it is cemented
+    pub fn complete_in_current_epoch(&self, hash: &BlockHash) -> bool {
+        let aec = self.aec.read().unwrap();
+        aec.complete_in_epoch(hash, aec.current_epoch())
+    }
+
     #[cfg(feature = "rai_protocol")]
     pub(crate) fn first_voted_elsewhere(
         &self,

@@ -1832,12 +1832,17 @@ impl ActiveElectionsContainer {
 
     fn parent_complete_in_epoch(&self, election: &Election) -> bool {
         let previous = election.qualified_root().previous;
-        if previous.is_zero() {
-            return false;
-        }
+        !previous.is_zero() && self.complete_in_epoch(&previous, election.epoch())
+    }
+
+    /// RAI, §4.2: "A block is complete in epoch e when its data and
+    /// required ancestry are available and the validator has assembled its
+    /// epoch-e NC from q first votes". Its instance of the epoch holds the
+    /// block and that certificate.
+    pub fn complete_in_epoch(&self, hash: &BlockHash, epoch: ConsensusEpoch) -> bool {
         self.roots
-            .election_for_block_in_epoch(&previous, election.epoch())
-            .is_some_and(|parent| parent.certificates().is_notarized(&previous))
+            .election_for_block_in_epoch(hash, epoch)
+            .is_some_and(|election| election.certificates().is_notarized(hash))
     }
 
     /// RAI, Rule 3 and the second overlap exception: "an epoch-e NC for
@@ -3987,6 +3992,7 @@ mod tests {
         };
         assert!(first_for(&container, parent.hash()));
         assert!(!first_for(&container, child.hash()));
+        assert!(!container.complete_in_epoch(&parent.hash(), ConsensusEpoch::ZERO));
 
         // The test quorum is 100M: one representative of 70M notarizes
         let rep_key = PrivateKey::from(1);
@@ -4012,6 +4018,7 @@ mod tests {
                 .is_notarized(&parent.hash())
         );
         assert!(first_for(&container, child.hash()));
+        assert!(container.complete_in_epoch(&parent.hash(), ConsensusEpoch::ZERO));
         // A receive whose source is not final stays unattachable
         assert!(
             !container
@@ -4019,6 +4026,20 @@ mod tests {
                 .into_iter()
                 .any(|target| target.vote_type == VoteType::NonFinal)
         );
+
+        // "An eligible block finalizes on q final votes": the child's own
+        // certificate, while its parent is notarized only
+        for kind in [VoteKind::First, VoteKind::Final] {
+            let vote = Vote::new_in_epoch(&rep_key, kind, ConsensusEpoch::ZERO, vec![child_hash]);
+            container.apply_vote(ApplyVoteArgs {
+                vote: &ReceivedVote::new(Arc::new(vote), VoteDelivery::Direct, None).into(),
+                rep_weights: &rep_weights,
+                quorum_snapshot: &QuorumSnapshot::new_test_instance(),
+                now,
+            });
+        }
+        assert!(container.is_finalized(&child_hash));
+        assert!(!container.is_finalized(&parent.hash()));
     }
 
     /// RAI, the second overlap exception: before S_{e-1} is known, a block
