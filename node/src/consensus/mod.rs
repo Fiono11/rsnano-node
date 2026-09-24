@@ -1,3 +1,5 @@
+mod attachment;
+pub(crate) use attachment::*;
 mod active_elections;
 mod aec_fork_inserter;
 mod aec_ticker;

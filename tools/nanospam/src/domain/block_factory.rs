@@ -104,6 +104,22 @@ impl BlockFactory {
         self.account_map.confirm(hash);
     }
 
+    pub fn create_lock_child(&mut self, lock: &BlockHash) -> Option<(Block, BlockHash)> {
+        let (account, first) = self.account_map.adopt_lock(lock)?;
+        let state = self.account_map.state(&account)?;
+        let child: Block = StateBlockArgs {
+            key: &state.key,
+            previous: *lock,
+            representative: representative(state, &self.representatives),
+            balance: state.balance,
+            link: Link::ZERO,
+            work: WorkNonce::new(0),
+        }
+        .into();
+        self.account_map.process_change(account, child.hash());
+        Some((child, first))
+    }
+
     pub fn created(&self) -> usize {
         self.created
     }

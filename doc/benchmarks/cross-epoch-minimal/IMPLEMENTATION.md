@@ -23,6 +23,15 @@ implement every requirement of `RAI_revised_cross_epoch_lock.docx`.
   blocks with their actual parents. Initialization rejects unconfirmed or missing
   genesis data and leaves it outside the measured publishing window.
 
+* A selectively adapted owner recovery path from the saved dirty tree exposes
+  maximum-depth retained tips via `epoch_locks`. The shared client can publish
+  a fresh change block above a tip it owns. Priority scheduling skips retained
+  positions and first-vote attachment accepts a retained tip as the parent;
+  receive sources still must be confirmed. This is not the full eligibility rule.
+* The client reports `recovery_created` separately. Primary completion and latency
+  include the time spent waiting for recovery; extra children do not inflate
+  primary goodput. Both node versions must use this same instrumented client.
+
 `build_state` is a structural builder over evidence the caller is expected to
 have validated. Its F tags do not themselves constitute cryptographic finality
 proofs. Complete verification of the signed evidence, transfer dependencies and
@@ -37,7 +46,7 @@ semantics, not a replacement for certificate verification.
    releasing signatures; enforce the preceding-epoch first-vote lock. Retain
    evidence independently of active-election eviction or finalization.
 3. Validate the complete selected ancestry and receive dependencies. Implement
-   current-epoch complete parents, maximum-depth attachment, both overlap
+   current-epoch complete parents, full branch eligibility, both overlap
    exceptions, and predecessor-backed recovery-lock supersession (Rule 3).
 4. Validate F/N memberships from retained signed votes, reconstruct G from each
    reporter's own signed votes, and verify all report context bindings. A signed

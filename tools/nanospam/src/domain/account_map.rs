@@ -20,6 +20,9 @@ pub(crate) struct AccountMap {
     /// Receiving account + send hash => amount
     confirmed_receivable: FxHashMap<(Account, BlockHash), Amount>,
     unconfirmed: FxHashMap<BlockHash, UnconfirmedEntry>,
+    /// The second block of each fork => the block published first, which
+    /// the account's bookkeeping follows
+    forks: FxHashMap<BlockHash, BlockHash>,
 }
 
 struct UnconfirmedEntry {
@@ -148,6 +151,9 @@ impl AccountMap {
                 fork,
             },
         );
+        if let Some(fork) = fork {
+            self.forks.insert(fork, send_hash);
+        }
         self.confirmed_accounts.remove(&source);
 
         if self.active_accounts.insert(destination) {
@@ -191,6 +197,9 @@ impl AccountMap {
                 fork,
             },
         );
+        if let Some(fork) = fork {
+            self.forks.insert(fork, receive_hash);
+        }
     }
 
     pub fn process_change(&mut self, account: Account, hash: BlockHash) {
@@ -207,6 +216,37 @@ impl AccountMap {
         );
     }
 
+    /// RAI: a decided checkpoint kept `lock`, an unconfirmed frontier of
+    /// this run's or the fork of one, as a lock the owner resolves with a
+    /// fresh child. Returns the account whose chain now continues from
+    /// `lock`, or None if `lock` is no such block or the account was
+    /// extended already. When the lock is a fork's second block, the
+    /// account's bookkeeping moves over to it: its hash is what confirms,
+    /// and a send's receivable is the one the lock created. Also returns the
+    /// block published first.
+    pub fn adopt_lock(&mut self, lock: &BlockHash) -> Option<(Account, BlockHash)> {
+        let first = *self.forks.get(lock).unwrap_or(lock);
+        let source = self.unconfirmed.get(&first)?.source;
+        let state = self.account_states.get_mut(&source)?;
+        if state.unconfirmed_frontier != first {
+            return None;
+        }
+        state.unconfirmed_frontier = *lock;
+        if first != *lock {
+            let mut entry = self.unconfirmed.remove(&first)?;
+            entry.fork = Some(first);
+            if let Some(destination) = entry.destination
+                && let Some(receivable) = self.receivable.get_mut(&destination)
+                && let Some(pending) = receivable.iter_mut().find(|(hash, _)| *hash == first)
+            {
+                pending.0 = *lock;
+            }
+            self.unconfirmed.insert(*lock, entry);
+        }
+        self.forks.remove(lock);
+        Some((source, first))
+    }
+
     pub fn confirm(&mut self, hash: &BlockHash) {
         let Some(entry) = self.unconfirmed.remove(hash) else {
             return;
@@ -214,6 +254,7 @@ impl AccountMap {
 
         if let Some(fork) = entry.fork {
             self.unconfirmed.remove(&fork);
+            self.forks.remove(&fork);
         }
 
         if let Some(dest) = entry.destination
@@ -226,6 +267,10 @@ impl AccountMap {
         let Some(state) = self.account_states.get_mut(&entry.source) else {
             return;
         };
+        // RAI: a lock's child cements with it and may be reported first
+        if state.confirmed() {
+            return;
+        }
         state.confirmed_frontier = *hash;
         if state.confirmed() {
             self.confirmed_accounts.insert(entry.source);
@@ -393,5 +438,104 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_locked_first_block_of_a_fork_is_extended_once() {
+        let (mut map, sender, _) = forked_send_fixture();
+
+        assert_eq!(map.adopt_lock(&FIRST), Some((sender, FIRST)));
+        map.process_change(sender, CHILD);
+        assert_eq!(map.adopt_lock(&FIRST), None);
+        map.confirm(&FIRST);
+        map.confirm(&CHILD);
+
+        let state = map.state(&sender).unwrap();
+        assert!(state.confirmed());
+        assert_eq!(state.confirmed_frontier, CHILD);
+    }
+
+    #[test]
+    fn a_locked_second_block_of_a_fork_takes_over_the_bookkeeping() {
+        let (mut map, sender, destination) = forked_send_fixture();
+
+        assert_eq!(map.adopt_lock(&SECOND), Some((sender, FIRST)));
+        map.process_change(sender, CHILD);
+        map.confirm(&SECOND);
+        map.confirm(&CHILD);
+
+        assert!(map.state(&sender).unwrap().confirmed());
+        assert_eq!(
+            map.get_receivable(&destination),
+            Some((SECOND, Amount::nano(1)))
+        );
+        assert_eq!(
+            map.next_receivable(),
+            Some((destination, SECOND, Amount::nano(1)))
+        );
+    }
+
+    #[test]
+    fn a_child_confirmed_before_its_lock_leaves_the_account_confirmed() {
+        let (mut map, sender, _) = forked_send_fixture();
+
+        map.adopt_lock(&FIRST);
+        map.process_change(sender, CHILD);
+        map.confirm(&CHILD);
+        map.confirm(&FIRST);
+
+        let state = map.state(&sender).unwrap();
+        assert!(state.confirmed());
+        assert_eq!(state.confirmed_frontier, CHILD);
+    }
+
+    #[test]
+    fn a_locked_block_without_a_fork_is_extended_too() {
+        let mut map = AccountMap::default();
+        let sender = PrivateKey::from(100);
+        map.add_unopened(sender.clone());
+        map.set_account_state(sender.account(), Amount::nano(10), BlockHash::from(1));
+        map.process_send(
+            sender.account(),
+            sender.account(),
+            FIRST,
+            Amount::nano(1),
+            None,
+        );
+
+        assert_eq!(map.adopt_lock(&FIRST), Some((sender.account(), FIRST)));
+    }
+
+    #[test]
+    fn a_confirmed_block_is_not_extended() {
+        let (mut map, _, _) = forked_send_fixture();
+        map.confirm(&FIRST);
+
+        assert_eq!(map.adopt_lock(&FIRST), None);
+        assert_eq!(map.adopt_lock(&SECOND), None);
+    }
+
+    /* Test helpers */
+
     const TEST_GENESIS_ACCOUNT: Account = Account::from_bytes([1; 32]);
+    const FIRST: BlockHash = BlockHash::from_bytes([42; 32]);
+    const SECOND: BlockHash = BlockHash::from_bytes([43; 32]);
+    const CHILD: BlockHash = BlockHash::from_bytes([50; 32]);
+
+    /// A funded account sends to another one with a fork: FIRST published
+    /// first, SECOND its fork
+    fn forked_send_fixture() -> (AccountMap, Account, Account) {
+        let mut map = AccountMap::default();
+        let sender = PrivateKey::from(100);
+        let destination = PrivateKey::from(101);
+        map.add_unopened(sender.clone());
+        map.add_unopened(destination.clone());
+        map.set_account_state(sender.account(), Amount::nano(10), BlockHash::from(1));
+        map.process_send(
+            sender.account(),
+            destination.account(),
+            FIRST,
+            Amount::nano(1),
+            Some(SECOND),
+        );
+        (map, sender.account(), destination.account())
+    }
 }

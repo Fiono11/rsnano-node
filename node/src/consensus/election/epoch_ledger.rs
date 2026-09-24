@@ -92,6 +92,31 @@ pub struct EpochLedger {
 }
 
 impl EpochLedger {
+    pub fn retains(&self, slot: &AccountSlot) -> bool {
+        self.notarized.contains_key(slot)
+    }
+
+    pub fn is_locked(&self, slot: &AccountSlot, hash: &BlockHash) -> bool {
+        self.notarized
+            .get(slot)
+            .is_some_and(|blocks| blocks.iter().any(|b| b.hash == *hash))
+    }
+
+    pub fn retained_depth(&self, account: Account) -> Option<u64> {
+        self.notarized
+            .range(AccountSlot::new(account, 0)..=AccountSlot::new(account, u64::MAX))
+            .next_back()
+            .map(|(s, _)| s.height)
+    }
+
+    /// Only maximum-depth retained tips may receive a fresh resolving child.
+    pub fn locks(&self) -> impl Iterator<Item = (&AccountSlot, BlockHash)> {
+        self.notarized
+            .iter()
+            .filter(|(slot, _)| self.retained_depth(slot.account) == Some(slot.height))
+            .flat_map(|(slot, blocks)| blocks.iter().map(move |b| (slot, b.hash)))
+    }
+
     pub fn new() -> Self {
         Self::default()
     }

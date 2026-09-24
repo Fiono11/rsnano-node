@@ -80,9 +80,11 @@ impl AecVoter {
             // RAI: a block is a valid proposal once its dependencies are
             // finalized here (the previous block, the source of a receive)
             let any = self.ledger.any();
+            let checkpoint = self.aec.latest_checkpoint();
             let proposal_valid = |hash: &BlockHash| {
-                any.get_block(hash)
-                    .is_some_and(|block| any.dependencies_confirmed(&block))
+                any.get_block(hash).is_some_and(|block| {
+                    crate::consensus::dependencies_attachable(&any, &block, checkpoint.as_deref())
+                })
             };
             self.aec
                 .kudzu_votes_due(proposal_valid)

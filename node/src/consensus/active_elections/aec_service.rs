@@ -112,6 +112,16 @@ impl AecService {
     }
 
     /// RAI: the epoch new elections are started in
+    pub(crate) fn latest_checkpoint(
+        &self,
+    ) -> Option<std::sync::Arc<crate::consensus::election::EpochLedger>> {
+        self.aec.read().unwrap().latest_checkpoint()
+    }
+
+    pub fn checkpoint_locks(&self) -> Option<(ConsensusEpoch, Vec<(Account, u64, BlockHash)>)> {
+        self.aec.read().unwrap().checkpoint_locks()
+    }
+
     pub fn current_epoch(&self) -> ConsensusEpoch {
         self.aec.read().unwrap().current_epoch()
     }

@@ -628,6 +628,11 @@ impl NanoRpcClient {
         self.request(&RpcCommand::epoch_start()).await
     }
 
+    /// RAI: the locks of the latest checkpoint decided on the node
+    pub async fn epoch_locks(&self) -> Result<EpochLocksResponse> {
+        self.request(&RpcCommand::epoch_locks()).await
+    }
+
     pub async fn confirmation_quorum(&self) -> Result<ConfirmationQuorumResponse> {
         self.request(&RpcCommand::confirmation_quorum()).await
     }

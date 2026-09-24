@@ -23,7 +23,7 @@ use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_nullable_tcp::{TcpStream, TcpStreamFactory};
 use rsnano_nullable_tracing_subscriber::TracingInitializer;
 use rsnano_rpc_client::NanoRpcClient;
-use rsnano_rpc_messages::{AccountHistoryArgs, ProcessArgs};
+use rsnano_rpc_messages::{AccountHistoryArgs, EpochLocksResponse, ProcessArgs, RpcU64};
 use rsnano_types::{BlockHash, NetworkType, PrivateKey, ProtocolInfo, RawKey, WalletId};
 use rsnano_websocket_messages::{BlockConfirmed, MessageEnvelope, Topic};
 
@@ -204,6 +204,12 @@ impl NanoSpamApp {
             s.spawn(|| track_confirmations(rx_ws_msg, &logic));
 
             tokio_scoped::scope(|scope| {
+                scope.spawn(extend_locked_forks(
+                    &self.rpc_clients,
+                    tx_forks_clone.clone(),
+                    &logic,
+                    cancel_nanospam.clone(),
+                ));
                 scope.spawn(log_status(&logic, &self.clock, cancel_nanospam.clone()));
 
                 if self.args.high_prio_check() {
@@ -260,6 +266,7 @@ impl NanoSpamApp {
         // These are block-confirmation observations, not transfer latency.
         let metrics = serde_json::json!({
             "created": created_blocks,
+            "recovery_created": logic.recovery_created,
             "confirmed": logic.confirmed_total,
             "duration_secs": duration_secs,
             "confirmation_histogram_ms": logic.confirmation_histogram_ms,
@@ -369,6 +376,58 @@ async fn publish_blocks(
         }
     }
     cancel_token.cancel();
+}
+
+async fn extend_locked_forks(
+    rpc_clients: &[NanoRpcClient],
+    tx_forks: mpsc::Sender<Forks>,
+    logic: &Mutex<SpamLogic>,
+    cancel_token: CancellationToken,
+) {
+    let mut extended: Option<RpcU64> = None;
+    while timeout(Duration::from_millis(200), cancel_token.cancelled())
+        .await
+        .is_err()
+    {
+        if logic.lock().unwrap().is_finished() {
+            return;
+        }
+        let Some(response) = first_epoch_locks(rpc_clients).await else {
+            continue;
+        };
+        if response.epoch.is_none() || response.epoch == extended {
+            continue;
+        }
+        let children: Vec<rsnano_types::Block> = {
+            let mut l = logic.lock().unwrap();
+            response
+                .locks
+                .iter()
+                .filter_map(|lock| l.lock_child(&lock.hash))
+                .collect()
+        };
+        info!(
+            "RAI_LOCK_CHILDREN epoch={} locks={} children={}",
+            response.epoch.unwrap().inner(),
+            response.locks.len(),
+            children.len()
+        );
+        for child in children {
+            if tx_forks.send(Forks::new(child)).await.is_err() {
+                return;
+            }
+        }
+        extended = response.epoch;
+    }
+}
+
+async fn first_epoch_locks(rpc_clients: &[NanoRpcClient]) -> Option<EpochLocksResponse> {
+    for rpc_client in rpc_clients {
+        if let Ok(response) = rpc_client.epoch_locks().await {
+            return Some(response);
+        }
+    }
+    None
 }
 
 async fn republish_delayed_blocks(

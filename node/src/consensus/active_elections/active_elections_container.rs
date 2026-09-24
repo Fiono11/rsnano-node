@@ -1124,6 +1124,19 @@ impl ActiveElectionsContainer {
 
     /// RAI: whether the latest decided checkpoint holds this position as a
     /// retained fork, unresolved: no instance is started there again
+    pub fn latest_checkpoint(&self) -> Option<Arc<EpochLedger>> {
+        self.decided.values().next_back().cloned()
+    }
+
+    pub fn checkpoint_locks(&self) -> Option<(ConsensusEpoch, Vec<(Account, u64, BlockHash)>)> {
+        let (epoch, state) = self.decided.iter().next_back()?;
+        let locks = state
+            .locks()
+            .map(|(slot, hash)| (slot.account, slot.height, hash))
+            .collect();
+        Some((*epoch, locks))
+    }
+
     fn position_retained(&self, account: Account, height: u64) -> bool {
         let Some(state) = self.decided.values().next_back() else {
             return false;

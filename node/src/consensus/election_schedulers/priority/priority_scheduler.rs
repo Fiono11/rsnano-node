@@ -16,10 +16,12 @@ use super::{PriorityBucketConfig, prio_bucket_count};
 use crate::{
     block_processing::backlog_scan::UnconfirmedInfo,
     consensus::{
-        AecService,
+        AecService, dependencies_attachable,
+        election::{AccountSlot, EpochLedger},
         election_schedulers::priority::{
             BucketInsertError, Eviction, priority_buckets::PriorityBuckets,
         },
+        first_unretained,
     },
 };
 
@@ -93,7 +95,14 @@ impl PriorityScheduler {
             let conf_info = any.confirmed().get_conf_info(account).unwrap_or_default();
 
             if conf_info.height < account_info.block_count {
-                self.activate_with_info(any, &account_info, &conf_info);
+                let checkpoint = self.aec.latest_checkpoint();
+                self.activate_with_info(
+                    any,
+                    account,
+                    &account_info,
+                    &conf_info,
+                    checkpoint.as_deref(),
+                );
                 return;
             }
         };
@@ -104,16 +113,25 @@ impl PriorityScheduler {
 
     pub fn activate_batch(&self, unconfirmed: &[UnconfirmedInfo]) {
         let any = self.ledger.any();
+        let checkpoint = self.aec.latest_checkpoint();
         for info in unconfirmed {
-            self.activate_with_info(&any, &info.account_info, &info.conf_info);
+            self.activate_with_info(
+                &any,
+                &info.account,
+                &info.account_info,
+                &info.conf_info,
+                checkpoint.as_deref(),
+            );
         }
     }
 
-    pub fn activate_with_info(
+    fn activate_with_info(
         &self,
         any: &impl AnySet,
+        account: &Account,
         account_info: &AccountInfo,
         conf_info: &ConfirmationHeightInfo,
+        checkpoint: Option<&EpochLedger>,
     ) {
         debug_assert!(conf_info.frontier != account_info.head);
 
@@ -128,6 +146,19 @@ impl PriorityScheduler {
                     }
                 }
             }
+        };
+
+        // RAI: a position the latest checkpoint keeps as a lock is not voted
+        // on again, a fresh child above it is (§4.4)
+        let Some(next_unconfirmed_hash) = first_unretained(
+            any,
+            AccountSlot::new(*account, conf_info.height + 1),
+            next_unconfirmed_hash,
+            checkpoint,
+        ) else {
+            self.stats
+                .inc(StatType::ElectionScheduler, DetailType::ActivateFailed);
+            return;
         };
 
         // The backlog scan and the confirmation hooks re-activate every unconfirmed
@@ -145,7 +176,7 @@ impl PriorityScheduler {
             return;
         };
 
-        if !any.dependencies_confirmed(&block) {
+        if !dependencies_attachable(any, &block, checkpoint) {
             self.stats
                 .inc(StatType::ElectionScheduler, DetailType::ActivateFailed);
             return;

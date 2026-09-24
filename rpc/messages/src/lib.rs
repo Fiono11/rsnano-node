@@ -82,6 +82,7 @@ pub enum RpcCommand {
     FinalState(FinalStateArgs),
     EpochAdvance,
     EpochStart,
+    EpochLocks,
     ConfirmationQuorum(ConfirmationQuorumArgs),
     WorkValidate(WorkValidateArgs),
     AccountHistory(AccountHistoryArgs),

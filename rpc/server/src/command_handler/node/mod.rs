@@ -5,6 +5,7 @@ mod confirmation_history;
 mod confirmation_info;
 mod confirmation_quorum;
 mod epoch_advance;
+mod epoch_locks;
 mod epoch_start;
 mod final_state;
 mod keepalive;

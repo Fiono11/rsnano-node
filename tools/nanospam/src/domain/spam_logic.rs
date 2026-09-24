@@ -31,6 +31,8 @@ pub(crate) struct SpamLogic {
     pub(crate) sum_conf_time_recent: Duration,
     pub(crate) sum_conf_time_total: Duration,
     pub(crate) cps_measure_start: Option<Timestamp>,
+    locked_forks: rustc_hash::FxHashMap<BlockHash, BlockHash>,
+    pub(crate) recovery_created: usize,
     pub(crate) confirmation_histogram_ms: std::collections::BTreeMap<u64, usize>,
 }
 
@@ -55,8 +57,19 @@ impl SpamLogic {
             sum_conf_time_recent: Duration::ZERO,
             sum_conf_time_total: Duration::ZERO,
             cps_measure_start: None,
+            locked_forks: Default::default(),
+            recovery_created: 0,
             confirmation_histogram_ms: Default::default(),
         }
+    }
+
+    pub(crate) fn lock_child(&mut self, lock: &BlockHash) -> Option<Block> {
+        let (child, first) = self.block_factory.create_lock_child(lock)?;
+        if first != *lock {
+            self.locked_forks.insert(*lock, first);
+        }
+        self.recovery_created += 1;
+        Some(child)
     }
 
     pub(crate) fn is_finished(&self) -> bool {
@@ -124,7 +137,8 @@ impl SpamLogic {
         timestamp: Timestamp,
     ) -> Option<Duration> {
         if self.spec.track_confirmations {
-            let conf_time = self.delayed.confirmed(block_hash, timestamp);
+            let tracked = self.locked_forks.remove(block_hash).unwrap_or(*block_hash);
+            let conf_time = self.delayed.confirmed(&tracked, timestamp);
 
             if let Some(conf_time) = conf_time {
                 if self.cps_measure_start.is_none() {
