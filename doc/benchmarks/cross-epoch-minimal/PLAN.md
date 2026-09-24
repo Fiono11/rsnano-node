@@ -64,7 +64,8 @@ ledger set `T_i` with tag R. Baseline remains `rai_kudzu` commit
    - `active_elections/{epoch_states,active_elections_container}.rs`: merge
      predecessor ledger with relevant evidence for both freeze and live
      epoch projection; do not rely on surviving active elections.
-   - `election/residual_votes.rs`, `active_elections/vote_records.rs`: exact
+   - `ResidualVotes` in `election/certified_state.rs`, and
+     `active_elections/vote_records.rs`: exact
      hash-set G, separate signed evidence and first-vote support accounting.
    - `messages/src/report.rs`, `consensus/reports/*`: R-aware report decoding,
      authenticated canonical differences, immutable snapshots, predecessor
