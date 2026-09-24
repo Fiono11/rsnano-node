@@ -205,3 +205,14 @@ to witness the discard, so the conservative classifier cannot count them.
 A second checkpoint, or a fork distribution that is not an exact tie, is
 needed to measure full termination; this is a property of the workload
 and the observer, not evidence of a stalled node.
+
+**Candidate v6 under the paired harness** (`no-crash-forks5-one-checkpoint-v6-candidate`,
+run alone, 156 s ceiling): 2,236 fork pairs, 1,731 locks, 1,585 recovery
+children. Confirmed 44,765 / 45,000 at the ceiling; timed out, so no
+goodput or latency histogram was emitted. Five nodes ended identical
+(46,415 cemented, 0 unchecked); PR5 was three blocks behind with a
+different hash when the snapshot was taken. 214–232 empty positions per
+node remain, as in diag-v3. Verdict CANDIDATE_ONLY, incomplete. No
+performance result exists for the forked workload: the client's completion
+condition needs every primary (or its alternative) confirmed, which the
+tied positions prevent on both binaries.
