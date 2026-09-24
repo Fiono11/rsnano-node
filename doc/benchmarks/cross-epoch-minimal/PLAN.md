@@ -142,3 +142,31 @@ allowance. p99 remains recorded as a diagnostic and no longer determines the
 gate. Harness manifests label this `p50-p95-v1`. Earlier p99-based results retain
 their original gate labels and verdicts; do not silently relabel them as passes.
 Baseline-derived process deadlines remain unchanged.
+
+## Next carried-R experiment: predeclare before running
+
+The corrected selected-prefix and optimized-projection runs had R=0 in their
+observed frozen reports. Recovery-child creation alone is not evidence that
+R entries survived into a later T. Treat these as handoff controls.
+
+Add a shared-client recovery delay measured from first observation of each
+retained hash, preserving that timer across checkpoint changes. Default zero
+must preserve the existing workload. Delay for two epoch durations and keep
+publishing long enough to observe subsequent boundaries. Record first-seen,
+child-publication and confirmation times, plus per-epoch R/N/F counts and roots.
+Use the same new client and arguments on both nodes and recalibrate baseline
+timeouts because the workload/client signature changes.
+
+Start with one explicitly labeled diagnostic pair. Success requires observed
+R membership in at least two successive reports, not merely a positive child
+count. An R=0 attempt remains recorded as an uncovered scenario; do not silently
+repeat or exclude it. If late certificates eliminate all R before the next
+boundary, introduce a separately specified vote-delay workload with reproducible
+fault scheduling, rather than asserting that owner delay exercised R.
+
+Verify the retained hashes remain protected and absent from G, and become final
+only with justified finality after recovery. Report delayed blocks separately
+as well as in inclusive primary latency. The old baseline's weaker checkpoint
+finality can hide waiting; its lower latency is not equivalent correct work in
+this experiment. A fault-free performance pass cannot replace this semantic
+comparison or justify a universal preservation claim.
