@@ -1204,3 +1204,22 @@ it closed) and checkpoint 2 at 20.9–21.4 s. Non-fork latency bands: 21,995 und
 Compared with the two-checkpoint band, p95/p99 were lower but p50 higher: a
 larger share of the run falls after a boundary. 808 fork blocks were still
 unresolved when load ended (318 in the v33 two-checkpoint run).
+
+### v41 with timed epochs (single run)
+
+Epochs end at T0 + k * 10 s on every node (`--epoch-ms 10000`, no election
+count), otherwise the same settings; at least two checkpoints must be decided
+and match. Host load was quiet. Runner: `run-timed.py v41 10000 2`.
+
+| Run | Non-fork goodput | p50 / p95 / p99 (ms) | Same end state on all six PRs |
+|---|---:|---:|---|
+| v41 time10000ms #1 | 1564 | 169 / 687 / 964 | yes |
+
+Two boundaries fell in the load, 10.0 s apart (the first about 10 s into the
+load, as with 20,000 counted elections). Checkpoint 0 closed 6.1–6.5 s and
+checkpoint 1 5.8–6.3 s after its boundary; both were installed and matched on
+all six PRs. Non-fork latency bands: 29,675 under 300 ms, 12,877 at 300–1,000
+ms, 94 at 1–2 s, none at 2–4 s, 15 at 4 s or more. 332 fork blocks were
+unresolved when load ended. p50 falls inside the count-based two-checkpoint
+band (170–219 ms); p95 and p99 fall below it (1,044–1,300 and 1,292–1,762 ms).
+This is one run; it is not evidence that timed epochs are faster.
