@@ -87,3 +87,6 @@ allowance. p99 remains recorded as a diagnostic and no longer determines the
 gate. Harness manifests label this `p50-p95-v1`. Earlier p99-based results retain
 their original gate labels and verdicts; do not silently relabel them as passes.
 Baseline-derived process deadlines remain unchanged.
+
+Full recorded results: [PERFORMANCE.md](PERFORMANCE.md), including the latest
+optimized batch stopped on a baseline settlement failure.

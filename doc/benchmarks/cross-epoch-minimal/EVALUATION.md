@@ -115,3 +115,32 @@ building a finalized-position index when a projection is already parent-closed
 with unique positions, and removes an unnecessary full scan for unique hash
 deletions. Its correctness tests cover frozen inputs and fork/ancestry cases.
 It is a separate candidate and is not evaluated by the results above.
+
+## Optimized projection comparison — stopped on baseline settlement failure
+
+Candidate `0b71ca353`; same workload/client, 156-second process deadline,
+30-second settlement window, five pairs planned. The runner stopped after
+four attempts (two pairs), retaining the failed attempt.
+
+| Pair | Node | Goodput blocks/s | p50 ms | p95 ms | p99 ms | Recovery children | Settled |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
+| 0 | baseline | 1927.37 | 103 | 1139 | 1786 | 0 | yes |
+| 0 | candidate | 1950.48 | 101 | 990 | 1590 | 16 | yes |
+| 1 | baseline | 1945.29 | 117 | 2967 | 3885 | 0 | **no** |
+| 1 | candidate | 1937.34 | 100 | 710 | 1390 | 1 | yes |
+
+All clients confirmed 45,000/45,000 primary blocks without a process timeout.
+Baseline pair 1 PR4 had 45,065 blocks but only 16,243 cemented, 13,528 pending,
+and a different final-state hash. The other five nodes had all blocks cemented,
+zero pending and equal hashes. Logs report unusable epoch-0 reports and a
+missing predecessor state for epoch 1; the exact root cause remains unresolved.
+Verdict: **FAIL_SETTLEMENT**. No performance pass or confidence interval is
+claimed for this incomplete batch. No failed run was replaced.
+
+Tests: 795 RAI node tests and 733 default node tests passed. Both candidate
+attempts observed zero R entries in their frozen reports: fresh-child recovery
+occurred, but sustained carried-R inventory cost is not measured here.
+
+See [PERFORMANCE.md](PERFORMANCE.md) for every recorded comparison, earlier
+failures, all per-run percentiles, confidence intervals and evidence paths.
+The raw optimized batch is `step1-rnf-projection-p50-p95/` in the artifact root.
