@@ -1502,24 +1502,30 @@ impl ActiveElectionsContainer {
     /// is already cemented. In the current epoch this node proposes the block
     /// as usual; in an epoch it has left it casts only its timeout vote and
     /// collects the certificates the others produce.
-    pub fn insert_for_vote(&mut self, block: SavedBlock, epoch: ConsensusEpoch, now: Timestamp) {
+    pub fn insert_for_vote(
+        &mut self,
+        block: SavedBlock,
+        epoch: ConsensusEpoch,
+        now: Timestamp,
+    ) -> bool {
         debug_assert!(epoch <= self.current_epoch);
         if self.stopped {
-            return;
+            return false;
         }
         let id = ElectionId::new(block.qualified_root(), epoch);
         if self.roots.get(&id).is_some() {
-            return;
+            // Another thread may have inserted it since the first vote pass.
+            return true;
         }
         // A decided epoch is settled for good: the instance could only be late
         if self.decided.contains_key(&epoch) {
             self.stats.agreed_epoch_refused += 1;
-            return;
+            return false;
         }
         // A retained position is never reopened
         if self.position_retained(block.account(), block.height()) {
             self.stats.agreed_epoch_refused += 1;
-            return;
+            return false;
         }
         // In an instance of an epoch this node has left it does not propose:
         // the block is decided in the open epoch. The instance is opened all
@@ -1541,6 +1547,9 @@ impl ActiveElectionsContainer {
         self.insert_new_election_in_epoch(request, epoch, now);
         if let Some(election) = self.roots.election_mut(&id) {
             election.transition_active();
+            true
+        } else {
+            false
         }
     }
 
@@ -4720,7 +4729,7 @@ mod tests {
         // of the decided epoch for a block without an instance is late, not
         // cached
         let another = SavedBlock::new_test_instance_with_key(3);
-        container.insert_for_vote(another.clone(), ConsensusEpoch::ZERO, closed_at);
+        assert!(!container.insert_for_vote(another.clone(), ConsensusEpoch::ZERO, closed_at));
         assert_eq!(container.len(), 0);
         assert_eq!(container.stats.agreed_epoch_refused, 1);
         let result = apply(
@@ -5169,10 +5178,11 @@ mod tests {
         let epoch1 = ConsensusEpoch::new(1);
         container.set_current_epoch(epoch1);
 
-        container.insert_for_vote(block.clone(), ConsensusEpoch::ZERO, now);
-        // A second start of the same instance changes nothing
-        container.insert_for_vote(block.clone(), ConsensusEpoch::ZERO, now);
-        container.insert_for_vote(block.clone(), epoch1, now);
+        assert!(container.insert_for_vote(block.clone(), ConsensusEpoch::ZERO, now));
+        // An existing instance is still eligible for the caller's second vote
+        // pass: it may have appeared concurrently with the first pass.
+        assert!(container.insert_for_vote(block.clone(), ConsensusEpoch::ZERO, now));
+        assert!(container.insert_for_vote(block.clone(), epoch1, now));
 
         let stale = ElectionId::legacy(block.qualified_root());
         let current = ElectionId::new(block.qualified_root(), epoch1);

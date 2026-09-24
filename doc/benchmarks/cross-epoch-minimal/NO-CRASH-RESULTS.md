@@ -842,3 +842,39 @@ fork-cache eviction, rejection of a different owner extending it, and selected
 prefix checks rejecting wrong account or height. One clean pair will follow.
 
 Formatting and all 853 node unit tests pass.
+
+Pinned v33 binaries:
+
+```text
+7f59d4d09e6d8e43f3e323f76597ea6d2f706b4a1d64313be569dcb2588b5936  rsnano
+9135ae7b7cbe7b8194351765700bf3810710fa5d494cfb6f222ef99577635dc7  nanospam
+```
+
+| Run | Non-fork goodput | p50 / p95 / p99 (ms) | Same end state on all six PRs |
+|---|---:|---:|---|
+| v33 one #1 | 1579 | 115 / 1322 / 1645 | yes |
+| v33 two #1 | 1509 | 374 / 1783 / 2626 | yes |
+
+v33 reduced two-checkpoint p95 to 1,783 ms, versus 1,322 ms for one checkpoint,
+and p50 to 374 ms versus 115 ms. Goodput was 1,509 versus 1,579 blocks/s.
+Both runs converged with the required checkpoint values on all six PRs.
+Checkpoint 0 closed in 5.61–6.33 s. This is progress, but p50 remains above
+baseline; one pair is not evidence that the target has been reached.
+
+### v34: batch missing-instance lookups; avoid retry after refused insertion
+
+The current profile also shows time in `start_instances_for_vote`: ledger reads
+and AEC locks were acquired separately for each unresolved hash. Collect the
+unfinalized hashes under one read lock and their ledger blocks in one transaction,
+then release those snapshots before insertion. Each insertion still rechecks the
+existing eligibility rules under the write lock. Previously a refused insertion
+was reported as success and forced a second application of the whole vote batch.
+Only retry when an election is available, including an existing election that
+may have been inserted concurrently after the first pass. No evidence delivery
+or validation is suppressed. Tests cover epoch-specific finality filtering,
+successful/current existing instances, and refusal for a decided epoch.
+The new test initially assumed its fixture's first vote established finality;
+it establishes notarization, so the test now supplies the required final vote.
+
+All 854 node unit tests pass after correcting the fixture; formatting passes.
+v34 is not yet release-built or benchmarked. Paused for a new-chat handoff.

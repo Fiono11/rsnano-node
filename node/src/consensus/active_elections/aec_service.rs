@@ -170,6 +170,19 @@ impl AecService {
         self.aec.read().unwrap().finalized_in_epoch(hash, epoch)
     }
 
+    /// Snapshot the hashes which may still need an instance with one read lock.
+    pub fn unfinalized_in_epoch<'a>(
+        &self,
+        epoch: ConsensusEpoch,
+        hashes: impl Iterator<Item = &'a BlockHash>,
+    ) -> Vec<BlockHash> {
+        let guard = self.aec.read().unwrap();
+        hashes
+            .filter(|hash| !guard.finalized_in_epoch(hash, epoch))
+            .copied()
+            .collect()
+    }
+
     /// RAI: whether this block was finalized explicitly in any epoch
     pub fn is_finalized(&self, hash: &BlockHash) -> bool {
         self.aec.read().unwrap().is_finalized(hash)
@@ -251,7 +264,12 @@ impl AecService {
     }
 
     /// RAI: start the instance of a block for a vote of its epoch
-    pub fn insert_for_vote(&self, block: SavedBlock, epoch: ConsensusEpoch, now: Timestamp) {
+    pub fn insert_for_vote(
+        &self,
+        block: SavedBlock,
+        epoch: ConsensusEpoch,
+        now: Timestamp,
+    ) -> bool {
         self.aec.write().unwrap().insert_for_vote(block, epoch, now)
     }
 
@@ -759,6 +777,38 @@ mod tests {
                 .is_empty()
         );
     }
+
+    #[test]
+    fn pending_vote_hashes_exclude_only_finality_in_the_requested_epoch() {
+        let (aec, hash, id) = terminated_election();
+        let key = PrivateKey::from(1);
+        let mut weights = RepWeights::default();
+        weights.put(key.public_key(), Amount::nano(70_000_000));
+        let final_vote = Arc::new(Vote::new_in_epoch(
+            &key,
+            VoteKind::Final,
+            id.epoch,
+            vec![hash],
+        ));
+        aec.apply_vote(ApplyVoteArgs {
+            vote: &ReceivedVote::new(final_vote, VoteDelivery::Direct, None).into(),
+            rep_weights: &weights,
+            quorum_snapshot: &QuorumSnapshot::new_test_instance(),
+            now: Timestamp::new_test_instance(),
+        });
+        assert!(aec.finalized_in_epoch(&hash, id.epoch));
+        let unknown = BlockHash::from(999);
+        assert_eq!(
+            aec.unfinalized_in_epoch(id.epoch, [hash, unknown].iter()),
+            vec![unknown]
+        );
+        assert_eq!(
+            aec.unfinalized_in_epoch(id.epoch.next(), [hash, unknown].iter()),
+            vec![hash, unknown]
+        );
+    }
+
+    /* Test helpers */
 
     fn terminated_election() -> (AecService, BlockHash, ElectionId) {
         let aec = AecService::new_null();

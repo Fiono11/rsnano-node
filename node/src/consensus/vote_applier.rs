@@ -131,22 +131,32 @@ impl VoteApplier {
         if vote.epoch > current || vote.is_final() || vote.epoch.is_close_round() {
             return false;
         }
+        // Late includes cemented blocks whose epoch instance may still be
+        // needed. Batch both snapshots instead of taking the AEC lock and
+        // opening a ledger read transaction for every hash in the vote.
+        let pending = self.active_elections.unfinalized_in_epoch(
+            vote.epoch,
+            results.iter().filter_map(|(hash, result)| {
+                matches!(result, Err(VoteError::Indeterminate | VoteError::Late)).then_some(hash)
+            }),
+        );
+        if pending.is_empty() {
+            return false;
+        }
+        let blocks: Vec<_> = {
+            let any = self.ledger.any();
+            pending
+                .iter()
+                .filter_map(|hash| any.get_block(hash))
+                .collect()
+        };
         let mut started = false;
-        for (hash, result) in results {
-            // Late: the block is cemented already, but the instance of this
-            // epoch may still have to be run here
-            if !matches!(result, Err(VoteError::Indeterminate | VoteError::Late)) {
-                continue;
-            }
-            if self.active_elections.finalized_in_epoch(hash, vote.epoch) {
-                continue;
-            }
-            let Some(block) = self.ledger.any().get_block(hash) else {
-                continue;
-            };
-            self.active_elections
+        for block in blocks {
+            // Insert rechecks eligibility under its write lock. A refused
+            // attempt gives the already-applied vote no new instance to reach.
+            started |= self
+                .active_elections
                 .insert_for_vote(block, vote.epoch, now);
-            started = true;
         }
         started
     }
