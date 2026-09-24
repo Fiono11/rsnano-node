@@ -106,6 +106,10 @@ impl AecService {
         self.aec.read().unwrap().election(id).cloned()
     }
 
+    pub fn contains_election(&self, id: &ElectionId) -> bool {
+        self.aec.read().unwrap().election(id).is_some()
+    }
+
     /// The elections of all epochs for this root, ascending by epoch
     pub fn elections_for_root(&self, root: &QualifiedRoot) -> Vec<Election> {
         self.aec
@@ -336,6 +340,23 @@ impl AecService {
         epoch: ConsensusEpoch,
     ) -> Option<(ElectionId, CertificateEvidence)> {
         self.aec.read().unwrap().certificate_evidence(hash, epoch)
+    }
+
+    /// Snapshot a bounded wire request's evidence with one read lock, then
+    /// release it before building and sending replies.
+    pub(crate) fn certificate_evidence_batch(
+        &self,
+        epoch: ConsensusEpoch,
+        hashes: impl IntoIterator<Item = BlockHash>,
+    ) -> Vec<(BlockHash, ElectionId, CertificateEvidence)> {
+        let guard = self.aec.read().unwrap();
+        hashes
+            .into_iter()
+            .filter_map(|hash| {
+                let (id, evidence) = guard.certificate_evidence(&hash, epoch)?;
+                Some((hash, id, evidence))
+            })
+            .collect()
     }
 
     /// RAI: the certified block tree of one epoch as it stands here
@@ -692,4 +713,79 @@ pub struct ElectionSnapshot {
     pub candidate_blocks: Vec<BlockHash>,
     pub is_final: bool,
     pub elapsed: Duration,
+}
+
+#[cfg(all(test, feature = "rai_protocol"))]
+mod tests {
+    use std::sync::Arc;
+
+    use rsnano_ledger::RepWeights;
+    use rsnano_types::{BlockPriority, PrivateKey, Vote, VoteDelivery, VoteKind};
+
+    use super::*;
+    use crate::{
+        consensus::{ReceivedVote, election::VoteType},
+        representatives::QuorumSnapshot,
+    };
+
+    #[test]
+    fn election_presence_is_scoped_to_the_exact_epoch() {
+        let (aec, _, id) = terminated_election();
+        assert!(aec.contains_election(&id));
+        assert!(!aec.contains_election(&ElectionId::new(id.root.clone(), id.epoch.next())));
+        aec.erase(&id.root);
+        assert!(!aec.contains_election(&id));
+    }
+
+    #[test]
+    fn batch_evidence_preserves_statements_and_epoch_isolation() {
+        let (aec, hash, id) = terminated_election();
+        aec.mark_kudzu_voted(vec![VoteTarget {
+            election: id.clone(),
+            winner: hash,
+            vote_type: VoteType::NonFinal,
+        }]);
+
+        let replies = aec.certificate_evidence_batch(id.epoch, [hash, BlockHash::from(999)]);
+        assert_eq!(replies.len(), 1);
+        let (returned_hash, returned_id, evidence) = &replies[0];
+        assert_eq!(*returned_hash, hash);
+        assert_eq!(*returned_id, id);
+        assert_eq!(evidence.statements, vec![(VoteKind::First, vec![hash])]);
+        assert_eq!(evidence.blocks.len(), 1);
+        assert_eq!(evidence.blocks[0].hash(), hash);
+        assert!(
+            aec.certificate_evidence_batch(id.epoch.next(), [hash])
+                .is_empty()
+        );
+    }
+
+    fn terminated_election() -> (AecService, BlockHash, ElectionId) {
+        let aec = AecService::new_null();
+        let block = SavedBlock::new_test_instance();
+        let hash = block.hash();
+        let id = ElectionId::legacy(block.qualified_root());
+        let now = Timestamp::new_test_instance();
+        aec.insert(
+            AecInsertRequest::new_priority(block, BlockPriority::new_test_instance()),
+            now,
+        )
+        .unwrap();
+        let key = PrivateKey::from(1);
+        let mut weights = RepWeights::default();
+        weights.put(key.public_key(), Amount::nano(70_000_000));
+        let vote = Arc::new(Vote::new_in_epoch(
+            &key,
+            VoteKind::First,
+            id.epoch,
+            vec![hash],
+        ));
+        aec.apply_vote(ApplyVoteArgs {
+            vote: &ReceivedVote::new(vote, VoteDelivery::Direct, None).into(),
+            rep_weights: &weights,
+            quorum_snapshot: &QuorumSnapshot::new_test_instance(),
+            now,
+        });
+        (aec, hash, id)
+    }
 }

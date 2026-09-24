@@ -586,3 +586,35 @@ boundary and the retry deadline with a nullable clock. The stale boundary commen
 was corrected to match the implemented protocol.
 
 Validation: all 841 node unit tests pass; `cargo fmt --all` passes.
+
+Pinned v26 binaries:
+
+```text
+7d8f7f3eb06636632db6ac1b6e299d0cd5c2743f13f84128b55de3bd2658833d  rsnano
+9135ae7b7cbe7b8194351765700bf3810710fa5d494cfb6f222ef99577635dc7  nanospam
+```
+
+One pair only, per the updated debug cadence. Matching high latency is not
+sufficient: the user explicitly rejected v25 absolute latency.
+
+| Run | Non-fork goodput | p50 / p95 / p99 (ms) | Same end state on all six PRs |
+|---|---:|---:|---|
+| v26 one #1 | 1138 | 706 / 2476 / 3389 | yes |
+| v26 two #1 | 1522 | 1130 / 4013 / 4777 | yes |
+
+Both v26 runs agreed on all six ledgers and required checkpoints, but latency
+remains too high: two-checkpoint p50 is 60% higher and p95 62% higher. The retry
+change alone does not solve the gap; no claim of protocol-required delay.
+
+### v27: batch certificate request snapshots
+
+The saved v23 sample shows request-aggregator threads blocked repeatedly on AEC
+lookups (one thread spent 1,225/3,597 samples acquiring `election`). The request
+path acquired the read lock once per requested hash for certificate evidence,
+and cloned a complete election to test its presence. Snapshot a bounded wire
+request's evidence under one read lock, then release it before signing/sending;
+use a boolean lookup for presence. Certificate construction, epoch scoping,
+validation, and per-peer reply pacing are unchanged. Tests exercise retained
+statements, candidate payloads, missing hashes, and exact epoch isolation.
+
+Validation: all 843 node unit tests pass; formatting passes.

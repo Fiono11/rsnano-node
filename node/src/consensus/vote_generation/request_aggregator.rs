@@ -395,7 +395,7 @@ impl RequestAggregatorLoop {
                 continue;
             };
             let id = ElectionId::new(block.qualified_root(), request.epoch);
-            if self.active_elections.election(&id).is_some()
+            if self.active_elections.contains_election(&id)
                 || self
                     .active_elections
                     .finalized_in_epoch(&block.hash(), request.epoch)
@@ -492,14 +492,12 @@ impl RequestAggregatorLoop {
         let mut batches: HashMap<VoteKind, Vec<BlockHash>> = HashMap::new();
         let now = Instant::now();
         let channel_id = request.channel.channel_id();
-        for (hash, _) in &request.roots_hashes {
-            let Some((id, evidence)) = self
-                .active_elections
-                .certificate_evidence(hash, request.epoch)
-            else {
-                continue;
-            };
-            served_hashes.insert(*hash);
+        let evidence = self.active_elections.certificate_evidence_batch(
+            request.epoch,
+            request.roots_hashes.iter().map(|(hash, _)| *hash),
+        );
+        for (hash, id, evidence) in evidence {
+            served_hashes.insert(hash);
             if !served.insert(id) {
                 continue;
             }
