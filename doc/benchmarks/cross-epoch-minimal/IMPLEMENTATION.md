@@ -2,7 +2,10 @@
 
 This branch starts at `5e037cfe0527d7b06b573456c7c876568ce179ea` and implements
 the first closure correction and the measurement gate. It does **not** yet
-implement every requirement of `RAI_revised_cross_epoch_lock.docx`.
+implement every requirement of the updated `RAI.pdf`. The PDF supersedes the
+earlier DOCX; [PLAN.md](PLAN.md) adds the required immediate R/N/F report stage.
+Current report inventories still support N/F only: checkpoint recovery metadata
+and fresh-child recovery do **not** implement R membership in `T_i`.
 
 ## Implemented in step 1
 

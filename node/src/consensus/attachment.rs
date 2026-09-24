@@ -3,15 +3,10 @@ use rsnano_types::{BlockHash, SavedBlock};
 
 use crate::consensus::election::{AccountSlot, EpochLedger};
 
-/// RAI, "Attachment and eligibility": whether a block may be proposed and
-/// first voted here. Its dependencies are finalized, or its parent is a lock
-/// the latest decided checkpoint keeps: "the owner can extend one branch
-/// with a fresh child ... finalizing it selects its unresolved ancestors and
-/// removes the competing branch" (§4.4). The parent's rival can not finalize
-/// any more: the checkpoint's rules 1 and 2 exclude finality it may have
-/// gained before the checkpoint, and the checkpoint closes the position to
-/// any further vote. The source of a receive is always final: "a receive
-/// refers to a send that is already final".
+/// Attachment subset for owner recovery: a parent must be confirmed or a
+/// maximum-depth tip retained by the latest checkpoint. Receive sources must
+/// be confirmed. Full overlap eligibility and signed-evidence validation are
+/// separate protocol requirements; this helper does not establish them.
 pub(crate) fn dependencies_attachable(
     any: &dyn AnySet,
     block: &SavedBlock,

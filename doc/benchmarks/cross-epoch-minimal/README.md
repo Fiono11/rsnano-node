@@ -2,7 +2,12 @@
 
 Baseline: `5e037cfe0527d7b06b573456c7c876568ce179ea` on `rai_kudzu`.
 Implementation branch: `rai-cross-epoch-minimal`, based exclusively on that
-commit. The original checkout's uncommitted work is excluded.
+commit. The baseline excludes the original checkout's uncommitted work.
+Selected recovery helpers were subsequently reviewed and adapted on the
+implementation branch; the original dirty checkout remains preserved.
+
+Authoritative target: updated `RAI.pdf` (2026-09-24). See [PLAN.md](PLAN.md)
+for the revised R/N/F report stage, file-level changes, tests and measurements.
 
 ## Sequence and gates
 
@@ -10,6 +15,8 @@ commit. The original checkout's uncommitted work is excluded.
 1. Remove certificate-free checkpoint finalization; distinguish retained
    ancestry, represented notarization and recovery-only locks in the state
    commitment and checkpoint transfer. Measure before advancing.
+1b. Include inherited recovery-protected blocks in frozen R/N/F `T_i`, validate
+   R against the predecessor, and derive exact `G_i = V_i \ keys(T_i)`.
 2. Equal-weight integer thresholds and old-committee-only checkpoint agreement.
 3. Durable local signing records and the preceding-epoch first-vote lock.
 4. Full selected-path attachment, both overlap exceptions, provisional recheck.
