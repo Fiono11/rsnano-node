@@ -76,6 +76,10 @@ impl ReportService {
         }
     }
 
+    pub(crate) fn retain_received_block(&self, block: &rsnano_types::Block) {
+        self.data.receive(block);
+    }
+
     /// Explicit diagnostic RPC only; never used by consensus or normal polling.
     pub fn diagnostic_snapshot(&self) -> serde_json::Value {
         let exchange = self.exchange.lock().unwrap();
@@ -447,8 +451,8 @@ impl ReportService {
         };
         for (epoch, reporter, hashes) in requests {
             self.data.retain(epoch, hashes.iter().copied());
-            let blocks = self.data.retained(epoch, &hashes);
-            let block_count = blocks.len();
+            let block_count = self.data.retained(epoch, &hashes).len();
+            let blocks = self.data.with_ancestry(epoch, &hashes);
             {
                 let mut flooder = self.flooder.lock().unwrap();
                 for block in blocks {

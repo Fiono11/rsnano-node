@@ -234,3 +234,60 @@ available. This remains in-memory retention, not durable vote persistence.
 
 A second 156-second diagnostic is justified by this specific new source change;
 it is not a replacement for the first attempt and both results remain reported.
+
+
+### Earlier-retention follow-up: a808dba3b
+
+The follow-up reached its 156-second diagnostic deadline (162.07 seconds with
+RPC completion, evidence collection and shutdown). It recorded 1,746 published
+fork pairs / 3,492 branch hashes; the input-complete marker was not observed.
+All six nodes installed the same epoch-0 checkpoint. Every reporter could now
+serve every frozen G payload in epochs 0 and 1. Epoch 1 did not close; logs
+still showed unplaced votes and the final RPCs showed unchecked ledger blocks.
+
+Large diagnostic RPCs timed out on four nodes. The original online result
+therefore records zero all-node terminal observations, but this is not evidence
+that zero branches terminated. A separate, reproducible post-run corroboration
+uses one full checkpoint snapshot, the exact matching epoch/root in all six
+final RPCs, and all six matching `EPOCH_CLOSED` events (logged after checkpoint
+installation). It establishes 867 terminal branches: 761 included and 106
+safely discarded by a conflicting finalized checkpoint entry. The remaining
+2,625 are unresolved by the conservative classifier. The raw online result
+remains unchanged alongside `corroborated-result.json` and per-branch evidence.
+
+For those **867 supported branches only**, publication-to-observation upper
+bounds are p50 **10,731 ms**, p95 **13,165 ms**, p99 **13,611 ms**. The observation
+time is the later of the first full checkpoint snapshot and the latest matching
+six-node close event. These are post-run reconstructed, conditional upper bounds,
+not a full-workload latency distribution or a baseline performance comparison.
+Unresolved branches are censored, not silently counted as successful.
+
+The two successful full snapshots covered epoch 0 and had all five peer T/G
+sets reconstructed. They do not establish epoch-1 reconstruction completeness.
+The report resolver had another data-access gap: an evidence block waiting in
+the ledger's unchecked queue for its predecessor was neither in the ledger nor
+the fork cache and could not be placed. This source gap is consistent with the
+run, but the incomplete snapshots do not identify every affected epoch-1 hash.
+Evidence: `fork-early-retention-diagnostic-v1/`; generated databases were deleted.
+
+### Pending-ledger evidence and observation repair
+
+A bounded 65,536-block cache now retains owner-signature-verified state blocks
+received as evidence after ingress work validation, independently of ledger
+admission. Placement still requires verified same-account ancestry and an
+already validated voter signature; this does not make the block eligible or
+final. Reporters also retain/replay available same-account ancestry, bounded
+to 256 steps per chain. Tests cover child-before-parent arrival and subsequent
+placement while both blocks remain absent from the ledger, plus invalid owner
+signatures. This remains an experimental in-memory availability layer.
+
+The lightweight `epoch_locks` RPC now reports the installed checkpoint hash
+from the same atomic checkpoint snapshot as its epoch and locks. The controller
+can reuse contents only for an exact matching epoch/root reported independently
+by each node. It retains historical all-node terminal witnesses across later
+checkpoints. The controller still requires complete workload generation and
+supported outcomes for every recorded branch before declaring completion.
+
+Predeclared next attempt: one 156-second diagnostic for this specific cache and
+ancestry change, with the same client/workload. Preserve all preceding attempts;
+this changes observation overhead and does not support a performance comparison.

@@ -56,6 +56,28 @@ def rpc(node, body, timeout=3):
         return json.load(reply)
 
 
+def checkpoint_key(state):
+    if state.get('epoch') is None or not state.get('state_hash'):
+        return None
+    return (int(state['epoch']), state['state_hash'])
+
+
+def cached_checkpoint(state, cache):
+    # An epoch alone is insufficient: reuse only the exact installed root.
+    return cache.get(checkpoint_key(state))
+
+
+def retain_terminal_witnesses(rows, witnesses):
+    result = []
+    for row in rows:
+        if row['terminated_on_all_nodes']:
+            witnesses.setdefault(row['hash'], dict(row))
+        if row['hash'] in witnesses:
+            row = dict(witnesses[row['hash']], historical_checkpoint_witness=True)
+        result.append(row)
+    return result
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--node', type=Path, required=True)
@@ -76,10 +98,10 @@ def main():
                 'deadline_basis': 'bounded diagnostic uses prior baseline-derived 156s ceiling; no matching fork calibration',
                 'trust': 'locally accepted experimental checkpoint, not independently verified decision proof',
                 'termination_rule': 'both branch hashes included or conflict-discarded on all six nodes with a common checkpoint',
-                'sampling': 'poll ~2s plus RPC time; termination latency is an observation upper bound'}
+                'sampling': 'poll installed epoch/root ~2s plus RPC time; reuse contents only for matching roots; latency is an observation upper bound'}
     (args.out/'manifest.json').write_text(json.dumps(manifest, indent=2)+'\n')
-    started = time.time(); checkpoints = {}; seen_epochs = {}; publications = {}; generated = {}
-    first_terminal = {}; load_complete = False; position = 0; forced = False; sequence = 0
+    started = time.time(); checkpoints = {}; seen_epochs = {}; publications = {}; generated = {}; checkpoint_cache = {}
+    first_terminal = {}; terminal_witnesses = {}; load_complete = False; position = 0; forced = False; sequence = 0
     result = {'kind': manifest['kind'], 'started': started, 'complete': False}
     with (d/'run.log').open('w') as log, (d/'observations.jsonl').open('w') as observations:
         process = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, start_new_session=True,
@@ -101,12 +123,23 @@ def main():
                     try:
                         state = rpc(node, {'action': 'epoch_locks'})
                         epoch = state.get('epoch')
+                        cached = cached_checkpoint(state, checkpoint_cache)
+                        if cached is not None:
+                            if checkpoints.get(node) is not cached:
+                                observations.write(json.dumps({'node': node, 'observed_unix_ms': int(time.time()*1000),
+                                                                'installed_checkpoint': state, 'contents_from_matching_root': True})+'\n'); observations.flush()
+                            checkpoints[node] = cached
+                            seen_epochs[node] = epoch
                         if (epoch is not None and seen_epochs.get(node) != epoch) or force:
                             full = rpc(node, {'action': 'final_state', 'diagnostic': 'true'}, timeout=5)
                             diagnostic = full.get('checkpoint_diagnostics')
                             if not diagnostic: raise ValueError('Node lacks diagnostic schema')
                             checkpoints[node] = diagnostic['checkpoint']
-                            seen_epochs[node] = epoch
+                            if diagnostic['checkpoint']:
+                                checkpoint_cache[checkpoint_key(diagnostic['checkpoint'])] = diagnostic['checkpoint']
+                                seen_epochs[node] = str(diagnostic['checkpoint']['epoch'])
+                            else:
+                                seen_epochs[node] = epoch
                             file = f'node-{node}-snapshot-{sequence:03}.json'; sequence += 1
                             (d/file).write_text(json.dumps(full)+'\n')
                             observations.write(json.dumps({'node': node, 'observed_unix_ms': int(time.time()*1000),
@@ -115,6 +148,7 @@ def main():
                         observations.write(json.dumps({'node': node, 'time': time.time(), 'error': str(error)})+'\n')
                 if force: forced = True
                 rows, consistent = evaluate(publications, checkpoints)
+                rows = retain_terminal_witnesses(rows, terminal_witnesses)
                 now = int(time.time()*1000)
                 for row in rows:
                     if row['terminated_on_all_nodes']:
@@ -142,6 +176,7 @@ def main():
             while occupied_ports() and time.time()<until: time.sleep(.5)
             if occupied_ports(): result['cleanup_error'] = 'Node ports still occupied'
     rows, consistent = evaluate(publications, checkpoints)
+    rows = retain_terminal_witnesses(rows, terminal_witnesses)
     for row in rows:
         published = publications[row['primary']]['published_unix_ms']
         row['first_all_node_terminal_observed_unix_ms'] = first_terminal.get(row['hash'])

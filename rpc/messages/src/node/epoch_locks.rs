@@ -18,6 +18,8 @@ pub struct EpochLocksResponse {
     /// The epoch of the checkpoint, none before the first one is decided
     #[serde(skip_serializing_if = "Option::is_none")]
     pub epoch: Option<RpcU64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state_hash: Option<BlockHash>,
     pub locks: Vec<EpochLock>,
 }
 

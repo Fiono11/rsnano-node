@@ -2,7 +2,7 @@ use crate::consensus::{AecService, ForkCache, election::CertifiedBlock};
 use rsnano_ledger::{AnySet, Ledger};
 use rsnano_types::{Block, BlockBase, BlockHash, ConsensusEpoch};
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     ops::Deref,
     sync::{Arc, Mutex, RwLock},
 };
@@ -14,6 +14,7 @@ pub(super) struct ResidualData {
     forks: Arc<RwLock<ForkCache>>,
     aec: Arc<AecService>,
     retained: Mutex<BTreeMap<ConsensusEpoch, HashMap<BlockHash, Block>>>,
+    received: Mutex<crate::consensus::bounded_hash_map::BoundedHashMap<BlockHash, Block>>,
 }
 impl ResidualData {
     pub fn new(ledger: Arc<Ledger>, forks: Arc<RwLock<ForkCache>>, aec: Arc<AecService>) -> Self {
@@ -22,9 +23,32 @@ impl ResidualData {
             forks,
             aec,
             retained: Mutex::new(BTreeMap::new()),
+            received: Mutex::new(crate::consensus::bounded_hash_map::BoundedHashMap::new(
+                65_536,
+            )),
         }
     }
+    /// Network ingress has checked work; only owner-signed state payloads enter
+    /// this cache. Ledger admission is independent and may await predecessors.
+    pub fn receive(&self, block: &Block) -> bool {
+        let hash = block.hash();
+        let mut received = self.received.lock().unwrap();
+        if received.contains_key(&hash) {
+            return true;
+        }
+        let Block::State(state) = block else {
+            return false;
+        };
+        if state.verify_signature().is_err() {
+            return false;
+        }
+        received.insert(hash, block.clone());
+        true
+    }
     fn block(&self, hash: &BlockHash) -> Option<Block> {
+        if let Some(block) = self.received.lock().unwrap().get(hash).cloned() {
+            return Some(block);
+        }
         if let Some(block) = self.ledger.any().get_block(hash) {
             return Some(block.deref().clone());
         }
@@ -41,23 +65,32 @@ impl ResidualData {
             .find_map(|blocks| blocks.get(hash).cloned())
     }
     pub fn retain(&self, epoch: ConsensusEpoch, hashes: impl IntoIterator<Item = BlockHash>) {
+        let mut seen = HashSet::new();
         for hash in hashes {
-            if self
-                .retained
-                .lock()
-                .unwrap()
-                .get(&epoch)
-                .is_some_and(|e| e.contains_key(&hash))
-            {
-                continue;
-            }
-            if let Some(block) = self.block(&hash) {
+            let mut current = hash;
+            for _ in 0..256 {
+                if current.is_zero() || !seen.insert(current) {
+                    break;
+                }
+                let known = self
+                    .retained
+                    .lock()
+                    .unwrap()
+                    .get(&epoch)
+                    .and_then(|e| e.get(&current))
+                    .cloned();
+                let Some(block) = known.or_else(|| self.block(&current)) else {
+                    break;
+                };
+                let previous = block.previous();
                 self.retained
                     .lock()
                     .unwrap()
                     .entry(epoch)
                     .or_default()
-                    .insert(hash, block);
+                    .entry(current)
+                    .or_insert(block);
+                current = previous;
             }
         }
         let mut retained = self.retained.lock().unwrap();
@@ -71,6 +104,30 @@ impl ResidualData {
             .iter()
             .filter_map(|hash| retained.get(&epoch)?.get(hash).cloned())
             .collect()
+    }
+    pub fn with_ancestry(&self, epoch: ConsensusEpoch, hashes: &[BlockHash]) -> Vec<Block> {
+        let retained = self.retained.lock().unwrap();
+        let Some(blocks) = retained.get(&epoch) else {
+            return Vec::new();
+        };
+        let mut seen = HashSet::new();
+        let mut result = Vec::new();
+        for hash in hashes {
+            let mut current = *hash;
+            let mut chain = Vec::new();
+            for _ in 0..256 {
+                if current.is_zero() || !seen.insert(current) {
+                    break;
+                }
+                let Some(block) = blocks.get(&current) else {
+                    break;
+                };
+                chain.push(block.clone());
+                current = block.previous();
+            }
+            result.extend(chain.into_iter().rev());
+        }
+        result
     }
     pub fn placement(&self, hash: &BlockHash) -> Option<(CertifiedBlock, BlockHash)> {
         self.place(hash, 0)
@@ -122,6 +179,38 @@ mod tests {
             forks,
         )
     }
+    #[test]
+    fn evidence_waiting_for_a_parent_can_be_placed_without_ledger_admission() {
+        let (data, _) = fixture();
+        let parent: Block = StateBlockArgs {
+            previous: BlockHash::ZERO,
+            ..StateBlockArgs::new_test_instance()
+        }
+        .into();
+        let child: Block = StateBlockArgs {
+            previous: parent.hash(),
+            ..StateBlockArgs::new_test_instance()
+        }
+        .into();
+        assert!(data.receive(&child));
+        assert!(data.placement(&child.hash()).is_none());
+        assert!(data.receive(&parent));
+        assert_eq!(data.placement(&child.hash()).unwrap().0.height, 2);
+        assert!(data.ledger.any().get_block(&child.hash()).is_none());
+        data.retain(ConsensusEpoch::ZERO, [child.hash()]);
+        assert_eq!(
+            data.with_ancestry(ConsensusEpoch::ZERO, &[child.hash()]),
+            vec![parent, child]
+        );
+        let mut bad: Block = StateBlockArgs {
+            previous: BlockHash::from(555),
+            ..StateBlockArgs::new_test_instance()
+        }
+        .into();
+        bad.set_signature(Signature::new());
+        assert!(!data.receive(&bad));
+    }
+
     #[test]
     fn places_owner_signed_fork_ancestry_without_an_election() {
         let (data, forks) = fixture();

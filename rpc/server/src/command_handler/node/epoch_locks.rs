@@ -6,19 +6,21 @@ impl RpcCommandHandler {
     /// RAI: the locks of the latest checkpoint decided on this node, which
     /// an owner resolves with a fresh child
     pub(crate) fn epoch_locks(&self) -> EpochLocksResponse {
-        let Some((epoch, locks)) = self.node.aec.checkpoint_locks() else {
+        let Some((epoch, state)) = self.node.aec.checkpoint_snapshot() else {
             return EpochLocksResponse {
                 epoch: None,
+                state_hash: None,
                 locks: Vec::new(),
             };
         };
         EpochLocksResponse {
             epoch: Some(epoch.as_u64().into()),
-            locks: locks
-                .into_iter()
-                .map(|(account, height, hash)| EpochLock {
-                    account,
-                    height: height.into(),
+            state_hash: Some(state.state_hash()),
+            locks: state
+                .locks()
+                .map(|(slot, hash)| EpochLock {
+                    account: slot.account,
+                    height: slot.height.into(),
                     hash,
                 })
                 .collect(),

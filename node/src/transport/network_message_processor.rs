@@ -124,6 +124,10 @@ impl NetworkMessageProcessor {
                 }
 
                 if ok {
+                    #[cfg(feature = "rai_protocol")]
+                    if publish.is_evidence {
+                        self.reports.retain_received_block(&publish.block);
+                    }
                     // Put blocks that are being initially broadcasted in a separate queue, so that they won't have to compete with rebroadcasted blocks
                     // Both queues have the same priority and size, so the potential for exploiting this is limited
                     let source = if publish.is_originator {
