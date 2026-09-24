@@ -132,6 +132,28 @@ pub enum AecFact {
     Recovered,
 }
 
+impl AecFact {
+    /// Diagnostic: the name of the fact's kind
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::ElectionStarted(..) => "election_started",
+            Self::ElectionConfirmed(..) => "election_confirmed",
+            Self::ElectionEnded(..) => "election_ended",
+            Self::ElectionTerminated(..) => "election_terminated",
+            Self::EpochAdvanced(..) => "epoch_advanced",
+            Self::LateBlocksDiscarded { .. } => "late_blocks_discarded",
+            Self::CheckpointRetained { .. } => "checkpoint_retained",
+            Self::CheckpointFinalized { .. } => "checkpoint_finalized",
+            Self::BlockAddedToElection(..) => "block_added",
+            Self::BlockDiscarded(..) => "block_discarded",
+            Self::BlockConfirmed(..) => "block_confirmed",
+            Self::WinnerChanged(..) => "winner_changed",
+            Self::VoteProcessed(..) => "vote_processed",
+            Self::Recovered => "recovered",
+        }
+    }
+}
+
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub enum AecInsertError {
     Stopped,

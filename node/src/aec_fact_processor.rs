@@ -1,6 +1,6 @@
 use std::{
     sync::{Arc, Mutex, mpsc::SyncSender},
-    time::SystemTime,
+    time::{Instant, SystemTime},
 };
 
 use tracing::debug;
@@ -29,7 +29,10 @@ use crate::{
         vote_cache::VoteCache,
     },
     recently_cemented_inserter::RecentlyCementedInserter,
-    utils::{BackpressureEventProcessor, ConfirmationStages, StageRecord, diagnostic, unix_ms},
+    utils::{
+        BackpressureEventProcessor, ConfirmationStages, FactTimings, StageRecord, diagnostic,
+        unix_ms,
+    },
 };
 
 /// Processes facts from the active election container (AEC)
@@ -59,6 +62,8 @@ pub(crate) struct AecFactProcessor {
     pub(crate) events_since_cement_check: usize,
     /// Diagnostic: per-second stages of the blocks cemented
     pub(crate) confirmation_stages: ConfirmationStages,
+    /// Diagnostic: per-second time spent on each kind of fact
+    pub(crate) fact_timings: FactTimings,
 }
 
 impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
@@ -75,8 +80,28 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
     }
 
     fn process(&mut self, event: AecFact) {
+        let kind = event.kind();
+        let started = Instant::now();
         self.plugins.handle(&event);
+        let plugins = started.elapsed();
         self.cement_awaited_checkpoint_blocks();
+        let awaited = started.elapsed() - plugins;
+        self.handle_fact(event);
+        if cfg!(feature = "rai_protocol") {
+            let handling = started.elapsed() - plugins - awaited;
+            let per_event = [("plugins", plugins), ("awaited_cement", awaited)];
+            if let Some(line) =
+                self.fact_timings
+                    .record(unix_ms() as u64, kind, handling, &per_event)
+            {
+                diagnostic!("{}", line);
+            }
+        }
+    }
+}
+
+impl AecFactProcessor {
+    fn handle_fact(&mut self, event: AecFact) {
         match event {
             AecFact::ElectionStarted(hash, root) => {
                 self.aec_fork_inserter.try_add_cached_forks(&root);

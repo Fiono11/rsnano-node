@@ -1249,6 +1249,7 @@ impl Node {
             awaiting_cement: Default::default(),
             events_since_cement_check: 0,
             confirmation_stages: Default::default(),
+            fact_timings: Default::default(),
             node_observer: node_observer.clone(),
             election_schedulers: election_schedulers.clone(),
             network_filter: network_filter.clone(),

@@ -1,6 +1,7 @@
 mod backpressure_event_processor;
 mod confirmation_stages;
 mod diagnostics;
+mod fact_timings;
 mod processing_queue;
 mod rate_calculator;
 
@@ -18,6 +19,7 @@ pub(crate) use backpressure_event_processor::{
 pub(crate) use confirmation_stages::{ConfirmationStages, StageRecord};
 #[allow(unused_imports)]
 pub(crate) use diagnostics::{diagnostic, emit_diagnostic, unix_ms};
+pub(crate) use fact_timings::FactTimings;
 pub use processing_queue::*;
 pub use rate_calculator::RateCalculator;
 

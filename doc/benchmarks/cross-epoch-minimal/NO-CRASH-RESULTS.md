@@ -995,3 +995,32 @@ concurrency is introduced. A deferred report still waits for its predecessor
 and is re-snapshotted on the ticker as before. Tests cover that the report goes
 to the worker pool and that nothing is queued without one. Formatting and all
 862 node unit tests pass.
+
+Pinned v37 binaries (commit 582d67b98):
+
+```text
+3bf2a0105f93a0c4f77459f243a00575c52690d0038d339b7b784bf7c16de762  rsnano
+9135ae7b7cbe7b8194351765700bf3810710fa5d494cfb6f222ef99577635dc7  nanospam
+```
+
+| Run | Non-fork goodput | p50 / p95 / p99 (ms) | Same end state on all six PRs |
+|---|---:|---:|---|
+| v37 one #1 | 1545 | 111 / 1105 / 1741 | yes |
+| v37 two #1 | 1596 | 295 / 1462 / 1813 | yes |
+
+Host load was quiet for both v37 runs. In the one-checkpoint run the hand-over
+right after the boundary fell from 829–835 ms (v36) to 122–176 ms p50, but
+cementing and to-NC rose in the same seconds: the signing work now competes
+for CPU instead of blocking the fact thread. In the two-checkpoint run the fact
+thread still stalls around the close and installation (hand-over 235–261 ms,
+publication 121–252 ms p50 at 7–9 s), so the report was not the only work
+holding it. The two-checkpoint p50 of 295 ms is within the earlier spread
+(143–374 ms); v37 is not a demonstrated end-to-end gain. Next: time the fact
+thread itself by fact kind.
+
+### v38: time the AEC fact thread (diagnostic)
+
+Once a second the AEC fact thread logs `AEC_FACTS`: its busy time, the number
+of facts, the time of the work done for every fact (plugins, awaited checkpoint
+cementation), and per fact kind the count, total and maximum milliseconds. No
+protocol change. Formatting and all 864 node unit tests pass.
