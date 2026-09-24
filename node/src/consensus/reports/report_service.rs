@@ -93,8 +93,9 @@ impl ReportService {
     const CERTIFICATE_CHUNK: usize = 2048;
     /// Report-protocol messages waiting for the report thread
     const MAX_INBOUND: usize = 16_384;
-    /// A G derivation with no new vote of its reporter is retried this rarely
-    const RESIDUAL_IDLE_RETRY: Duration = Duration::from_secs(5);
+    /// A G derivation with no new vote of its reporter is retried this often:
+    /// a G block fetched since the last attempt places a member
+    const RESIDUAL_IDLE_RETRY: Duration = Duration::from_secs(1);
 
     /// Queue a report-protocol request or reply for the report thread. The
     /// oldest is dropped when the queue is full; a peer repeats its requests.
