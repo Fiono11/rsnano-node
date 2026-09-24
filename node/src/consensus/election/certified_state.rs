@@ -477,6 +477,26 @@ impl ResidualVotes {
         self
     }
 
+    /// Every recorded block placed again from owner-signed block data where
+    /// `place` knows it. G commits hashes only, so a record's account,
+    /// height and parent were taken from local election metadata; placed
+    /// from the block itself they are the same on every validator.
+    pub fn replaced(
+        self,
+        place: impl Fn(&BlockHash) -> Option<(CertifiedBlock, BlockHash)>,
+    ) -> Self {
+        let mut result = Self::new();
+        for ((block, kind), previous) in &self.entries {
+            let (block, previous) = match place(&block.hash) {
+                Some((placed, parent)) if placed.hash == block.hash => (placed, parent),
+                _ => (*block, *previous),
+            };
+            result.record(block, previous, *kind);
+        }
+        result.unplaced = self.unplaced;
+        result
+    }
+
     /// The G members whose block data and ancestry are still to be fetched
     pub fn unplaced(&self) -> impl Iterator<Item = &BlockHash> {
         self.unplaced.iter()
@@ -663,6 +683,26 @@ impl ReportCommitment {
 
 #[cfg(test)]
 mod tests {
+    /// A G record placed from local election metadata is placed again from
+    /// the block itself; the hash-only root does not change
+    #[test]
+    fn residual_records_are_placed_again_from_block_data() {
+        let hash = BlockHash::from(9);
+        let wrong = CertifiedBlock::new(Account::from(1), 5, hash);
+        let right = CertifiedBlock::new(Account::from(1), 3, hash);
+        let mut recorded = ResidualVotes::new();
+        recorded.record(wrong, BlockHash::ZERO, ResidualKind::First);
+        let root = recorded.root();
+
+        let placed = recorded.replaced(|h| (*h == hash).then_some((right, BlockHash::from(8))));
+
+        assert_eq!(
+            placed.entries().collect::<Vec<_>>(),
+            vec![(right, ResidualKind::First, BlockHash::from(8))]
+        );
+        assert_eq!(placed.root(), root);
+    }
+
     use super::*;
 
     #[test]

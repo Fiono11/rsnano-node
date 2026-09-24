@@ -323,6 +323,11 @@ impl ReportService {
         }
         self.data
             .retain(epoch, report.residual.entries().map(|(b, _, _)| b.hash));
+        // Own G placed from block data, as the validators deriving it do
+        let own_residual = report
+            .residual
+            .clone()
+            .replaced(|hash| self.data.placement(hash));
         let certified = report.certified.len();
         let residual = report.residual.hash_count();
         let [r, n, f] = report.certified.status_counts();
@@ -336,7 +341,7 @@ impl ReportService {
             exchange.report_epoch(
                 epoch,
                 report.certified.clone(),
-                report.residual.clone(),
+                own_residual,
                 report.committee,
                 predecessor,
                 &keys,
@@ -566,8 +571,14 @@ impl ReportService {
             .collect();
         let result = {
             let mut exchange = self.exchange.lock().unwrap();
-            let result =
-                exchange.derive_residual_with_unplaced(epoch, reporter, votes, still_unplaced, now);
+            let result = exchange.derive_residual_placed(
+                epoch,
+                reporter,
+                votes,
+                still_unplaced,
+                |hash| self.data.placement(hash),
+                now,
+            );
             result.map(|result| (result, exchange.residual_progress(epoch, &reporter)))
         };
         if let Some((result, progress)) = result {

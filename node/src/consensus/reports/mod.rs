@@ -715,7 +715,18 @@ impl ReportExchange {
         votes: impl IntoIterator<Item = (CertifiedBlock, ResidualKind, BlockHash)>,
         now: Timestamp,
     ) -> Option<ReconcileResult> {
-        self.derive_residual_with_unplaced(epoch, reporter, votes, [], now)
+        self.derive_residual_placed(epoch, reporter, votes, [], |_| None, now)
+    }
+
+    pub fn derive_residual_with_unplaced(
+        &mut self,
+        epoch: ConsensusEpoch,
+        reporter: PublicKey,
+        votes: impl IntoIterator<Item = (CertifiedBlock, ResidualKind, BlockHash)>,
+        unplaced: impl IntoIterator<Item = BlockHash>,
+        now: Timestamp,
+    ) -> Option<ReconcileResult> {
+        self.derive_residual_placed(epoch, reporter, votes, unplaced, |_| None, now)
     }
 
     /// `derive_residual` with the hashes the reporter signed a vote for
@@ -723,12 +734,15 @@ impl ReportExchange {
     /// usability": Ĝ is the set of hashes the reporter signed an epoch vote
     /// for minus keys(T), so these count towards the root; the report is
     /// usable once their blocks and ancestry are fetched and placed.
-    pub fn derive_residual_with_unplaced(
+    /// `derive_residual_with_unplaced` with G members placed from block
+    /// data where `place` knows them (see `ResidualVotes::replaced`)
+    pub fn derive_residual_placed(
         &mut self,
         epoch: ConsensusEpoch,
         reporter: PublicKey,
         votes: impl IntoIterator<Item = (CertifiedBlock, ResidualKind, BlockHash)>,
         unplaced: impl IntoIterator<Item = BlockHash>,
+        place: impl Fn(&BlockHash) -> Option<(CertifiedBlock, BlockHash)>,
         now: Timestamp,
     ) -> Option<ReconcileResult> {
         let held = self.epochs.get_mut(&epoch)?;
@@ -738,7 +752,9 @@ impl ReportExchange {
             return None;
         }
         their.derived = Some(now);
-        let derived = ResidualVotes::derive(certified, votes).with_unplaced(certified, unplaced);
+        let derived = ResidualVotes::derive(certified, votes)
+            .replaced(place)
+            .with_unplaced(certified, unplaced);
         let total = derived.len();
         let complete = derived.root() == their.report.residual
             && derived.is_placed()
