@@ -272,6 +272,26 @@ impl CertifiedState {
         self.entries.len() == self.hashes.len()
     }
 
+    /// The digest one tagged entry contributes to a set sketch: two states
+    /// hold the same entry exactly when they hold the same digest
+    pub fn entry_digest(block: &CertifiedBlock, entry: &Certification) -> BlockHash {
+        Blake2HashBuilder::new()
+            .update(b"RAI ledger entry")
+            .update(block.hash.as_bytes())
+            .update([entry.status.as_byte()])
+            .update(block.account.as_bytes())
+            .update(block.height.to_le_bytes())
+            .update(entry.previous.as_bytes())
+            .build()
+    }
+
+    /// Every entry with the digest that stands for it
+    pub fn digests(&self) -> impl Iterator<Item = (BlockHash, CertifiedBlock, Certification)> + '_ {
+        self.entries
+            .iter()
+            .map(|(block, entry)| (Self::entry_digest(block, entry), *block, *entry))
+    }
+
     /// RAI: "It may add or remove blocks and change status annotations."
     /// The canonical edits that take this state to the other one. A live
     /// certified state only ever grows, but two validators' states are not

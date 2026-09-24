@@ -357,55 +357,6 @@ impl MessageVariant for ReconReply {
     }
 }
 
-/// One entry of a residual-vote object on the wire: the block the reporter
-/// voted for, which of its own votes it recorded, and the parent the block
-/// names. Unsigned: the reporter's report signature commits to the object
-/// the entry is part of, and the requester accepts the object only when it
-/// hashes to that root.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ResidualEntry {
-    pub account: Account,
-    pub height: u64,
-    pub hash: BlockHash,
-    /// The parent the block names; zero when it opens the account
-    pub previous: BlockHash,
-    /// 0 first, 1 notarization support, 2 final
-    pub kind: u8,
-}
-
-impl ResidualEntry {
-    pub const SERIALIZED_SIZE: usize =
-        Account::SERIALIZED_SIZE + 8 + BlockHash::SERIALIZED_SIZE * 2 + 1;
-
-    fn serialize<T: std::io::Write>(&self, writer: &mut T) -> std::io::Result<()> {
-        self.account.serialize(writer)?;
-        writer.write_all(&self.height.to_le_bytes())?;
-        self.hash.serialize(writer)?;
-        self.previous.serialize(writer)?;
-        writer.write_all(&[self.kind])
-    }
-
-    fn deserialize(bytes: &mut &[u8]) -> Result<Self, DeserializationError> {
-        let account = Account::deserialize(bytes)?;
-        let mut height = [0u8; 8];
-        read_exact(bytes, &mut height)?;
-        let hash = BlockHash::deserialize(bytes)?;
-        let previous = BlockHash::deserialize(bytes)?;
-        let mut kind = [0u8; 1];
-        read_exact(bytes, &mut kind)?;
-        if kind[0] > 2 {
-            return Err(DeserializationError::InvalidData);
-        }
-        Ok(Self {
-            account,
-            height: u64::from_le_bytes(height),
-            hash,
-            previous,
-            kind: kind[0],
-        })
-    }
-}
-
 /// One cell of a set sketch on the wire
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SketchCellWire {
@@ -438,27 +389,34 @@ impl SketchCellWire {
     }
 }
 
-/// RAI: a request to reconcile a residual object. The requester derived the
-/// object from the reporter's votes it holds and it did not hash to the
-/// signed root: a vote was lost on the way. It names the root and sends a
-/// sketch of what it derived; a replica holding the object answers with
-/// what the two differ in.
+/// RAI, "Reconstructing a report": the authenticated difference from the
+/// requester's epoch-e tagged ledger set to a frozen `T_i`, asked for by a
+/// set sketch when no root the requester holds is known to any responder.
+/// The requester sketches the digests of its tagged entries; a replica that
+/// holds the target subtracts its own sketch of the target and peels the
+/// symmetric difference out. The reply is checked against the signed root
+/// like every other difference: the sketch is an encoding of the request,
+/// not a trust path.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ResidualSketchReq {
+pub struct LedgerSketchReq {
     pub epoch: ConsensusEpoch,
-    /// g_i: the root the reporter signed
-    pub root: BlockHash,
+    /// r_t: the signed root wanted
+    pub target: BlockHash,
+    /// The root of the requester's snapshot the sketch describes; the reply
+    /// names it so that the edits are applied to that snapshot
+    pub source: BlockHash,
     pub cells: Vec<SketchCellWire>,
 }
 
-impl ResidualSketchReq {
+impl LedgerSketchReq {
     /// Cells in one request: 40 KiB on the wire
     pub const MAX_CELLS: usize = 1024;
 
     pub fn new_test_instance() -> Self {
         Self {
             epoch: ConsensusEpoch::new(1),
-            root: BlockHash::from(2),
+            target: BlockHash::from(2),
+            source: BlockHash::from(3),
             cells: vec![SketchCellWire {
                 count: -1,
                 key: [7; 32],
@@ -472,7 +430,8 @@ impl ResidualSketchReq {
         T: std::io::Write,
     {
         self.epoch.serialize(writer)?;
-        self.root.serialize(writer)?;
+        self.target.serialize(writer)?;
+        self.source.serialize(writer)?;
         for cell in &self.cells {
             cell.serialize(writer)?;
         }
@@ -486,7 +445,8 @@ impl ResidualSketchReq {
     pub fn deserialize(mut bytes: &[u8]) -> Result<Self, DeserializationError> {
         let bytes = &mut bytes;
         let epoch = ConsensusEpoch::deserialize(bytes)?;
-        let root = BlockHash::deserialize(bytes)?;
+        let target = BlockHash::deserialize(bytes)?;
+        let source = BlockHash::deserialize(bytes)?;
         let mut cells = Vec::new();
         while !bytes.is_empty() {
             if cells.len() >= Self::MAX_CELLS {
@@ -497,47 +457,59 @@ impl ResidualSketchReq {
         if cells.is_empty() {
             return Err(DeserializationError::InvalidData);
         }
-        Ok(Self { epoch, root, cells })
+        Ok(Self {
+            epoch,
+            target,
+            source,
+            cells,
+        })
     }
 }
 
-impl MessageVariant for ResidualSketchReq {
+impl MessageVariant for LedgerSketchReq {
     fn header_extensions(&self, payload_len: u16) -> BitArray<u16> {
         BitArray::new(payload_len)
     }
 }
 
-/// RAI: what a residual object and the requester's derivation of it differ
-/// in, as the responder peeled it out of the sketch: the records the
-/// requester lacks, and the digests of records it has that the object does
-/// not. Or nothing but `incomplete`, when the difference did not peel out
-/// of a sketch that size.
+/// RAI: what a frozen `T_i` and the requester's snapshot differ in, as the
+/// responder peeled it out of the sketch: the tagged entries the requester
+/// lacks, and the digests of entries it holds that `T_i` does not. Paged
+/// like a root-based difference; no partial transfer is usable. Or nothing
+/// but `incomplete`, when the difference did not peel out of a sketch that
+/// size.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ResidualSketchReply {
+pub struct LedgerSketchReply {
     pub epoch: ConsensusEpoch,
-    pub root: BlockHash,
+    pub target: BlockHash,
+    pub source: BlockHash,
     pub incomplete: bool,
-    pub added: Vec<ResidualEntry>,
+    pub page: u16,
+    pub pages: u16,
+    pub added: Vec<CertifiedEntry>,
     pub removed: Vec<BlockHash>,
 }
 
-impl ResidualSketchReply {
-    /// Edits in one reply, bounded by the message size: 105 bytes an added
-    /// record and 32 a removed digest, against a payload of 64 KiB
-    pub const MAX_ADDED: usize = 400;
-    pub const MAX_REMOVED: usize = 400;
+impl LedgerSketchReply {
+    /// Edits in one page: 105 bytes an added entry, 32 a removed digest,
+    /// against a payload of 64 KiB
+    pub const MAX_ENTRIES: usize = 400;
+    pub const MAX_PAGES: usize = ReconReply::MAX_PAGES;
 
     pub fn new_test_instance() -> Self {
         Self {
             epoch: ConsensusEpoch::new(1),
-            root: BlockHash::from(2),
+            target: BlockHash::from(2),
+            source: BlockHash::from(3),
             incomplete: false,
-            added: vec![ResidualEntry {
+            page: 0,
+            pages: 1,
+            added: vec![CertifiedEntry {
                 account: Account::from(3),
                 height: 4,
                 hash: BlockHash::from(5),
                 previous: BlockHash::from(6),
-                kind: 1,
+                status: 1,
             }],
             removed: vec![BlockHash::from(8)],
         }
@@ -548,8 +520,11 @@ impl ResidualSketchReply {
         T: std::io::Write,
     {
         self.epoch.serialize(writer)?;
-        self.root.serialize(writer)?;
+        self.target.serialize(writer)?;
+        self.source.serialize(writer)?;
         writer.write_all(&[u8::from(self.incomplete)])?;
+        writer.write_all(&self.page.to_le_bytes())?;
+        writer.write_all(&self.pages.to_le_bytes())?;
         writer.write_all(&(self.added.len() as u16).to_le_bytes())?;
         for entry in &self.added {
             entry.serialize(writer)?;
@@ -567,40 +542,51 @@ impl ResidualSketchReply {
     pub fn deserialize(mut bytes: &[u8]) -> Result<Self, DeserializationError> {
         let bytes = &mut bytes;
         let epoch = ConsensusEpoch::deserialize(bytes)?;
-        let root = BlockHash::deserialize(bytes)?;
+        let target = BlockHash::deserialize(bytes)?;
+        let source = BlockHash::deserialize(bytes)?;
         let mut incomplete = [0u8; 1];
         read_exact(bytes, &mut incomplete)?;
         if incomplete[0] > 1 {
             return Err(DeserializationError::InvalidData);
         }
-        let mut added_len = [0u8; 2];
-        read_exact(bytes, &mut added_len)?;
-        let added_len = u16::from_le_bytes(added_len) as usize;
-        if added_len > Self::MAX_ADDED {
+        let mut value = [0u8; 2];
+        read_exact(bytes, &mut value)?;
+        let page = u16::from_le_bytes(value);
+        read_exact(bytes, &mut value)?;
+        let pages = u16::from_le_bytes(value);
+        if pages == 0 || pages as usize > Self::MAX_PAGES || page >= pages {
+            return Err(DeserializationError::InvalidData);
+        }
+        read_exact(bytes, &mut value)?;
+        let added_len = u16::from_le_bytes(value) as usize;
+        if added_len > Self::MAX_ENTRIES {
             return Err(DeserializationError::InvalidData);
         }
         let mut added = Vec::with_capacity(added_len);
         for _ in 0..added_len {
-            added.push(ResidualEntry::deserialize(bytes)?);
+            added.push(CertifiedEntry::deserialize(bytes, 2)?);
         }
         let mut removed = Vec::new();
         while !bytes.is_empty() {
-            if removed.len() >= Self::MAX_REMOVED {
+            if added.len() + removed.len() >= Self::MAX_ENTRIES {
                 return Err(DeserializationError::InvalidData);
             }
             removed.push(BlockHash::deserialize(bytes)?);
         }
         Ok(Self {
             epoch,
-            root,
+            target,
+            source,
             incomplete: incomplete[0] == 1,
+            page,
+            pages,
             added,
             removed,
         })
     }
 }
 
-impl MessageVariant for ResidualSketchReply {
+impl MessageVariant for LedgerSketchReply {
     fn header_extensions(&self, payload_len: u16) -> BitArray<u16> {
         BitArray::new(payload_len)
     }
@@ -677,9 +663,9 @@ mod tests {
     }
 
     #[test]
-    fn serialize_residual_sketch_req() {
-        assert_deserializable(&Message::ResidualSketchReq(
-            ResidualSketchReq::new_test_instance(),
+    fn serialize_ledger_sketch_req() {
+        assert_deserializable(&Message::LedgerSketchReq(
+            LedgerSketchReq::new_test_instance(),
         ));
         let cells = (0..200)
             .map(|i| SketchCellWire {
@@ -688,34 +674,43 @@ mod tests {
                 check: i,
             })
             .collect();
-        assert_deserializable(&Message::ResidualSketchReq(ResidualSketchReq {
+        assert_deserializable(&Message::LedgerSketchReq(LedgerSketchReq {
             cells,
-            ..ResidualSketchReq::new_test_instance()
+            ..LedgerSketchReq::new_test_instance()
         }));
     }
 
     #[test]
-    fn serialize_residual_sketch_reply() {
-        assert_deserializable(&Message::ResidualSketchReply(
-            ResidualSketchReply::new_test_instance(),
+    fn serialize_ledger_sketch_reply() {
+        assert_deserializable(&Message::LedgerSketchReply(
+            LedgerSketchReply::new_test_instance(),
         ));
-        assert_deserializable(&Message::ResidualSketchReply(ResidualSketchReply {
+        assert_deserializable(&Message::LedgerSketchReply(LedgerSketchReply {
             incomplete: true,
             added: Vec::new(),
             removed: Vec::new(),
-            ..ResidualSketchReply::new_test_instance()
+            ..LedgerSketchReply::new_test_instance()
         }));
     }
 
     #[test]
-    fn a_residual_entry_with_an_unknown_kind_is_refused() {
-        let mut reply = ResidualSketchReply::new_test_instance();
+    fn a_ledger_sketch_reply_with_an_unknown_status_or_page_is_refused() {
+        let mut reply = LedgerSketchReply::new_test_instance();
         reply.removed.clear();
         let mut bytes = Vec::new();
         reply.serialize(&mut bytes).unwrap();
-        // The kind is the last byte of the only entry
+        // The status is the last byte of the only entry
         *bytes.last_mut().unwrap() = 7;
-        assert!(ResidualSketchReply::deserialize(&bytes).is_err());
+        assert!(LedgerSketchReply::deserialize(&bytes).is_err());
+        let mut bytes = Vec::new();
+        LedgerSketchReply {
+            page: 1,
+            pages: 1,
+            ..LedgerSketchReply::new_test_instance()
+        }
+        .serialize(&mut bytes)
+        .unwrap();
+        assert!(LedgerSketchReply::deserialize(&bytes).is_err());
     }
 
     #[test]

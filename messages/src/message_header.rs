@@ -56,11 +56,11 @@ pub enum MessageType {
     CloseProofReply = 0x1a,
     #[cfg(feature = "rai_protocol")]
     CloseProofReq = 0x19,
-    /// RAI: the reconciliation of a residual object a derivation missed
+    /// RAI: the sketch-based authenticated difference towards a frozen T root
     #[cfg(feature = "rai_protocol")]
-    ResidualSketchReq = 0x17,
+    LedgerSketchReq = 0x17,
     #[cfg(feature = "rai_protocol")]
-    ResidualSketchReply = 0x18,
+    LedgerSketchReply = 0x18,
 }
 
 impl MessageType {
@@ -98,9 +98,9 @@ impl MessageType {
             #[cfg(feature = "rai_protocol")]
             MessageType::CloseProofReq => "closeproofreq",
             #[cfg(feature = "rai_protocol")]
-            MessageType::ResidualSketchReq => "residual_req",
+            MessageType::LedgerSketchReq => "ledger_sketch_req",
             #[cfg(feature = "rai_protocol")]
-            MessageType::ResidualSketchReply => "residual_ack",
+            MessageType::LedgerSketchReply => "ledger_sketch_ack",
             #[cfg(feature = "ledger_snapshots")]
             MessageType::Preproposal => "preproposal",
             #[cfg(feature = "ledger_snapshots")]
@@ -258,11 +258,9 @@ impl MessageHeader {
             #[cfg(feature = "rai_protocol")]
             MessageType::CloseProofReq => CloseProofReq::serialized_size(self.extensions),
             #[cfg(feature = "rai_protocol")]
-            MessageType::ResidualSketchReq => ResidualSketchReq::serialized_size(self.extensions),
+            MessageType::LedgerSketchReq => LedgerSketchReq::serialized_size(self.extensions),
             #[cfg(feature = "rai_protocol")]
-            MessageType::ResidualSketchReply => {
-                ResidualSketchReply::serialized_size(self.extensions)
-            }
+            MessageType::LedgerSketchReply => LedgerSketchReply::serialized_size(self.extensions),
             #[cfg(feature = "ledger_snapshots")]
             MessageType::Preproposal => Preproposal::serialized_size(self.extensions),
             #[cfg(feature = "ledger_snapshots")]
@@ -345,9 +343,9 @@ impl From<MessageType> for DetailType {
             #[cfg(feature = "rai_protocol")]
             MessageType::CloseProofReq => DetailType::CloseProofReq,
             #[cfg(feature = "rai_protocol")]
-            MessageType::ResidualSketchReq => DetailType::ResidualReq,
+            MessageType::LedgerSketchReq => DetailType::LedgerSketchReq,
             #[cfg(feature = "rai_protocol")]
-            MessageType::ResidualSketchReply => DetailType::ResidualReply,
+            MessageType::LedgerSketchReply => DetailType::LedgerSketchReply,
             #[cfg(feature = "ledger_snapshots")]
             MessageType::Preproposal => DetailType::Preproposal,
             #[cfg(feature = "ledger_snapshots")]

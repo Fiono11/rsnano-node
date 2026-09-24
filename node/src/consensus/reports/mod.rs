@@ -12,8 +12,8 @@ pub use report_service::ReportService;
 use std::collections::{BTreeMap, HashMap};
 
 use rsnano_messages::{
-    CertifiedEntry, ReconReply, ReconReq, Report, ResidualEntry, ResidualSketchReply,
-    ResidualSketchReq, SketchCellWire,
+    CertifiedEntry, LedgerSketchReply, LedgerSketchReq, ReconReply, ReconReq, Report,
+    SketchCellWire,
 };
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{BlockHash, ConsensusEpoch, PrivateKey, PublicKey};
@@ -79,6 +79,9 @@ struct TheirReport {
     report: Report,
     /// When this node last asked for a part of the report it lacks
     asked: Option<Timestamp>,
+    /// When it first asked: a sketch is added once a root-based request has
+    /// stood unanswered for a while
+    first_asked: Option<Timestamp>,
     /// The state reconstructed for the signed root, once a difference has
     /// rebuilt it
     reconstructed: Option<CertifiedState>,
@@ -89,9 +92,16 @@ struct TheirReport {
     residual: Option<ResidualVotes>,
     /// When the derivation was last tried
     derived: Option<Timestamp>,
-    /// The object as derived here when it did not hash to the signed root:
-    /// what a sketch exchange reconciles against the reporter's object
+    /// The object as derived here when it did not hash to the signed root,
+    /// for the diagnostics: what is missing is read off it. Never a source
+    /// of usability.
     working: Option<ResidualVotes>,
+    /// RAI, "Reconstructing a report": the sketch exchange towards the
+    /// frozen `T_i` when no root this node holds is known to any responder.
+    /// The snapshot the sketch described, and the pages received for it.
+    sketch: Option<LedgerSketch>,
+    /// When a sketch was last sent
+    sketched: Option<Timestamp>,
     /// Cells in the sketch sent for it; grows while the difference does not
     /// peel out
     cells: usize,
@@ -102,6 +112,13 @@ struct ReconTransfer {
     source: BlockHash,
     base: CertifiedState,
     pages: Vec<Option<ReconReply>>,
+}
+
+/// The sketch exchange of one report: the snapshot sketched and the pages
+/// of the difference peeled out of it. Partial pages are never usable.
+struct LedgerSketch {
+    base: CertifiedState,
+    pages: Vec<Option<LedgerSketchReply>>,
 }
 
 impl TheirReport {
@@ -123,9 +140,10 @@ pub(crate) enum ReportMessage {
     Request(ReconReq),
     /// Answer a request with the difference between two states this node knows
     Reply(ReconReply),
-    /// Ask what a derived residual object and the reporter's differ in
+    /// Ask for the difference from a sketched snapshot to a report's root
+    Sketch(LedgerSketchReq),
     /// Answer a sketch with the difference peeled out of it
-    ResidualSketchAnswer(ResidualSketchReply),
+    SketchReply(LedgerSketchReply),
 }
 
 /// Why a request for a difference is not answered: no answer is not a
@@ -169,6 +187,10 @@ impl ReportExchange {
     /// "correct validators retain and gossip the votes and data that
     /// justify their actions".
     pub const REPEAT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
+    /// How often a sketch is sent for a report whose root-based request went
+    /// unanswered: a sketch is larger than a request, and the difference it
+    /// asks for changes no faster than the evidence arrives
+    pub const SKETCH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
 
     pub fn new() -> Self {
         Self {
@@ -428,11 +450,14 @@ impl ReportExchange {
             TheirReport {
                 report,
                 asked: None,
+                first_asked: None,
                 reconstructed: None,
                 transfer: None,
                 residual,
                 derived: None,
                 working: None,
+                sketch: None,
+                sketched: None,
                 cells: Sketch::MIN_CELLS,
             },
         );
@@ -464,8 +489,8 @@ impl ReportExchange {
     /// the reporter itself applied, and accept it exactly when it hashes to
     /// the root the reporter signed. The votes were gossiped and checked
     /// when they arrived; when one was lost on the way the derived object
-    /// misses the root, and it is kept for a sketch exchange that finds the
-    /// difference (see `residual_request`).
+    /// misses the root; the derivation is retried as more of the reporter's
+    /// votes arrive, and the object derived so far is kept for the diagnostics.
     pub fn derive_residual(
         &mut self,
         epoch: ConsensusEpoch,
@@ -503,14 +528,12 @@ impl ReportExchange {
     /// signed root needs no message at all, which is the common case between
     /// validators that saw the same evidence; otherwise the request names
     /// the roots this node holds and a replica that knows one of them and the
-    /// target answers. The residual object is derived, not fetched (see
-    /// `derive_residual`).
+    /// target answers. When no responder knows any of them, the retry adds a
+    /// sketch of the live state (see `handle_ledger_sketch`). The residual
+    /// object is derived, not fetched (see `derive_residual`).
     ///
     /// A request that goes unanswered is repeated after `RETRY_INTERVAL`,
-    /// with the live root as it stands then. That is the whole of the retry:
-    /// the live states of correct validators converge as the epoch's
-    /// evidence arrives, and a source shared with a correct reporter is
-    /// found then.
+    /// with the live root as it stands then.
     pub fn reconcile(
         &mut self,
         epoch: ConsensusEpoch,
@@ -532,17 +555,29 @@ impl ReportExchange {
             None
         };
         let sources = held.shared_sources();
+        let live_root = held.live.root();
         let their = held.theirs.get_mut(&reporter)?;
         let mut messages = Vec::new();
         let mut result = None;
         let may_ask = their
             .asked
             .is_none_or(|asked| asked.elapsed(now) >= Self::RETRY_INTERVAL);
+        // A root-based request already went unanswered: no responder knew a
+        // source this node offered. The retry adds a sketch of the live
+        // state, which any holder of the target can answer whatever its own
+        // roots are (see `handle_ledger_sketch`).
+        let sketch_due = their
+            .first_asked
+            .is_some_and(|first| first.elapsed(now) >= Self::SKETCH_INTERVAL)
+            && their
+                .sketched
+                .is_none_or(|sent| sent.elapsed(now) >= Self::SKETCH_INTERVAL);
 
         if needs_state {
             if let Some(state) = known {
                 let total = state.len();
                 their.reconstructed = Some(state);
+                their.sketch = None;
                 result = Some(ReconcileResult {
                     epoch,
                     reporter,
@@ -556,60 +591,68 @@ impl ReportExchange {
                     target,
                     sources,
                 }));
+                if sketch_due {
+                    let cells = their.cells;
+                    their.sketched = Some(now);
+                    // The snapshot the sketch describes is kept until the
+                    // pages arrive; a newer sketch replaces it
+                    let base = held.live.clone();
+                    let sketch = Sketch::over(base.digests().map(|(digest, ..)| digest), cells);
+                    let their = held.theirs.get_mut(&reporter)?;
+                    their.sketch = Some(LedgerSketch {
+                        base,
+                        pages: Vec::new(),
+                    });
+                    messages.push(ReportMessage::Sketch(LedgerSketchReq {
+                        epoch,
+                        target,
+                        source: live_root,
+                        cells: sketch.cells().iter().map(cell_wire).collect(),
+                    }));
+                }
             }
         }
         if !messages.is_empty() {
+            let their = held.theirs.get_mut(&reporter)?;
             their.asked = Some(now);
+            their.first_asked.get_or_insert(now);
         }
         Some((messages, result))
     }
 
-    /// RAI: the sketch exchange for a residual object the derivation
-    /// missed: a sketch of the object as derived here, for the reporter (or
-    /// any replica holding the object) to peel the difference out of
-    pub fn residual_request(
+    /// RAI, "Reconstructing a report": answer a sketch if this node holds
+    /// the target: the report's own snapshot or one it reconstructed.
+    /// Subtracting this node's sketch of the target leaves the symmetric
+    /// difference; when it peels out, the entries the requester lacks go
+    /// back in full and the digests of those it holds beyond the target go
+    /// back as such, in pages. A difference too large for the cells is
+    /// answered as incomplete: the requester enlarges its sketch. The
+    /// requester accepts nothing before the rebuilt state hashes to the
+    /// signed root.
+    pub fn handle_ledger_sketch(
         &self,
-        epoch: ConsensusEpoch,
-        reporter: &PublicKey,
-    ) -> Option<ResidualSketchReq> {
-        let their = self.epochs.get(&epoch)?.theirs.get(reporter)?;
-        if their.residual.is_some() {
-            return None;
-        }
-        let working = their.working.as_ref()?;
-        let sketch = Sketch::over(working.digests().map(|(digest, ..)| digest), their.cells);
-        Some(ResidualSketchReq {
-            epoch,
-            root: their.report.residual,
-            cells: sketch.cells().iter().map(cell_wire).collect(),
-        })
-    }
-
-    /// RAI: answer a residual sketch if this node holds the object it names:
-    /// its own, or one it reconciled. Subtracting this node's sketch of the
-    /// object leaves the difference; when it peels out, the records the
-    /// requester lacks go back in full and the digests of those it holds
-    /// beyond the object go back as such. A difference too large for the
-    /// cells is answered as incomplete: the requester enlarges its sketch.
-    pub fn handle_residual_sketch(
-        &self,
-        request: &ResidualSketchReq,
-    ) -> Option<ResidualSketchReply> {
+        request: &LedgerSketchReq,
+    ) -> Option<Vec<LedgerSketchReply>> {
         let held = self.epochs.get(&request.epoch)?;
-        let object = held.residual_object(request.root)?;
-        if request.cells.is_empty() || request.cells.len() > ResidualSketchReq::MAX_CELLS {
+        let target = held.state(request.target)?;
+        if request.cells.is_empty() || request.cells.len() > LedgerSketchReq::MAX_CELLS {
             return None;
         }
-        let incomplete = || ResidualSketchReply {
-            epoch: request.epoch,
-            root: request.root,
-            incomplete: true,
-            added: Vec::new(),
-            removed: Vec::new(),
+        let incomplete = || {
+            vec![LedgerSketchReply {
+                epoch: request.epoch,
+                target: request.target,
+                source: request.source,
+                incomplete: true,
+                page: 0,
+                pages: 1,
+                added: Vec::new(),
+                removed: Vec::new(),
+            }]
         };
         let mut theirs = Sketch::from_cells(request.cells.iter().map(cell_of).collect());
         let mine = Sketch::over(
-            object.digests().map(|(digest, ..)| digest),
+            target.digests().map(|(digest, ..)| digest),
             request.cells.len(),
         );
         if !theirs.subtract(&mine) {
@@ -618,100 +661,151 @@ impl ReportExchange {
         let Some(peeled) = theirs.peel() else {
             return Some(incomplete());
         };
-        // `ours` are the requester's keys the object lacks, `theirs` the
-        // object's keys the requester lacks
-        if peeled.theirs.len() > ResidualSketchReply::MAX_ADDED
-            || peeled.ours.len() > ResidualSketchReply::MAX_REMOVED
-        {
-            return Some(incomplete());
-        }
-        let by_digest: HashMap<BlockHash, (CertifiedBlock, ResidualKind, BlockHash)> = object
+        // `ours` are the requester's digests the target lacks, `theirs` the
+        // target's entries the requester lacks
+        let by_digest: HashMap<BlockHash, (CertifiedBlock, Certification)> = target
             .digests()
-            .map(|(digest, block, kind, previous)| (digest, (block, kind, previous)))
+            .map(|(digest, block, entry)| (digest, (block, entry)))
             .collect();
         let mut added = Vec::with_capacity(peeled.theirs.len());
         for digest in &peeled.theirs {
-            let Some((block, kind, previous)) = by_digest.get(digest) else {
-                // The requester's sketch does not describe a derivation of
-                // this object: nothing useful can be said
+            let Some((block, entry)) = by_digest.get(digest) else {
+                // The requester's sketch does not describe a tagged ledger
+                // set: nothing useful can be said
                 return Some(incomplete());
             };
-            added.push(ResidualEntry {
+            added.push(CertifiedEntry {
                 account: block.account,
                 height: block.height,
                 hash: block.hash,
-                previous: *previous,
-                kind: kind.as_byte(),
+                previous: entry.previous,
+                status: entry.status.as_byte(),
             });
         }
-        Some(ResidualSketchReply {
-            epoch: request.epoch,
-            root: request.root,
-            incomplete: false,
-            added,
-            removed: peeled.ours,
-        })
+        added.sort_by_key(|e| (e.account, e.height, e.hash, e.previous, e.status));
+        let mut removed = peeled.ours;
+        removed.sort();
+        let total = removed.len() + added.len();
+        let pages = total.div_ceil(LedgerSketchReply::MAX_ENTRIES).max(1);
+        if pages > LedgerSketchReply::MAX_PAGES {
+            return Some(incomplete());
+        }
+        Some(
+            (0..pages)
+                .map(|page| {
+                    let offset = page * LedgerSketchReply::MAX_ENTRIES;
+                    let end = (offset + LedgerSketchReply::MAX_ENTRIES).min(total);
+                    LedgerSketchReply {
+                        epoch: request.epoch,
+                        target: request.target,
+                        source: request.source,
+                        incomplete: false,
+                        page: page as u16,
+                        pages: pages as u16,
+                        removed: removed[offset.min(removed.len())..end.min(removed.len())]
+                            .to_vec(),
+                        added: added[offset.saturating_sub(removed.len())
+                            ..end.saturating_sub(removed.len())]
+                            .to_vec(),
+                    }
+                })
+                .collect(),
+        )
     }
 
-    /// RAI: apply the difference to the derived object and accept it exactly
-    /// when the root comes out as the one the reporter signed; that
-    /// signature is what vouches for every record then. An incomplete answer
-    /// enlarges the sketch for the next request.
-    pub fn handle_residual_sketch_reply(
+    /// RAI: apply the pages of a sketched difference to the snapshot they
+    /// name and accept the reconstruction exactly when the root comes out as
+    /// the one the report signed; that check is the whole of the
+    /// reconciliation. An incomplete answer enlarges the sketch for the
+    /// next request.
+    pub fn handle_ledger_sketch_reply(
         &mut self,
-        reply: &ResidualSketchReply,
+        reply: &LedgerSketchReply,
     ) -> Option<ReconcileResult> {
         let held = self.epochs.get_mut(&reply.epoch)?;
         let reporter = held
             .theirs
             .iter()
             .find(|(_, their)| {
-                their.report.residual == reply.root
-                    && their.residual.is_none()
-                    && their.working.is_some()
+                their.report.certified == reply.target
+                    && their.reconstructed.is_none()
+                    && their
+                        .sketch
+                        .as_ref()
+                        .is_some_and(|sketch| sketch.base.root() == reply.source)
             })
             .map(|(reporter, _)| *reporter)?;
         let their = held.theirs.get_mut(&reporter)?;
         if reply.incomplete {
             their.cells = (their.cells * 4).min(Sketch::MAX_CELLS);
+            their.sketch = None;
             return Some(ReconcileResult {
                 epoch: reply.epoch,
                 reporter,
                 complete: false,
                 entries: 0,
-                total: their.working.as_ref().map(ResidualVotes::len).unwrap_or(0),
+                total: 0,
             });
         }
-        let working = their.working.as_mut()?;
-        let by_digest: HashMap<BlockHash, (CertifiedBlock, ResidualKind)> = working
+        let count = reply.added.len() + reply.removed.len();
+        if reply.pages == 0
+            || reply.pages as usize > LedgerSketchReply::MAX_PAGES
+            || reply.page >= reply.pages
+            || count > LedgerSketchReply::MAX_ENTRIES
+            || (reply.page + 1 < reply.pages && count != LedgerSketchReply::MAX_ENTRIES)
+            || (reply.pages > 1 && count == 0)
+            || reply
+                .added
+                .iter()
+                .any(|e| CertifiedStatus::from_byte(e.status).is_none())
+        {
+            return None;
+        }
+        let sketch = their.sketch.as_mut()?;
+        if sketch.pages.len() != reply.pages as usize {
+            sketch.pages = vec![None; reply.pages as usize];
+        }
+        sketch.pages[reply.page as usize] = Some(reply.clone());
+        if sketch.pages.iter().any(Option::is_none) {
+            return Some(ReconcileResult {
+                epoch: reply.epoch,
+                reporter,
+                complete: false,
+                entries: count,
+                total: sketch.base.len(),
+            });
+        }
+        let sketch = their.sketch.take()?;
+        let mut state = sketch.base;
+        let by_digest: HashMap<BlockHash, CertifiedBlock> = state
             .digests()
-            .map(|(digest, block, kind, _)| (digest, (block, kind)))
+            .map(|(digest, block, _)| (digest, block))
             .collect();
-        for digest in &reply.removed {
-            if let Some((block, kind)) = by_digest.get(digest) {
-                working.remove(block, *kind);
+        let pages: Vec<_> = sketch.pages.into_iter().map(Option::unwrap).collect();
+        for digest in pages.iter().flat_map(|p| &p.removed) {
+            if let Some(block) = by_digest.get(digest) {
+                state.remove(block);
             }
         }
-        for entry in &reply.added {
-            let Some(kind) = ResidualKind::from_byte(entry.kind) else {
-                continue;
-            };
-            working.record(
+        for entry in pages.iter().flat_map(|p| &p.added) {
+            state.set(
                 CertifiedBlock::new(entry.account, entry.height, entry.hash),
-                entry.previous,
-                kind,
+                Certification {
+                    status: CertifiedStatus::from_byte(entry.status)?,
+                    previous: entry.previous,
+                },
             );
         }
-        // The hash-only G root does not authenticate these vote-kind claims.
-        // Hints never establish usability; only derive_residual from validated
-        // reporter votes can do that.
-        let complete = false;
-        let total = working.len();
+        let complete = state.root() == reply.target;
+        let total = state.len();
+        if complete {
+            their.reconstructed = Some(state);
+        }
         Some(ReconcileResult {
             epoch: reply.epoch,
             reporter,
-            complete,
-            entries: reply.added.len() + reply.removed.len(),
+            complete: complete && their.is_complete(),
+            entries: pages.iter().map(|p| p.added.len() + p.removed.len()).sum(),
             total,
         })
     }
@@ -921,18 +1015,6 @@ impl EpochReports {
     /// snapshot and the states this node passed through, which are what it
     /// can bridge from
     const MAX_HISTORY: usize = 8;
-
-    /// A residual object this node holds by its root: one of its own
-    /// reports', or one it reconciled for another reporter
-    fn residual_object(&self, root: BlockHash) -> Option<&ResidualVotes> {
-        if let Some(own) = self.residuals.get(&root) {
-            return Some(own);
-        }
-        self.theirs
-            .values()
-            .filter_map(|their| their.residual.as_ref())
-            .find(|object| object.root() == root)
-    }
 
     /// A state this node knows by its root: the live one, one it retained,
     /// or a report it has reconstructed. The reconstructed ones are what let
@@ -1634,20 +1716,100 @@ mod tests {
     /// which peels the difference out and sends the record back, and the
     /// object then hashes to the root. A record derived here that the
     /// reporter did not commit to goes the other way.
+    /// The failure observed in the fork diagnostics: a lagging replica's
+    /// live projection never matches any root the reporters hold, so its
+    /// root-based requests are refused by everyone. The retry sketches the
+    /// live state instead, a holder of the frozen state answers with the
+    /// difference, and it is accepted only because the rebuilt state hashes
+    /// to the signed root.
     #[test]
-    fn a_lost_vote_is_reconciled_by_a_sketch() {
+    fn a_report_is_reconstructed_by_a_sketch_when_no_root_is_shared() {
         let epoch = ConsensusEpoch::ZERO;
         let key = PrivateKey::from(1);
-        let theirs = state_of(0..10);
-        let votes: Vec<_> = (20..40)
-            .map(|i| (block(i), ResidualKind::First, parent(i)))
-            .collect();
-        let residual = ResidualVotes::derive(&theirs, votes.clone());
+        let frozen = state_of(0..12);
         let mut reporter = ReportExchange::new();
         reporter.report_epoch(
             epoch,
-            theirs.clone(),
-            residual.clone(),
+            frozen.clone(),
+            ResidualVotes::new(),
+            BlockHash::from(7),
+            BlockHash::ZERO,
+            &[key.clone()],
+        );
+        // The lagging replica lacks 10 and 11, holds 12 and 13 of its own,
+        // and has finalized 9 where the reporter froze it notarized
+        let mut live = state_of(0..10);
+        live.certify(block(12), parent(12), CertifiedStatus::Notarized);
+        live.certify(block(13), parent(13), CertifiedStatus::Notarized);
+        live.certify(block(9), parent(9), CertifiedStatus::Finalized);
+        let mut ours = ReportExchange::new();
+        ours.report_epoch(
+            epoch,
+            live.clone(),
+            ResidualVotes::new(),
+            BlockHash::from(7),
+            BlockHash::ZERO,
+            &[PrivateKey::from(2)],
+        );
+        assert!(ours.handle_report(signed(&key, epoch, &frozen)));
+
+        // The first attempt names roots only, and nobody knows them
+        let (messages, _) = ours.reconcile(epoch, key.public_key(), later()).unwrap();
+        assert_eq!(messages.len(), 1);
+        let ReportMessage::Request(request) = &messages[0] else {
+            panic!("a root-based request first");
+        };
+        assert_eq!(
+            reporter.handle_request_pages(request),
+            Err(ReconRefusal::UnknownSource)
+        );
+        assert!(theirs_usable(&ours, epoch).is_empty());
+
+        // The retry adds a sketch of the live state
+        let (messages, _) = ours.reconcile(epoch, key.public_key(), later()).unwrap();
+        let sketch = messages
+            .iter()
+            .find_map(|message| match message {
+                ReportMessage::Sketch(sketch) => Some(sketch.clone()),
+                _ => None,
+            })
+            .expect("a sketch on retry");
+        assert_eq!(sketch.target, frozen.root());
+        assert_eq!(sketch.source, live.root());
+        assert_eq!(sketch.cells.len(), Sketch::MIN_CELLS);
+        // A replica without the target does not answer
+        assert!(ours.handle_ledger_sketch(&sketch).is_none());
+        let replies = reporter.handle_ledger_sketch(&sketch).unwrap();
+        assert_eq!(replies.len(), 1);
+        assert!(!replies[0].incomplete);
+        // 10, 11, and 9 as notarized come in; 12, 13 and 9 as finalized go
+        assert_eq!(replies[0].added.len(), 3);
+        assert_eq!(replies[0].removed.len(), 3);
+        let done = ours.handle_ledger_sketch_reply(&replies[0]).unwrap();
+        assert!(done.complete);
+        assert_eq!(done.entries, 6);
+        assert_eq!(done.total, 12);
+        assert_eq!(
+            theirs_usable(&ours, epoch),
+            vec![(frozen.root(), ResidualVotes::new().root())]
+        );
+        // And this node serves the state it reconstructed in turn
+        assert!(ours.handle_ledger_sketch(&sketch).is_some());
+    }
+
+    /// A difference too large for the sketch is answered as incomplete and
+    /// the next sketch is larger; a difference too large for one message
+    /// arrives in pages, in any order and with repeats
+    #[test]
+    fn a_sketched_difference_grows_the_sketch_and_arrives_in_pages() {
+        let epoch = ConsensusEpoch::ZERO;
+        let key = PrivateKey::from(1);
+        let frozen = state_of(0..900);
+        let mut reporter = ReportExchange::new();
+        reporter.report_epoch(
+            epoch,
+            frozen.clone(),
+            ResidualVotes::new(),
             BlockHash::from(7),
             BlockHash::ZERO,
             &[key.clone()],
@@ -1655,118 +1817,135 @@ mod tests {
         let mut ours = ReportExchange::new();
         ours.report_epoch(
             epoch,
-            theirs.clone(),
+            state_of(0..300),
             ResidualVotes::new(),
             BlockHash::from(7),
             BlockHash::ZERO,
             &[PrivateKey::from(2)],
         );
-        assert!(ours.handle_report(signed_with(&key, epoch, &theirs, &residual)));
+        assert!(ours.handle_report(signed(&key, epoch, &frozen)));
         ours.reconcile(epoch, key.public_key(), later()).unwrap();
-        assert!(ours.residual_request(epoch, &key.public_key()).is_none());
+        let mut rounds = 0;
+        loop {
+            let (messages, _) = ours.reconcile(epoch, key.public_key(), later()).unwrap();
+            let sketch = messages
+                .into_iter()
+                .find_map(|message| match message {
+                    ReportMessage::Sketch(sketch) => Some(sketch),
+                    _ => None,
+                })
+                .expect("a sketch on every retry");
+            let replies = reporter.handle_ledger_sketch(&sketch).unwrap();
+            rounds += 1;
+            assert!(rounds <= 4, "the sketch grows to the difference");
+            if replies[0].incomplete {
+                assert!(
+                    !ours
+                        .handle_ledger_sketch_reply(&replies[0])
+                        .unwrap()
+                        .complete
+                );
+                continue;
+            }
+            assert_eq!(replies.len(), 2);
+            assert!(
+                !ours
+                    .handle_ledger_sketch_reply(&replies[1])
+                    .unwrap()
+                    .complete
+            );
+            assert!(
+                !ours
+                    .handle_ledger_sketch_reply(&replies[1])
+                    .unwrap()
+                    .complete
+            );
+            let done = ours.handle_ledger_sketch_reply(&replies[0]).unwrap();
+            assert!(done.complete);
+            assert_eq!(done.entries, 600);
+            assert_eq!(done.total, 900);
+            break;
+        }
+        assert!(rounds > 1);
+        assert_eq!(theirs_usable(&ours, epoch).len(), 1);
+    }
 
-        // Two votes lost, one record this node derived that the reporter
-        // never committed to
-        let mut held = votes[2..].to_vec();
-        held.push((block(99), ResidualKind::Notar, parent(99)));
-        let short = ours
-            .derive_residual(epoch, key.public_key(), held, later())
+    /// A reply naming a snapshot this node no longer sketches is ignored,
+    /// and a reply that does not reach the root leaves nothing behind
+    #[test]
+    fn a_sketch_reply_for_another_snapshot_or_root_is_not_applied() {
+        let epoch = ConsensusEpoch::ZERO;
+        let key = PrivateKey::from(1);
+        let frozen = state_of(0..12);
+        let mut reporter = ReportExchange::new();
+        reporter.report_epoch(
+            epoch,
+            frozen.clone(),
+            ResidualVotes::new(),
+            BlockHash::from(7),
+            BlockHash::ZERO,
+            &[key.clone()],
+        );
+        let mut ours = ReportExchange::new();
+        ours.report_epoch(
+            epoch,
+            state_of(0..10),
+            ResidualVotes::new(),
+            BlockHash::from(7),
+            BlockHash::ZERO,
+            &[PrivateKey::from(2)],
+        );
+        assert!(ours.handle_report(signed(&key, epoch, &frozen)));
+        ours.reconcile(epoch, key.public_key(), later()).unwrap();
+        let (messages, _) = ours.reconcile(epoch, key.public_key(), later()).unwrap();
+        let sketch = messages
+            .into_iter()
+            .find_map(|message| match message {
+                ReportMessage::Sketch(sketch) => Some(sketch),
+                _ => None,
+            })
             .unwrap();
-        assert!(!short.complete);
-        let request = ours
-            .residual_request(epoch, &key.public_key())
-            .expect("a sketch of the derived object");
-        assert_eq!(request.root, residual.root());
-        assert_eq!(request.cells.len(), Sketch::MIN_CELLS);
-
-        // A replica without the object does not answer
-        assert!(ours.handle_residual_sketch(&request).is_none());
-        let reply = reporter
-            .handle_residual_sketch(&request)
-            .expect("the reporter holds its object");
-        assert!(!reply.incomplete);
-        assert_eq!(reply.added.len(), 2);
-        assert_eq!(reply.removed.len(), 1);
-
-        let done = ours.handle_residual_sketch_reply(&reply).unwrap();
-        assert!(!done.complete);
-        assert!(theirs_usable(&ours, epoch).is_empty());
-        let verified = residual.entries().collect::<Vec<_>>();
+        let mut replies = reporter.handle_ledger_sketch(&sketch).unwrap();
+        // The live state moved on: a new sketch replaces the snapshot
+        ours.refresh_live(epoch, state_of(0..11));
+        ours.reconcile(epoch, key.public_key(), later()).unwrap();
+        assert!(ours.handle_ledger_sketch_reply(&replies[0]).is_none());
+        // A tampered page rebuilds a state that misses the root
+        let (messages, _) = ours.reconcile(epoch, key.public_key(), later()).unwrap();
+        let sketch = messages
+            .into_iter()
+            .find_map(|message| match message {
+                ReportMessage::Sketch(sketch) => Some(sketch),
+                _ => None,
+            })
+            .unwrap();
+        replies = reporter.handle_ledger_sketch(&sketch).unwrap();
+        replies[0].added[0].status = CertifiedStatus::Finalized.as_byte();
         assert!(
-            ours.derive_residual(epoch, key.public_key(), verified, later())
+            !ours
+                .handle_ledger_sketch_reply(&replies[0])
                 .unwrap()
                 .complete
         );
-        assert_eq!(done.entries, 3);
-        assert_eq!(done.total, 20);
-        assert_eq!(
-            theirs_usable(&ours, epoch),
-            vec![(theirs.root(), residual.root())]
-        );
-        assert!(ours.residual_request(epoch, &key.public_key()).is_none());
-        // And this node serves the object it reconciled in turn
-        assert!(
-            ours.handle_residual_sketch(&ResidualSketchReq {
-                epoch,
-                root: residual.root(),
-                cells: request.cells.clone(),
-            })
-            .is_some()
-        );
-    }
-
-    /// A difference too large for the sketch is answered as incomplete, and
-    /// the next request carries a larger one
-    #[test]
-    fn a_large_residual_difference_enlarges_the_sketch() {
-        let epoch = ConsensusEpoch::ZERO;
-        let key = PrivateKey::from(1);
-        let theirs = state_of(0..4);
-        let votes: Vec<_> = (100..400)
-            .map(|i| (block(i), ResidualKind::First, parent(i)))
-            .collect();
-        let residual = ResidualVotes::derive(&theirs, votes.clone());
-        let mut reporter = ReportExchange::new();
-        reporter.report_epoch(
-            epoch,
-            theirs.clone(),
-            residual.clone(),
-            BlockHash::from(7),
-            BlockHash::ZERO,
-            &[key.clone()],
-        );
-        let mut ours = ReportExchange::new();
-        ours.report_epoch(
-            epoch,
-            theirs.clone(),
-            ResidualVotes::new(),
-            BlockHash::from(7),
-            BlockHash::ZERO,
-            &[PrivateKey::from(2)],
-        );
-        assert!(ours.handle_report(signed_with(&key, epoch, &theirs, &residual)));
-        ours.reconcile(epoch, key.public_key(), later()).unwrap();
-        // Half the votes lost: far more than sixty-four cells decode
-        ours.derive_residual(epoch, key.public_key(), votes[150..].to_vec(), later());
-
-        let mut rounds = 0;
-        loop {
-            let request = ours.residual_request(epoch, &key.public_key()).unwrap();
-            let reply = reporter.handle_residual_sketch(&request).unwrap();
-            rounds += 1;
-            assert!(rounds <= 4, "the sketch grows to the difference");
-            let result = ours.handle_residual_sketch_reply(&reply).unwrap();
-            assert!(!result.complete);
-            if !reply.incomplete {
-                assert_eq!(result.entries, 150);
-                break;
-            }
-            assert!(reply.incomplete);
-        }
-        assert!(rounds > 1);
         assert!(theirs_usable(&ours, epoch).is_empty());
+        // The untampered pages still do
+        let replies = reporter.handle_ledger_sketch(&sketch).unwrap();
         assert!(
-            ours.derive_residual(epoch, key.public_key(), votes, later())
+            !ours
+                .handle_ledger_sketch_reply(&replies[0])
+                .is_some_and(|r| r.complete)
+        );
+        let (messages, _) = ours.reconcile(epoch, key.public_key(), later()).unwrap();
+        let sketch = messages
+            .into_iter()
+            .find_map(|message| match message {
+                ReportMessage::Sketch(sketch) => Some(sketch),
+                _ => None,
+            })
+            .unwrap();
+        let replies = reporter.handle_ledger_sketch(&sketch).unwrap();
+        assert!(
+            ours.handle_ledger_sketch_reply(&replies[0])
                 .unwrap()
                 .complete
         );
@@ -2060,7 +2239,7 @@ mod tests {
         use std::sync::atomic::{AtomicU64, Ordering};
         static CALLS: AtomicU64 = AtomicU64::new(0);
         let calls = CALLS.fetch_add(1, Ordering::Relaxed);
-        Timestamp::new_test_instance() + ReportExchange::RETRY_INTERVAL * (calls as u32 + 1)
+        Timestamp::new_test_instance() + ReportExchange::SKETCH_INTERVAL * (calls as u32 + 1)
     }
 
     /// The one reconciliation request the exchange asks for now

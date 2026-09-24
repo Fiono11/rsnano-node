@@ -37,11 +37,11 @@ pub enum Message {
     CloseProofReply(CloseProofReply),
     #[cfg(feature = "rai_protocol")]
     CloseProofReq(CloseProofReq),
-    /// RAI: the reconciliation of a residual object a derivation missed
+    /// RAI: the sketch-based authenticated difference towards a frozen T root
     #[cfg(feature = "rai_protocol")]
-    ResidualSketchReq(ResidualSketchReq),
+    LedgerSketchReq(LedgerSketchReq),
     #[cfg(feature = "rai_protocol")]
-    ResidualSketchReply(ResidualSketchReply),
+    LedgerSketchReply(LedgerSketchReply),
     #[cfg(feature = "ledger_snapshots")]
     SnapshotPreproposal(Preproposal),
     #[cfg(feature = "ledger_snapshots")]
@@ -138,10 +138,12 @@ impl From<&ParseMessageError> for DetailType {
             #[cfg(feature = "rai_protocol")]
             ParseMessageError::InvalidMessage(MessageType::CloseProofReq) => Self::CloseProofReq,
             #[cfg(feature = "rai_protocol")]
-            ParseMessageError::InvalidMessage(MessageType::ResidualSketchReq) => Self::ResidualReq,
+            ParseMessageError::InvalidMessage(MessageType::LedgerSketchReq) => {
+                Self::LedgerSketchReq
+            }
             #[cfg(feature = "rai_protocol")]
-            ParseMessageError::InvalidMessage(MessageType::ResidualSketchReply) => {
-                Self::ResidualReply
+            ParseMessageError::InvalidMessage(MessageType::LedgerSketchReply) => {
+                Self::LedgerSketchReply
             }
             #[cfg(feature = "ledger_snapshots")]
             ParseMessageError::InvalidMessage(MessageType::Preproposal) => todo!(),
@@ -209,9 +211,9 @@ impl Message {
             #[cfg(feature = "rai_protocol")]
             Message::CloseProofReq(_) => MessageType::CloseProofReq,
             #[cfg(feature = "rai_protocol")]
-            Message::ResidualSketchReq(_) => MessageType::ResidualSketchReq,
+            Message::LedgerSketchReq(_) => MessageType::LedgerSketchReq,
             #[cfg(feature = "rai_protocol")]
-            Message::ResidualSketchReply(_) => MessageType::ResidualSketchReply,
+            Message::LedgerSketchReply(_) => MessageType::LedgerSketchReply,
             #[cfg(feature = "ledger_snapshots")]
             Message::SnapshotPreproposal(_) => MessageType::Preproposal,
             #[cfg(feature = "ledger_snapshots")]
@@ -257,9 +259,9 @@ impl Message {
             #[cfg(feature = "rai_protocol")]
             Message::CloseProofReq(x) => Some(x),
             #[cfg(feature = "rai_protocol")]
-            Message::ResidualSketchReq(x) => Some(x),
+            Message::LedgerSketchReq(x) => Some(x),
             #[cfg(feature = "rai_protocol")]
-            Message::ResidualSketchReply(x) => Some(x),
+            Message::LedgerSketchReply(x) => Some(x),
             _ => None,
         }
     }
@@ -305,9 +307,9 @@ impl Message {
             #[cfg(feature = "rai_protocol")]
             Message::CloseProofReq(m) => m.serialize(writer),
             #[cfg(feature = "rai_protocol")]
-            Message::ResidualSketchReq(m) => m.serialize(writer),
+            Message::LedgerSketchReq(m) => m.serialize(writer),
             #[cfg(feature = "rai_protocol")]
-            Message::ResidualSketchReply(m) => m.serialize(writer),
+            Message::LedgerSketchReply(m) => m.serialize(writer),
             #[cfg(feature = "ledger_snapshots")]
             Message::SnapshotPreproposal(m) => m.serialize(writer),
             #[cfg(feature = "ledger_snapshots")]
@@ -377,12 +379,12 @@ impl Message {
                 Message::CloseProofReq(CloseProofReq::deserialize(payload)?)
             }
             #[cfg(feature = "rai_protocol")]
-            MessageType::ResidualSketchReq => {
-                Message::ResidualSketchReq(ResidualSketchReq::deserialize(payload)?)
+            MessageType::LedgerSketchReq => {
+                Message::LedgerSketchReq(LedgerSketchReq::deserialize(payload)?)
             }
             #[cfg(feature = "rai_protocol")]
-            MessageType::ResidualSketchReply => {
-                Message::ResidualSketchReply(ResidualSketchReply::deserialize(payload)?)
+            MessageType::LedgerSketchReply => {
+                Message::LedgerSketchReply(LedgerSketchReply::deserialize(payload)?)
             }
             #[cfg(feature = "ledger_snapshots")]
             MessageType::Preproposal => {

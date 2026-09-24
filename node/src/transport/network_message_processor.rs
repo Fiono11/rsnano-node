@@ -246,12 +246,12 @@ impl NetworkMessageProcessor {
             #[cfg(feature = "rai_protocol")]
             Message::CloseProofReply(proof) => self.epoch_decision.handle_close_proof(proof),
             #[cfg(feature = "rai_protocol")]
-            Message::ResidualSketchReq(request) => {
-                self.reports.handle_residual_sketch(request, channel)
+            Message::LedgerSketchReq(request) => {
+                self.reports.handle_ledger_sketch(request, channel)
             }
             #[cfg(feature = "rai_protocol")]
-            Message::ResidualSketchReply(reply) => {
-                self.reports.handle_residual_sketch_reply(reply, channel)
+            Message::LedgerSketchReply(reply) => {
+                self.reports.handle_ledger_sketch_reply(reply, channel)
             }
             #[cfg(feature = "ledger_snapshots")]
             Message::SnapshotPreproposal(preproposal) => {

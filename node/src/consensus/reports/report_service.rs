@@ -5,8 +5,7 @@ use std::{
 };
 
 use rsnano_messages::{
-    ConfirmAck, Message, Publish, ReconReply, ReconReq, Report, ResidualSketchReply,
-    ResidualSketchReq,
+    ConfirmAck, LedgerSketchReply, LedgerSketchReq, Message, Publish, ReconReply, ReconReq, Report,
 };
 use rsnano_network::{Channel, TrafficType};
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
@@ -244,12 +243,16 @@ impl ReportService {
             return;
         };
         log_reconciled(result);
+        let sketched = messages.iter().find_map(|message| match message {
+            ReportMessage::Sketch(sketch) => Some(sketch.cells.len()),
+            _ => None,
+        });
         for message in &messages {
             if let ReportMessage::Request(request) = message
                 && self.log_due(epoch, false)
             {
                 crate::utils::diagnostic!(
-                    "EPOCH_RECON_REQUEST epoch={} reporter={} target={} sources={:?}",
+                    "EPOCH_RECON_REQUEST epoch={} reporter={} target={} sources={:?} sketch_cells={}",
                     epoch,
                     reporter,
                     request.target,
@@ -257,7 +260,8 @@ impl ReportService {
                         .sources
                         .iter()
                         .map(|root| root.to_string()[..8].to_string())
-                        .collect::<Vec<_>>()
+                        .collect::<Vec<_>>(),
+                    sketched.unwrap_or(0)
                 );
             }
         }
@@ -375,44 +379,49 @@ impl ReportService {
         // cannot authenticate vote-kind metadata supplied by a sketch.
     }
 
-    /// RAI: a residual sketch. This node answers if it holds the object.
-    pub fn handle_residual_sketch(&self, request: ResidualSketchReq, channel: &Arc<Channel>) {
-        self.stats
-            .inc_dir(StatType::Message, DetailType::ResidualReq, Direction::In);
-        let reply = self
-            .exchange
-            .lock()
-            .unwrap()
-            .handle_residual_sketch(&request);
-        if let Some(reply) = reply {
+    /// RAI, "Reconstructing a report": a sketch of a requester's tagged
+    /// ledger set. This node answers if it holds the target, with the pages
+    /// of the difference peeled out of the sketch.
+    pub fn handle_ledger_sketch(&self, request: LedgerSketchReq, channel: &Arc<Channel>) {
+        self.stats.inc_dir(
+            StatType::Message,
+            DetailType::LedgerSketchReq,
+            Direction::In,
+        );
+        let replies = self.exchange.lock().unwrap().handle_ledger_sketch(&request);
+        if let Some(replies) = replies {
             self.send(
-                vec![ReportMessage::ResidualSketchAnswer(reply)],
+                replies
+                    .into_iter()
+                    .map(ReportMessage::SketchReply)
+                    .collect(),
                 Some(channel),
             );
         }
     }
 
-    /// RAI: the difference a residual sketch peeled out, applied to the
-    /// derived object and accepted exactly when it reaches the signed root
-    pub fn handle_residual_sketch_reply(
-        &self,
-        reply: ResidualSketchReply,
-        _channel: &Arc<Channel>,
-    ) {
-        self.stats
-            .inc_dir(StatType::Message, DetailType::ResidualReply, Direction::In);
+    /// RAI: a page of the difference a sketch peeled out, applied to the
+    /// snapshot sketched and accepted exactly when it reaches the signed root
+    pub fn handle_ledger_sketch_reply(&self, reply: LedgerSketchReply, _channel: &Arc<Channel>) {
+        self.stats.inc_dir(
+            StatType::Message,
+            DetailType::LedgerSketchReply,
+            Direction::In,
+        );
+        let incomplete = reply.incomplete;
         let result = self
             .exchange
             .lock()
             .unwrap()
-            .handle_residual_sketch_reply(&reply);
+            .handle_ledger_sketch_reply(&reply);
         if let Some(result) = result {
             crate::utils::diagnostic!(
-                "EPOCH_RESIDUAL_SKETCH epoch={} reporter={} incomplete={} edits={} complete={}",
+                "EPOCH_LEDGER_SKETCH epoch={} reporter={} incomplete={} edits={} total={} complete={}",
                 result.epoch,
                 result.reporter,
-                reply.incomplete,
+                incomplete,
                 result.entries,
+                result.total,
                 result.complete
             );
         }
@@ -618,18 +627,32 @@ impl ReportService {
                         TrafficType::Generic,
                     );
                 }
-                ReportMessage::ResidualSketchAnswer(reply) => {
+                ReportMessage::Sketch(request) => {
+                    // Any replica holding the target can answer, so the
+                    // sketch is gossiped like a request
+                    self.stats.inc_dir(
+                        StatType::Message,
+                        DetailType::LedgerSketchReq,
+                        Direction::Out,
+                    );
+                    self.flooder.lock().unwrap().flood_prs_and_some_non_prs(
+                        &Message::LedgerSketchReq(request),
+                        TrafficType::Generic,
+                        1.0,
+                    );
+                }
+                ReportMessage::SketchReply(reply) => {
                     let Some(target) = channel else {
                         continue;
                     };
                     self.stats.inc_dir(
                         StatType::Message,
-                        DetailType::ResidualReply,
+                        DetailType::LedgerSketchReply,
                         Direction::Out,
                     );
                     self.sender.lock().unwrap().try_send(
                         target,
-                        &Message::ResidualSketchReply(reply),
+                        &Message::LedgerSketchReply(reply),
                         TrafficType::Generic,
                     );
                 }
