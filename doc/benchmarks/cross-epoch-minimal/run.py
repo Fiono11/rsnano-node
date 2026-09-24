@@ -236,13 +236,23 @@ def compare(results, repetitions):
         return {"verdict": "SMOKE_ONLY", "attempts": len(results)}
     pairs = [{r["label"]: r for r in results if r["pair"] == i} for i in range(repetitions)]
     goodput = interval([p["candidate"]["goodput"] / p["baseline"]["goodput"] for p in pairs])
-    if any(p["baseline"]["p99_ms"] == 0 for p in pairs):
-        return {"verdict": "INCONCLUSIVE_ZERO_LATENCY", "goodput_ratio_ci95": goodput}
-    latency = interval([p["candidate"]["p99_ms"] / p["baseline"]["p99_ms"] for p in pairs])
-    verdict = "PASS" if goodput[0] >= .95 and latency[1] <= 1.10 else "INCONCLUSIVE"
-    if goodput[1] < .95 or latency[0] > 1.10:
+    latency = {}
+    for percentile in (50, 95):
+        key = f"p{percentile}_ms"
+        if any(p["baseline"][key] == 0 for p in pairs):
+            return {"verdict": "INCONCLUSIVE_ZERO_LATENCY", "goodput_ratio_ci95": goodput}
+        latency[f"p{percentile}_ratio_ci95"] = interval(
+            [p["candidate"][key] / p["baseline"][key] for p in pairs])
+    verdict = "PASS" if goodput[0] >= .95 and all(ci[1] <= 1.10 for ci in latency.values()) else "INCONCLUSIVE"
+    if goodput[1] < .95 or any(ci[0] > 1.10 for ci in latency.values()):
         verdict = "REGRESSION"
-    return {"verdict": verdict, "goodput_ratio_ci95": goodput, "p99_ratio_ci95": latency}
+    diagnostics = {}
+    if all(p["baseline"]["p99_ms"] > 0 for p in pairs):
+        diagnostics["p99_ratio_ci95"] = interval(
+            [p["candidate"]["p99_ms"] / p["baseline"]["p99_ms"] for p in pairs])
+    return {"verdict": verdict, "gate_version": "p50-p95-v1",
+            "goodput_ratio_ci95": goodput, **latency, "diagnostic_only": diagnostics}
+
 
 
 def main():
@@ -276,7 +286,9 @@ def main():
     args.baseline_wall_times = load_baseline_times(args)
     args.out.mkdir(parents=True, exist_ok=False)
     manifest = {k: str(v) if isinstance(v, Path) else v for k, v in vars(args).items()}
-    manifest.update(platform=platform.platform(), machine=platform.machine(),
+    manifest.update(gate_version="p50-p95-v1", primary_latency_percentiles=[50, 95],
+                    latency_margin=1.10, goodput_margin=.95,
+                    platform=platform.platform(), machine=platform.machine(),
                     harness_sha256=sha256(Path(__file__)),
                     workload_seed=None,
                     workload_note="Shared pinned client and parameters; HEAD generator is not seeded.")

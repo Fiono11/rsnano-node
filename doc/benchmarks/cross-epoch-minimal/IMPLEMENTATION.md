@@ -144,3 +144,12 @@ cleanup in this order: redundant copied Git history created for this task;
 superseded task build products; retained benchmark databases after preserving
 required evidence; existing repository build caches only with explicit approval.
 Preserve the dirty-tree backup and source/result manifests.
+
+## User-directed primary latency focus (2026-09-24)
+
+For subsequent comparisons, the primary latency metrics are **p50 and p95**,
+each with the existing 10% non-inferiority allowance, plus the 5% goodput
+allowance. p99 remains recorded as a diagnostic and no longer determines the
+gate. Harness manifests label this `p50-p95-v1`. Earlier p99-based results retain
+their original gate labels and verdicts; do not silently relabel them as passes.
+Baseline-derived process deadlines remain unchanged.

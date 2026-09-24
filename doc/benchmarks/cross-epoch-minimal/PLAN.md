@@ -122,7 +122,7 @@ workload is only a control, not the evaluation of this change.
 
 Primary goodput and confirmation p50/p95/p99 include recovery waiting; report
 fresh-child overhead separately. Five-pair 95% bootstrap screening uses the
-existing margins (goodput ratio at least .95; p99 at most 1.10). A pass is
+current margins (goodput ratio at least .95; p50 and p95 at most 1.10). A pass is
 bounded evidence for the tested workload, not a universal performance guarantee.
 Baseline's weak checkpoint confirmations are not automatically equivalent to
 certificate-backed confirmations; separate that semantic difference in the paper.
@@ -133,3 +133,12 @@ Disk policy remains: check available space before each attempt, stop below
 history, superseded task build outputs, task benchmark databases after retaining
 required evidence, then pre-existing caches. Preserve dirty-tree backup and
 source/result manifests.
+
+## User-directed primary latency focus (2026-09-24)
+
+For subsequent comparisons, the primary latency metrics are **p50 and p95**,
+each with the existing 10% non-inferiority allowance, plus the 5% goodput
+allowance. p99 remains recorded as a diagnostic and no longer determines the
+gate. Harness manifests label this `p50-p95-v1`. Earlier p99-based results retain
+their original gate labels and verdicts; do not silently relabel them as passes.
+Baseline-derived process deadlines remain unchanged.

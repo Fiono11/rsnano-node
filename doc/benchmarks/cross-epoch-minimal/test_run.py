@@ -6,6 +6,8 @@ class PerformanceGateTests(unittest.TestCase):
     def results(self, throughput=100, latency=10):
         return [dict(pair=i, label=label, complete=True,
                      goodput=100 if label == "baseline" else throughput,
+                     p50_ms=10 if label == "baseline" else latency,
+                     p95_ms=10 if label == "baseline" else latency,
                      p99_ms=10 if label == "baseline" else latency)
                 for i in range(5) for label in ("baseline", "candidate")]
 
@@ -23,8 +25,23 @@ class PerformanceGateTests(unittest.TestCase):
     def test_goodput_regression_fails(self):
         self.assertEqual(compare(self.results(90), 5)["verdict"], "REGRESSION")
 
-    def test_tail_latency_regression_fails(self):
+    def test_primary_latency_regression_fails(self):
         self.assertEqual(compare(self.results(latency=12), 5)["verdict"], "REGRESSION")
+
+    def test_each_primary_percentile_can_fail_independently(self):
+        for percentile in (50, 95):
+            results = self.results()
+            for result in results:
+                if result["label"] == "candidate": result[f"p{percentile}_ms"] = 12
+            self.assertEqual(compare(results, 5)["verdict"], "REGRESSION")
+
+    def test_p99_alone_is_diagnostic(self):
+        results = self.results()
+        for result in results:
+            if result["label"] == "candidate": result["p99_ms"] = 100
+        comparison = compare(results, 5)
+        self.assertEqual(comparison["verdict"], "PASS")
+        self.assertEqual(comparison["diagnostic_only"]["p99_ratio_ci95"], [10, 10])
 
     def test_equal_performance_passes(self):
         self.assertEqual(compare(self.results(), 5)["verdict"], "PASS")

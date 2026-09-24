@@ -53,7 +53,7 @@ network/process permissions and exclusive use of the node ports.
 The runner pins both binaries by SHA256, records all attempts including
 timeouts, preserves logs and node data, and collects final RPC snapshots. It
 requires all requested blocks to be confirmed. Its paired bootstrap screening
-gate is a 95% interval with goodput ratio >= 0.95 and p99 ratio <= 1.10; ambiguous
+gate is a 95% interval with goodput ratio >= 0.95 and both p50/p95 ratios <= 1.10; ambiguous
 results are inconclusive, not passes. Fewer than five pairs are smoke tests.
 The gate measures performance/completion, not protocol safety. Check final
 states and protocol invariants separately.
@@ -78,3 +78,12 @@ rounded up. Current-batch baseline observations update it; candidate durations
 never do. `--timeout` is only the first calibration ceiling if no reference
 exists. Failed baseline calibration stops the batch. Every result records its
 timeout and derivation. See [EVALUATION.md](EVALUATION.md) for current results.
+
+## User-directed primary latency focus (2026-09-24)
+
+For subsequent comparisons, the primary latency metrics are **p50 and p95**,
+each with the existing 10% non-inferiority allowance, plus the 5% goodput
+allowance. p99 remains recorded as a diagnostic and no longer determines the
+gate. Harness manifests label this `p50-p95-v1`. Earlier p99-based results retain
+their original gate labels and verdicts; do not silently relabel them as passes.
+Baseline-derived process deadlines remain unchanged.
