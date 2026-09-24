@@ -250,3 +250,29 @@ problem again, with a straggler whose snapshot is ~550 entries off. The
 baseline's p95/p99 come from a ~10 s confirmation stall at the checkpoint
 boundary; the candidate's lower throughput comes from a measurement twice
 as long, whose cause has not been diagnosed.
+
+## Straggler fix and candidate-only runs (v8)
+
+Diagnosis of the v7 divergence: PR2 reconstructed every reporter's T (sketch
+and root differences both worked) and justified every N/F entry, but could
+never derive reporter 633D9D61's G. Every other node had derived it from
+3,294 hashes; PR2, deriving later, saw 3,297 and then up to 4,875. The
+request aggregator answered PR2's epoch-0 vote requests by signing *new*
+epoch-0 votes after the responders' reports had frozen, so their vote sets
+outgrew the signed G roots. v8 (`ed69aa3d5`) signs no new account vote in an
+epoch the node has left and serves only retained statements there.
+
+From here on only the candidate is run (user's instruction). Same workload:
+45,000 blocks at 2,000/s, 5 % forks, one checkpoint, paper model, 214 s
+deadline, v8 client.
+
+| Run | Non-fork throughput | p50 / p95 / p99 | Same end state on all six PRs |
+|---|---:|---:|---|
+| v8 #1 (8.2 GiB free) | 882 blocks/s | 1,057 / 3,890 / 6,165 ms | yes, 46,677 cemented |
+| v8 #2 (8.2 GiB free, overlapped a 17 GB `du` scan) | 814 blocks/s | 1,041 / 2,578 / 3,291 ms | yes, 46,451 cemented |
+| v8 A/B (15.6 GiB free, quiet host) | 925 blocks/s | 128 / 1,635 / 2,914 ms | yes, 46,544 cemented |
+| v7 A/B, same client and conditions | 999 blocks/s | 213 / 1,282 / 1,746 ms | no: two hashes (46,405 and 46,462 cemented) |
+
+The two slow v8 runs are environmental: the same binary on a quiet host
+with free space gives p50 128 ms. They stay recorded as measured. The A/B
+pair is one run each, not a gate.
