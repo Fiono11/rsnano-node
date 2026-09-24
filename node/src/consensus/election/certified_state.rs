@@ -1,4 +1,7 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::{Arc, OnceLock},
+};
 
 use rsnano_types::{Account, Blake2HashBuilder, BlockHash, ConsensusEpoch, PublicKey};
 
@@ -96,13 +99,15 @@ pub struct Certification {
 /// which is what lets a later common state bridge to a historical root.
 #[derive(Clone, Debug, Default)]
 pub struct CertifiedState {
-    entries: BTreeMap<CertifiedBlock, Certification>,
-    hashes: rustc_hash::FxHashSet<BlockHash>,
+    // Reconstruction snapshots share immutable inventories. Only a mutation
+    // copies a shared map; serving a frozen root does not copy every entry.
+    entries: Arc<BTreeMap<CertifiedBlock, Certification>>,
+    hashes: Arc<rustc_hash::FxHashSet<BlockHash>>,
     /// A canonical cryptographic commitment, cached until entries change.
-    root_cache: std::sync::OnceLock<BlockHash>,
+    root_cache: OnceLock<BlockHash>,
     /// Every entry with its sketch digest, cached until entries change: a
     /// responder answers many sketches of one frozen state
-    digest_cache: std::sync::OnceLock<Vec<(BlockHash, CertifiedBlock, Certification)>>,
+    digest_cache: Arc<OnceLock<Vec<(BlockHash, CertifiedBlock, Certification)>>>,
 }
 
 impl PartialEq for CertifiedState {
@@ -171,10 +176,11 @@ impl CertifiedState {
                     status,
                     previous: held.map(|held| held.previous).unwrap_or(previous),
                 };
-                self.root_cache.take();
-                self.digest_cache.take();
-                self.hashes.insert(block.hash);
-                self.entries.insert(block, entry);
+                self.invalidate_caches();
+                if !self.hashes.contains(&block.hash) {
+                    Arc::make_mut(&mut self.hashes).insert(block.hash);
+                }
+                Arc::make_mut(&mut self.entries).insert(block, entry);
                 true
             }
         }
@@ -218,7 +224,7 @@ impl CertifiedState {
         let mut targets = Vec::new();
         let mut needs_pruning = false;
         let mut previous_slot = None;
-        for (block, entry) in &self.entries {
+        for (block, entry) in self.entries.iter() {
             let slot = (block.account, block.height);
             needs_pruning |= previous_slot == Some(slot);
             previous_slot = Some(slot);
@@ -322,7 +328,7 @@ impl CertifiedState {
     /// reconciliation between them falls back to a full transfer.
     pub fn difference(&self, target: &CertifiedState) -> CertifiedDelta {
         let mut delta = CertifiedDelta::default();
-        for (block, entry) in &target.entries {
+        for (block, entry) in target.entries.iter() {
             if self.entries.get(block) != Some(entry) {
                 delta.added.push((*block, *entry));
             }
@@ -350,20 +356,31 @@ impl CertifiedState {
     /// reconstruction rebuilds the reporter's state, which is not this
     /// node's own and is not required to grow
     pub fn set(&mut self, block: CertifiedBlock, entry: Certification) {
-        self.hashes.insert(block.hash);
-        self.entries.insert(block, entry);
-        self.root_cache.take();
-        self.digest_cache.take();
+        if !self.hashes.contains(&block.hash) {
+            Arc::make_mut(&mut self.hashes).insert(block.hash);
+        }
+        Arc::make_mut(&mut self.entries).insert(block, entry);
+        self.invalidate_caches();
     }
 
     pub fn remove(&mut self, block: &CertifiedBlock) {
         let unique = self.has_unique_hashes();
-        if self.entries.remove(block).is_some() {
-            self.root_cache.take();
-            self.digest_cache.take();
+        if self.entries.contains_key(block) {
+            Arc::make_mut(&mut self.entries).remove(block);
+            self.invalidate_caches();
             if unique || !self.entries.keys().any(|b| b.hash == block.hash) {
-                self.hashes.remove(&block.hash);
+                Arc::make_mut(&mut self.hashes).remove(&block.hash);
             }
+        }
+    }
+
+    fn invalidate_caches(&mut self) {
+        self.root_cache.take();
+        if let Some(cache) = Arc::get_mut(&mut self.digest_cache) {
+            cache.take();
+        } else {
+            // Leave the frozen snapshot's digest index intact.
+            self.digest_cache = Arc::default();
         }
     }
 }
@@ -765,6 +782,42 @@ mod tests {
         let delta = live.difference(&frozen);
         live.apply(&delta);
         assert_eq!(live, frozen);
+    }
+
+    #[test]
+    fn reconstruction_edits_preserve_frozen_roots_and_digest_indexes() {
+        let mut frozen = CertifiedState::new();
+        frozen.certify(block(1), parent(block(1)), CertifiedStatus::Recovery);
+        frozen.certify(block(2), parent(block(2)), CertifiedStatus::Notarized);
+        let root = frozen.root();
+        let digests: Vec<_> = frozen.digests().collect();
+        let mut upgraded = frozen.clone();
+        let mut reconstructed = frozen.clone();
+
+        upgraded.certify(block(1), parent(block(1)), CertifiedStatus::Finalized);
+        reconstructed.remove(&block(1));
+        reconstructed.set(
+            block(2),
+            Certification {
+                previous: parent(block(2)),
+                status: CertifiedStatus::Recovery,
+            },
+        );
+        reconstructed.certify(block(3), parent(block(3)), CertifiedStatus::Notarized);
+
+        assert_eq!(frozen.root(), root);
+        assert_eq!(frozen.digests().collect::<Vec<_>>(), digests);
+        assert!(frozen.contains_hash(&block(1).hash));
+        assert!(!frozen.contains_hash(&block(3).hash));
+        assert!(!reconstructed.contains_hash(&block(1).hash));
+        assert!(reconstructed.contains_hash(&block(3).hash));
+        assert_ne!(upgraded.root(), root);
+        assert_ne!(upgraded.digests().collect::<Vec<_>>(), digests);
+        assert_ne!(reconstructed.root(), root);
+        assert_ne!(reconstructed.digests().collect::<Vec<_>>(), digests);
+        reconstructed.apply(&reconstructed.difference(&frozen));
+        assert_eq!(reconstructed.root(), root);
+        assert_eq!(reconstructed.digests().collect::<Vec<_>>(), digests);
     }
 
     #[test]
