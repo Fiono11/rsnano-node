@@ -31,6 +31,7 @@ pub(crate) struct SpamLogic {
     pub(crate) sum_conf_time_recent: Duration,
     pub(crate) sum_conf_time_total: Duration,
     pub(crate) cps_measure_start: Option<Timestamp>,
+    pub(crate) confirmation_histogram_ms: std::collections::BTreeMap<u64, usize>,
 }
 
 impl SpamLogic {
@@ -54,6 +55,7 @@ impl SpamLogic {
             sum_conf_time_recent: Duration::ZERO,
             sum_conf_time_total: Duration::ZERO,
             cps_measure_start: None,
+            confirmation_histogram_ms: Default::default(),
         }
     }
 
@@ -132,6 +134,10 @@ impl SpamLogic {
                 self.confirmed_total += 1;
                 self.sum_conf_time_recent += conf_time;
                 self.sum_conf_time_total += conf_time;
+                *self
+                    .confirmation_histogram_ms
+                    .entry(conf_time.as_millis() as u64)
+                    .or_default() += 1;
             }
             self.block_factory.confirm(block_hash);
         }
