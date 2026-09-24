@@ -411,3 +411,44 @@ The close time is dominated by readiness: 4 to 23 s until N−f reports are
 usable, on nodes whose report thread runs 3 to 7 s ticks and whose frozen
 ledger lags the others. v21's once-per-epoch G gossip made readiness wait on
 pulls with a 5 s retry, which v22 shortens to 1 s.
+
+
+### Resumed investigation: v22 and v23
+
+The v22 failed two-checkpoint attempt failed **before measurement**, during
+`wait_for_equal_ledgers`: all six PRs held 65 setup blocks, but PR5 had
+cemented only 64 after the 120 s setup wait. Its RPC snapshot has one pending
+instance and no conflicting accounts. The retained evidence does not identify
+the block or missing votes, and the database was already removed. This is an
+unresolved setup confirmation failure, not a measured checkpoint latency.
+
+Correction to the explanation above: manuscript §5.1 explicitly defers the next
+boundary while an older epoch is closing and allows successor voting to
+continue. Inspection of `end_epoch`, `try_advance_epoch`, `advance_epoch`, and
+`kudzu_votes_due` confirms that the draining flag alone does not stop RAI
+signing: freezing occurs on advancement. The prior assertion that reaching the
+count limit itself stops epoch-1 signing is unsupported. Slow report readiness
+and provisional settlement remain observable, but are not a demonstrated
+protocol-required lower bound.
+
+| Run | Non-fork goodput | p50 / p95 / p99 (ms) | Same end state on all six PRs |
+|---|---:|---:|---|
+| v22 one #1 (prior session) | 1,250 | 113 / 1,087 / 1,288 | yes |
+| v22 two #1 (prior session) | n/a | n/a | no: setup exited 1, PR5 64/65 cemented |
+| v22 one #2 (prior session) | 1,177 | 300 / 3,642 / 4,725 | yes |
+| v22 two #2 (prior session) | 1,441 | 1,046 / 3,535 / 4,555 | yes |
+| v22 resume one #1 | n/a | n/a | invalid environment attempt: sandbox denied node startup; harness timed out |
+| v22 resume one #2 | 1,241 | 188 / 1,417 / 1,846 | yes, 46,329 cemented |
+
+The resumed successful run used the unchanged pinned v22 binaries. The failed
+sandbox attempt ran no node workload. Tests began after the successful run's
+client measurement completed; this run is a diagnostic, outside the new
+alternating batch.
+
+v23 sizes the initial sketch to the local projection (one cell per 16 entries,
+rounded up to a power of two, minimum 64 and maximum one 1,024-cell message).
+Larger failed sketches retain their existing growth and paging. This avoids
+64- and 256-cell failures for ordinary boundary skew in a large report.
+Reconstruction still checks the signed root and all report semantic evidence.
+A regression reconstructs a 20,000-entry target with 500 missing entries on the
+first sketch; the complete node suite passes (836 tests). `cargo fmt --all` ran.

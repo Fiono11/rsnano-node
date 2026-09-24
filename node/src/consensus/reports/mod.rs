@@ -919,7 +919,15 @@ impl ReportExchange {
                     sources,
                 }));
                 if sketch_due {
-                    let cells = their.cells;
+                    // Start with enough cells for ordinary boundary skew in a
+                    // large projection, while keeping the first sketch in one
+                    // message. Failed sketches still grow as before.
+                    let cells = their.cells.max(
+                        (held.live.len() / 16)
+                            .clamp(Sketch::MIN_CELLS, LedgerSketchReq::MAX_CELLS)
+                            .next_power_of_two(),
+                    );
+                    their.cells = cells;
                     their.sketched = Some(now);
                     their.sketch_live = !their.sketch_live;
                     // The snapshot the sketch describes is kept until the
@@ -2368,6 +2376,48 @@ mod tests {
         );
         // And this node serves the state it reconstructed in turn
         assert!(ours.handle_ledger_sketch(&sketch).is_some());
+    }
+
+    /// A modest boundary skew in a large ledger should reconstruct on the
+    /// first sketch, without waiting through the tiny-sketch retry ladder.
+    #[test]
+    fn a_large_projection_reconstructs_boundary_skew_on_the_first_sketch() {
+        let epoch = ConsensusEpoch::ZERO;
+        let key = PrivateKey::from(1);
+        let frozen = state_of(0..20_000);
+        let mut reporter = ReportExchange::new();
+        reporter.report_epoch(
+            epoch,
+            frozen.clone(),
+            ResidualVotes::new(),
+            BlockHash::from(7),
+            BlockHash::ZERO,
+            &[key.clone()],
+        );
+        let mut ours = ReportExchange::new();
+        ours.refresh_live(epoch, state_of(0..19_500));
+        assert!(ours.handle_report(signed(&key, epoch, &frozen)));
+        ours.reconcile(epoch, key.public_key(), later()).unwrap();
+        let (messages, _) = ours.reconcile(epoch, key.public_key(), later()).unwrap();
+        let sketches: Vec<_> = messages
+            .iter()
+            .filter_map(|message| match message {
+                ReportMessage::Sketch(sketch) => Some(sketch),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(sketches.len(), 1);
+        let replies = reporter.handle_ledger_sketch(sketches[0]).unwrap();
+        assert!(replies.iter().all(|reply| !reply.incomplete));
+        let mut done = None;
+        for reply in replies {
+            done = ours.handle_ledger_sketch_reply(&reply);
+        }
+        let done = done.unwrap();
+        assert!(done.complete);
+        assert_eq!(done.entries, 500);
+        assert_eq!(done.total, 20_000);
+        assert_eq!(theirs_usable(&mut ours, epoch).len(), 1);
     }
 
     /// A difference too large for the sketch is answered as incomplete and
