@@ -100,3 +100,60 @@ of the same epoch, taken at the same boundary as the reporter's, whose
 difference from it is what the two nodes saw in between.
 The controller reported a process-group cleanup permission error; the
 nodes had exited and the data was removed by hand after verification.
+
+## Single-epoch 5 % fork control, no checkpoint (`no-crash-forks5-noepoch-v1`, `-candidate`)
+
+Requested as "forks 5 with a single epoch". With `--epoch-ms 0` every node
+stays in epoch 0 for the whole run: no boundary, no report, no checkpoint.
+Shared client `bin/no-crash-v4/nanospam`, 2,000 blocks/s, 45,000 primaries,
+156 s calibration ceiling (no matching reference existed).
+
+| | Baseline (frozen HEAD) | Candidate (`bin/no-crash-v4`) |
+|---|---:|---:|
+| Fork pairs published | 2,244 | 2,25x (see manifest) |
+| Confirmed at the ceiling | 42,800 / 45,000 | 42,737 / 45,000 |
+| Cemented on every node (identical hash) | 42,865 | 42,802 |
+| Positions settled empty (split first votes) | 2,158–2,200 | ≈2,247 |
+| Goodput, p50/p95/p99 | not emitted (timed out) | not emitted (timed out) |
+| Verdict | BASELINE_CALIBRATION_FAILED | CANDIDATE_ONLY, incomplete |
+
+Both binaries leave the split positions unresolved: single-support voting
+gives each validator one first vote, a split never reaches a notarization
+certificate, and without a boundary there is no checkpoint lock for the
+owner's fresh child. This is the account path as specified, not a defect
+of either binary, and it is the control for the one-checkpoint run below.
+The candidate attempt was run alone after the baseline calibration failed;
+it is a record, not a comparison.
+
+## Single-epoch 5 % forks with one checkpoint (`no-crash-forks5-one-checkpoint-v1`)
+
+"One checkpoint resolves the forks": epoch 0 ends by count
+(`--epoch-terminated-elections 40000`), closes once, installs its locks,
+the client extends them with fresh children; epoch 1 never reaches its
+count within the run. Same client and 156 s ceiling; the candidate runs
+the paper's model (equal weight, `f = p = 1`, certificate-only).
+
+**Baseline attempt** (frozen HEAD): 2,271 fork pairs; input complete;
+epoch 0 closed (round 1) and installed 40,227 finalized positions on five
+nodes; PR4 never closed it (`usable=1` of 6 held reports, 204 unknown-source
+refusals: the baseline's root-only reconstruction). Confirmed 44,608 / 45,000
+at the ceiling, then no progress; the five installed nodes ended settled
+with an identical hash, 44,673 cemented, 134 single-notarized and 258
+empty positions; PR4 had 40,154 cemented and 4,701 single-notarized.
+Verdict BASELINE_CALIBRATION_FAILED; no histogram. The candidate was then
+run alone under the same ceiling (below).
+
+**Candidate attempt** (`bin/no-crash-v4`, run alone, `-candidate`): 2,261
+fork pairs; input complete; all six nodes closed epoch 0 (round 2) and
+installed the identical checkpoint: 38,220 certificate-backed positions,
+0 derived, 0 conflicts, 19 evidence checks with nothing missing, 10 refusals,
+no sketch needed. Confirmed 42,948 / 45,000 at the ceiling. The checkpoint
+retained 1,820 positions as locks (blocks in flight at the count-based
+boundary with first votes but no certificate; the frozen baseline finalizes
+such sole survivors, the certificate-only rule keeps them as locks). The
+client published fresh children for them; about 1,815 children ended
+unchecked on PR0/PR2/PR4 (parent not in the ledger) and as pending
+elections on PR1/PR3/PR5, so they never reached a quorum. Every node held
+43,014 cemented blocks with the same hash and 233 empty positions.
+Verdict CANDIDATE_ONLY, incomplete; no histogram. The recovery step is the
+remaining blocker; a focused diagnostic follows.

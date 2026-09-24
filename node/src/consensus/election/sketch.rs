@@ -50,8 +50,9 @@ impl Sketch {
     /// The smallest sketch: decodes a difference of about forty keys, which
     /// is far more than a lost vote or two
     pub const MIN_CELLS: usize = 64;
-    /// The largest: 40 KiB on the wire
-    pub const MAX_CELLS: usize = 1024;
+    /// The largest: eight pages of 40 KiB on the wire, peeling a difference
+    /// of some five thousand keys
+    pub const MAX_CELLS: usize = 8192;
 
     pub fn new(cells: usize) -> Self {
         Self {

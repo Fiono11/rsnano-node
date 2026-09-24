@@ -453,13 +453,22 @@ async fn extend_locked_forks(
     }
 }
 
+/// The locks of the newest checkpoint any node reports: a node that lags
+/// behind the others (or has none yet) does not hide the checkpoint the
+/// rest installed, and the owner extends the newest locks it can learn of
 async fn first_epoch_locks(rpc_clients: &[NanoRpcClient]) -> Option<EpochLocksResponse> {
+    let mut newest: Option<EpochLocksResponse> = None;
     for rpc_client in rpc_clients {
-        if let Ok(response) = rpc_client.epoch_locks().await {
-            return Some(response);
+        if let Ok(response) = rpc_client.epoch_locks().await
+            && response.epoch.is_some()
+            && newest
+                .as_ref()
+                .is_none_or(|held| response.epoch > held.epoch)
+        {
+            newest = Some(response);
         }
     }
-    None
+    newest
 }
 
 async fn republish_delayed_blocks(

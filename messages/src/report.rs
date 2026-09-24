@@ -405,18 +405,27 @@ pub struct LedgerSketchReq {
     /// The root of the requester's snapshot the sketch describes; the reply
     /// names it so that the edits are applied to that snapshot
     pub source: BlockHash,
+    /// A sketch larger than one message is sent in pages of `MAX_CELLS`;
+    /// the responder assembles all pages of one (source, target, pages)
+    pub page: u16,
+    pub pages: u16,
     pub cells: Vec<SketchCellWire>,
 }
 
 impl LedgerSketchReq {
-    /// Cells in one request: 40 KiB on the wire
+    /// Cells in one page: 40 KiB on the wire
     pub const MAX_CELLS: usize = 1024;
+    /// Pages of one sketch: 8,192 cells, which peel a difference of some
+    /// five thousand entries
+    pub const MAX_PAGES: usize = 8;
 
     pub fn new_test_instance() -> Self {
         Self {
             epoch: ConsensusEpoch::new(1),
             target: BlockHash::from(2),
             source: BlockHash::from(3),
+            page: 0,
+            pages: 1,
             cells: vec![SketchCellWire {
                 count: -1,
                 key: [7; 32],
@@ -432,6 +441,8 @@ impl LedgerSketchReq {
         self.epoch.serialize(writer)?;
         self.target.serialize(writer)?;
         self.source.serialize(writer)?;
+        writer.write_all(&self.page.to_le_bytes())?;
+        writer.write_all(&self.pages.to_le_bytes())?;
         for cell in &self.cells {
             cell.serialize(writer)?;
         }
@@ -447,6 +458,14 @@ impl LedgerSketchReq {
         let epoch = ConsensusEpoch::deserialize(bytes)?;
         let target = BlockHash::deserialize(bytes)?;
         let source = BlockHash::deserialize(bytes)?;
+        let mut value = [0u8; 2];
+        read_exact(bytes, &mut value)?;
+        let page = u16::from_le_bytes(value);
+        read_exact(bytes, &mut value)?;
+        let pages = u16::from_le_bytes(value);
+        if pages == 0 || pages as usize > Self::MAX_PAGES || page >= pages {
+            return Err(DeserializationError::InvalidData);
+        }
         let mut cells = Vec::new();
         while !bytes.is_empty() {
             if cells.len() >= Self::MAX_CELLS {
@@ -461,6 +480,8 @@ impl LedgerSketchReq {
             epoch,
             target,
             source,
+            page,
+            pages,
             cells,
         })
     }

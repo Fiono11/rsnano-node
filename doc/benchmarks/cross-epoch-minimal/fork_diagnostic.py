@@ -98,6 +98,7 @@ def main():
     p.add_argument('--deadline', type=float, default=156)
     p.add_argument('--min-free-gib', type=float, default=8)
     p.add_argument('--label', default='candidate')
+    p.add_argument('--epoch-ms', type=int, default=8000, help='epoch duration; 0 omits the flag (count-based or single epoch via --client-arg)')
     p.add_argument('--client-arg', action='append', default=[],
                    help='extra client flag passed to every node, e.g. --client-arg=--committee-model=equal_weight')
     args = p.parse_args()
@@ -110,7 +111,9 @@ def main():
     d = args.out / f'pair-00-{args.label}'; d.mkdir(); (d/'data').mkdir(); (d/'bin').mkdir()
     (d/'bin/rsnano').symlink_to(args.node)
     cmd = [str(args.client), '--data-dir', str(d/'data'), '--prs', '6', '--no-prio', '--blocks', '45000',
-           '--accounts', '45000', '--rate', '2000', '--fork-percentage', '5', '--no-kill', '--epoch-duration-ms', '8000']
+           '--accounts', '45000', '--rate', '2000', '--fork-percentage', '5', '--no-kill']
+    if args.epoch_ms:
+        cmd += ['--epoch-duration-ms', str(args.epoch_ms)]
     for extra in args.client_arg:
         cmd += extra.split('=', 1) if extra.startswith('--') and '=' in extra else [extra]
     manifest = {'kind': 'fork termination diagnostic, not performance', 'command': cmd, 'free_gib_before': round(free_gib, 2),
@@ -188,8 +191,13 @@ def main():
             snapshots = []
             for node in range(6):
                 try:
-                    snapshots.append({'node': node, 'block_count': rpc(node, {'action': 'block_count'}),
-                                      'final_state': rpc(node, {'action': 'final_state'})})
+                    snapshot = {'node': node, 'block_count': rpc(node, {'action': 'block_count'}),
+                                'final_state': rpc(node, {'action': 'final_state'}),
+                                'epoch_locks': rpc(node, {'action': 'epoch_locks'}, timeout=5)}
+                    # Blocks waiting for a parent this node lacks: which parents, for the record
+                    try: snapshot['unchecked_keys'] = rpc(node, {'action': 'unchecked_keys', 'count': '64'}, timeout=5)
+                    except Exception as error: snapshot['unchecked_keys'] = {'error': str(error)}
+                    snapshots.append(snapshot)
                 except Exception as error: snapshots.append({'node': node, 'error': str(error)})
             (d/'rpc.json').write_text(json.dumps(snapshots, indent=2)+'\n')
             if (d/'data/node-pids').exists():

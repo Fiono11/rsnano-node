@@ -333,6 +333,8 @@ def main():
                         help="Keep generated node data after the run")
     parser.add_argument("--stop-on-failure", action="store_true",
                         help="Stop the development gate at the first failed attempt; retain its evidence")
+    parser.add_argument("--candidate-only", action="store_true",
+                        help="Run only candidate attempts under --timeout; no comparison or pass is produced")
     parser.add_argument("extra", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     if args.extra[:1] == ["--"]:
@@ -356,6 +358,8 @@ def main():
         order = [("baseline", args.baseline), ("candidate", args.candidate)]
         if pair % 2:
             order.reverse()
+        if args.candidate_only:
+            order = [("candidate", args.candidate)]
         for label, binary in order:
             ports = occupied_ports()
             if ports:
@@ -387,7 +391,11 @@ def main():
                 (args.out / "comparison.json").write_text(json.dumps(verdict, indent=2) + "\n")
                 print(json.dumps(verdict), flush=True)
                 return 1
-    verdict = compare(results, args.repetitions)
+    if args.candidate_only:
+        verdict = {"verdict": "CANDIDATE_ONLY", "attempts": len(results),
+                   "complete": [r["complete"] for r in results], "performance_claim": False}
+    else:
+        verdict = compare(results, args.repetitions)
     (args.out / "comparison.json").write_text(json.dumps(verdict, indent=2) + "\n")
     print(json.dumps(verdict), flush=True)
     return 0 if verdict["verdict"] in ("PASS", "SMOKE_ONLY") else 1

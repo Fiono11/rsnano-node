@@ -75,6 +75,9 @@ struct EpochReports {
     residuals: HashMap<BlockHash, ResidualVotes>,
     /// One signed report per representative this node votes with
     signed: Vec<Report>,
+    /// Pages of sketches larger than one message, by (target, source,
+    /// pages), until every page has arrived; bounded, oldest dropped
+    sketch_pages: HashMap<(BlockHash, BlockHash, u16), Vec<Option<Vec<SketchCellWire>>>>,
     /// The reports of the other validators, by reporter
     theirs: HashMap<PublicKey, TheirReport>,
     /// When this node last repeated its own reports
@@ -113,6 +116,10 @@ struct TheirReport {
     sketch: Option<LedgerSketch>,
     /// When a sketch was last sent
     sketched: Option<Timestamp>,
+    /// Whether the next sketch describes the live state rather than this
+    /// node's frozen snapshot: the two alternate, as either may be the
+    /// closer to the reporter's frozen state
+    sketch_live: bool,
     /// Cells in the sketch sent for it; grows while the difference does not
     /// peel out
     cells: usize,
@@ -491,6 +498,7 @@ impl ReportExchange {
                 working: None,
                 sketch: None,
                 sketched: None,
+                sketch_live: false,
                 cells: Sketch::MIN_CELLS,
             },
         );
@@ -673,13 +681,16 @@ impl ReportExchange {
         // the epoch when it has one, which was taken at the same boundary as
         // the reporter's and differs from it by what the two saw in between;
         // the live state, which has moved on since, only without one
-        let sketch_root = held
+        let frozen_root = held
             .signed
             .first()
             .map(|report| report.certified)
-            .filter(|root| held.history.contains_key(root))
-            .unwrap_or_else(|| held.live.root());
+            .filter(|root| held.history.contains_key(root));
         let their = held.theirs.get_mut(&reporter)?;
+        let sketch_root = match frozen_root {
+            Some(root) if !their.sketch_live => root,
+            _ => held.live.root(),
+        };
         let mut messages = Vec::new();
         let mut result = None;
         let may_ask = their
@@ -717,6 +728,7 @@ impl ReportExchange {
                 if sketch_due {
                     let cells = their.cells;
                     their.sketched = Some(now);
+                    their.sketch_live = !their.sketch_live;
                     // The snapshot the sketch describes is kept until the
                     // pages arrive; a newer sketch replaces it
                     let base = held.state(sketch_root)?.clone();
@@ -726,12 +738,19 @@ impl ReportExchange {
                         base,
                         pages: Vec::new(),
                     });
-                    messages.push(ReportMessage::Sketch(LedgerSketchReq {
-                        epoch,
-                        target,
-                        source: sketch_root,
-                        cells: sketch.cells().iter().map(cell_wire).collect(),
-                    }));
+                    // A sketch larger than one message goes out in pages
+                    let all: Vec<SketchCellWire> = sketch.cells().iter().map(cell_wire).collect();
+                    let pages = all.len().div_ceil(LedgerSketchReq::MAX_CELLS).max(1);
+                    for (page, chunk) in all.chunks(LedgerSketchReq::MAX_CELLS).enumerate() {
+                        messages.push(ReportMessage::Sketch(LedgerSketchReq {
+                            epoch,
+                            target,
+                            source: sketch_root,
+                            page: page as u16,
+                            pages: pages as u16,
+                            cells: chunk.to_vec(),
+                        }));
+                    }
                 }
             }
         }
@@ -753,14 +772,44 @@ impl ReportExchange {
     /// requester accepts nothing before the rebuilt state hashes to the
     /// signed root.
     pub fn handle_ledger_sketch(
-        &self,
+        &mut self,
         request: &LedgerSketchReq,
     ) -> Option<Vec<LedgerSketchReply>> {
-        let held = self.epochs.get(&request.epoch)?;
-        let target = held.state(request.target)?;
-        if request.cells.is_empty() || request.cells.len() > LedgerSketchReq::MAX_CELLS {
+        let held = self.epochs.get_mut(&request.epoch)?;
+        if request.cells.is_empty()
+            || request.cells.len() > LedgerSketchReq::MAX_CELLS
+            || request.pages == 0
+            || request.pages as usize > LedgerSketchReq::MAX_PAGES
+            || request.page >= request.pages
+            || (request.page + 1 < request.pages
+                && request.cells.len() != LedgerSketchReq::MAX_CELLS)
+        {
             return None;
         }
+        held.state(request.target)?;
+        // Assemble the pages of a larger sketch; every page but the last is
+        // full, so the assembled size is fixed by the page count
+        let cells: Vec<SketchCellWire> = if request.pages == 1 {
+            request.cells.clone()
+        } else {
+            let key = (request.target, request.source, request.pages);
+            if !held.sketch_pages.contains_key(&key) {
+                if held.sketch_pages.len() >= EpochReports::MAX_SKETCHES {
+                    held.sketch_pages.clear();
+                }
+                held.sketch_pages
+                    .insert(key, vec![None; request.pages as usize]);
+            }
+            let pages = held.sketch_pages.get_mut(&key)?;
+            pages[request.page as usize] = Some(request.cells.clone());
+            if pages.iter().any(Option::is_none) {
+                return None;
+            }
+            let pages = held.sketch_pages.remove(&key)?;
+            pages.into_iter().flatten().flatten().collect()
+        };
+        let held = self.epochs.get(&request.epoch)?;
+        let target = held.state(request.target)?;
         let incomplete = || {
             vec![LedgerSketchReply {
                 epoch: request.epoch,
@@ -773,11 +822,8 @@ impl ReportExchange {
                 removed: Vec::new(),
             }]
         };
-        let mut theirs = Sketch::from_cells(request.cells.iter().map(cell_of).collect());
-        let mine = Sketch::over(
-            target.digests().map(|(digest, ..)| digest),
-            request.cells.len(),
-        );
+        let mut theirs = Sketch::from_cells(cells.iter().map(cell_of).collect());
+        let mine = Sketch::over(target.digests().map(|(digest, ..)| digest), cells.len());
         if !theirs.subtract(&mine) {
             return None;
         }
@@ -1162,6 +1208,8 @@ impl EpochReports {
     /// snapshot and the states this node passed through, which are what it
     /// can bridge from
     const MAX_HISTORY: usize = 8;
+    /// Sketches being assembled from pages at one time
+    const MAX_SKETCHES: usize = 16;
 
     /// A state this node knows by its root: the live one, one it retained,
     /// or a report it has reconstructed. The reconstructed ones are what let
@@ -2183,6 +2231,83 @@ mod tests {
             break;
         }
         assert!(rounds > 1);
+        assert_eq!(theirs_usable(&mut ours, epoch).len(), 1);
+    }
+
+    /// A difference of thousands of entries needs a sketch of several
+    /// pages; the responder assembles them in any order and answers once,
+    /// and the requester alternates its frozen snapshot and its live state
+    /// as the sketched base
+    #[test]
+    fn a_large_sketch_is_paged_and_bases_alternate() {
+        let epoch = ConsensusEpoch::ZERO;
+        let key = PrivateKey::from(1);
+        let frozen = state_of(0..4000);
+        let mut reporter = ReportExchange::new();
+        reporter.report_epoch(
+            epoch,
+            frozen.clone(),
+            ResidualVotes::new(),
+            BlockHash::from(7),
+            BlockHash::ZERO,
+            &[key.clone()],
+        );
+        let mut ours = ReportExchange::new();
+        // The frozen snapshot is 3,000 entries short; the live state has
+        // caught up to 3,900 of them
+        ours.report_epoch(
+            epoch,
+            state_of(0..1000),
+            ResidualVotes::new(),
+            BlockHash::from(7),
+            BlockHash::ZERO,
+            &[PrivateKey::from(2)],
+        );
+        ours.refresh_live(epoch, state_of(0..3900));
+        assert!(ours.handle_report(signed(&key, epoch, &frozen)));
+        ours.reconcile(epoch, key.public_key(), later()).unwrap();
+        let mut bases = Vec::new();
+        let mut rounds = 0;
+        loop {
+            let (messages, _) = ours.reconcile(epoch, key.public_key(), later()).unwrap();
+            let pages: Vec<LedgerSketchReq> = messages
+                .into_iter()
+                .filter_map(|message| match message {
+                    ReportMessage::Sketch(sketch) => Some(sketch),
+                    _ => None,
+                })
+                .collect();
+            assert!(!pages.is_empty());
+            bases.push(pages[0].source);
+            rounds += 1;
+            assert!(rounds <= 6, "the sketch grows to the difference");
+            // Pages in reverse order: nothing until the last one arrives
+            let mut replies = None;
+            for page in pages.iter().rev() {
+                assert!(replies.is_none());
+                replies = reporter.handle_ledger_sketch(page);
+            }
+            let replies = replies.expect("an answer once every page is in");
+            if replies[0].incomplete {
+                assert!(
+                    !ours
+                        .handle_ledger_sketch_reply(&replies[0])
+                        .unwrap()
+                        .complete
+                );
+                continue;
+            }
+            let mut done = None;
+            for reply in &replies {
+                done = ours.handle_ledger_sketch_reply(reply);
+            }
+            assert!(done.unwrap().complete);
+            break;
+        }
+        assert!(rounds > 1);
+        // The live base (100 apart) is the one that peeled, after the
+        // frozen base (3,000 apart) did not at the small sizes
+        assert!(bases.windows(2).any(|pair| pair[0] != pair[1]));
         assert_eq!(theirs_usable(&mut ours, epoch).len(), 1);
     }
 
