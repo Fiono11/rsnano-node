@@ -110,7 +110,8 @@ impl ReportService {
         let blocks: Vec<rsnano_types::Block> =
             self.evidence_blocks.lock().unwrap().drain(..).collect();
         for block in blocks {
-            if !self.data.ledger_holds(&block.hash()) {
+            // Re-gossiped copies of blocks retained already cost a map lookup
+            if !self.data.has_received(&block.hash()) && !self.data.ledger_holds(&block.hash()) {
                 self.data.receive(&block);
             }
         }
@@ -580,12 +581,18 @@ impl ReportService {
             .outside_certified(epoch, &reporter, signed);
         let mut votes = Vec::with_capacity(outside.len());
         let mut unplaced = Vec::new();
+        let mut placements: HashMap<rsnano_types::BlockHash, Option<_>> = HashMap::new();
         for (hash, kind) in outside {
-            match self.data.placement(&hash) {
+            let placed = *placements
+                .entry(hash)
+                .or_insert_with(|| self.data.placement(&hash));
+            match placed {
                 Some((block, previous)) => votes.push((block, kind, previous)),
                 None => unplaced.push(hash),
             }
         }
+        unplaced.sort();
+        unplaced.dedup();
         let unplaced_count = unplaced.len();
         let placed_count = votes.len();
         let result = {
@@ -974,12 +981,19 @@ impl ReportService {
                 .collect()
         };
         for (epoch, reporter, hashes) in requests {
-            // The G blocks and their ancestry are copied once per epoch
-            if self.retained_epochs.lock().unwrap().insert(epoch) {
+            // The G blocks and their ancestry are copied and gossiped once
+            // per epoch; a validator that still lacks one asks for it (see
+            // `handle_evidence_request`). The votes are repeated.
+            let first = self.retained_epochs.lock().unwrap().insert(epoch);
+            if first {
                 self.data.retain(epoch, hashes.iter().copied());
             }
             let block_count = self.data.retained(epoch, &hashes).len();
-            let blocks = self.data.with_ancestry(epoch, &hashes);
+            let blocks = if first {
+                self.data.with_ancestry(epoch, &hashes)
+            } else {
+                Vec::new()
+            };
             {
                 let mut flooder = self.flooder.lock().unwrap();
                 for block in blocks {

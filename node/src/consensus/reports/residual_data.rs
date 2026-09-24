@@ -14,6 +14,9 @@ pub(super) struct ResidualData {
     forks: Arc<RwLock<ForkCache>>,
     aec: Arc<AecService>,
     retained: Mutex<BTreeMap<ConsensusEpoch, HashMap<BlockHash, Block>>>,
+    /// Placements found so far: a block's position follows from the block
+    /// and its ancestry, so it never changes
+    placed: Mutex<HashMap<BlockHash, (CertifiedBlock, BlockHash)>>,
     received: Mutex<crate::consensus::bounded_hash_map::BoundedHashMap<BlockHash, Block>>,
 }
 impl ResidualData {
@@ -23,6 +26,7 @@ impl ResidualData {
             forks,
             aec,
             retained: Mutex::new(BTreeMap::new()),
+            placed: Mutex::new(HashMap::new()),
             received: Mutex::new(crate::consensus::bounded_hash_map::BoundedHashMap::new(
                 65_536,
             )),
@@ -206,7 +210,22 @@ impl ResidualData {
     }
 
     pub fn placement(&self, hash: &BlockHash) -> Option<(CertifiedBlock, BlockHash)> {
-        self.place(hash, 0)
+        const MAX_PLACED: usize = 262_144;
+        if let Some(placed) = self.placed.lock().unwrap().get(hash) {
+            return Some(*placed);
+        }
+        let placed = self.place(hash, 0)?;
+        let mut cache = self.placed.lock().unwrap();
+        if cache.len() >= MAX_PLACED {
+            cache.clear();
+        }
+        cache.insert(*hash, placed);
+        Some(placed)
+    }
+
+    /// Whether this evidence block was received and retained already
+    pub fn has_received(&self, hash: &BlockHash) -> bool {
+        self.received.lock().unwrap().contains_key(hash)
     }
     fn place(&self, hash: &BlockHash, depth: usize) -> Option<(CertifiedBlock, BlockHash)> {
         if depth >= 256 {
