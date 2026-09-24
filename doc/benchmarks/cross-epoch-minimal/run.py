@@ -62,6 +62,28 @@ def settled(states, forks=0):
             and len({s["block_count"].get("cemented") for s in states}) == 1)
 
 
+
+def checkpoints_consistent(states, required):
+    """Every required checkpoint is decided and installed with the same value."""
+    if required == 0:
+        return True
+    if not states:
+        return False
+    for epoch in range(required):
+        values = []
+        for state in states:
+            entries = state.get("final_state", {}).get("epochs", [])
+            close = next((entry.get("close", {}) for entry in entries
+                          if str(entry.get("epoch")) == str(epoch)), {})
+            value, decided = close.get("value"), close.get("closed_value")
+            if not value or not decided:
+                return False
+            values.append((value, decided))
+        if len(set(values)) != 1:
+            return False
+    return True
+
+
 def frontier_diff(frontiers):
     """Compare every node's confirmed (height, frontier) per account. Nodes
     at different heights are lagging; nodes at the same height with different
@@ -223,7 +245,12 @@ def run(args, label, binary, pair):
                         states = [{action: rpc(17076 + 10 * i, {"action": action})
                                    for action in ("block_count", "final_state")}
                                   for i in range(6 - args.absent)]
-                        result["settled_consistent"] = settled(states, args.forks)
+                        result["ledgers_consistent"] = settled(states, args.forks)
+                        result["checkpoints_consistent"] = checkpoints_consistent(
+                            states, args.required_checkpoints)
+                        result["required_checkpoints"] = args.required_checkpoints
+                        result["settled_consistent"] = (result["ledgers_consistent"]
+                                                        and result["checkpoints_consistent"])
                         result["end_states"] = state_summary(states)
                     except Exception:
                         result["settled_consistent"] = False
@@ -390,6 +417,8 @@ def main():
     parser.add_argument("--baseline-reference", type=Path, action="append", default=[],
                         help="Prior run directory or baseline result.json matching binaries/workload")
     parser.add_argument("--settle-seconds", type=int, default=30)
+    parser.add_argument("--required-checkpoints", type=int, default=0,
+                        help="Require this many identical installed checkpoints before settlement")
     parser.add_argument("--absent", type=int, default=0)
     parser.add_argument("--min-free-gib", type=float, default=8)
     parser.add_argument("--keep-data", action="store_true",
@@ -404,6 +433,8 @@ def main():
         args.extra.pop(0)
     for name in ("baseline", "candidate", "client", "out"):
         setattr(args, name, getattr(args, name).resolve())
+    if args.required_checkpoints < 0:
+        parser.error("--required-checkpoints must be nonnegative")
     if args.timeout_factor <= 1:
         parser.error("--timeout-factor must exceed 1")
     args.baseline_wall_times = load_baseline_times(args)

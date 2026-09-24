@@ -2,7 +2,7 @@ import unittest
 import tempfile
 import json
 from pathlib import Path
-from run import compare, quantile, settled, baseline_timeout, prune_run_data
+from run import checkpoints_consistent, compare, quantile, settled, baseline_timeout, prune_run_data
 
 
 class PerformanceGateTests(unittest.TestCase):
@@ -75,6 +75,29 @@ class PerformanceGateTests(unittest.TestCase):
         states[5]["final_state"]["pending"] = "2"
         self.assertTrue(settled(states, forks=5))
         self.assertFalse(settled([dict(s, block_count={"count": "100", "cemented": "100"}) for s in states]))
+
+    def test_equal_ledgers_do_not_imply_installed_checkpoints(self):
+        states = [{"final_state": {"epochs": []}} for _ in range(6)]
+        self.assertTrue(checkpoints_consistent(states, 0))
+        self.assertFalse(checkpoints_consistent(states, 1))
+        self.assertFalse(checkpoints_consistent([], 1))
+        for state in states:
+            state["final_state"]["epochs"] = [
+                {"epoch": str(epoch), "close": {"value": f"state{epoch}",
+                                                "closed_value": f"decision{epoch}"}}
+                for epoch in range(2)]
+        self.assertTrue(checkpoints_consistent(states, 2))
+        last = states[-1]["final_state"]["epochs"][-1]["close"]
+        last["value"] = None
+        self.assertFalse(checkpoints_consistent(states, 2))
+        self.assertTrue(checkpoints_consistent(states, 1))
+        last["value"] = "different"
+        self.assertFalse(checkpoints_consistent(states, 2))
+        last["value"] = "state1"
+        last["closed_value"] = None
+        self.assertFalse(checkpoints_consistent(states, 2))
+        last["closed_value"] = "other-decision"
+        self.assertFalse(checkpoints_consistent(states, 2))
 
     def test_frontier_diff_separates_lag_from_conflicting_finality(self):
         from run import frontier_diff

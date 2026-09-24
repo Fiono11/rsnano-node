@@ -452,3 +452,30 @@ Larger failed sketches retain their existing growth and paging. This avoids
 Reconstruction still checks the signed root and all report semantic evidence.
 A regression reconstructs a 20,000-entry target with 500 missing entries on the
 first sketch; the complete node suite passes (836 tests). `cargo fmt --all` ran.
+
+Pinned v23 node SHA256: `760b4bd87e5b9a20dcf9702bc4c3af03203ea6dc4411f50e42d23a3c3acbd5dd`.
+Client SHA256: `9135ae7b7cbe7b8194351765700bf3810710fa5d494cfb6f222ef99577635dc7`.
+Release build: locked, offline, successful. Alternating measurements below use
+this same binary and client, with no concurrent builds or tests.
+
+| Run | Non-fork goodput | p50 / p95 / p99 (ms) | Same end state on all six PRs |
+|---|---:|---:|---|
+| v23 one #1 | 1065 | 297 / 5090 / 5573 | yes |
+| v23 two #1 | 1439 | 1185 / 5031 / 5569 | no; lagging=30, conflicting=0 |
+| v23 one #2 | 1250 | 175 / 1640 / 2190 | yes |
+| v23 two #2 | 1665 | 2223 / 4391 / 4702 | yes |
+
+**v23 outcome:** p50 ranges do not overlap (one 175–297 ms; two
+1,185–2,223 ms). The first two-checkpoint run differed on 30 accounts (zero
+conflicts); PR4 installed checkpoint 1 about 3 s before evidence collection
+ended. All six checkpoint state values agreed, but ledger convergence did not.
+
+**Harness gap:** v23 two #2's `settled_consistent=true` meant only equal
+cemented ledgers. Its RPC snapshots show current epoch 1 and no installed
+checkpoint-0 value on any node. It therefore does **not** demonstrate completed
+two-checkpoint convergence. Existing result JSON remains unchanged. Future
+alternating runs use `--required-checkpoints 1` or `2`: settlement now also
+requires identical installed state values and decided close values for every
+required checkpoint. The 30 s settle window and measured client latency are
+unchanged. All 24 harness tests pass, including missing and mismatched
+checkpoint cases. This tightens measurement; it changes no protocol rule.
