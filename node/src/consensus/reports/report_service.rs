@@ -46,12 +46,23 @@ pub struct ReportService {
     /// When the signed votes behind unjustified entries were last asked
     /// for, per epoch
     evidence_requested: Mutex<HashMap<ConsensusEpoch, Timestamp>>,
+    /// When each epoch's own G data was last re-gossiped, and the epochs
+    /// whose G blocks and ancestry are retained already
+    votes_repeated_at: Mutex<HashMap<ConsensusEpoch, Timestamp>>,
+    retained_epochs: Mutex<std::collections::HashSet<ConsensusEpoch>>,
+    /// When each epoch's live projection was last refreshed
+    projected: Mutex<HashMap<ConsensusEpoch, Timestamp>>,
     data: super::residual_data::ResidualData,
 }
 
 #[allow(dead_code)] // reconciled_count is read by the close, Section 9.1
 impl ReportService {
     const LOG_INTERVAL: Duration = Duration::from_secs(1);
+    const UNDECIDED_REPEAT_INTERVAL: Duration = Duration::from_secs(3);
+    const DECIDED_REPEAT_INTERVAL: Duration = Duration::from_secs(15);
+    const PROJECTION_INTERVAL: Duration = Duration::from_secs(1);
+    /// Hashes per AEC read-lock acquisition when assembling certificates
+    const CERTIFICATE_CHUNK: usize = 2048;
 
     pub(crate) fn new(
         active_elections: Arc<AecService>,
@@ -77,6 +88,9 @@ impl ReportService {
             source_refreshed: Mutex::new(HashMap::new()),
             votes_repeated: Mutex::new(None),
             evidence_requested: Mutex::new(HashMap::new()),
+            votes_repeated_at: Mutex::new(HashMap::new()),
+            retained_epochs: Mutex::new(std::collections::HashSet::new()),
+            projected: Mutex::new(HashMap::new()),
         }
     }
 
@@ -449,8 +463,12 @@ impl ReportService {
             .filter_map(|back| epoch.as_u64().checked_sub(back).map(ConsensusEpoch::new))
             .collect();
         for vote_epoch in epochs {
-            for (hash, kind) in self.active_elections.certificate_kinds(vote_epoch, &hashes) {
-                kinds.insert((vote_epoch, hash), kind);
+            // In chunks: each call holds the AEC read lock, which vote
+            // processing needs for writing
+            for chunk in hashes.chunks(Self::CERTIFICATE_CHUNK) {
+                for (hash, kind) in self.active_elections.certificate_kinds(vote_epoch, chunk) {
+                    kinds.insert((vote_epoch, hash), kind);
+                }
             }
         }
         let checked = hashes.len();
@@ -636,11 +654,39 @@ impl ReportService {
             }
             *repeated = Some(now);
         }
+        // Every few seconds while the epoch is undecided here; rarely once it
+        // is, for replicas still catching up. Flooding every G block and vote
+        // each second competed with the open epoch's traffic.
+        let due = |epoch: &ConsensusEpoch| {
+            let interval = if self.active_elections.epoch_decided_state(*epoch).is_some() {
+                Self::DECIDED_REPEAT_INTERVAL
+            } else {
+                Self::UNDECIDED_REPEAT_INTERVAL
+            };
+            let mut at = self.votes_repeated_at.lock().unwrap();
+            if at
+                .get(epoch)
+                .is_some_and(|last| last.elapsed(now) < interval)
+            {
+                return false;
+            }
+            at.insert(*epoch, now);
+            true
+        };
+        let epochs: Vec<ConsensusEpoch> = {
+            let exchange = self.exchange.lock().unwrap();
+            exchange.epochs.keys().copied().collect()
+        };
+        let due_epochs: Vec<ConsensusEpoch> = epochs.into_iter().filter(|e| due(e)).collect();
+        if due_epochs.is_empty() {
+            return;
+        }
         let requests: Vec<_> = {
             let exchange = self.exchange.lock().unwrap();
             exchange
                 .epochs
                 .iter()
+                .filter(|(epoch, _)| due_epochs.contains(epoch))
                 .flat_map(|(epoch, held)| {
                     held.signed.iter().filter_map(|report| {
                         let votes = held.residuals.get(&report.residual)?;
@@ -656,7 +702,10 @@ impl ReportService {
                 .collect()
         };
         for (epoch, reporter, hashes) in requests {
-            self.data.retain(epoch, hashes.iter().copied());
+            // The G blocks and their ancestry are copied once per epoch
+            if self.retained_epochs.lock().unwrap().insert(epoch) {
+                self.data.retain(epoch, hashes.iter().copied());
+            }
             let block_count = self.data.retained(epoch, &hashes).len();
             let blocks = self.data.with_ancestry(epoch, &hashes);
             {
@@ -791,10 +840,23 @@ impl ReportService {
                 continue;
             }
             lap("select", &mut spent);
-            let live = self.active_elections.epoch_certified(epoch);
-            lap("projection", &mut spent);
-            self.exchange.lock().unwrap().refresh_live(epoch, live);
-            lap("refresh_live", &mut spent);
+            let now = self.clock.now();
+            let project = {
+                let mut projected = self.projected.lock().unwrap();
+                let due = projected
+                    .get(&epoch)
+                    .is_none_or(|last| last.elapsed(now) >= Self::PROJECTION_INTERVAL);
+                if due {
+                    projected.insert(epoch, now);
+                }
+                due
+            };
+            if project {
+                let live = self.active_elections.epoch_certified(epoch);
+                lap("projection", &mut spent);
+                self.exchange.lock().unwrap().refresh_live(epoch, live);
+                lap("refresh_live", &mut spent);
+            }
             let mut missing = Vec::new();
             for reporter in reporters {
                 self.reconcile(epoch, reporter);

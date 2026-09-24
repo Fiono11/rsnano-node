@@ -60,6 +60,10 @@ struct EpochReports {
     /// H(K_e): the digest of the committee that issued the epoch's votes,
     /// which every report of the epoch must bind
     committee: Option<BlockHash>,
+    /// `valid_membership` per (reporter, T root, G root): a function of the
+    /// roots, the predecessor and the committee, so it is computed once and
+    /// dropped when either of the latter changes
+    membership: std::cell::RefCell<HashMap<(PublicKey, BlockHash, BlockHash), bool>>,
     /// The certified state as it stands here. It only ever grows: "correct
     /// validators continuously update their canonical local inventories and
     /// roots as historical records arrive", and a certificate once
@@ -138,6 +142,31 @@ enum EvidenceState {
     },
     /// Every N and F entry has its certificate or inherited justification
     Verified,
+}
+
+/// Certificates as supplied for the entries still missing, and every other
+/// entry as justified already by an earlier check
+struct JustifiedExcept<'a> {
+    missing: &'a std::collections::HashSet<BlockHash>,
+    inner: &'a dyn CertificateSource,
+}
+
+impl CertificateSource for JustifiedExcept<'_> {
+    fn kinds(
+        &self,
+        epoch: ConsensusEpoch,
+        hash: &BlockHash,
+    ) -> crate::consensus::election::CertificateKinds {
+        if self.missing.contains(hash) {
+            self.inner.kinds(epoch, hash)
+        } else {
+            crate::consensus::election::CertificateKinds {
+                nc: true,
+                fc: true,
+                ff: true,
+            }
+        }
+    }
 }
 
 /// One bounded transfer per report. Partial pages are never usable evidence.
@@ -252,11 +281,16 @@ impl ReportExchange {
             return;
         }
         held.predecessor = Some((state.state_hash(), state));
+        held.membership.borrow_mut().clear();
     }
 
     /// The committee the epoch's reports must bind, once known here
     pub fn set_committee(&mut self, epoch: ConsensusEpoch, digest: BlockHash) {
-        self.epochs.entry(epoch).or_default().committee = Some(digest);
+        let held = self.epochs.entry(epoch).or_default();
+        if held.committee != Some(digest) {
+            held.committee = Some(digest);
+            held.membership.borrow_mut().clear();
+        }
     }
 
     pub fn live_root(&self, epoch: ConsensusEpoch) -> Option<BlockHash> {
@@ -563,18 +597,22 @@ impl ReportExchange {
         let held = self.epochs.get(&epoch)?;
         let their = held.theirs.get(reporter)?;
         let state = their.reconstructed.as_ref()?;
-        let due = match &their.evidence {
-            EvidenceState::Verified => false,
-            EvidenceState::Unchecked => true,
-            EvidenceState::Missing { checked, .. } => checked.elapsed(now) >= Self::RETRY_INTERVAL,
-        };
-        due.then(|| {
-            state
-                .entries()
-                .filter(|(_, entry)| entry.status != CertifiedStatus::Recovery)
-                .map(|(block, _)| block.hash)
-                .collect()
-        })
+        match &their.evidence {
+            EvidenceState::Verified => None,
+            EvidenceState::Unchecked => Some(
+                state
+                    .entries()
+                    .filter(|(_, entry)| entry.status != CertifiedStatus::Recovery)
+                    .map(|(block, _)| block.hash)
+                    .collect(),
+            ),
+            // A retry needs the certificates of the entries still missing
+            // only: evidence once justified stays justified (see
+            // `verify_evidence`)
+            EvidenceState::Missing { hashes, checked } => {
+                (checked.elapsed(now) >= Self::RETRY_INTERVAL).then(|| hashes.clone())
+            }
+        }
     }
 
     /// The status a reconstructed report gives a hash, for the diagnostics
@@ -618,7 +656,20 @@ impl ReportExchange {
             return Some(Vec::new());
         }
         let state = their.reconstructed.as_ref()?;
-        let missing = unjustified_entries(epoch, state, predecessor, certificates);
+        // Certificates only accumulate: an entry justified by an earlier
+        // check stays justified, so a retry supplies (and pays for) the
+        // entries still missing alone
+        let missing = match &their.evidence {
+            EvidenceState::Missing { hashes, .. } => {
+                let still: std::collections::HashSet<BlockHash> = hashes.iter().copied().collect();
+                let source = JustifiedExcept {
+                    missing: &still,
+                    inner: certificates,
+                };
+                unjustified_entries(epoch, state, predecessor, &source)
+            }
+            _ => unjustified_entries(epoch, state, predecessor, certificates),
+        };
         their.evidence = if missing.is_empty() {
             EvidenceState::Verified
         } else {
@@ -1217,6 +1268,21 @@ impl EpochReports {
         state: &CertifiedState,
         votes: &ResidualVotes,
     ) -> bool {
+        let key = (report.reporter, report.certified, report.residual);
+        if let Some(valid) = self.membership.borrow().get(&key) {
+            return *valid;
+        }
+        let valid = self.check_membership(report, state, votes);
+        self.membership.borrow_mut().insert(key, valid);
+        valid
+    }
+
+    fn check_membership(
+        &self,
+        report: &Report,
+        state: &CertifiedState,
+        votes: &ResidualVotes,
+    ) -> bool {
         if self
             .committee
             .is_some_and(|committee| committee != report.committee)
@@ -1437,8 +1503,7 @@ mod tests {
                 .len(),
             3
         );
-        // The votes arrive for two of them: the third is still missing, and
-        // the recheck still covers every entry, not the missing one alone
+        // The votes arrive for two of them: the third is still missing
         let nc_only = CertificateKinds {
             nc: true,
             fc: false,
@@ -1453,12 +1518,14 @@ mod tests {
             .unwrap();
         assert_eq!(missing, vec![block(2).hash]);
         assert_eq!(ours.usable(epoch).len(), 1);
+        // A retry asks for the entry still missing alone, and the two
+        // justified before stay justified without their certificates
         assert_eq!(
             ours.evidence_to_check(epoch, &key.public_key(), later())
-                .unwrap()
-                .len(),
-            3
+                .unwrap(),
+            vec![block(2).hash]
         );
+        some.clear();
         // An NC does not justify F; a final certificate does
         some.insert((epoch, block(2).hash), nc_only);
         assert_eq!(

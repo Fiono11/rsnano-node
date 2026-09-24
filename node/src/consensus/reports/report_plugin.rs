@@ -1,7 +1,7 @@
 use std::{any::Any, sync::Arc};
 
 use rsnano_types::ConsensusEpoch;
-use rsnano_utils::EventHandlerMut;
+use rsnano_utils::{CancellationToken, EventHandlerMut, ticker::Tickable};
 
 use super::{EpochDecisionService, ReportService};
 use crate::consensus::{AecFact, AecService, AecTickerPlugin};
@@ -49,8 +49,17 @@ impl ReportTicker {
     }
 }
 
-impl AecTickerPlugin for ReportTicker {
-    fn run(&mut self, _aec: &AecService) {
+/// RAI: the report and close work runs on a timer thread of its own. On the
+/// AEC ticker it held up election housekeeping and vote solicitation for
+/// seconds while an epoch closed, which stalled the open epoch's account path.
+impl Tickable for ReportTicker {
+    fn tick(&mut self, _cancel_token: &CancellationToken) {
+        self.run_once();
+    }
+}
+
+impl ReportTicker {
+    fn run_once(&mut self) {
         let started = std::time::Instant::now();
         let breakdown = self.reports.tick();
         let reports = started.elapsed();
@@ -65,6 +74,12 @@ impl AecTickerPlugin for ReportTicker {
                 breakdown
             );
         }
+    }
+}
+
+impl AecTickerPlugin for ReportTicker {
+    fn run(&mut self, _aec: &AecService) {
+        self.run_once();
     }
 
     fn as_any(&self) -> &dyn Any {

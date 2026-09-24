@@ -156,6 +156,8 @@ pub struct Node {
     vote_rebroadcaster: VoteRebroadcaster,
     tokio_runner: TokioRunner,
     pub aec_ticker: TimerThread<AecTicker>,
+    #[cfg(feature = "rai_protocol")]
+    report_ticker: TimerThread<ReportTicker>,
     pub recently_cemented: Arc<Mutex<BoundedVecDeque<ConfirmedElection>>>,
     pub stats_collector: StatsCollector,
     container_info_factory: ContainerInfoFactory,
@@ -874,7 +876,10 @@ impl Node {
         });
 
         #[cfg(feature = "rai_protocol")]
-        aec_ticker.add_plugin(ReportTicker::new(reports.clone(), epoch_decision.clone()));
+        let report_ticker = TimerThread::new(
+            "Report ticker",
+            ReportTicker::new(reports.clone(), epoch_decision.clone()),
+        );
 
         let mut bootstrap_stale =
             BootstrapStaleElections::new(bootstrapper.clone(), steady_clock.clone());
@@ -1391,6 +1396,8 @@ impl Node {
             vote_rebroadcaster,
             tokio_runner,
             aec_ticker: TimerThread::new("AEC ticker", aec_ticker),
+            #[cfg(feature = "rai_protocol")]
+            report_ticker,
             recently_cemented,
             stats_collector,
             container_info_factory: container_info,
@@ -1607,6 +1614,9 @@ impl Node {
         if !self.flags.disable_request_loop {
             self.aec_ticker
                 .start(self.network_params.network.aec_loop_interval);
+            #[cfg(feature = "rai_protocol")]
+            self.report_ticker
+                .start(self.network_params.network.aec_loop_interval);
         }
         self.vote_generators.start();
         if self.config.enable_voting {
@@ -1673,6 +1683,8 @@ impl Node {
         self.vote_processor.stop();
         self.election_schedulers.stop();
         self.aec_ticker.stop();
+        #[cfg(feature = "rai_protocol")]
+        self.report_ticker.stop();
         self.aec.stop();
         self.vote_generators.stop();
         self.confirming_set.stop();
