@@ -1805,6 +1805,31 @@ impl ActiveElectionsContainer {
     /// epoch-e parents": the parent holds a notarization certificate in an
     /// instance of the child's epoch. A closing-epoch NC does not make the
     /// parent complete in the current epoch.
+    /// Diagnostic: the blocks of an epoch others first-voted that none of
+    /// `voters` first-voted, each with whether an instance of the epoch for
+    /// it is active here
+    #[cfg(feature = "rai_protocol")]
+    pub fn first_voted_elsewhere(
+        &self,
+        epoch: ConsensusEpoch,
+        voters: &[PublicKey],
+    ) -> Vec<(BlockHash, bool)> {
+        self.vote_records
+            .supports(epoch)
+            .filter(|(_, support)| {
+                !support.first.is_empty() && !voters.iter().any(|v| support.first.contains(v))
+            })
+            .map(|(hash, _)| {
+                (
+                    *hash,
+                    self.roots
+                        .election_for_block_in_epoch(hash, epoch)
+                        .is_some(),
+                )
+            })
+            .collect()
+    }
+
     fn parent_complete_in_epoch(&self, election: &Election) -> bool {
         let previous = election.qualified_root().previous;
         if previous.is_zero() {

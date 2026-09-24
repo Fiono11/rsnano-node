@@ -73,6 +73,14 @@ impl VoteRecords {
 
     /// The identities whose signed votes this node retains for a block in
     /// an epoch, if any
+    /// Every hash of an epoch with the identities that voted for it
+    pub fn supports(
+        &self,
+        epoch: ConsensusEpoch,
+    ) -> impl Iterator<Item = (&BlockHash, &HashSupport)> + '_ {
+        self.support.get(&epoch).into_iter().flatten()
+    }
+
     pub fn support(&self, epoch: ConsensusEpoch, hash: &BlockHash) -> Option<&HashSupport> {
         self.support.get(&epoch)?.get(hash)
     }

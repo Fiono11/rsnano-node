@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use rsnano_types::{Account, Blake2HashBuilder, BlockHash, ConsensusEpoch, PublicKey};
 
@@ -431,6 +431,12 @@ impl ResidualKind {
 pub struct ResidualVotes {
     /// The parent each voted block names, by the vote recorded for it
     entries: BTreeMap<(CertifiedBlock, ResidualKind), BlockHash>,
+    /// Hashes this reporter signed a vote for whose block this validator
+    /// can not place yet: members of G all the same. RAI, "Reconstruction
+    /// and report usability": the requester derives G from the reporter's
+    /// signed vote hashes, checks the root, and only then fetches blocks
+    /// and ancestry.
+    unplaced: BTreeSet<BlockHash>,
     digest: [u8; 32],
 }
 
@@ -456,10 +462,35 @@ impl ResidualVotes {
         residual
     }
 
+    /// Adds the hashes the reporter signed a vote for whose blocks are not
+    /// placed here: G members unless T summarizes them or they are placed
+    pub fn with_unplaced(
+        mut self,
+        certified: &CertifiedState,
+        hashes: impl IntoIterator<Item = BlockHash>,
+    ) -> Self {
+        let placed: BTreeSet<BlockHash> = self.entries.keys().map(|(b, _)| b.hash).collect();
+        self.unplaced = hashes
+            .into_iter()
+            .filter(|hash| !placed.contains(hash) && !certified.contains_hash(hash))
+            .collect();
+        self
+    }
+
+    /// The G members whose block data and ancestry are still to be fetched
+    pub fn unplaced(&self) -> impl Iterator<Item = &BlockHash> {
+        self.unplaced.iter()
+    }
+
+    /// Every G member is placed at its account position
+    pub fn is_placed(&self) -> bool {
+        self.unplaced.is_empty()
+    }
+
     /// Account votes are single-support: a G hash is counted only once
     /// its reporter's first vote is available, not just a final-vote record.
     pub fn first_evidence_complete(&self) -> bool {
-        let first: std::collections::BTreeSet<_> = self.first_votes().map(|b| b.hash).collect();
+        let first: BTreeSet<_> = self.first_votes().map(|b| b.hash).collect();
         self.entries.keys().all(|(b, _)| first.contains(&b.hash))
     }
 
@@ -467,7 +498,7 @@ impl ResidualVotes {
         self.entries
             .keys()
             .map(|(b, _)| b.hash)
-            .collect::<std::collections::BTreeSet<_>>()
+            .collect::<BTreeSet<_>>()
             .len()
     }
 
@@ -583,8 +614,12 @@ impl ResidualVotes {
     pub fn root(&self) -> BlockHash {
         // G commits distinct block hashes. Vote kinds and placements are
         // separately validated evidence, not authenticated-set members.
-        let hashes: std::collections::BTreeSet<_> =
-            self.entries.keys().map(|(b, _)| b.hash).collect();
+        let hashes: BTreeSet<_> = self
+            .entries
+            .keys()
+            .map(|(b, _)| b.hash)
+            .chain(self.unplaced.iter().copied())
+            .collect();
         let mut builder = Blake2HashBuilder::new().update(b"RAI report G v2 hashes");
         for hash in hashes {
             builder = builder.update(hash.as_bytes());

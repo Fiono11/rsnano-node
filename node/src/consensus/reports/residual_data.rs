@@ -45,6 +45,36 @@ impl ResidualData {
         received.insert(hash, block.clone());
         true
     }
+    /// Diagnostic: why this node holds no own first vote for a block
+    /// others first-voted
+    pub fn unvoted_reason(
+        &self,
+        hash: &BlockHash,
+        active: bool,
+        checkpoint: Option<&crate::consensus::election::EpochLedger>,
+    ) -> &'static str {
+        let any = self.ledger.any();
+        let Some(block) = any.get_block(hash) else {
+            return if self.block(hash).is_some() {
+                "not_in_ledger_held_as_evidence"
+            } else {
+                "not_in_ledger"
+            };
+        };
+        if any.confirmed().block_exists(hash) {
+            return "cemented_here";
+        }
+        if active {
+            return "active_not_voted";
+        }
+        match crate::consensus::unattached_dependency(&any, &block, checkpoint) {
+            Some(crate::consensus::Unattached::Previous) => "previous_not_final",
+            Some(crate::consensus::Unattached::Link) => "source_not_final",
+            Some(crate::consensus::Unattached::Block) => "block_missing",
+            None => "attachable_not_active",
+        }
+    }
+
     pub fn ledger_holds(&self, hash: &BlockHash) -> bool {
         self.ledger.any().block_exists(hash)
     }
@@ -138,6 +168,32 @@ impl ResidualData {
         }
         result
     }
+    /// A block to hand to a requester as evidence, from wherever it is held
+    pub fn evidence_block(&self, hash: &BlockHash) -> Option<Block> {
+        self.block(hash)
+    }
+
+    /// The block to fetch before `hash` can be placed: `hash` itself when
+    /// it is not held, otherwise the first ancestor that is not. None once
+    /// it can be placed, or when its chain can not be placed at all.
+    pub fn missing_ancestor(&self, hash: &BlockHash) -> Option<BlockHash> {
+        let mut current = *hash;
+        for _ in 0..256 {
+            if self.ledger.any().block_exists(&current) {
+                return None;
+            }
+            let Some(Block::State(block)) = self.block(&current) else {
+                return Some(current);
+            };
+            let previous = block.previous();
+            if previous.is_zero() {
+                return None;
+            }
+            current = previous;
+        }
+        None
+    }
+
     pub fn placement(&self, hash: &BlockHash) -> Option<(CertifiedBlock, BlockHash)> {
         self.place(hash, 0)
     }
@@ -218,6 +274,27 @@ mod tests {
         .into();
         bad.set_signature(Signature::new());
         assert!(!data.receive(&bad));
+    }
+
+    #[test]
+    fn the_first_block_to_fetch_is_the_deepest_one_missing() {
+        let (data, _) = fixture();
+        let parent: Block = StateBlockArgs {
+            previous: BlockHash::ZERO,
+            ..StateBlockArgs::new_test_instance()
+        }
+        .into();
+        let child: Block = StateBlockArgs {
+            previous: parent.hash(),
+            ..StateBlockArgs::new_test_instance()
+        }
+        .into();
+        assert_eq!(data.missing_ancestor(&child.hash()), Some(child.hash()));
+        assert!(data.receive(&child));
+        assert_eq!(data.missing_ancestor(&child.hash()), Some(parent.hash()));
+        assert!(data.receive(&parent));
+        assert_eq!(data.missing_ancestor(&child.hash()), None);
+        assert_eq!(data.evidence_block(&parent.hash()), Some(parent));
     }
 
     #[test]

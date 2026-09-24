@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -58,6 +58,12 @@ pub struct ReportService {
     inbound: Mutex<std::collections::VecDeque<(Message, Arc<Channel>)>>,
     /// The vote count a reporter's G was last derived from, and when
     derived_at: Mutex<HashMap<(ConsensusEpoch, PublicKey), (usize, Timestamp)>>,
+    /// Diagnostic: the blocks others first-voted and this node did not at
+    /// the last look, and when that was
+    unvoted: Mutex<(
+        Option<Timestamp>,
+        std::collections::HashSet<rsnano_types::BlockHash>,
+    )>,
     /// Evidence blocks waiting to be checked and retained
     evidence_blocks: Mutex<std::collections::VecDeque<rsnano_types::Block>>,
     data: super::residual_data::ResidualData,
@@ -139,6 +145,7 @@ impl ReportService {
             inbound: Mutex::new(std::collections::VecDeque::new()),
             derived_at: Mutex::new(HashMap::new()),
             evidence_blocks: Mutex::new(std::collections::VecDeque::new()),
+            unvoted: Mutex::new((None, std::collections::HashSet::new())),
         }
     }
 
@@ -441,7 +448,26 @@ impl ReportService {
 
     /// RAI: derive a report's residual object from the reporter's votes
     /// this node received, once its certified state is reconstructed
-    fn derive_residual(&self, epoch: ConsensusEpoch, reporter: PublicKey) {
+    fn derive_residual(
+        &self,
+        epoch: ConsensusEpoch,
+        reporter: PublicKey,
+        missing: &mut Vec<rsnano_types::BlockHash>,
+    ) {
+        // G members whose blocks are not placed here: the block, or the
+        // first ancestor this node lacks, is fetched with the evidence
+        let progress = self
+            .exchange
+            .lock()
+            .unwrap()
+            .residual_progress(epoch, &reporter);
+        if let Some((_, unplaced)) = progress {
+            missing.extend(
+                unplaced
+                    .iter()
+                    .filter_map(|hash| self.data.missing_ancestor(hash)),
+            );
+        }
         let now = self.clock.now();
         if !self
             .exchange
@@ -477,19 +503,31 @@ impl ReportService {
             .place_signed(epoch, reporter, placements);
         let votes = self.active_elections.vote_records_of(epoch, &reporter);
         let held = votes.len();
-        let result = self
-            .exchange
-            .lock()
-            .unwrap()
-            .derive_residual(epoch, reporter, votes, now);
-        if let Some(result) = result {
+        let still_unplaced: Vec<_> = self
+            .active_elections
+            .unplaced_signed(epoch, &reporter)
+            .into_iter()
+            .map(|(hash, _)| hash)
+            .collect();
+        let result = {
+            let mut exchange = self.exchange.lock().unwrap();
+            let result =
+                exchange.derive_residual_with_unplaced(epoch, reporter, votes, still_unplaced, now);
+            result.map(|result| (result, exchange.residual_progress(epoch, &reporter)))
+        };
+        if let Some((result, progress)) = result {
+            let (root_matches, g_unplaced) = progress
+                .map(|(matches, unplaced)| (matches, unplaced.len()))
+                .unwrap_or((result.complete, 0));
             crate::utils::diagnostic!(
-                "EPOCH_RESIDUAL epoch={} reporter={} votes={} derived={} complete={} unplaced={} placed={}",
+                "EPOCH_RESIDUAL epoch={} reporter={} votes={} derived={} complete={} root_matches={} g_unplaced={} unplaced={} placed={}",
                 epoch,
                 reporter,
                 held,
                 result.total,
                 result.complete,
+                root_matches,
+                g_unplaced,
                 unplaced_count,
                 placed_count
             );
@@ -634,6 +672,23 @@ impl ReportService {
         if let Some(before) = request.epoch.as_u64().checked_sub(1) {
             epochs.push(ConsensusEpoch::new(before));
         }
+        // The blocks asked for, when held: a G member a requester can not
+        // place, or an ancestor it lacks (RAI, "It then fetches blocks,
+        // ancestry, admission witnesses, and dependencies")
+        let mut blocks = 0;
+        {
+            let mut sender = self.sender.lock().unwrap();
+            for hash in &request.hashes {
+                if let Some(block) = self.data.evidence_block(hash) {
+                    sender.try_send(
+                        channel,
+                        &Message::Publish(Publish::new_evidence(block)),
+                        TrafficType::BlockBroadcastInitial,
+                    );
+                    blocks += 1;
+                }
+            }
+        }
         let mut sent = 0;
         for epoch in epochs {
             let votes = self
@@ -653,10 +708,11 @@ impl ReportService {
         }
         if self.log_due(request.epoch, true) {
             crate::utils::diagnostic!(
-                "EPOCH_EVIDENCE_SERVED epoch={} hashes={} batches={}",
+                "EPOCH_EVIDENCE_SERVED epoch={} hashes={} batches={} blocks={}",
                 request.epoch,
                 request.hashes.len(),
-                sent
+                sent,
+                blocks
             );
         }
     }
@@ -819,6 +875,45 @@ impl ReportService {
     /// keeps delivering the votes of a closed epoch, and it is that growth
     /// which eventually gives this node a state it shares with a reporter.
     /// Returns the time spent per part, for the slow-tick diagnostic
+    /// Diagnostic, every 2 s: the current epoch's blocks others first-voted
+    /// and this node did not, by reason, counting only those already
+    /// unvoted at the previous look
+    fn log_unvoted(&self) {
+        const INTERVAL: Duration = Duration::from_secs(2);
+        let now = self.clock.now();
+        let mut unvoted = self.unvoted.lock().unwrap();
+        if unvoted.0.is_some_and(|last| last.elapsed(now) < INTERVAL) {
+            return;
+        }
+        unvoted.0 = Some(now);
+        let voters: Vec<PublicKey> = {
+            let mut keys = Vec::new();
+            self.wallet_reps.lock().unwrap().rep_priv_keys(&mut keys);
+            keys.iter().map(|key| key.public_key()).collect()
+        };
+        if voters.is_empty() {
+            return;
+        }
+        let epoch = self.active_elections.current_epoch();
+        let checkpoint = self.active_elections.latest_checkpoint();
+        let current = self.active_elections.first_voted_elsewhere(epoch, &voters);
+        let mut reasons: BTreeMap<&'static str, usize> = BTreeMap::new();
+        let mut next = std::collections::HashSet::new();
+        for (hash, active) in current {
+            next.insert(hash);
+            if unvoted.1.contains(&hash) {
+                let reason = self
+                    .data
+                    .unvoted_reason(&hash, active, checkpoint.as_deref());
+                *reasons.entry(reason).or_default() += 1;
+            }
+        }
+        unvoted.1 = next;
+        if !reasons.is_empty() {
+            crate::utils::diagnostic!("EPOCH_UNVOTED epoch={} persistent={:?}", epoch, reasons);
+        }
+    }
+
     pub fn tick(&self) -> Vec<(&'static str, u128)> {
         let mut spent: Vec<(&'static str, u128)> = Vec::new();
         let mut mark = std::time::Instant::now();
@@ -836,6 +931,8 @@ impl ReportService {
         };
         self.process_inbound();
         lap("inbound", &mut spent);
+        self.log_unvoted();
+        lap("unvoted_diagnostic", &mut spent);
         // A report deferred for want of its predecessor checkpoint is signed
         // once that checkpoint is decided here
         let deferred: Vec<ConsensusEpoch> = self.pending.lock().unwrap().keys().copied().collect();
@@ -930,7 +1027,7 @@ impl ReportService {
             for reporter in reporters {
                 self.reconcile(epoch, reporter);
                 lap("reconcile", &mut spent);
-                self.derive_residual(epoch, reporter);
+                self.derive_residual(epoch, reporter, &mut missing);
                 lap("residual", &mut spent);
                 self.verify_evidence(epoch, reporter, &mut missing);
                 lap("evidence", &mut spent);

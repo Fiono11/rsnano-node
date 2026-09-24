@@ -370,6 +370,18 @@ impl AecService {
     }
 
     #[cfg(feature = "rai_protocol")]
+    pub(crate) fn first_voted_elsewhere(
+        &self,
+        epoch: ConsensusEpoch,
+        voters: &[PublicKey],
+    ) -> Vec<(BlockHash, bool)> {
+        self.aec
+            .read()
+            .unwrap()
+            .first_voted_elsewhere(epoch, voters)
+    }
+
+    #[cfg(feature = "rai_protocol")]
     pub(crate) fn unplaced_signed(
         &self,
         epoch: ConsensusEpoch,

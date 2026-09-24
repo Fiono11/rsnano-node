@@ -715,6 +715,22 @@ impl ReportExchange {
         votes: impl IntoIterator<Item = (CertifiedBlock, ResidualKind, BlockHash)>,
         now: Timestamp,
     ) -> Option<ReconcileResult> {
+        self.derive_residual_with_unplaced(epoch, reporter, votes, [], now)
+    }
+
+    /// `derive_residual` with the hashes the reporter signed a vote for
+    /// whose blocks are not placed here yet. RAI, "Reconstruction and report
+    /// usability": Ĝ is the set of hashes the reporter signed an epoch vote
+    /// for minus keys(T), so these count towards the root; the report is
+    /// usable once their blocks and ancestry are fetched and placed.
+    pub fn derive_residual_with_unplaced(
+        &mut self,
+        epoch: ConsensusEpoch,
+        reporter: PublicKey,
+        votes: impl IntoIterator<Item = (CertifiedBlock, ResidualKind, BlockHash)>,
+        unplaced: impl IntoIterator<Item = BlockHash>,
+        now: Timestamp,
+    ) -> Option<ReconcileResult> {
         let held = self.epochs.get_mut(&epoch)?;
         let their = held.theirs.get_mut(&reporter)?;
         let certified = their.reconstructed.as_ref()?;
@@ -722,9 +738,11 @@ impl ReportExchange {
             return None;
         }
         their.derived = Some(now);
-        let derived = ResidualVotes::derive(certified, votes);
+        let derived = ResidualVotes::derive(certified, votes).with_unplaced(certified, unplaced);
         let total = derived.len();
-        let complete = derived.root() == their.report.residual && derived.first_evidence_complete();
+        let complete = derived.root() == their.report.residual
+            && derived.is_placed()
+            && derived.first_evidence_complete();
         if complete {
             their.residual = Some(derived);
             their.working = None;
@@ -738,6 +756,21 @@ impl ReportExchange {
             entries: total,
             total,
         })
+    }
+
+    /// RAI: the G members of a report whose blocks are still to be fetched,
+    /// and whether the hashes derived so far match the signed G root
+    pub fn residual_progress(
+        &self,
+        epoch: ConsensusEpoch,
+        reporter: &PublicKey,
+    ) -> Option<(bool, Vec<BlockHash>)> {
+        let their = self.epochs.get(&epoch)?.theirs.get(reporter)?;
+        let working = their.working.as_ref()?;
+        Some((
+            working.root() == their.report.residual,
+            working.unplaced().copied().collect(),
+        ))
     }
 
     /// RAI: make a report's certified state usable: reconstructed from a
@@ -2500,6 +2533,61 @@ mod tests {
 
     /// The derivation waits for the certified state: without it, what the
     /// inventory summarizes is unknown
+    /// RAI, "Reconstruction and report usability": Ĝ is derived from the
+    /// hashes the reporter signed votes for, so a G member whose block this
+    /// node lacks still counts towards the root. The report is usable only
+    /// once that block is fetched and placed.
+    #[test]
+    fn an_unplaced_residual_member_matches_the_root_but_keeps_the_report_unusable() {
+        let epoch = ConsensusEpoch::ZERO;
+        let key = PrivateKey::from(1);
+        let theirs = state_of(0..10);
+        let votes = vec![
+            (block(20), ResidualKind::First, parent(20)),
+            (block(21), ResidualKind::First, parent(21)),
+        ];
+        let residual = ResidualVotes::derive(&theirs, votes.clone());
+        let mut ours = ReportExchange::new();
+        ours.report_epoch(
+            epoch,
+            theirs.clone(),
+            ResidualVotes::new(),
+            BlockHash::from(7),
+            BlockHash::ZERO,
+            &[PrivateKey::from(2)],
+        );
+        assert!(ours.handle_report(signed_with(&key, epoch, &theirs, &residual)));
+        ours.reconcile(epoch, key.public_key(), later()).unwrap();
+
+        // Block 21 is not held here: only its signed vote hash is
+        let partial = ours
+            .derive_residual_with_unplaced(
+                epoch,
+                key.public_key(),
+                votes[..1].to_vec(),
+                [block(21).hash, block(3).hash],
+                later(),
+            )
+            .unwrap();
+        assert!(!partial.complete);
+        assert_eq!(
+            ours.residual_progress(epoch, &key.public_key()),
+            Some((true, vec![block(21).hash])),
+            "the root matches; a hash T summarizes is not a G member"
+        );
+        assert!(theirs_usable(&mut ours, epoch).is_empty());
+
+        // Fetched and placed: usable
+        let done = ours
+            .derive_residual_with_unplaced(epoch, key.public_key(), votes, [], later())
+            .unwrap();
+        assert!(done.complete);
+        assert_eq!(
+            theirs_usable(&mut ours, epoch),
+            vec![(theirs.root(), residual.root())]
+        );
+    }
+
     #[test]
     fn the_residual_is_not_derived_before_the_certified_state() {
         let epoch = ConsensusEpoch::ZERO;
