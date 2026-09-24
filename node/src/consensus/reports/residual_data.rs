@@ -101,17 +101,18 @@ impl ResidualData {
         if let Some(block) = self.ledger.any().get_block(hash) {
             return Some(block.deref().clone());
         }
-        if let Some(block) = self.aec.report_block(hash) {
-            return Some(block);
-        }
+        // Forks and retained report data have independent locks. Most G
+        // blocks live here; only consult the busy AEC when neither has it.
         if let Some(block) = self.forks.read().unwrap().block(hash) {
             return Some(block);
         }
-        self.retained
+        let retained = self
+            .retained
             .lock()
             .unwrap()
             .values()
-            .find_map(|blocks| blocks.get(hash).cloned())
+            .find_map(|blocks| blocks.get(hash).cloned());
+        retained.or_else(|| self.aec.report_block(hash))
     }
     pub fn retain(&self, epoch: ConsensusEpoch, hashes: impl IntoIterator<Item = BlockHash>) {
         let mut seen = HashSet::new();
@@ -263,17 +264,6 @@ impl ResidualData {
 mod tests {
     use super::*;
     use rsnano_types::{Signature, StateBlockArgs};
-    fn fixture() -> (ResidualData, Arc<RwLock<ForkCache>>) {
-        let forks = Arc::new(RwLock::new(ForkCache::new()));
-        (
-            ResidualData::new(
-                Arc::new(Ledger::new_null()),
-                forks.clone(),
-                Arc::new(AecService::new_null()),
-            ),
-            forks,
-        )
-    }
     #[test]
     fn evidence_waiting_for_a_parent_can_be_placed_without_ledger_admission() {
         let (data, _) = fixture();
@@ -347,6 +337,8 @@ mod tests {
         assert_eq!(previous, parent.hash());
         data.retain(ConsensusEpoch::ZERO, [parent.hash(), child.hash()]);
         *forks.write().unwrap() = ForkCache::new();
+        assert_eq!(data.evidence_block(&parent.hash()), Some(parent));
+        assert_eq!(data.evidence_block(&child.hash()), Some(child.clone()));
         assert_eq!(data.placement(&child.hash()).unwrap().0, placed);
         assert_eq!(
             data.retained(ConsensusEpoch::ZERO, &[child.hash()]),
@@ -371,5 +363,18 @@ mod tests {
         bad.set_signature(Signature::new());
         forks.write().unwrap().add(bad.clone());
         assert!(data.placement(&bad.hash()).is_none());
+    }
+    /* Test helpers */
+
+    fn fixture() -> (ResidualData, Arc<RwLock<ForkCache>>) {
+        let forks = Arc::new(RwLock::new(ForkCache::new()));
+        (
+            ResidualData::new(
+                Arc::new(Ledger::new_null()),
+                forks.clone(),
+                Arc::new(AecService::new_null()),
+            ),
+            forks,
+        )
     }
 }

@@ -191,12 +191,14 @@ impl ReportService {
     /// `AecFactProcessor::follow_retained_branches`)
     pub(crate) fn follows_retained_branch(&self, block: &rsnano_types::Block) -> bool {
         let hash = block.hash();
-        (self.active_elections.awaits_checkpoint_block(&hash)
-            || self
-                .active_elections
-                .latest_checkpoint()
-                .is_some_and(|state| state.retains_block(&hash)))
-            && !self.data.ledger_holds(&hash)
+        // Repeated evidence already in the ledger needs no checkpoint
+        // lookup. Avoid contending with live voting for the AEC read lock.
+        !self.data.ledger_holds(&hash)
+            && (self.active_elections.awaits_checkpoint_block(&hash)
+                || self
+                    .active_elections
+                    .latest_checkpoint()
+                    .is_some_and(|state| state.retains_block(&hash)))
     }
 
     /// RAI: whether a published block is a fork candidate this node already
@@ -1488,6 +1490,23 @@ mod tests {
 
         service.active_elections.checkpoint_block_arrived(&hash);
         assert!(!service.follows_retained_branch(&block));
+    }
+
+    #[test]
+    fn an_awaited_block_already_in_the_ledger_is_not_forced_again() {
+        use rsnano_ledger::test_helpers::UnsavedBlockLatticeBuilder;
+        let ledger = Arc::new(rsnano_ledger::Ledger::new_null());
+        let block = UnsavedBlockLatticeBuilder::with_stub_work()
+            .genesis()
+            .send(1, 1);
+        let service = service_with(ledger.clone());
+        service
+            .active_elections
+            .await_checkpoint_blocks([block.hash()]);
+        assert!(service.follows_retained_branch(&block));
+        ledger.process_one(&block).unwrap();
+        assert!(!service.follows_retained_branch(&block));
+        assert!(!service.evidence_for_ledger(&block));
     }
 
     #[test]

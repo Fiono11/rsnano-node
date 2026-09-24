@@ -479,3 +479,19 @@ requires identical installed state values and decided close values for every
 required checkpoint. The 30 s settle window and measured client latency are
 unchanged. All 24 harness tests pass, including missing and mismatched
 checkpoint cases. This tightens measurement; it changes no protocol rule.
+
+
+Profiling run `profile-v23-two-1` (excluded from performance comparisons):
+1283 blocks/s; p50/p95/p99 1059/4778/5677 ms;
+unequal ledgers (one lagging account, zero conflicts). PR2 cemented one block
+more than the other five. A 5 s `sample` of PR4 is retained alongside the run;
+an initial attempt named a nonexistent PID and collected nothing.
+The successful sample shows network threads blocked acquiring the AEC lock in
+`follows_retained_branch` and report-thread waits in `signed_votes_for_hashes`
+and evidence verification. Report block lookup also enters the AEC before
+checking the independent fork cache and retained data.
+
+v24 avoids those AEC reads when possible: check ledger presence before the
+checkpoint lookup, and consult cached forks/retained report blocks before the
+AEC. Already held blocks still stay off the processor; missing retained blocks
+still enter the forced path, and placement still checks owner signatures.
