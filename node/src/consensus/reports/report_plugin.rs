@@ -51,8 +51,20 @@ impl ReportTicker {
 
 impl AecTickerPlugin for ReportTicker {
     fn run(&mut self, _aec: &AecService) {
-        self.reports.tick();
+        let started = std::time::Instant::now();
+        let breakdown = self.reports.tick();
+        let reports = started.elapsed();
         self.epoch_decision.tick();
+        let decision = started.elapsed() - reports;
+        if started.elapsed() >= std::time::Duration::from_millis(100) {
+            crate::utils::diagnostic!(
+                "SLOW_REPORT_TICK total_ms={} reports_ms={} decision_ms={} breakdown={:?}",
+                started.elapsed().as_millis(),
+                reports.as_millis(),
+                decision.as_millis(),
+                breakdown
+            );
+        }
     }
 
     fn as_any(&self) -> &dyn Any {

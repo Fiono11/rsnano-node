@@ -702,7 +702,22 @@ impl ReportService {
     /// certified state is refreshed from the active elections first: gossip
     /// keeps delivering the votes of a closed epoch, and it is that growth
     /// which eventually gives this node a state it shares with a reporter.
-    pub fn tick(&self) {
+    /// Returns the time spent per part, for the slow-tick diagnostic
+    pub fn tick(&self) -> Vec<(&'static str, u128)> {
+        let mut spent: Vec<(&'static str, u128)> = Vec::new();
+        let mut mark = std::time::Instant::now();
+        let mut lap = |name: &'static str, spent: &mut Vec<(&'static str, u128)>| {
+            let now = std::time::Instant::now();
+            let ms = (now - mark).as_millis();
+            if ms > 0 {
+                if let Some(entry) = spent.iter_mut().find(|(n, _)| *n == name) {
+                    entry.1 += ms;
+                } else {
+                    spent.push((name, ms));
+                }
+            }
+            mark = now;
+        };
         // A report deferred for want of its predecessor checkpoint is signed
         // once that checkpoint is decided here
         let deferred: Vec<ConsensusEpoch> = self.pending.lock().unwrap().keys().copied().collect();
@@ -722,6 +737,7 @@ impl ReportService {
                 .unwrap_or(report);
             self.sign_report(epoch, report, predecessor);
         }
+        lap("deferred", &mut spent);
         // This node's own reports go out again for as long as it holds them:
         // a replica that missed the broadcast at the boundary can not select
         // them, and one still deriving an old epoch's state needs them
@@ -731,7 +747,9 @@ impl ReportService {
             .unwrap()
             .repeat_reports(self.clock.now());
         self.send(repeated, None);
+        lap("repeat_reports", &mut spent);
         self.repeat_residual_votes();
+        lap("repeat_votes", &mut spent);
         // Until the epoch is decided here, not until its election closes: a
         // replica that learned the certificate before it could derive the
         // value still needs the reports that value names
@@ -772,16 +790,24 @@ impl ReportService {
             if reporters.is_empty() {
                 continue;
             }
+            lap("select", &mut spent);
             let live = self.active_elections.epoch_certified(epoch);
+            lap("projection", &mut spent);
             self.exchange.lock().unwrap().refresh_live(epoch, live);
+            lap("refresh_live", &mut spent);
             let mut missing = Vec::new();
             for reporter in reporters {
                 self.reconcile(epoch, reporter);
+                lap("reconcile", &mut spent);
                 self.derive_residual(epoch, reporter);
+                lap("residual", &mut spent);
                 self.verify_evidence(epoch, reporter, &mut missing);
+                lap("evidence", &mut spent);
             }
             self.request_evidence(epoch, missing);
+            lap("evidence_request", &mut spent);
         }
+        spent
     }
 
     /// How many reports of the epoch are usable here: what an epoch proposal
