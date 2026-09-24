@@ -414,16 +414,61 @@ pub enum BuildStateError {
     InvalidRecoveryEntry,
 }
 
+/// RAI, Rule 3: whether a represented epoch-e NC is predecessor-backed,
+/// "at least q members of K_{e-1} are among B's epoch-e first voters". Read
+/// off the signed votes the deriving validator retains. Correct validators
+/// converge on it as the finite vote set of the epoch reaches them; until
+/// then a validator that lacks the votes refuses a value that supersedes,
+/// and keeps collecting.
+pub trait PredecessorBacking {
+    fn predecessor_backed(&self, hash: &BlockHash) -> bool;
+}
+
+/// No represented NC is predecessor-backed: Rule 3 never supersedes
+impl PredecessorBacking for () {
+    fn predecessor_backed(&self, _: &BlockHash) -> bool {
+        false
+    }
+}
+
+impl PredecessorBacking for BTreeSet<BlockHash> {
+    fn predecessor_backed(&self, hash: &BlockHash) -> bool {
+        self.contains(hash)
+    }
+}
+
+/// The checkpoint-finalization rule (see CHECKPOINT-FINALIZATION-VARIANT.md).
+/// The paper's rule is `CertificateOnly`; `UniqueBranch` is the requested
+/// experimental variant and is not covered by the paper's safety proof.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CheckpointFinalization {
+    #[default]
+    CertificateOnly,
+    UniqueBranch,
+}
+
+/// What BuildState needs besides the predecessor and the selected reports
+#[derive(Clone, Copy)]
+pub struct BuildRules<'a> {
+    /// r = f + p + 1 as weight: the reporter first votes a recovery lock needs
+    pub many: Amount,
+    /// Rule 3
+    pub backing: &'a dyn PredecessorBacking,
+    pub finalization: CheckpointFinalization,
+}
+
 /// Revised BuildState: explicit F entries alone extend finality. A represented
 /// NC or enough reporter first votes retain a parent-closed lock, without any
 /// application effect. Inherited unresolved branches survive report omission.
-/// No fixed-point or sole-survivor finalization is performed.
+/// No fixed-point or sole-survivor finalization is performed unless the
+/// experimental variant is selected.
 pub fn build_state(
     previous: &EpochLedger,
     selection: &[SelectedReport],
     index: &dyn BlockIndex,
-    many: Amount,
+    rules: BuildRules,
 ) -> Result<EpochLedger, BuildStateError> {
+    let many = rules.many;
     #[derive(Default)]
     struct Evidence {
         notarized: BTreeSet<BlockHash>,
@@ -484,6 +529,9 @@ pub fn build_state(
             }
         }
     }
+    // Rule 3: the inherited recovery-only locks a predecessor-backed
+    // represented NC superseded, with every retained descendant of theirs
+    let mut superseded: BTreeSet<BlockHash> = BTreeSet::new();
     for (slot, at) in &evidence {
         if ledger.finalized(slot).is_some() {
             continue;
@@ -506,6 +554,34 @@ pub fn build_state(
             _ => return Err(BuildStateError::ConflictingNotarizations),
         };
         if let Some((hash, kind)) = target {
+            // Rule 3: "If S_{e-1} carries only recovery-only locks at (a, v)
+            // and a selected report exposes a represented epoch-e NC for a
+            // different block at (a, v) that is predecessor-backed, the
+            // inherited recovery lock is dropped and Rule 1 applies. A
+            // represented NC that is not predecessor-backed does not
+            // supersede an inherited lock; the inherited lock is retained
+            // and the new block is ineligible early work."
+            let inherited = previous.notarized(slot);
+            if kind == RetainedKind::Notarized
+                && !inherited.is_empty()
+                && !inherited.contains(&hash)
+                && inherited
+                    .iter()
+                    .all(|held| previous.retained_kind(held) != RetainedKind::Notarized)
+            {
+                if !rules.backing.predecessor_backed(&hash) {
+                    continue;
+                }
+                for held in inherited {
+                    superseded.insert(held);
+                    ledger.locks.remove(&held);
+                }
+                ledger
+                    .notarized
+                    .get_mut(slot)
+                    .unwrap()
+                    .retain(|block| !superseded.contains(&block.hash));
+            }
             match selected_path(&ledger, index, *slot, hash) {
                 Ok(path) => {
                     for (slot, block) in path.into_iter().rev() {
@@ -519,6 +595,22 @@ pub fn build_state(
                 // Explicit finality excludes an incompatible nonfinal branch.
                 Err(BuildStateError::ConflictingFinality) => {}
                 Err(error) => return Err(error),
+            }
+        }
+    }
+    // A retained descendant of a superseded lock goes with it: slots are
+    // walked in account and height order, so a parent is seen first
+    if !superseded.is_empty() {
+        for blocks in ledger.notarized.values_mut() {
+            let gone: Vec<PlacedBlock> = blocks
+                .iter()
+                .filter(|block| superseded.contains(&block.previous))
+                .copied()
+                .collect();
+            for block in gone {
+                superseded.insert(block.hash);
+                ledger.locks.remove(&block.hash);
+                blocks.remove(&block);
             }
         }
     }
@@ -623,7 +715,7 @@ mod tests {
                 &EpochLedger::new(),
                 &[report(&certified, &ResidualVotes::new())],
                 &index,
-                MANY
+                certificate_rules()
             ),
             Err(BuildStateError::ConflictingNotarizations)
         );
@@ -921,7 +1013,7 @@ mod tests {
                 &EpochLedger::new(),
                 &[report(&certified, &ResidualVotes::new())],
                 &index,
-                MANY
+                certificate_rules()
             ),
             Err(BuildStateError::InvalidAncestry)
         );
@@ -948,16 +1040,16 @@ mod tests {
                 residual: &g,
             })
             .collect();
-        let next = build_state(&previous, &reports, &index, MANY).unwrap();
+        let next = build_state(&previous, &reports, &index, certificate_rules()).unwrap();
         assert_eq!(next, previous);
         assert_eq!(next.retained_kind(&hash), RetainedKind::Recovery);
         assert_eq!(
-            build_state(&EpochLedger::new(), &reports, &index, MANY),
+            build_state(&EpochLedger::new(), &reports, &index, certificate_rules()),
             Err(BuildStateError::InvalidRecoveryEntry)
         );
         let t2 = next.report_ledger();
         assert_eq!(
-            build_state(&next, &[report(&t2, &g)], &index, MANY).unwrap(),
+            build_state(&next, &[report(&t2, &g)], &index, certificate_rules()).unwrap(),
             previous
         );
     }
@@ -1027,6 +1119,56 @@ mod tests {
         assert_eq!(derive(&promoted, &[], &index), promoted);
     }
 
+    /// RAI, Rule 3: only a predecessor-backed represented NC supersedes an
+    /// inherited recovery-only lock, and it takes the lock's retained
+    /// descendants with it; an unbacked NC is ineligible early work, and a
+    /// represented notarization lock is never superseded
+    #[test]
+    fn a_predecessor_backed_notarization_supersedes_an_inherited_recovery_lock_only() {
+        let mut index = StubIndex::default();
+        let base = index.add(1, 1, BlockHash::ZERO);
+        let carried = index.add(1, 2, base);
+        let child = index.add(1, 3, carried);
+        let fresh = index.add(1, 2, base);
+        let mut previous = EpochLedger::new();
+        previous.finalize_genesis_block(slot(1, 1), PlacedBlock::new(base, BlockHash::ZERO));
+        previous.keep(slot(1, 2), PlacedBlock::new(carried, base));
+        previous.keep(slot(1, 3), PlacedBlock::new(child, carried));
+        previous.locks.insert(carried, RetainedKind::Recovery);
+        previous.locks.insert(child, RetainedKind::Recovery);
+        let mut certified = CertifiedState::new();
+        certify(&mut certified, &index, fresh, CertifiedStatus::Notarized);
+        let no_votes = ResidualVotes::new();
+        let reports = [report(&certified, &no_votes)];
+
+        let unbacked = build_state(&previous, &reports, &index, certificate_rules()).unwrap();
+        assert_eq!(unbacked.notarized(&slot(1, 2)), vec![carried]);
+        assert_eq!(unbacked.notarized(&slot(1, 3)), vec![child]);
+        assert_eq!(unbacked.retained_kind(&carried), RetainedKind::Recovery);
+
+        let backing: BTreeSet<BlockHash> = [fresh].into_iter().collect();
+        let rules = BuildRules {
+            many: MANY,
+            backing: &backing,
+            finalization: CheckpointFinalization::CertificateOnly,
+        };
+        let backed = build_state(&previous, &reports, &index, rules).unwrap();
+        assert_eq!(backed.notarized(&slot(1, 2)), vec![fresh]);
+        assert!(backed.notarized(&slot(1, 3)).is_empty());
+        assert_eq!(backed.retained_kind(&fresh), RetainedKind::Notarized);
+        assert_eq!(backed.retained_kind(&carried), RetainedKind::Ancestor);
+        assert_eq!(backed.retained_kind(&child), RetainedKind::Ancestor);
+        assert!(backed.finalized(&slot(1, 2)).is_none());
+
+        previous.locks.insert(carried, RetainedKind::Notarized);
+        let kept = build_state(&previous, &reports, &index, rules).unwrap();
+        assert_eq!(
+            vec_sorted(&kept.notarized(&slot(1, 2))),
+            vec_sorted(&[carried, fresh])
+        );
+        assert_eq!(kept.notarized(&slot(1, 3)), vec![child]);
+    }
+
     #[test]
     fn duplicate_reporter_cannot_create_recovery_support() {
         let mut index = StubIndex::default();
@@ -1039,7 +1181,7 @@ mod tests {
                 &EpochLedger::new(),
                 &[report(&certified, &votes); 3],
                 &index,
-                MANY
+                certificate_rules()
             ),
             Err(BuildStateError::RepeatedReporter)
         );
@@ -1058,7 +1200,7 @@ mod tests {
                 &EpochLedger::new(),
                 &[report(&certified, &residual)],
                 &index,
-                MANY
+                certificate_rules()
             ),
             Err(BuildStateError::InvalidAncestry)
         );
@@ -1068,7 +1210,7 @@ mod tests {
                 &EpochLedger::new(),
                 &[report(&certified, &residual)],
                 &index,
-                MANY
+                certificate_rules()
             ),
             Err(BuildStateError::MissingAncestry)
         );
@@ -1088,7 +1230,7 @@ mod tests {
                 &EpochLedger::new(),
                 &[report(&certified, &ResidualVotes::new())],
                 &index,
-                MANY
+                certificate_rules()
             ),
             Err(BuildStateError::ConflictingFinality)
         );
@@ -1162,7 +1304,7 @@ mod tests {
                 &sparse,
                 &selection,
                 &ReportIndex::new(&sparse, &selection),
-                MANY
+                certificate_rules()
             )
             .is_err()
         );
@@ -1194,7 +1336,16 @@ mod tests {
         selection: &[SelectedReport],
         index: &dyn BlockIndex,
     ) -> EpochLedger {
-        build_state(previous, selection, index, MANY).unwrap()
+        build_state(previous, selection, index, certificate_rules()).unwrap()
+    }
+
+    /// The paper's rules, with no represented NC predecessor-backed
+    fn certificate_rules() -> BuildRules<'static> {
+        BuildRules {
+            many: MANY,
+            backing: &(),
+            finalization: CheckpointFinalization::CertificateOnly,
+        }
     }
 
     fn report<'a>(

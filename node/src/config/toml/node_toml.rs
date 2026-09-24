@@ -390,6 +390,14 @@ impl NodeConfig {
             if let Some(ms) = i.close_round_timeout_ms {
                 self.active_elections.close_round_timeout = Duration::from_millis(ms);
             }
+            if let Some(rule) = &i.checkpoint_finalization {
+                self.active_elections.checkpoint_finalization = match rule.as_str() {
+                    "unique_branch" => {
+                        crate::consensus::election::CheckpointFinalization::UniqueBranch
+                    }
+                    _ => crate::consensus::election::CheckpointFinalization::CertificateOnly,
+                };
+            }
             if let Some(voting) = i.account_voting {
                 self.active_elections.account_voting = voting;
             }

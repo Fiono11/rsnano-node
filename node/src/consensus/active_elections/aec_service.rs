@@ -314,7 +314,7 @@ impl AecService {
     /// tells whether a block may be first voted
     pub(crate) fn kudzu_votes_due(
         &self,
-        proposal_valid: impl Fn(&BlockHash) -> bool,
+        proposal_valid: impl Fn(&BlockHash) -> Result<(), crate::consensus::Unattached>,
     ) -> Vec<VoteTarget> {
         self.aec.read().unwrap().kudzu_votes_due(proposal_valid)
     }
@@ -405,6 +405,13 @@ impl AecService {
             .read()
             .unwrap()
             .signed_votes_for_hashes(epoch, hashes)
+    }
+
+    /// RAI, Rule 3: whether a block's epoch-e NC is predecessor-backed by
+    /// the signed first votes retained here
+    #[cfg(feature = "rai_protocol")]
+    pub fn predecessor_backed(&self, epoch: ConsensusEpoch, hash: &BlockHash) -> bool {
+        self.aec.read().unwrap().predecessor_backed(epoch, hash)
     }
 
     /// RAI: the certificates assembled here from retained signed votes, per

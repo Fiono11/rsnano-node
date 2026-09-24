@@ -112,6 +112,13 @@ pub(crate) struct CliArgs {
     /// handoff, where they sign their report and vote in the close
     #[arg(long, default_value_t = 0)]
     pub silent: usize,
+
+    /// RAI: the checkpoint-finalization rule of every node: "certificate_only"
+    /// (the paper's rule) or "unique_branch" (the experimental variant that
+    /// checkpoint-finalizes a unique preserved branch; not covered by the
+    /// paper's safety proof)
+    #[arg(long, default_value = "certificate_only")]
+    pub checkpoint_finalization: String,
 }
 
 impl CliArgs {

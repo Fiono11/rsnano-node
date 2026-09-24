@@ -108,6 +108,11 @@ pub struct Election {
     /// vote tally is provisional: it cannot justify a final vote"; first and
     /// notarization votes proceed.
     predecessor_decided: bool,
+    /// RAI, the overlap exceptions of "Attachment and eligibility": the
+    /// block may be finalized before the predecessor checkpoint is known,
+    /// because it carries a verified closing-epoch NC and is complete here,
+    /// or holds a predecessor-backed NC on an admissible parent
+    overlap_eligible: bool,
 }
 
 impl Election {
@@ -146,6 +151,7 @@ impl Election {
             certificates: Certificates::default(),
             committees: None,
             predecessor_decided: true,
+            overlap_eligible: false,
         }
     }
 
@@ -664,9 +670,10 @@ impl Election {
             self.change_winner_to(&new_winner);
         }
 
-        // RAI: no finality before the predecessor checkpoint is decided. The
-        // tallies stay; the certificates come out of them once it is.
-        if !self.predecessor_decided {
+        // RAI: no finality before the predecessor checkpoint is decided,
+        // unless an overlap exception makes the block eligible. The tallies
+        // stay; the certificates come out of them once it is.
+        if !self.predecessor_decided && !self.overlap_eligible {
             self.certificates.fast = None;
             self.certificates.final_ = None;
         }
@@ -697,12 +704,29 @@ impl Election {
         }
     }
 
+    /// RAI: whether an overlap exception lets this instance finalize before
+    /// the predecessor checkpoint is decided
+    pub fn overlap_eligible(&self) -> bool {
+        self.overlap_eligible
+    }
+
+    /// RAI, "Attachment and eligibility": the block became eligible through
+    /// an overlap exception. The certificates the tallies already support
+    /// come out, and the final vote may be cast.
+    pub fn set_overlap_eligible(&mut self, eligible: bool) {
+        self.overlap_eligible = eligible;
+        if eligible && let Some(committees) = self.committees.clone() {
+            self.update_kudzu_tallies(&committees);
+        }
+    }
+
     /// RAI, single-support voting: "A validator may final-vote only for the
     /// block it first-voted, once that block is complete and eligible."
-    /// Not before the predecessor checkpoint is decided.
+    /// Not before the predecessor checkpoint is decided, unless an overlap
+    /// exception applies.
     pub fn kudzu_final_vote_due(&self, slot: &LocalSlotState) -> Option<(BlockHash, VoteKind)> {
         let winner = self.winner.hash();
-        (self.predecessor_decided
+        ((self.predecessor_decided || self.overlap_eligible)
             && self.kudzu_is_final()
             && slot.final_voted.is_none()
             && slot.first_voted == Some(winner))

@@ -23,6 +23,8 @@ pub(crate) enum Unattached {
     Previous,
     /// The source of a receive is not final
     Link,
+    /// The block itself is not held in the ledger
+    Block,
 }
 
 pub(crate) fn unattached_dependency(

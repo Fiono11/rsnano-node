@@ -17,8 +17,8 @@ use crate::{
         AecService,
         active_elections::EpochProposalContext,
         election::{
-            Committee, EpochLedger, EpochValue, ReportIndex, ReportRef, ReportSource,
-            SelectedReport,
+            BuildRules, CheckpointFinalization, Committee, EpochLedger, EpochValue,
+            PredecessorBacking, ReportIndex, ReportRef, ReportSource, SelectedReport,
         },
     },
     transport::MessageFlooder,
@@ -59,6 +59,9 @@ pub struct EpochDecisionService {
     page_requested: Mutex<Option<(ConsensusEpoch, u32, Timestamp)>>,
     transferred: Mutex<Option<(ConsensusEpoch, Arc<EpochLedger>)>>,
     differences: Mutex<std::collections::BTreeMap<ConsensusEpoch, CheckpointDifference>>,
+    /// The checkpoint-finalization rule this node derives with; the paper's
+    /// certificate-only rule unless the experimental variant is configured
+    finalization: CheckpointFinalization,
 }
 
 impl EpochDecisionService {
@@ -78,8 +81,10 @@ impl EpochDecisionService {
         flooder: MessageFlooder,
         clock: Arc<SteadyClock>,
         stats: Arc<Stats>,
+        finalization: CheckpointFinalization,
     ) -> Self {
         Self {
+            finalization,
             exchange,
             active_elections,
             wallet_reps,
@@ -487,6 +492,10 @@ impl EpochDecisionService {
         }
         let states: Vec<SelectedReport> = resolved.iter().map(|(_, state)| *state).collect();
         let index = ReportIndex::new(&previous, &states);
+        let backing = RetainedBacking {
+            aec: &self.active_elections,
+            epoch,
+        };
         let (value, ledger) = EpochValue::propose(
             epoch,
             round,
@@ -494,7 +503,11 @@ impl EpochDecisionService {
             &previous,
             &resolved,
             &index,
-            committee.thresholds().many,
+            BuildRules {
+                many: committee.thresholds().many,
+                backing: &backing,
+                finalization: self.finalization,
+            },
         )
         .inspect_err(|error| {
             diagnostic!(
@@ -529,12 +542,20 @@ impl EpochDecisionService {
             return None;
         }
         let index = ReportIndex::new(&previous, &states);
+        let backing = RetainedBacking {
+            aec: &self.active_elections,
+            epoch: value.epoch,
+        };
         match value.validate(
             &previous,
             &source,
             &index,
             committee.thresholds().report,
-            committee.thresholds().many,
+            BuildRules {
+                many: committee.thresholds().many,
+                backing: &backing,
+                finalization: self.finalization,
+            },
         ) {
             Ok(ledger) => Some((value.hash(), Arc::new(ledger))),
             Err(error) => {
@@ -594,6 +615,19 @@ impl EpochDecisionService {
             TrafficType::Generic,
             1.0,
         );
+    }
+}
+
+/// RAI, Rule 3: predecessor backing read off the signed votes this node
+/// retains for the epoch, counted in the committee of the epoch before
+struct RetainedBacking<'a> {
+    aec: &'a AecService,
+    epoch: ConsensusEpoch,
+}
+
+impl PredecessorBacking for RetainedBacking<'_> {
+    fn predecessor_backed(&self, hash: &BlockHash) -> bool {
+        self.aec.predecessor_backed(self.epoch, hash)
     }
 }
 

@@ -81,10 +81,18 @@ impl AecVoter {
             // finalized here (the previous block, the source of a receive)
             let any = self.ledger.any();
             let checkpoint = self.aec.latest_checkpoint();
-            let proposal_valid = |hash: &BlockHash| {
-                any.get_block(hash).is_some_and(|block| {
-                    crate::consensus::dependencies_attachable(&any, &block, checkpoint.as_deref())
-                })
+            let proposal_valid = |hash: &BlockHash| match any.get_block(hash) {
+                Some(block) => {
+                    match crate::consensus::unattached_dependency(
+                        &any,
+                        &block,
+                        checkpoint.as_deref(),
+                    ) {
+                        None => Ok(()),
+                        Some(why) => Err(why),
+                    }
+                }
+                None => Err(crate::consensus::Unattached::Block),
             };
             self.aec
                 .kudzu_votes_due(proposal_valid)

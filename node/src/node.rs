@@ -861,6 +861,7 @@ impl Node {
             message_flooder.clone(),
             steady_clock.clone(),
             stats.clone(),
+            config.active_elections.checkpoint_finalization,
         ));
 
         let mut aec_ticker = AecTicker::new(active_elections.clone(), steady_clock.clone());

@@ -53,6 +53,10 @@ pub struct ActiveElectionsConfig {
     /// boundary and votes in the close: present for the handoff, absent
     /// from the voting. For the benchmark's silent representative.
     pub account_voting: bool,
+    /// RAI: the checkpoint-finalization rule (see
+    /// doc/benchmarks/cross-epoch-minimal/CHECKPOINT-FINALIZATION-VARIANT.md).
+    /// The paper's certificate-only rule by default.
+    pub checkpoint_finalization: crate::consensus::election::CheckpointFinalization,
 }
 
 impl Default for ActiveElectionsConfig {
@@ -64,6 +68,7 @@ impl Default for ActiveElectionsConfig {
             epoch_duration: Duration::ZERO,
             close_round_timeout: Duration::from_secs(2),
             account_voting: true,
+            checkpoint_finalization: Default::default(),
         }
     }
 }

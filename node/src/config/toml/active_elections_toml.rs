@@ -19,6 +19,10 @@ pub struct ActiveElectionsToml {
     /// RAI: whether this node casts account votes; false makes a silent
     /// representative, which reports and votes in the close only
     pub account_voting: Option<bool>,
+    /// RAI: "certificate_only" (the paper's rule, default) or
+    /// "unique_branch" (the experimental variant that checkpoint-finalizes
+    /// a unique preserved branch; not covered by the paper's safety proof)
+    pub checkpoint_finalization: Option<String>,
 }
 
 impl From<&NodeConfig> for ActiveElectionsToml {
@@ -38,6 +42,17 @@ impl From<&NodeConfig> for ActiveElectionsToml {
                 config.active_elections.close_round_timeout.as_millis() as u64
             ),
             account_voting: Some(config.active_elections.account_voting),
+            checkpoint_finalization: Some(
+                match config.active_elections.checkpoint_finalization {
+                    crate::consensus::election::CheckpointFinalization::CertificateOnly => {
+                        "certificate_only"
+                    }
+                    crate::consensus::election::CheckpointFinalization::UniqueBranch => {
+                        "unique_branch"
+                    }
+                }
+                .to_string(),
+            ),
         }
     }
 }

@@ -52,6 +52,12 @@ pub(crate) struct AecStats {
     pub agreed_epoch_refused: u64,
     /// RAI: late blocks not discarded because they are finalized in another epoch
     pub finalized_kept: u64,
+    /// RAI: instances made eligible before their predecessor checkpoint by
+    /// an overlap exception
+    pub overlap_eligible: u64,
+    /// RAI: provisional instances discarded by the recheck against the
+    /// decided predecessor checkpoint
+    pub rechecked_discarded: u64,
     /// RAI: epochs left while still draining because a certificate quorum was ahead
     pub epochs_left_behind: u64,
     /// RAI: instances erased at their epoch's close for lack of a block in the state
@@ -221,6 +227,12 @@ impl StatsSource for AecStats {
         result.insert(AEC_STAT_KEY, "epochs_ended", self.epochs_ended);
         result.insert(AEC_STAT_KEY, "epochs_advanced", self.epochs_advanced);
         result.insert(AEC_STAT_KEY, "epochs_followed", self.epochs_followed);
+        result.insert(AEC_STAT_KEY, "overlap_eligible", self.overlap_eligible);
+        result.insert(
+            AEC_STAT_KEY,
+            "rechecked_discarded",
+            self.rechecked_discarded,
+        );
         result.insert(AEC_STAT_KEY, "stale_started", self.stale_started);
         result.insert(AEC_STAT_KEY, "started_for_vote", self.started_for_vote);
         result.insert(AEC_STAT_KEY, "close_rounds", self.close_rounds);
