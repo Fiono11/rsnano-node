@@ -131,6 +131,14 @@ impl NetworkMessageProcessor {
                     };
                     #[cfg(not(feature = "rai_protocol"))]
                     let follows_retained = false;
+                    // RAI: re-gossiped report evidence the ledger does not
+                    // need stays out of the live block path
+                    #[cfg(feature = "rai_protocol")]
+                    let skip = publish.is_evidence
+                        && !follows_retained
+                        && !self.reports.evidence_for_ledger(&publish.block);
+                    #[cfg(not(feature = "rai_protocol"))]
+                    let skip = false;
                     // Put blocks that are being initially broadcasted in a separate queue, so that they won't have to compete with rebroadcasted blocks
                     // Both queues have the same priority and size, so the potential for exploiting this is limited
                     let source = if follows_retained {
@@ -145,7 +153,10 @@ impl NetworkMessageProcessor {
 
                     trace!(block_hash = ?publish.block.hash(), channel_id = ?channel.channel_id(), "Received publish");
 
-                    if self.bootstrapper.is_bootstrapping() {
+                    if skip {
+                        self.stats
+                            .inc(StatType::BlockProcessor, DetailType::EvidenceOnly);
+                    } else if self.bootstrapper.is_bootstrapping() {
                         // We ignore live blocks during bootstrap, so that those live blocks won't
                         // fill up the bootstrap queue
                         ok = false;

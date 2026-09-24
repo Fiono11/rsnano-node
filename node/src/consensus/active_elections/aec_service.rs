@@ -35,6 +35,9 @@ use crate::{
 pub struct AecService {
     aec: RwLock<ActiveElectionsContainer>,
     clock: SteadyClock,
+    /// RAI: blocks an installed checkpoint finalized that the ledger lacked,
+    /// until they arrive: fetched from peers and forced in on arrival
+    awaited_checkpoint_blocks: std::sync::Mutex<std::collections::HashSet<BlockHash>>,
 }
 
 impl AecService {
@@ -42,6 +45,7 @@ impl AecService {
         Self {
             aec: RwLock::new(ActiveElectionsContainer::new(config, base_latency)),
             clock: SteadyClock::default(),
+            awaited_checkpoint_blocks: Default::default(),
         }
     }
 
@@ -49,6 +53,7 @@ impl AecService {
         Self {
             aec: RwLock::new(ActiveElectionsContainer::default()),
             clock: SteadyClock::new_null(),
+            awaited_checkpoint_blocks: Default::default(),
         }
     }
 
@@ -367,6 +372,34 @@ impl AecService {
     #[cfg(feature = "rai_protocol")]
     pub(crate) fn report_block(&self, hash: &BlockHash) -> Option<Block> {
         self.aec.read().unwrap().report_block(hash)
+    }
+
+    /// RAI: checkpoint-finalized blocks the ledger lacked at installation
+    pub fn await_checkpoint_blocks(&self, hashes: impl IntoIterator<Item = BlockHash>) {
+        self.awaited_checkpoint_blocks
+            .lock()
+            .unwrap()
+            .extend(hashes);
+    }
+
+    pub fn checkpoint_block_arrived(&self, hash: &BlockHash) {
+        self.awaited_checkpoint_blocks.lock().unwrap().remove(hash);
+    }
+
+    pub fn awaited_checkpoint_blocks(&self) -> Vec<BlockHash> {
+        self.awaited_checkpoint_blocks
+            .lock()
+            .unwrap()
+            .iter()
+            .copied()
+            .collect()
+    }
+
+    pub fn awaits_checkpoint_block(&self, hash: &BlockHash) -> bool {
+        self.awaited_checkpoint_blocks
+            .lock()
+            .unwrap()
+            .contains(hash)
     }
 
     /// RAI: the retained blocks of the latest checkpoint the ledger follows

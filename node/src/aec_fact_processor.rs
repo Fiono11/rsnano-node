@@ -297,6 +297,7 @@ impl AecFactProcessor {
                 fetched += 1;
             }
             self.awaiting_cement.insert(hash);
+            self.active_elections.await_checkpoint_blocks([hash]);
         }
         if missing > 0 {
             crate::utils::diagnostic!(
@@ -375,7 +376,7 @@ impl AecFactProcessor {
             return;
         }
         self.events_since_cement_check += 1;
-        if self.events_since_cement_check < 256 {
+        if self.events_since_cement_check < 32 {
             return;
         }
         self.events_since_cement_check = 0;
@@ -389,6 +390,7 @@ impl AecFactProcessor {
         };
         for hash in arrived {
             self.awaiting_cement.remove(&hash);
+            self.active_elections.checkpoint_block_arrived(&hash);
             self.confirming_set.add_block(hash);
         }
     }

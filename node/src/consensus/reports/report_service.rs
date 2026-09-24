@@ -180,10 +180,41 @@ impl ReportService {
     /// `AecFactProcessor::follow_retained_branches`)
     pub(crate) fn follows_retained_branch(&self, block: &rsnano_types::Block) -> bool {
         let hash = block.hash();
-        self.active_elections
-            .latest_checkpoint()
-            .is_some_and(|state| state.retains_block(&hash))
+        (self.active_elections.awaits_checkpoint_block(&hash)
+            || self
+                .active_elections
+                .latest_checkpoint()
+                .is_some_and(|state| state.retains_block(&hash)))
             && !self.data.ledger_holds(&hash)
+    }
+
+    /// RAI: whether an evidence block goes to the block processor as well
+    /// as to the report data. Reporters re-gossip their G blocks and the
+    /// ancestry of them every few seconds while an epoch closes; processing
+    /// all of them again checked every signature on the live block path and
+    /// queued live blocks behind them. Only a block the ledger lacks where
+    /// it can take it is processed: a retained or checkpoint-finalized one,
+    /// one at a position the ledger holds nothing at, or a candidate of an
+    /// election active here.
+    pub(crate) fn evidence_for_ledger(&self, block: &rsnano_types::Block) -> bool {
+        let hash = block.hash();
+        let any = self.ledger.any();
+        if any.block_exists(&hash) {
+            return false;
+        }
+        if self
+            .active_elections
+            .is_active_root(&block.qualified_root())
+        {
+            return true;
+        }
+        let previous = block.previous();
+        if previous.is_zero() {
+            any.get_account(&block.account_field().unwrap_or_default())
+                .is_none()
+        } else {
+            any.block_exists(&previous) && any.block_successor(&previous).is_none()
+        }
     }
 
     /// Explicit diagnostic RPC only; never used by consensus or normal polling.
@@ -646,7 +677,7 @@ impl ReportService {
     /// RAI: ask every replica for the retained signed votes behind the
     /// entries this node can not justify, at most once a second per epoch
     /// and a bounded number of hashes at a time
-    fn request_evidence(&self, epoch: ConsensusEpoch, mut missing: Vec<rsnano_types::BlockHash>) {
+    fn request_evidence(&self, epoch: ConsensusEpoch, missing: Vec<rsnano_types::BlockHash>) {
         if missing.is_empty() {
             return;
         }
@@ -660,6 +691,19 @@ impl ReportService {
                 return;
             }
             requested.insert(epoch, now);
+        }
+        self.send_evidence_request(epoch, missing);
+    }
+
+    /// Asks every replica for the signed votes and the blocks behind these
+    /// hashes, a bounded number at a time
+    fn send_evidence_request(
+        &self,
+        epoch: ConsensusEpoch,
+        mut missing: Vec<rsnano_types::BlockHash>,
+    ) {
+        if missing.is_empty() {
+            return;
         }
         missing.sort();
         missing.dedup();
@@ -946,11 +990,39 @@ impl ReportService {
             }
             *checked = Some(now);
         }
+        let any = self.ledger.any();
+        let mut missing = Vec::new();
+        // Checkpoint-finalized blocks never received here: fetched, and
+        // forced in on arrival (see `follows_retained_branch`)
+        let mut awaited_counts: BTreeMap<&'static str, usize> = BTreeMap::new();
+        for hash in self.active_elections.awaited_checkpoint_blocks() {
+            if any.block_exists(&hash) {
+                continue;
+            }
+            match self.data.evidence_block(&hash) {
+                Some(block)
+                    if block.previous().is_zero() || any.block_exists(&block.previous()) =>
+                {
+                    *awaited_counts.entry("forced").or_default() += 1;
+                    self.block_processor_queue.push(BlockContext::new(
+                        block,
+                        BlockSource::Forced,
+                        ChannelId::LOOPBACK,
+                    ));
+                }
+                _ => {
+                    *awaited_counts.entry("fetching").or_default() += 1;
+                    missing.extend(self.data.missing_ancestor(&hash));
+                }
+            }
+        }
+        if !awaited_counts.is_empty() {
+            crate::utils::diagnostic!("EPOCH_AWAITED_FINALIZED {:?}", awaited_counts);
+        }
         let retained = self.active_elections.retained_to_follow();
         if retained.is_empty() {
-            return Vec::new();
+            return missing;
         }
-        let any = self.ledger.any();
         let mut at_position: HashMap<(rsnano_types::Account, u64), Vec<rsnano_types::BlockHash>> =
             HashMap::new();
         for (account, height, hash) in &retained {
@@ -960,7 +1032,6 @@ impl ReportService {
                 .push(*hash);
         }
         let mut counts: BTreeMap<&'static str, usize> = BTreeMap::new();
-        let mut missing = Vec::new();
         for (account, height, hash) in &retained {
             if any.block_exists(hash) {
                 continue;
@@ -1036,10 +1107,8 @@ impl ReportService {
         lap("inbound", &mut spent);
         self.log_unvoted();
         lap("unvoted_diagnostic", &mut spent);
-        let missing_retained = self.recheck_retained();
-        if !missing_retained.is_empty() {
-            self.request_evidence(self.active_elections.current_epoch(), missing_retained);
-        }
+        let missing_blocks = self.recheck_retained();
+        self.send_evidence_request(self.active_elections.current_epoch(), missing_blocks);
         lap("retained_recheck", &mut spent);
         // A report deferred for want of its predecessor checkpoint is signed
         // once that checkpoint is decided here
@@ -1252,6 +1321,48 @@ mod tests {
     };
     use rsnano_types::{Account, BlockHash, PrivateKey};
 
+    /// Re-gossiped report evidence the ledger already holds, or whose
+    /// position the ledger fills with another block and no election decides
+    /// here, stays out of the block processor. A block that extends the
+    /// ledger's frontier goes in.
+    #[test]
+    fn only_evidence_the_ledger_can_take_goes_to_the_block_processor() {
+        use rsnano_ledger::test_helpers::UnsavedBlockLatticeBuilder;
+        let ledger = Arc::new(rsnano_ledger::Ledger::new_null());
+        let mut lattice = UnsavedBlockLatticeBuilder::with_stub_work();
+        let key = PrivateKey::from(1);
+        let mut fork_lattice = lattice.clone();
+        let held = lattice.genesis().send(&key, 1);
+        let next = lattice.genesis().send(&key, 1);
+        let rival_of_held = fork_lattice.genesis().send(&PrivateKey::from(2), 1);
+        ledger.process_one(&held).unwrap();
+        let service = service_with(ledger.clone());
+
+        assert!(!service.evidence_for_ledger(&held), "already held");
+        assert!(
+            !service.evidence_for_ledger(&rival_of_held),
+            "its position is taken and no election decides it here"
+        );
+        assert!(service.evidence_for_ledger(&next), "extends the frontier");
+    }
+
+    /// A checkpoint-finalized block the ledger lacked at installation is
+    /// asked for, and forced in when it arrives as evidence
+    #[test]
+    fn an_awaited_checkpoint_block_is_fetched_and_followed() {
+        let service = ReportService::new_null();
+        let block = rsnano_types::Block::new_test_instance();
+        let hash = block.hash();
+        assert!(!service.follows_retained_branch(&block));
+
+        service.active_elections.await_checkpoint_blocks([hash]);
+        assert_eq!(service.recheck_retained(), vec![hash]);
+        assert!(service.follows_retained_branch(&block));
+
+        service.active_elections.checkpoint_block_arrived(&hash);
+        assert!(!service.follows_retained_branch(&block));
+    }
+
     #[test]
     fn diagnostics_distinguish_matching_hashes_from_missing_first_evidence() {
         let service = ReportService::new_null();
@@ -1354,5 +1465,21 @@ mod tests {
             Err(ReconRefusal::UnknownTarget)
         );
         assert!(service.source_refreshed.lock().unwrap().is_empty());
+    }
+
+    /* Test helpers */
+
+    fn service_with(ledger: Arc<rsnano_ledger::Ledger>) -> ReportService {
+        ReportService::new(
+            Arc::new(AecService::new_null()),
+            Arc::new(Mutex::new(WalletRepresentatives::new_null())),
+            MessageFlooder::new_null(),
+            MessageSender::new_null(),
+            Arc::new(SteadyClock::new_null()),
+            Arc::new(Stats::default()),
+            ledger,
+            Arc::new(std::sync::RwLock::new(crate::consensus::ForkCache::new())),
+            Arc::new(BlockProcessorQueue::new_null()),
+        )
     }
 }
