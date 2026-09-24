@@ -1948,6 +1948,28 @@ impl ActiveElectionsContainer {
             *first_votes.entry(voters).or_default() += 1;
             let Some(&block) = election.certificates().notar.first() else {
                 *counts.entry("no_nc").or_default() += 1;
+                let winner = election.winner().hash();
+                let slot = self.slots.get(&election.epoch_slot());
+                let kind = if self.epoch_states.is_finalized(&winner)
+                    || self.decided.values().any(|state| {
+                        state.is_finalized(
+                            &AccountSlot::new(election.account(), election.height()),
+                            &winner,
+                        )
+                    }) {
+                    "no_nc_block_final_elsewhere"
+                } else if election.candidate_blocks().len() > 1 {
+                    "no_nc_fork"
+                } else if !matches!(election.winner(), rsnano_types::MaybeSavedBlock::Saved(_)) {
+                    "no_nc_block_not_in_ledger"
+                } else if slot.is_some_and(|slot| slot.first_voted.is_some()) {
+                    "no_nc_self_voted"
+                } else if slot.is_some_and(|slot| slot.stale) {
+                    "no_nc_self_stale"
+                } else {
+                    "no_nc_self_not_voted"
+                };
+                *counts.entry(kind).or_default() += 1;
                 continue;
             };
             let previous = election.qualified_root().previous;
