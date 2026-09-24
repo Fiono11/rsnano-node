@@ -1878,10 +1878,59 @@ impl ActiveElectionsContainer {
             &self.decided,
         );
         settle_election(&mut self.roots, id, &self.observer, &mut result);
+        let finalized: Vec<(BlockHash, ConsensusEpoch)> = result
+            .confirmed
+            .iter()
+            .map(|entry| (entry.election.winner().hash(), entry.election.epoch()))
+            .collect();
         for entry in result.confirmed {
             self.cleanup_election(entry);
         }
         self.count_decided(&result.decided, now);
+        // A chain finalizes link by link without waiting for a tick
+        for (hash, epoch) in finalized {
+            self.recheck_children_of(&hash, epoch, now);
+        }
+    }
+
+    /// RAI: overlap eligibility depends on the parent being finalized, which
+    /// often happens after the child's notarization certificate formed; the
+    /// child then has all its votes and no further vote arrives to recheck
+    /// it. Every notarized instance still waiting for its predecessor
+    /// checkpoint is rechecked here, on the tick.
+    #[cfg(feature = "rai_protocol")]
+    fn recheck_overlap_eligibility(&mut self, now: Timestamp) {
+        let waiting: Vec<ElectionId> = self
+            .roots
+            .iter()
+            .map(|entry| &entry.election)
+            .filter(|election| {
+                !election.predecessor_decided()
+                    && !election.overlap_eligible()
+                    && !election.state().has_ended()
+                    && election.certificates().has_block()
+            })
+            .map(|election| election.id())
+            .collect();
+        for id in waiting {
+            self.check_overlap_eligibility(&id, now);
+        }
+    }
+
+    /// RAI: a block finalized; its children in the same epoch may have been
+    /// waiting on exactly that for overlap eligibility
+    #[cfg(feature = "rai_protocol")]
+    fn recheck_children_of(&mut self, hash: &BlockHash, epoch: ConsensusEpoch, now: Timestamp) {
+        let root = QualifiedRoot::new(rsnano_types::Root::from(*hash), *hash);
+        let children: Vec<ElectionId> = self
+            .roots
+            .elections_for_root(&root)
+            .filter(|election| election.epoch() == epoch)
+            .map(|election| election.id())
+            .collect();
+        for id in children {
+            self.check_overlap_eligibility(&id, now);
+        }
     }
 
     /// RAI, "Attachment and eligibility": "When S_{e-1} arrives, the
@@ -2089,8 +2138,10 @@ impl ActiveElectionsContainer {
     where
         T: ElectionCandidateSource,
     {
+        // RAI, "Lagged committees and lifecycle": a deferred boundary does
+        // not stop the open epoch: "voting in e+1 may continue"
         if self.cooldown.is_cooling_down()
-            || self.draining
+            || (self.draining && !cfg!(feature = "rai_protocol"))
             || self.roots.active_len() >= self.max_elections
         {
             return false;
@@ -2247,7 +2298,7 @@ impl ActiveElectionsContainer {
     /// How many election slots are available
     /// This is a soft limit and can be negative!
     pub fn vacancy(&self) -> i64 {
-        if self.cooldown.is_cooling_down() || self.draining {
+        if self.cooldown.is_cooling_down() || (self.draining && !cfg!(feature = "rai_protocol")) {
             return 0;
         }
         let current_size = self.roots.active_len() as i64;
@@ -2323,6 +2374,8 @@ impl ActiveElectionsContainer {
         for entry in self.roots.iter_mut() {
             entry.election.transition_time(now);
         }
+        #[cfg(feature = "rai_protocol")]
+        self.recheck_overlap_eligibility(now);
         self.erase_ended_elections();
         self.end_epoch_by_time(now);
         self.try_advance_epoch(now);
@@ -2695,10 +2748,20 @@ impl ActiveElectionsContainer {
             decided: &self.decided,
         };
         let result = apply_helper.apply_vote();
+        #[cfg(feature = "rai_protocol")]
+        let finalized: Vec<(BlockHash, ConsensusEpoch)> = result
+            .confirmed
+            .iter()
+            .map(|entry| (entry.election.winner().hash(), entry.election.epoch()))
+            .collect();
         for entry in result.confirmed {
             self.cleanup_election(entry);
         }
         self.count_decided(&result.decided, args.now);
+        #[cfg(feature = "rai_protocol")]
+        for (hash, epoch) in finalized {
+            self.recheck_children_of(&hash, epoch, args.now);
+        }
         // RAI: a vote may complete a block of the open epoch, or supply the
         // closing-epoch certificate that carries it across the boundary
         #[cfg(feature = "rai_protocol")]
@@ -3755,6 +3818,68 @@ mod tests {
             .insert(ConsensusEpoch::ZERO, Arc::new(EpochLedger::new()));
         container.release_predecessor_gate(epoch1, now);
         assert!(container.finalized_in_epoch(&unknown.hash(), epoch1));
+    }
+
+    /// RAI: a child whose fast certificate formed before its parent was
+    /// finalized becomes eligible the moment the parent finalizes, without
+    /// waiting for another vote or for the predecessor checkpoint
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn a_child_becomes_eligible_when_its_parent_finalizes() {
+        let parent = block_at(5, BlockHash::from(501), 2);
+        let child = block_at(5, parent.hash(), 3);
+        let (mut container, reps, rep_weights, now) = overlap_fixture(|history| {
+            history.finalize_genesis(
+                AccountSlot::new(PrivateKey::from(5).account(), 1),
+                BlockHash::from(501),
+            );
+        });
+        let epoch1 = ConsensusEpoch::new(1);
+        for block in [&parent, &child] {
+            container
+                .insert(
+                    AecInsertRequest::new_priority(
+                        block.clone(),
+                        BlockPriority::new_test_instance(),
+                    ),
+                    now,
+                )
+                .unwrap();
+        }
+        // Every first vote for the child arrives first: a fast tally, but the
+        // parent is not final yet, so the child is not eligible
+        for rep in &reps {
+            vote_in(
+                &mut container,
+                rep,
+                VoteKind::First,
+                epoch1,
+                child.hash(),
+                &rep_weights,
+                now,
+            );
+        }
+        assert!(!container.finalized_in_epoch(&child.hash(), epoch1));
+        assert!(
+            !container
+                .election_for_block(&child.hash())
+                .unwrap()
+                .overlap_eligible()
+        );
+        // The parent finalizes; nothing more arrives for the child
+        for rep in &reps {
+            vote_in(
+                &mut container,
+                rep,
+                VoteKind::First,
+                epoch1,
+                parent.hash(),
+                &rep_weights,
+                now,
+            );
+        }
+        assert!(container.finalized_in_epoch(&parent.hash(), epoch1));
+        assert!(container.finalized_in_epoch(&child.hash(), epoch1));
     }
 
     /// RAI, the first overlap exception: a closing-epoch notarized block

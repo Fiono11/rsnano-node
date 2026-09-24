@@ -345,8 +345,9 @@ impl EpochDecisionService {
             }
             last.insert(epoch, now);
         }
-        let (held, roots) = {
+        let (held, roots, status) = {
             let exchange = self.exchange.lock().unwrap();
+            let status = exchange.report_status(epoch);
             let reports = exchange.reports(epoch);
             (
                 reports.len(),
@@ -361,17 +362,19 @@ impl EpochDecisionService {
                         )
                     })
                     .collect::<Vec<_>>(),
+                status,
             )
         };
         diagnostic!(
-            "EPOCH_CLOSE_UNREADY epoch={} short_of={} usable={} weight={} required={} held={} theirs={:?}",
+            "EPOCH_CLOSE_UNREADY epoch={} short_of={} usable={} weight={} required={} held={} theirs={:?} status={:?}",
             epoch,
             reason,
             usable,
             weight.number(),
             required.number(),
             held,
-            roots
+            roots,
+            status
         );
     }
 

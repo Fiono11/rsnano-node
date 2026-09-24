@@ -370,6 +370,50 @@ impl ReportExchange {
         messages
     }
 
+    /// Per held report, how far it is from usable, for the diagnostics:
+    /// T reconstructed, G derived, N/F evidence (verified, or how many
+    /// entries lack a certificate here), membership checks
+    pub fn report_status(&self, epoch: ConsensusEpoch) -> Vec<String> {
+        let Some(held) = self.epochs.get(&epoch) else {
+            return Vec::new();
+        };
+        let mut status: Vec<String> = held
+            .theirs
+            .values()
+            .map(|their| {
+                let evidence = match &their.evidence {
+                    EvidenceState::Unchecked => "E?".to_string(),
+                    EvidenceState::Missing { hashes, .. } => format!("E-{}", hashes.len()),
+                    EvidenceState::Verified => "E".to_string(),
+                };
+                let member = match (&their.reconstructed, &their.residual) {
+                    (Some(state), Some(votes)) => {
+                        if held.valid_membership(&their.report, state, votes) {
+                            "M"
+                        } else {
+                            "M!"
+                        }
+                    }
+                    _ => "M?",
+                };
+                format!(
+                    "{}:{}{}{}{}",
+                    &their.report.reporter.to_string()[..8],
+                    if their.reconstructed.is_some() {
+                        "T"
+                    } else {
+                        "t"
+                    },
+                    if their.residual.is_some() { "G" } else { "g" },
+                    evidence,
+                    member
+                )
+            })
+            .collect();
+        status.sort();
+        status
+    }
+
     /// The reports of the epoch this node holds, reconstructed or not
     pub fn reports(&self, epoch: ConsensusEpoch) -> Vec<&Report> {
         self.epochs
