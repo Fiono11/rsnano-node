@@ -281,6 +281,21 @@ def run(args, label, binary, pair):
                         snapshot[action] = rpc(17076 + 10 * i, body)
                     except Exception as error:
                         snapshot[action] = {"collection_error": str(error)}
+                # Failure evidence is captured after the measured settlement
+                # verdict. It must not turn a late catch-up into a passing run.
+                if result.get("settled_consistent") is False:
+                    details = {"captured_at": time.time(), "epochs": []}
+                    try:
+                        details["checkpoint"] = rpc(17076 + 10 * i, {
+                            "action": "final_state", "diagnostic": "true",
+                            "checkpoint_only": "true"})
+                        for epoch in snapshot.get("final_state", {}).get("epochs", []):
+                            details["epochs"].append(rpc(17076 + 10 * i, {
+                                "action": "final_state", "epoch": epoch["epoch"]}))
+                    except Exception as error:
+                        details["collection_error"] = str(error)
+                    (directory / f"failure-node-{i}.json").write_text(
+                        json.dumps(details, indent=2) + "\n")
                 snapshots.append(snapshot)
         finally:
             # Preserve evidence even if OS process cleanup is refused.

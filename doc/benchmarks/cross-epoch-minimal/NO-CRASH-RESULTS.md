@@ -495,3 +495,33 @@ v24 avoids those AEC reads when possible: check ledger presence before the
 checkpoint lookup, and consult cached forks/retained report blocks before the
 AEC. Already held blocks still stay off the processor; missing retained blocks
 still enter the forced path, and placement still checks owner signatures.
+
+
+All 837 node tests pass; formatting and locked offline release build pass.
+Pinned v24 hashes:
+
+```text
+7cfd6b5969d91744fac8b761baa6ebc6c7a2b39c5698ab62637073870dd8830a  rsnano
+9135ae7b7cbe7b8194351765700bf3810710fa5d494cfb6f222ef99577635dc7  nanospam
+```
+
+The following batch requires 1 or 2 completed identical checkpoints, respectively.
+
+| Run | Non-fork goodput | p50 / p95 / p99 (ms) | Same end state on all six PRs |
+|---|---:|---:|---|
+| v24 one #1 | 1083 | 316 / 1970 / 18065 | no; lagging=1, conflicting=0 |
+| v24 two #1 | 1299 | 1942 / 5937 / 21589 | no; lagging=0, conflicting=0 |
+| v24 one #2 | 1213 | 590 / 2196 / 2920 | yes |
+| v24 two #2 | 1347 | 2678 / 6733 / 7286 | yes |
+
+v24 still fails the target: two-checkpoint p50 1,942–2,678 ms versus
+316–590 ms with one checkpoint. One #1 differed by one account (zero conflicts).
+Two #1 had no installed checkpoint-1 value on PR2 by collection, despite zero
+lagging/conflicting frontiers in the later frontier comparison. One #2 and
+two #2 met the stricter ledger-and-checkpoint requirement. A 2.4 s harness
+unit-test run overlapped this batch while adding post-verdict failure evidence;
+retain these measurements, but do not use them as a clean final comparison.
+Future failed runs save `failure-node-N.json` with checkpoint contents and
+per-epoch entries after the settlement verdict, before deleting databases.
+This evidence capture does not extend the measurement or revise a failed verdict.
+All 24 harness tests pass.
