@@ -299,6 +299,20 @@ impl RequestAggregatorLoop {
         }
 
         let mut remaining = self.aggregate(any, request);
+        // RAI: an epoch this node left gets its retained statements only
+        // (served above); a fresh signature there would change the vote set
+        // its frozen report committed to
+        if cfg!(feature = "rai_protocol")
+            && !self.active_elections.signs_account_votes_in(request.epoch)
+        {
+            self.stats.add_dir(
+                StatType::Requests,
+                DetailType::RequestsCannotVote,
+                Direction::In,
+                (remaining.remaining_normal.len() + remaining.remaining_final.len()) as u64,
+            );
+            return;
+        }
         // RAI: a final vote is the exit statement of an instance, it is handed
         // out again only if this node made it, for the epoch it made it in. A
         // block cemented as a dependency has its instance still running here,

@@ -1616,6 +1616,17 @@ impl ActiveElectionsContainer {
         self.current_epoch
     }
 
+    /// RAI, Algorithm 1 step 7: "stop old-epoch account signing" before the
+    /// report freezes. Whether this node may sign a new account vote in the
+    /// epoch: only while it has not left it. A request for an epoch it left
+    /// is answered with the statements it retains, never a fresh signature:
+    /// a vote signed after the report froze would add to V_i a hash the
+    /// signed G_i does not hold, and no replica deriving G_i later could
+    /// match the root again. Close rounds are separate instances.
+    pub fn signs_account_votes_in(&self, epoch: ConsensusEpoch) -> bool {
+        epoch.is_close_round() || (!self.frozen.contains(&epoch) && epoch >= self.current_epoch)
+    }
+
     pub fn set_current_epoch(&mut self, epoch: ConsensusEpoch) {
         self.current_epoch = epoch;
     }
@@ -1707,8 +1718,11 @@ impl ActiveElectionsContainer {
                 continue;
             }
             let Some(election) = self.roots.election(&target.election) else {
-                // The exit final vote of an election erased already
-                accepted.push(target);
+                // The exit final vote of an election erased already, unless
+                // its epoch was left in between
+                if self.signs_account_votes_in(target.election.epoch) {
+                    accepted.push(target);
+                }
                 continue;
             };
             if !self.account_voting || self.frozen.contains(&election.epoch()) {
@@ -3458,6 +3472,53 @@ mod tests {
         );
         assert_eq!(container.len(), 1);
     }
+    /// RAI: once this node left an epoch it signs no new account vote in it,
+    /// whatever asks: the vote set its frozen report committed to is final
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn no_account_vote_is_signed_in_an_epoch_this_node_left() {
+        let mut container = ActiveElectionsContainer::new(
+            ActiveElectionsConfig {
+                epoch_terminated_elections: 1,
+                ..Default::default()
+            },
+            Duration::from_secs(1),
+        );
+        let now = Timestamp::new_test_instance();
+        container.start_epochs(now);
+        assert!(container.signs_account_votes_in(ConsensusEpoch::ZERO));
+        let decided = SavedBlock::new_test_instance_with_key(1);
+        container
+            .insert(
+                AecInsertRequest::new_priority(decided.clone(), BlockPriority::new_test_instance()),
+                now,
+            )
+            .unwrap();
+        let rep_key = PrivateKey::from(1);
+        let mut rep_weights = RepWeights::default();
+        rep_weights.put(rep_key.public_key(), Amount::MAX);
+        container.apply_vote(ApplyVoteArgs {
+            vote: &test_final_vote(&rep_key, decided.hash()).into(),
+            rep_weights: &rep_weights,
+            quorum_snapshot: &QuorumSnapshot::new_test_instance(),
+            now,
+        });
+        container.transition_time(now);
+        assert_eq!(container.current_epoch(), ConsensusEpoch::new(1));
+        assert!(!container.signs_account_votes_in(ConsensusEpoch::ZERO));
+        assert!(container.signs_account_votes_in(ConsensusEpoch::new(1)));
+        assert!(
+            container.signs_account_votes_in(ConsensusEpoch::close_round(ConsensusEpoch::ZERO, 0))
+        );
+        // An exit final vote of an erased epoch-0 election is not signed
+        let stale = VoteTarget {
+            election: ElectionId::new(decided.qualified_root(), ConsensusEpoch::ZERO),
+            winner: decided.hash(),
+            vote_type: VoteType::Final,
+        };
+        assert!(container.mark_kudzu_voted(vec![stale]).is_empty());
+    }
+
     /// RAI, "Cross-epoch lock": a first vote released in the closing epoch
     /// keeps this node from first-voting a different block at the same
     /// position in the next epoch until the closing epoch's checkpoint is

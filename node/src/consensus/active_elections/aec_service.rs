@@ -138,6 +138,11 @@ impl AecService {
         self.aec.read().unwrap().epoch_report(epoch)
     }
 
+    /// RAI: whether this node may sign a new account vote in the epoch
+    pub fn signs_account_votes_in(&self, epoch: ConsensusEpoch) -> bool {
+        self.aec.read().unwrap().signs_account_votes_in(epoch)
+    }
+
     pub fn current_epoch(&self) -> ConsensusEpoch {
         self.aec.read().unwrap().current_epoch()
     }
