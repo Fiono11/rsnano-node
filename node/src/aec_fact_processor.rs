@@ -202,7 +202,7 @@ impl AecFactProcessor {
         let record = StageRecord::new(&block.hash(), block.timestamp(), election, now_ms);
         if let Some(line) = self.confirmation_stages.record(now_ms, record) {
             diagnostic!(
-                "{} block_queue={} vote_queue={} cementing={} aec={}",
+                "{} block_queue={} vote_queue={} cement_queue={} aec={}",
                 line,
                 self.block_processor_queue.total_queue_len(),
                 self.vote_processor.queue_len(),
