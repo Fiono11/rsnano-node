@@ -3,6 +3,7 @@ mod close_proof;
 mod epoch_decision;
 mod report_plugin;
 mod report_service;
+mod residual_data;
 
 pub use epoch_decision::EpochDecisionService;
 pub(crate) use report_plugin::{ReportPlugin, ReportTicker};
@@ -81,6 +82,7 @@ struct TheirReport {
     /// The state reconstructed for the signed root, once a difference has
     /// rebuilt it
     reconstructed: Option<CertifiedState>,
+    transfer: Option<ReconTransfer>,
     /// RAI: the residual object `g_i` commits to, once derived from the
     /// reporter's votes held here and checked against the signed root. A
     /// report is usable only with both.
@@ -93,6 +95,13 @@ struct TheirReport {
     /// Cells in the sketch sent for it; grows while the difference does not
     /// peel out
     cells: usize,
+}
+
+/// One bounded transfer per report. Partial pages are never usable evidence.
+struct ReconTransfer {
+    source: BlockHash,
+    base: CertifiedState,
+    pages: Vec<Option<ReconReply>>,
 }
 
 impl TheirReport {
@@ -420,6 +429,7 @@ impl ReportExchange {
                 report,
                 asked: None,
                 reconstructed: None,
+                transfer: None,
                 residual,
                 derived: None,
                 working: None,
@@ -712,11 +722,24 @@ impl ReportExchange {
     /// answer, and no answer is not a verdict. Of the sources it knows, it
     /// takes the one closest to the target.
     ///
-    /// The difference is the evidence two states of one epoch differ in and
-    /// is expected to be small. One that does not fit a reply goes
-    /// unanswered: the requester's live state keeps converging, and a later
-    /// shared source is closer to the target.
+    /// Single-page convenience for the original small-difference tests.
+    #[cfg(test)]
     pub fn handle_request(&self, request: &ReconReq) -> Result<ReconReply, ReconRefusal> {
+        let pages = self.handle_request_pages(request)?;
+        if pages.len() != 1 {
+            return Err(ReconRefusal::TooLarge(
+                pages.iter().map(|p| p.added.len() + p.removed.len()).sum(),
+            ));
+        }
+        Ok(pages.into_iter().next().unwrap())
+    }
+
+    /// Split the immutable canonical difference into bounded pages. No empty
+    /// source or full-target fallback is introduced; both roots must be known.
+    pub fn handle_request_pages(
+        &self,
+        request: &ReconReq,
+    ) -> Result<Vec<ReconReply>, ReconRefusal> {
         let target = self
             .epochs
             .get(&request.epoch)
@@ -733,7 +756,7 @@ impl ReportExchange {
             })
             .min_by_key(|(_, _, delta)| delta.len())
             .ok_or(ReconRefusal::UnknownSource)?;
-        if delta.len() > ReconReply::MAX_ENTRIES {
+        if delta.len() > ReconReply::MAX_ENTRIES * ReconReply::MAX_PAGES {
             return Err(ReconRefusal::TooLarge(delta.len()));
         }
         let entry = |block: &CertifiedBlock, held: &Certification| CertifiedEntry {
@@ -743,21 +766,35 @@ impl ReportExchange {
             previous: held.previous,
             status: held.status.as_byte(),
         };
-        Ok(ReconReply {
-            epoch: request.epoch,
-            source: source_root,
-            target: request.target,
-            added: delta
-                .added
-                .iter()
-                .map(|(block, held)| entry(block, held))
-                .collect(),
-            removed: delta
-                .removed
-                .iter()
-                .filter_map(|block| Some(entry(block, &source.certification(block)?)))
-                .collect(),
-        })
+        let removed: Vec<_> = delta
+            .removed
+            .iter()
+            .filter_map(|block| Some(entry(block, &source.certification(block)?)))
+            .collect();
+        let added: Vec<_> = delta
+            .added
+            .iter()
+            .map(|(block, held)| entry(block, held))
+            .collect();
+        let total = removed.len() + added.len();
+        let pages = total.div_ceil(ReconReply::MAX_ENTRIES).max(1);
+        Ok((0..pages)
+            .map(|page| {
+                let offset = page * ReconReply::MAX_ENTRIES;
+                let end = (offset + ReconReply::MAX_ENTRIES).min(total);
+                ReconReply {
+                    epoch: request.epoch,
+                    source: source_root,
+                    target: request.target,
+                    page: page as u16,
+                    pages: pages as u16,
+                    removed: removed[offset.min(removed.len())..end.min(removed.len())].to_vec(),
+                    added: added
+                        [offset.saturating_sub(removed.len())..end.saturating_sub(removed.len())]
+                        .to_vec(),
+                }
+            })
+            .collect())
     }
 
     /// RAI: apply a difference to the source it names and accept the
@@ -774,22 +811,62 @@ impl ReportExchange {
                 their.report.certified == reply.target && their.reconstructed.is_none()
             })
             .map(|(reporter, _)| *reporter)?;
-        let mut state = held.state(reply.source)?.clone();
-        for entry in &reply.removed {
+        let count = reply.added.len() + reply.removed.len();
+        if reply.pages == 0
+            || reply.pages as usize > ReconReply::MAX_PAGES
+            || reply.page >= reply.pages
+            || count > ReconReply::MAX_ENTRIES
+            || (reply.page + 1 < reply.pages && count != ReconReply::MAX_ENTRIES)
+            || (reply.pages > 1 && count == 0)
+            || reply
+                .added
+                .iter()
+                .chain(&reply.removed)
+                .any(|e| CertifiedStatus::from_byte(e.status).is_none())
+        {
+            return None;
+        }
+        let replace = held.theirs[&reporter]
+            .transfer
+            .as_ref()
+            .is_none_or(|t| t.source != reply.source || t.pages.len() != reply.pages as usize);
+        if replace {
+            let base = held.state(reply.source)?.clone();
+            held.theirs.get_mut(&reporter)?.transfer = Some(ReconTransfer {
+                source: reply.source,
+                base,
+                pages: vec![None; reply.pages as usize],
+            });
+        }
+        let their = held.theirs.get_mut(&reporter)?;
+        let transfer = their.transfer.as_mut()?;
+        transfer.pages[reply.page as usize] = Some(reply.clone());
+        if transfer.pages.iter().any(Option::is_none) {
+            return Some(ReconcileResult {
+                epoch: reply.epoch,
+                reporter,
+                complete: false,
+                entries: count,
+                total: transfer.base.len(),
+            });
+        }
+        let transfer = their.transfer.take()?;
+        let mut state = transfer.base;
+        let pages: Vec<_> = transfer.pages.into_iter().map(Option::unwrap).collect();
+        // Apply all removals before additions, including status replacements
+        // whose two edits straddle a page boundary.
+        for entry in pages.iter().flat_map(|p| &p.removed) {
             state.remove(&CertifiedBlock::new(
                 entry.account,
                 entry.height,
                 entry.hash,
             ));
         }
-        for entry in &reply.added {
-            let Some(status) = CertifiedStatus::from_byte(entry.status) else {
-                continue;
-            };
+        for entry in pages.iter().flat_map(|p| &p.added) {
             state.set(
                 CertifiedBlock::new(entry.account, entry.height, entry.hash),
                 Certification {
-                    status,
+                    status: CertifiedStatus::from_byte(entry.status)?,
                     previous: entry.previous,
                 },
             );
@@ -1319,6 +1396,8 @@ mod tests {
 
         // One entry short of the target
         let reply = ReconReply {
+            page: 0,
+            pages: 1,
             epoch,
             source: state_of(0..8).root(),
             target: request.target,
@@ -1342,42 +1421,58 @@ mod tests {
         );
     }
 
-    /// A difference that does not fit one reply is not answered: the
-    /// requester's live state keeps converging, and a later shared source is
-    /// closer to the target
     #[test]
-    fn a_difference_larger_than_a_reply_is_not_answered() {
+    fn paged_difference_survives_reordering_duplicates_and_retries() {
         let epoch = ConsensusEpoch::ZERO;
-        // Three entries short of the target, then one too many to fit
-        let far = ReconReply::MAX_ENTRIES as u64 + 4;
-        let mut exchange = ReportExchange::new();
-        exchange.report_epoch(
+        let key = PrivateKey::from(1);
+        let source = state_of(0..1300);
+        let target = state_of(1000..1601);
+        let mut responder = ReportExchange::new();
+        responder.report_epoch(
             epoch,
-            state_of(0..3),
+            target.clone(),
             ResidualVotes::new(),
             BlockHash::from(7),
             BlockHash::ZERO,
-            &[PrivateKey::from(1)],
+            &[key.clone()],
         );
-        let near = exchange.live_root(epoch).unwrap();
-        exchange.refresh_live(epoch, state_of(0..far));
-        let request = ReconReq {
-            epoch,
-            target: exchange.live_root(epoch).unwrap(),
-            sources: vec![near],
-        };
+        responder.refresh_live(epoch, source.clone());
+        let mut receiver = ReportExchange::new();
+        receiver.refresh_live(epoch, source.clone());
+        receiver.handle_report(signed(&key, epoch, &target));
+        let pages = responder
+            .handle_request_pages(&ReconReq {
+                epoch,
+                target: target.root(),
+                sources: vec![source.root()],
+            })
+            .unwrap();
+        assert_eq!(pages.len(), 3);
+        assert!(
+            pages
+                .iter()
+                .all(|p| p.added.len() + p.removed.len() <= ReconReply::MAX_ENTRIES)
+        );
+        assert!(!receiver.handle_reply(&pages[2]).unwrap().complete);
+        assert!(!receiver.handle_reply(&pages[2]).unwrap().complete);
+        assert!(!receiver.handle_reply(&pages[0]).unwrap().complete);
+        assert!(theirs_usable(&receiver, epoch).is_empty());
+        let mut corrupted = pages[1].clone();
+        corrupted.removed[0].hash = BlockHash::from(999999);
+        assert!(!receiver.handle_reply(&corrupted).unwrap().complete);
+        assert!(theirs_usable(&receiver, epoch).is_empty());
+        for page in &pages {
+            receiver.handle_reply(page);
+        }
+        assert_eq!(theirs_usable(&receiver, epoch).len(), 1);
         assert_eq!(
-            exchange.handle_request(&request),
-            Err(ReconRefusal::TooLarge(ReconReply::MAX_ENTRIES + 1))
+            receiver.epochs[&epoch].theirs[&key.public_key()]
+                .reconstructed
+                .as_ref()
+                .unwrap()
+                .root(),
+            target.root()
         );
-        // Once closer, it is
-        exchange.refresh_live(epoch, state_of(0..(far + 1)));
-        let request = ReconReq {
-            sources: vec![state_of(0..far).root()],
-            target: exchange.live_root(epoch).unwrap(),
-            ..request
-        };
-        assert_eq!(exchange.handle_request(&request).unwrap().added.len(), 1);
     }
 
     /// The live states of correct validators converge to the union of the

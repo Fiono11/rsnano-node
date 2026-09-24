@@ -845,6 +845,8 @@ impl Node {
             message_sender.clone(),
             steady_clock.clone(),
             stats.clone(),
+            ledger.clone(),
+            fork_cache.clone(),
         ));
         #[cfg(feature = "rai_protocol")]
         aec_event_handlers.add_mut(ReportPlugin::new(reports.clone()));

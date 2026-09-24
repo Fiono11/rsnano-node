@@ -174,3 +174,38 @@ The release binary and unchanged repaired client are hashed in the run manifest;
 source and build details are in the artifact-root `build-manifest.json`.
 Validation: 799 RAI node tests passed, default RPC-server check passed, release
 build passed. No other benchmark or replacement attempt was run for this change.
+
+
+## Fork data and paged T reconstruction
+
+The next isolated change addresses the two observed gaps:
+
+* T differences retain their known source and signed target roots, but are split
+  into pages of at most 600 edits, with at most 256 pages per transfer. One
+  bounded partial transfer is kept per report. Pages can arrive out of order or
+  repeat. No partial transfer is usable; all removals precede all additions and
+  the completed reconstruction must hash to the signed T root. A failed root
+  check drops the partial transfer so a correct retry can recover. There is no
+  empty-source or full-target fallback. Periodic requests retry missing pages.
+* Each reporter retains and periodically publishes block data for its frozen G
+  alongside original signed votes. For received signed votes without election
+  placement, reconstruction consults validated ledger data or verifies a state
+  block's owner signature and same-account parent ancestry from locally held
+  fork data. Only a matching vote already retained after signature validation
+  can acquire this placement. This establishes account/height/parent metadata,
+  not notarization, eligibility or finality. Unknown ancestry and invalid
+  signatures leave the vote unplaced. Legacy/epoch-signer variants are not
+  inferred; raw ancestry traversal is bounded to 256 steps.
+
+T reply framing now includes page number/count. The instrumented node and client
+must be built together for this experimental wire revision; mixed-version RAI
+peers are not claimed compatible. Checkpoint pages keep their outer paging and
+encode each embedded difference as one page. Frozen baseline binaries remain
+unchanged. Retained blocks and signatures are in memory, not crash-durable.
+
+Predeclared evaluation: one candidate-only fork diagnostic with the existing
+156-second baseline-derived ceiling, six nodes, 5% probabilistic forks, 45,000
+requested publications and 8-second epochs. Rebuild the client for the wire
+change without changing workload logic. This is not a matching baseline
+calibration or a performance comparison. Preserve the attempt whether or not
+termination succeeds; delete its generated databases after evidence capture.

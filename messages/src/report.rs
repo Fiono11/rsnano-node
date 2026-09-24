@@ -237,6 +237,8 @@ impl CertifiedEntry {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReconReply {
     pub epoch: ConsensusEpoch,
+    pub page: u16,
+    pub pages: u16,
     /// r_s: the source the responder took, one of those the request offered
     pub source: BlockHash,
     pub target: BlockHash,
@@ -247,16 +249,17 @@ pub struct ReconReply {
 }
 
 impl ReconReply {
-    /// Edits in one reply, bounded by the message size: an entry is 105
-    /// bytes against a payload of 64 KiB. A difference between two states of
-    /// one epoch is the evidence that arrived between them and is small in
-    /// the common case; one larger than this is not answered, and the
-    /// requester reconstructs from a later shared state instead.
+    /// Edits per page, bounded by the 64 KiB message payload. The source and
+    /// target roots identify one immutable difference across all pages.
     pub const MAX_ENTRIES: usize = 600;
+    /// Bound total buffered edits independently of untrusted page counts.
+    pub const MAX_PAGES: usize = 256;
 
     pub fn new_test_instance() -> Self {
         Self {
             epoch: ConsensusEpoch::new(1),
+            page: 0,
+            pages: 1,
             source: BlockHash::from(2),
             target: BlockHash::from(3),
             added: vec![CertifiedEntry {
@@ -281,6 +284,8 @@ impl ReconReply {
         T: std::io::Write,
     {
         self.epoch.serialize(writer)?;
+        writer.write_all(&self.page.to_le_bytes())?;
+        writer.write_all(&self.pages.to_le_bytes())?;
         self.source.serialize(writer)?;
         self.target.serialize(writer)?;
         writer.write_all(&(self.added.len() as u16).to_le_bytes())?;
@@ -307,6 +312,14 @@ impl ReconReply {
     ) -> Result<Self, DeserializationError> {
         let bytes = &mut bytes;
         let epoch = ConsensusEpoch::deserialize(bytes)?;
+        let mut value = [0u8; 2];
+        read_exact(bytes, &mut value)?;
+        let page = u16::from_le_bytes(value);
+        read_exact(bytes, &mut value)?;
+        let pages = u16::from_le_bytes(value);
+        if pages == 0 || pages as usize > Self::MAX_PAGES || page >= pages {
+            return Err(DeserializationError::InvalidData);
+        }
         let source = BlockHash::deserialize(bytes)?;
         let target = BlockHash::deserialize(bytes)?;
         let mut added_len = [0u8; 2];
@@ -328,6 +341,8 @@ impl ReconReply {
         }
         Ok(Self {
             epoch,
+            page,
+            pages,
             source,
             target,
             added,
@@ -607,6 +622,28 @@ mod tests {
     use crate::{Message, assert_deserializable};
 
     #[test]
+    fn reconstruction_page_indices_are_bounded() {
+        for (page, pages) in [(0, 0), (2, 2), (0, ReconReply::MAX_PAGES as u16 + 1)] {
+            let reply = ReconReply {
+                page,
+                pages,
+                ..ReconReply::new_test_instance()
+            };
+            let mut bytes = Vec::new();
+            reply.serialize(&mut bytes).unwrap();
+            assert!(ReconReply::deserialize(&bytes).is_err());
+        }
+        let reply = ReconReply {
+            page: 1,
+            pages: 2,
+            ..ReconReply::new_test_instance()
+        };
+        let mut bytes = Vec::new();
+        reply.serialize(&mut bytes).unwrap();
+        assert_eq!(ReconReply::deserialize(&bytes).unwrap(), reply);
+    }
+
+    #[test]
     fn serialize_report() {
         assert_deserializable(&Message::Report(Report::new_test_instance()));
     }
@@ -695,6 +732,8 @@ mod tests {
     #[test]
     fn serialize_a_recon_reply_with_no_edits() {
         let reply = ReconReply {
+            page: 0,
+            pages: 1,
             added: Vec::new(),
             removed: Vec::new(),
             ..ReconReply::new_test_instance()

@@ -355,6 +355,34 @@ impl AecService {
     }
 
     #[cfg(feature = "rai_protocol")]
+    pub(crate) fn report_block(&self, hash: &BlockHash) -> Option<Block> {
+        self.aec.read().unwrap().report_block(hash)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn unplaced_signed(
+        &self,
+        epoch: ConsensusEpoch,
+        voter: &PublicKey,
+    ) -> Vec<(BlockHash, crate::consensus::election::ResidualKind)> {
+        self.aec.read().unwrap().unplaced_signed(epoch, voter)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn place_signed(
+        &self,
+        epoch: ConsensusEpoch,
+        voter: PublicKey,
+        votes: Vec<(
+            crate::consensus::election::CertifiedBlock,
+            crate::consensus::election::ResidualKind,
+            BlockHash,
+        )>,
+    ) {
+        self.aec.write().unwrap().place_signed(epoch, voter, votes);
+    }
+
+    #[cfg(feature = "rai_protocol")]
     pub fn signed_votes_for(
         &self,
         epoch: ConsensusEpoch,

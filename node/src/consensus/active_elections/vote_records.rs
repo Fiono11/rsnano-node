@@ -78,6 +78,46 @@ impl VoteRecords {
         result
     }
 
+    pub fn unplaced_signed(
+        &self,
+        epoch: ConsensusEpoch,
+        voter: &PublicKey,
+    ) -> Vec<(BlockHash, ResidualKind)> {
+        let placed: HashSet<_> = self
+            .votes_of(epoch, voter)
+            .into_iter()
+            .map(|(b, k, _)| (b.hash, k))
+            .collect();
+        self.signed
+            .get(&epoch)
+            .and_then(|e| e.get(voter))
+            .into_iter()
+            .flat_map(|votes| votes.keys())
+            .filter(|key| !placed.contains(key))
+            .copied()
+            .collect()
+    }
+
+    /// Placement comes from owner-signed block data, never a report/sketch hint.
+    /// A matching original signature must already have passed vote ingress.
+    pub fn place_signed(
+        &mut self,
+        epoch: ConsensusEpoch,
+        voter: PublicKey,
+        block: CertifiedBlock,
+        kind: ResidualKind,
+        previous: BlockHash,
+    ) {
+        if self
+            .signed
+            .get(&epoch)
+            .and_then(|e| e.get(&voter))
+            .is_some_and(|v| v.contains_key(&(block.hash, kind)))
+        {
+            self.record(epoch, voter, block, kind, previous);
+        }
+    }
+
     /// Records one vote of a voter for a block of an epoch, with the parent
     /// the block names. A vote seen twice is one vote.
     pub fn record(
@@ -139,6 +179,53 @@ impl VoteRecords {
 mod tests {
     use super::*;
     use rsnano_types::Account;
+
+    #[test]
+    fn placement_requires_a_matching_retained_signature() {
+        let mut records = VoteRecords::default();
+        let key = rsnano_types::PrivateKey::from(7);
+        let b = CertifiedBlock::new(Account::from(1), 1, BlockHash::from(2));
+        let epoch = ConsensusEpoch::ZERO;
+        records.place_signed(
+            epoch,
+            key.public_key(),
+            b,
+            ResidualKind::First,
+            BlockHash::ZERO,
+        );
+        assert!(records.votes_of(epoch, &key.public_key()).is_empty());
+        let vote = Arc::new(Vote::new_in_epoch(
+            &key,
+            VoteKind::First,
+            epoch,
+            vec![b.hash],
+        ));
+        records.retain_signed(&vote);
+        assert_eq!(
+            records.unplaced_signed(epoch, &key.public_key()),
+            vec![(b.hash, ResidualKind::First)]
+        );
+        records.place_signed(
+            epoch,
+            key.public_key(),
+            b,
+            ResidualKind::Final,
+            BlockHash::ZERO,
+        );
+        assert!(records.votes_of(epoch, &key.public_key()).is_empty());
+        records.place_signed(
+            epoch,
+            key.public_key(),
+            b,
+            ResidualKind::First,
+            BlockHash::ZERO,
+        );
+        assert_eq!(
+            records.votes_of(epoch, &key.public_key()),
+            vec![(b, ResidualKind::First, BlockHash::ZERO)]
+        );
+        assert!(records.unplaced_signed(epoch, &key.public_key()).is_empty());
+    }
 
     #[test]
     fn signed_replay_preserves_batches_and_is_scoped_and_trimmed() {

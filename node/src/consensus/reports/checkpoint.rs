@@ -59,6 +59,8 @@ impl CheckpointDifference {
             offset: request.offset,
             total: total as u32,
             difference: ReconReply {
+                page: 0,
+                pages: 1,
                 epoch: self.epoch,
                 source: self.source,
                 target: self.target,

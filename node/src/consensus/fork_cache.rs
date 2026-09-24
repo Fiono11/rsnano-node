@@ -77,6 +77,15 @@ impl ForkCache {
         self.forks.contains_key(root)
     }
 
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn block(&self, hash: &BlockHash) -> Option<Block> {
+        self.forks
+            .values()
+            .flat_map(Entry::iter)
+            .find(|b| b.hash() == *hash)
+            .cloned()
+    }
+
     pub fn get_forks(&self, root: &QualifiedRoot) -> impl Iterator<Item = &Block> + use<'_> {
         self.forks.get(root).unwrap_or(&self.empty).iter()
     }

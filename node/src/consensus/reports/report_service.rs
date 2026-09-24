@@ -5,7 +5,8 @@ use std::{
 };
 
 use rsnano_messages::{
-    ConfirmAck, Message, ReconReply, ReconReq, Report, ResidualSketchReply, ResidualSketchReq,
+    ConfirmAck, Message, Publish, ReconReply, ReconReq, Report, ResidualSketchReply,
+    ResidualSketchReq,
 };
 use rsnano_network::{Channel, TrafficType};
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
@@ -42,22 +43,26 @@ pub struct ReportService {
     pending: Mutex<HashMap<ConsensusEpoch, Arc<EpochReport>>>,
     source_refreshed: Mutex<HashMap<ConsensusEpoch, Timestamp>>,
     votes_repeated: Mutex<Option<Timestamp>>,
+    data: super::residual_data::ResidualData,
 }
 
 #[allow(dead_code)] // reconciled_count is read by the close, Section 9.1
 impl ReportService {
     const LOG_INTERVAL: Duration = Duration::from_secs(1);
 
-    pub fn new(
+    pub(crate) fn new(
         active_elections: Arc<AecService>,
         wallet_reps: Arc<Mutex<WalletRepresentatives>>,
         flooder: MessageFlooder,
         sender: MessageSender,
         clock: Arc<SteadyClock>,
         stats: Arc<Stats>,
+        ledger: Arc<rsnano_ledger::Ledger>,
+        forks: Arc<std::sync::RwLock<crate::consensus::ForkCache>>,
     ) -> Self {
         Self {
             exchange: Arc::new(Mutex::new(ReportExchange::new())),
+            data: super::residual_data::ResidualData::new(ledger, forks, active_elections.clone()),
             active_elections,
             wallet_reps,
             flooder: Mutex::new(flooder),
@@ -120,6 +125,8 @@ impl ReportService {
             MessageSender::new_null(),
             Arc::new(SteadyClock::new_null()),
             Arc::new(Stats::default()),
+            Arc::new(rsnano_ledger::Ledger::new_null()),
+            Arc::new(std::sync::RwLock::new(crate::consensus::ForkCache::new())),
         )
     }
 
@@ -171,6 +178,8 @@ impl ReportService {
         if keys.is_empty() {
             return;
         }
+        self.data
+            .retain(epoch, report.residual.entries().map(|(b, _, _)| b.hash));
         let certified = report.certified.len();
         let residual = report.residual.hash_count();
         let [r, n, f] = report.certified.status_counts();
@@ -258,7 +267,10 @@ impl ReportService {
             .inc_dir(StatType::Message, DetailType::ReconReq, Direction::In);
         let reply = self.answer_request(&request);
         match reply {
-            Ok(reply) => self.send(vec![ReportMessage::Reply(reply)], Some(channel)),
+            Ok(replies) => self.send(
+                replies.into_iter().map(ReportMessage::Reply).collect(),
+                Some(channel),
+            ),
             Err(refusal) => {
                 if self.log_due(request.epoch, true) {
                     crate::utils::diagnostic!(
@@ -280,8 +292,8 @@ impl ReportService {
     /// A completed handoff must still serve lagging validators. Its periodic
     /// reconstruction loop has stopped, so refresh on an unknown source.
     /// Known sources take the existing fast path; unknown targets do no work.
-    fn answer_request(&self, request: &ReconReq) -> Result<ReconReply, ReconRefusal> {
-        let reply = self.exchange.lock().unwrap().handle_request(request);
+    fn answer_request(&self, request: &ReconReq) -> Result<Vec<ReconReply>, ReconRefusal> {
+        let reply = self.exchange.lock().unwrap().handle_request_pages(request);
         if !matches!(reply, Err(ReconRefusal::UnknownSource)) {
             return reply;
         }
@@ -300,7 +312,7 @@ impl ReportService {
         let projection = self.active_elections.epoch_certified(request.epoch);
         let mut exchange = self.exchange.lock().unwrap();
         exchange.refresh_live(request.epoch, projection);
-        exchange.handle_request(request)
+        exchange.handle_request_pages(request)
     }
 
     /// RAI: a difference towards a report this node is reconstructing. It is
@@ -324,6 +336,18 @@ impl ReportService {
         {
             return;
         }
+        let unplaced = self.active_elections.unplaced_signed(epoch, &reporter);
+        let unplaced_count = unplaced.len();
+        let placements: Vec<_> = unplaced
+            .into_iter()
+            .filter_map(|(hash, kind)| {
+                let (block, previous) = self.data.placement(&hash)?;
+                Some((block, kind, previous))
+            })
+            .collect();
+        let placed_count = placements.len();
+        self.active_elections
+            .place_signed(epoch, reporter, placements);
         let votes = self.active_elections.vote_records_of(epoch, &reporter);
         let held = votes.len();
         let result = self
@@ -333,12 +357,14 @@ impl ReportService {
             .derive_residual(epoch, reporter, votes, now);
         if let Some(result) = result {
             crate::utils::diagnostic!(
-                "EPOCH_RESIDUAL epoch={} reporter={} votes={} derived={} complete={}",
+                "EPOCH_RESIDUAL epoch={} reporter={} votes={} derived={} complete={} unplaced={} placed={}",
                 epoch,
                 reporter,
                 held,
                 result.total,
-                result.complete
+                result.complete,
+                unplaced_count,
+                placed_count
             );
         }
         // Retry from validated reporter votes. A hash-only G commitment
@@ -420,9 +446,32 @@ impl ReportService {
                 .collect()
         };
         for (epoch, reporter, hashes) in requests {
+            self.data.retain(epoch, hashes.iter().copied());
+            let blocks = self.data.retained(epoch, &hashes);
+            let block_count = blocks.len();
+            {
+                let mut flooder = self.flooder.lock().unwrap();
+                for block in blocks {
+                    flooder.flood_prs_and_some_non_prs(
+                        &Message::Publish(Publish::new_evidence(block)),
+                        TrafficType::BlockBroadcastInitial,
+                        1.0,
+                    );
+                }
+            }
             let votes = self
                 .active_elections
                 .signed_votes_for(epoch, &reporter, &hashes);
+            if !hashes.is_empty() {
+                crate::utils::diagnostic!(
+                    "EPOCH_RESIDUAL_DATA epoch={} reporter={} wanted={} blocks={} signed_batches={}",
+                    epoch,
+                    reporter,
+                    hashes.len(),
+                    block_count,
+                    votes.len()
+                );
+            }
             if votes.is_empty() {
                 continue;
             }
@@ -688,7 +737,7 @@ mod tests {
             service.exchange.lock().unwrap().handle_request(&request),
             Err(ReconRefusal::UnknownSource)
         );
-        let reply = service.answer_request(&request).unwrap();
+        let reply = service.answer_request(&request).unwrap().remove(0);
         assert_eq!(reply.target, frozen.root());
         assert_eq!(reply.added.len(), 1);
         assert_eq!(

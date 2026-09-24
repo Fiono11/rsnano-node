@@ -2420,6 +2420,37 @@ impl ActiveElectionsContainer {
     }
 
     #[cfg(feature = "rai_protocol")]
+    pub fn report_block(&self, hash: &BlockHash) -> Option<Block> {
+        self.roots
+            .election_for_block(hash)?
+            .candidate_blocks()
+            .get(hash)
+            .map(|b| (**b).clone())
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn unplaced_signed(
+        &self,
+        epoch: ConsensusEpoch,
+        voter: &PublicKey,
+    ) -> Vec<(BlockHash, ResidualKind)> {
+        self.vote_records.unplaced_signed(epoch, voter)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    pub fn place_signed(
+        &mut self,
+        epoch: ConsensusEpoch,
+        voter: PublicKey,
+        votes: Vec<(CertifiedBlock, ResidualKind, BlockHash)>,
+    ) {
+        for (block, kind, previous) in votes {
+            self.vote_records
+                .place_signed(epoch, voter, block, kind, previous);
+        }
+    }
+
+    #[cfg(feature = "rai_protocol")]
     pub fn signed_votes_for(
         &self,
         epoch: ConsensusEpoch,
