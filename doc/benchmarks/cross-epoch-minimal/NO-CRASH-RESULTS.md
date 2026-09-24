@@ -1223,3 +1223,31 @@ ms, 94 at 1–2 s, none at 2–4 s, 15 at 4 s or more. 332 fork blocks were
 unresolved when load ended. p50 falls inside the count-based two-checkpoint
 band (170–219 ms); p95 and p99 fall below it (1,044–1,300 and 1,292–1,762 ms).
 This is one run; it is not evidence that timed epochs are faster.
+
+### v41 timed epochs with one faulty representative (single runs)
+
+10 s epochs, at least two checkpoints, five forks, `equal_weight`, f=1, p=1,
+`certificate_only`. `offline1`: nanospam `--offline 1` (one representative runs
+no node and never votes; its weight stays). `byz1`: nanospam `--byzantine 1`
+(one representative runs no node; nanospam votes with its key at random). Both
+use harness `--absent 1`, so the checks query the five running nodes.
+
+| Run | Non-fork goodput | p50 / p95 / p99 (ms) | Same end state on all five PRs |
+|---|---:|---:|---|
+| v41 time10000ms-offline1 #1 | 1649 | 119 / 278 / 652 | yes |
+| v41 time10000ms-byz1 #1 | 1248 | 166 / 672 / 957 | yes |
+
+offline1: two boundaries; checkpoint 0 closed 1.8–1.9 s after its boundary
+(about 6 s with six nodes), checkpoint 1 after 4.1–4.8 s. Non-fork bands: 40,920
+under 300 ms, 1,709 at 300–1,000 ms, none at 1–2 s, 33 at 2–4 s, 69 at 4 s or more.
+343 fork blocks unresolved at the end. Host load: Cursor renderer 24% at start.
+
+byz1: goodput fell to 1,248, so the load lasted longer and a third boundary fell
+in it; all three checkpoints were installed and matched on the five nodes.
+Checkpoint 0 closed 3.9–4.1 s and checkpoint 1 4.7 s after their boundaries.
+Non-fork bands: 29,657 under 300 ms, 12,739 at 300–1,000 ms, 267 at 1–2 s, 7 at
+2–4 s, 73 at 4 s or more. No fork block was left unresolved; no conflicting
+accounts. Host load was quiet.
+
+Both are single runs. Five nodes share the eight cores instead of six, which
+likely explains part of offline1 being faster than the six-node runs.
