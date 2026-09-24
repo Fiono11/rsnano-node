@@ -90,3 +90,15 @@ Baseline-derived process deadlines remain unchanged.
 
 Full recorded results: [PERFORMANCE.md](PERFORMANCE.md), including the latest
 optimized batch stopped on a baseline settlement failure.
+
+## Successful-run data cleanup
+
+At the user's request, subsequent runs delete their generated `data/` directory
+only after completion, consistent settlement, process cleanup and saving
+results/logs/RPC snapshots. TOML configuration files are copied to `saved-config/`;
+`data-cleanup.json` inventories the deleted files and records free disk space.
+Failed-run data is retained for diagnosis. `--keep-data` opts out for a run
+that needs later database inspection. The active reconciliation-refresh batch
+used a companion watcher to apply the same policy without changing its pinned
+measurement harness. Its first seven successful data directories were reclaimed
+during the eighth attempt's setup; subsequent directories are removed on completion.
