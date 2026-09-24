@@ -48,16 +48,15 @@ def rpc(port, body):
 
 def settled(states, forks=0):
     """All PRs terminated with the same state: every node's final-state hash
-    (its cemented frontiers) and cemented count are equal and no election is
-    still collecting votes. Without forks every held block must also be
-    cemented; with forks an exactly split position may stay unresolved on
-    every node, and is reported rather than required."""
+    (its cemented frontiers) and cemented count are equal. Without forks
+    every held block must also be cemented and no election pending, as
+    before. With forks an exactly split position may stay unresolved, and
+    elections still collecting votes on it are reported (`state_summary`),
+    not required to vanish: they do not change the state."""
     if not states or any("count" not in s["block_count"] for s in states):
         return False
-    if any(s["final_state"].get("pending") != "0" for s in states):
-        return False
     if forks == 0 and any(s["block_count"].get("count") != s["block_count"].get("cemented")
-                          for s in states):
+                          or s["final_state"].get("pending") != "0" for s in states):
         return False
     return (len({s["final_state"].get("hash") for s in states}) == 1
             and len({s["block_count"].get("cemented") for s in states}) == 1)

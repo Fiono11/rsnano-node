@@ -71,8 +71,10 @@ class PerformanceGateTests(unittest.TestCase):
         states[4]["block_count"]["cemented"] = "99"
         self.assertFalse(settled(states, forks=5))
         states[4]["block_count"]["cemented"] = "100"
+        # Elections still open on a split position do not change the state
         states[5]["final_state"]["pending"] = "2"
-        self.assertFalse(settled(states, forks=5))
+        self.assertTrue(settled(states, forks=5))
+        self.assertFalse(settled([dict(s, block_count={"count": "100", "cemented": "100"}) for s in states]))
 
     def test_settlement_failure_is_not_a_performance_pass(self):
         results = self.results()
