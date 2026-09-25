@@ -1,0 +1,78 @@
+{
+  "pair": 0,
+  "label": "develop",
+  "command": [
+    "/Users/ruimorais/rsnano-node/doc/benchmarks/paper-eval-2026-09-24/bin/develop/nanospam",
+    "--data-dir",
+    "/Users/ruimorais/rsnano-node/doc/benchmarks/paper-eval-2026-09-24/runs/nofork-offline1/pair-00-develop/data",
+    "--prs",
+    "6",
+    "--no-prio",
+    "--blocks",
+    "45000",
+    "--accounts",
+    "45000",
+    "--rate",
+    "2000",
+    "--fork-percentage",
+    "0",
+    "--no-kill",
+    "--offline",
+    "1"
+  ],
+  "node": "/Users/ruimorais/rsnano-node/doc/benchmarks/paper-eval-2026-09-24/bin/develop/rsnano",
+  "node_sha256": "f8586d924500aace44d5a7544b15a381a32bdfef74d0dbc0c21c3b41cf3401c8",
+  "client_sha256": "15e588f2eefc4c112831a91acb0ae65c18c45a9edcc50bd0f029efeea8312b4f",
+  "started": 1790292353.6710851,
+  "timeout_seconds": 420,
+  "timeout_basis": {
+    "rule": "initial baseline calibration ceiling"
+  },
+  "disk_free_before": 33705431040,
+  "publish_timeout_seconds": 41,
+  "publish_started_after_secs": 115.53117337499862,
+  "exit_code": 0,
+  "timed_out": false,
+  "client_secs": 139.1251997947693,
+  "ledgers_consistent": true,
+  "checkpoints_consistent": true,
+  "required_checkpoints": 0,
+  "settled_consistent": true,
+  "end_states": [
+    {
+      "cemented": "45065",
+      "count": "45065",
+      "hash": null,
+      "pending": null,
+      "empty": null
+    },
+    {
+      "cemented": "45065",
+      "count": "45065",
+      "hash": null,
+      "pending": null,
+      "empty": null
+    },
+    {
+      "cemented": "45065",
+      "count": "45065",
+      "hash": null,
+      "pending": null,
+      "empty": null
+    },
+    {
+      "cemented": "45065",
+      "count": "45065",
+      "hash": null,
+      "pending": null,
+      "empty": null
+    },
+    {
+      "cemented": "45065",
+      "count": "45065",
+      "hash": null,
+      "pending": null,
+      "empty": null
+    }
+  ]
+}

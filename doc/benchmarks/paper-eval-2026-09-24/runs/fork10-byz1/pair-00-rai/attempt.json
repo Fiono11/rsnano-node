@@ -1,0 +1,89 @@
+{
+  "pair": 0,
+  "label": "rai",
+  "command": [
+    "/tmp/rai-cross-epoch-artifacts/bin/no-crash-v41/nanospam",
+    "--data-dir",
+    "/Users/ruimorais/rsnano-node/doc/benchmarks/paper-eval-2026-09-24/runs/fork10-byz1/pair-00-rai/data",
+    "--prs",
+    "6",
+    "--no-prio",
+    "--blocks",
+    "45000",
+    "--accounts",
+    "45000",
+    "--rate",
+    "2000",
+    "--fork-percentage",
+    "10",
+    "--no-kill",
+    "--epoch-duration-ms",
+    "8000",
+    "--committee-model",
+    "equal_weight",
+    "--committee-f",
+    "1",
+    "--committee-p",
+    "1",
+    "--checkpoint-finalization",
+    "certificate_only",
+    "--byzantine",
+    "1"
+  ],
+  "node": "/tmp/rai-cross-epoch-artifacts/bin/no-crash-v41/rsnano",
+  "node_sha256": "32e0a47c618d0e04c9620de9edeed8e831c00adb83e0d8f236ff42eb7ead5115",
+  "client_sha256": "9135ae7b7cbe7b8194351765700bf3810710fa5d494cfb6f222ef99577635dc7",
+  "started": 1790293476.2359931,
+  "timeout_seconds": 420,
+  "timeout_basis": {
+    "rule": "initial baseline calibration ceiling"
+  },
+  "disk_free_before": 33665703936,
+  "publish_timeout_seconds": null,
+  "exit_code": 0,
+  "timed_out": false,
+  "client_secs": 285.560302734375,
+  "ledgers_consistent": false,
+  "checkpoints_consistent": false,
+  "required_checkpoints": 3,
+  "settled_consistent": false,
+  "end_states": [
+    {
+      "cemented": "46794",
+      "count": "48224",
+      "hash": "56A1382C6BECD8CC17834B08AA79F36523D4E65939BF9D024C7087C5BB228451",
+      "pending": "1979",
+      "empty": "2884"
+    },
+    {
+      "cemented": "46794",
+      "count": "48224",
+      "hash": "56A1382C6BECD8CC17834B08AA79F36523D4E65939BF9D024C7087C5BB228451",
+      "pending": "1982",
+      "empty": "2884"
+    },
+    {
+      "cemented": "46793",
+      "count": "48224",
+      "hash": "C3981F2D3337458CACF75C58C5242EFCD895710665CF2C57E65C7FBB8DD56719",
+      "pending": "1980",
+      "empty": "2883"
+    },
+    {
+      "cemented": "46794",
+      "count": "48224",
+      "hash": "56A1382C6BECD8CC17834B08AA79F36523D4E65939BF9D024C7087C5BB228451",
+      "pending": "1982",
+      "empty": "2884"
+    },
+    {
+      "cemented": "46793",
+      "count": "48224",
+      "hash": "C3981F2D3337458CACF75C58C5242EFCD895710665CF2C57E65C7FBB8DD56719",
+      "pending": "1978",
+      "empty": "2885"
+    }
+  ],
+  "conflicting_accounts": 0,
+  "lagging_accounts": 1
+}

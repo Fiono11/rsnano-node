@@ -1,0 +1,525 @@
+[
+  {
+    "variant": "nofork",
+    "arm": "develop",
+    "runs": 1,
+    "ok": 1,
+    "failed": [],
+    "goodput": [
+      1900.6622934928566
+    ],
+    "p50": [
+      189
+    ],
+    "p95": [
+      410
+    ],
+    "p99": [
+      622
+    ],
+    "pooled": {
+      "50": 189,
+      "95": 410,
+      "99": 622
+    },
+    "fork_unresolved": [
+      0
+    ]
+  },
+  {
+    "variant": "nofork",
+    "arm": "rai",
+    "runs": 1,
+    "ok": 1,
+    "failed": [],
+    "goodput": [
+      1930.428307560471
+    ],
+    "p50": [
+      100
+    ],
+    "p95": [
+      169
+    ],
+    "p99": [
+      271
+    ],
+    "pooled": {
+      "50": 100,
+      "95": 169,
+      "99": 271
+    },
+    "fork_unresolved": [
+      0
+    ]
+  },
+  {
+    "variant": "nofork-offline1",
+    "arm": "develop",
+    "runs": 1,
+    "ok": 1,
+    "failed": [],
+    "goodput": [
+      1907.0005013716209
+    ],
+    "p50": [
+      207
+    ],
+    "p95": [
+      238
+    ],
+    "p99": [
+      285
+    ],
+    "pooled": {
+      "50": 207,
+      "95": 238,
+      "99": 285
+    },
+    "fork_unresolved": [
+      0
+    ]
+  },
+  {
+    "variant": "nofork-offline1",
+    "arm": "rai",
+    "runs": 1,
+    "ok": 1,
+    "failed": [],
+    "goodput": [
+      1958.1029782027151
+    ],
+    "p50": [
+      110
+    ],
+    "p95": [
+      141
+    ],
+    "p99": [
+      225
+    ],
+    "pooled": {
+      "50": 110,
+      "95": 141,
+      "99": 225
+    },
+    "fork_unresolved": [
+      0
+    ]
+  },
+  {
+    "variant": "nofork-byz1",
+    "arm": "develop",
+    "runs": 1,
+    "ok": 1,
+    "failed": [],
+    "goodput": [
+      1921.0459642215708
+    ],
+    "p50": [
+      205
+    ],
+    "p95": [
+      234
+    ],
+    "p99": [
+      289
+    ],
+    "pooled": {
+      "50": 205,
+      "95": 234,
+      "99": 289
+    },
+    "fork_unresolved": [
+      0
+    ]
+  },
+  {
+    "variant": "nofork-byz1",
+    "arm": "rai",
+    "runs": 1,
+    "ok": 1,
+    "failed": [],
+    "goodput": [
+      1963.1634875522016
+    ],
+    "p50": [
+      106
+    ],
+    "p95": [
+      138
+    ],
+    "p99": [
+      191
+    ],
+    "pooled": {
+      "50": 106,
+      "95": 138,
+      "99": 191
+    },
+    "fork_unresolved": [
+      0
+    ]
+  },
+  {
+    "variant": "fork5",
+    "arm": "develop",
+    "runs": 1,
+    "ok": 0,
+    "failed": [
+      {
+        "pair": 0,
+        "complete": false,
+        "settled": null,
+        "timed_out": true
+      }
+    ],
+    "goodput": [],
+    "p50": [],
+    "p95": [],
+    "p99": [],
+    "pooled": {
+      "50": null,
+      "95": null,
+      "99": null
+    },
+    "fork_unresolved": []
+  },
+  {
+    "variant": "fork5",
+    "arm": "rai",
+    "runs": 1,
+    "ok": 1,
+    "failed": [],
+    "goodput": [
+      1579.2274456220978
+    ],
+    "p50": [
+      129
+    ],
+    "p95": [
+      763
+    ],
+    "p99": [
+      1198
+    ],
+    "pooled": {
+      "50": 129,
+      "95": 763,
+      "99": 1198
+    },
+    "fork_unresolved": [
+      3
+    ]
+  },
+  {
+    "variant": "fork10",
+    "arm": "develop",
+    "runs": 1,
+    "ok": 0,
+    "failed": [
+      {
+        "pair": 0,
+        "complete": false,
+        "settled": null,
+        "timed_out": true
+      }
+    ],
+    "goodput": [],
+    "p50": [],
+    "p95": [],
+    "p99": [],
+    "pooled": {
+      "50": null,
+      "95": null,
+      "99": null
+    },
+    "fork_unresolved": []
+  },
+  {
+    "variant": "fork10",
+    "arm": "rai",
+    "runs": 1,
+    "ok": 1,
+    "failed": [],
+    "goodput": [
+      1372.195769141082
+    ],
+    "p50": [
+      502
+    ],
+    "p95": [
+      4167
+    ],
+    "p99": [
+      6154
+    ],
+    "pooled": {
+      "50": 502,
+      "95": 4167,
+      "99": 6154
+    },
+    "fork_unresolved": [
+      692
+    ]
+  },
+  {
+    "variant": "fork5-offline1",
+    "arm": "develop",
+    "runs": 1,
+    "ok": 0,
+    "failed": [
+      {
+        "pair": 0,
+        "complete": false,
+        "settled": null,
+        "timed_out": true
+      }
+    ],
+    "goodput": [],
+    "p50": [],
+    "p95": [],
+    "p99": [],
+    "pooled": {
+      "50": null,
+      "95": null,
+      "99": null
+    },
+    "fork_unresolved": []
+  },
+  {
+    "variant": "fork5-offline1",
+    "arm": "rai",
+    "runs": 1,
+    "ok": 1,
+    "failed": [],
+    "goodput": [
+      1828.8062710025927
+    ],
+    "p50": [
+      114
+    ],
+    "p95": [
+      307
+    ],
+    "p99": [
+      458
+    ],
+    "pooled": {
+      "50": 114,
+      "95": 307,
+      "99": 458
+    },
+    "fork_unresolved": [
+      721
+    ]
+  },
+  {
+    "variant": "fork10-offline1",
+    "arm": "develop",
+    "runs": 1,
+    "ok": 0,
+    "failed": [
+      {
+        "pair": 0,
+        "complete": false,
+        "settled": null,
+        "timed_out": true
+      }
+    ],
+    "goodput": [],
+    "p50": [],
+    "p95": [],
+    "p99": [],
+    "pooled": {
+      "50": null,
+      "95": null,
+      "99": null
+    },
+    "fork_unresolved": []
+  },
+  {
+    "variant": "fork10-offline1",
+    "arm": "rai",
+    "runs": 1,
+    "ok": 1,
+    "failed": [],
+    "goodput": [
+      1200.118573208477
+    ],
+    "p50": [
+      145
+    ],
+    "p95": [
+      698
+    ],
+    "p99": [
+      951
+    ],
+    "pooled": {
+      "50": 145,
+      "95": 698,
+      "99": 951
+    },
+    "fork_unresolved": [
+      209
+    ]
+  },
+  {
+    "variant": "fork5-byz1",
+    "arm": "develop",
+    "runs": 1,
+    "ok": 0,
+    "failed": [
+      {
+        "pair": 0,
+        "complete": false,
+        "settled": null,
+        "timed_out": true
+      }
+    ],
+    "goodput": [],
+    "p50": [],
+    "p95": [],
+    "p99": [],
+    "pooled": {
+      "50": null,
+      "95": null,
+      "99": null
+    },
+    "fork_unresolved": []
+  },
+  {
+    "variant": "fork5-byz1",
+    "arm": "rai",
+    "runs": 1,
+    "ok": 1,
+    "failed": [],
+    "goodput": [
+      1820.1992572655981
+    ],
+    "p50": [
+      119
+    ],
+    "p95": [
+      459
+    ],
+    "p99": [
+      854
+    ],
+    "pooled": {
+      "50": 119,
+      "95": 459,
+      "99": 854
+    },
+    "fork_unresolved": [
+      691
+    ]
+  },
+  {
+    "variant": "fork10-byz1",
+    "arm": "develop",
+    "runs": 1,
+    "ok": 0,
+    "failed": [
+      {
+        "pair": 0,
+        "complete": false,
+        "settled": null,
+        "timed_out": true
+      }
+    ],
+    "goodput": [],
+    "p50": [],
+    "p95": [],
+    "p99": [],
+    "pooled": {
+      "50": null,
+      "95": null,
+      "99": null
+    },
+    "fork_unresolved": []
+  },
+  {
+    "variant": "fork10-byz1",
+    "arm": "rai",
+    "runs": 1,
+    "ok": 0,
+    "failed": [
+      {
+        "pair": 0,
+        "complete": true,
+        "settled": false,
+        "timed_out": false
+      }
+    ],
+    "goodput": [],
+    "p50": [],
+    "p95": [],
+    "p99": [],
+    "pooled": {
+      "50": null,
+      "95": null,
+      "99": null
+    },
+    "fork_unresolved": []
+  },
+  {
+    "unfinished": [
+      {
+        "variant": "fork5",
+        "arm": "develop",
+        "pair": 0,
+        "timeout": 41,
+        "confirmed": 42927,
+        "stall_onset_s": 38,
+        "timed_out": true
+      },
+      {
+        "variant": "fork10",
+        "arm": "develop",
+        "pair": 0,
+        "timeout": 41,
+        "confirmed": 39271,
+        "stall_onset_s": null,
+        "timed_out": true
+      },
+      {
+        "variant": "fork5-offline1",
+        "arm": "develop",
+        "pair": 0,
+        "timeout": 36,
+        "confirmed": 40700,
+        "stall_onset_s": 33,
+        "timed_out": true
+      },
+      {
+        "variant": "fork10-offline1",
+        "arm": "develop",
+        "pair": 0,
+        "timeout": 51,
+        "confirmed": 31144,
+        "stall_onset_s": 50,
+        "timed_out": true
+      },
+      {
+        "variant": "fork5-byz1",
+        "arm": "develop",
+        "pair": 0,
+        "timeout": 36,
+        "confirmed": 41837,
+        "stall_onset_s": 28,
+        "timed_out": true
+      },
+      {
+        "variant": "fork10-byz1",
+        "arm": "develop",
+        "pair": 0,
+        "timeout": 51,
+        "confirmed": 38890,
+        "stall_onset_s": null,
+        "timed_out": true
+      }
+    ]
+  }
+]

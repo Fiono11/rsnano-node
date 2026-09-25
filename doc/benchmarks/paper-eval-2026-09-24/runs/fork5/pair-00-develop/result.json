@@ -1,0 +1,41 @@
+{
+  "pair": 0,
+  "label": "develop",
+  "command": [
+    "/Users/ruimorais/rsnano-node/doc/benchmarks/paper-eval-2026-09-24/bin/develop/nanospam",
+    "--data-dir",
+    "/Users/ruimorais/rsnano-node/doc/benchmarks/paper-eval-2026-09-24/runs/fork5/pair-00-develop/data",
+    "--prs",
+    "6",
+    "--no-prio",
+    "--blocks",
+    "45000",
+    "--accounts",
+    "45000",
+    "--rate",
+    "2000",
+    "--fork-percentage",
+    "5",
+    "--no-kill"
+  ],
+  "node": "/Users/ruimorais/rsnano-node/doc/benchmarks/paper-eval-2026-09-24/bin/develop/rsnano",
+  "node_sha256": "f8586d924500aace44d5a7544b15a381a32bdfef74d0dbc0c21c3b41cf3401c8",
+  "client_sha256": "15e588f2eefc4c112831a91acb0ae65c18c45a9edcc50bd0f029efeea8312b4f",
+  "started": 1790291554.880445,
+  "timeout_seconds": 420,
+  "timeout_basis": {
+    "rule": "initial baseline calibration ceiling"
+  },
+  "disk_free_before": 33555808256,
+  "publish_timeout_seconds": 41,
+  "publish_started_after_secs": 114.97843879199354,
+  "exit_code": null,
+  "timed_out": true,
+  "timeout_phase": "publishing",
+  "client_secs": 156.245591878891,
+  "wall_secs": 156.46587419509888,
+  "disk_free_after": 32958320640,
+  "complete": false,
+  "host_busy_at_start": [],
+  "timeout_rule": "publishing: 1.5 x slowest completed RAI publishing duration, same variant first; overall ceiling for setup"
+}

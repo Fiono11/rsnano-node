@@ -1,0 +1,25 @@
+\documentclass[sigplan,10pt,anonymous,nonacm]{acmart}
+\input{preamble}
+\title[RAI: Preserving Latent Finality Across Reconfiguration]{RAI: Preserving Latent Finality Across Committee Reconfiguration}
+\author{Anonymous Author(s)}
+\renewcommand{\shortauthors}{Anonymous Author(s)}
+\begin{document}
+\begin{abstract}
+Single-writer payments can finalize from account-local quorums without a continuously agreed transaction sequence. Replacing their validator committee nevertheless requires a global boundary that preserves obligations left by old votes. A snapshot of observed final certificates is insufficient: signatures already released by the closing committee may form a certificate only after the checkpoint has been selected. We call this obligation \emph{latent finality}. RAI separates recovering such obligations from agreeing on a checkpoint. Each outgoing validator freezes a signed report committing to a tagged ledger set and to voted-for block hashes outside that ledger. A deterministic construction reconstructs selected reports, preserves explicit finality, carries recovery locks, and allows a decided checkpoint to promote a uniquely retained closing-epoch notarized prefix to finality. Immutable validation inputs make candidate reconstruction independent of later private evidence. Lagged committees permit successor preparation and restricted, prefix-wide dual-notarization overlap; arbitrary fresh successor work remains provisional until its predecessor checkpoint is known. A checkpoint-base/live-overlay invariant preserves already applied finality during installation. We give safety arguments and conditional termination results under explicit static-fault, retained-data, and progress assumptions. The contribution is a closure protocol for account-local finality, not a new consensus algorithm. A single-host RsNano prototype keeps the median non-fork latency near 100\,ms across three checkpoints and settles forked workloads, with one offline or one Byzantine validator, that the unmodified node does not finish; a Byzantine forked workload exposed and let us repair a report-checking defect the termination argument does not tolerate.
+\end{abstract}
+\maketitle
+\input{sections/01-introduction}
+\input{sections/02-overview}
+\input{sections/03-model}
+\input{sections/04-account}
+\input{sections/05-closure}
+\input{sections/06-agreement}
+\input{sections/07-correctness}
+\input{sections/08-costs}
+\input{sections/09-related}
+\input{sections/10-status}
+\clearpage
+\balance
+\bibliographystyle{ACM-Reference-Format}
+\bibliography{references}
+\end{document}

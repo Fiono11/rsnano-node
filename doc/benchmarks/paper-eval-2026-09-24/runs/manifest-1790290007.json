@@ -1,0 +1,66 @@
+{
+  "arms": {
+    "develop": {
+      "node": "/Users/ruimorais/rsnano-node/doc/benchmarks/paper-eval-2026-09-24/bin/develop/rsnano",
+      "client": "/Users/ruimorais/rsnano-node/doc/benchmarks/paper-eval-2026-09-24/bin/develop/nanospam",
+      "epoch_ms": 0,
+      "required_checkpoints": 0,
+      "extra": [],
+      "node_sha256": "f8586d924500aace44d5a7544b15a381a32bdfef74d0dbc0c21c3b41cf3401c8",
+      "client_sha256": "15e588f2eefc4c112831a91acb0ae65c18c45a9edcc50bd0f029efeea8312b4f"
+    },
+    "rai": {
+      "node": "/tmp/rai-cross-epoch-artifacts/bin/no-crash-v41/rsnano",
+      "client": "/tmp/rai-cross-epoch-artifacts/bin/no-crash-v41/nanospam",
+      "epoch_ms": 8000,
+      "required_checkpoints": 3,
+      "extra": [
+        "--committee-model",
+        "equal_weight",
+        "--committee-f",
+        "1",
+        "--committee-p",
+        "1",
+        "--checkpoint-finalization",
+        "certificate_only"
+      ],
+      "node_sha256": "32e0a47c618d0e04c9620de9edeed8e831c00adb83e0d8f236ff42eb7ead5115",
+      "client_sha256": "9135ae7b7cbe7b8194351765700bf3810710fa5d494cfb6f222ef99577635dc7"
+    }
+  },
+  "variants": {
+    "nofork": {
+      "forks": 0,
+      "absent": 0,
+      "fault": []
+    },
+    "fork5": {
+      "forks": 5,
+      "absent": 0,
+      "fault": []
+    },
+    "fork5-offline1": {
+      "forks": 5,
+      "absent": 1,
+      "fault": [
+        "--offline",
+        "1"
+      ]
+    },
+    "fork5-byz1": {
+      "forks": 5,
+      "absent": 1,
+      "fault": [
+        "--byzantine",
+        "1"
+      ]
+    }
+  },
+  "blocks": 45000,
+  "accounts": 45000,
+  "rate": 2000,
+  "timeout": 420,
+  "settle_seconds": 30,
+  "pair_run_sha256": "b560aaf7c6aee5e66fe8f79ce0dc771f9224c480b9b30e701ff37c4adaecd3b7",
+  "started": 1790290007.0382028
+}

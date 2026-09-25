@@ -1,0 +1,86 @@
+{
+  "pair": 0,
+  "label": "rai",
+  "command": [
+    "/tmp/rai-cross-epoch-artifacts/bin/no-crash-v41/nanospam",
+    "--data-dir",
+    "/Users/ruimorais/rsnano-node/doc/benchmarks/paper-eval-2026-09-24/runs/fork5-offline1/pair-00-rai/data",
+    "--prs",
+    "6",
+    "--no-prio",
+    "--blocks",
+    "45000",
+    "--accounts",
+    "45000",
+    "--rate",
+    "2000",
+    "--fork-percentage",
+    "5",
+    "--no-kill",
+    "--epoch-duration-ms",
+    "8000",
+    "--committee-model",
+    "equal_weight",
+    "--committee-f",
+    "1",
+    "--committee-p",
+    "1",
+    "--checkpoint-finalization",
+    "certificate_only",
+    "--offline",
+    "1"
+  ],
+  "node": "/tmp/rai-cross-epoch-artifacts/bin/no-crash-v41/rsnano",
+  "node_sha256": "32e0a47c618d0e04c9620de9edeed8e831c00adb83e0d8f236ff42eb7ead5115",
+  "client_sha256": "9135ae7b7cbe7b8194351765700bf3810710fa5d494cfb6f222ef99577635dc7",
+  "started": 1790291181.721796,
+  "timeout_seconds": 420,
+  "timeout_basis": {
+    "rule": "initial baseline calibration ceiling"
+  },
+  "disk_free_before": 33598472192,
+  "exit_code": 0,
+  "timed_out": false,
+  "client_secs": 76.78091812133789,
+  "ledgers_consistent": true,
+  "checkpoints_consistent": true,
+  "required_checkpoints": 3,
+  "settled_consistent": true,
+  "end_states": [
+    {
+      "cemented": "45896",
+      "count": "46616",
+      "hash": "99DB3F81472DEC34757FEB018A78C3EA81EC3A33D59E8E25231486203E332783",
+      "pending": "720",
+      "empty": "0"
+    },
+    {
+      "cemented": "45896",
+      "count": "46415",
+      "hash": "99DB3F81472DEC34757FEB018A78C3EA81EC3A33D59E8E25231486203E332783",
+      "pending": "720",
+      "empty": "0"
+    },
+    {
+      "cemented": "45896",
+      "count": "46616",
+      "hash": "99DB3F81472DEC34757FEB018A78C3EA81EC3A33D59E8E25231486203E332783",
+      "pending": "720",
+      "empty": "0"
+    },
+    {
+      "cemented": "45896",
+      "count": "46616",
+      "hash": "99DB3F81472DEC34757FEB018A78C3EA81EC3A33D59E8E25231486203E332783",
+      "pending": "720",
+      "empty": "0"
+    },
+    {
+      "cemented": "45896",
+      "count": "46616",
+      "hash": "99DB3F81472DEC34757FEB018A78C3EA81EC3A33D59E8E25231486203E332783",
+      "pending": "720",
+      "empty": "0"
+    }
+  ]
+}

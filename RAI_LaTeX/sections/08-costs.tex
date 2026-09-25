@@ -1,0 +1,22 @@
+\section{Costs, Scope, and Limitations}
+\label{sec:costs}
+\para{Agreement is not total system work.}
+The agreed value contains $N-f$ report headers and two digests. With fixed-size identities and hashes, its reference portion is $O(N)$, independent of the number of account blocks. The evidence manifest, reconstruction data, validation, and retained histories are not constant size. They can scale with old state, new votes, and unresolved branches. Several proposal rounds can be necessary. One checkpoint per epoch means neither one agreement round nor constant reconfiguration cost.
+
+\para{Account locality is not resource isolation.}
+A correct validator releases at most one first vote and one final vote per account instance. This does not bound an adversary's owner-signed alternatives, network traffic, retained evidence, or validation work. A straightforward all-to-all vote dissemination has quadratic recipient deliveries in committee size per vote stage. No claim is made that RAI inherits Kudzu's erasure-coded communication bound or isolates accounts sharing physical resources.
+
+\para{Overlap has an explicit frontier.}
+Lagged committees permit preparation before closure. The core early-settlement path requires old-domain exclusion throughout the newly finalized prefix. New work without that evidence waits for the predecessor checkpoint; a long handoff can therefore delay finalization. A current $\NC$ for a fresh child does not protect it against an old committee's conflicting child. The optional predecessor-backed route requires additional temporal evidence and common members and is not part of the main theorem.
+
+\para{Checkpoint promotion is narrow.}
+A boundary decision may finalize a uniquely retained closing-epoch notarized prefix without an account $\FC/\FF$. It never promotes recovery-only state and does not provide continuous consensus or a general fork-resolution service.
+
+\para{Retention and progress are conditional.}
+Reports and validation manifests are compact commitments to potentially large data. A frozen-set difference can be nearly a full ledger-hash set. Forks and retained dependencies can accumulate without bound; the model supplies no general admission-control or garbage-collection policy. The finite-preparation assumption must be realized by a deployment rather than inferred from local signing limits. Departing validators cannot erase handoff evidence until successors durably hold it.
+
+\para{Membership and finality have different state scopes.}
+Committee derivation uses the checkpoint base, while an account's live view can include additional certified finality. This prevents later evidence from changing an already selected committee, but it means checkpoint-based membership does not instantly reflect all locally known finalized balances. The protocol is for authenticated committees with an externally maintained fault bound, not a complete permissionless staking or admission system.
+
+\para{Security and expressiveness boundaries.}
+The static adversary excludes later compromise of departed correct validators. Long-range security, mobile corruption, and forward-secure key management require separate designs and proofs. Account operations do not include general shared objects, atomic multiwriter transactions, passive-recipient credit, or a guaranteed winner under arbitrary equivocation. The proofs are written arguments rather than machine-checked verification. No empirical throughput, latency-under-load, or long-run resilience conclusion follows from them.

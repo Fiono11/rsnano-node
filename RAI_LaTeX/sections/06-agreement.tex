@@ -1,0 +1,30 @@
+\section{Checkpoint Agreement and Installation}
+\label{sec:agreement}
+\subsection{A contract over fixed candidates}
+For handoff $e$, the closing committee invokes
+\[
+\Agree_{C_{e-2}}(\ctx_e,v_e).
+\]
+A decision returns a value and a publicly verifiable proof $\pi_e$. Candidate validity requires that $Q$ contain $N-f$ usable reports from distinct old members and that
+\begin{align*}
+H(\mathcal M)&=\mu,\\
+\Build(S_{e-1},Q,\mathcal M)&=S\neq\bot,\\
+H(S)&=d.
+\end{align*}
+All contexts, report identities, vote domains, and predecessor references must verify. Correct validators reconstruct and validate the full required input before authorizing a non-timeout proposal. Receiving a digest does not establish availability or validity.
+
+The contract requires agreement and integrity: all valid decision proofs for one context identify the same value, and a proof cannot be replayed for another context. It requires external validity and retained availability of authorizing inputs. It requires conditional termination after enough valid immutable inputs become available during sufficiently long prepared progress windows. Rule~3 markings are hypothetical until this decision; $\pi_e$ makes them checkpoint-final. Finally, the successor installs only after independently verifying $\pi_e$ and recomputing the decided state.
+
+A leader constructing a fresh candidate chooses $Q$ and $\mathcal M$. A proposal that extends a certified history inherits the entire payload; it cannot replace the report selection or evidence manifest. The specified instantiation uses one Kudzu-style vote instance over a checkpoint proposal history~\cite{kudzu}. Supplement~A records its election votes, timeout rules, and proof arguments. The main closure result depends on the contract rather than on those particular mechanics.
+
+\subsection{Checkpoint base and certified live overlay}
+\label{sec:install}
+Let a validator's current closed base be $S_b$, with finalized set $F_b$, and let $O_i$ be its certified overlay. Its effective final set is $J_i=F_b\cup O_i$. Installing a verified successor checkpoint with final set $F_e$ computes
+\[
+J'_i=J_i\cup F_e,\qquad O'_i=J'_i\setminus F_e.
+\]
+The union is checked for account compatibility, final dependencies, and valid lock discharge. The validator adopts $S_e$ as its canonical base and materializes the live view as $\Replay(\Sigma_e,O'_i)$. This is a rebasing of a certified set of effects, not authorization to issue old sends again. Persistent operation identifiers suppress duplicate application and duplicate external notifications.
+
+The installation invariant has three parts. The base's final set grows monotonically and may include checkpoint-promoted blocks. Every overlay block has an explicit account-finality proof for itself or a selecting descendant, and the union with the base is dependency-closed. Finally, that union extends each base-final account prefix and respects every undischarged notarization or recovery obligation. A recovery lock superseded by a matching-domain exclusion witness is removed from the effective view, not retroactively edited out of the signed checkpoint.
+
+Committee $C_{e-1}$ does not hold a second election. It verifies the old committee's decision and reconstructs its state, derives $C_e$ from the canonical $\Sigma_e$, and rechecks nonfinal early work. Additional live finality never changes that committee selection. Invalidated provisional work is discarded without clearing its persisted first vote or terminal state. Already finalized overlap work remains certified and applied.

@@ -1,0 +1,107 @@
+\section{Correctness}
+\label{sec:correctness}
+The arguments concern the core protocol, including the prefix-wide overlap guard and Rule~3 checkpoint promotion. They do not include the optional fresh-work extension of Supplement~B. Cryptographic guarantees hold except with negligible probability of forgery or collision. We first establish exclusion and report exposure, then deterministic closure and cross-epoch composition.
+
+\subsection{Safety}
+\begin{lemma}[Account exclusion]
+\label{lem:exclusion}
+In one account instance, at most one block has an $\NC$. An $\FC$ or $\FF$ excludes a conflicting $\NC$. If an $\FF$ is formable, every rival has at most $f+p<r$ first-vote supporters.
+\end{lemma}
+\begin{proof}
+Two $q$-quorums intersect in at least $2q-N=f+1$ identities. At least one is correct and cannot first-vote for two blocks. An $\FC$ has a correct final voter who first obtained an $\NC$; an $\FF$ contains $N-p\geq q$ first votes. For the last claim, with actual Byzantine count $f'\leq f$, an $\FF$ has at least $N-p-f'$ correct first voters. At most $p$ correct identities remain for rivals; even adding all Byzantine identities gives at most $p+f'\leq p+f$ supporters for any rival.
+\end{proof}
+
+\begin{lemma}[Frozen-report exposure]
+\label{lem:exposure}
+A correct reporter's released final vote implies a frozen $\tagN$ or $\tagF$ entry for its selected block. Its first vote implies either a frozen ledger entry for that block or a membership in $G_i$. These statements persist after report creation.
+\end{lemma}
+\begin{proof}
+Final voting follows durable eligible notarization. Account exclusion prevents incompatible same-domain finality from removing the selected path. The definition $G_i=V_i^{(e)}\setminus\keys(T_i)$ partitions the reporter's old-domain voted hashes. Stopping precedes freezing; roots and status tags then remain immutable. Authentication and retained admission witnesses preserve the corresponding semantic evidence.
+\end{proof}
+
+\begin{theorem}[Closure preserves latent and late finality]
+\label{thm:closure}
+Fix a valid closed predecessor. If an eligible old-epoch account final certificate can be formed, every valid checkpoint built from $N-f$ usable reports preserves its selected branch and ancestors, either as compatible finality or as the locks required by that certificate. The certificate may be assembled after report freeze or after checkpoint decision.
+\end{theorem}
+\begin{proof}
+Let $R$ be the selected reporters. For a possible normal certificate with final-voter set $A$,
+\[
+|(R\cap A)\setminus\Byz|\ge q-2f=p+1.
+\]
+Each such correct reporter froze an $\tagN$ or $\tagF$ entry: $\tagF$ exposes finality and $\tagN$ triggers Rule~1. For a possible fast certificate,
+\[
+|(R\cap A)\setminus\Byz|\ge (N-p)-2f=r.
+\]
+Each of these reporters exposes the block through $T_i$ (as $\tagF$, $\tagN$, or inherited $\tagR$) or through $G_i$ with its verified first vote; in the latter case Rule~2 retains it. Lemma~\ref{lem:exclusion} prevents valid discharge or a threshold rival from eliminating genuine fast finality. Retained ancestry, admission evidence, and the committed manifest make these memberships usable. Later unselected or Byzantine signatures do not remove the required correct intersections.
+\end{proof}
+
+\begin{lemma}[Checkpoint-promotion safety]
+\label{lem:promotion}
+A Rule~3 promoted block cannot conflict with an eligible closing-epoch $\NC$, $\FC$, or $\FF$. Hence a decision that makes the promoted prefix final is compatible with old-domain finality and with core overlap finality.
+\end{lemma}
+\begin{proof}
+Every promoted block has a verified closing-epoch $\NC$. Lemma~\ref{lem:exclusion} excludes a conflicting old $\NC$ and therefore conflicting old $\FC/\FF$. Core overlap finality for a conflicting successor block would itself require a conflicting closing-epoch $\NC$ at the first divergent position, also impossible. Promotion stops at retained forks and never promotes recovery-only evidence.
+\end{proof}
+
+\begin{lemma}[Acyclic final dependencies]
+\label{lem:dag}
+For any finite set of valid final blocks closed under account ancestors and required finalized sends, parent and send-to-receive edges form a directed acyclic graph.
+\end{lemma}
+\begin{proof}
+Consider the earliest event at which valid final evidence can justify each block, including account certificates, checkpoint decisions, and justification by a descendant. Along a parent edge this event cannot become earlier at the child. Along a send-to-receive edge it is strictly later at the receive because admission already required the send's finality proof; Rule~3 cannot supply that proof for the checkpoint being constructed. A cycle cannot consist only of parent edges, because slots increase strictly. It must contain a send-to-receive edge, giving a strict increase around a cycle, a contradiction. Finite recursively verified evidence excludes circular certificates as an alternative justification.
+\end{proof}
+
+\begin{lemma}[Deterministic compatible construction]
+\label{lem:construction}
+Assume the predecessor satisfies the closure invariant. For fixed usable selected reports and a valid immutable manifest, $\Build$ returns one canonical candidate state. It preserves inherited finality, carries all mandatory surviving locks, and applies only explicit account finality plus Rule~3 checkpoint promotion. Correctly formed all-correct inputs yield a finite valid construction.
+\end{lemma}
+\begin{proof}
+Fixed reports, witnesses, and proof choices fix explicit finality and $R_Q$. Lemma~\ref{lem:exclusion}, predecessor validity, attachment, and Theorem~\ref{thm:closure} make the retained finality and locks compatible. Rule~3's unique-child and verified-$\NC$ tests then fix $P_Q$, whose safety follows from Lemma~\ref{lem:promotion}. Lemma~\ref{lem:dag} and the canonical tie-break fix replay. Malformed Byzantine inputs may be rejected; all-correct usable inputs yield a finite state.
+\end{proof}
+
+\begin{theorem}[Transfer safety across epochs]
+\label{thm:safety}
+Assuming the checkpoint-agreement contract, finalized histories at correct validators are compatible and irreversible across all core-protocol epochs. Finalized balances are nonnegative, and each send is received at most once.
+\end{theorem}
+\begin{proof}
+Induct from genesis. Lemma~\ref{lem:exclusion} excludes incompatible account finality; Theorem~\ref{thm:closure} preserves every eligible old final branch; Lemma~\ref{lem:promotion} makes checkpoint promotion compatible; and agreement installs only one verified state.
+
+For overlap, the first divergent unresolved position on an early successor-final prefix has a closing-epoch $\NC$ for that successor block by the prefix-wide guard. A conflicting closing-epoch certificate, or a conflicting Rule~3 promotion, would require a conflicting $\NC$, contradicting Lemma~\ref{lem:exclusion}. Matching-origin discharge and inherited locks remain enforced. After installation, frontier and lock checks preserve this compatibility; base/overlay union and applied-operation identifiers prevent rollback or duplicate application. Replay checks balances and finalized-send dependencies, so balances stay nonnegative and each receive identifier is applied at most once.
+\end{proof}
+
+\subsection{Conditional termination}
+\begin{lemma}[Correct reports become usable]
+\label{lem:reports-live}
+Under retained-data availability, finite relevant admitted work, and fair processing, retry, and eventual gossip, every correct report eventually becomes usable.
+\end{lemma}
+\begin{proof}
+A correct reporter stops old signing, so its old vote set and roots are finite. Eventual delivery makes correct closing-epoch projections converge; fair retry reconstructs $T_i$, and retained signed votes reconstruct $G_i$. Available blocks, ancestry, and witnesses then complete finite validation. A withholding Byzantine reporter can make only its own report unusable; $N-f$ correct reports remain.
+\end{proof}
+
+\begin{theorem}[Handoff termination]
+\label{thm:handoff-live}
+Assume retained correct report data, fair processing, and recurring prepared progress windows with $N-f$ responsive correct old members, long enough for catch-up, input preparation, and the agreement contract. Every enabled handoff is eventually decided and, with eventual retained-data delivery, installed by correct successors.
+\end{theorem}
+\begin{proof}
+Lemma~\ref{lem:reports-live} supplies usable reports and Lemma~\ref{lem:construction} a finite immutable candidate. The agreement contract decides it in a sufficient prepared window; retained authorizing data then let successors verify and install it, enabling the next deferred boundary.
+\end{proof}
+
+For the specified agreement instantiation, a sufficient local timeout condition is
+\begin{equation}
+\frac{\Delta_E}{1+\rho}>\kappa_E+\tau_E+\delta,\label{eq:election-window}
+\end{equation}
+where $\kappa_E$ bounds slot-entry skew and $\tau_E$ bounds proposal preparation and validation. A window must also cover catch-up and a complete correct-leader opportunity. This is a resource-and-timing premise, not a claim that short unrelated synchronous intervals suffice~\cite{dls}.
+
+\begin{theorem}[Uncontested account continuation]
+\label{thm:account-live}
+Assume handoff termination, available final-send dependencies, and recurring common-open ready intervals. An owner following the retry-or-fresh-child policy of Section~\ref{sec:account} eventually finalizes each target of a finite valid uncontested continuation, provided each required new position has such an interval. The finalized targets eventually enter a checkpoint.
+\end{theorem}
+\begin{proof}
+In a ready interval, $N-f\ge q$ correct first votes create an $\NC$ and the same validators can final-vote. An interrupted attempt is preserved by Theorem~\ref{thm:closure}; an omitted block can be retried, a uniquely retained notarized target may finalize at handoff, and any remaining retained fork can be selected by a fresh uncontested child. Repeating this argument over the finite continuation and using eventual evidence delivery gives finalization and checkpoint inclusion.
+\end{proof}
+
+With ancestry prepared, normal finality takes three delivery stages after broadcast: block, first votes, final votes. An available $N-p$ first-vote fast quorum takes two. A sufficient account interval budget is
+\begin{equation}
+\frac{D}{1+\rho}>\kappa_A+R_A+3\delta,\label{eq:account-window}
+\end{equation}
+where $\kappa_A$ bounds opening skew and $R_A$ bounds readiness after the last opening, including predecessor closure. Deferred boundaries only lengthen an open interval. These are conditional communication bounds, not measured latency.

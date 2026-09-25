@@ -1,0 +1,115 @@
+\section{Safe Epoch Closure}
+\label{sec:closure}
+\subsection{Lagged committees and lifecycle}
+The account committee for epoch $e$ is $K_e=C_{e-2}$. That old committee decides $S_e$; the already known successor $C_{e-1}=K_{e+1}$ verifies and installs it. The state $S_e$ derives $C_e$, whose account service starts in epoch $e+2$. Figure~\ref{fig:committees} separates selection, installation, and account voting. Genesis supplies $S_{-1}=S_G$ and $C_{-2}=C_{-1}=C_G$.
+
+After local duration $D$, a validator may end epoch $e$ only when no older epoch remains closing. It stops old account signing, records all complete eligible old blocks as notarized, freezes its report against closed $S_{e-1}$, and opens $e+1$. Learning a decided checkpoint also stops any remaining signing for its closed epoch. Catch-up verifies predecessors in order and never reopens old vote records.
+
+There is at most one closing epoch per validator. If closure outlasts $D$, the next local boundary is deferred. Successor voting can continue, subject to eligibility, but this is not a promise of uninterrupted settlement. The two-epoch lag gives future members an opportunity to synchronize, not a fixed upper bound on state transfer.
+
+\begin{figure}[t]
+\centering
+\begin{tabularx}{\columnwidth}{@{}lYYY@{}}
+\toprule
+Account epoch & $e$ & $e+1$ & $e+2$\\
+\midrule
+Voters & $C_{e-2}$ & $C_{e-1}$ & $C_e$\\
+Role for $S_e$ & Decide & Verify and install & Selected by $S_e$\\
+\bottomrule
+\end{tabularx}
+\caption{Committee roles are logically staggered. Closure of $e$ can overlap account epoch $e+1$; the table does not impose synchronized wall-clock boundaries.}
+\Description{A three-epoch table maps account voters to the committee that decides the checkpoint, the successor that verifies and installs it, and the future committee selected from its state.}
+\label{fig:committees}
+\end{figure}
+
+\subsection{Immutable signed reports}
+Every correct outgoing validator $i$ signs one header
+\[
+R_i=\Sign_i\bigl(\ctx_e,\Root(T_i),\Root(G_i)\bigr).
+\]
+The context binds the session, closing epoch, predecessor checkpoint, outgoing committee, and reporter identity. A Byzantine identity may equivocate, but a candidate selects at most one of its report headers.
+
+Let $L_i$ be the reporter's ledger at freeze time. Its canonical tagged set is
+\[
+T_i=\{(h(B),s_i(B)):B\in L_i\},\qquad s_i(B)\in\{\tagR,\tagN,\tagF\}.
+\]
+An $\tagR$ entry is inherited recovery-protected state. An $\tagN$ entry has represented notarization but no locally observed finality. An $\tagF$ entry is final either by inherited checkpoint state or by an explicit account certificate for the block or a descendant selecting it. If several statuses hold, the strongest wins: $\tagF>\tagN>\tagR$. Inherited lock provenance comes from the verified predecessor; a new notarization is checked in its specified voting domain.
+
+Let $V_i^{(e)}$ contain the hashes of all blocks for which $i$ released an epoch-$e$ account vote before freezing. The second committed set is
+\[
+G_i=V_i^{(e)}\setminus\keys(T_i).
+\]
+Thus the roots commit to ledger status and to voted-but-not-ledger membership, not to blocks or certificate objects. Correct reporters retain the frozen sets, vote records, and admission evidence. A later vote arrival, certificate assembly, or successor finalization can change their live view but cannot change the signed report.
+
+\subsection{Reconstruction and report usability}
+A root does not enumerate its members. Having all relevant block bodies is insufficient to know which tagged entries a reporter froze. Reconstruction is therefore a protocol precondition, not merely a bandwidth optimization.
+
+For $T_i$, correct validators maintain a deterministic closing-epoch ledger projection, derived from the verified predecessor and retained relevant old-domain evidence. The projection excludes successor work and uses a canonical order and currently justified tags. Under finite relevant work and eventual gossip, correct validators converge to the same projection. Fair retry finds a root shared by requester and reporter. Because the reporter retained its frozen $T_i$, it can provide an authenticated difference from that common projection to its frozen set. The requester applies the difference and checks the signed target root.
+
+The projection is an evidence-reconstruction view, not the validator's spendable live overlay. In particular, successor pruning cannot change the reference projection. The difference can insert and remove tagged entries and can approach the size of the whole committed set. There is no separate full-target fallback in this protocol.
+
+After reconstructing $T_i$, the requester derives
+\[
+\widehat G_i=\{h(B):\text{$i$ signed an epoch-$e$ vote for $B$}\}\setminus\keys(T_i)
+\]
+from the reporter's retained signed votes. It accepts the set only when $\Root(\widehat G_i)=\Root(G_i)$. A missing outside-ledger vote prevents this check from succeeding. It then fetches blocks, ancestry, admission witnesses, and dependencies, and assembles the required $\NC$, $\FC$, or $\FF$ locally.
+
+A report is usable only when both sets are reconstructed and its semantic claims are justified. An $\tagR$ entry must match predecessor recovery state; an $\tagN$ entry needs the relevant valid $\NC$ or inherited notarization record; an $\tagF$ entry needs valid inherited checkpoint finality or explicit account finality. A $G_i$ membership contributes reporter support only with $i$'s own first vote. Relaying another validator's vote never counts as reporter support. Provisional first-voted blocks remain distinguishable from eligible candidates. A Byzantine report with unavailable or malformed required material is unusable. Closure needs only $N-f$ usable reports, and at least that many reporters are correct.
+
+\subsection{Immutable candidate inputs}
+\label{sec:manifest}
+The leader selects exactly $N-f$ usable report headers, in canonical identity order, forming $Q$. A candidate also commits to an evidence manifest $\mathcal M$, which lists content-addressed blocks, report reconstructions, exact supporting vote records, and finite admission and dependency witnesses. The corresponding bytes are retained protocol data; the manifest introduces no trusted certificate object.
+
+The manifest removes an ambiguity between a committed report \emph{claim} and the evidence later chosen to validate that claim. Witness bytes are fixed before voting. The candidate value is
+\[
+v_e=(Q,\mu_e,d_e),\quad \mu_e=H(\mathcal M),\quad d_e=H(S_e),
+\]
+where $S_e=\Build(S_{e-1},Q,\mathcal M)$. A verifier must possess and validate the material addressed by $\mathcal M$. An extra private certificate can extend its live overlay, but cannot silently alter the candidate's construction input. A later proposal extending a certified candidate inherits both digests and $Q$.
+
+The manifest is not a permission to omit required report material. Every selected membership, reporter vote, and needed ancestry witness must be covered. Nor may it promote an $\tagN$ or $G_i$ entry to final merely because an incidental final certificate is present. Final-output seeds are defined separately below. This separation makes the state digest a function of fixed semantic inputs rather than of certificate arrival order.
+
+\subsection{Deterministic evidence summaries and locks}
+\label{sec:build}
+Let $\Anc(X)$ include $X$ and all its account ancestors. A candidate is an inherited block, a selected tagged block, or a block named by a selected $G_i$, together with the ancestors and fixed dependencies needed to validate it. Eligibility is checked against the closed predecessor or the explicit overlap evidence retained with its admission; an unexplained speculative path is excluded from new recovery counts. Recovery admissibility checks the required anchor, ancestry, dependencies, and cross-boundary witnesses, but does not require the candidate's own $\NC$ or final certificate; otherwise Rule~2 would be circular.
+
+For a block $B$, let $\mathsf{f}_Q(B)$ mean that a selected $\tagF$ entry explicitly names $B$ and its finality witness verifies. Let $\mathsf{n}_Q(B)$ mean that selected $\tagN$ evidence represents an eligible notarization. Define the fresh reporter support set
+\[
+U_Q(B)=\{i:h(B)\in G_i\text{ and $\mathcal M$ verifies $i$'s first vote for $B$}\}.
+\]
+Inherited $\tagR$ entries add no fresh first-vote support. Finality witnesses can be for descendants, but only the named block and its selected ancestors are final-output seeds. An incidental witness-only descendant is not included just because its certificate proves an ancestor final.
+
+\para{Final closure.}
+Start with inherited finality and all blocks satisfying $\mathsf{f}_Q$. Take account-ancestor closure and recursively include the explicit finalized-send dependencies required by those final blocks. Every added send has a verified finality proof; the dependency is determined by the signed receive, not by a free choice of witness. Call the resulting set $F^\star$. Proof material for an unresolved receive does not by itself apply that receive or promote unrelated witness blocks. These rules make the application's finalized set independent of redundant proof encodings.
+
+\para{Rule 1: represented notarization.}
+At each new account position, after excluding conflicts with $F^\star$, retain the unique eligible represented $\NC$ target and its ancestry as a notarization lock. Same-domain account exclusion rules out two conflicting eligible $\NC$s. The lock constrains continuation, not balances.
+
+\para{Rule 2: reporter first votes.}
+If there is no represented eligible $\NC$ at that position and exactly one eligible block has $|U_Q(B)|\geq r$, retain that block and its ancestry as a recovery lock. Multiple threshold candidates do not cause an arbitrary winner or certificate-free finalization. The late-finality theorem shows that a genuinely formable fast-final block cannot coexist with such a threshold rival.
+
+\para{Inherited state and discharge.}
+Retain predecessor unresolved survivors unless explicit compatible finality excludes them or a matching-origin $\NC$ proves a recovery obligation impossible. Check lock discharge before permitting a conflicting new branch; do not infer it from a certificate's newer epoch number. If an inherited lock is already represented by a retained ancestor, preserve its provenance rather than counting it as fresh support. Newly named candidates below all thresholds need not be kept unless required by inherited state, an ancestor closure, or a validation dependency.
+
+All evidence summaries are computed before any omission. Let $R_Q$ be the surviving inherited unresolved state, selected lock targets, and their required ancestor closure after finality and valid lock discharge. A block merely absent from competing selected evidence is not enough for finality.
+
+\para{Rule 3: checkpoint promotion.}
+For each account, starting at the tip of $F^\star$, repeatedly promote the next block only while (i) it is the unique child retained in $R_Q$ and (ii) the manifest verifies a closing-epoch $\NC$ for that block. Stop at the first fork or block without such an $\NC$. The resulting prefix $P_Q$ is only candidate-final until checkpoint agreement decides that candidate. Recovery-only blocks are never promoted by this rule. Let $F^+$ be the ancestor- and finalized-send-dependency closure of $F^\star\cup P_Q$; the output ledger marks $F^+$ final and retains $R_Q\setminus F^+$. Canonical sorting fixes serialization.
+
+\begin{algorithm}[t]
+\caption{\texorpdfstring{$\Build(S_{e-1},Q,\mathcal M)$}{BuildState}}
+\label{alg:build}
+\begin{algorithmic}[1]
+\State Verify the predecessor, selected identities, report roots, and the committed manifest.
+\State Reconstruct every selected $T_i,G_i$; verify the material for all required memberships and claims.
+\State Form the parent-closed candidate set; classify admission and eligibility from fixed evidence.
+\State Compute $F^\star$ by explicit-finality, ancestor, and finalized-send dependency closure.
+\State Compute represented $\NC$ targets and reporter support sets for every position before pruning.
+\State Check inherited locks and any matching-origin discharge witnesses; reject incompatible claims.
+\State Apply Rules 1--2; retain inherited survivors and the ancestor closure of required lock targets, forming $R_Q$.
+\State Apply Rule~3 to obtain candidate-final prefix $P_Q$; compute $F^+$ from $F^\star\cup P_Q$.
+\State Retain $R_Q\setminus F^+$ and replay $F^+\setminus F_{e-1}$ once in canonical dependency order.
+\State Return candidate $(L_e,\Sigma_e)$; Rule~3 has effect only if this candidate is decided.
+\end{algorithmic}
+\end{algorithm}
+
+Replay orders parents before children and finalized sends before dependent receives. A promoted receive still uses the send-finality witness fixed when the receiving path was admitted; it cannot depend on the checkpoint being constructed. Among independent ready blocks, it chooses the lexicographically least $(a,v,h(B))$; within a block, it preserves the signed operation order. A cyclic or semantically invalid graph is rejected. Such rejection is not expected for an all-correct usable selection: the validity and acyclicity arguments establish a finite construction for that case. Algorithm~\ref{alg:build} specifies the order of validation, evidence summarization, lock selection, and replay.

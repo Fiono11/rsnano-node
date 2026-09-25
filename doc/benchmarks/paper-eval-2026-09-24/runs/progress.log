@@ -1,0 +1,38 @@
+nofork rep0 develop: complete=True settled=True goodput=1901 p50/p95/p99=189/410/622 ms fork_unresolved=0 wall=127s
+nofork rep0 rai: complete=True settled=True goodput=1930 p50/p95/p99=100/169/271 ms fork_unresolved=0 wall=105s
+fork5 rep0 rai: complete=True settled=True goodput=1579 p50/p95/p99=129/763/1198 ms fork_unresolved=3 wall=92s
+fork5 rep0 develop: complete=False settled=None goodput=n/a p50/p95/p99=None/None/None ms fork_unresolved=None wall=420s
+nofork rep0 develop: exists, skipped
+nofork rep0 rai: exists, skipped
+fork5 rep0 rai: exists, skipped
+fork5 rep0 develop: complete=False settled=None goodput=n/a p50/p95/p99=None/None/None ms fork_unresolved=None wall=137s timeout=136s
+fork5-offline1 rep0 develop: complete=False settled=None goodput=n/a p50/p95/p99=None/None/None ms fork_unresolved=None wall=155s timeout=155s
+fork5-offline1 rep0 rai: complete=True settled=True goodput=1829 p50/p95/p99=114/307/458 ms fork_unresolved=721 wall=82s timeout=420s
+fork5-byz1 rep0 rai: complete=True settled=True goodput=1820 p50/p95/p99=119/459/854 ms fork_unresolved=691 wall=82s timeout=420s
+fork5-byz1 rep0 develop: complete=False settled=None goodput=n/a p50/p95/p99=None/None/None ms fork_unresolved=None wall=116s timeout=116s
+  host busy, waiting: ['153.3 spotlightknowled']
+  host busy, waiting: ['148.0 spotlightknowled']
+  host busy, waiting: ['150.2 spotlightknowled']
+  host busy, waiting: ['153.3 spotlightknowled']
+nofork rep0 develop: exists, skipped
+nofork rep0 rai: exists, skipped
+fork5 rep0 rai: exists, skipped
+fork5 rep0 develop: complete=False settled=None goodput=n/a p50/p95/p99=None/None/None ms fork_unresolved=None wall=156s publish_timeout=41s
+fork5-offline1 rep0 develop: complete=False settled=None goodput=n/a p50/p95/p99=None/None/None ms fork_unresolved=None wall=140s publish_timeout=36s
+fork5-offline1 rep0 rai: exists, skipped
+fork5-byz1 rep0 rai: exists, skipped
+fork5-byz1 rep0 develop: complete=False settled=None goodput=n/a p50/p95/p99=None/None/None ms fork_unresolved=None wall=152s publish_timeout=36s
+nofork rep1 rai: complete=True settled=True goodput=1932 p50/p95/p99=99/206/476 ms fork_unresolved=0 wall=105s publish_timeout=Nones
+nofork rep1 develop: complete=True settled=True goodput=1901 p50/p95/p99=190/240/333 ms fork_unresolved=0 wall=131s publish_timeout=35s
+nofork-offline1 rep0 develop: complete=True settled=True goodput=1907 p50/p95/p99=207/238/285 ms fork_unresolved=0 wall=139s publish_timeout=41s checkpoints=None
+nofork-offline1 rep0 rai: complete=True settled=True goodput=1958 p50/p95/p99=110/141/225 ms fork_unresolved=0 wall=81s publish_timeout=Nones checkpoints=[3, 3, 3, 3, 3]
+nofork-byz1 rep0 rai: complete=True settled=True goodput=1963 p50/p95/p99=106/138/191 ms fork_unresolved=0 wall=81s publish_timeout=Nones checkpoints=[3, 3, 3, 3, 3]
+nofork-byz1 rep0 develop: complete=True settled=True goodput=1921 p50/p95/p99=205/234/289 ms fork_unresolved=0 wall=139s publish_timeout=35s checkpoints=None
+DONE
+fork10 rep0 develop: complete=False settled=None goodput=n/a p50/p95/p99=None/None/None ms fork_unresolved=None wall=148s publish_timeout=41s checkpoints=None
+fork10 rep0 rai: complete=True settled=True goodput=1372 p50/p95/p99=502/4167/6154 ms fork_unresolved=692 wall=111s publish_timeout=Nones checkpoints=[3, 3, 3, 3, 3, 3]
+fork10-offline1 rep0 rai: complete=True settled=True goodput=1200 p50/p95/p99=145/698/951 ms fork_unresolved=209 wall=89s publish_timeout=Nones checkpoints=[4, 4, 4, 4, 4]
+fork10-offline1 rep0 develop: complete=False settled=None goodput=n/a p50/p95/p99=None/None/None ms fork_unresolved=None wall=154s publish_timeout=51s checkpoints=None
+fork10-byz1 rep0 develop: complete=False settled=None goodput=n/a p50/p95/p99=None/None/None ms fork_unresolved=None wall=168s publish_timeout=51s checkpoints=None
+fork10-byz1 rep0 rai: complete=True settled=False goodput=177 p50/p95/p99=180/746/1362 ms fork_unresolved=1424 wall=320s publish_timeout=Nones checkpoints=[2, 2, 2, 2, 2]
+DONE

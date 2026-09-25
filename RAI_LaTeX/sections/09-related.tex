@@ -1,0 +1,35 @@
+\section{Related Work}
+\label{sec:related}
+\subsection{Payments without a global execution order}
+Guerraoui et al. characterize asset transfer's consensus number, including the single-owner case~\cite{consensusnumber}. FastPay provides prefunded Byzantine settlement without a global transaction order~\cite{fastpay}. Astro builds asynchronous payments on broadcast~\cite{astro}; Zef adds private coin payments and storage-conscious lifecycle mechanisms~\cite{zef}. Nano provides account-local chains and distinct send and receive operations~\cite{nano}. These precedents establish the application-level opportunity, not RAI's closure invariant. RAI does not claim that single-writer consensus avoidance, separate sends and receives, or account-local ordering is new.
+
+Astro's extended version already discusses asynchronous replica reconfiguration using view-tagged messages and account-log transfer~\cite{astro,dbrb}. RAI's distinction is the frozen-report evidence used to preserve first- and final-vote obligations at its checkpoint boundary.
+
+\subsection{Hybrid execution and contention recovery}
+Sui Lutris uses consensus for shared objects and checkpoint sequencing, including End-of-Epoch handling of processed certificates~\cite{lutris}. RAI instead reconstructs account obligations from reports and does not continuously sequence ordinary certificates; these are different closure mechanisms under different application models.
+
+Cuttlefish broadens the fast path with collective objects and multi-owner transactions, and uses FastUnlock to address contention~\cite{cuttlefish}. RAI's boundary promotion is narrower: it can finalize only a uniquely retained notarized account prefix at reconfiguration and does not provide a general consensus-backed resolution service for contested objects. Reduced expressiveness is a design boundary, not evidence of dominance.
+
+\subsection{Dynamic membership and certificate boundaries}
+Pastro studies permissionless asynchronous asset transfer with weighted stake and a dynamic adversary~\cite{pastro}; RAI instead assumes equal-weight authenticated committees and static corruption. Dynamic Byzantine Reliable Broadcast and asynchronous Byzantine reconfiguration address broader changing-participation settings~\cite{dbrb,reconfiguration}. RAI focuses on the account evidence needed for one agreed epoch checkpoint.
+
+PDCC combines certificate-based payments with membership change and periodic settlement; its installation rule accepts certificates for the installed configuration and states a correct-member overlap assumption~\cite{pdcc}. RAI instead preserves eligible old-domain certificates that may be assembled later. The difference is boundary semantics, not a safety judgment about PDCC.
+
+\begin{table*}[t]
+\caption{Selected boundary mechanisms. This comparison concerns the cited designs, not measured performance or a completeness ranking.}
+\label{tab:related}
+\begin{tabularx}{\textwidth}{@{}p{0.84in}YY@{}}
+\toprule
+Design & Relevant mechanism & Distinction from the RAI core\\
+\midrule
+Astro~\cite{astro} & Asynchronous view changes and account-log transfer in the extended-version appendix. & Reconfiguration already exists; RAI studies its own frozen-report quorum obligations.\\
+Sui Lutris~\cite{lutris} & Processed certificates enter consensus before End-of-Epoch handover. & RAI has no continuous account-certificate sequence to drain.\\
+Pastro~\cite{pastro} & Permissionless asynchronous asset transfer with dynamic participation. & RAI's membership and corruption assumptions are narrower.\\
+PDCC~\cite{pdcc} & Checkpoint-installed configurations and current-configuration certificate acceptance. & RAI's contract preserves eligible late old-domain finality.\\
+RAI & Immutable reports, committed validation input, obligation locks, and narrow notarized-prefix promotion. & Account certificates finalize online; a decided checkpoint can also finalize a uniquely retained notarized prefix.\\
+\bottomrule
+\end{tabularx}
+\end{table*}
+
+\subsection{Agreement and authenticated reconstruction}
+Simplex and Kudzu supply lightweight leader-based voting mechanisms~\cite{simplex,kudzu}. RAI reuses a Kudzu-style election only for checkpoint selection; its account path removes second looks and timeout support. The reconstruction layer uses authenticated commitments and differences as supporting mechanisms, not new cryptographic primitives. The protocol-specific requirement is that each frozen tagged ledger and voted-but-not-ledger set be reconstructible and semantically checkable. The preservation proof depends on those memberships and quorum intersections, not on an assumed compact difference or a particular authenticated-set implementation.

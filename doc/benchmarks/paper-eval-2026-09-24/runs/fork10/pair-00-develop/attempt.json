@@ -1,0 +1,36 @@
+{
+  "pair": 0,
+  "label": "develop",
+  "command": [
+    "/Users/ruimorais/rsnano-node/doc/benchmarks/paper-eval-2026-09-24/bin/develop/nanospam",
+    "--data-dir",
+    "/Users/ruimorais/rsnano-node/doc/benchmarks/paper-eval-2026-09-24/runs/fork10/pair-00-develop/data",
+    "--prs",
+    "6",
+    "--no-prio",
+    "--blocks",
+    "45000",
+    "--accounts",
+    "45000",
+    "--rate",
+    "2000",
+    "--fork-percentage",
+    "10",
+    "--no-kill"
+  ],
+  "node": "/Users/ruimorais/rsnano-node/doc/benchmarks/paper-eval-2026-09-24/bin/develop/rsnano",
+  "node_sha256": "f8586d924500aace44d5a7544b15a381a32bdfef74d0dbc0c21c3b41cf3401c8",
+  "client_sha256": "15e588f2eefc4c112831a91acb0ae65c18c45a9edcc50bd0f029efeea8312b4f",
+  "started": 1790292799.788429,
+  "timeout_seconds": 420,
+  "timeout_basis": {
+    "rule": "initial baseline calibration ceiling"
+  },
+  "disk_free_before": 33694326784,
+  "publish_timeout_seconds": 41,
+  "publish_started_after_secs": 106.93224245798774,
+  "exit_code": null,
+  "timed_out": true,
+  "timeout_phase": "publishing",
+  "client_secs": 148.1928699016571
+}

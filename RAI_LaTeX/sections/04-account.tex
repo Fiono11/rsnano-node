@@ -1,0 +1,44 @@
+\section{Account-Local Processing}
+\label{sec:account}
+\subsection{Blocks, operations, and validation}
+A block is $B=(a,h_p,x,\sigma_a)$: account, parent hash, ordered operation batch, and owner signature. Its identifier is
+\[
+h(B)=H(\mathsf{Block},a,h_p,x).
+\]
+The epoch is deliberately absent from this identifier, allowing a nonfinal omitted block to be retried with new-epoch votes. An empty batch is permitted for owner-authorized branch continuation. The two operations are $\Send(b,z)$, for destination $b$ and positive amount $z$, and $\Receive(s)$, where $s=(h(B),j)$ identifies a send at operation index $j$.
+
+A send debits its owner. A receive credits only the named destination and requires an explicit proof that the send is already final. Transfer completion requires a final receive; the protocol does not create receives for passive recipients. These are separate owner-authorized operations, not an atomic update of two accounts.
+
+Validation replays the entire unresolved selected path from its finalized anchor, then the proposed batch. It checks signatures, consecutive parent slots, destinations, positive amounts, balances, and duplicate receives using a temporary balance and received-send set. Checking each block only against the last finalized balance would miss a duplicate receive within an unresolved chain. Validation has no application effect. Every finalization repeats these checks and applies only previously unapplied operations.
+
+A finality proof is either an account-certificate proof with the committee history, votes, attachment witnesses, and dependencies needed to verify eligibility, or a verified decided checkpoint that promoted the block. Proofs are finite, recursively verifiable evidence graphs; a circular reference is not a justification. A proof used for epoch-$e$ voting cannot depend on $S_e$ or a later checkpoint. A receive's send proof must be available before a correct validator supports the receiving path. These conditions make replay dependencies well founded (Lemma~\ref{lem:dag}).
+
+\subsection{Single-support voting and durable state}
+An account instance is $(\mathit{session},e,a,v)$. A correct validator first-votes at most once in that instance, for the first admissible available block it accepts. Its first vote is also its notarization support. There is no separate account notarization vote, no second-look support for a rival, and no account timeout vote.
+
+A block is \emph{complete} in epoch $e$ when its data and required ancestry are available and the validator has assembled its epoch-$e$ $\NC$ from $q$ first votes. A complete block that is eligible is durably recorded as notarized before the validator final-votes, uses it as an eligible complete parent, or freezes its epoch report. The validator can final-vote only for its own first-voted block. It atomically records a terminal flag with that signature; it does not wait to observe an $\FC$ before remembering that voting ended.
+
+An eligible block finalizes on $q$ final votes or $N-p$ first votes. Its selected unresolved ancestors finalize with it, and incompatible provisional branches are removed from the effective live view. An $\NC$ alone has no balance effect. Learning eligible finality closes the resolved voting instances, but relaying blocks and votes continues. A failed early attempt never resets an instance's first vote or terminal flag.
+
+\para{Cross-epoch voting record.}
+A correct identity stops epoch-$(e-1)$ signing before opening epoch $e$. While $S_{e-1}$ is unknown, it does not first-vote for a different block at a position where it first-voted in epoch $e-1$. Re-voting the same block is allowed. Once the predecessor is installed, its finalized history, frontier, and carried locks govern the position. This guard prevents a common identity from changing sides during overlap; the core protocol does not assume enough common identities to make that guard alone a quorum argument.
+
+\subsection{Attachment and prefix-wide eligibility}
+\label{sec:eligibility}
+Let $d_a(S)$ be the maximum depth of any block for account $a$ retained in checkpoint $S$, including unresolved branches. With $S_{e-1}$ installed, a new epoch-$e$ root starts at depth $d_a(S_{e-1})+1$ and extends a maximum-depth retained tip. Subsequent children require complete epoch-$e$ parents. An extension must respect finalized history and every carried lock on its selected ancestry. A shorter retained branch cannot reopen a position below the frontier.
+
+Before $S_{e-1}$ is known, first voting may prepare work from a maximum-depth tip of the latest closed ledger, from a closing-epoch finalized parent with its complete proof, or from a complete current-epoch parent. A closing-epoch notarized block may itself be re-voted when its parent is admissible. Such a block must also become complete in the current epoch before being used as a current-epoch complete parent. The signed admission-witness digest fixes the anchor and old evidence actually used; later rechecking cannot invent an earlier justification.
+
+Ordinary early work is provisional. When the predecessor arrives, it is rechecked against the decided frontier, consecutive current-epoch parents, finalized history, and carried locks. A tally of fast-final size does not bypass this check. A notarization lock constrains settlement to its branch. A recovery lock can be discharged by a verified conflicting $\NC$ in the very epoch whose possible finality that lock protects: account exclusion then proves that its latent final certificate cannot exist. The discharge evidence is retained. A newer $\NC$ without this provenance is insufficient.
+
+\para{The core overlap exception.}
+A block may finalize before $S_{e-1}$ is known only if the verifier checks its entire selected prefix against the latest closed state and proves cross-boundary exclusion at \emph{every unresolved position being finalized}. Each such block, including the certificate target, must have a valid closing-epoch $\NC$ and a complete current-epoch $\NC$ for the same hash. A closing-epoch finalized prefix is already a safe anchor. Any inherited recovery lock bypassed by this path requires the matching-domain discharge proof above; inherited notarization locks cannot be bypassed.
+
+Consequently, a descendant certificate can settle the selected prefix during overlap only when that descendant and all intervening unresolved blocks satisfy the same guard. A fresh descendant with no old-domain exclusion evidence remains provisional, even if its parent is notarized in both epochs. Otherwise disjoint committees could certify different children of that parent. This restriction sacrifices some overlap rather than deriving a cross-epoch exclusion result from a same-position parent certificate.
+
+If the predecessor arrives first, nonfinal early work falls back to ordinary rechecking. Already finalized overlap work remains in the certified live overlay; installation cannot invalidate it. A decided checkpoint may promote only a uniquely retained closing-epoch notarized prefix; recovery-only uniqueness remains a lock. Supplement~B describes a possible alternative exclusion witness for fresh work, separately from this core rule.
+
+\subsection{Fresh-child recovery}
+If a checkpoint retains unresolved maximum-depth tips after the promotion rule, the owner can extend a permissible tip with a fresh child. Finalizing that child selects its unresolved ancestors rather than reopening their slots. A notarization or recovery lock still constrains the branch choice; the owner cannot use a child to evade an undischarged obligation.
+
+This continuation policy is also needed for liveness. A block retained at the new frontier may no longer be a legal new root at its old position. Persistent submission therefore means retrying an omitted block, or supplying a fresh, possibly empty, uncontested child of a retained admissible tip. Repeatedly resubmitting the same locked block is not by itself a progress guarantee. Existing owner-signed conflicting children can still prevent the continuation from being uncontested.

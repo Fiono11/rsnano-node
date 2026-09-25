@@ -1,0 +1,27 @@
+\section{Motivation and Overview}
+\label{sec:overview}
+\subsection{A six-validator handoff}
+Let $N=6$, $f=p=1$, so notarization and normal finality require four votes, fast finality requires five first votes, and recovery requires three reporter first votes. Validators $1,\ldots,5$ are correct and validator~6 is Byzantine. Validators $1,2,3,4,6$ first-vote for an eligible payment block $B$. Delay vote dissemination so that no correct reporter has assembled a notarization or final certificate when it freezes its report.
+
+Suppose a checkpoint candidate selects reports from $1,2,3,5,6$. Each of reporters $1,2,3$ commits $h(B)$ in its voted-but-not-ledger set $G_i$. Validator~6 may omit its vote; validator~5 did not vote for $B$. The three correct report memberships nevertheless meet the recovery threshold. $\Build$ retains $B$ and its ancestry as a recovery-protected branch, without changing balances. Later, the five first votes form a fast final certificate. That certificate can finalize the retained branch; a subsequent checkpoint exposes its finality explicitly. Figure~\ref{fig:latent} shows the distinction between retaining an obligation and applying it.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[node distance=5mm,box/.style={draw,rounded corners=1pt,align=center,text width=2.85in,inner sep=5pt,font=\normalsize},>=Stealth]
+\node[box] (a) {Five old first votes for $B$ are released.\\No reporter has assembled the certificate.};
+\node[box,below=of a] (b) {Five reports are selected.\\At least three correct reports preserve $B$.};
+\node[box,below=of b] (c) {The checkpoint retains a recovery lock.\\No checkpoint balance changes for $B$.};
+\node[box,below=of c] (d) {Delayed votes form $\FF(B)$.\\The compatible branch becomes final.};
+\draw[->] (a)--(b);\draw[->] (b)--(c);\draw[->] (c)--(d);
+\end{tikzpicture}
+\caption{Latent finality is an obligation of released votes. Report freezes are local events, not an atomic global stop.}
+\Description{A four-stage vertical sequence: old first votes are released, selected frozen reports expose sufficient support, a checkpoint carries a recovery lock without balance effects, and delayed votes later form a final certificate.}
+\label{fig:latent}
+\end{figure}
+
+The example generalizes in two ways. Every selected report quorum intersects a normal final-vote quorum in at least $p+1$ correct signers, each of whom recorded notarization before final-voting. Every selected report quorum intersects a fast first-vote quorum in at least $f+p+1$ correct signers, whose obligations occur in either the ledger set or $G_i$. These are the two exposure cases used by the closure theorem.
+
+\subsection{Three responsibilities at the boundary}
+Account voting determines certificate-backed finality. Closure determines the state and locks that any successor must preserve and may mark a uniquely retained closing-epoch notarized prefix for checkpoint finality. Agreement decides which valid candidate is installed; only that decision gives the marked prefix final effect. Agreement on a digest cannot compensate for missing report data or a construction that drops latent obligations.
+
+The old committee validates reconstructed reports and a fixed evidence manifest before authorizing a candidate. The successor repeats those checks before installation. Meanwhile, its known membership allows preparation and first voting. Settlement before closure is deliberately narrower: the selected unresolved prefix must carry the required old- and new-epoch notarizations. This permits useful overlap without treating speculative successor votes as a veto on the predecessor checkpoint.

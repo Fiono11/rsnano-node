@@ -1,0 +1,68 @@
+\section{Model and Guarantees}
+\label{sec:model}
+\subsection{Participants, faults, and retained evidence}
+Clients own accounts and sign blocks. An authenticated committee contains $N=3f+2p+1$ equal-weight validator identities, where $f,p\geq0$ are integers. At most $f$ members of each committee are Byzantine. Corruption is globally static: adversarial identities are fixed throughout the execution, and a correct departing identity is not later compromised. Membership admission, Sybil resistance, and preservation of the per-committee fault bound are deployment assumptions. Deterministic committee selection does not establish any of them.
+
+Signatures are unforgeable and hashes collision resistant. Canonical encodings bind the network session and message domain. An account vote binds its epoch, committee, account, slot, vote type, block hash, and admission-witness digest. The witness identifies the anchor and evidence under which the vote was admitted; it cannot be replaced after signing. Checkpoint votes bind the handoff context and deciding committee. Distinct signatures by one identity never contribute twice to a quorum for the same block.
+
+Correct validators persist their first vote and terminal state before releasing signatures. They retain blocks, signed votes, and finite dependency evidence, and relay them after local voting ends. A certificate is a deterministic local view of sufficient individually verified votes, not a separately gossiped protocol object. A retained item held by a correct validator eventually reaches every correct validator that needs it. Departing validators continue service until correct successors hold durable copies. Epoch labels alone do not protect against stolen old keys; adaptive or mobile corruption is outside the model.
+
+\begin{table}[t]
+\caption{Account and closure thresholds. The example has $f=p=1$ and $N=6$.}
+\label{tab:thresholds}
+\centering
+\begin{tabularx}{\columnwidth}{@{}Ylc@{}}
+\toprule
+Evidence & Threshold & Example\\
+\midrule
+Notarization $\NC$ & $q=N-f-p$ & 4\\
+Normal finality $\FC$ & $q$ final votes & 4\\
+Fast finality $\FF$ & $N-p$ first votes & 5\\
+Recovery support & $r=f+p+1$ & 3\\
+Selected reports & $N-f$ & 5\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Quorums and the role of \texorpdfstring{$p$}{p}}
+The thresholds retained from the Kudzu-style voting construction are
+\begin{align}
+N&=3f+2p+1, &q&=2f+p+1, &r&=f+p+1.\label{eq:thresholds}
+\end{align}
+Table~\ref{tab:thresholds} distinguishes first, final, and report quorums. The parameter $p$ is the number of first-vote responses the fast path can omit, not an additional Byzantine-fault allowance. Increasing $p$ at fixed $f$ increases committee size. Normal progress needs $q$ responsive supporters; fast progress additionally needs $N-p$ timely first votes for the same block. We repeatedly use
+\begin{align}
+2q-N&=f+1,\label{eq:intersect}\\
+q-2f&=p+1,\label{eq:normal-exposure}\\
+(N-p)-2f&=f+p+1=r.\label{eq:fast-exposure}
+\end{align}
+
+\subsection{Accounts and canonical state}
+Each account is a tree of owner-signed blocks rooted at genesis. A block's slot is one greater than its parent's slot. Slots are account positions, not times or retries. Blocks of one account conflict when neither is an ancestor of the other. An owner equivocates by signing conflicting blocks. Safety covers such owners; liveness does not promise a winner under persistent contention.
+
+A closed checkpoint is $S_e=(L_e,\Sigma_e)$. The ledger $L_e$ identifies finalized prefixes, retained unresolved branches, and lock records. A lock record includes its block hash, strength (notarization or recovery), and the epoch whose potential finality it protects. Provenance matters: a certificate in an unrelated epoch cannot silently discharge an older lock. The application state $\Sigma_e$ contains balances, received-send identifiers, and applied-operation identifiers. A block is final either from an eligible account $\FC/\FF$ or because a decided checkpoint promoted it under Section~\ref{sec:build}; an undecided candidate has no finality effect.
+
+Let $F_e$ be the finalized block set represented by $L_e$. A validator additionally maintains a certified live overlay $O_i$, containing locally finalized blocks not yet in $F_e$. Its effective final set is $F_e\cup O_i$, and its live application view is the deterministic replay of that set. The union is parent- and final-dependency-closed. Section~\ref{sec:install} defines installation without rolling back or reissuing its effects. A deterministic function derives $C_e$ from $\Sigma_e$, never from a private overlay. Later exposure of compatible finality cannot retroactively change $C_e$.
+
+\subsection{Latent finality and progress assumptions}
+\begin{definition}[Latent and late finality]
+For a fixed epoch and admission context, a block is latent-final at a cut if released signatures and valid dependency evidence suffice to verify an eligible $\FC$ or $\FF$ for it or a descendant selecting it. Late finality is such a proof assembled or exposed after reports freeze or a checkpoint is decided. A closure obligation also covers a certificate completed by subsequent old-epoch signatures from identities that have not stopped.
+\end{definition}
+An outcome is eligible only under the attachment rules of Section~\ref{sec:account}; a large tally for provisional work is not account finality. Preservation requires retaining the selected branch or a compatible finalized extension. Checkpoint promotion is permitted only for a uniquely retained prefix already protected by closing-epoch notarization.
+
+Safety has no message-delay bound. Progress requires finite relevant admitted work, fair processing and retry, retained-data availability, and recurring sufficiently long bounded-delay windows. In a prepared window, $\delta$ bounds message delivery and processing. Correct clock rates lie in $[1-\rho,1+\rho]$, where $0\leq\rho<1$. These assumptions are separated in Table~\ref{tab:assumptions}. An uncontested continuation has no conflicting owner-signed alternative at any new position, including signatures created earlier. Merely stopping new equivocation is insufficient.
+
+\begin{table*}[t]
+\caption{Assumption-to-guarantee map. None of the progress premises is a throughput or resource-isolation guarantee.}
+\label{tab:assumptions}
+\begin{tabularx}{\textwidth}{@{}p{1.10in}Yp{2.16in}@{}}
+\toprule
+Premise & Required condition & Guarantees using it\\
+\midrule
+Safety model & Static Byzantine identities; at most $f$ per committee; authentication; persistent voting; valid ancestry and prefix-wide eligibility. & Account exclusion and cross-epoch safety.\\
+Data service & Correct holders retain and eventually serve blocks, votes, frozen reports, and committed candidate inputs. & Report usability and successor installation.\\
+Finite preparation & The relevant admitted closing-epoch evidence is finite; reconstruction and semantic validation are fairly scheduled. & Eventual reconstruction and finite $\Build$.\\
+Agreement progress & Recurring prepared windows with $N-f$ responsive correct old members, including catch-up and a correct-leader opportunity. & Handoff termination.\\
+Account progress & Available dependencies; common-open ready intervals; persistent uncontested submission with retry or fresh-child continuation. & Account finality and eventual checkpoint inclusion.\\
+\bottomrule
+\end{tabularx}
+\end{table*}

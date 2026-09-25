@@ -1,0 +1,40 @@
+{
+  "pair": 0,
+  "label": "rai",
+  "command": [
+    "/tmp/rai-cross-epoch-artifacts/bin/no-crash-v41/nanospam",
+    "--data-dir",
+    "/Users/ruimorais/rsnano-node/doc/benchmarks/paper-eval-2026-09-24/runs/nofork/pair-00-rai/data",
+    "--prs",
+    "6",
+    "--no-prio",
+    "--blocks",
+    "45000",
+    "--accounts",
+    "45000",
+    "--rate",
+    "2000",
+    "--fork-percentage",
+    "0",
+    "--no-kill",
+    "--epoch-duration-ms",
+    "8000",
+    "--committee-model",
+    "equal_weight",
+    "--committee-f",
+    "1",
+    "--committee-p",
+    "1",
+    "--checkpoint-finalization",
+    "certificate_only"
+  ],
+  "node": "/tmp/rai-cross-epoch-artifacts/bin/no-crash-v41/rsnano",
+  "node_sha256": "32e0a47c618d0e04c9620de9edeed8e831c00adb83e0d8f236ff42eb7ead5115",
+  "client_sha256": "9135ae7b7cbe7b8194351765700bf3810710fa5d494cfb6f222ef99577635dc7",
+  "started": 1790289540.472598,
+  "timeout_seconds": 420,
+  "timeout_basis": {
+    "rule": "initial baseline calibration ceiling"
+  },
+  "disk_free_before": 33113776128
+}
