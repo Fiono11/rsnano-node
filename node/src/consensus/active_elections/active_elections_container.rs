@@ -3178,6 +3178,11 @@ impl ActiveElectionsContainer {
     /// RAI: the certificates this node can assemble for each hash from the
     /// signed votes it retains for the epoch, counted in the committee that
     /// issued the epoch's votes. Nothing without a known committee.
+    /// Notarization weight comes from first, notarization and final votes
+    /// alike, as an election counts it (`RepSlotVotes::add`): a report's N
+    /// entry is checked against the certificate the reporter's election
+    /// formed, and a reporter that notarized with a final vote among the
+    /// signatures could otherwise never have its report verified.
     #[cfg(feature = "rai_protocol")]
     pub fn certificate_kinds(
         &self,
@@ -3199,8 +3204,12 @@ impl ActiveElectionsContainer {
             .map(|hash| {
                 let kinds = match self.vote_records.support(epoch, hash) {
                     Some(support) => {
-                        let notarizing: BTreeSet<PublicKey> =
-                            support.first.union(&support.notar).copied().collect();
+                        let notarizing: BTreeSet<PublicKey> = support
+                            .first
+                            .union(&support.notar)
+                            .chain(support.final_.iter())
+                            .copied()
+                            .collect();
                         CertificateKinds {
                             nc: weight_of(&notarizing) >= thresholds.certificate,
                             fc: weight_of(&support.final_) >= thresholds.certificate,
@@ -3436,6 +3445,70 @@ mod tests {
             before.root()
         );
         assert!(container.epoch_certified(ConsensusEpoch::new(1)).is_empty());
+    }
+
+    /// RAI: an election notarizes with final votes among the signatures
+    /// (`RepSlotVotes::add`); the certificate assembled from the retained
+    /// signed votes, which a report's N entry is checked against, has to
+    /// count them the same way
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn a_notarization_certificate_counts_final_voters_as_the_election_does() {
+        let mut container = ActiveElectionsContainer::default();
+        let now = Timestamp::new_test_instance();
+        container.start_epochs(now);
+        let reps: Vec<PrivateKey> = (1..=4).map(PrivateKey::from).collect();
+        // Four representatives of equal weight: a certificate takes three
+        container.set_genesis_committee(
+            reps.iter()
+                .enumerate()
+                .map(|(i, rep)| AccountFrontier {
+                    account: PrivateKey::from(10 + i as u64).account(),
+                    height: 1,
+                    hash: BlockHash::from(70 + i as u64),
+                    representative: rep.public_key(),
+                    balance: Amount::raw(100),
+                })
+                .collect(),
+            None,
+        );
+        let block = SavedBlock::new_test_instance();
+        let hash = block.hash();
+        container
+            .insert(
+                AecInsertRequest::new_priority(block, BlockPriority::new_test_instance()),
+                now,
+            )
+            .unwrap();
+        let epoch = ConsensusEpoch::ZERO;
+        let weights = RepWeights::default();
+        for (rep, kind) in reps.iter().zip([
+            VoteKind::First,
+            VoteKind::First,
+            VoteKind::Final,
+            VoteKind::Final,
+        ]) {
+            let vote = Vote::new_in_epoch(rep, kind, epoch, vec![hash]);
+            container.apply_vote(ApplyVoteArgs {
+                vote: &ReceivedVote::new(Arc::new(vote), VoteDelivery::Direct, None).into(),
+                rep_weights: &weights,
+                quorum_snapshot: &QuorumSnapshot::new_test_instance(),
+                now,
+            });
+        }
+        // The election notarized with two first and two final votes
+        assert!(
+            container
+                .election_for_block(&hash)
+                .unwrap()
+                .certificates()
+                .notar
+                .contains(&hash)
+        );
+        let (_, kinds) = container.certificate_kinds(epoch, &[hash])[0];
+        assert!(kinds.nc);
+        assert!(!kinds.fc);
+        assert!(!kinds.ff);
     }
 
     #[test]

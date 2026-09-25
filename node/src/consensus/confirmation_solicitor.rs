@@ -87,6 +87,19 @@ impl ConfirmationSolicitor {
                             .or_insert_with(|| (rep_channel, Vec::new()));
 
                         request_queue.push((winner.hash(), winner.root()));
+                        // RAI: the other candidates held here go with it, so
+                        // that a representative holding one of them does not
+                        // send it again as a fork candidate this node lacks
+                        // (see `RequestAggregator::reply_with_fork_candidates`)
+                        if cfg!(feature = "rai_protocol") {
+                            request_queue.extend(
+                                election
+                                    .candidate_blocks()
+                                    .keys()
+                                    .filter(|hash| **hash != winner.hash())
+                                    .map(|hash| (*hash, winner.root())),
+                            );
+                        }
 
                         if !different_hash || terminated {
                             rep_request_count += 1;

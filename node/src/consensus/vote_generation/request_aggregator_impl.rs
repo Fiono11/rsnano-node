@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use rsnano_ledger::{AnySet, LedgerSet};
 use rsnano_types::{Account, Block, BlockHash, Root, SavedBlock};
 use rsnano_utils::stats::{DetailType, StatType, Stats};
@@ -21,8 +23,12 @@ impl<'a> RequestAggregatorImpl<'a> {
     }
 
     pub fn add_votes(&mut self, requests: &[(BlockHash, Root)]) {
+        // RAI: a request names every candidate of a root the requester
+        // holds; they all resolve to the one block this ledger holds for it
+        let mut resolved = HashSet::new();
         for (hash, root) in requests {
-            let block = search_for_block(self.any, hash, root);
+            let block = search_for_block(self.any, hash, root)
+                .filter(|block| resolved.insert(block.hash()));
 
             let should_generate_final_vote = |block: &Block| {
                 // Check if final vote is set for this block

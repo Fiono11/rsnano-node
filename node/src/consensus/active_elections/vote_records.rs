@@ -9,7 +9,8 @@ use crate::consensus::election::{CertifiedBlock, ResidualKind};
 
 /// RAI: the identities whose signed votes of one kind this node retains for
 /// one block in one epoch. Each identity counts once per kind; a certificate
-/// is assembled from these against the committee of the epoch.
+/// is assembled from these against the committee of the epoch, with the
+/// three kinds all supplying notarization weight, as in an election.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct HashSupport {
     pub first: BTreeSet<PublicKey>,

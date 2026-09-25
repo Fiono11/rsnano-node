@@ -424,8 +424,14 @@ impl RequestAggregatorLoop {
     /// Kudzu ships every block with the votes for it. Here a request for a
     /// block we do not hold, for a root where our ledger has a different
     /// successor, tells us that the requester lacks our fork candidate: it is
-    /// published to the requester so that it can take its second look.
+    /// published to the requester so that it can take its second look. A
+    /// request names every candidate the requester holds (see
+    /// `ConfirmationSolicitor::add`): a candidate among them is not lacking,
+    /// and sending it every round only fills the requester's queues with
+    /// blocks it drops.
     fn reply_with_fork_candidates(&self, any: &dyn AnySet, request: &AggregatorRequest) {
+        let named: HashSet<BlockHash> =
+            request.roots_hashes.iter().map(|(hash, _)| *hash).collect();
         for (hash, root) in &request.roots_hashes {
             if any.block_exists(hash) {
                 continue;
@@ -433,6 +439,9 @@ impl RequestAggregatorLoop {
             let Some(block) = search_for_block(any, hash, root) else {
                 continue;
             };
+            if named.contains(&block.hash()) {
+                continue;
+            }
             // RAI: the requester holds a candidate of this slot which this
             // node does not; it is asked for below
             let mut sender = self.message_sender.lock().unwrap();
