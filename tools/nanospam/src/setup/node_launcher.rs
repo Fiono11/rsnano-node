@@ -54,6 +54,15 @@ pub(crate) async fn start_nodes(
 
         info!("Starting node: {cmd:?}");
         children.push(cmd.spawn().unwrap());
+        // Let the harness stop precisely the children of this run.
+        std::fs::write(
+            data_dir.join("node-pids"),
+            children
+                .iter()
+                .map(|child| format!("{}\n", child.id()))
+                .collect::<String>(),
+        )
+        .unwrap();
 
         info!("Waiting for RPC...");
         while rpc_client.version().await.is_err() {
@@ -65,7 +74,7 @@ pub(crate) async fn start_nodes(
         // Send keepalives so that nano_node connects (their preconfigured peers don't allow ports)!
         info!("Sending keepalives...");
         for (i, rpc_client) in rpc_clients.iter().enumerate() {
-            for k in 0..args.prs {
+            for k in 0..args.honest_prs() {
                 if k != i {
                     rpc_client.keepalive("::1", peering_port(k)).await.unwrap();
                 }

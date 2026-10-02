@@ -614,6 +614,15 @@ impl NanoRpcClient {
             .await
     }
 
+    pub async fn final_state(&self) -> Result<FinalStateResponse> {
+        self.request(&RpcCommand::final_state()).await
+    }
+
+    /// RAI: the setup is over, the node's consensus epochs start now
+    pub async fn epoch_start(&self) -> Result<EpochStartResponse> {
+        self.request(&RpcCommand::epoch_start()).await
+    }
+
     pub async fn confirmation_quorum(&self) -> Result<ConfirmationQuorumResponse> {
         self.request(&RpcCommand::confirmation_quorum()).await
     }

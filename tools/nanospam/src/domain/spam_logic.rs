@@ -1,6 +1,6 @@
 use crate::domain::{
-    AccountMap, BlockFactory, BlockResult, DelayedBlocks, Forks, RateSpec, SpamStrategy,
-    high_prio_tracker::HighPrioTracker,
+    AccountMap, BlockFactory, BlockResult, DelayedBlocks, Forks, RateSpec, Representatives,
+    SpamStrategy, high_prio_tracker::HighPrioTracker,
 };
 use rsnano_network::token_bucket::TokenBucketLogic;
 use rsnano_nullable_clock::Timestamp;
@@ -13,6 +13,8 @@ pub(crate) struct SpamSpec {
     pub(crate) rate: RateSpec,
     pub(crate) fork_probability: f64,
     pub(crate) track_confirmations: bool,
+    /// RAI: the representatives the spam accounts delegate to
+    pub(crate) representatives: Representatives,
 }
 
 pub(crate) struct SpamLogic {
@@ -36,7 +38,12 @@ impl SpamLogic {
         Self {
             delayed: Default::default(),
             high_prio_tracker: Default::default(),
-            block_factory: BlockFactory::new(account_map, spec.max_blocks, spec.spam_strategy),
+            block_factory: BlockFactory::new(
+                account_map,
+                spec.max_blocks,
+                spec.spam_strategy,
+                spec.representatives.clone(),
+            ),
             current_bps: spec.rate.initial_bps,
             bps_limiter: TokenBucketLogic::new(spec.rate.initial_bps),
             next_block: None,
@@ -190,6 +197,7 @@ mod tests {
                 rate: RateSpec::new(1),
                 fork_probability: 0.0,
                 track_confirmations: true,
+                representatives: Representatives::default(),
             },
         );
         let now = Timestamp::new_test_instance();

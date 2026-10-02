@@ -2,7 +2,7 @@ use std::{fs::remove_dir_all, path::Path};
 
 use tracing::info;
 
-use crate::cli_args::CliArgs;
+use crate::{cli_args::CliArgs, wallets_factory::voting_weight};
 use rsnano_types::{Block, BlockHash, PrivateKey};
 
 pub(crate) const GENESIS_BLOCK: &str = r#"{
@@ -23,10 +23,17 @@ pub(crate) const NODE_CONFIG: &str = r#"
     allow_local_peers = true
     bandwidth_limit = 0
     enable_voting = true
+    # The whole voting weight: the quorum is the same on every PR and fixed
+    # throughout the run, whichever representatives a PR has seen voting so far
+    online_weight_minimum = "ONLINE_WEIGHT_MINIMUM"
     preconfigured_peers = PRECONF_PEERS
     preconfigured_representatives = ["nano_3e3j5tkog48pnny9dmfzj1r16pg8t1e76dz5tmac6iq689wyjfpiij4txtdo"]
     database_backend = "DB_BACKEND"
     cps_limit = CPS_LIMIT
+
+[node.active_elections]
+    epoch_duration_ms = EPOCH_DURATION_MS
+    account_voting = ACCOUNT_VOTING
 
 [node.lmdb]
     sync = "nosync_unsafe"
@@ -79,7 +86,9 @@ pub(crate) fn configure_nodes(args: &CliArgs, data_dir: &Path) {
         }
     }
 
-    for i in 0..args.prs {
+    // Only the representatives that run a node need a config; the offline and
+    // Byzantine ones hold weight in the ledger without a process
+    for i in 0..args.honest_prs() {
         info!("********************************************************************************");
         info!("Setting up node PR{i}...");
 
@@ -99,9 +108,15 @@ pub(crate) fn configure_nodes(args: &CliArgs, data_dir: &Path) {
             let node_config = NODE_CONFIG
                 .replace("PEERING_PORT", &peering_port(i).to_string())
                 .replace("WS_PORT", &websocket_port(i).to_string())
-                .replace("PRECONF_PEERS", &preconfigured_peers(args.prs, i))
+                .replace("PRECONF_PEERS", &preconfigured_peers(args.honest_prs(), i))
                 .replace("DB_BACKEND", if args.rocksdb { "rocksdb" } else { "lmdb" })
-                .replace("CPS_LIMIT", &args.cps_limit.to_string());
+                .replace("CPS_LIMIT", &args.cps_limit.to_string())
+                .replace("EPOCH_DURATION_MS", &args.epoch_duration_ms.to_string())
+                .replace("ACCOUNT_VOTING", &args.votes_in_accounts(i).to_string())
+                .replace(
+                    "ONLINE_WEIGHT_MINIMUM",
+                    &voting_weight().number().to_string(),
+                );
             std::fs::write(node_config_path, node_config).unwrap();
         }
 

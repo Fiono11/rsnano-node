@@ -9,11 +9,13 @@ impl RpcCommandHandler {
         // announcements arg isnt' supported yet!
         let mut confirmed = 0;
         let mut elections = Vec::new();
+        let mut epochs = Vec::new();
 
         self.node.aec.round_robin(|elections_iter| {
             for election in elections_iter {
                 if !election.is_confirmed() {
                     elections.push(election.qualified_root().clone());
+                    epochs.push(election.epoch().as_u64().into());
                 } else {
                     confirmed += 1;
                 }
@@ -23,6 +25,7 @@ impl RpcCommandHandler {
         let unconfirmed = elections.len() as u64;
         ConfirmationActiveResponse {
             confirmations: elections,
+            epochs,
             unconfirmed: unconfirmed.into(),
             confirmed: confirmed.into(),
         }

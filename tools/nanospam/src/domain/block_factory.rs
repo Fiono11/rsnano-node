@@ -1,14 +1,17 @@
 use rand::RngExt;
 
-use rsnano_types::{Amount, Block, BlockHash, Link, PublicKey, StateBlockArgs, WorkNonce};
+use rsnano_types::{Account, Amount, Block, BlockHash, Link, PublicKey, StateBlockArgs, WorkNonce};
 
-use crate::domain::AccountMap;
+use crate::domain::{AccountMap, AccountState, Representatives};
 
 pub(crate) struct BlockFactory {
     max_blocks: usize,
     created: usize,
     account_map: AccountMap,
     strategy: SpamStrategy,
+    /// RAI: the representatives the accounts delegate to; without any, an
+    /// account is its own representative
+    representatives: Representatives,
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -52,12 +55,18 @@ pub(crate) enum SpamStrategy {
 }
 
 impl BlockFactory {
-    pub(crate) fn new(account_map: AccountMap, max_blocks: usize, strategy: SpamStrategy) -> Self {
+    pub(crate) fn new(
+        account_map: AccountMap,
+        max_blocks: usize,
+        strategy: SpamStrategy,
+        representatives: Representatives,
+    ) -> Self {
         Self {
             max_blocks,
             created: 0,
             account_map,
             strategy,
+            representatives,
         }
     }
 
@@ -68,11 +77,11 @@ impl BlockFactory {
 
         let block_result = match self.strategy {
             SpamStrategy::SendReceive => {
-                create_send_or_receive_block(&mut self.account_map, is_fork)
+                create_send_or_receive_block(&mut self.account_map, is_fork, &self.representatives)
             }
             SpamStrategy::Change => {
                 // TODO: use is_fork flag
-                create_change_block(&mut self.account_map)
+                create_change_block(&mut self.account_map, &self.representatives)
             }
         };
 
@@ -100,14 +109,40 @@ impl BlockFactory {
     }
 }
 
-fn create_send_or_receive_block(account_map: &mut AccountMap, is_fork: bool) -> BlockResult {
+/// The representative of an account's blocks: the one it delegates to, or
+/// the account itself in a run without representatives and for the
+/// initial account, whose balance counts for no representative
+fn representative(state: &AccountState, representatives: &Representatives) -> PublicKey {
+    if state.own_representative {
+        return state.key.public_key();
+    }
+    representatives
+        .of(&state.key.account())
+        .unwrap_or_else(|| state.key.public_key())
+}
+
+/// A fork of a block is the same block with another representative: under
+/// RAI it moves the account's weight to that representative if it wins
+fn fork_representative(representative: PublicKey, representatives: &Representatives) -> PublicKey {
+    representatives
+        .other_than(representative)
+        .unwrap_or_else(|| PublicKey::from(1))
+}
+
+fn create_send_or_receive_block(
+    account_map: &mut AccountMap,
+    is_fork: bool,
+    representatives: &Representatives,
+) -> BlockResult {
     if let Some((receiver, send_hash, amount_sent)) = account_map.next_receivable() {
         let state = account_map.state(&receiver).unwrap();
         assert!(state.confirmed());
+        let is_fork = is_fork && can_fork(account_map, &receiver);
+        let representative = representative(state, representatives);
         let receive: Block = StateBlockArgs {
             key: &state.key,
             previous: state.confirmed_frontier,
-            representative: state.key.public_key(),
+            representative,
             balance: state.balance + amount_sent,
             link: send_hash.into(),
             work: 0.into(),
@@ -121,7 +156,7 @@ fn create_send_or_receive_block(account_map: &mut AccountMap, is_fork: bool) -> 
             let fork: Block = StateBlockArgs {
                 key: &state.key,
                 previous: state.confirmed_frontier,
-                representative: PublicKey::from(1), // Different Rep!
+                representative: fork_representative(representative, representatives),
                 balance: state.balance + amount_sent,
                 link: send_hash.into(),
                 work: 0.into(),
@@ -138,14 +173,16 @@ fn create_send_or_receive_block(account_map: &mut AccountMap, is_fork: bool) -> 
         result
     } else if let Some(state) = account_map.random_account_that_can_send() {
         assert!(state.confirmed());
+        let is_fork = is_fork && can_fork(account_map, &state.key.account());
         let destination = account_map.random_account().unwrap();
         let new_balance: Amount = rand::rng().random_range(..state.balance.number()).into();
         let amount_sent = state.balance - new_balance;
+        let representative = representative(state, representatives);
 
         let send: Block = StateBlockArgs {
             key: &state.key,
             previous: state.confirmed_frontier,
-            representative: state.key.public_key(),
+            representative,
             balance: new_balance,
             link: destination.into(),
             work: 0.into(),
@@ -158,7 +195,7 @@ fn create_send_or_receive_block(account_map: &mut AccountMap, is_fork: bool) -> 
             let fork: Block = StateBlockArgs {
                 key: &state.key,
                 previous: state.confirmed_frontier,
-                representative: PublicKey::from(1), // Different Rep!
+                representative: fork_representative(representative, representatives),
                 balance: new_balance,
                 link: destination.into(),
                 work: 0.into(),
@@ -184,14 +221,30 @@ fn create_send_or_receive_block(account_map: &mut AccountMap, is_fork: bool) -> 
     }
 }
 
-fn create_change_block(account_map: &mut AccountMap) -> BlockResult {
+/// The initial account funds every other account with its sends. A forked
+/// root may never confirm (under Kudzu a 3-3 fork settles without a winner),
+/// which would freeze the funds and with them the whole workload, so the
+/// initial account's blocks are never forked.
+fn can_fork(account_map: &AccountMap, account: &Account) -> bool {
+    *account != account_map.initial_account()
+}
+
+/// A change to a random representative: under RAI pure delegation churn,
+/// the balances stay where they are
+fn create_change_block(
+    account_map: &mut AccountMap,
+    representatives: &Representatives,
+) -> BlockResult {
     let Some(state) = account_map.random_account_that_can_send() else {
         return BlockResult::Waiting;
     };
+    let representative = representatives
+        .random()
+        .unwrap_or_else(|| PublicKey::from_bytes(rand::rng().random()));
     let block: Block = StateBlockArgs {
         key: &state.key,
         previous: state.confirmed_frontier,
-        representative: PublicKey::from_bytes(rand::rng().random()),
+        representative,
         balance: state.balance,
         link: Link::ZERO,
         work: WorkNonce::new(0),
@@ -211,8 +264,12 @@ mod tests {
 
     #[test]
     fn initial_send_to_random_account() {
-        let mut block_factory =
-            BlockFactory::new(test_account_map(), MAX_BLOCKS, SpamStrategy::SendReceive);
+        let mut block_factory = BlockFactory::new(
+            test_account_map(),
+            MAX_BLOCKS,
+            SpamStrategy::SendReceive,
+            Representatives::default(),
+        );
         let block = block_factory.create_next(false).unwrap().unwrap();
         let account = block.account_field().unwrap();
         let destination = block.destination_or_link();
@@ -227,10 +284,80 @@ mod tests {
         );
     }
 
+    /// The initial account funds the whole run, so its blocks are never forked
+    #[test]
+    fn initial_account_is_never_forked() {
+        let mut block_factory = BlockFactory::new(
+            test_account_map(),
+            MAX_BLOCKS,
+            SpamStrategy::SendReceive,
+            Representatives::default(),
+        );
+        let Some(BlockResult::Block(forks)) = block_factory.create_next(true) else {
+            panic!("expected a block");
+        };
+        assert_eq!(
+            forks.block.account_field().unwrap(),
+            initial_test_key().account()
+        );
+        assert!(forks.fork.is_none());
+        block_factory.confirm(&forks.block.hash());
+
+        // The receiving account is an ordinary account and can be forked
+        let Some(BlockResult::Block(forks)) = block_factory.create_next(true) else {
+            panic!("expected a block");
+        };
+        assert_ne!(
+            forks.block.account_field().unwrap(),
+            initial_test_key().account()
+        );
+        assert!(forks.fork.is_some());
+    }
+
+    /// RAI: every block names the account's representative, a fork another one
+    #[test]
+    fn blocks_delegate_to_the_representatives_and_forks_to_another() {
+        let representatives = Representatives::new(vec![
+            PrivateKey::from(100).public_key(),
+            PrivateKey::from(101).public_key(),
+        ]);
+        let mut block_factory = BlockFactory::new(
+            test_account_map(),
+            40,
+            SpamStrategy::SendReceive,
+            representatives.clone(),
+        );
+        // The initial account's sends are never forked and may go to itself
+        let mut forked = 0;
+        for _ in 0..20 {
+            let Some(BlockResult::Block(forks)) = block_factory.create_next(true) else {
+                panic!("expected a block");
+            };
+            let account = forks.block.account_field().unwrap();
+            let rep = if account == initial_test_key().account() {
+                initial_test_key().public_key()
+            } else {
+                representatives.of(&account).unwrap()
+            };
+            assert_eq!(forks.block.representative_field(), Some(rep));
+            if let Some(fork) = &forks.fork {
+                assert_eq!(fork.representative_field(), representatives.other_than(rep));
+                assert_ne!(fork.representative_field(), Some(rep));
+                forked += 1;
+            }
+            block_factory.confirm(&forks.block.hash());
+        }
+        assert!(forked > 0);
+    }
+
     #[test]
     fn initial_receive() {
-        let mut block_factory =
-            BlockFactory::new(test_account_map(), MAX_BLOCKS, SpamStrategy::SendReceive);
+        let mut block_factory = BlockFactory::new(
+            test_account_map(),
+            MAX_BLOCKS,
+            SpamStrategy::SendReceive,
+            Representatives::default(),
+        );
         // genesis send
         let send = block_factory.create_next(false).unwrap().unwrap();
         block_factory.confirm(&send.hash());
@@ -254,8 +381,12 @@ mod tests {
 
         let block_count = 10_000_000;
 
-        let mut block_factory =
-            BlockFactory::new(account_map, block_count, SpamStrategy::SendReceive);
+        let mut block_factory = BlockFactory::new(
+            account_map,
+            block_count,
+            SpamStrategy::SendReceive,
+            Representatives::default(),
+        );
 
         let mut start = Instant::now();
         let mut created_batch = 0;

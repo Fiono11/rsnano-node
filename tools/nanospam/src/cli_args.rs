@@ -1,11 +1,22 @@
-use crate::domain::{RateSpec, SpamStrategy, spam_logic::SpamSpec};
+use anyhow::anyhow;
 use clap::Parser;
+
+use rsnano_types::PublicKey;
+
+use crate::{
+    domain::{RateSpec, Representatives, SpamStrategy, spam_logic::SpamSpec},
+    setup::pr_key,
+};
 
 const DEFAULT_RATE: &str = "1+50@3s";
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 pub(crate) struct CliArgs {
+    /// Directory owned by this run (defaults to ~/NanoSpam).
+    #[arg(long)]
+    pub data_dir: Option<std::path::PathBuf>,
+
     /// Number of principal representatives
     #[arg(long, default_value_t = 1)]
     pub prs: usize,
@@ -73,6 +84,29 @@ pub(crate) struct CliArgs {
     /// Percentage of blocks that should have forks
     #[arg(long, default_value_t = 0)]
     pub fork_percentage: usize,
+
+    /// RAI: every node ends its consensus epoch this long after the epoch's
+    /// first election (0: no time limit)
+    #[arg(long, default_value_t = 0)]
+    pub epoch_duration_ms: u64,
+
+    /// RAI: f, the Byzantine weight. This many principal representatives do
+    /// not run a node; nanospam votes with their key at random instead, so
+    /// they hold their share of the weight and do not follow the protocol
+    #[arg(long, default_value_t = 0)]
+    pub byzantine: usize,
+
+    /// RAI: p, the weight the fast path may do without. This many principal
+    /// representatives do not run a node and never vote; they still hold
+    /// their share of the weight in the ledger
+    #[arg(long, default_value_t = 0)]
+    pub offline: usize,
+
+    /// RAI: this many principal representatives run a node that casts no
+    /// account votes: absent from the epoch's voting, present for the
+    /// handoff, where they sign their report and vote in the close
+    #[arg(long, default_value_t = 0)]
+    pub silent: usize,
 }
 
 impl CliArgs {
@@ -83,7 +117,47 @@ impl CliArgs {
             rate: self.rate_spec()?,
             fork_probability: self.fork_probability(),
             track_confirmations: !self.unconfirmed,
+            representatives: self.representatives(),
         })
+    }
+
+    /// RAI: the principal representatives of the run, which every account
+    /// delegates to
+    pub(crate) fn representatives(&self) -> Representatives {
+        let reps: Vec<PublicKey> = (0..self.prs).map(|i| pr_key(i).public_key()).collect();
+        Representatives::new(reps)
+    }
+
+    /// The representatives running a node, which nanospam talks to. The roles
+    /// are taken from the end, so PR0 - the genesis representative, which
+    /// funds the run and serves nanospam's RPC - is always honest: the last
+    /// `byzantine` are Byzantine, the `offline` before them are offline.
+    pub(crate) fn honest_prs(&self) -> usize {
+        self.prs - self.byzantine - self.offline
+    }
+
+    /// RAI: whether the running representative casts account votes; the
+    /// last `silent` of the running ones do not
+    pub(crate) fn votes_in_accounts(&self, node_index: usize) -> bool {
+        node_index + self.silent < self.honest_prs()
+    }
+
+    pub(crate) fn validate(&self) -> anyhow::Result<()> {
+        if self.byzantine + self.offline >= self.prs {
+            return Err(anyhow!(
+                "{} of {} representatives would run no node; at least one must",
+                self.byzantine + self.offline,
+                self.prs
+            ));
+        }
+        if self.silent >= self.honest_prs() {
+            return Err(anyhow!(
+                "{} of {} running representatives would cast no account vote; at least one must",
+                self.silent,
+                self.honest_prs()
+            ));
+        }
+        Ok(())
     }
 
     pub(crate) fn high_prio_check(&self) -> bool {

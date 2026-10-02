@@ -6,7 +6,7 @@ use tokio_util::sync::CancellationToken;
 
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_websocket_client::{
-    NanoWebSocketClient, NanoWebSocketClientFactory, SubscribeArgs, TopicSub,
+    ConfirmationSubArgs, NanoWebSocketClient, NanoWebSocketClientFactory, SubscribeArgs, TopicSub,
 };
 use rsnano_websocket_messages::MessageEnvelope;
 
@@ -24,7 +24,11 @@ impl ConfirmationReceiver {
 
         ws_client
             .subscribe(SubscribeArgs {
-                topic: TopicSub::Confirmation(Default::default()),
+                topic: TopicSub::Confirmation(ConfirmationSubArgs {
+                    // only the hash and the receive time are used
+                    include_block: false,
+                    ..Default::default()
+                }),
                 ack: true,
                 id: None,
             })
