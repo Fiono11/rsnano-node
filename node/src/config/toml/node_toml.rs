@@ -381,6 +381,14 @@ impl NodeConfig {
             if let Some(threshold) = i.bootstrap_stale_threshold {
                 self.bootstrap_stale_threshold = Duration::from_secs(threshold as u64);
             }
+
+            if let Some(ms) = i.epoch_duration_ms {
+                self.active_elections.epoch_duration = Duration::from_millis(ms);
+            }
+
+            if let Some(voting) = i.account_voting {
+                self.active_elections.account_voting = voting;
+            }
         }
         if let Some(vote_processor_toml) = &toml.vote_processor {
             self.vote_processor.merge_toml(vote_processor_toml);

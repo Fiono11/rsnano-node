@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use rsnano_messages::{ConfirmReq, Message};
 use rsnano_network::{Channel, ChannelId, TrafficType};
-use rsnano_types::{BlockHash, Root};
+use rsnano_types::{BlockHash, ConsensusEpoch, Root};
 
 use super::election::Election;
 use crate::{representatives::PeeredRepInfo, transport::MessageFlooder};
@@ -12,7 +12,9 @@ pub struct ConfirmationSolicitor {
     /// Maximum amount of requests to be sent per election, bypassed if an existing vote is for a different hash
     max_election_requests: usize,
     representatives: Vec<PeeredRepInfo>,
-    requests: HashMap<ChannelId, (Arc<Channel>, Vec<(BlockHash, Root)>)>,
+    /// RAI: a request is for the elections of one epoch, so the requests are
+    /// bundled per channel and epoch
+    requests: HashMap<(ChannelId, ConsensusEpoch), (Arc<Channel>, Vec<(BlockHash, Root)>)>,
     prepared: bool,
     message_flooder: MessageFlooder,
 }
@@ -43,6 +45,12 @@ impl ConfirmationSolicitor {
         let mut rep_request_count = 0;
         let winner = election.winner();
         let mut to_remove = Vec::new();
+        // Kudzu: a terminated election asks every representative whose statements
+        // it does not hold in full; each answers with its own small re-signed votes
+        #[cfg(feature = "rai_protocol")]
+        let terminated = election.state().is_terminated();
+        #[cfg(not(feature = "rai_protocol"))]
+        let terminated = false;
         for rep in &self.representatives {
             if rep_request_count >= self.max_election_requests {
                 break;
@@ -50,7 +58,24 @@ impl ConfirmationSolicitor {
             let mut full_queue = false;
             let existing_vote = election.votes().get(&rep.rep_key);
             let is_final = if let Some(vote) = existing_vote {
-                !election.has_quorum() || vote.is_final_vote()
+                // Kudzu: a representative's first vote is not enough, its second look
+                // and final vote may be missing here while its election is already
+                // terminated; and its final vote is not enough either, the settled
+                // predicate needs its first vote (allVotes(firstVote))
+                {
+                    #[cfg(feature = "rai_protocol")]
+                    {
+                        vote.is_final_vote()
+                            && election
+                                .kudzu_votes()
+                                .rep(&rep.rep_key)
+                                .is_some_and(|r| r.first.is_some())
+                    }
+                    #[cfg(not(feature = "rai_protocol"))]
+                    {
+                        !election.has_quorum() || vote.is_final_vote()
+                    }
+                }
             } else {
                 false
             };
@@ -66,12 +91,12 @@ impl ConfirmationSolicitor {
                     if !should_drop {
                         let (_, request_queue) = self
                             .requests
-                            .entry(rep_channel.channel_id())
+                            .entry((rep_channel.channel_id(), election.epoch()))
                             .or_insert_with(|| (rep_channel, Vec::new()));
 
                         request_queue.push((winner.hash(), winner.root()));
 
-                        if !different_hash {
+                        if !different_hash || terminated {
                             rep_request_count += 1;
                         }
                         added = true;
@@ -93,22 +118,41 @@ impl ConfirmationSolicitor {
         added
     }
 
+    /// RAI: ask every representative for its statements in an instance which
+    /// has no election here: a round of an epoch's close election
+    pub fn add_request(&mut self, epoch: ConsensusEpoch, hash: BlockHash, root: Root) {
+        debug_assert!(self.prepared);
+        for rep in &self.representatives {
+            let Some(channel) = self.message_flooder.channel(rep.channel_id) else {
+                continue;
+            };
+            if channel.should_drop(TrafficType::ConfirmationRequests) {
+                continue;
+            }
+            let (_, request_queue) = self
+                .requests
+                .entry((channel.channel_id(), epoch))
+                .or_insert_with(|| (channel, Vec::new()));
+            request_queue.push((hash, root));
+        }
+    }
+
     /// Dispatch bundled requests to each channel
     pub fn flush(&mut self) {
         debug_assert!(self.prepared);
-        for (channel, requests) in self.requests.values() {
+        for ((_, epoch), (channel, requests)) in &self.requests {
             let mut roots_hashes = Vec::new();
             for root_hash in requests {
                 roots_hashes.push(*root_hash);
                 if roots_hashes.len() == ConfirmReq::HASHES_MAX {
-                    let req = Message::ConfirmReq(ConfirmReq::new(roots_hashes));
+                    let req = Message::ConfirmReq(ConfirmReq::new_in_epoch(roots_hashes, *epoch));
                     self.message_flooder
                         .try_send(channel, &req, TrafficType::ConfirmationRequests);
                     roots_hashes = Vec::new();
                 }
             }
             if !roots_hashes.is_empty() {
-                let req = Message::ConfirmReq(ConfirmReq::new(roots_hashes));
+                let req = Message::ConfirmReq(ConfirmReq::new_in_epoch(roots_hashes, *epoch));
                 self.message_flooder
                     .try_send(channel, &req, TrafficType::ConfirmationRequests);
             }

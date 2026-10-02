@@ -13,6 +13,9 @@ use test_helpers::{
     System, assert_always_eq, assert_timely_eq2, assert_timely2, setup_chain, start_election,
 };
 
+/// Legacy result codes. See `codes_kudzu` for the Kudzu rules, where the
+/// genesis vote fast finalizes the block.
+#[cfg(not(feature = "rai_protocol"))]
 #[test]
 fn codes() {
     let mut system = System::new();
@@ -78,6 +81,61 @@ fn codes() {
     );
 }
 
+/// Kudzu result codes: a first vote of the genesis representative holds more
+/// than n − p of the weight and fast finalizes the block at once.
+#[cfg(feature = "rai_protocol")]
+#[test]
+fn codes_kudzu() {
+    let mut system = System::new();
+    let mut config = System::default_config_without_backlog_scan();
+    config.enable_hinted_scheduler = false;
+    config.enable_optimistic_scheduler = false;
+    config.enable_priority_scheduler = false;
+    let node = system.build_node().config(config).finish();
+    let blocks = setup_chain(&node, 1, &DEV_GENESIS_KEY, false);
+
+    let vote = Vote::new(
+        &DEV_GENESIS_KEY,
+        Vote::TIMESTAMP_MIN,
+        0,
+        vec![blocks[0].hash()],
+    );
+    let mut vote_invalid = vote.clone();
+    vote_invalid.signature = Signature::new();
+
+    let vote: FilteredVote = ReceivedVote::new(Arc::new(vote), VoteDelivery::Direct, None).into();
+    let vote_invalid: FilteredVote =
+        ReceivedVote::new(Arc::new(vote_invalid), VoteDelivery::Direct, None).into();
+
+    // Invalid signature
+    assert_eq!(
+        Err(VoteError::Invalid),
+        node.vote_processor.vote_blocking(&vote_invalid)
+    );
+
+    // No ongoing election: the first vote of a representative for a block
+    // this node holds opens the block's instance and counts there, and with
+    // all the weight it fast finalizes the block at once
+    assert_eq!(node.vote_processor.vote_blocking(&vote), Ok(()));
+    assert_timely2(|| node.block_confirmed(&blocks[0].hash()));
+    assert_eq!(
+        node.get_stat("active_elections", "finalized_fast", Direction::In),
+        1
+    );
+
+    // The election is gone, the same vote is late
+    assert_eq!(
+        Err(VoteError::Late),
+        node.vote_processor.vote_blocking(&vote)
+    );
+
+    // Invalid takes precedence
+    assert_eq!(
+        Err(VoteError::Invalid),
+        node.vote_processor.vote_blocking(&vote_invalid)
+    );
+}
+
 #[test]
 fn invalid_signature() {
     let mut system = System::new();
@@ -120,7 +178,12 @@ fn overflow() {
     let start_time = Instant::now();
     // No way to lock the processor, but queueing votes in quick succession must result in overflow
     let mut not_processed = 0;
-    const TOTAL: usize = 1000;
+    // RAI: the loopback lane, which carries the node's own votes, is deep
+    const TOTAL: usize = if cfg!(feature = "rai_protocol") {
+        20_000
+    } else {
+        1000
+    };
     for _ in 0..TOTAL {
         if !node
             .vote_processor_queue

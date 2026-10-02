@@ -21,8 +21,9 @@ use rsnano_node::{
 };
 use rsnano_nullable_tcp::get_available_port;
 use rsnano_types::{
-    Account, Amount, Block, BlockHash, DEV_GENESIS_KEY, DifficultyV1, PrivateKey, PublicKey, Root,
-    Signature, StateBlockArgs, UnixMillisTimestamp, Vote, VoteDelivery, WorkRequest,
+    Account, Amount, Block, BlockHash, ConsensusEpoch, DEV_GENESIS_KEY, DifficultyV1, PrivateKey,
+    PublicKey, Root, Signature, StateBlockArgs, UnixMillisTimestamp, Vote, VoteDelivery,
+    WorkRequest,
 };
 use rsnano_utils::{
     BackpressureHandler,
@@ -133,8 +134,12 @@ fn vote_by_hash_bundle() {
 
     // Enqueue vote requests for all the blocks
     for block in &blocks {
-        node.vote_generators
-            .generate_vote(&block.root(), &block.hash(), VoteType::NonFinal);
+        node.vote_generators.generate_vote(
+            &block.root(),
+            &block.hash(),
+            ConsensusEpoch::ZERO,
+            VoteType::NonFinal,
+        );
     }
 
     let mut max_hashes = 0;
@@ -1546,7 +1551,10 @@ fn confirm_back() {
     node.vote_processor_queue
         .enqueue(vote, None, VoteDelivery::Direct, None);
 
-    assert_timely_eq2(|| node.aec.len(), 0);
+    // RAI: the cemented dependencies keep their elections until those collect
+    // the certificates of their epoch
+    let kept = if cfg!(feature = "rai_protocol") { 2 } else { 0 };
+    assert_timely_eq2(|| node.aec.len(), kept);
 }
 
 // Test that rep_crawler removes unreachable reps from its search results.

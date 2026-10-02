@@ -20,31 +20,9 @@ impl<'a> RequestAggregatorImpl<'a> {
         }
     }
 
-    fn search_for_block(&self, hash: &BlockHash, root: &Root) -> Option<SavedBlock> {
-        // Ledger by hash
-        let block = self.any.get_block(hash);
-        if block.is_some() {
-            return block;
-        }
-
-        if !root.is_zero() {
-            // Search for successor of root
-            if let Some(successor) = self.any.block_successor(&(*root).into()) {
-                return self.any.get_block(&successor);
-            }
-
-            // If that fails treat root as account
-            if let Some(info) = self.any.get_account(&Account::from(*root)) {
-                return self.any.get_block(&info.open_block);
-            }
-        }
-
-        None
-    }
-
     pub fn add_votes(&mut self, requests: &[(BlockHash, Root)]) {
         for (hash, root) in requests {
-            let block = self.search_for_block(hash, root);
+            let block = search_for_block(self.any, hash, root);
 
             let should_generate_final_vote = |block: &Block| {
                 // Check if final vote is set for this block
@@ -78,6 +56,33 @@ impl<'a> RequestAggregatorImpl<'a> {
             remaining_final: self.to_generate_final,
         }
     }
+}
+
+/// The requested block, or else the block our ledger holds for its root
+pub(super) fn search_for_block(
+    any: &dyn AnySet,
+    hash: &BlockHash,
+    root: &Root,
+) -> Option<SavedBlock> {
+    // Ledger by hash
+    let block = any.get_block(hash);
+    if block.is_some() {
+        return block;
+    }
+
+    if !root.is_zero() {
+        // Search for successor of root
+        if let Some(successor) = any.block_successor(&(*root).into()) {
+            return any.get_block(&successor);
+        }
+
+        // If that fails treat root as account
+        if let Some(info) = any.get_account(&Account::from(*root)) {
+            return any.get_block(&info.open_block);
+        }
+    }
+
+    None
 }
 
 pub(super) struct AggregateResult {

@@ -1,8 +1,20 @@
 mod block_tallies;
+mod certified_state;
+mod committee;
 mod confirmed_election;
 mod election;
+mod election_id;
 mod election_state;
+mod epoch_ledger;
+mod final_state;
+mod single_support;
 
+pub use certified_state::*;
+pub use committee::*;
 pub use confirmed_election::*;
 pub use election::*;
+pub use election_id::*;
 pub use election_state::*;
+pub use epoch_ledger::*;
+pub use final_state::*;
+pub use single_support::*;

@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, sync::Arc};
 
-use rsnano_types::{Amount, BlockHash, PublicKey, Vote};
+use rsnano_types::{Amount, BlockHash, ConsensusEpoch, PublicKey, Vote, VoteKind};
 
 use rsnano_nullable_clock::Timestamp;
 use rustc_hash::FxHashMap;
@@ -9,15 +9,53 @@ use rustc_hash::FxHashMap;
 pub(crate) struct CachedVote {
     pub vote: Arc<Vote>,
     pub weight: Amount,
+    /// Kudzu: a representative legitimately holds one vote per statement
+    /// for a block (first, notarization, timeout, final, in each epoch's
+    /// instance); they must all be replayed
+    pub other_kinds: Vec<Arc<Vote>>,
+}
+
+/// Kudzu: what makes a representative's vote for a block a statement of
+/// its own: its kind and, RAI, the instance (epoch) it is cast in. A first
+/// vote of epoch e+1 does not supersede the one of epoch e: a replica that
+/// gets the block late needs the epoch e vote to open that instance still.
+fn statement(vote: &Vote) -> (VoteKind, ConsensusEpoch) {
+    (vote.kind(), vote.epoch)
 }
 
 impl CachedVote {
     pub fn new(vote: Arc<Vote>, weight: Amount) -> Self {
-        Self { vote, weight }
+        Self {
+            vote,
+            weight,
+            other_kinds: Vec::new(),
+        }
     }
 
     pub fn is_newer_than(&self, other: &CachedVote) -> bool {
         self.vote.timestamp() > other.vote.timestamp()
+    }
+
+    /// Kudzu: keep a statement not held yet. Returns false if it is
+    /// already present.
+    fn add_kind(&mut self, vote: Arc<Vote>) -> bool {
+        if self.holds(&vote) {
+            return false;
+        }
+        self.other_kinds.push(vote);
+        true
+    }
+
+    fn holds(&self, vote: &Vote) -> bool {
+        self.iter().any(|v| statement(v) == statement(vote))
+    }
+
+    fn is_final(&self) -> bool {
+        self.vote.is_final() || self.other_kinds.iter().any(|v| v.is_final())
+    }
+
+    fn iter(&self) -> impl Iterator<Item = &Arc<Vote>> {
+        std::iter::once(&self.vote).chain(self.other_kinds.iter())
     }
 }
 
@@ -71,7 +109,7 @@ impl VotedBlock {
     }
 
     pub fn iter_votes<'a>(&'a self) -> impl Iterator<Item = &'a Arc<Vote>> {
-        self.by_representative.values().map(|i| &i.vote)
+        self.by_representative.values().flat_map(|i| i.iter())
     }
 
     pub fn vote_count(&self) -> usize {
@@ -91,6 +129,15 @@ impl VotedBlock {
         let vote = CachedVote::new(vote, rep_weight);
 
         if let Some(existing) = self.by_representative.get_mut(&rep_key) {
+            #[cfg(feature = "rai_protocol")]
+            if !existing.holds(&vote.vote) {
+                existing.add_kind(vote.vote);
+                self.calculate_tallies();
+                self.last_modified = now;
+                return true;
+            } else if statement(&existing.vote) != statement(&vote.vote) {
+                return false;
+            }
             if !vote.is_newer_than(existing) {
                 return false;
             }
@@ -137,7 +184,7 @@ impl VotedBlock {
         self.final_tally = Amount::ZERO;
         for vote in self.by_representative.values() {
             self.non_final_tally = self.non_final_tally.wrapping_add(vote.weight);
-            if vote.vote.is_final() {
+            if vote.is_final() {
                 self.final_tally = self.final_tally.wrapping_add(vote.weight);
             }
         }
@@ -305,7 +352,11 @@ mod tests {
         let changed = block.add_vote(newer_vote.clone(), Amount::raw(5), Timestamp::new(2));
 
         assert!(changed);
-        assert_eq!(block.iter_votes().collect::<Vec<_>>(), vec![&newer_vote]);
+        // Kudzu keeps the first vote next to the final vote
+        let expected_votes = if cfg!(feature = "rai_protocol") { 2 } else { 1 };
+        let votes: Vec<_> = block.iter_votes().collect();
+        assert_eq!(votes.len(), expected_votes);
+        assert!(votes.iter().any(|v| Arc::ptr_eq(v, &newer_vote)));
         assert_eq!(block.final_tally(), Amount::raw(5));
         assert_eq!(block.last_modified(), Timestamp::new(2));
     }

@@ -3,9 +3,13 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use rsnano_nullable_clock::Timestamp;
+
 use super::{
-    AecService, AecTickerPlugin, ConfirmationSolicitor, confirm_req_sender::ConfirmReqSender,
-    election::ElectionState, winner_block_broadcaster::WinnerBlockBroadcaster,
+    AecService, AecTickerPlugin, ConfirmationSolicitor,
+    confirm_req_sender::{ConfirmReqSender, Urgency},
+    election::{Election, ElectionState},
+    winner_block_broadcaster::WinnerBlockBroadcaster,
 };
 use crate::{representatives::RepresentativeTracker, transport::MessageFlooder};
 
@@ -45,20 +49,39 @@ impl AecTickerPlugin for ConfirmationSolicitorPlugin {
          * Elections extending the soft config.size limit are flushed after a certain time-to-live cutoff
          * Flushed elections are later re-activated via frontier confirmation
          */
+        let now = aec.now();
+        let current_epoch = aec.current_epoch();
         let elections: Vec<_> = aec.round_robin(|elections_iter| {
             elections_iter
-                .filter(|e| e.state() == ElectionState::Active)
+                .filter(|e| Self::should_solicit(e, now, e.epoch() < current_epoch))
                 .cloned()
                 .collect()
         });
 
+        let draining = aec.draining_epoch();
         for election in &elections {
             self.winner_block_broadcaster
                 .lock()
                 .unwrap()
                 .try_broadcast_winner(&election.winner().clone(), election.votes());
+            // RAI: the ending epoch is left once its instances have terminated,
+            // and its close waits for them to settle: the instances still
+            // waiting for a certificate are asked at every tick, those of an
+            // epoch left which are not settled every base latency
+            let urgency = if draining == Some(election.epoch()) && !election.state().is_terminated()
+            {
+                Urgency::Now
+            } else if election.epoch() < current_epoch {
+                if election.state() == ElectionState::Settled {
+                    Urgency::Slow
+                } else {
+                    Urgency::Soon
+                }
+            } else {
+                Urgency::Normal
+            };
             self.confirm_req_sender
-                .send_confirm_req(&mut solicitor, election);
+                .send_confirm_req(&mut solicitor, election, urgency);
         }
 
         solicitor.flush();
@@ -66,5 +89,26 @@ impl AecTickerPlugin for ConfirmationSolicitorPlugin {
 
     fn as_any(&self) -> &dyn Any {
         self
+    }
+}
+
+impl ConfirmationSolicitorPlugin {
+    fn should_solicit(election: &Election, now: Timestamp, epoch_left: bool) -> bool {
+        match election.state() {
+            ElectionState::Active => true,
+            // Kudzu: a terminated election still collects votes and certificates
+            // until it is settled, and a settled one until it can no longer be finalized
+            ElectionState::Terminated | ElectionState::Settled => {
+                #[cfg(feature = "rai_protocol")]
+                {
+                    election.should_solicit_evidence(now, epoch_left)
+                }
+                #[cfg(not(feature = "rai_protocol"))]
+                {
+                    false
+                }
+            }
+            _ => false,
+        }
     }
 }

@@ -1,3 +1,6 @@
+// Some tests only exist for the legacy voting rules
+#![cfg_attr(feature = "rai_protocol", allow(unused_imports))]
+
 use std::{sync::Arc, thread::sleep, time::Duration, usize};
 
 use rsnano_ledger::{
@@ -179,6 +182,12 @@ fn fork_replacement_tally() {
             > 1
     });
 
+    if cfg!(feature = "rai_protocol") {
+        // The cached genesis vote fast finalizes send_last as soon as it joins the election
+        assert_timely2(|| node1.block_confirmed(&send_last.hash()));
+        return;
+    }
+
     // the send_last block should replace one of the existing block of the election because it has higher vote weight
     let find_send_last_block = || {
         node1
@@ -287,12 +296,16 @@ fn republish_winner() {
     }
 
     assert_timely2(|| node1.aec.len() > 0);
-    assert_eq!(
-        1,
-        node2
-            .stats
-            .count(StatType::Message, DetailType::Publish, Direction::In)
-    );
+    // Legacy does not republish forks; Kudzu floods every candidate so that all
+    // replicas can take their second look
+    if !cfg!(feature = "rai_protocol") {
+        assert_eq!(
+            1,
+            node2
+                .stats
+                .count(StatType::Message, DetailType::Publish, Direction::In)
+        );
+    }
 
     // Process new fork with vote to change winner
     let mut fork_lattice = UnsavedBlockLatticeBuilder::new();
@@ -777,6 +790,9 @@ fn list_active() {
     assert_eq!(node.aec.len(), 3);
 }
 
+/// Legacy: a non-final vote cannot confirm. Under Kudzu the genesis first vote
+/// fast finalizes, see `vote_processor::codes_kudzu`.
+#[cfg(not(feature = "rai_protocol"))]
 #[test]
 fn vote_replays() {
     let mut system = System::new();

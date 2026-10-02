@@ -8,6 +8,7 @@ mod election_scheduler {
         consensus::{AecInsertRequest, election::ElectionBehavior},
     };
     use rsnano_types::{Amount, BlockPriority, DEV_GENESIS_KEY, PrivateKey};
+    use rsnano_utils::stats::{DetailType, Direction, StatType};
     use test_helpers::{setup_chains, setup_rep};
 
     #[test]
@@ -23,6 +24,38 @@ mod election_scheduler {
         node.ledger.process_one(&send1).unwrap();
 
         assert_timely2(|| node.is_active_root(&send1.qualified_root()));
+    }
+
+    /// The backlog scan re-activates every unconfirmed frontier; a block whose
+    /// priority election is already running must not be queued again
+    #[test]
+    fn activate_skips_a_running_priority_election() {
+        let mut system = System::new();
+        let node = system
+            .build_node()
+            .config(System::default_config_without_backlog_scan())
+            .finish();
+
+        let mut lattice = UnsavedBlockLatticeBuilder::new();
+        let send1 = lattice
+            .genesis()
+            .send(&*DEV_GENESIS_KEY, Amount::nano(1000));
+        node.process(send1.clone());
+        assert_timely2(|| node.is_active_hash(&send1.hash()));
+
+        node.election_schedulers
+            .priority
+            .activate(&node.ledger.any(), &DEV_GENESIS_KEY.account());
+
+        assert!(!node.election_schedulers.priority.contains(&send1.hash()));
+        assert_eq!(
+            node.stats.count(
+                StatType::ElectionScheduler,
+                DetailType::AlreadyActive,
+                Direction::In
+            ),
+            1
+        );
     }
 
     #[test]

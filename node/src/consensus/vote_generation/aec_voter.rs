@@ -1,7 +1,8 @@
 use std::{sync::Arc, time::Duration};
 
-use rsnano_nullable_clock::SteadyClock;
-use rsnano_types::NetworkType;
+use rsnano_ledger::{AnySet, Ledger};
+use rsnano_nullable_clock::{SteadyClock, Timestamp};
+use rsnano_types::{BlockHash, NetworkType};
 use rsnano_utils::{
     CancellationToken,
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -23,6 +24,7 @@ pub(crate) struct AecVoter {
     clock: Arc<SteadyClock>,
     cps_limiter: CpsLimiter,
     scheduler: VotingScheduler,
+    ledger: Arc<Ledger>,
 }
 
 impl AecVoter {
@@ -32,6 +34,7 @@ impl AecVoter {
         clock: Arc<SteadyClock>,
         network: NetworkType,
         cps_limiter: CpsLimiter,
+        ledger: Arc<Ledger>,
     ) -> Self {
         let vote_broadcast_interval = match network {
             NetworkType::NanoDevNetwork => Duration::from_millis(500),
@@ -43,14 +46,19 @@ impl AecVoter {
             clock,
             cps_limiter,
             scheduler: VotingScheduler::new(vote_broadcast_interval),
+            ledger,
         }
     }
 
     fn flush(&self, queue: &mut Vec<VoteTarget>) {
         // TODO: enqueue with one call
         for target in queue.drain(..) {
-            self.vote_generators
-                .generate_vote(&target.root.root, &target.winner, target.vote_type);
+            self.vote_generators.generate_vote(
+                &target.election.root.root,
+                &target.winner,
+                target.election.epoch,
+                target.vote_type,
+            );
         }
     }
 }
@@ -63,24 +71,49 @@ impl ContainerInfoProvider for AecVoter {
     }
 }
 
+impl AecVoter {
+    /// Collect all vote targets in a single lock acquisition, iterating all
+    /// elections in round-robin order across buckets
+    fn collect_targets(&self, now: Timestamp) -> Vec<VoteTarget> {
+        let scheduler = &self.scheduler;
+        {
+            #[cfg(feature = "rai_protocol")]
+            {
+                // RAI: a block is a valid proposal once its dependencies are
+                // finalized here (the previous block, the source of a receive)
+                let any = self.ledger.any();
+                let proposal_valid = |hash: &BlockHash| {
+                    any.get_block(hash)
+                        .is_some_and(|block| any.dependencies_confirmed(&block))
+                };
+                self.aec
+                    .kudzu_votes_due(proposal_valid)
+                    .into_iter()
+                    .filter(|target| scheduler.can_vote(target, now))
+                    .collect()
+            }
+            #[cfg(not(feature = "rai_protocol"))]
+            {
+                self.aec.round_robin(|iter| {
+                    iter.filter_map(|e| {
+                        let target = vote_target(e);
+                        if scheduler.can_vote(&target, now) {
+                            Some(target)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect()
+                })
+            }
+        }
+    }
+}
+
 impl Tickable for AecVoter {
     fn tick(&mut self, cancel_token: &CancellationToken) {
         let now = self.clock.now();
-        let scheduler = &self.scheduler;
-
-        // Collect all vote targets in a single lock acquisition, iterating all
-        // elections in round-robin order across buckets
-        let targets: Vec<VoteTarget> = self.aec.round_robin(|iter| {
-            iter.filter_map(|e| {
-                let target = vote_target(e);
-                if scheduler.can_vote(&target, now) {
-                    Some(target)
-                } else {
-                    None
-                }
-            })
-            .collect()
-        });
+        let targets = self.collect_targets(now);
 
         let mut vote_queue = Vec::new();
         let mut skip_non_final = false;
@@ -100,12 +133,16 @@ impl Tickable for AecVoter {
             vote_queue.push(target);
 
             if cancel_token.is_cancelled() {
-                self.flush(&mut vote_queue);
-                return;
+                break;
             }
         }
 
         self.scheduler.cleanup(now);
+        #[cfg(feature = "rai_protocol")]
+        {
+            // Record the decisions before the generators pick them up
+            vote_queue = self.aec.mark_kudzu_voted(vote_queue);
+        }
         self.flush(&mut vote_queue);
     }
 }

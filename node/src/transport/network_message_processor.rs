@@ -148,6 +148,7 @@ impl NetworkMessageProcessor {
                     let aggregator_req = AggregatorRequest {
                         channel: channel.clone(),
                         roots_hashes: req.roots_hashes,
+                        epoch: req.epoch,
                     };
                     self.request_aggregator.request(aggregator_req);
                 }
@@ -162,9 +163,12 @@ impl NetworkMessageProcessor {
                     );
                 }
 
-                let source = match ack.is_rebroadcasted() {
-                    true => VoteDelivery::Forwarded,
-                    false => VoteDelivery::Direct,
+                let source = if ack.is_evidence() {
+                    VoteDelivery::Evidence
+                } else if ack.is_rebroadcasted() {
+                    VoteDelivery::Forwarded
+                } else {
+                    VoteDelivery::Direct
                 };
 
                 let added = self.vote_processor_queue.enqueue(
@@ -203,6 +207,7 @@ impl NetworkMessageProcessor {
             | Message::BulkPullAccount(_) => {
                 // obsolete messages
             }
+
             #[cfg(feature = "ledger_snapshots")]
             Message::SnapshotPreproposal(preproposal) => {
                 self.ledger_snapshots.handle_preproposal(preproposal);

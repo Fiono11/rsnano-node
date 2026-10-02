@@ -57,18 +57,34 @@ impl LocalVoteHistory {
         let mut add_vote = true;
         let mut remove_root = false;
         let mut ids_to_delete = Vec::new();
-        // Erase any vote that is not for this hash, or duplicate by account, and if new timestamp is higher
+        // Erase any vote that is not for this hash, or duplicate by account, and if new timestamp is higher.
+        // Kudzu: a representative legitimately holds votes of several kinds for
+        // several blocks of one root, and RAI one per epoch, so only the same
+        // (hash, kind, epoch) is replaced.
         if let Some(ids) = data.history_by_root.get_mut(root) {
             for &i in ids.iter() {
                 let current = &data.history[&i];
-                if &current.hash != hash
-                    || (vote.voter == current.vote.voter
-                        && current.vote.timestamp() <= vote.timestamp())
+                let other_hash = &current.hash != hash;
+                let same_voter = vote.voter == current.vote.voter;
+                #[cfg(feature = "rai_protocol")]
                 {
+                    if other_hash
+                        || !same_voter
+                        || current.vote.kind() != vote.kind()
+                        || current.vote.epoch != vote.epoch
+                    {
+                        continue;
+                    }
+                    if current.vote.timestamp() <= vote.timestamp() {
+                        ids_to_delete.push(i);
+                    } else {
+                        add_vote = false;
+                    }
+                }
+                #[cfg(not(feature = "rai_protocol"))]
+                if other_hash || (same_voter && current.vote.timestamp() <= vote.timestamp()) {
                     ids_to_delete.push(i);
-                } else if vote.voter == current.vote.voter
-                    && current.vote.timestamp() > vote.timestamp()
-                {
+                } else if same_voter && current.vote.timestamp() > vote.timestamp() {
                     add_vote = false;
                 }
             }
@@ -257,6 +273,8 @@ mod tests {
         assert!(Arc::ptr_eq(&votes[0], &vote2) || Arc::ptr_eq(&votes[1], &vote2));
     }
 
+    /// Kudzu keeps the votes for the other blocks of a root, see `kudzu_keeps_votes_per_hash_and_kind`
+    #[cfg(not(feature = "rai_protocol"))]
     #[test]
     fn basic2() {
         let history = LocalVoteHistory::with_max_cache(256);

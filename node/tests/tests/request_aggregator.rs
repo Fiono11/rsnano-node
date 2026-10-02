@@ -1,23 +1,30 @@
-use std::{
-    sync::Arc,
-    time::{Duration, Instant},
-};
+#[cfg(not(feature = "rai_protocol"))]
+use std::sync::Arc;
+#[cfg(not(feature = "rai_protocol"))]
+use std::time::{Duration, Instant};
 
-use rsnano_ledger::{AnySet, test_helpers::UnsavedBlockLatticeBuilder};
+#[cfg(not(feature = "rai_protocol"))]
+use rsnano_ledger::AnySet;
+use rsnano_ledger::test_helpers::UnsavedBlockLatticeBuilder;
 use rsnano_messages::ConfirmAck;
-use rsnano_node::{
-    config::NodeFlags,
-    consensus::{AggregatorRequest, VoteGenerationEvent},
-};
+#[cfg(not(feature = "rai_protocol"))]
+use rsnano_node::consensus::VoteGenerationEvent;
+use rsnano_node::{config::NodeFlags, consensus::AggregatorRequest};
+#[cfg(not(feature = "rai_protocol"))]
 use rsnano_output_tracker::OutputTrackerMt;
-use rsnano_types::{Amount, DEV_GENESIS_KEY, PrivateKey};
+#[cfg(not(feature = "rai_protocol"))]
+use rsnano_types::PrivateKey;
+use rsnano_types::{Amount, ConsensusEpoch, DEV_GENESIS_KEY};
 use rsnano_utils::stats::{DetailType, Direction, StatType};
 
-use test_helpers::{
-    System, assert_timely_eq, assert_timely_eq2, assert_timely_msg, assert_timely2,
-    make_fake_channel,
-};
+use test_helpers::{System, assert_timely_eq2, make_fake_channel};
+#[cfg(not(feature = "rai_protocol"))]
+use test_helpers::{assert_timely_eq, assert_timely_msg, assert_timely2};
 
+/// Legacy: a final vote is generated for any cemented block. Under RAI the
+/// instance of a block confirmed without a certificate keeps running and
+/// answers with its own statements instead
+#[cfg(not(feature = "rai_protocol"))]
 #[test]
 fn one() {
     let mut system = System::new();
@@ -47,6 +54,7 @@ fn one() {
     let request = AggregatorRequest {
         channel: channel.clone(),
         roots_hashes: vec![(send1.hash(), send1.root())],
+        epoch: ConsensusEpoch::ZERO,
     };
 
     node.request_aggregator.request(request.clone());
@@ -155,6 +163,10 @@ fn one() {
     );
 }
 
+/// Legacy: a final vote is generated for any cemented block. Under RAI the
+/// instance of a block confirmed without a certificate keeps running and
+/// answers with its own statements instead
+#[cfg(not(feature = "rai_protocol"))]
 #[test]
 fn one_update() {
     let mut system = System::new();
@@ -197,6 +209,7 @@ fn one_update() {
     let request1 = AggregatorRequest {
         channel: dummy_channel.clone(),
         roots_hashes: vec![(send2.hash(), send2.root())],
+        epoch: ConsensusEpoch::ZERO,
     };
     node.request_aggregator.request(request1);
 
@@ -204,6 +217,7 @@ fn one_update() {
     let request2 = AggregatorRequest {
         channel: dummy_channel.clone(),
         roots_hashes: vec![(receive1.hash(), receive1.root())],
+        epoch: ConsensusEpoch::ZERO,
     };
     node.request_aggregator.request(request2);
 
@@ -278,6 +292,10 @@ fn one_update() {
     );
 }
 
+/// Legacy: a final vote is generated for any cemented block. Under RAI the
+/// instance of a block confirmed without a certificate keeps running and
+/// answers with its own statements instead
+#[cfg(not(feature = "rai_protocol"))]
 #[test]
 fn two() {
     let mut system = System::new();
@@ -313,6 +331,7 @@ fn two() {
             (send2.hash(), send2.root()),
             (receive1.hash(), receive1.root()),
         ],
+        epoch: ConsensusEpoch::ZERO,
     };
 
     // Process both blocks
@@ -385,11 +404,13 @@ fn two() {
         },
         0,
     );
-    // Make sure the cached vote is for both hashes
-    let vote1 = node.history.votes(&send2.root(), &send2.hash(), false);
+    // Make sure the cached vote is for both hashes. Kudzu also keeps the node's
+    // own first votes per hash, so only look at the final votes there.
+    let final_only = cfg!(feature = "rai_protocol");
+    let vote1 = node.history.votes(&send2.root(), &send2.hash(), final_only);
     let vote2 = node
         .history
-        .votes(&receive1.root(), &receive1.hash(), false);
+        .votes(&receive1.root(), &receive1.hash(), final_only);
     assert_eq!(vote1.len(), 1);
     assert_eq!(vote2.len(), 1);
     assert!(Arc::ptr_eq(&vote1[0], &vote2[0]));
@@ -431,6 +452,7 @@ fn split() {
     let request = AggregatorRequest {
         channel: dummy_channel.clone(),
         roots_hashes,
+        epoch: ConsensusEpoch::ZERO,
     };
     node.request_aggregator.request(request);
     // In the ledger but no vote generated yet
@@ -515,6 +537,7 @@ fn channel_max_queue() {
     let request = AggregatorRequest {
         channel: channel.clone(),
         roots_hashes: vec![(send1.hash(), send1.root())],
+        epoch: ConsensusEpoch::ZERO,
     };
     node.request_aggregator.request(request.clone());
     node.request_aggregator.request(request.clone());
@@ -528,6 +551,10 @@ fn channel_max_queue() {
     );
 }
 
+/// Legacy: a final vote is generated for any cemented block. Under RAI the
+/// instance of a block confirmed without a certificate keeps running and
+/// answers with its own statements instead
+#[cfg(not(feature = "rai_protocol"))]
 #[test]
 fn cannot_vote() {
     let mut system = System::new();
@@ -551,6 +578,7 @@ fn cannot_vote() {
     let request = AggregatorRequest {
         channel: dummy_channel.clone(),
         roots_hashes: vec![(send2.hash(), send2.root()), (1.into(), send2.root())],
+        epoch: ConsensusEpoch::ZERO,
     };
     node.request_aggregator.request(request.clone());
 
@@ -679,6 +707,10 @@ fn cannot_vote() {
 }
 
 /// Request for a forked open block should return vote for the correct fork alternative
+/// Legacy: a final vote for a cemented block is generated on request. Under
+/// RAI a request for a root this node holds a block for but has no instance
+/// of makes it join the instance instead
+#[cfg(not(feature = "rai_protocol"))]
 #[test]
 fn forked_open() {
     let mut system = System::new();
@@ -709,6 +741,7 @@ fn forked_open() {
     let request = AggregatorRequest {
         channel: channel.clone(),
         roots_hashes: vec![(open1.hash(), open1.root())],
+        epoch: ConsensusEpoch::ZERO,
     };
     node.request_aggregator.request(request);
 
@@ -720,6 +753,9 @@ fn forked_open() {
 }
 
 /// Request for a conflicting epoch block should return vote for the correct alternative
+/// Legacy: a final vote is generated for a cemented block whose instance is
+/// still running here; under RAI that instance answers once it terminated
+#[cfg(not(feature = "rai_protocol"))]
 #[test]
 fn epoch_conflict() {
     let mut system = System::new();
@@ -762,6 +798,7 @@ fn epoch_conflict() {
     let request = AggregatorRequest {
         channel: channel.clone(),
         roots_hashes: vec![(epoch_open.hash(), epoch_open.root())],
+        epoch: ConsensusEpoch::ZERO,
     };
     node.request_aggregator.request(request.clone());
 
@@ -792,6 +829,10 @@ fn epoch_conflict() {
 }
 
 // Request for multiple cemented blocks in a chain should generate votes regardless of vote spacing
+/// Legacy: a final vote is generated for any cemented block. Under RAI the
+/// instance of a block confirmed without a certificate keeps running and
+/// answers with its own statements instead
+#[cfg(not(feature = "rai_protocol"))]
 #[test]
 fn cemented_no_spacing() {
     let mut system = System::new();
@@ -821,6 +862,7 @@ fn cemented_no_spacing() {
             (send2.hash(), send2.root()),
             (send3.hash(), send3.root()),
         ],
+        epoch: ConsensusEpoch::ZERO,
     };
 
     // Request votes for all blocks
@@ -834,6 +876,7 @@ fn cemented_no_spacing() {
     assert!(vote_event.blocks.iter().any(|b| b.hash() == send3.hash()));
 }
 
+#[cfg(not(feature = "rai_protocol"))]
 fn wait_vote_event(tracker: &OutputTrackerMt<VoteGenerationEvent>) -> VoteGenerationEvent {
     let start = Instant::now();
     loop {

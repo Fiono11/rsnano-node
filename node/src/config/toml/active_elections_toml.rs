@@ -9,6 +9,11 @@ pub struct ActiveElectionsToml {
     pub optimistic_limit_percentage: Option<usize>,
     pub size: Option<usize>,
     pub bootstrap_stale_threshold: Option<usize>,
+    /// RAI: end an epoch this long after its first election; 0 never
+    pub epoch_duration_ms: Option<u64>,
+    /// RAI: whether this node casts account votes; false makes a silent
+    /// representative, which reports and votes in the close only
+    pub account_voting: Option<bool>,
 }
 
 impl From<&NodeConfig> for ActiveElectionsToml {
@@ -22,6 +27,8 @@ impl From<&NodeConfig> for ActiveElectionsToml {
             confirmation_history_size: Some(config.confirmation_history_size),
             confirmation_cache: Some(config.active_elections.confirmation_cache),
             bootstrap_stale_threshold: Some(config.bootstrap_stale_threshold.as_secs() as usize),
+            epoch_duration_ms: Some(config.active_elections.epoch_duration.as_millis() as u64),
+            account_voting: Some(config.active_elections.account_voting),
         }
     }
 }
@@ -43,5 +50,6 @@ mod tests {
             Some(config.active_elections.confirmation_cache)
         );
         assert_eq!(toml.bootstrap_stale_threshold, Some(42));
+        assert_eq!(toml.epoch_duration_ms, Some(0));
     }
 }

@@ -1,8 +1,13 @@
-use std::{collections::HashMap, sync::RwLock, time::Duration};
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::RwLock,
+    time::Duration,
+};
 
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_types::{
-    Account, Amount, Block, BlockHash, PublicKey, QualifiedRoot, SavedBlock, VoteError,
+    Account, Amount, Block, BlockHash, ConsensusEpoch, PublicKey, QualifiedRoot, SavedBlock,
+    VoteError,
 };
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -12,11 +17,15 @@ use rsnano_utils::{
 
 use super::{
     ActiveElectionsConfig, ActiveElectionsContainer, ActiveElectionsInfo, AecCooldownReason,
-    AecFact, AecInsertError, AecInsertRequest, ApplyVoteArgs,
+    AecFact, AecInsertError, AecInsertRequest, ApplyVoteArgs, CommitteeInfo,
 };
 use crate::consensus::{
     ElectionCandidateSource,
-    election::{ConfirmedElection, Election, ElectionBehavior, ElectionState},
+    election::{
+        AccountFrontier, CertificateEvidence, ConfirmedElection, Election, ElectionBehavior,
+        ElectionId, ElectionState, EpochSlot, EpochState, FinalStateHash, LocalSlotState,
+    },
+    vote_generation::VoteTarget,
 };
 
 pub struct AecService {
@@ -39,6 +48,14 @@ impl AecService {
         }
     }
 
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn epoch_decided_state(
+        &self,
+        epoch: ConsensusEpoch,
+    ) -> Option<std::sync::Arc<crate::consensus::election::EpochLedger>> {
+        self.aec.read().unwrap().epoch_decided_state(epoch)
+    }
+
     // --- Read forwarding ---
 
     pub fn check_vacancy<T>(&self, source: &T) -> bool
@@ -48,8 +65,104 @@ impl AecService {
         self.aec.read().unwrap().check_vacancy(source)
     }
 
+    /// The election of the newest epoch for this root
     pub fn election_for_root(&self, root: &QualifiedRoot) -> Option<Election> {
         self.aec.read().unwrap().election_for_root(root).cloned()
+    }
+
+    pub fn election(&self, id: &ElectionId) -> Option<Election> {
+        self.aec.read().unwrap().election(id).cloned()
+    }
+
+    /// The elections of all epochs for this root, ascending by epoch
+    pub fn elections_for_root(&self, root: &QualifiedRoot) -> Vec<Election> {
+        self.aec
+            .read()
+            .unwrap()
+            .elections_for_root(root)
+            .cloned()
+            .collect()
+    }
+
+    /// RAI: the epoch new elections are started in
+    pub fn current_epoch(&self) -> ConsensusEpoch {
+        self.aec.read().unwrap().current_epoch()
+    }
+
+    pub fn set_current_epoch(&self, epoch: ConsensusEpoch) {
+        self.aec.write().unwrap().set_current_epoch(epoch)
+    }
+
+    /// RAI: elections of the current epoch which got a certificate so far
+    pub fn decided_in_current_epoch(&self) -> usize {
+        self.aec.read().unwrap().decided_in_current_epoch()
+    }
+
+    /// RAI: whether this block was finalized explicitly in the given epoch
+    pub fn finalized_in_epoch(&self, hash: &BlockHash, epoch: ConsensusEpoch) -> bool {
+        self.aec.read().unwrap().finalized_in_epoch(hash, epoch)
+    }
+
+    /// RAI: whether this block was finalized explicitly in any epoch
+    pub fn is_finalized(&self, hash: &BlockHash) -> bool {
+        self.aec.read().unwrap().is_finalized(hash)
+    }
+
+    /// RAI: whether this node cast its final vote for the block in the epoch
+    pub fn final_voted_in_epoch(&self, hash: &BlockHash, epoch: ConsensusEpoch) -> bool {
+        self.aec.read().unwrap().final_voted_in_epoch(hash, epoch)
+    }
+
+    /// RAI: the explicitly finalized state per epoch
+    pub fn finalized_by_epoch(&self) -> BTreeMap<ConsensusEpoch, FinalStateHash> {
+        self.aec.read().unwrap().finalized_by_epoch().clone()
+    }
+
+    /// RAI: the blocks finalized explicitly in the given epoch
+    pub fn finalized_in(&self, epoch: ConsensusEpoch) -> Vec<(Account, u64, BlockHash)> {
+        self.aec.read().unwrap().finalized_in(epoch)
+    }
+
+    /// RAI: the committees known here, the genesis one first
+    pub fn epoch_committees(&self) -> Vec<CommitteeInfo> {
+        self.aec.read().unwrap().epoch_committees()
+    }
+
+    /// RAI: the final state of an epoch as it stands on this node
+    pub fn epoch_state(&self, epoch: ConsensusEpoch) -> EpochState {
+        self.aec.read().unwrap().epoch_state(epoch)
+    }
+
+    /// RAI: the frontiers of every account at the end of the setup: the
+    /// genesis committee, and the base the epochs' committees are counted on
+    pub fn set_genesis_committee(&self, frontiers: Vec<AccountFrontier>) {
+        self.aec.write().unwrap().set_genesis_committee(frontiers)
+    }
+
+    /// RAI: the setup is over, epoch 0 starts now
+    pub fn start_epochs(&self) {
+        let now = self.clock.now();
+        self.aec.write().unwrap().start_epochs(now)
+    }
+
+    /// RAI: whether the epochs have started
+    pub fn epochs_started(&self) -> bool {
+        self.aec.read().unwrap().epochs_started()
+    }
+
+    /// RAI: the current epoch's duration has ended and its instances drain
+    pub fn is_draining(&self) -> bool {
+        self.aec.read().unwrap().is_draining()
+    }
+
+    /// RAI: the epoch whose instances are draining, if any
+    pub fn draining_epoch(&self) -> Option<ConsensusEpoch> {
+        self.aec.read().unwrap().draining_epoch()
+    }
+
+    /// RAI: start the instance of a block for a vote of its epoch
+    pub fn insert_for_vote(&self, block: SavedBlock, epoch: ConsensusEpoch, now: Timestamp) {
+        self.aec.write().unwrap().insert_for_vote(block, epoch, now)
     }
 
     pub fn election_for_block(&self, block_hash: &BlockHash) -> Option<Election> {
@@ -80,6 +193,18 @@ impl AecService {
         self.aec.read().unwrap().is_active_hash(block_hash)
     }
 
+    /// Whether any of the blocks is a candidate of a current election, in one
+    /// pass under the lock
+    pub fn is_any_active_hash<'a>(&self, hashes: impl Iterator<Item = &'a BlockHash>) -> bool {
+        let guard = self.aec.read().unwrap();
+        let mut hashes = hashes;
+        hashes.any(|hash| guard.is_active_hash(hash))
+    }
+
+    pub fn is_priority_active_hash(&self, block_hash: &BlockHash) -> bool {
+        self.aec.read().unwrap().is_priority_active_hash(block_hash)
+    }
+
     pub fn was_recently_confirmed(&self, block_hash: &BlockHash) -> bool {
         self.aec.read().unwrap().was_recently_confirmed(block_hash)
     }
@@ -97,12 +222,83 @@ impl AecService {
         self.aec.read().unwrap().info(now)
     }
 
+    pub fn now(&self) -> Timestamp {
+        self.clock.now()
+    }
+
     pub fn round_robin<F, T>(&self, f: F) -> T
     where
         F: FnOnce(&mut dyn Iterator<Item = &Election>) -> T,
     {
         let guard = self.aec.read().unwrap();
         f(&mut guard.iter_round_robin())
+    }
+
+    /// Kudzu: the votes to broadcast now, see Protocol 1; `proposal_valid`
+    /// tells whether a block may be first voted
+    pub(crate) fn kudzu_votes_due(
+        &self,
+        proposal_valid: impl Fn(&BlockHash) -> bool,
+    ) -> Vec<VoteTarget> {
+        self.aec.read().unwrap().kudzu_votes_due(proposal_valid)
+    }
+
+    /// Kudzu: the signed votes behind the certificates of a terminated election
+    pub fn certificate_evidence(
+        &self,
+        hash: &BlockHash,
+        epoch: ConsensusEpoch,
+    ) -> Option<(ElectionId, CertificateEvidence)> {
+        self.aec.read().unwrap().certificate_evidence(hash, epoch)
+    }
+
+    /// RAI: the certified block tree of one epoch as it stands here
+    #[cfg(feature = "rai_protocol")]
+    pub fn epoch_certified(
+        &self,
+        epoch: ConsensusEpoch,
+    ) -> crate::consensus::election::CertifiedState {
+        self.aec.read().unwrap().epoch_certified(epoch)
+    }
+
+    /// RAI: `S_{e-1}` for the close of an epoch, the state its derivation
+    /// builds on
+    #[cfg(feature = "rai_protocol")]
+    /// RAI: the votes of one voter received for one epoch
+    pub fn vote_records_of(
+        &self,
+        epoch: ConsensusEpoch,
+        voter: &PublicKey,
+    ) -> Vec<(
+        crate::consensus::election::CertifiedBlock,
+        crate::consensus::election::ResidualKind,
+        BlockHash,
+    )> {
+        self.aec.read().unwrap().vote_records_of(epoch, voter)
+    }
+
+    pub fn epoch_previous_state(
+        &self,
+        epoch: ConsensusEpoch,
+    ) -> Option<std::sync::Arc<crate::consensus::election::EpochLedger>> {
+        self.aec.read().unwrap().epoch_previous_state(epoch)
+    }
+
+    /// RAI: `O_e = C_{e-2}`, the committee an epoch's reports are counted in
+    #[cfg(feature = "rai_protocol")]
+    pub fn epoch_committee(
+        &self,
+        epoch: ConsensusEpoch,
+    ) -> Option<std::sync::Arc<crate::consensus::election::Committee>> {
+        self.aec.read().unwrap().epoch_committee(epoch)
+    }
+
+    pub fn is_terminated(&self, id: &ElectionId) -> bool {
+        self.aec.read().unwrap().is_terminated(id)
+    }
+
+    pub fn slot_state(&self, slot: &EpochSlot) -> Option<LocalSlotState> {
+        self.aec.read().unwrap().slot_state(slot).cloned()
     }
 
     // --- Write forwarding ---
@@ -128,6 +324,11 @@ impl AecService {
 
     pub fn transition_time(&self, now: Timestamp) {
         self.aec.write().unwrap().transition_time(now)
+    }
+
+    /// Kudzu: record the votes that were handed to the vote generators
+    pub(crate) fn mark_kudzu_voted(&self, targets: Vec<VoteTarget>) -> Vec<VoteTarget> {
+        self.aec.write().unwrap().mark_kudzu_voted(targets)
     }
 
     pub fn transition_active(&self, block_hash: &BlockHash) -> bool {

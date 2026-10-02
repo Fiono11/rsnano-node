@@ -1,25 +1,33 @@
 mod active_elections_container;
 mod aec_service;
 mod apply_vote_helper;
+mod checkpoint_state;
 mod cooldown_controller;
+mod epoch_committees;
+mod epoch_states;
 mod recently_confirmed_cache;
 mod root_container;
+mod slot_states;
 mod stats;
+mod vote_records;
 mod vote_router;
 
 pub use active_elections_container::*;
 pub use aec_service::{AecService, AecSnapshot, BucketSnapshot};
 pub use cooldown_controller::AecCooldownReason;
 
-use std::{collections::HashMap, isize};
+pub use epoch_committees::CommitteeInfo;
+
+use std::{collections::HashMap, isize, sync::Arc, time::Duration};
 
 use rsnano_types::{
-    Amount, Block, BlockHash, BlockPriority, QualifiedRoot, SavedBlock, TimePriority, VoteError,
+    Amount, Block, BlockHash, BlockPriority, ConsensusEpoch, QualifiedRoot, SavedBlock,
+    TimePriority, VoteError,
 };
 
 use super::{
     ReceivedVote,
-    election::{ConfirmedElection, Election, ElectionBehavior},
+    election::{ConfirmedElection, Election, ElectionBehavior, ElectionId},
 };
 use root_container::{Entry, RootContainer};
 
@@ -29,6 +37,14 @@ pub struct ActiveElectionsConfig {
     pub max_elections: usize,
     /// Maximum cache size for recently_confirmed
     pub confirmation_cache: usize,
+    /// RAI: an epoch ends this long after its first election started; zero
+    /// never ends an epoch by time
+    pub epoch_duration: Duration,
+    /// RAI: whether this node casts account votes. A representative that
+    /// does not still receives the epoch's votes, signs its report at the
+    /// boundary and votes in the close: present for the handoff, absent
+    /// from the voting. For the benchmark's silent representative.
+    pub account_voting: bool,
 }
 
 impl Default for ActiveElectionsConfig {
@@ -36,6 +52,8 @@ impl Default for ActiveElectionsConfig {
         Self {
             max_elections: 5000,
             confirmation_cache: 65536,
+            epoch_duration: Duration::ZERO,
+            account_voting: true,
         }
     }
 }
@@ -46,6 +64,31 @@ pub enum AecFact {
 
     /// Ended ether confirmed or unconfirmed
     ElectionEnded(Election),
+
+    /// Kudzu: the election holds a certificate and no longer occupies a
+    /// slot in its priority bucket
+    ElectionTerminated(ElectionId),
+
+    /// RAI: new elections are now started in this epoch, and the report of
+    /// the epoch left was taken at the switch, under the same lock that
+    /// stopped its signing
+    EpochAdvanced(ConsensusEpoch, Option<Arc<EpochReport>>),
+
+    /// RAI: instances of a closed epoch opened after its certificate was
+    /// seen got notarized: their blocks are not in the value finalized and
+    /// are discarded, rolled back from the ledger
+    LateBlocksDiscarded {
+        epoch: ConsensusEpoch,
+        hashes: Vec<BlockHash>,
+    },
+
+    /// RAI: the decided checkpoint of an epoch finalized these blocks beyond
+    /// its predecessor. Installed: cemented in the ledger, where they are
+    /// not already
+    CheckpointFinalized {
+        epoch: ConsensusEpoch,
+        hashes: Vec<BlockHash>,
+    },
 
     BlockAddedToElection(BlockHash),
     BlockDiscarded(Block),
@@ -65,6 +108,13 @@ pub enum AecFact {
 pub enum AecInsertError {
     Stopped,
     Duplicate,
+    /// RAI: the current epoch has ended and drains; new elections start
+    /// once the next epoch has started
+    Draining,
+    /// RAI: the block's position is held as a retained fork by the decided
+    /// checkpoint; "a checkpoint never reopens a retained position", the
+    /// owner resolves it with a child
+    Retained,
 
     /// This block or a fork got recently confirmed, so there is no need for a new election.
     RecentlyConfirmed,

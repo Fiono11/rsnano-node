@@ -13,7 +13,7 @@ use rsnano_ledger::{AnySet, Ledger};
 use rsnano_messages::{ConfirmAck, Message};
 use rsnano_network::{Channel, ChannelId, TrafficType};
 use rsnano_nullable_clock::SteadyClock;
-use rsnano_types::{BlockHash, Root, SavedBlock, UnixMillisTimestamp, Vote};
+use rsnano_types::{BlockHash, ConsensusEpoch, Root, SavedBlock, Vote, VoteKind};
 use rsnano_utils::{
     container_info::ContainerInfo,
     stats::{DetailType, Direction, Sample, StatType, Stats},
@@ -28,12 +28,22 @@ use crate::{
 /// Vote requested by a given channel
 pub struct VoteRequest {
     pub candidates: Vec<(Root, BlockHash)>,
+    /// RAI: the epoch the requester's election runs in
+    pub epoch: ConsensusEpoch,
     pub channel: Arc<Channel>,
+}
+
+/// A block to vote for in one consensus epoch
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct VoteCandidate {
+    pub root: Root,
+    pub hash: BlockHash,
+    pub epoch: ConsensusEpoch,
 }
 
 pub(crate) struct VoteGenerator {
     ledger: Arc<Ledger>,
-    vote_generation_queue: ProcessingQueue<(Root, BlockHash)>,
+    vote_generation_queue: ProcessingQueue<VoteCandidate>,
     shared_state: Arc<SharedState>,
     thread: Mutex<Option<JoinHandle<()>>>,
     stats: Arc<Stats>,
@@ -47,7 +57,7 @@ impl VoteGenerator {
         ledger: Arc<Ledger>,
         wallet_reps: Arc<Mutex<WalletRepresentatives>>,
         history: Arc<LocalVoteHistory>,
-        is_final: bool,
+        kind: VoteKind,
         stats: Arc<Stats>,
         message_sender: MessageSender,
         voting_delay: Duration,
@@ -66,7 +76,7 @@ impl VoteGenerator {
                 candidates: Default::default(),
                 next_broadcast: Instant::now(),
             }),
-            is_final,
+            kind,
             stopped: AtomicBool::new(false),
             stats: Arc::clone(&stats),
             vote_broadcaster,
@@ -83,7 +93,7 @@ impl VoteGenerator {
             vote_generation_queue: ProcessingQueue::new(
                 Arc::clone(&stats),
                 shared_state_clone.stat_type(),
-                Self::thread_name(is_final),
+                Self::thread_name(kind),
                 1,         // single threaded
                 1024 * 32, // max queue size
                 256,       // max batch size,
@@ -95,11 +105,10 @@ impl VoteGenerator {
         }
     }
 
-    fn thread_name(is_final: bool) -> String {
-        if is_final {
-            "Voting final".to_owned()
-        } else {
-            "Voting".to_owned()
+    fn thread_name(kind: VoteKind) -> String {
+        match kind {
+            VoteKind::First => "Voting".to_owned(),
+            VoteKind::Final => "Voting final".to_owned(),
         }
     }
 
@@ -107,7 +116,7 @@ impl VoteGenerator {
         let shared_state_clone = Arc::clone(&self.shared_state);
         *self.thread.lock().unwrap() = Some(
             thread::Builder::new()
-                .name(Self::thread_name(self.shared_state.is_final))
+                .name(Self::thread_name(self.shared_state.kind))
                 .spawn(move || shared_state_clone.run())
                 .unwrap(),
         );
@@ -128,12 +137,22 @@ impl VoteGenerator {
     }
 
     /// Queue items for vote generation, or broadcast votes already in cache
-    pub(crate) fn add(&self, root: &Root, hash: &BlockHash) {
-        self.vote_generation_queue.add((*root, *hash));
+    pub(crate) fn add(&self, root: &Root, hash: &BlockHash, epoch: ConsensusEpoch) {
+        self.vote_generation_queue.add(VoteCandidate {
+            root: *root,
+            hash: *hash,
+            epoch,
+        });
     }
 
-    /// Queue blocks for vote generation, returning the number of successful candidates.
-    pub(crate) fn generate(&self, blocks: &[SavedBlock], channel: &Arc<Channel>) -> usize {
+    /// Queue blocks for vote generation in the given epoch, returning the
+    /// number of successful candidates.
+    pub(crate) fn generate(
+        &self,
+        blocks: &[SavedBlock],
+        channel: &Arc<Channel>,
+        epoch: ConsensusEpoch,
+    ) -> usize {
         let req_candidates = {
             let any = self.ledger.any();
 
@@ -146,7 +165,7 @@ impl VoteGenerator {
                         && (!any.is_forked(&block.qualified_root()) || {
                             // For now allow final votes, until we include final voted fronties in
                             // the preproposals!
-                            self.shared_state.is_final
+                            self.shared_state.kind.is_final()
                         })
                 }
                 #[cfg(not(feature = "ledger_snapshots"))]
@@ -171,6 +190,7 @@ impl VoteGenerator {
         let mut guard = self.shared_state.queues.lock().unwrap();
         let vote_req = VoteRequest {
             candidates: req_candidates,
+            epoch,
             channel: channel.clone(),
         };
         guard.requests.push_back(vote_req);
@@ -196,11 +216,7 @@ impl VoteGenerator {
         }
 
         [
-            (
-                "candidates",
-                candidates_count,
-                size_of::<Root>() + size_of::<BlockHash>(),
-            ),
+            ("candidates", candidates_count, size_of::<VoteCandidate>()),
             (
                 "requests",
                 requests_count,
@@ -222,7 +238,7 @@ struct SharedState {
     wallet_reps: Arc<Mutex<WalletRepresentatives>>,
     history: Arc<LocalVoteHistory>,
     message_sender: Mutex<MessageSender>,
-    is_final: bool,
+    kind: VoteKind,
     condition: Condvar,
     stopped: AtomicBool,
     queues: Mutex<Queues>,
@@ -267,11 +283,23 @@ impl SharedState {
     fn broadcast<'a>(&'a self, mut queues: MutexGuard<'a, Queues>) -> MutexGuard<'a, Queues> {
         let mut hashes = Vec::with_capacity(VoteGenerator::MAX_HASHES);
         let mut roots = Vec::with_capacity(VoteGenerator::MAX_HASHES);
+        // A vote is for one epoch: the batch takes the epoch of the first
+        // candidate, the candidates of other epochs wait for the next batch
+        let mut epoch = ConsensusEpoch::ZERO;
+        let mut deferred = Vec::new();
         {
             let spacing = self.spacing.lock().unwrap();
-            while let Some((root, hash)) = queues.candidates.pop_front() {
+            while let Some(candidate) = queues.candidates.pop_front() {
+                if hashes.is_empty() && roots.is_empty() {
+                    epoch = candidate.epoch;
+                } else if candidate.epoch != epoch {
+                    deferred.push(candidate);
+                    continue;
+                }
+                let VoteCandidate { root, hash, .. } = candidate;
                 if !roots.contains(&root) {
-                    if spacing.votable(&root, &hash, self.clock.now()) {
+                    if self.skips_ledger_checks() || spacing.votable(&root, &hash, self.clock.now())
+                    {
                         roots.push(root);
                         hashes.push(hash);
                     } else {
@@ -283,17 +311,19 @@ impl SharedState {
                     break;
                 }
             }
+            for candidate in deferred.into_iter().rev() {
+                queues.candidates.push_front(candidate);
+            }
         }
 
         if !hashes.is_empty() {
             drop(queues);
-            self.vote(&hashes, &roots, |generated_vote| {
+            self.vote(&hashes, &roots, epoch, |generated_vote| {
                 self.stats
                     .inc(self.stat_type(), DetailType::GeneratorBroadcasts);
-                let sample = if self.is_final {
-                    Sample::VoteGeneratorFinalHashes
-                } else {
-                    Sample::VoteGeneratorHashes
+                let sample = match self.kind {
+                    VoteKind::First => Sample::VoteGeneratorHashes,
+                    VoteKind::Final => Sample::VoteGeneratorFinalHashes,
                 };
                 self.stats.sample(
                     sample,
@@ -308,7 +338,7 @@ impl SharedState {
         queues
     }
 
-    fn vote<F>(&self, hashes: &[BlockHash], roots: &[Root], action: F)
+    fn vote<F>(&self, hashes: &[BlockHash], roots: &[Root], epoch: ConsensusEpoch, action: F)
     where
         F: Fn(Arc<Vote>),
     {
@@ -322,20 +352,10 @@ impl SharedState {
 
         let mut votes = Vec::new();
         for rep_key in rep_keys.drain(..) {
-            let timestamp = if self.is_final {
-                Vote::TIMESTAMP_MAX
-            } else {
-                UnixMillisTimestamp::now()
-            };
-            let duration = if self.is_final {
-                Vote::DURATION_MAX
-            } else {
-                0x9 /*8192ms*/
-            };
-            votes.push(Arc::new(Vote::new(
+            votes.push(Arc::new(Vote::new_in_epoch(
                 &rep_key,
-                timestamp,
-                duration,
+                self.kind,
+                epoch,
                 hashes.to_vec(),
             )));
         }
@@ -382,9 +402,21 @@ impl SharedState {
                     Direction::In,
                     hashes.len() as u64,
                 );
-                self.vote(&hashes, &roots, |vote| {
-                    let confirm =
-                        Message::ConfirmAck(ConfirmAck::new_with_own_vote((*vote).clone()));
+                self.vote(&hashes, &roots, request.epoch, |vote| {
+                    // Kudzu: a reply is evidence handed over on request. The same
+                    // (immutable) vote may have been sent before and lost, so it
+                    // must not be dropped as a duplicate by the requester.
+                    let ack = {
+                        #[cfg(feature = "rai_protocol")]
+                        {
+                            ConfirmAck::new_with_certificate_evidence((*vote).clone())
+                        }
+                        #[cfg(not(feature = "rai_protocol"))]
+                        {
+                            ConfirmAck::new_with_own_vote((*vote).clone())
+                        }
+                    };
+                    let confirm = Message::ConfirmAck(ack);
                     self.message_sender.lock().unwrap().try_send(
                         &request.channel,
                         &confirm,
@@ -402,8 +434,29 @@ impl SharedState {
             .inc(self.stat_type(), DetailType::GeneratorReplies);
     }
 
-    fn process_batch(&self, batch: VecDeque<(Root, BlockHash)>) {
-        let verified = self.ledger.verify_votes(batch, self.is_final);
+    /// Kudzu notarization and timeout votes may go to blocks which are not in
+    /// our ledger (a second look at a fork), so they bypass the ledger checks
+    /// and the vote spacing. The election already checked that we hold the
+    /// block. RAI: every vote is a statement decided by an instance, the
+    /// ledger's rules for legacy votes (no non-final vote for a cemented
+    /// block, spacing per root) do not apply to any kind.
+    fn skips_ledger_checks(&self) -> bool {
+        #[cfg(feature = "rai_protocol")]
+        {
+            true
+        }
+        #[cfg(not(feature = "rai_protocol"))]
+        {
+            false
+        }
+    }
+
+    fn process_batch(&self, batch: VecDeque<VoteCandidate>) {
+        let verified = if self.skips_ledger_checks() {
+            batch
+        } else {
+            self.verify_votes(batch)
+        };
 
         // Submit verified candidates to the main processing thread
         if !verified.is_empty() {
@@ -419,17 +472,41 @@ impl SharedState {
         }
     }
 
+    /// The ledger checks are per block, one epoch at a time
+    fn verify_votes(&self, batch: VecDeque<VoteCandidate>) -> VecDeque<VoteCandidate> {
+        let mut epochs = Vec::new();
+        for candidate in &batch {
+            if !epochs.contains(&candidate.epoch) {
+                epochs.push(candidate.epoch);
+            }
+        }
+        let mut verified = VecDeque::with_capacity(batch.len());
+        for epoch in epochs {
+            let pairs = batch
+                .iter()
+                .filter(|c| c.epoch == epoch)
+                .map(|c| (c.root, c.hash))
+                .collect();
+            verified.extend(
+                self.ledger
+                    .verify_votes(pairs, self.kind.is_final())
+                    .into_iter()
+                    .map(|(root, hash)| VoteCandidate { root, hash, epoch }),
+            );
+        }
+        verified
+    }
+
     fn stat_type(&self) -> StatType {
-        if self.is_final {
-            StatType::VoteGeneratorFinal
-        } else {
-            StatType::VoteGenerator
+        match self.kind {
+            VoteKind::First => StatType::VoteGenerator,
+            VoteKind::Final => StatType::VoteGeneratorFinal,
         }
     }
 }
 
 struct Queues {
-    candidates: VecDeque<(Root, BlockHash)>,
+    candidates: VecDeque<VoteCandidate>,
     requests: VecDeque<VoteRequest>,
     next_broadcast: Instant,
 }

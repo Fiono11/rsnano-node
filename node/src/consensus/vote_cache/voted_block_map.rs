@@ -64,8 +64,21 @@ impl VotedBlockMap {
             }
         } else {
             for (hash, code) in results {
-                // Cache votes with a corresponding election in case that election gets dropped
-                if matches!(code, Ok(()) | Err(VoteError::Indeterminate)) {
+                // Cache votes with a corresponding election in case that election gets
+                // dropped. Kudzu: an election is never dropped and a vote is one-shot,
+                // so an applied vote is not needed again; only the votes which found
+                // no election yet wait here
+                let cached = {
+                    #[cfg(feature = "rai_protocol")]
+                    {
+                        matches!(code, Err(VoteError::Indeterminate))
+                    }
+                    #[cfg(not(feature = "rai_protocol"))]
+                    {
+                        matches!(code, Ok(()) | Err(VoteError::Indeterminate))
+                    }
+                };
+                if cached {
                     self.insert_vote(vote.clone(), hash, rep_weight, now);
                     inserted += 1;
                 }
@@ -283,6 +296,34 @@ mod tests {
     }
 
     #[test]
+    fn caches_the_votes_by_their_result() {
+        let mut cache = make_block_map();
+        let rep = PrivateKey::from(1);
+        let matched = BlockHash::from(1);
+        let unmatched = BlockHash::from(2);
+        let late = BlockHash::from(3);
+        let vote = Arc::new(Vote::new(
+            &rep,
+            UnixMillisTimestamp::new(1),
+            0,
+            vec![matched, unmatched, late],
+        ));
+        let results = HashMap::from([
+            (matched, Ok(())),
+            (unmatched, Err(VoteError::Indeterminate)),
+            (late, Err(VoteError::Late)),
+        ]);
+        let now = Timestamp::new_test_instance();
+
+        cache.process(vote, Amount::raw(7), &results, now);
+
+        assert!(cache.contains(&unmatched));
+        assert!(!cache.contains(&late));
+        // Kudzu: a vote applied to an election is not needed again
+        assert_eq!(cache.contains(&matched), !cfg!(feature = "rai_protocol"));
+    }
+
+    #[test]
     fn contains() {
         let mut cache = make_block_map();
         let rep = PrivateKey::from(1);
@@ -405,8 +446,10 @@ mod tests {
 
         let mut votes = Vec::new();
         cache.collect_votes(&mut votes, &hash);
-        assert_eq!(votes.len(), 1);
-        assert!(votes[0].is_final());
+        // Kudzu keeps the first vote next to the final vote
+        let expected_votes = if cfg!(feature = "rai_protocol") { 2 } else { 1 };
+        assert_eq!(votes.len(), expected_votes);
+        assert!(votes.iter().any(|v| v.is_final()));
     }
 
     /*
@@ -550,8 +593,9 @@ mod tests {
         cache.process(vote, Amount::raw(9), &HashMap::new(), now);
         cache.process(final_vote, Amount::raw(9), &HashMap::new(), now);
 
-        let vote = cache.get(&hash).unwrap().iter_votes().next().unwrap();
-        assert!(vote.is_final());
+        // Kudzu keeps the first vote as well, legacy replaces it
+        assert!(cache.get(&hash).unwrap().iter_votes().any(|v| v.is_final()));
+        assert_eq!(cache.get(&hash).unwrap().final_tally(), Amount::raw(9));
     }
 
     #[test]

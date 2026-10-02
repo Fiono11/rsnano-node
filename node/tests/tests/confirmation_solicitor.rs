@@ -11,7 +11,7 @@ use rsnano_node::{
     },
     representatives::PeeredRepInfo,
 };
-use rsnano_types::{Account, Amount, Block, PublicKey, UnixMillisTimestamp};
+use rsnano_types::{Account, Amount, Block, ConsensusEpoch, PublicKey, UnixMillisTimestamp};
 use rsnano_utils::stats::{DetailType, Direction, StatType};
 use test_helpers::System;
 
@@ -49,6 +49,7 @@ fn batches() {
     for _ in 0..ConfirmReq::HASHES_MAX {
         let election = Election::new(
             send.clone(),
+            ConsensusEpoch::ZERO,
             ElectionBehavior::Priority,
             Duration::from_secs(1),
             node2.steady_clock.now(),
@@ -102,6 +103,7 @@ fn different_hashes() {
 
     let mut election = Election::new(
         send.clone(),
+        ConsensusEpoch::ZERO,
         ElectionBehavior::Priority,
         Duration::from_secs(1),
         node2.steady_clock.now(),
@@ -157,6 +159,7 @@ fn bypass_max_requests_cap() {
 
     let mut election = Election::new(
         send.clone(),
+        ConsensusEpoch::ZERO,
         ElectionBehavior::Priority,
         Duration::from_secs(1),
         node2.steady_clock.now(),

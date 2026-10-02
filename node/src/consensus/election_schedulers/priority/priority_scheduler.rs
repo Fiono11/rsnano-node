@@ -79,6 +79,11 @@ impl PriorityScheduler {
         self.buckets.lock().unwrap().contains(hash)
     }
 
+    /// RAI: a block discarded at its epoch's close is not proposed again
+    pub fn remove(&self, hash: &BlockHash) -> bool {
+        self.buckets.lock().unwrap().remove(hash)
+    }
+
     pub fn activate(&self, any: &impl AnySet, account: &Account) {
         if self.activate_listener.is_tracked() {
             self.activate_listener.emit(*account);

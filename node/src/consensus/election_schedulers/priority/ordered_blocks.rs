@@ -80,6 +80,15 @@ impl OrderedBlocks {
         self.by_priority.last()
     }
 
+    /// Removes the entry of the block, if queued
+    pub fn remove(&mut self, hash: &BlockHash) -> bool {
+        if !self.hashes.remove(hash) {
+            return false;
+        }
+        self.by_priority.retain(|e| e.hash() != *hash);
+        true
+    }
+
     pub fn pop_highest_prio(&mut self) -> Option<BlockEntry> {
         let entry = self.by_priority.pop_last()?;
         self.hashes.remove(&entry.hash());
