@@ -1264,6 +1264,7 @@ impl ActiveElectionsContainer {
     where
         T: ElectionCandidateSource,
     {
+        #[cfg(feature = "rai_protocol")]
         if self.cooldown.is_cooling_down() {
             return false;
         }
@@ -1845,6 +1846,7 @@ impl ActiveElectionsContainer {
         // checked on every vote, not only on the ticks
         self.end_epoch_by_time(args.now);
 
+        #[cfg(feature = "rai_protocol")]
         self.record_votes(&args);
         let mut apply_helper = ApplyVoteHelper {
             args: &args,
@@ -2243,6 +2245,7 @@ mod tests {
 
     /// Nor while the container cools down: `refill` inserts nothing then
     #[test]
+    #[cfg(feature = "rai_protocol")]
     fn no_vacancy_while_cooling_down() {
         let mut container = ActiveElectionsContainer::default();
         assert!(container.check_vacancy(&AlwaysAvailable));
@@ -2250,6 +2253,42 @@ mod tests {
         assert!(!container.check_vacancy(&AlwaysAvailable));
         container.set_cooldown(false, AecCooldownReason::AecFactQueueFull);
         assert!(container.check_vacancy(&AlwaysAvailable));
+    }
+
+    #[test]
+    #[cfg(not(feature = "rai_protocol"))]
+    fn legacy_vacancy_check_defers_to_the_source_during_cooldown() {
+        let mut container = ActiveElectionsContainer::default();
+        container.set_cooldown(true, AecCooldownReason::AecFactQueueFull);
+        assert!(container.check_vacancy(&AlwaysAvailable));
+        assert_eq!(container.vacancy(), 0);
+    }
+
+    #[test]
+    #[cfg(not(feature = "rai_protocol"))]
+    fn legacy_votes_do_not_accumulate_report_records() {
+        let mut container = ActiveElectionsContainer::default();
+        let block = SavedBlock::new_test_instance();
+        let now = Timestamp::new_test_instance();
+        container
+            .insert(
+                AecInsertRequest::new_priority(block.clone(), BlockPriority::default()),
+                now,
+            )
+            .unwrap();
+        let key = PrivateKey::from(1);
+        let vote = ReceivedVote::new(
+            Arc::new(Vote::new_of_kind(&key, VoteKind::First, vec![block.hash()])),
+            VoteDelivery::Direct,
+            None,
+        );
+        container.apply_vote(ApplyVoteArgs {
+            vote: &vote.into(),
+            rep_weights: &RepWeights::default(),
+            quorum_snapshot: &QuorumSnapshot::new_test_instance(),
+            now,
+        });
+        assert_eq!(container.vote_records.len(), 0);
     }
 
     #[test]

@@ -144,7 +144,14 @@ impl VoteProcessor {
 
     pub fn vote_blocking(&self, vote: &FilteredVote) -> Result<(), VoteError> {
         let mut result = Err(VoteError::Invalid);
-        if vote.validate().is_ok() {
+        // A replayed vote comes from the vote cache, which holds only votes that
+        // passed this check already: the hash over all its blocks and the
+        // signature check are not repeated for every election it is replayed to
+        #[cfg(not(feature = "rai_protocol"))]
+        let validated = vote.validate().is_ok();
+        #[cfg(feature = "rai_protocol")]
+        let validated = vote.delivery == VoteDelivery::Replayed || vote.validate().is_ok();
+        if validated {
             let vote_results = self.vote_applier.vote(vote);
             result = aggregate_vote_results(&vote_results);
         }
