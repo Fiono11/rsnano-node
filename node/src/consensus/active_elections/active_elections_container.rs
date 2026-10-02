@@ -675,6 +675,44 @@ impl ActiveElectionsContainer {
         }
     }
 
+    /// RAI: the epoch's joint election finalized a value this node derived
+    /// the state of: `S_e` is decided for good. That state is what the epoch
+    /// holds from now on - an instance notarizing anything else is late,
+    /// none is started any more, and the states of the slots without an
+    /// instance are dropped - and its finalized projection derives the
+    /// committee the epoch two after counts in.
+    pub(crate) fn install_decided_checkpoint(
+        &mut self,
+        epoch: ConsensusEpoch,
+        state: Arc<EpochLedger>,
+        now: Timestamp,
+    ) {
+        if self.decided.contains_key(&epoch) {
+            return;
+        }
+        if epoch >= self.current_epoch || self.epoch_previous_state(epoch).is_none() {
+            return;
+        }
+        self.decided.insert(epoch, state.clone());
+        self.stats.epochs_closed += 1;
+        // Installed before the committee is derived: a block the checkpoint
+        // finalized delegates like any other, and its instance goes with
+        // the installation
+        self.install_checkpoint(epoch, &state, now);
+        let frontiers = self.decided_frontiers(epoch, &state);
+        let live: FxHashSet<(Account, u64)> = self
+            .roots
+            .iter()
+            .map(|entry| &entry.election)
+            .filter(|election| election.epoch() == epoch)
+            .map(|election| (election.account(), election.height()))
+            .collect();
+        self.slots.remove_epoch_except(epoch, &live);
+        self.derive_committee(epoch, frontiers, now);
+        self.release_undecided_instances(epoch);
+        self.release_predecessor_gate(epoch.next(), now);
+    }
+
     /// RAI: the instances of a decided epoch that the checkpoint did not
     /// finalize are over. One whose position the checkpoint neither
     /// finalized nor retained is omitted: "an omitted candidate can be
@@ -786,6 +824,70 @@ impl ActiveElectionsContainer {
         match epoch.as_u64().checked_sub(1) {
             None => true,
             Some(before) => self.decided.contains_key(&ConsensusEpoch::new(before)),
+        }
+    }
+
+    /// RAI, "Only the joint decision installs its checkpoint": what `S_e`
+    /// finalized beyond `S_{e-1}` becomes final here. An instance holding
+    /// such a block is confirmed with it as the winner, whatever its own
+    /// certificates say - the checkpoint recovered a finality the votes this
+    /// node saw did not show, or chose the sole survivor of a position - and
+    /// every such block is cemented by the ledger. "Installation reconciles
+    /// already-finalized live operations without applying their effects
+    /// twice": a block already cemented is left as it is.
+    fn install_checkpoint(&mut self, epoch: ConsensusEpoch, state: &EpochLedger, now: Timestamp) {
+        let previous = self.epoch_previous_state(epoch);
+        let hashes: Vec<BlockHash> = state
+            .finalized_slots()
+            .filter(|(slot, block)| {
+                !previous
+                    .as_ref()
+                    .is_some_and(|previous| previous.is_finalized(slot, &block.hash))
+            })
+            .map(|(_, block)| block.hash)
+            .collect();
+        let mut confirmed = 0;
+        for hash in &hashes {
+            let Some(election) = self.roots.election_for_block_mut(hash) else {
+                continue;
+            };
+            if let Some(delegation) = delegation_of(election, hash) {
+                self.checkpoint_delegations
+                    .entry(epoch)
+                    .or_default()
+                    .insert(*hash, delegation);
+            }
+            let Some(replaced) = election.finalize_by_checkpoint(hash) else {
+                continue;
+            };
+            let id = election.id();
+            let root = election.qualified_root().clone();
+            let winner = election.winner().deref().clone();
+            let confirmed_election =
+                election.into_confirmed_election(now, ConfirmationType::ActiveConfirmedQuorum);
+            if replaced != *hash {
+                // The ledger holds the other branch: it is rolled back and
+                // the finalized block inserted in its place
+                self.notify(AecFact::WinnerChanged(replaced, winner));
+            }
+            self.recently_confirmed.put(root.clone(), *hash);
+            self.notify(AecFact::ElectionConfirmed(confirmed_election));
+            // Every instance of the root goes: the position is final
+            let _ = id;
+            self.erase(&root);
+            confirmed += 1;
+        }
+        #[cfg(feature = "rai_protocol")]
+        {
+            diagnostic!(
+                "EPOCH_INSTALL epoch={} finalized={} instances_confirmed={}",
+                epoch,
+                hashes.len(),
+                confirmed
+            );
+        }
+        if !hashes.is_empty() {
+            self.notify(AecFact::CheckpointFinalized { epoch, hashes });
         }
     }
 
@@ -2020,6 +2122,69 @@ mod tests {
         assert!(
             container
                 .epoch_decided_state(ConsensusEpoch::ZERO)
+                .is_none()
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn a_decided_checkpoint_installs_and_cannot_be_replaced() {
+        let now = Timestamp::new_test_instance();
+        let mut container = ActiveElectionsContainer::new(
+            ActiveElectionsConfig {
+                epoch_duration: Duration::from_secs(1),
+                ..Default::default()
+            },
+            Duration::from_millis(10),
+        );
+        let block = SavedBlock::new_test_instance_with_key(1);
+        container.set_genesis_committee(Vec::new());
+        container
+            .insert(
+                AecInsertRequest::new_priority(block.clone(), BlockPriority::default()),
+                now,
+            )
+            .unwrap();
+        container.start_epochs(now);
+        container.transition_time(now + Duration::from_secs(1));
+        let mut state = EpochLedger::new();
+        let slot = AccountSlot::new(block.account(), block.height());
+        state.finalize_genesis(slot, block.hash());
+        let expected = state.state_hash();
+        container.install_decided_checkpoint(ConsensusEpoch::ZERO, Arc::new(state), now);
+        assert_eq!(
+            container
+                .epoch_decided_state(ConsensusEpoch::ZERO)
+                .unwrap()
+                .state_hash(),
+            expected
+        );
+        assert!(container.previous_epoch_closed(ConsensusEpoch::new(1)));
+        assert!(
+            container
+                .election(&ElectionId::legacy(block.qualified_root()))
+                .is_none()
+        );
+        container.install_decided_checkpoint(
+            ConsensusEpoch::ZERO,
+            Arc::new(EpochLedger::new()),
+            now,
+        );
+        assert_eq!(
+            container
+                .epoch_decided_state(ConsensusEpoch::ZERO)
+                .unwrap()
+                .state_hash(),
+            expected
+        );
+        container.install_decided_checkpoint(
+            ConsensusEpoch::new(2),
+            Arc::new(EpochLedger::new()),
+            now,
+        );
+        assert!(
+            container
+                .epoch_decided_state(ConsensusEpoch::new(2))
                 .is_none()
         );
     }

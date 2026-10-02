@@ -6,6 +6,7 @@ mod election;
 mod election_id;
 mod election_state;
 mod epoch_ledger;
+mod epoch_value;
 mod final_state;
 mod single_support;
 
@@ -16,5 +17,6 @@ pub use election::*;
 pub use election_id::*;
 pub use election_state::*;
 pub use epoch_ledger::*;
+pub use epoch_value::*;
 pub use final_state::*;
 pub use single_support::*;

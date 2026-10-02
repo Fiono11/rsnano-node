@@ -14,6 +14,8 @@ use bounded_vec_deque::BoundedVecDeque;
 use num_format::{Locale, ToFormattedString};
 use tracing::{error, info, warn};
 
+#[cfg(feature = "rai_protocol")]
+use crate::consensus::reports::{EpochDecisionService, ReportPlugin, ReportService, ReportTicker};
 use rsnano_ledger::{
     AnySet, BlockError, BlockSource, Ledger, LedgerBuilder, LedgerSet, ProcessResult,
 };
@@ -832,6 +834,25 @@ impl Node {
         // Start bootstrap from genesis account
         bootstrapper.enqueue(network_params.ledger.genesis_account);
 
+        // RAI, Section 6: the report phase of the epoch closes
+        #[cfg(feature = "rai_protocol")]
+        let reports = Arc::new(ReportService::new(
+            active_elections.clone(),
+            wallet_reps.clone(),
+            message_flooder.clone(),
+            steady_clock.clone(),
+            stats.clone(),
+        ));
+        #[cfg(feature = "rai_protocol")]
+        aec_event_handlers.add_mut(ReportPlugin::new(reports.clone()));
+
+        // RAI: checkpoint candidate derivation and the optional election interface.
+        #[cfg(feature = "rai_protocol")]
+        let epoch_decision = Arc::new(EpochDecisionService::new(
+            reports.exchange(),
+            active_elections.clone(),
+        ));
+
         let mut aec_ticker = AecTicker::new(active_elections.clone(), steady_clock.clone());
 
         aec_ticker.add_plugin(ConfirmationSolicitorPlugin {
@@ -840,6 +861,9 @@ impl Node {
             winner_block_broadcaster: winner_block_broadcaster.clone(),
             confirm_req_sender,
         });
+
+        #[cfg(feature = "rai_protocol")]
+        aec_ticker.add_plugin(ReportTicker::new(reports.clone(), epoch_decision.clone()));
 
         let mut bootstrap_stale =
             BootstrapStaleElections::new(bootstrapper.clone(), steady_clock.clone());
@@ -950,6 +974,8 @@ impl Node {
             bootstrap_responder.clone(),
             bootstrapper.clone(),
             network_params.work.clone(),
+            #[cfg(feature = "rai_protocol")]
+            reports.clone(),
             #[cfg(feature = "ledger_snapshots")]
             ledger_snapshots.clone(),
         ));

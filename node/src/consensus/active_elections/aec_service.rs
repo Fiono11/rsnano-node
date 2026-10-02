@@ -34,6 +34,18 @@ pub struct AecService {
 }
 
 impl AecService {
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn install_decided_checkpoint(
+        &self,
+        epoch: ConsensusEpoch,
+        state: std::sync::Arc<crate::consensus::election::EpochLedger>,
+    ) {
+        self.aec
+            .write()
+            .unwrap()
+            .install_decided_checkpoint(epoch, state, self.clock.now());
+    }
+
     pub fn new(config: ActiveElectionsConfig, base_latency: Duration) -> Self {
         Self {
             aec: RwLock::new(ActiveElectionsContainer::new(config, base_latency)),

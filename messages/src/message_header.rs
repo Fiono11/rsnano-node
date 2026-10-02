@@ -37,6 +37,9 @@ pub enum MessageType {
     Proposal = 0x11,
     #[cfg(feature = "ledger_snapshots")]
     ProposalVote = 0x12,
+    /// RAI: the signed root of a replica's report for one epoch (Section 6.1)
+    #[cfg(feature = "rai_protocol")]
+    Report = 0x13,
 }
 
 impl MessageType {
@@ -57,6 +60,9 @@ impl MessageType {
             MessageType::TelemetryAck => "telemetry_ack",
             MessageType::AscPullReq => "asc_pull_req",
             MessageType::AscPullAck => "asc_pull_ack",
+            #[cfg(feature = "rai_protocol")]
+            MessageType::Report => "report",
+
             #[cfg(feature = "ledger_snapshots")]
             MessageType::Preproposal => "preproposal",
             #[cfg(feature = "ledger_snapshots")]
@@ -66,12 +72,18 @@ impl MessageType {
         }
     }
 
+    /// The largest message type id built into this node: what the arrays
+    /// indexed by message type have to hold
     pub const fn max_id() -> usize {
-        #[cfg(feature = "ledger_snapshots")]
+        #[cfg(feature = "rai_protocol")]
+        {
+            Self::Report as usize
+        }
+        #[cfg(all(not(feature = "rai_protocol"), feature = "ledger_snapshots"))]
         {
             Self::ProposalVote as usize
         }
-        #[cfg(not(feature = "ledger_snapshots"))]
+        #[cfg(all(not(feature = "rai_protocol"), not(feature = "ledger_snapshots")))]
         {
             Self::AscPullAck as usize
         }
@@ -191,6 +203,9 @@ impl MessageHeader {
             MessageType::TelemetryAck => TelemetryAck::serialized_size(self.extensions),
             MessageType::AscPullReq => AscPullReq::serialized_size(self.extensions),
             MessageType::AscPullAck => AscPullAck::serialized_size(self.extensions),
+            #[cfg(feature = "rai_protocol")]
+            MessageType::Report => Report::serialized_size(self.extensions),
+
             #[cfg(feature = "ledger_snapshots")]
             MessageType::Preproposal => Preproposal::serialized_size(self.extensions),
             #[cfg(feature = "ledger_snapshots")]
@@ -256,6 +271,9 @@ impl From<MessageType> for DetailType {
             MessageType::TelemetryAck => DetailType::TelemetryAck,
             MessageType::AscPullReq => DetailType::AscPullReq,
             MessageType::AscPullAck => DetailType::AscPullAck,
+            #[cfg(feature = "rai_protocol")]
+            MessageType::Report => DetailType::Report,
+
             #[cfg(feature = "ledger_snapshots")]
             MessageType::Preproposal => DetailType::Preproposal,
             #[cfg(feature = "ledger_snapshots")]
