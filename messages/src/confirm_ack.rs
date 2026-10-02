@@ -21,6 +21,9 @@ use std::fmt::{Debug, Display};
 pub struct ConfirmAck {
     vote: Vote,
     is_rebroadcasted: bool,
+    /// Kudzu: a retained vote handed over on request as certificate evidence.
+    /// It is always also a rebroadcast.
+    is_evidence: bool,
     /// Messages deserialized from network should have their digest set
     pub digest: u128,
 }
@@ -28,12 +31,15 @@ pub struct ConfirmAck {
 impl ConfirmAck {
     pub const HASHES_MAX: usize = 255;
     pub const REBROADCASTED_FLAG: usize = 2;
+    /// Kudzu only; an unused extension bit in the legacy layout
+    pub const EVIDENCE_FLAG: usize = 3;
 
     pub fn new_with_own_vote(vote: Vote) -> Self {
         assert!(vote.hashes.len() <= Self::HASHES_MAX);
         Self {
             vote,
             is_rebroadcasted: false,
+            is_evidence: false,
             digest: 0,
         }
     }
@@ -43,7 +49,30 @@ impl ConfirmAck {
         Self {
             vote,
             is_rebroadcasted: true,
+            is_evidence: false,
             digest: 0,
+        }
+    }
+
+    /// Kudzu: a retained vote handed over as certificate evidence
+    pub fn new_with_certificate_evidence(vote: Vote) -> Self {
+        assert!(vote.hashes.len() <= Self::HASHES_MAX);
+        Self {
+            vote,
+            is_rebroadcasted: true,
+            is_evidence: true,
+            digest: 0,
+        }
+    }
+
+    pub fn is_evidence(&self) -> bool {
+        #[cfg(feature = "rai_protocol")]
+        {
+            self.is_evidence
+        }
+        #[cfg(not(feature = "rai_protocol"))]
+        {
+            false
         }
     }
 
@@ -72,7 +101,13 @@ impl ConfirmAck {
         let vote = Vote::deserialize(bytes)?;
 
         let is_rebroadcasted = extensions[Self::REBROADCASTED_FLAG];
-        let mut ack = if is_rebroadcasted {
+        #[cfg(feature = "rai_protocol")]
+        let evidence = extensions[Self::EVIDENCE_FLAG];
+        #[cfg(not(feature = "rai_protocol"))]
+        let evidence = false;
+        let mut ack = if evidence {
+            ConfirmAck::new_with_certificate_evidence(vote)
+        } else if is_rebroadcasted {
             ConfirmAck::new_with_rebroadcasted_vote(vote)
         } else {
             ConfirmAck::new_with_own_vote(vote)
@@ -95,6 +130,8 @@ impl MessageVariant for ConfirmAck {
         let mut extensions = BitArray::default();
         extensions |= ConfirmReq::count_bits(self.vote.hashes.len() as u8);
         extensions.set(Self::REBROADCASTED_FLAG, self.is_rebroadcasted);
+        #[cfg(feature = "rai_protocol")]
+        extensions.set(Self::EVIDENCE_FLAG, self.is_evidence);
         extensions
     }
 }

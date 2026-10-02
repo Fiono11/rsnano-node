@@ -7,6 +7,8 @@ edition = "2024"
 
 [features]
 banano = []
+# RAI: votes carry a signed consensus epoch on the wire
+rai_protocol = []
 
 [dependencies]
 rsnano_nullable_random = { path = "../nullables/random" }

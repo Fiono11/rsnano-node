@@ -13,6 +13,7 @@ mod amount;
 mod block_hash;
 mod blocks;
 mod confirmation_height_info;
+mod consensus_epoch;
 
 pub mod currency_constants;
 
@@ -55,6 +56,7 @@ use blake2::{
 pub use block_hash::{Blake2Hash, Blake2HashBuilder, BlockHash};
 pub use blocks::*;
 pub use confirmation_height_info::ConfirmationHeightInfo;
+pub use consensus_epoch::ConsensusEpoch;
 pub use difficulty::{Difficulty, DifficultyV1, StubDifficulty};
 pub use epoch::*;
 pub use kdf::KeyDerivationFunction;
@@ -71,7 +73,7 @@ use serde::de::{Unexpected, Visitor};
 pub use signature::Signature;
 use thiserror::Error;
 pub use timestamp::{UnixMillisTimestamp, UnixTimestamp, milliseconds_since_epoch};
-pub use vote::{TestVoteBuilder, Vote, VoteDelivery, VoteError};
+pub use vote::{TestVoteBuilder, Vote, VoteDelivery, VoteError, VoteKind};
 pub use vote_timestamp::VoteTimestamp;
 
 pub type SnapshotNumber = u32;

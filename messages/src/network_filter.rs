@@ -35,10 +35,10 @@ impl<T: NetworkFilterHasher> NetworkFilter<T> {
         self.current_epoch.fetch_add(epoch_inc, Ordering::SeqCst);
     }
 
-    fn compare(&self, existing: &Entry, digest: u128) -> bool {
+    fn compare(&self, existing: &Entry, digest: u128, age_cutoff: u64) -> bool {
         // Only consider digests to be the same if the epoch is within the age cutoff
         existing.digest == digest
-            && existing.epoch + self.age_cutoff >= self.current_epoch.load(Ordering::SeqCst)
+            && existing.epoch + age_cutoff >= self.current_epoch.load(Ordering::SeqCst)
     }
 
     /// Reads `count` bytes starting from `bytes` and inserts the siphash digest in the filter.
@@ -46,15 +46,25 @@ impl<T: NetworkFilterHasher> NetworkFilter<T> {
     /// * the resulting siphash digest
     /// * a boolean representing the previous existence of the hash in the filter.
     pub fn apply(&self, bytes: &[u8]) -> (u128, bool) {
+        self.apply_with_cutoff(bytes, self.age_cutoff)
+    }
+
+    /// Like `apply`, but a message only counts as a duplicate if the earlier
+    /// copy is at most `age_cutoff` epochs old
+    pub fn apply_with_cutoff(&self, bytes: &[u8], age_cutoff: u64) -> (u128, bool) {
         let digest = self.hash(bytes);
-        let existed = self.apply_digest(digest);
+        let existed = self.apply_digest_with_cutoff(digest, age_cutoff);
         (digest, existed)
     }
 
     pub fn apply_digest(&self, digest: u128) -> bool {
+        self.apply_digest_with_cutoff(digest, self.age_cutoff)
+    }
+
+    fn apply_digest_with_cutoff(&self, digest: u128, age_cutoff: u64) -> bool {
         let mut lock = self.items.lock().unwrap();
         let element = self.get_element(digest, &mut lock);
-        let existed = self.compare(element, digest);
+        let existed = self.compare(element, digest, age_cutoff);
         if !existed {
             // Replace likely old element with a new one
             *element = Entry {
@@ -74,7 +84,7 @@ impl<T: NetworkFilterHasher> NetworkFilter<T> {
     pub fn check(&self, digest: u128) -> bool {
         let mut guard = self.items.lock().unwrap();
         let element = self.get_element(digest, &mut guard);
-        self.compare(element, digest)
+        self.compare(element, digest, self.age_cutoff)
     }
 
     /// Sets the corresponding element in the filter to zero, if it matches `digest` exactly.
@@ -101,7 +111,7 @@ impl<T: NetworkFilterHasher> NetworkFilter<T> {
 
     fn clear_locked(&self, digest: u128, lock: &mut MutexGuard<Vec<Entry>>) {
         let element = self.get_element(digest, lock);
-        if self.compare(element, digest) {
+        if self.compare(element, digest, self.age_cutoff) {
             *element = Default::default();
         }
     }

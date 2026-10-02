@@ -15,17 +15,24 @@ pub struct Publish {
     pub digest: u128,
 
     pub is_originator: bool,
+
+    /// Kudzu: the block is handed over on request (a fork candidate, the
+    /// block of a certificate): byte-identical to a copy flooded before,
+    /// which the receiver may have lost, so it is not filtered as a duplicate
+    pub is_evidence: bool,
 }
 
 impl Publish {
     const BLOCK_TYPE_MASK: u16 = 0x0f00;
     const ORIGINATOR_FLAG: u16 = 1 << 2;
+    const EVIDENCE_FLAG: u16 = 1 << 3;
 
     pub fn new_from_originator(block: Block) -> Self {
         Self {
             block,
             digest: 0,
             is_originator: true,
+            is_evidence: false,
         }
     }
 
@@ -34,6 +41,17 @@ impl Publish {
             block,
             digest: 0,
             is_originator: false,
+            is_evidence: false,
+        }
+    }
+
+    /// Kudzu: a block handed over on request
+    pub fn new_evidence(block: Block) -> Self {
+        Self {
+            block,
+            digest: 0,
+            is_originator: false,
+            is_evidence: true,
         }
     }
 
@@ -42,6 +60,20 @@ impl Publish {
             block: Block::new_test_instance(),
             digest: 0,
             is_originator: true,
+            is_evidence: false,
+        }
+    }
+
+    /// Whether a message with these header extensions is evidence
+    pub fn is_evidence(extensions: BitArray<u16>) -> bool {
+        #[cfg(feature = "rai_protocol")]
+        {
+            extensions.data & Self::EVIDENCE_FLAG > 0
+        }
+        #[cfg(not(feature = "rai_protocol"))]
+        {
+            let _ = extensions;
+            false
         }
     }
 
@@ -73,6 +105,7 @@ impl Publish {
             block: Block::deserialize_block_type(block_type, &mut bytes)?,
             digest,
             is_originator: extensions.data & Self::ORIGINATOR_FLAG > 0,
+            is_evidence: Self::is_evidence(extensions),
         };
 
         Ok(payload)
@@ -98,6 +131,10 @@ impl MessageVariant for Publish {
         if self.is_originator {
             flags |= Self::ORIGINATOR_FLAG;
         }
+        #[cfg(feature = "rai_protocol")]
+        if self.is_evidence {
+            flags |= Self::EVIDENCE_FLAG;
+        }
         BitArray::new(flags)
     }
 }
@@ -121,6 +158,22 @@ mod tests {
     fn create_from_originator() {
         let publish = Publish::new_from_originator(Block::new_test_instance());
         assert_eq!(publish.is_originator, true)
+    }
+
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn evidence_flag_is_in_the_header() {
+        let publish = Publish::new_evidence(Block::new_test_instance());
+        let extensions = publish.header_extensions(0);
+        assert!(Publish::is_evidence(extensions));
+        assert!(!Publish::is_evidence(
+            Publish::new_forward(Block::new_test_instance()).header_extensions(0)
+        ));
+        let mut bytes = Vec::new();
+        publish.serialize(&mut bytes).unwrap();
+        let deserialized = Publish::deserialize(&bytes, extensions, 0).unwrap();
+        assert!(deserialized.is_evidence);
+        assert!(!deserialized.is_originator);
     }
 
     #[test]

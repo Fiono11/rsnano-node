@@ -137,6 +137,12 @@ pub enum DetailType {
     TelemetryAck,
     AscPullReq,
     AscPullAck,
+    /// RAI: the report phase of an epoch close (Section 6)
+    Report,
+    CloseProofReq,
+    CloseProofReply,
+    CheckpointReq,
+    CheckpointReply,
     #[cfg(feature = "ledger_snapshots")]
     Preproposal,
     #[cfg(feature = "ledger_snapshots")]
@@ -237,6 +243,12 @@ pub enum DetailType {
     OverfillHashes,
     NormalVote,
     FinalVote,
+    /// Kudzu: replies carrying the retained votes of a terminated election
+    CertificateVotes,
+    InstanceJoined,
+    EvidenceFirst,
+    EvidenceFinal,
+    ForkCandidate,
 
     // duplicate
     DuplicatePublishMessage,
@@ -276,6 +288,8 @@ pub enum DetailType {
     ActivateFailed,
     ActivateSkip,
     ActivateFull,
+    /// The next unconfirmed block already has an election
+    AlreadyActive,
 
     // active
     Insert,
@@ -331,6 +345,8 @@ pub enum DetailType {
     // election_state
     Passive,
     Active,
+    Terminated,
+    Settled,
     ExpiredConfirmed,
     ExpiredUnconfirmed,
     Cancelled,
