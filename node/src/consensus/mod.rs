@@ -5,6 +5,8 @@ mod bootstrap_election_activator;
 mod bootstrap_stale_elections;
 mod bootstrap_weights;
 mod bounded_hash_map;
+#[cfg(feature = "rai_protocol")]
+pub mod checkpoint_election;
 mod confirm_req_sender;
 mod confirmation_solicitor;
 mod confirmation_solicitor_plugin;

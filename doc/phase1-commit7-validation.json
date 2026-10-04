@@ -1,0 +1,49 @@
+{
+  "date": "2026-10-04",
+  "plan_commit": 7,
+  "base_revision": "313068c9cd84d5980559befa23b8e5df83605717",
+  "format": "passed",
+  "diff_check": "passed",
+  "checks": {
+    "check-on": {
+      "command": "cargo check --tests --features rsnano_node/rai_protocol",
+      "status": "passed",
+      "log_sha256": "75871a3a8890cc89c96068c592578561d577c0cfe55b4dc909bf7e55c72f522d"
+    },
+    "check-off": {
+      "command": "cargo check --tests",
+      "status": "passed",
+      "log_sha256": "d66af780a8a74a3a57565823f3e349b97e453127ebce0a1e6637661636f928dd"
+    },
+    "tests-on": {
+      "command": "cargo test -p rsnano_node -p rsnano_messages -p rsnano_types --features rsnano_node/rai_protocol --lib",
+      "status": "passed",
+      "log_sha256": "209785760c2ce1ce5183392a3217b878d1b0150984e1f5eb944e7b92c26870cc",
+      "passed": 916
+    },
+    "tests-off": {
+      "command": "cargo test --lib -q",
+      "status": "passed",
+      "log_sha256": "f9a9a864a3a54a69f0a3b01528a36e063015d1184f7123a826eff1814be98f61",
+      "passed": 1702
+    }
+  },
+  "feature_on_library_tests": {
+    "node": 703,
+    "messages": 82,
+    "types": 131
+  },
+  "new_checkpoint_tests": 11,
+  "bounded_checks": [
+    "All n=6 and n=9 FC signer sets, snapshot identity subsets, and allowed conflicting subsets for hidden-fast preservation",
+    "All support-count partitions for P through N ensure at most one recovery candidate",
+    "P-1 two-value ambiguous snapshots"
+  ],
+  "limits": [
+    "Static recovery checks do not model the full R/A/B protocol",
+    "Complete ancestry/R-certificate verifier remains commit 8; no production evidence implementation",
+    "Durable journal contract tested in memory; disk persistence remains commit 10",
+    "No network/service wiring or Gate B benchmark"
+  ],
+  "gate_b": "pending_commits_8_to_11"
+}
