@@ -1,0 +1,43 @@
+{
+  "date": "2026-10-04",
+  "plan_commit": 6,
+  "base_revision": "6d40dfa9c",
+  "format": "passed",
+  "diff_check": "passed",
+  "checks": {
+    "check-on": {
+      "command": "cargo check --tests --features rsnano_node/rai_protocol",
+      "status": "passed",
+      "log_sha256": "61f2f9810d63d246e2da1b68f094b594d6489654abc0b49e288b3f2c34efac69"
+    },
+    "check-off": {
+      "command": "cargo check --tests",
+      "status": "passed",
+      "log_sha256": "3236462bc28732a0cc6c9bbe832b169c324c33ba609d6fc3c18fb935ad4690ad"
+    },
+    "tests-on": {
+      "command": "cargo test -p rsnano_node -p rsnano_messages -p rsnano_types --features rsnano_node/rai_protocol --lib",
+      "status": "passed",
+      "log_sha256": "50c1ae16b4fb23020bb176a638b8cf765d15fb553b13af34e2707edda8a53929",
+      "passed": 905
+    },
+    "tests-off": {
+      "command": "cargo test --lib -q",
+      "status": "passed",
+      "log_sha256": "7f5fe5df35c77135d1eb0a0d2b1c1a2ddec66ebf6a037b7ed5b0b14784fcc73b",
+      "passed": 1702
+    },
+    "nanospam": {
+      "command": "cargo test -p nanospam cli_args::tests::",
+      "status": "passed",
+      "log_sha256": "b80b320203342dcdbf6466792fb5da3d0eba93dbac1fd26f11dd85b2dc84ed27",
+      "passed": 1
+    }
+  },
+  "feature_on_library_tests": {
+    "node": 692,
+    "messages": 82,
+    "types": 131
+  },
+  "gate_b": "pending_commits_7_to_11"
+}

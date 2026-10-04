@@ -47,6 +47,20 @@ impl KudzuThresholds {
         }
     }
 
+    /// Integer account/report thresholds for N = 3f + 2p + 1 identities.
+    pub fn equal_weight(f: u32, p: u32) -> Self {
+        let (f, p) = (u128::from(f), u128::from(p));
+        let n = 3 * f + 2 * p + 1;
+        Self {
+            online: Amount::raw(n),
+            f: Amount::raw(f),
+            certificate: Amount::raw(n - f - p),
+            fast: Amount::raw(n - p),
+            many: Amount::raw(f + p + 1),
+            report: Amount::raw(n - f),
+        }
+    }
+
     pub fn from_quorum(quorum: &QuorumSnapshot) -> Self {
         Self::new(max(quorum.online_weight, quorum.trended_or_min_weight))
     }
@@ -567,6 +581,31 @@ mod tests {
     use super::*;
     use rsnano_types::PrivateKey;
     use rustc_hash::FxHashMap;
+
+    #[test]
+    fn equal_weight_certificates_count_members_and_ignore_outsiders() {
+        let committee = Committees::single(Arc::new(
+            Committee::equal_weight((1..=6).map(rep), 1, 1).unwrap(),
+        ));
+        let mut pool = SlotVotes::account_domain();
+        let mut certs = Certificates::default();
+        pool.add(rep(7), hash(1), VoteKind::First).unwrap();
+        for i in 1..=5 {
+            pool.add(rep(i), hash(1), VoteKind::First).unwrap();
+            pool.calculate(&committee);
+            pool.update_certificates(&mut certs);
+            assert_eq!(certs.is_notarized(&hash(1)), i >= 4);
+            assert_eq!(certs.fast, if i >= 5 { Some(hash(1)) } else { None });
+        }
+        let mut finals = SlotVotes::account_domain();
+        let mut certs = Certificates::default();
+        for i in 1..=4 {
+            finals.add(rep(i), hash(1), VoteKind::Final).unwrap();
+            finals.calculate(&committee);
+            finals.update_certificates(&mut certs);
+            assert_eq!(certs.final_, if i >= 4 { Some(hash(1)) } else { None });
+        }
+    }
 
     #[test]
     fn thresholds_from_online_weight() {

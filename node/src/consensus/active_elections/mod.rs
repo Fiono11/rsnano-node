@@ -45,6 +45,7 @@ pub struct ActiveElectionsConfig {
     /// boundary and votes in the close: present for the handoff, absent
     /// from the voting. For the benchmark's silent representative.
     pub account_voting: bool,
+    pub committee_model: crate::consensus::election::CommitteeModel,
 }
 
 impl Default for ActiveElectionsConfig {
@@ -54,6 +55,7 @@ impl Default for ActiveElectionsConfig {
             confirmation_cache: 65536,
             epoch_duration: Duration::ZERO,
             account_voting: true,
+            committee_model: Default::default(),
         }
     }
 }

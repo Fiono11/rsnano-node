@@ -187,6 +187,9 @@ impl ActiveElectionsContainer {
             epoch_states: EpochStates::default(),
             decided: DecidedStates::new(),
             genesis_state: Arc::new(EpochLedger::new()),
+            #[cfg(feature = "rai_protocol")]
+            committees: EpochCommittees::with_model(config.committee_model),
+            #[cfg(not(feature = "rai_protocol"))]
             committees: EpochCommittees::default(),
         }
     }
@@ -2097,6 +2100,32 @@ mod tests {
     };
     use rsnano_types::{PrivateKey, TimePriority, Vote, VoteDelivery};
     use std::sync::Arc;
+
+    #[test]
+    fn committee_configuration_only_changes_feature_on_epochs() {
+        let mut container = ActiveElectionsContainer::new(
+            ActiveElectionsConfig {
+                committee_model: crate::consensus::election::CommitteeModel::EqualWeight {
+                    f: 0,
+                    p: 0,
+                },
+                ..Default::default()
+            },
+            Duration::from_millis(10),
+        );
+        container.set_genesis_committee(vec![AccountFrontier {
+            account: Account::from(1),
+            height: 1,
+            hash: BlockHash::from(1),
+            representative: PrivateKey::from(1).public_key(),
+            balance: Amount::raw(100),
+        }]);
+        let committee = container.epoch_committee(ConsensusEpoch::ZERO).unwrap();
+        #[cfg(feature = "rai_protocol")]
+        assert_eq!(committee.online(), Amount::raw(1));
+        #[cfg(not(feature = "rai_protocol"))]
+        assert_eq!(committee.online(), Amount::raw(100));
+    }
 
     #[test]
     #[cfg(feature = "rai_protocol")]

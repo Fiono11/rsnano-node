@@ -4,7 +4,9 @@ use rsnano_ledger::RepWeights;
 use rsnano_types::{Account, Amount, BlockHash, ConsensusEpoch, PublicKey};
 
 use crate::{
-    consensus::election::{AccountFrontier, Committee, CommitteeWeights, Committees},
+    consensus::election::{
+        AccountFrontier, Committee, CommitteeModel, CommitteeWeights, Committees,
+    },
     representatives::QuorumSnapshot,
 };
 
@@ -18,6 +20,7 @@ use crate::{
 pub(crate) struct EpochCommittees {
     /// The committee of the setup, used by the first two epochs
     genesis: Option<Arc<Committee>>,
+    model: CommitteeModel,
     /// The committee each closed epoch derived
     derived: BTreeMap<ConsensusEpoch, Arc<Committee>>,
     /// The weights as of the frontiers counted so far
@@ -28,11 +31,18 @@ pub(crate) struct EpochCommittees {
 }
 
 impl EpochCommittees {
+    pub fn with_model(model: CommitteeModel) -> Self {
+        Self {
+            model,
+            ..Default::default()
+        }
+    }
+
     /// The frontiers of every account at the end of the setup: the genesis
     /// committee, and the base the epochs' frontiers are counted on
     pub fn start(&mut self, frontiers: Vec<AccountFrontier>) -> Arc<Committee> {
         self.weights.count_all(frontiers);
-        let genesis = Arc::new(self.weights.committee());
+        let genesis = Arc::new(self.weights.committee_under(self.model));
         self.genesis = Some(genesis.clone());
         genesis
     }
@@ -67,7 +77,7 @@ impl EpochCommittees {
                 break;
             };
             self.weights.count_all(frontiers);
-            let committee = Arc::new(self.weights.committee());
+            let committee = Arc::new(self.weights.committee_under(self.model));
             self.derived.insert(next, committee.clone());
             derived.push((next, committee));
         }
@@ -148,6 +158,28 @@ pub(crate) fn live_committees(rep_weights: &RepWeights, quorum: &QuorumSnapshot)
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn equal_membership_follows_finalized_delegation_with_two_epoch_lag() {
+        let mut committees =
+            EpochCommittees::with_model(CommitteeModel::EqualWeight { f: 0, p: 0 });
+        let genesis = committees.start(vec![frontier(1, 1, 1, 100), frontier(2, 1, 2, 90)]);
+        assert_eq!(genesis.weight(&rep(1)), Amount::raw(1));
+        committees.derive(ConsensusEpoch::ZERO, vec![frontier(1, 2, 2, 100)]);
+        assert_eq!(
+            committees.committee(ConsensusEpoch::new(1)).unwrap(),
+            genesis
+        );
+        let later = committees.committee(ConsensusEpoch::new(2)).unwrap();
+        assert_eq!(later.weight(&rep(1)), Amount::ZERO);
+        assert_eq!(later.weight(&rep(2)), Amount::raw(1));
+        assert!(
+            !committees
+                .for_epoch(ConsensusEpoch::new(2))
+                .unwrap()
+                .is_joint()
+        );
+    }
+
     use super::*;
     use rsnano_types::{Account, Amount, PrivateKey, PublicKey};
 

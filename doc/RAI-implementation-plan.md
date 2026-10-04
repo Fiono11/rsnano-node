@@ -20,7 +20,7 @@ Branches: `develop` (target), `rai_kudzu` (source of the import), `rai-cross-epo
 
 ## Current status — 4 October 2026
 
-Phase 0 (commits 1–5) is implemented on `rai_leaderless` through `c6f3852ea`. **Gate A passed:** the strict quiet-host run cemented 45,065 blocks on all six validators with identical final states in epoch zero, at 1,973 blocks/s and 88–89 ms p50 versus the historical baseline's 1,941 blocks/s and 88–90 ms. See the [benchmark record](benchmarks/rai-phase0-2026-10-02/README.md) for evidence and comparison limits. Phases 1–3 remain to implement; Phase 0 has no checkpoint-election implementation.
+Phase 0 (commits 1–5) is implemented on `rai_leaderless` through `c6f3852ea`. **Gate A passed:** the strict quiet-host run cemented 45,065 blocks on all six validators with identical final states in epoch zero, at 1,973 blocks/s and 88–89 ms p50 versus the historical baseline's 1,941 blocks/s and 88–90 ms. See the [benchmark record](benchmarks/rai-phase0-2026-10-02/README.md) for evidence and comparison limits. Phase 1 has started: commit 6 implements equal-weight membership, integer thresholds, configuration and nanospam controls. See [the Phase 1 record](RAI-phase1.md). Commits 7–11 and Phases 2–3 remain; there is still no checkpoint-election implementation.
 
 ## Sources: keep, drop, port
 
@@ -78,7 +78,7 @@ Phase 2: rateless IBLT             (commits 12 to 16)  -> Gate C: four variants
 Phase 3: v43 conformance ports     (commits 17 to 23)  -> Gate D: nine variants
 ```
 
-Phases 0 to 3 run in sequence and each ends in a gate. The election's two logic commits (7 and 8) touch no node code. Phase 0 and Gate A are complete; commit 6 is next.
+Phases 0 to 3 run in sequence and each ends in a gate. The election's two logic commits (7 and 8) touch no node code. Phase 0 and Gate A are complete. Commit 6 is implemented; per-rank first votes and recovery (commit 7) are next.
 
 ## Phase 0: import rai_kudzu, trimmed, without the Kudzu close (commits 1 to 5)
 

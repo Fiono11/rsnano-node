@@ -386,6 +386,17 @@ impl NodeConfig {
                 self.active_elections.epoch_duration = Duration::from_millis(ms);
             }
 
+            if let Some(model) = i.committee_model {
+                use super::active_elections_toml::CommitteeModelToml;
+                use crate::consensus::election::CommitteeModel;
+                self.active_elections.committee_model = match model {
+                    CommitteeModelToml::Weighted => CommitteeModel::Weighted,
+                    CommitteeModelToml::EqualWeight => CommitteeModel::EqualWeight {
+                        f: i.committee_f.unwrap_or(1),
+                        p: i.committee_p.unwrap_or(1),
+                    },
+                };
+            }
             if let Some(voting) = i.account_voting {
                 self.active_elections.account_voting = voting;
             }

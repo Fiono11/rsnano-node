@@ -5,6 +5,62 @@ use rustc_hash::FxHashMap;
 
 use super::KudzuThresholds;
 
+/// Membership policy for RAI epochs. Setup before epochs remains stake weighted.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CommitteeModel {
+    #[default]
+    Weighted,
+    EqualWeight {
+        f: u32,
+        p: u32,
+    },
+}
+
+impl CommitteeModel {
+    pub fn expected_members(self) -> Option<u64> {
+        match self {
+            Self::Weighted => None,
+            Self::EqualWeight { f, p } => Some(3 * u64::from(f) + 2 * u64::from(p) + 1),
+        }
+    }
+}
+
+/// Version 1.2 election thresholds, counted in distinct identities.
+/// Kept separate from account-vote amounts and their recovery threshold.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CheckpointThresholds {
+    pub n: u64,
+    pub q: u64,
+    pub f_fast: u64,
+    pub p_recovery: u64,
+    pub w: u64,
+    f: u64,
+    p: u64,
+}
+
+impl CheckpointThresholds {
+    pub fn new(n: u64, f: u32, p: u32) -> Option<Self> {
+        let (f, p) = (u64::from(f), u64::from(p));
+        if n != 3 * f + 2 * p + 1 {
+            return None;
+        }
+        Some(Self {
+            n,
+            q: n - f - p,
+            f_fast: n - p,
+            p_recovery: n - f,
+            w: f + 1,
+            f,
+            p,
+        })
+    }
+
+    /// Candidate support for a valid distinct-identity recovery snapshot.
+    pub fn recovery_support(self, m: u64) -> Option<u64> {
+        (self.q..=self.n).contains(&m).then(|| m - self.f - self.p)
+    }
+}
+
 /// RAI: the voting weights the instances of one consensus epoch are counted
 /// with, and the Kudzu thresholds derived from them. The committee's members
 /// are the same throughout a run; the weight of each moves with the balances
@@ -13,6 +69,7 @@ use super::KudzuThresholds;
 pub struct Committee {
     weights: FxHashMap<PublicKey, Amount>,
     thresholds: KudzuThresholds,
+    model: CommitteeModel,
 }
 
 impl Committee {
@@ -35,6 +92,34 @@ impl Committee {
         Self {
             weights,
             thresholds: KudzuThresholds::new(online),
+            model: CommitteeModel::Weighted,
+        }
+    }
+
+    /// Require exactly N distinct members; duplicates cannot inflate membership.
+    pub fn equal_weight(
+        members: impl IntoIterator<Item = PublicKey>,
+        f: u32,
+        p: u32,
+    ) -> Option<Self> {
+        let weights: FxHashMap<_, _> = members
+            .into_iter()
+            .map(|key| (key, Amount::raw(1)))
+            .collect();
+        CheckpointThresholds::new(weights.len() as u64, f, p)?;
+        Some(Self {
+            weights,
+            thresholds: KudzuThresholds::equal_weight(f, p),
+            model: CommitteeModel::EqualWeight { f, p },
+        })
+    }
+
+    pub fn checkpoint_thresholds(&self) -> Option<CheckpointThresholds> {
+        match self.model {
+            CommitteeModel::Weighted => None,
+            CommitteeModel::EqualWeight { f, p } => {
+                CheckpointThresholds::new(self.len() as u64, f, p)
+            }
         }
     }
 
@@ -69,6 +154,14 @@ impl Committee {
         let mut entries: Vec<_> = self.weights.iter().collect();
         entries.sort();
         let mut builder = Blake2HashBuilder::new().update(b"RAI committee");
+        // Bind equal membership and fault budgets as well as identities. Keep
+        // the existing weighted digest unchanged for the baseline.
+        if let CommitteeModel::EqualWeight { f, p } = self.model {
+            builder = builder
+                .update(b"equal_weight")
+                .update(f.to_le_bytes())
+                .update(p.to_le_bytes());
+        }
         for (rep, weight) in entries {
             builder = builder
                 .update(rep.as_bytes())
@@ -175,6 +268,39 @@ impl CommitteeWeights {
         Committee::new(self.weights.clone())
     }
 
+    /// Largest positive holders, with identity order breaking equal balances.
+    /// An undersized committee is inert: retain configured thresholds but no
+    /// voting members, so neither account nor report certificates can form.
+    pub fn committee_under(&self, model: CommitteeModel) -> Committee {
+        match model {
+            CommitteeModel::Weighted => self.committee(),
+            CommitteeModel::EqualWeight { f, p } => {
+                let mut holders: Vec<_> =
+                    self.weights.iter().filter(|(_, w)| !w.is_zero()).collect();
+                holders.sort_by(|(a_key, a), (b_key, b)| b.cmp(a).then(a_key.cmp(b_key)));
+                let n = model.expected_members().unwrap();
+                if (holders.len() as u64) < n {
+                    tracing::error!(
+                        expected = n,
+                        actual = holders.len(),
+                        "RAI equal-weight committee has too few holders; voting disabled"
+                    );
+                    return Committee {
+                        weights: FxHashMap::default(),
+                        thresholds: KudzuThresholds::equal_weight(f, p),
+                        model,
+                    };
+                }
+                Committee::equal_weight(
+                    holders.into_iter().take(n as usize).map(|(key, _)| *key),
+                    f,
+                    p,
+                )
+                .expect("selected exactly N distinct holders")
+            }
+        }
+    }
+
     /// The height counted for an account, if any
     pub fn counted_height(&self, account: &Account) -> Option<u64> {
         self.counted.get(account).map(|frontier| frontier.height)
@@ -231,6 +357,113 @@ impl CommitteeWeights {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn equal_committee_thresholds_and_invalid_membership() {
+        let committee = Committee::equal_weight((1..=6).map(rep), 1, 1).unwrap();
+        let t = committee.thresholds();
+        assert_eq!(
+            (
+                t.online.number(),
+                t.certificate.number(),
+                t.fast.number(),
+                t.many.number(),
+                t.report.number()
+            ),
+            (6, 4, 5, 3, 5)
+        );
+        assert_eq!(committee.weight(&rep(1)), Amount::raw(1));
+        assert_eq!(committee.weight(&rep(7)), Amount::ZERO);
+        assert!(Committee::equal_weight((1..=5).map(rep), 1, 1).is_none());
+        assert!(Committee::equal_weight((1..=7).map(rep), 1, 1).is_none());
+        assert!(Committee::equal_weight([rep(1); 6], 1, 1).is_none());
+    }
+
+    #[test]
+    fn checkpoint_thresholds_cover_both_simulator_populations() {
+        for (f, p, n, q, fast, recovery, w) in [
+            (1, 1, 6, 4, 5, 5, 2),
+            (2, 1, 9, 6, 8, 7, 3),
+            (0, 0, 1, 1, 1, 1, 1),
+        ] {
+            let t = CheckpointThresholds::new(n, f, p).unwrap();
+            assert_eq!((t.q, t.f_fast, t.p_recovery, t.w), (q, fast, recovery, w));
+            assert_eq!(2 * t.q - n, u64::from(f) + 1);
+            assert_eq!(2 * t.f_fast - n, 3 * u64::from(f) + 1);
+            assert_eq!(t.f_fast + t.p_recovery - n, t.q);
+            assert_eq!(t.recovery_support(t.p_recovery), Some(u64::from(f + p) + 1));
+            assert!(t.recovery_support(q - 1).is_none());
+            assert!(t.recovery_support(n + 1).is_none());
+            assert!(CheckpointThresholds::new(n + 1, f, p).is_none());
+        }
+        let t = CheckpointThresholds::new(6, 1, 1).unwrap();
+        assert_eq!(t.recovery_support(4), Some(2));
+        assert_eq!(t.recovery_support(5), Some(3));
+        let n = CommitteeModel::EqualWeight {
+            f: u32::MAX,
+            p: u32::MAX,
+        }
+        .expected_members()
+        .unwrap();
+        assert!(CheckpointThresholds::new(n, u32::MAX, u32::MAX).is_some());
+    }
+
+    #[test]
+    fn largest_holders_and_ties_are_selected_deterministically() {
+        let model = CommitteeModel::EqualWeight { f: 1, p: 1 };
+        let frontiers: Vec<_> = (1..=8)
+            .map(|i| {
+                frontier(
+                    Account::from(i),
+                    1,
+                    i,
+                    if i == 8 {
+                        0
+                    } else if i == 7 {
+                        1
+                    } else {
+                        100
+                    },
+                )
+            })
+            .collect();
+        let mut a = CommitteeWeights::default();
+        let mut b = CommitteeWeights::default();
+        a.count_all(frontiers.clone());
+        b.count_all(frontiers.into_iter().rev());
+        assert_eq!(a.committee_under(model), b.committee_under(model));
+        let committee = a.committee_under(model);
+        assert_eq!(committee.len(), 6);
+        assert_eq!(committee.weight(&rep(7)), Amount::ZERO);
+        assert_eq!(committee.weight(&rep(8)), Amount::ZERO);
+        assert!(committee.weights().values().all(|w| *w == Amount::raw(1)));
+        // With equal balances the smallest public key wins a one-member seat.
+        let one = a.committee_under(CommitteeModel::EqualWeight { f: 0, p: 0 });
+        assert_eq!(one.weight(&(1..=6).map(rep).min().unwrap()), Amount::raw(1));
+        assert_eq!(a.committee().weight(&rep(1)), Amount::raw(100));
+    }
+
+    #[test]
+    fn insufficient_holders_disable_voting_without_lowering_thresholds() {
+        let mut weights = CommitteeWeights::default();
+        weights.count(frontier(Account::from(1), 1, 1, 100));
+        let committee = weights.committee_under(CommitteeModel::EqualWeight { f: 1, p: 1 });
+        assert!(committee.is_empty());
+        assert_eq!(committee.weight(&rep(1)), Amount::ZERO);
+        assert_eq!(committee.thresholds().certificate, Amount::raw(4));
+        assert_eq!(committee.thresholds().report, Amount::raw(5));
+        assert!(committee.checkpoint_thresholds().is_none());
+    }
+
+    #[test]
+    fn digest_binds_fault_budgets_and_membership_model() {
+        // N=7 admits (f=2,p=0) and (f=0,p=3), with different quorums.
+        let a = Committee::equal_weight((1..=7).map(rep), 2, 0).unwrap();
+        let b = Committee::equal_weight((1..=7).map(rep), 0, 3).unwrap();
+        let weighted = Committee::new(a.weights().clone());
+        assert_ne!(a.digest(), b.digest());
+        assert_ne!(a.digest(), weighted.digest());
+    }
+
     /// The members of a committee hold the whole supply between them, so an
     /// account counted twice has nowhere to go. The sum is held at the
     /// maximum rather than wrapping to a small number, which would have let

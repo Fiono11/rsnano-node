@@ -107,6 +107,14 @@ pub(crate) struct CliArgs {
     /// handoff, where they sign their report and vote in the close
     #[arg(long, default_value_t = 0)]
     pub silent: usize,
+
+    /// RAI epoch membership policy (setup remains stake weighted)
+    #[arg(long, default_value = "weighted", value_parser = ["weighted", "equal_weight"])]
+    pub committee_model: String,
+    #[arg(long, default_value_t = 1)]
+    pub committee_f: u32,
+    #[arg(long, default_value_t = 1)]
+    pub committee_p: u32,
 }
 
 impl CliArgs {
@@ -143,6 +151,15 @@ impl CliArgs {
     }
 
     pub(crate) fn validate(&self) -> anyhow::Result<()> {
+        if self.committee_model == "equal_weight" {
+            let n = 3 * u64::from(self.committee_f) + 2 * u64::from(self.committee_p) + 1;
+            if self.prs as u64 != n {
+                return Err(anyhow!(
+                    "equal_weight requires {n} representatives (3f + 2p + 1), got {}",
+                    self.prs
+                ));
+            }
+        }
         if self.byzantine + self.offline >= self.prs {
             return Err(anyhow!(
                 "{} of {} representatives would run no node; at least one must",
@@ -191,5 +208,39 @@ impl CliArgs {
     fn rate_spec(&self) -> Result<RateSpec, anyhow::Error> {
         let rate: RateSpec = self.rate.as_deref().unwrap_or(DEFAULT_RATE).parse()?;
         Ok(rate)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn equal_weight_requires_the_configured_population() {
+        let good = CliArgs::try_parse_from([
+            "nanospam",
+            "--prs",
+            "6",
+            "--committee-model",
+            "equal_weight",
+        ])
+        .unwrap();
+        assert!(good.validate().is_ok());
+        let bad = CliArgs::try_parse_from([
+            "nanospam",
+            "--prs",
+            "5",
+            "--committee-model",
+            "equal_weight",
+        ])
+        .unwrap();
+        assert!(bad.validate().is_err());
+        assert!(CliArgs::try_parse_from(["nanospam", "--committee-model", "typo"]).is_err());
+        assert!(
+            CliArgs::try_parse_from(["nanospam"])
+                .unwrap()
+                .validate()
+                .is_ok()
+        );
     }
 }

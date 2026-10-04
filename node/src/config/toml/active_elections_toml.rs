@@ -1,6 +1,14 @@
 use crate::config::NodeConfig;
 use serde::{Deserialize, Serialize};
 
+/// Reject misspelled models during config parsing instead of silently changing quorum rules.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CommitteeModelToml {
+    Weighted,
+    EqualWeight,
+}
+
 #[derive(Deserialize, Serialize, Default)]
 pub struct ActiveElectionsToml {
     pub confirmation_cache: Option<usize>,
@@ -14,6 +22,9 @@ pub struct ActiveElectionsToml {
     /// RAI: whether this node casts account votes; false makes a silent
     /// representative, which reports and votes in the close only
     pub account_voting: Option<bool>,
+    pub committee_model: Option<CommitteeModelToml>,
+    pub committee_f: Option<u32>,
+    pub committee_p: Option<u32>,
 }
 
 impl From<&NodeConfig> for ActiveElectionsToml {
@@ -29,6 +40,20 @@ impl From<&NodeConfig> for ActiveElectionsToml {
             bootstrap_stale_threshold: Some(config.bootstrap_stale_threshold.as_secs() as usize),
             epoch_duration_ms: Some(config.active_elections.epoch_duration.as_millis() as u64),
             account_voting: Some(config.active_elections.account_voting),
+            committee_model: Some(match config.active_elections.committee_model {
+                crate::consensus::election::CommitteeModel::Weighted => {
+                    CommitteeModelToml::Weighted
+                }
+                _ => CommitteeModelToml::EqualWeight,
+            }),
+            committee_f: match config.active_elections.committee_model {
+                crate::consensus::election::CommitteeModel::EqualWeight { f, .. } => Some(f),
+                _ => None,
+            },
+            committee_p: match config.active_elections.committee_model {
+                crate::consensus::election::CommitteeModel::EqualWeight { p, .. } => Some(p),
+                _ => None,
+            },
         }
     }
 }
@@ -37,6 +62,25 @@ impl From<&NodeConfig> for ActiveElectionsToml {
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    #[test]
+    fn equal_weight_config_round_trip_and_unknown_model_rejection() {
+        use crate::consensus::election::CommitteeModel;
+        let mut config = NodeConfig::new_test_instance();
+        config.active_elections.committee_model = CommitteeModel::EqualWeight { f: 2, p: 1 };
+        let encoded = toml::to_string(&ActiveElectionsToml::from(&config)).unwrap();
+        let decoded: ActiveElectionsToml = toml::from_str(&encoded).unwrap();
+        let mut restored = NodeConfig::new_test_instance();
+        restored.merge_toml(&crate::config::toml::NodeToml {
+            active_elections: Some(decoded),
+            ..Default::default()
+        });
+        assert_eq!(
+            restored.active_elections.committee_model,
+            config.active_elections.committee_model
+        );
+        assert!(toml::from_str::<ActiveElectionsToml>("committee_model = 'typo'").is_err());
+    }
 
     #[test]
     fn convert_from_node_config() {
