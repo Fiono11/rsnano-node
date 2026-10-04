@@ -1,0 +1,31 @@
+{
+  "date": "2026-10-05",
+  "scope": "Minimum live all-online checkpoint smoke benchmark",
+  "feature_on_node_tests": 755,
+  "feature_off_node_tests": 683,
+  "release_build": "passed",
+  "live_status": "passed",
+  "complete_epochs": [
+    "0",
+    "1",
+    "2",
+    "3",
+    "4",
+    "5"
+  ],
+  "installed_count": 41,
+  "fast_decisions": 36,
+  "slow_decisions": 5,
+  "agreement": true,
+  "result": "doc/benchmarks/phase1-checkpoint-smoke-2026-10-05/result.json",
+  "source_revision": "585bbb5b5af626de9b752b82aa9e01fc192e304d",
+  "source_worktree": "uncommitted",
+  "synchronizer_proof": "deferred at user request",
+  "gate_b_performance": "not evaluated",
+  "limitations": [
+    "Low load (10 blocks/s), not a saturation comparison",
+    "Epoch 6 reached five nodes at capture; epochs 0 through 5 reached all six",
+    "One late epoch-4 InvalidEvidence rejection retained in log for follow-up",
+    "One node had four uncemented blocks at capture; full ledger drain was not an acceptance condition"
+  ]
+}

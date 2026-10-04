@@ -1,0 +1,20 @@
+{
+  "date": "2026-10-04",
+  "scope": "Slow payload chunking and per-connection reassembly; Nano message registration and live service remain unwired",
+  "feature_on": {
+    "command": "cargo test -p rsnano_node -p rsnano_messages -p rsnano_types --features rsnano_node/rai_protocol --lib",
+    "passed": 954,
+    "node": 741,
+    "messages": 82,
+    "types": 131,
+    "log": "/private/tmp/rai-frames-tests.log"
+  },
+  "feature_off": {
+    "command": "cargo check -p rsnano_node --lib",
+    "result": "passed",
+    "log": "/private/tmp/rai-frames-feature-off.log"
+  },
+  "diff_check": "passed",
+  "storage": "Aggregate limits deferred; per-object limits enforced",
+  "nanospam": "All-online baseline planned; not run"
+}

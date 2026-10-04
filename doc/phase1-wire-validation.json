@@ -1,0 +1,20 @@
+{
+  "date": "2026-10-04",
+  "scope": "Versioned slow payload codec; simulator deliveries serialize and decode; total storage deferred; all-online nanospam baseline planned, not run",
+  "feature_on": {
+    "command": "cargo test -p rsnano_node -p rsnano_messages -p rsnano_types --features rsnano_node/rai_protocol --lib",
+    "passed": 951,
+    "log": "/private/tmp/rai-wire-tests.log"
+  },
+  "feature_off": {
+    "command": "cargo check -p rsnano_node --lib",
+    "result": "passed",
+    "log": "/private/tmp/rai-wire-feature-off.log"
+  },
+  "remaining": [
+    "Nano transport framing and fragmentation/reassembly",
+    "round synchronizer",
+    "application adapter and node service",
+    "all-online Gate B nanospam run"
+  ]
+}

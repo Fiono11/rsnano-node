@@ -1,0 +1,45 @@
+{
+  "date": "2026-10-04",
+  "plan_step": 8,
+  "status": "recursive_slow_verifier_and_in_memory_proposer",
+  "checks": {
+    "focused": {
+      "command": "cargo test -p rsnano_node --features rai_protocol --lib consensus::checkpoint_election --quiet",
+      "status": "passed",
+      "log_sha256": "32cd502cb493ba5d5574db2178e56b6a4bd94228be39bb2d22876ca7b8081c8d"
+    },
+    "feature_on": {
+      "command": "cargo test -p rsnano_node -p rsnano_messages -p rsnano_types --features rsnano_node/rai_protocol --lib --quiet",
+      "status": "passed",
+      "log_sha256": "086d7e18abb437b1bbb582614b6ba62d39defceb5a1e8e8eb1568ebcece97a9f"
+    },
+    "feature_off": {
+      "command": "cargo check -p rsnano_node --lib --quiet",
+      "status": "passed",
+      "log_sha256": "be61c0be7c219839c6ff4a2dceaf338fc1b9b49eb8065f086bd724c52ac4840a"
+    }
+  },
+  "focused_checkpoint_tests": 33,
+  "feature_on_library_tests": {
+    "node": 725,
+    "messages": 82,
+    "types": 131
+  },
+  "format": "passed",
+  "diff_check": "passed",
+  "pdf_sha256": "2d7f338e35ce8eeb3cf7448b84eb0c1138946706b7f11fe5c047630ecb42dcfc",
+  "disk_persistence": "deferred_by_user",
+  "remaining": [
+    "Initial application/fast-R CheckpointEvidence adapter",
+    "Mutable responder integration and evidence relay/fetch",
+    "Round synchronizer and arbitrary-prefix/final-return progress validation",
+    "Transport encoding, storage bounds, node service and Gate B"
+  ],
+  "notes": [
+    "SlowRequestEvidence is now implemented by the bounded recursive SlowVerifier",
+    "Proposer tests traverse actual slow ancestry; initial CheckpointEvidence remains an explicit fixture",
+    "W request checks do not authorize Q eligibility",
+    "Retained local R selection carries additional signed origin evidence; proposer waits for Q witnesses",
+    "These component executions are not a complete network simulation or termination proof"
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "date": "2026-10-05",
+  "scope": "Concrete one-instance CheckpointElection adapter with session, transport, journals and report validator",
+  "feature_on": {
+    "node_tests_passed": 755,
+    "log": "/private/tmp/rai-election-adapter-tests.log"
+  },
+  "scenarios": [
+    "Six adapters exchange frames and export verified decisions",
+    "Repeated candidate ticks do not replay proposals",
+    "Decisions are delivered once",
+    "Repeated evidence wakeups produce no output",
+    "Recreated adapter retains original journaled candidate"
+  ],
+  "gate_b": {
+    "status": "blocked",
+    "executed": false
+  },
+  "remaining": [
+    "Node-wide instance routing and live adapter installation",
+    "Synchronizer and progress argument",
+    "All-online Gate B runner and metrics"
+  ]
+}

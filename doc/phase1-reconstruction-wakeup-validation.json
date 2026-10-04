@@ -1,0 +1,22 @@
+{
+  "date": "2026-10-05",
+  "scope": "Report reconstruction wakeup hook and session evidence revalidation without history retransmission",
+  "feature_on": {
+    "node_tests_passed": 755,
+    "log": "/private/tmp/rai-reconstruction-wakeup-tests.log"
+  },
+  "scenarios": [
+    "Fast certificate and admission remain pending while report validation is unavailable",
+    "Reconstruction-only wakeup emits exactly one decision",
+    "Repeated wakeup produces no output"
+  ],
+  "gate_b": {
+    "status": "blocked",
+    "executed": false
+  },
+  "remaining": [
+    "Live adapter connecting node hooks and checkpoint transport to sessions",
+    "Synchronizer and progress argument",
+    "All-online Gate B runner and metrics"
+  ]
+}

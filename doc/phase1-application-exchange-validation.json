@@ -1,0 +1,26 @@
+{
+  "date": "2026-10-04",
+  "scope": "Application evidence namespace and six-node independent evidence dissemination through Nano frames",
+  "feature_on": {
+    "passed": 968,
+    "node": 753,
+    "messages": 84,
+    "types": 131,
+    "log": "/private/tmp/rai-application-exchange-tests.log"
+  },
+  "feature_off": {
+    "node_tests_passed": 683,
+    "log": "/private/tmp/rai-application-exchange-off.log"
+  },
+  "gate_b": {
+    "status": "blocked",
+    "executed": false,
+    "remaining": [
+      "Exchange-to-driver and report-reconstruction integration",
+      "Synchronizer and arbitrary-prefix progress proof",
+      "Live node handler, checkpoint installation and gate runner"
+    ]
+  },
+  "storage": "Aggregate storage and persistence remain deferred",
+  "nanospam": "All-online baseline; live run not performed"
+}

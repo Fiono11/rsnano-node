@@ -1,0 +1,44 @@
+{
+  "date": "2026-10-04",
+  "scope": "Phase 1 gate prerequisites: journaled local FIRST, validated candidates, finite quorum admission, initial R evidence, report committee binding",
+  "phase1_complete": false,
+  "gate_b": {
+    "status": "blocked_before_live_service",
+    "executed": false,
+    "assumption": "all nodes online",
+    "deferred": [
+      "disk persistence",
+      "aggregate retained-storage limits"
+    ],
+    "blockers": [
+      "No round synchronizer implementing request-before-response ordering and arbitrary-prefix progress",
+      "Candidate/admission/initial-R network dissemination and evidence retrieval not wired",
+      "Live CheckpointElection service, candidate timing, lifecycle and decision installation not wired",
+      "Gate B nanospam runner and required checkpoint metrics not implemented"
+    ]
+  },
+  "feature_on": {
+    "command": "cargo test -p rsnano_node -p rsnano_messages -p rsnano_types --features rsnano_node/rai_protocol --lib",
+    "passed": 967,
+    "node": 752,
+    "messages": 84,
+    "types": 131,
+    "log": "/private/tmp/rai-phase1-gate-prereq-tests.log"
+  },
+  "feature_off": {
+    "command": "cargo test -p rsnano_node --lib",
+    "passed": 683,
+    "log": "/private/tmp/rai-phase1-gate-prereq-off.log"
+  },
+  "focused_after_additional_maximum_assertions": {
+    "command": "cargo test -p rsnano_node --features rai_protocol --lib application_candidates_require",
+    "passed": 1,
+    "log": "/private/tmp/rai-phase1-initial-r-max.log"
+  },
+  "pdf": {
+    "path": "Fast_Archipelago.pdf",
+    "pages": 5,
+    "sha256": "d44a494e8f6d6b30ee0319cf6d34b25b86697ccbd07cf3ad246d4ddbdb6784c4"
+  },
+  "diff_check": "passed"
+}

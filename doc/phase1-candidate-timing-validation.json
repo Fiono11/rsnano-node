@@ -1,0 +1,18 @@
+{
+  "date": "2026-10-05",
+  "scope": "Node candidate submission timing: report quorum and all reports or 500 ms grace",
+  "feature_on": {
+    "report_module_tests_passed": 8,
+    "log": "/private/tmp/rai-candidate-timing-tests.log"
+  },
+  "gate_b": {
+    "status": "blocked",
+    "executed": false
+  },
+  "remaining": [
+    "Live checkpoint service and transport wiring",
+    "Report reconstruction wakeups",
+    "Synchronizer and progress argument",
+    "All-online Gate B runner and metrics"
+  ]
+}

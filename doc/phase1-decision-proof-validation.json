@@ -1,0 +1,33 @@
+{
+  "date": "2026-10-05",
+  "scope": "Portable fast and slow decision-proof export/import and independent six-session verification",
+  "feature_on": {
+    "passed": 968,
+    "node": 753,
+    "messages": 84,
+    "types": 131,
+    "log": "/private/tmp/rai-decision-proof-tests.log"
+  },
+  "feature_off": {
+    "node_tests_passed": 683,
+    "log": "/private/tmp/rai-decision-proof-off.log"
+  },
+  "scenarios": [
+    "Fast and slow decision proofs verified independently across all six sessions",
+    "Altered epoch values and unsupported envelope versions rejected",
+    "Encoded byte and verification object budgets enforced",
+    "Missing or duplicate slow ancestry and noncommit roots rejected",
+    "Proof encoding round trip preserves bytes"
+  ],
+  "gate_b": {
+    "status": "blocked",
+    "executed": false,
+    "remaining": [
+      "Synchronizer and progress argument",
+      "Live node lifecycle and checkpoint installation",
+      "Candidate timing and report reconstruction wakeups",
+      "Nanospam gate runner and metrics"
+    ]
+  },
+  "nanospam": "All-online baseline; live run not performed"
+}

@@ -1,0 +1,37 @@
+{
+  "date": "2026-10-04",
+  "plan_step": 8,
+  "status": "partial_slow_certificate_components",
+  "checks": {
+    "focused": {
+      "command": "cargo test -p rsnano_node --features rai_protocol --lib consensus::checkpoint_election --quiet",
+      "status": "passed",
+      "log_sha256": "2bc30e8a0591e32d5d55a3afd3e893aee563ff5c658eb8a9c2f628b5dc844c25"
+    },
+    "feature_on": {
+      "command": "cargo test -p rsnano_node -p rsnano_messages -p rsnano_types --features rsnano_node/rai_protocol --lib --quiet",
+      "status": "passed",
+      "log_sha256": "723cf3582a5c954af7f4ce0af2a5d3f4fb1b27a4e4d0ec216b8edd03481c4dc6"
+    },
+    "feature_off": {
+      "command": "cargo check -p rsnano_node --lib --quiet",
+      "status": "passed",
+      "log_sha256": "be61c0be7c219839c6ff4a2dceaf338fc1b9b49eb8065f086bd724c52ac4840a"
+    }
+  },
+  "focused_checkpoint_tests": 26,
+  "feature_on_library_tests": {
+    "node": 718,
+    "messages": 82,
+    "types": 131
+  },
+  "format": "passed",
+  "diff_check": "passed",
+  "disk_persistence": "deferred_by_user",
+  "limitations": [
+    "SlowRequestEvidence has no production recursive request-ancestry or W-admission implementation",
+    "Tests use an explicit known-request fixture",
+    "Event-driven proposer and local retained-R selection are not implemented",
+    "No synchronizer, wire protocol, node service or Gate B completion"
+  ]
+}

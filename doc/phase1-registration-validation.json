@@ -1,0 +1,20 @@
+{
+  "date": "2026-10-04",
+  "scope": "Nano message type 0x1a for slow chunks; live node explicitly drops/counts until service installation",
+  "feature_on": {
+    "passed": 956,
+    "node": 741,
+    "messages": 84,
+    "types": 131,
+    "log": "/private/tmp/rai-registration-tests.log"
+  },
+  "feature_off": {
+    "message_tests_passed": 77,
+    "node_library_check": "passed",
+    "logs": [
+      "/private/tmp/rai-registration-off-tests.log",
+      "/private/tmp/rai-registration-feature-off.log"
+    ]
+  },
+  "nanospam": "All-online baseline planned, not run"
+}
