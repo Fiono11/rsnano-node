@@ -49,7 +49,7 @@ The runner uses six representatives, 45,000 primary blocks, up to 45,000 account
 
 A busy host is rejected before launching nodes. `--allow-busy` permits a correctness run but explicitly marks it ineligible for the performance gate. Performance requires comparison with the [recorded rai_kudzu baseline](benchmarks/rai-phase0-2026-10-02/baseline.json); a successful correctness run alone does not assert that comparison passed.
 
-The [benchmark record](benchmarks/rai-phase0-2026-10-02/README.md) contains the successful six-node correctness run and blocked quiet-host attempts. **The performance part of Gate A is pending a quiet host.**
+The [benchmark record](benchmarks/rai-phase0-2026-10-02/README.md) contains the successful six-node correctness run, blocked quiet-host attempts, and the strict quiet-host run of 4 October. **Gate A passed:** all six validators cemented the workload with identical final states in epoch zero, at 1,973 blocks/s and 88–89 ms finalization p50, compared with the historical baseline's 1,941 blocks/s and 88–90 ms.
 
 ## Preserved files
 
