@@ -50,12 +50,12 @@ impl FirstVote {
     }
 }
 
-/// Durable, atomic insert-if-absent by (instance, rank, signer). If the slot
-/// exists, return its original record without overwriting it. On success the
-/// record must survive a restart. On an uncertain write failure, a retry must
-/// recover any committed record. Call `create` only if absent, under the same
-/// exclusive transaction, so repeat requests do not sign another value.
-/// Commit 10 supplies the disk implementation.
+/// Atomic insert-if-absent by (instance, rank, signer). If the slot exists,
+/// return its original record without overwriting it. Invoke `create` only
+/// once while holding exclusive access to an absent slot. A durable backend
+/// must also commit before success and recover uncertain writes on retry.
+/// Disk persistence is deferred; the volatile implementation retains locks
+/// only for this process lifetime and makes no restart-safety guarantee.
 pub trait FirstVoteJournal {
     fn get_or_insert(
         &mut self,
@@ -64,6 +64,34 @@ pub trait FirstVoteJournal {
         signer: PublicKey,
         create: impl FnOnce() -> Result<FirstVote, CheckpointError>,
     ) -> Result<FirstVote, CheckpointError>;
+}
+
+/// Interim backend explicitly selected while disk persistence is deferred.
+/// Keep one journal for the whole process/session, including after decisions.
+#[derive(Default)]
+pub struct VolatileFirstVoteJournal {
+    records: BTreeMap<(CheckpointInstance, u64, PublicKey), FirstVote>,
+}
+
+impl FirstVoteJournal for VolatileFirstVoteJournal {
+    fn get_or_insert(
+        &mut self,
+        instance: CheckpointInstance,
+        rank: u64,
+        signer: PublicKey,
+        create: impl FnOnce() -> Result<FirstVote, CheckpointError>,
+    ) -> Result<FirstVote, CheckpointError> {
+        let key = (instance, rank, signer);
+        if let Some(vote) = self.records.get(&key) {
+            return Ok(vote.clone());
+        }
+        let vote = create()?;
+        if (vote.instance, vote.rank, vote.signer) != key {
+            return Err(CheckpointError::InvalidJournalRecord);
+        }
+        self.records.insert(key, vote.clone());
+        Ok(vote)
+    }
 }
 
 impl CheckpointContext {

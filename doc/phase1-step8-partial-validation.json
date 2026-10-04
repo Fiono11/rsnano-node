@@ -1,0 +1,45 @@
+{
+  "date": "2026-10-04",
+  "plan_step": 8,
+  "step_status": "partial_conformance_unresolved",
+  "base_revision": "f26d99e5bdabb6347cf146b10b5d569e95c58a3a",
+  "format": "passed",
+  "diff_check": "passed",
+  "checks": {
+    "check-on": {
+      "command": "cargo check --tests --features rsnano_node/rai_protocol",
+      "status": "passed",
+      "log_sha256": "05b0d3a9ae339c093f0e0ac83c233e7de28c28b305749be4ba43e8da9d5b8957"
+    },
+    "check-off": {
+      "command": "cargo check --tests",
+      "status": "passed",
+      "log_sha256": "664a376ba14fc65ff996ea73b543a180a6ed4ef51079a0f5a755fd365e7d78b6"
+    },
+    "tests-on": {
+      "command": "cargo test -p rsnano_node -p rsnano_messages -p rsnano_types --features rsnano_node/rai_protocol --lib",
+      "status": "passed",
+      "log_sha256": "0bb26f5aac351099885d89c08f4212514ce42a973be59a724f0c556fe30ef04c",
+      "passed": 923
+    },
+    "tests-off": {
+      "command": "cargo test --lib -q",
+      "status": "passed",
+      "log_sha256": "e29bd58e066f909684271c1761ddd6ccd627e0306d0916577dc110e7356da2be",
+      "passed": 1702
+    }
+  },
+  "feature_on_library_tests": {
+    "node": 710,
+    "messages": 82,
+    "types": 131
+  },
+  "checkpoint_tests": 18,
+  "disk_persistence": "deferred_by_user",
+  "conformance_record": "RAI-archipelago-v1.2-conformance.md",
+  "limits": [
+    "A/B helpers require authenticated and prevalidated inputs; full recursive verifier is not implemented",
+    "Adoption-certificate trace exposes an unresolved persistence condition, not two conflicting decisions",
+    "No driver, synchronizer, network service or Gate B implementation"
+  ]
+}

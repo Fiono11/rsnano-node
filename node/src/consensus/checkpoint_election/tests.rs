@@ -707,3 +707,276 @@ fn exhaustive_partitions_resolve_at_p_and_p_minus_one_can_be_ambiguous() {
         );
     }
 }
+
+#[test]
+fn volatile_journal_keeps_locks_when_the_current_r_value_changes() {
+    let w = World::new(1, 1);
+    let mut journal = VolatileFirstVoteJournal::default();
+    let key = PrivateKey::from(1);
+    let first = w
+        .context()
+        .first_vote(
+            0,
+            BlockHash::from(1),
+            World::intro(0, 1),
+            &key,
+            &w.evidence,
+            &mut journal,
+        )
+        .unwrap();
+    let repeated = w
+        .context()
+        .first_vote(
+            0,
+            BlockHash::from(2),
+            World::intro(0, 2),
+            &key,
+            &w.evidence,
+            &mut journal,
+        )
+        .unwrap();
+    assert_eq!(first, repeated);
+    let next = w
+        .context()
+        .first_vote(
+            1,
+            BlockHash::from(2),
+            World::intro(1, 2),
+            &key,
+            &w.evidence,
+            &mut journal,
+        )
+        .unwrap();
+    assert_eq!(next.value, BlockHash::from(2));
+}
+
+/// A conformance counterexample to the unrestricted persistence assertion in
+/// v1.2 Lemma 6.5, not a test claiming two conflicting decisions. Correct
+/// mutable responders retain true/max state; an earlier signed certificate
+/// nevertheless remains valid under the stated predecessor verification rule.
+#[test]
+fn earlier_b_adoption_certificate_survives_a_later_true_certificate() {
+    use serde::Serialize;
+    #[derive(Clone, Serialize)]
+    struct SignedSnapshot<T> {
+        instance: CheckpointInstance,
+        rank: u64,
+        request: BlockHash,
+        signer: PublicKey,
+        values: Vec<T>,
+        signature: Signature,
+    }
+    impl<T: Serialize> SignedSnapshot<T> {
+        fn digest(&self) -> BlockHash {
+            rsnano_types::Blake2HashBuilder::new()
+                .update(b"RAI conformance snapshot")
+                .update(
+                    serde_json::to_vec(&(
+                        self.instance,
+                        self.rank,
+                        self.request,
+                        self.signer,
+                        &self.values,
+                    ))
+                    .unwrap(),
+                )
+                .build()
+        }
+        fn new(instance: CheckpointInstance, request: u64, signer: u64, values: Vec<T>) -> Self {
+            let key = PrivateKey::from(signer);
+            let mut result = Self {
+                instance,
+                rank: 0,
+                request: BlockHash::from(request),
+                signer: key.public_key(),
+                values,
+                signature: Signature::default(),
+            };
+            result.signature = key.sign(result.digest().as_bytes());
+            result
+        }
+        fn verify(&self, w: &World) {
+            assert_eq!(self.instance, w.evidence.instance);
+            assert_eq!(w.committee.weight(&self.signer), Amount::raw(1));
+            self.signer
+                .verify(self.digest().as_bytes(), &self.signature)
+                .unwrap();
+        }
+    }
+    let w = World::new(1, 1);
+    let v = BlockHash::from(1);
+    let other = BlockHash::from(2);
+    // Correct first votes: 1:v, 2:v, 3:other, 5:other, 6:third.
+    // Both singleton recoveries are legal without first-vote equivocation.
+    let RecoveryProgress::Resolved(rc_v) = w
+        .pool(0, &[(1, 1), (2, 1), (3, 2), (6, 3)])
+        .resolve(None, &w.evidence)
+        .unwrap()
+    else {
+        panic!()
+    };
+    let RecoveryProgress::Resolved(rc_other) = w
+        .pool(0, &[(1, 1), (3, 2), (5, 2), (6, 3)])
+        .resolve(None, &w.evidence)
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert_eq!(rc_v.verify(&w.context(), 0, &w.evidence), Ok(v));
+    assert_eq!(rc_other.verify(&w.context(), 0, &w.evidence), Ok(other));
+    // IDs 101/102 name A(v)/A(other); 201/202 name B(false,other)/B(true,v).
+    // Each set contains four correct responders; identity 4 may schedule the
+    // conflicting requests and withhold certificates as the Byzantine replica.
+    let ids = [1u64, 2, 3, 5];
+    let mut a_states = [
+        AState::default(),
+        AState::default(),
+        AState::default(),
+        AState::default(),
+    ];
+    let mut b_states = [
+        BState::default(),
+        BState::default(),
+        BState::default(),
+        BState::default(),
+    ];
+    let mut witnesses = Witnesses::default();
+    let a_true: Vec<_> = ids
+        .iter()
+        .zip(a_states.iter_mut())
+        .map(|(&id, state)| SignedSnapshot::new(w.evidence.instance, 101, id, state.deliver(v)))
+        .collect();
+    for snapshot in &a_true {
+        snapshot.verify(&w);
+        witnesses.record(snapshot.request, snapshot.signer);
+    }
+    let true_result = evaluate_a(
+        4,
+        &a_true
+            .iter()
+            .map(|s| (s.signer, s.values.clone()))
+            .collect::<Vec<_>>(),
+    )
+    .unwrap();
+    assert_eq!(
+        true_result,
+        BValue {
+            flag: true,
+            value: v
+        }
+    );
+    let a_false: Vec<_> = ids
+        .iter()
+        .zip(a_states.iter_mut())
+        .map(|(&id, state)| SignedSnapshot::new(w.evidence.instance, 102, id, state.deliver(other)))
+        .collect();
+    for snapshot in &a_false {
+        snapshot.verify(&w);
+        witnesses.record(snapshot.request, snapshot.signer);
+    }
+    assert!(witnesses.eligible(&[BlockHash::from(101), BlockHash::from(102)], 4));
+    let false_result = evaluate_a(
+        4,
+        &a_false
+            .iter()
+            .map(|s| (s.signer, s.values.clone()))
+            .collect::<Vec<_>>(),
+    )
+    .unwrap();
+    assert_eq!(
+        false_result,
+        BValue {
+            flag: false,
+            value: other
+        }
+    );
+    assert!(witnesses.admits(
+        BlockHash::from(201),
+        &[BlockHash::from(101), BlockHash::from(102)],
+        2
+    ));
+    let old_b: Vec<_> = ids
+        .iter()
+        .zip(b_states.iter_mut())
+        .map(|(&id, state)| {
+            SignedSnapshot::new(
+                w.evidence.instance,
+                201,
+                id,
+                state.deliver(false_result).unwrap(),
+            )
+        })
+        .collect();
+    for snapshot in &old_b {
+        snapshot.verify(&w);
+        witnesses.record(snapshot.request, snapshot.signer);
+    }
+    assert!(witnesses.eligible(&[BlockHash::from(201)], 4));
+    let old_result = evaluate_b(
+        4,
+        &old_b
+            .iter()
+            .map(|s| (s.signer, s.values.clone()))
+            .collect::<Vec<_>>(),
+    )
+    .unwrap();
+    assert_eq!(old_result, BOutcome::Adopt(other));
+    // Deliver the delayed, valid B(true,v). No correct responder erases v.
+    assert!(witnesses.admits(BlockHash::from(202), &[BlockHash::from(101)], 2));
+    let new_b: Vec<_> = ids
+        .iter()
+        .zip(b_states.iter_mut())
+        .map(|(&id, state)| {
+            SignedSnapshot::new(
+                w.evidence.instance,
+                202,
+                id,
+                state.deliver(true_result).unwrap(),
+            )
+        })
+        .collect();
+    for snapshot in &new_b {
+        snapshot.verify(&w);
+        witnesses.record(snapshot.request, snapshot.signer);
+    }
+    assert!(witnesses.eligible(&[BlockHash::from(201), BlockHash::from(202)], 4));
+    assert_eq!(
+        evaluate_b(
+            4,
+            &new_b
+                .iter()
+                .map(|s| (s.signer, s.values.clone()))
+                .collect::<Vec<_>>()
+        ),
+        Ok(BOutcome::Adopt(v))
+    );
+    // Complete ancestry and all W/Q witnesses for the old certificate still
+    // exist. A stateless verifier recomputes Adopt(other), not Adopt(v).
+    for snapshot in &old_b {
+        snapshot.verify(&w);
+    }
+    assert_eq!(
+        evaluate_b(
+            4,
+            &old_b
+                .iter()
+                .map(|s| (s.signer, s.values.clone()))
+                .collect::<Vec<_>>()
+        ),
+        Ok(BOutcome::Adopt(other))
+    );
+    assert!(
+        b_states
+            .iter()
+            .all(|state| state.values().contains(&true_result))
+    );
+    eprintln!(
+        "RAI_PERSISTENCE_TRACE {}",
+        serde_json::json!({
+            "instance": w.evidence.instance, "recoveries": [rc_v, rc_other],
+            "a_true": a_true, "a_false": a_false, "old_b": old_b, "new_b": new_b,
+            "old_adopt": other, "later_adopt": v,
+            "scope": "certificate persistence lemma; no conflicting decisions asserted"
+        })
+    );
+}

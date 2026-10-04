@@ -28,9 +28,19 @@ A recovery snapshot retains one validated vote per signer. Fast detection separa
 
 Recovery uses the changing threshold m−f−p for Q ≤ m ≤ N. A singleton may resolve at Q. An ambiguous snapshot waits, even if one value is larger. An empty snapshot needs independently verified ordinary R evidence and its recomputed maximum; it never substitutes the largest first-voted value. A resolved certificate can be verified by another node without changing that node's immutable first votes. Fast and recovery proof records have serde round trips; these are not the network envelopes planned for commit 9.
 
-Two explicit interfaces remain unwired. `CheckpointEvidence` must validate RAI application values, complete legal-introduction ancestry and ordinary R certificates including complementing witnesses. There is no production implementation or permissive default; commit 8 supplies the R/A/B verifier and commit 10 connects application validation. `FirstVoteJournal` requires durable, atomic insertion by (instance, rank, signer) before a vote is released; an existing slot returns the original vote without invoking the signing closure. Tests exercise the contract with an in-memory journal, including uncertain write outcomes; actual disk persistence remains commit 10.
+Two explicit interfaces remain unwired. `CheckpointEvidence` must validate RAI application values, complete legal-introduction ancestry and ordinary R certificates including complementing witnesses. There is no production implementation or permissive default; commit 8 supplies the R/A/B verifier and commit 10 connects application validation. `FirstVoteJournal` requires atomic insertion by (instance, rank, signer) before a vote is released; an existing slot returns the original vote without invoking the signing closure. Tests exercise the contract with an in-memory journal, including uncertain write outcomes; disk persistence is now deferred at the user's request. `VolatileFirstVoteJournal` retains locks for the running process only.
 
 Eleven deterministic tests cover signed-field tampering, rank/instance replay, membership, ancestry binding, immutable signing, pending evidence, equivocation, both recovery forms, certificate verification/serialization, and the report's hidden-fast example. Bounded exhaustive tests cover n=6 and n=9: every fast-certificate identity set, recovery identity subset and permitted conflicting-vote subset for hidden-fast preservation; integer partitions of snapshot support for uniqueness at P; and explicit ambiguity at P−1. These are static recovery checks, not a full R/A/B model checker or proof of termination. See [the commit 7 validation record](phase1-commit7-validation.json).
+
+## Commit 8 in progress: volatile state and A/B components
+
+Disk persistence is deferred. `VolatileFirstVoteJournal` keeps per-instance/rank locks in memory for the process lifetime. Pure A/B state transitions and certificate-result evaluators are implemented, along with distinct-identity W admission and Q eligibility counters. These helpers require authenticated, validated inputs from the future recursive verifier; they do not replace that verifier.
+
+The [conformance reproducer](RAI-archipelago-v1.2-conformance.md) retains an earlier B adoption certificate that still carries a different value after a later true-valued certificate. It exposes an unresolved condition in the stated persistence lemma, not two conflicting decisions. Eighteen focused tests pass, including the reproducer; the tests deliberately preserve and report the discrepancy rather than claiming the lemma has been proved.
+
+The [partial-step validation record](phase1-step8-partial-validation.json) records passing formatting, both build configurations, 923 feature-on library tests and 1,702 feature-off library tests.
+
+Commit 8 is incomplete. The full driver, recursive verifier, synchronizer, networking and Gate B are not implemented by this change. The current review finding must be reconciled before the plan's service-wiring gate can pass.
 
 ## Next
 

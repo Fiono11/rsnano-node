@@ -3,9 +3,11 @@
 //! No node service is installed here. Full R/B ancestry and ordinary R
 //! certificate validation are mandatory inputs from the later R/A/B engine;
 //! missing application data or certificate evidence is never treated as valid.
+mod archipelago;
 mod first_votes;
 mod recovery;
 
+pub use archipelago::*;
 pub use first_votes::*;
 pub use recovery::*;
 
