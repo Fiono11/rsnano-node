@@ -1,0 +1,363 @@
+[
+  {
+    "n": 6,
+    "f": 1,
+    "p": 1,
+    "Q": 4,
+    "P": 5,
+    "F": 5,
+    "correct": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "byzantine": [
+      6
+    ],
+    "suspended_in_suffix": [],
+    "ranks": [
+      {
+        "rank": 0,
+        "first_votes": {
+          "1": 0,
+          "2": 0,
+          "3": 0,
+          "4": 1,
+          "5": 1
+        },
+        "current_R_maximum": 1,
+        "public_recovery_value": 0,
+        "private_recovery_snapshot": {
+          "4": 1,
+          "5": 1,
+          "1": 0,
+          "6": 1
+        },
+        "public_A_result": [
+          "false",
+          1
+        ],
+        "private_A_result": [
+          "true",
+          0
+        ],
+        "public_B_result": [
+          "adopt",
+          0
+        ],
+        "private_B_result": [
+          "adopt",
+          1
+        ],
+        "low_correct_group": [
+          1,
+          2,
+          3
+        ],
+        "selective_correct_group": [
+          4,
+          5
+        ],
+        "first_batch_high_origin_witnesses": 2,
+        "first_batch_public_low_response_count": 3,
+        "second_batch_high_origin_witnesses": 5,
+        "all_correct_requests_before_responses": true,
+        "all_late_requests_processed": true,
+        "no_fast_or_slow_decision": true
+      },
+      {
+        "rank": 1,
+        "first_votes": {
+          "1": 0,
+          "2": 0,
+          "3": 0,
+          "4": 1,
+          "5": 1
+        },
+        "current_R_maximum": 1,
+        "public_recovery_value": 0,
+        "private_recovery_snapshot": {
+          "4": 1,
+          "5": 1,
+          "1": 0,
+          "6": 1
+        },
+        "public_A_result": [
+          "false",
+          1
+        ],
+        "private_A_result": [
+          "true",
+          0
+        ],
+        "public_B_result": [
+          "adopt",
+          0
+        ],
+        "private_B_result": [
+          "adopt",
+          1
+        ],
+        "low_correct_group": [
+          1,
+          2,
+          3
+        ],
+        "selective_correct_group": [
+          4,
+          5
+        ],
+        "first_batch_high_origin_witnesses": 2,
+        "first_batch_public_low_response_count": 3,
+        "second_batch_high_origin_witnesses": 5,
+        "all_correct_requests_before_responses": true,
+        "all_late_requests_processed": true,
+        "no_fast_or_slow_decision": true
+      },
+      {
+        "rank": 2,
+        "first_votes": {
+          "1": 0,
+          "2": 0,
+          "3": 0,
+          "4": 1,
+          "5": 1
+        },
+        "current_R_maximum": 1,
+        "public_recovery_value": 0,
+        "private_recovery_snapshot": {
+          "4": 1,
+          "5": 1,
+          "1": 0,
+          "6": 1
+        },
+        "public_A_result": [
+          "false",
+          1
+        ],
+        "private_A_result": [
+          "true",
+          0
+        ],
+        "public_B_result": [
+          "adopt",
+          0
+        ],
+        "private_B_result": [
+          "adopt",
+          1
+        ],
+        "low_correct_group": [
+          1,
+          2,
+          3
+        ],
+        "selective_correct_group": [
+          4,
+          5
+        ],
+        "first_batch_high_origin_witnesses": 2,
+        "first_batch_public_low_response_count": 3,
+        "second_batch_high_origin_witnesses": 5,
+        "all_correct_requests_before_responses": true,
+        "all_late_requests_processed": true,
+        "no_fast_or_slow_decision": true
+      }
+    ],
+    "repeat_invariant": "all correct carry v; private valid B(w) remains available",
+    "scope": "stated recovery rule, historical certificates and Q per-origin eligibility; multiple response batches allowed"
+  },
+  {
+    "n": 9,
+    "f": 2,
+    "p": 1,
+    "Q": 6,
+    "P": 7,
+    "F": 8,
+    "correct": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
+    "byzantine": [
+      8,
+      9
+    ],
+    "suspended_in_suffix": [],
+    "ranks": [
+      {
+        "rank": 0,
+        "first_votes": {
+          "1": 0,
+          "2": 0,
+          "3": 0,
+          "4": 0,
+          "5": 1,
+          "6": 1,
+          "7": 1
+        },
+        "current_R_maximum": 1,
+        "public_recovery_value": 0,
+        "private_recovery_snapshot": {
+          "5": 1,
+          "6": 1,
+          "7": 1,
+          "1": 0,
+          "8": 1,
+          "9": 1
+        },
+        "public_A_result": [
+          "false",
+          1
+        ],
+        "private_A_result": [
+          "true",
+          0
+        ],
+        "public_B_result": [
+          "adopt",
+          0
+        ],
+        "private_B_result": [
+          "adopt",
+          1
+        ],
+        "low_correct_group": [
+          1,
+          2,
+          3,
+          4
+        ],
+        "selective_correct_group": [
+          5,
+          6,
+          7
+        ],
+        "first_batch_high_origin_witnesses": 3,
+        "first_batch_public_low_response_count": 4,
+        "second_batch_high_origin_witnesses": 7,
+        "all_correct_requests_before_responses": true,
+        "all_late_requests_processed": true,
+        "no_fast_or_slow_decision": true
+      },
+      {
+        "rank": 1,
+        "first_votes": {
+          "1": 0,
+          "2": 0,
+          "3": 0,
+          "4": 0,
+          "5": 1,
+          "6": 1,
+          "7": 1
+        },
+        "current_R_maximum": 1,
+        "public_recovery_value": 0,
+        "private_recovery_snapshot": {
+          "5": 1,
+          "6": 1,
+          "7": 1,
+          "1": 0,
+          "8": 1,
+          "9": 1
+        },
+        "public_A_result": [
+          "false",
+          1
+        ],
+        "private_A_result": [
+          "true",
+          0
+        ],
+        "public_B_result": [
+          "adopt",
+          0
+        ],
+        "private_B_result": [
+          "adopt",
+          1
+        ],
+        "low_correct_group": [
+          1,
+          2,
+          3,
+          4
+        ],
+        "selective_correct_group": [
+          5,
+          6,
+          7
+        ],
+        "first_batch_high_origin_witnesses": 3,
+        "first_batch_public_low_response_count": 4,
+        "second_batch_high_origin_witnesses": 7,
+        "all_correct_requests_before_responses": true,
+        "all_late_requests_processed": true,
+        "no_fast_or_slow_decision": true
+      },
+      {
+        "rank": 2,
+        "first_votes": {
+          "1": 0,
+          "2": 0,
+          "3": 0,
+          "4": 0,
+          "5": 1,
+          "6": 1,
+          "7": 1
+        },
+        "current_R_maximum": 1,
+        "public_recovery_value": 0,
+        "private_recovery_snapshot": {
+          "5": 1,
+          "6": 1,
+          "7": 1,
+          "1": 0,
+          "8": 1,
+          "9": 1
+        },
+        "public_A_result": [
+          "false",
+          1
+        ],
+        "private_A_result": [
+          "true",
+          0
+        ],
+        "public_B_result": [
+          "adopt",
+          0
+        ],
+        "private_B_result": [
+          "adopt",
+          1
+        ],
+        "low_correct_group": [
+          1,
+          2,
+          3,
+          4
+        ],
+        "selective_correct_group": [
+          5,
+          6,
+          7
+        ],
+        "first_batch_high_origin_witnesses": 3,
+        "first_batch_public_low_response_count": 4,
+        "second_batch_high_origin_witnesses": 7,
+        "all_correct_requests_before_responses": true,
+        "all_late_requests_processed": true,
+        "no_fast_or_slow_decision": true
+      }
+    ],
+    "repeat_invariant": "all correct carry v; private valid B(w) remains available",
+    "scope": "stated recovery rule, historical certificates and Q per-origin eligibility; multiple response batches allowed"
+  }
+]

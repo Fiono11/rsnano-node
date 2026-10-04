@@ -1,0 +1,66 @@
+[
+  {
+    "n": 6,
+    "f": 1,
+    "p": 1,
+    "Q": 4,
+    "correct_first_votes": {
+      "0": 1,
+      "1": 1,
+      "2": 1,
+      "3": 0,
+      "4": 0
+    },
+    "all_R_response_quorums_return_w": 15,
+    "no_Q_correct_matching_first_votes": true,
+    "recovery_v": {
+      "3": 0,
+      "4": 0,
+      "0": 1,
+      "5": 0
+    },
+    "recovery_w": {
+      "0": 1,
+      "1": 1,
+      "2": 1,
+      "3": 0
+    },
+    "fresh_mixed_A_certificates_checked": 45,
+    "result": "clean R agreement does not imply first-vote agreement; fresh mixed A eliminates v; next rank commits w"
+  },
+  {
+    "n": 9,
+    "f": 2,
+    "p": 1,
+    "Q": 6,
+    "correct_first_votes": {
+      "0": 1,
+      "1": 1,
+      "2": 1,
+      "3": 1,
+      "4": 0,
+      "5": 0,
+      "6": 0
+    },
+    "all_R_response_quorums_return_w": 84,
+    "no_Q_correct_matching_first_votes": true,
+    "recovery_v": {
+      "4": 0,
+      "5": 0,
+      "6": 0,
+      "0": 1,
+      "7": 0,
+      "8": 0
+    },
+    "recovery_w": {
+      "0": 1,
+      "1": 1,
+      "2": 1,
+      "3": 1,
+      "4": 0,
+      "5": 0
+    },
+    "fresh_mixed_A_certificates_checked": 252,
+    "result": "clean R agreement does not imply first-vote agreement; fresh mixed A eliminates v; next rank commits w"
+  }
+]

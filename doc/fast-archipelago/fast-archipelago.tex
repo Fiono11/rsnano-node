@@ -1,0 +1,257 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,hyperref}
+\title{Fast Archipelago v1.3\\One-shot fast agreement with certified slow fallback}
+\author{Protocol revision and implementation specification}
+\date{4 October 2026}
+\setlength{\emergencystretch}{2em}
+\begin{document}
+\maketitle
+\begin{abstract}
+This revision replaces the repeated per-rank fast/recovery construction in v1.2.
+Each checkpoint has one immutable fast-vote attempt. Recovery certificates
+supply externally valid initial inputs to a fresh ordinary Archipelago instance.
+The slow instance runs its own R, A and B phases; recovery never overrides its
+R result. Fast evidence remains actionable after slow execution starts.
+The fast/recovery composition argument is given below. End-to-end termination
+remains conditional on the stated ordinary slow-engine and dissemination
+obligations; this document does not claim those implementation obligations are
+already discharged.
+\end{abstract}
+
+\section{Model and domains}
+Fix a checkpoint instance $I$ binding protocol version, session, epoch,
+predecessor checkpoint and the exact equal-weight committee and fault budgets.
+There are $n=3f+2p+1$ identities, at most $f$ Byzantine identities, and
+unforgeable signatures. Correct identities never change their first vote in $I$.
+Let
+\[
+ F=n-p,\qquad Q=n-f-p=2f+p+1,\qquad P=n-f=2f+2p+1.
+\]
+These are fast/recovery thresholds, not the slow engine's quorum thresholds.
+Values have a deterministic total order and must satisfy the application validity
+predicate, including reconstructed payload availability and predecessor binding.
+A hash alone does not establish application validity.
+
+For the concrete fallback in this revision, choose the lexicographically smallest
+$3f+1$ public keys from the fast committee, fixed for $I$. Define $I_s$ by hashing
+an independent slow-instance domain, $I$, $f$ and the ordered selected keys.
+The slow committee has at most $f$ Byzantine identities, quorum $q_s=2f+1$
+and witness threshold $w_s=f+1$. Fast members outside this committee still
+serve fast votes, recovery proofs and application data. Changing this selection
+rule requires a protocol version change.
+
+Every signed object binds a message-kind domain, its instance, signer, value
+and relevant phase/rank/request identifiers. Fast attempt number is always zero;
+slow rank zero is a distinct namespace. v1.2 signatures are not v1.3 signatures.
+A slow proposal signature binds its value and slow instance; its attached RC
+is independently verified. Different valid RC witnesses for the same value are
+interchangeable. Subsequent slow phase signatures must bind their phase-specific
+proof references under the ordinary engine's rules.
+
+
+\section{Finite application admission and initial R evidence}
+Before releasing FIRST, the RAI binding authenticates a candidate object containing
+$I$, its proposer and the complete epoch value. Validation reconstructs exactly
+$P=n-f$ distinct committee reports, checks both roots and their signed committee
+and predecessor context, and recomputes BuildState. A signature alone is not
+application validation.
+
+A candidate becomes an admissible initial value only with $Q$ distinct signed
+endorsements of that exact candidate object and proposer. Each correct endorser
+locks one candidate per $(I,\mathrm{proposer})$ for the process lifetime. Two
+admission quorums for one proposer intersect in at least $2Q-n=f+1$ identities;
+at least one is correct and cannot endorse both. Hence at most one admitted
+candidate exists per proposer, and there are at most $n$ initial values. Correct
+proposers must release one validated candidate and dissemination must make its
+payload available. Admission is an additional exchange before the optimistic
+FIRST attempt; latency measurements must include it when measuring the complete
+checkpoint operation. Disk/restart safety for endorsement locks is deferred.
+
+For empty-candidate recovery the implementation adds an independent initial
+max-register exchange, in a domain separate from FIRST and the RC-backed slow
+instance. An initial R request names an admitted candidate. A correct responder
+incorporates the request into its retained maximum and signs a response binding
+$I$, the request digest and its maximal admitted candidate. An initial R
+certificate contains $Q$ distinct such responses to the same authenticated
+request. Verification checks signatures, admitted origins, and that each response
+is at least the triggering input, and recomputes their maximum. The cache stores
+only verified certificates; the FIRST snapshot's maximum is never substituted.
+Candidate-admission quorums witness origin availability in this initial exchange;
+these are not the later slow engine's R-response witnesses. This specifies the
+initial max-register refinement used by the application adapter. It does not
+supply the ordinary slow synchronizer or discharge its termination assumptions.
+
+\section{One initial fast attempt}
+The initial fast R exchange retains the eligible-request/response and witness
+checks of the fast/recovery front end. A correct replica authenticates a valid
+initial proposal and releases at most one signed $\mathrm{FIRST}(I,0,v)$.
+Later information can change an ordinary R response, but cannot change FIRST.
+The immutable record must be installed atomically before releasing the signature.
+There are no FIRST votes at slow ranks, including later slow ranks.
+
+A fast certificate $FC_0(v)$ contains exactly $F$ distinct valid FIRST signatures
+for $v$. Receipt of such a certificate permits deciding $v$ at any time,
+including while the slow engine is running. Correct replicas relay certificates
+and dependencies; starting the fallback does not disable this listener.
+
+The implementation currently retains locks only in memory, at the user's
+request. Therefore its safety scope excludes restart with lost locks followed
+by signing again in the same instance. Durable restart support is deferred.
+
+\section{Recovery and admission}
+Let $S$ contain one validated FIRST record per identity, with $Q\leq m=|S|\leq n$.
+Define
+\[
+ \mathrm{Cand}(S)=\{v:\mathrm{count}_S(v)\geq m-f-p\}.
+\]
+An equivocating identity contributes at most one record to a snapshot. A receiver
+may nevertheless retain alternate signed records for detecting a fast certificate.
+
+A resolved certificate $RC_0(x)$ contains $I$, attempt zero, $S$, $x$, and one of:
+\begin{enumerate}
+\item Singleton evidence: $\mathrm{Cand}(S)=\{x\}$.
+\item Empty evidence: $\mathrm{Cand}(S)=\varnothing$ and independently verified
+initial ordinary R evidence whose recomputed maximum is $x$.
+\end{enumerate}
+An ambiguous candidate set does not resolve: neither taking its maximum nor
+replacing old first votes is allowed. Missing dependencies are fetched and retried;
+invalid dependencies do not count. Empty-case R evidence must include all required
+ancestry and eligibility witnesses, not merely a caller-supplied maximum.
+
+Any member of the slow committee may start the fresh slow instance with an
+initial proposal $x$ accompanied by $RC_0(x)$. All initial slow proposals,
+including Byzantine proposals, must satisfy this external validity predicate.
+Validation is independent of the verifier's local recovery snapshot. A valid
+certificate does not rewrite that verifier's first vote.
+
+\section{Timing and ordinary slow ranks}
+There is a causal boundary: recovery evidence must exist before its value enters
+slow consensus. There is no wait for a timeout, failed-fast proof, all fast votes,
+or abandonment of the fast attempt. Slow work and delivery of late initial fast
+evidence therefore overlap.
+
+The slow instance starts with fresh responder, witness and synchronizer state.
+Its ordinary rank structure is:
+\begin{enumerate}
+\item R: exchange legal requests, their witnesses and eligible responses;
+select the ordinary R result $r$ from a valid slow quorum and retained local R state.
+When the retained maximum exceeds the quorum maximum, its signed record and
+origin witnesses must accompany the selection proof.
+\item A: propose $r$ with its slow R evidence. Verify ordinary A request,
+response and complementing-witness rules; produce the ordinary A result.
+\item B: propose that A result with its proof; verify B evidence and either
+commit or adopt according to the ordinary B evaluator.
+\item On adoption, advance via the ordinary synchronizer and legal preceding-B
+ancestry. Do not introduce a new fast attempt or replace the next R result by RC.
+\end{enumerate}
+Request collection barriers, response updates, W admission and Q eligibility
+are internal rules of the chosen ordinary engine, not interchangeable messages
+or additional consensus decisions. Their exact source-faithful implementation
+and recursive proof validation remain required work.
+
+In particular, if the initial external input is $v$ but slow R validly selects
+$w$, A must propose $w$. The initial $RC_0(v)$ is not permission to override R.
+Every value introduced later must have ordinary legal ancestry back to an
+externally valid initial input. Neither an old fast certificate nor an arbitrary
+hash substitutes for preceding slow B evidence.
+
+\section{Safety of the composition}
+\paragraph{Fast uniqueness.}
+Two fast signer sets intersect in at least $2F-n=n-2p=3f+1>f$ identities.
+Some intersecting identity is correct and cannot first-vote for two values.
+Thus conflicting fast certificates cannot exist.
+
+\paragraph{Hidden-fast preservation.}
+Suppose $FC_0(v)$ exists, even if initially hidden. At least $F-f$ correct
+identities first-voted $v$. A snapshot of size $m$ includes at least
+\[
+ (F-f)+m-n=m-f-p
+\]
+of them. Hence $v\in\mathrm{Cand}(S)$ for every valid recovery snapshot.
+An empty certificate is impossible, and every resolved singleton certificate
+selects $v$. This also applies to a fast certificate assembled later: a correct
+identity that first-voted another value cannot subsequently join it for $v$.
+
+\paragraph{Fast/slow agreement.}
+Assume the slow engine enforces external validity on every initial input,
+preserves legal ancestry, satisfies agreement, and decides $v$ when every
+externally valid input equals $v$. If $FC_0(v)$ exists, hidden-fast preservation
+restricts every admissible slow input to $v$, so every slow decision is $v$.
+Together with fast uniqueness and slow agreement, decisions agree across paths.
+These are explicit requirements on the ordinary engine, not properties established
+by the current pure A/B helper functions alone.
+
+\section{Recovery progress and conditional termination}
+At $m\geq P$, two candidates would require at least $2(m-f-p)>m$ votes, since
+$m\geq2f+2p+1$. Therefore there is at most one candidate. This establishes
+resolvability of a sufficiently large snapshot; in the empty case it still
+requires available, independently valid initial R evidence.
+
+Assume reliable eventual dissemination of correct initial FIRST records and
+required payloads/proofs, eventual production of a valid initial R certificate
+when needed, and an ordinary slow engine satisfying termination under the
+execution's scheduling and synchronizer assumptions. Once $P$ correct identities
+participate, recovery resolves; correct slow members receive admissible proposals
+and the slow engine terminates, or a fast certificate already decides the instance.
+Thus the composition terminates under these premises.
+
+For static temporary suspensions, the selected cohort may be unavailable for a
+finite interval and later resume; this is not permanent absence. After the last
+return, the fixed slow committee again has the ordinary at-most-$f$ Byzantine
+fault model. A proof must show that the slow synchronizer recovers from the
+arbitrary prefix and reaches its progress condition. Static identities alone do
+not imply such a suffix if suspension intervals can recur forever. This revision
+does not claim termination during arbitrary recurring or rotating suspensions,
+nor does it assume all responses become identical merely because values are ordered.
+
+\section{Why the repeated construction was withdrawn}
+In v1.2, recovery could repeatedly replace an ordinary R result $w$ by $v$ before
+A, while an adversary retained a privately assembled preceding adoption proof
+for $w$. Mutable responder evidence permits earlier certificates to remain valid:
+a later stronger certificate does not revoke signatures already released.
+Consequently adoption of $v$ and adoption of $w$ can coexist without any commit.
+The recurring trace in the accompanying investigation reproduces this gap even
+with a clean suffix. A request barrier or a single update per rank is not, by
+itself, a proof that a correct first-vote quorum eventually forms.
+
+The repair removes the repeated override: RC is initial external validity for a
+fresh slow instance, and ordinary R controls ordinary A at every slow rank.
+This removes the exhibited recovery-induced cycle. It is not a substitute for
+proving the slow engine's own agreement, validity, synchronizer and termination.
+The former unrestricted adoption-persistence and unconditional composed-liveness
+claims are not retained.
+
+\section{Implementation contract and remaining gates}
+Phase 1 now enforces attempt-zero fast signing and certificate verification,
+versioned fast domains, deterministic slow membership/instance binding and signed
+RC-backed initial slow proposals. Tests exercise rejection before signing,
+recovery verification, replay isolation and late fast completion after fallback
+admission. Existing A/B and witness helpers remain pure components.
+
+The component implementation now includes signed slow requests, bounded recursive
+ancestry checks and an in-memory proposer loop, including retained R selection.
+Request proofs require weak complementing witnesses; quorum eligibility requires
+strong witnesses. Component tests cover adoption and subsequent commitment.
+Mutable responder services and digest-based proof fetch/relay now run in a
+transport-independent replica. Four-replica simulations cover split inputs,
+missing certificates and service to a returning replica after decision.
+Typed-message admission and historical-response replay now have configurable byte
+budgets; replay also has a count limit and rotates fairly without evicting evidence.
+These are local accounting controls, not wire framing, total-storage limits or
+round synchronization.
+Finite initial candidates now have quorum admission and an independent initial R
+certificate verifier. Transport codecs, a committee-wide driver and local
+application validation are component implementations. Still required: admission
+and application-evidence dissemination, retry scheduling and a round synchronizer,
+live checkpoint service integration, adversarial timing coverage and Gate B
+end-to-end checks. Aggregate retained-storage limits and disk persistence are
+deferred; the current nanospam baseline keeps all nodes online. The one-shot interface tests are not an end-to-end termination proof.
+Disk persistence remains deferred. No production checkpoint service is installed
+by this revision.
+
+The editable source is \texttt{doc/fast-archipelago/fast-archipelago.tex};
+\texttt{rebuild.py} compiles the complete document. Historical v1.2 analyses and
+replacement-page source remain separate investigation artifacts, not normative
+parts of v1.3.
+\end{document}

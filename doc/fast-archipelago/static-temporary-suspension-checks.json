@@ -1,0 +1,136 @@
+[
+  {
+    "n": 6,
+    "f": 1,
+    "p": 1,
+    "Q": 4,
+    "P": 5,
+    "F": 5,
+    "fixed_core": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "temporarily_suspended": [
+      4
+    ],
+    "counts": {
+      "correct_vote_assignments": 243,
+      "all_P_singleton": 153,
+      "ambiguous_before_return": 54,
+      "ambiguous_then_singleton_after_return": 36,
+      "ambiguous_then_empty_after_return": 18,
+      "all_P_empty": 90
+    },
+    "return_examples": {
+      "singleton_after_return": {
+        "before": [
+          0,
+          0,
+          1,
+          1
+        ],
+        "returning_votes": [
+          0
+        ],
+        "candidates_before": [
+          0,
+          1
+        ],
+        "candidates_after": [
+          0
+        ]
+      },
+      "empty_after_return": {
+        "before": [
+          0,
+          0,
+          1,
+          1
+        ],
+        "returning_votes": [
+          2
+        ],
+        "candidates_before": [
+          0,
+          1
+        ],
+        "candidates_after": []
+      }
+    },
+    "all_correct_online_suffice_for_F_matching_votes": true,
+    "R_agreement_without_Q_matching_first_votes_survives_final_return": true,
+    "scope": "all P votes remove ambiguity; empty recovery still needs valid R evidence"
+  },
+  {
+    "n": 9,
+    "f": 2,
+    "p": 1,
+    "Q": 6,
+    "P": 7,
+    "F": 8,
+    "fixed_core": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "temporarily_suspended": [
+      6
+    ],
+    "counts": {
+      "correct_vote_assignments": 2187,
+      "all_P_singleton": 1137,
+      "ambiguous_before_return": 180,
+      "ambiguous_then_singleton_after_return": 120,
+      "ambiguous_then_empty_after_return": 60,
+      "all_P_empty": 1050
+    },
+    "return_examples": {
+      "singleton_after_return": {
+        "before": [
+          0,
+          0,
+          0,
+          1,
+          1,
+          1
+        ],
+        "returning_votes": [
+          0
+        ],
+        "candidates_before": [
+          0,
+          1
+        ],
+        "candidates_after": [
+          0
+        ]
+      },
+      "empty_after_return": {
+        "before": [
+          0,
+          0,
+          0,
+          1,
+          1,
+          1
+        ],
+        "returning_votes": [
+          2
+        ],
+        "candidates_before": [
+          0,
+          1
+        ],
+        "candidates_after": []
+      }
+    },
+    "all_correct_online_suffice_for_F_matching_votes": false,
+    "R_agreement_without_Q_matching_first_votes_survives_final_return": true,
+    "scope": "all P votes remove ambiguity; empty recovery still needs valid R evidence"
+  }
+]

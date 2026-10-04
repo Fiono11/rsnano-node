@@ -1,0 +1,175 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=24mm]{geometry}
+\usepackage{amsmath,amssymb,parskip,fancyhdr,hyperref}
+\pagestyle{fancy}\fancyhf{}\fancyhead[L]{\small BFT-ARCHIPELAGO / PROOF CORRECTION}\fancyhead[R]{\small 4 October 2026}\fancyfoot[C]{\thepage}
+\setlength{\headheight}{14pt}
+\newcommand{\page}[1]{\clearpage\setcounter{page}{#1}}
+\newcommand{\claim}[2]{\par\textbf{#1.} #2\par}
+\begin{document}
+\setcounter{page}{0}
+\setlength{\emergencystretch}{1em}
+\thispagestyle{empty}
+{\small DISTRIBUTED CONSENSUS / TECHNICAL REPORT}
+\vspace{15mm}
+{\LARGE\bfseries BFT-Archipelago\\[4mm] with an R-Step Fast Path}
+\vspace{8mm}
+
+{\Large Version 1.2 --- proof correction, 4 October 2026}
+\[
+n=3f+2p+1,\qquad Q=n-f-p,\qquad F=n-p.
+\]
+\section*{Proof status}
+This correction replaces the unrestricted adoption-persistence claim with persistence after a \emph{decision certificate}. The safety argument explicitly covers historical signed responses, including certificates assembled or revealed before the decision certificate. It relies on the responder invariants stated in corrected Section 6.3 and on complete, rank-bound certificate validation.
+
+A B adoption certificate containing a true pair does not invalidate an older adoption certificate for another value. The existing executable trace demonstrates this distinction; it does not demonstrate conflicting decisions.
+
+The former global convergence and leaderless-termination proofs are withdrawn. Clean-round response monotonicity alone does not exclude replay of older certificates. Section 8 records the remaining proof obligations rather than introducing an unproved freshness rule. No phase sealing, locking mechanism, or new message type is added by this correction.
+
+\section*{Reading this revision}
+The original numbering and unaffected pages are retained. Replacement pages are headed ``Proof correction''; unchanged pages retain their original version/date markings. This cover, the executive summary, Sections 6.2--6.3 and 8, the implementation obligations, claim ledger, and conclusion supersede the corresponding version 1.2 claims. References elsewhere to a completed liveness proof must be read subject to this correction.
+
+Based on Algorithm 5 and Appendix H of the supplied \emph{Leaderless Consensus} technical report. The fast-path adaptation and this proof analysis are not attributed to that report.
+\page{1}
+\section*{Executive summary}
+The protocol retains R $\to$ A $\to$ B, with $n=3f+2p+1$, slow quorum $Q=2f+p+1$, and fast threshold $F=n-p$. There is one immutable signed first vote per correct replica and rank. For a snapshot $S$ of $m\ge Q$ distinct identities,
+\[
+\operatorname{Cand}(S)=\{v:c_S(v)\ge m-f-p\}.
+\]
+Empty recovery uses the certified R maximum; singleton recovery uses its sole candidate; ambiguous recovery waits for further evidence. At $m=n-f$, at most one candidate remains. The arithmetic and hidden-fast arguments of Section 5 are unchanged.
+
+A/B remain mutable response-on-delivery services. A B \emph{commit} requires $Q$ responses each containing only $(\mathrm{true},v)$. An \emph{adoption} may instead depend on just one true-containing response among its quorum. These conditions have different persistence consequences.
+
+\begin{tabular}{p{.37\textwidth}p{.56\textwidth}}
+\textbf{Property} & \textbf{Corrected status}\\[5pt]
+Same-rank fast uniqueness & Proved by immutable first votes.\\[5pt]
+Hidden-fast preservation & Proved for every valid recovery snapshot.\\[5pt]
+Slow/fast and cross-rank agreement & Corrected proof under explicit responder invariants and complete ancestry validation (Section 6).\\[5pt]
+Persistence after a true-containing adoption & Not claimed; historical conflicting adoption evidence may remain valid.\\[5pt]
+Recovery completion & Section 5's argument requires recurring replicas and fair relay of the required historical votes.\\[5pt]
+Global convergence & Open: historical-certificate elimination is not established.\\[5pt]
+Leaderless termination & Not established for this adaptation by the current argument.\\[5pt]
+Optimistic fast termination & Two message delays given $F$ prompt matching first votes.\\[5pt]
+Uniform post-GST bound & Not claimed.
+\end{tabular}
+
+The clean-round synchronizer remains a liveness assumption, not a certificate-expiry mechanism. Correct state evolving after a signature was issued does not change that signature's validity. The revised proof makes no assumption that a verifier has already learned a newer certificate.
+\page{10}
+\section*{6.2\quad Fast versus slow}
+\claim{Lemma 6.3 (Fast forces recovery)}{If $FC_i(v)$ exists, every valid resolved recovery certificate at rank $i$ selects $v$.}
+\textit{Proof.} Lemma 5.2 puts $v$ in every candidate set, including snapshots signed before the fast certificate was assembled. Empty recovery is impossible; any singleton is $\{v\}$. This applies to Byzantine as well as correct requests because recovery is verified. Consequently all valid A inputs, A results, and B results at this rank carry $v$.\hfill$\square$
+\claim{Theorem 6.4 (Same-rank fast/slow agreement)}{A fast decision for $v$ and a slow decision at rank $i$ have the same value, by Lemma 6.3.}
+\section*{6.3\quad Cross-rank persistence}
+\textbf{Responder invariants.} At a fixed rank, a correct A responder cannot sign singleton sets for two different values (Lemma 6.1). A correct B responder (a) retains a learned true pair in every subsequent response, and (b) cannot emit a singleton true response after emitting any false-containing response. Condition (b) requires that learning true does not erase all false evidence; retaining at least one false pair suffices. Responses are nonempty, signed, rank-bound snapshots. These are explicit requirements of the safety argument; an implementation must establish them for its precise bounded-set update rules, not infer them from a nondecreasing maximum alone.
+
+\claim{Historical singleton invariant}{If a correct responder ever signs $\{(\mathrm{true},v)\}$, every response it signs at that rank contains $(\mathrm{true},v)$.}
+\textit{Proof.} Earlier false-containing responses are excluded by (b). Earlier nonempty responses containing another true value are excluded by A-true uniqueness and certificate validation. Thus earlier responses contain true $v$. Later responses contain it by (a).\hfill$\square$
+
+\claim{Lemma 6.5 (Decision-certificate persistence)}{If rank $i$ has either $FC_i(v)$ or a B commit certificate for $v$, every valid B or fast certificate at rank $i$ carries $v$, and every legal introduction at every rank $j>i$ carries $v$, regardless of when its evidence was signed or revealed.}
+\textit{Proof.} The fast case follows from Lemmas 5.1 and 6.3. In the commit case, any B certificate's $Q$ signers intersect the commit's $Q$ singleton-true signers in at least $f+1$ identities, including a correct one. The historical singleton invariant supplies true $v$ in that signer's response even if it predates the commit. A-true uniqueness and the B evaluation force result $v$. Any fast certificate for $w$ would, by Lemma 6.3, force this commit to carry $w$, hence $w=v$. Section 3.1 therefore permits only $v$ at rank $i+1$. Inductively, valid first votes and R evidence at the next rank carry only $v$, so recovery, A/B evidence, and the following introductions do too.\hfill$\square$
+
+\claim{Theorem 6.6 (Agreement)}{Under these invariants and complete certificate validation, all decisions agree.}
+\textit{Proof.} At one rank use fast uniqueness, Theorem 6.4, or A-true uniqueness for two commits. At different ranks apply Lemma 6.5 to the lower-rank decision certificate, even if it was assembled later in real time.\hfill$\square$
+\page{11}
+\section*{7\quad Certified validity}
+Every rank-zero first vote or R value has authenticated proposal ancestry. Recovery selects a first-voted value or a certified R maximum. A/B select only values justified by valid evidence; higher-rank introductions require recursively verified predecessors.
+\claim{Theorem 7.1 (Certified validity)}{Every decided value has authenticated proposal ancestry from rank zero.}
+\textit{Proof.} Induct on the finite certificate ancestry. This does not assert that the originating proposer is correct.\hfill$\square$
+\section*{8\quad Source-style convergence without phase sealing}
+\textbf{Corrected status: incomplete.} Version 1.2's elimination argument did not account for historical signatures that remain admissible. Decision persistence repairs the agreement argument, but it cannot be substituted for adoption persistence in a nondeciding execution.
+\subsection*{8.1\quad Monotonicity of late responses}
+A correct responder's evolving true/max state constrains its newly signed responses. It does not rewrite earlier responses or revoke certificates built from them. Therefore the original Lemma 8.1 (permanent elimination witness) is withdrawn.
+
+There is a second necessary qualification: the mere presence of a true pair does not exclude result $m$ if that pair is $(\mathrm{true},m)$.
+\claim{Lemma 8.1 (Restricted snapshot exclusion)}{Fix rank $i$ and value $m$. Let $H$ be a set of at least $Q$ correct responders. Consider a B certificate whose counted responses from $H$ each contain a true pair with value different from $m$, or a false pair with value greater than $m$. If that certificate contains no true pair for $m$, its result differs from $m$.}
+\textit{Proof.} Its $Q$ signers intersect $H$, since $2Q-n=f+1>0$. If the certificate contains a true pair, uniqueness and the explicit exclusion of true $m$ give a different result. Otherwise the intersecting response contributes a false value greater than $m$, so the maximum is greater than $m$.\hfill$\square$
+
+This is a statement about the \emph{responses actually counted}. It makes no claim about certificates using earlier snapshots. Clean-round delivery alone does not supply its premises for every admissible historical certificate, so this lemma does not establish permanent elimination.
+\page{12}
+\subsection*{8.2\quad Clean-rank progress lemma}
+\textbf{Former Lemma 8.2 and Remark 8.3 are withdrawn.} Neither a true-containing adoption nor uniform current responder state establishes that all legal higher-rank introductions agree. Lemma 6.2 applies only to certificates whose counted correct responses satisfy its clean-round delivery premise; it does not cover replayed earlier snapshots.
+
+\textbf{Historical-certificate trace.} Take $n=6$, $f=p=1$, $Q=4$, and $v<w<u$. Correct first votes are $1:v$, $2:v$, $3:w$, $5:w$, $6:u$; identity 4 is Byzantine. The snapshots $\{1:v,2:v,3:w,6:u\}$ and $\{1:v,3:w,5:w,6:u\}$ have unique recovery candidates $v$ and $w$, respectively.
+
+Four correct responders can first answer A($v$) with $\{v\}$, certifying true $v$, and later A($w$) with $\{v,w\}$, certifying false $w$. Deliver B(false,$w$) before the delayed B(true,$v$). The earlier four false-only responses certify adoption of $w$; the later four mixed responses certify adoption of $v$. The earlier signatures still verify and still authorize the preceding-rank rule of Section 3.1. Neither certificate commits.
+
+\textbf{What a replacement progress proof must establish.}
+\begin{enumerate}
+\item Define viability using all admissible predecessor evidence, including signed evidence held back by an adversary, not only currently observed state or correct carry values.
+\item Show that each claimed elimination excludes every historical certificate capable of reintroducing that value. Alternatively prove progress despite such reintroductions, using a different well-founded measure.
+\item In a singleton-carry branch, account for valid Byzantine requests and old certificates carrying other values. Equal correct requests alone do not imply equal B results.
+\item Account for changing awake sets, rank advancement, and recovery completion under the exact synchronizer and relay assumptions.
+\end{enumerate}
+No certificate-expiry, locking, sealing, or freshness rule is added here. Such a rule would be a protocol change requiring separate safety and liveness proofs.
+\subsection*{8.3\quad Finite value universe}
+Finite ancestry is a validity property, not a bound of $n$ on the number of distinct values. Authentication alone does not stop a Byzantine identity from signing multiple rank-zero proposals. The former bound requires an explicit enforceable proposal-admission restriction or a proof that only a finite subset can remain relevant. Neither is supplied by the present argument. Even a finite universe would not by itself prove progress in the presence of replay.
+\page{13}
+\claim{Lemma 8.4 (Former bounded clean progress)}{Withdrawn. The claim that two clean ranks decide or permanently remove a viable value does not follow from the corrected lemmas.}
+\claim{Theorem 8.5 (Leaderless termination: open obligation)}{The stated temporary-suspension, relay, and clean-round assumptions do not yet have a complete termination proof for this adaptation. This revision does not claim nontermination; it identifies a gap in the supplied proof.}
+
+A sufficient replacement argument would establish a finite or otherwise well-founded measure over all admissible histories, prove eventual strict progress in every nondeciding execution, and prove that reaching its terminal case creates a decision certificate. Fair relay would then deliver that certificate to every recurring correct process. The current trace and quorum arithmetic do not establish that progress argument.
+\claim{Remark 8.6 (Timing)}{No uniform post-GST bound is claimed. Recovery may await a recurring replica for an arbitrarily long finite time. The former bounded convergence claim after recovery is also withdrawn.}
+\section*{9\quad Optimistic fast termination}
+In a favorable execution, $F=n-p$ replicas promptly return matching immutable first votes at rank $i$. One request delay and one response delay supply $FC_i(v)$.
+\claim{Theorem 9.1 (Two-message-delay fast path)}{Under synchrony, compatible legal R inputs, and $F$ prompt matching valid first votes, a correct process decides after one request delay and one response delay. No A/B phase is needed on that path.}
+This conditional fast-path claim does not establish termination when its matching-vote premise fails. The supplied source instead discusses an Abstract/Backup composition [1, Section V].
+\section*{10\quad Worked ambiguous-recovery execution}
+Take $f=1$, $p=1$, $n=6$, $Q=4$, $F=5$, $P=5$. Let $r_4$ be Byzantine and $r_1,r_2,r_3,r_5,r_6$ correct. Suppose their immutable first votes at rank $i$ are
+\[
+r_1:v,\quad r_2:v,\quad r_3:w,\quad r_5:v,\quad r_6:v,
+\]
+while $r_4$ equivocates, sending $w$ to $r_1$ and $v$ to $r_2$.
+\page{14}
+Replica $r_2$ may receive $\{r_1:v,r_2:v,r_4:v,r_5:v,r_6:v\}$ and fast-decide $v$. Replica $r_1$ may initially know $v,v,w,w$: at $m=4$ the threshold is two, so it must wait. Adding $r_6:v$ gives $v,v,v,w,w$; at $m=5$ the threshold is three, so only $v$ remains. Recovery preserves the hidden fast decision without a sealed slow phase.
+\section*{11\quad Complexity and implementation obligations}
+Ordinary quorums remain $\Theta(n)$. R, A and B retain the all-to-all message pattern; the immutable first vote adds a field rather than a fast-path message delay. Ambiguous recovery can require $P=n-f$ distinct first-vote reports. Historical evidence and its ancestry must remain available while relevant.
+\begin{enumerate}
+\item Enforce one immutable first vote per correct identity, instance and rank. Safe garbage collection and restart behavior need explicit treatment; the prototype's disk persistence is deferred.
+\item Fairly relay first votes, recovery evidence and decision certificates under recurring suspensions.
+\item Validate all A inputs against resolved recovery certificates, including Byzantine inputs.
+\item Validate complete, instance-bound and rank-bound predecessor ancestry. First votes must match the rank and value actually justified by their introduction. An R maximum at another rank cannot be paired with mismatched evidence.
+\item Establish both B responder invariants in Section 6.3: true retention and no singleton true response after false evidence. Also establish A-singleton uniqueness. Quorum intersection alone does not establish historical safety without these invariants.
+\item Enforce distinct eligible response identities, signatures, origin evidence and the source's separate admission/response-eligibility witness checks. No unchecked evidence shortcut may bypass ancestry or recovery validation.
+\item Specify and implement the clean-round synchronizer. Its delivery discipline constrains current responses but does not automatically invalidate historical evidence.
+\item Discharge Section 8's global-progress and value-universe obligations before claiming leaderless termination. Test replay of old certificates, delayed fast evidence, rotating suspensions, and cross-rank decisions. Bounded testing complements but does not replace the proof.
+\end{enumerate}
+These obligations distinguish a conditional mathematical safety argument from a completed implementation conformance result. This correction does not mark the implementation's Phase 1 or Gate B complete.
+\page{15}
+\section*{12\quad Differences from the supplied Algorithm 5}
+The adaptation uses independent fault budgets $f,p$, population $3f+2p+1$, ordinary quorum $Q=2f+p+1$, immutable R first votes, fast certificates of size $n-p$, and candidate-based recovery. A/B remain response-on-delivery services with verified recovery inputs and predecessor chains extended to fast certificates.
+
+This correction changes the proof claims, not the wire protocol. It replaces adoption persistence with decision-certificate persistence and makes the required historical responder invariant explicit. It does not transfer the supplied source's termination theorem to this modified protocol without a complete argument.
+\section*{13\quad Claim ledger}
+\begin{tabular}{p{.40\textwidth}p{.53\textwidth}}
+\textbf{Claim} & \textbf{Status / qualification}\\[6pt]
+$Q=2f+p+1$ is an available slow quorum. & Yes: awake correct replicas suffice, and two such quorums intersect in a correct identity.\\[6pt]
+The fast threshold is $n-p$. & Yes for the Section 5 hidden-fast construction.\\[6pt]
+The R response doubles as a fast vote. & Yes, with immutable first-vote and ancestry checks.\\[6pt]
+Ambiguous recovery permits arbitrary choice. & No: obtain more evidence or a valid resolved certificate.\\[6pt]
+A true-containing adoption makes all later introductions equal. & No: older conflicting adoption evidence may remain admissible.\\[6pt]
+A decision certificate fixes higher-rank values. & Yes under Section 6.3's explicit responder invariants and complete validation, including historical evidence.\\[6pt]
+Fresh response monotonicity eliminates old certificates. & No: existing signatures remain valid.\\[6pt]
+Phase sealing is proved unnecessary for termination. & Not established. This revision adds no sealing and leaves global convergence open.\\[6pt]
+There are automatically at most $n$ proposal values. & No: authentication alone does not bound Byzantine equivocation.
+\end{tabular}
+\page{16}
+\begin{tabular}{p{.40\textwidth}p{.53\textwidth}}
+\textbf{Claim} & \textbf{Status / qualification}\\[6pt]
+Leaderless termination is proved. & No complete proof for this adaptation is supplied; see Section 8.\\[6pt]
+Optimistic fast termination takes two message delays. & Yes, given $F$ prompt matching valid first votes.\\[6pt]
+The historical-adoption trace breaks agreement. & Not demonstrated: both results in that trace are adoptions, not decisions.
+\end{tabular}
+\section*{14\quad Conclusion}
+The R-first-vote recovery arithmetic preserves hidden fast decisions. Agreement can be derived using decision-certificate persistence, with explicit invariants covering responses signed both before and after a commit. Mere adoption of a true value does not provide that persistence guarantee.
+
+The previous convergence argument is incomplete because old signed certificates remain admissible and the finite value-universe assumption needs justification. This revision preserves the protocol while withdrawing those unsupported claims. A complete leaderless-termination result requires the remaining progress proof or a separately specified and proved protocol change.
+\section*{References}
+[1] K. Antoniadis, A. Desjardins, V. Gramoli, R. Guerraoui, and I. Zablotchi, \emph{Leaderless Consensus}, supplied technical report, especially Algorithm 5, Section IV-C and Appendix H.
+\section*{A\quad Arithmetic summary}
+\begin{align*}
+n&=3f+2p+1,& C=P&=n-f=2f+2p+1,\\
+Q&=n-f-p=2f+p+1,& F&=n-p=3f+p+1,\\
+2Q-n&=f+1,&2F-n&=3f+1,\\
+F+P-n&=Q,&P-f-p&=f+p+1,\\
+2Q-C&=2f+1.
+\end{align*}
+\end{document}

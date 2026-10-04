@@ -1,0 +1,285 @@
+[
+  {
+    "n": 6,
+    "f": 1,
+    "p": 1,
+    "Q": 4,
+    "correct": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "silent_byzantine": [
+      6
+    ],
+    "first_votes": {
+      "1": "v",
+      "2": "v",
+      "3": "w",
+      "4": "w",
+      "5": "u"
+    },
+    "singleton_recoveries": {
+      "v": {
+        "1": "v",
+        "2": "v",
+        "4": "w",
+        "5": "u"
+      },
+      "w": {
+        "2": "v",
+        "3": "w",
+        "4": "w",
+        "5": "u"
+      }
+    },
+    "A_requests": {
+      "1": "v",
+      "2": "v",
+      "3": "v",
+      "4": "w",
+      "5": "w"
+    },
+    "A_responses": {
+      "1": {
+        "origins": [
+          1,
+          2,
+          3,
+          4
+        ],
+        "values": [
+          "v",
+          "w"
+        ]
+      },
+      "2": {
+        "origins": [
+          1,
+          2,
+          3,
+          4
+        ],
+        "values": [
+          "v",
+          "w"
+        ]
+      },
+      "3": {
+        "origins": [
+          1,
+          2,
+          3,
+          5
+        ],
+        "values": [
+          "v",
+          "w"
+        ]
+      },
+      "4": {
+        "origins": [
+          1,
+          2,
+          3,
+          4
+        ],
+        "values": [
+          "v",
+          "w"
+        ]
+      },
+      "5": {
+        "origins": [
+          1,
+          2,
+          3,
+          5
+        ],
+        "values": [
+          "v",
+          "w"
+        ]
+      }
+    },
+    "origin_witness_counts": {
+      "1": 5,
+      "2": 5,
+      "3": 5,
+      "4": 3,
+      "5": 2
+    },
+    "eligible_A_responses": [],
+    "all_correct_requests_eventually_delivered": true,
+    "result": "A blocked under immutable snapshot-bound witnesses; no reset/skip rule"
+  },
+  {
+    "n": 9,
+    "f": 2,
+    "p": 1,
+    "Q": 6,
+    "correct": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
+    "silent_byzantine": [
+      8,
+      9
+    ],
+    "first_votes": {
+      "1": "v",
+      "2": "v",
+      "3": "v",
+      "4": "w",
+      "5": "w",
+      "6": "w",
+      "7": "u"
+    },
+    "singleton_recoveries": {
+      "v": {
+        "1": "v",
+        "2": "v",
+        "3": "v",
+        "5": "w",
+        "6": "w",
+        "7": "u"
+      },
+      "w": {
+        "2": "v",
+        "3": "v",
+        "4": "w",
+        "5": "w",
+        "6": "w",
+        "7": "u"
+      }
+    },
+    "A_requests": {
+      "1": "v",
+      "2": "v",
+      "3": "v",
+      "4": "v",
+      "5": "v",
+      "6": "w",
+      "7": "w"
+    },
+    "A_responses": {
+      "1": {
+        "origins": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "values": [
+          "v",
+          "w"
+        ]
+      },
+      "2": {
+        "origins": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "values": [
+          "v",
+          "w"
+        ]
+      },
+      "3": {
+        "origins": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "values": [
+          "v",
+          "w"
+        ]
+      },
+      "4": {
+        "origins": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          7
+        ],
+        "values": [
+          "v",
+          "w"
+        ]
+      },
+      "5": {
+        "origins": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          7
+        ],
+        "values": [
+          "v",
+          "w"
+        ]
+      },
+      "6": {
+        "origins": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "values": [
+          "v",
+          "w"
+        ]
+      },
+      "7": {
+        "origins": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          7
+        ],
+        "values": [
+          "v",
+          "w"
+        ]
+      }
+    },
+    "origin_witness_counts": {
+      "1": 7,
+      "2": 7,
+      "3": 7,
+      "4": 7,
+      "5": 7,
+      "6": 4,
+      "7": 3
+    },
+    "eligible_A_responses": [],
+    "all_correct_requests_eventually_delivered": true,
+    "result": "A blocked under immutable snapshot-bound witnesses; no reset/skip rule"
+  }
+]
