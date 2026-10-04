@@ -21,6 +21,8 @@ pub enum Message {
     /// RAI: a replica's signed report root for one epoch (Section 6.1)
     #[cfg(feature = "rai_protocol")]
     Report(Report),
+    #[cfg(feature = "rai_protocol")]
+    CheckpointFrame(CheckpointFrame),
 
     #[cfg(feature = "ledger_snapshots")]
     SnapshotPreproposal(Preproposal),
@@ -99,6 +101,10 @@ impl From<&ParseMessageError> for DetailType {
             ParseMessageError::InvalidMessage(MessageType::BulkPush) => Self::InvalidMessageType,
             #[cfg(feature = "rai_protocol")]
             ParseMessageError::InvalidMessage(MessageType::Report) => Self::Report,
+            #[cfg(feature = "rai_protocol")]
+            ParseMessageError::InvalidMessage(MessageType::CheckpointFrame) => {
+                Self::CheckpointFrame
+            }
 
             #[cfg(feature = "ledger_snapshots")]
             ParseMessageError::InvalidMessage(MessageType::Preproposal) => todo!(),
@@ -151,6 +157,8 @@ impl Message {
             Message::TelemetryReq => MessageType::TelemetryReq,
             #[cfg(feature = "rai_protocol")]
             Message::Report(_) => MessageType::Report,
+            #[cfg(feature = "rai_protocol")]
+            Message::CheckpointFrame(_) => MessageType::CheckpointFrame,
 
             #[cfg(feature = "ledger_snapshots")]
             Message::SnapshotPreproposal(_) => MessageType::Preproposal,
@@ -182,6 +190,8 @@ impl Message {
             Message::SnapshotProposalVote(x) => Some(x),
             #[cfg(feature = "rai_protocol")]
             Message::Report(x) => Some(x),
+            #[cfg(feature = "rai_protocol")]
+            Message::CheckpointFrame(x) => Some(x),
 
             _ => None,
         }
@@ -213,6 +223,8 @@ impl Message {
             Message::BulkPush | Message::TelemetryReq => Ok(()),
             #[cfg(feature = "rai_protocol")]
             Message::Report(m) => m.serialize(writer),
+            #[cfg(feature = "rai_protocol")]
+            Message::CheckpointFrame(m) => m.serialize(writer),
 
             #[cfg(feature = "ledger_snapshots")]
             Message::SnapshotPreproposal(m) => m.serialize(writer),
@@ -260,6 +272,10 @@ impl Message {
             MessageType::TelemetryReq => Message::TelemetryReq,
             #[cfg(feature = "rai_protocol")]
             MessageType::Report => Message::Report(Report::deserialize(payload)?),
+            #[cfg(feature = "rai_protocol")]
+            MessageType::CheckpointFrame => {
+                Message::CheckpointFrame(CheckpointFrame::deserialize(payload, header.extensions)?)
+            }
 
             #[cfg(feature = "ledger_snapshots")]
             MessageType::Preproposal => {
@@ -294,6 +310,12 @@ pub fn validate_header(
     header: &MessageHeader,
     expected_protocol: &ProtocolInfo,
 ) -> Result<(), ParseMessageError> {
+    #[cfg(feature = "rai_protocol")]
+    if header.message_type == MessageType::CheckpointFrame
+        && header.payload_length() > CheckpointFrame::MAX_BYTES
+    {
+        return Err(ParseMessageError::MessageSizeTooBig);
+    }
     if header.protocol.network != expected_protocol.network {
         Err(ParseMessageError::InvalidNetwork)
     } else if header.protocol.version_using < expected_protocol.version_min {

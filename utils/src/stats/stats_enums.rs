@@ -139,6 +139,7 @@ pub enum DetailType {
     AscPullAck,
     /// RAI: the report phase of an epoch close (Section 6)
     Report,
+    CheckpointFrame,
     CloseProofReq,
     CloseProofReply,
     CheckpointReq,

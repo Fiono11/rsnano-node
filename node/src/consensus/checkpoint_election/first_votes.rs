@@ -20,7 +20,7 @@ pub struct FirstVote {
 impl FirstVote {
     fn signing_hash(&self) -> BlockHash {
         Blake2HashBuilder::new()
-            .update(b"RAI checkpoint FIRST v1.2")
+            .update(b"RAI checkpoint FIRST v1.3")
             .update(self.instance.digest().as_bytes())
             .update(self.rank.to_le_bytes())
             .update(self.signer.as_bytes())
@@ -50,7 +50,8 @@ impl FirstVote {
     }
 }
 
-/// Atomic insert-if-absent by (instance, rank, signer). If the slot exists,
+/// Atomic insert-if-absent by (instance, rank, signer); fast rank is always zero.
+/// If the slot exists,
 /// return its original record without overwriting it. Invoke `create` only
 /// once while holding exclusive access to an absent slot. A durable backend
 /// must also commit before success and recover uncertain writes on retry.
@@ -104,6 +105,9 @@ impl CheckpointContext {
         evidence: &impl CheckpointEvidence,
         journal: &mut impl FirstVoteJournal,
     ) -> Result<FirstVote, CheckpointError> {
+        if rank != 0 {
+            return Err(CheckpointError::WrongRank);
+        }
         if self.committee.weight(&key.public_key()).is_zero() {
             return Err(CheckpointError::NonMember);
         }
@@ -140,7 +144,7 @@ impl CheckpointContext {
         if vote.instance != self.instance {
             return Err(CheckpointError::WrongInstance);
         }
-        if vote.rank != rank {
+        if rank != 0 || vote.rank != rank {
             return Err(CheckpointError::WrongRank);
         }
         if self.committee.weight(&vote.signer).is_zero() {
@@ -172,7 +176,7 @@ impl FastCertificate {
         if self.instance != context.instance() {
             return Err(CheckpointError::WrongInstance);
         }
-        if self.rank != rank {
+        if rank != 0 || self.rank != rank {
             return Err(CheckpointError::WrongRank);
         }
         if self.votes.len() as u64 != context.thresholds().f_fast {
@@ -199,8 +203,8 @@ pub enum VoteAdmission {
     Pending,
 }
 
-/// One pool per instance and rank. Recovery keeps the first validated record
-/// per identity; fast detection keeps a record per (identity,value). This
+/// One pool per checkpoint instance; the only fast attempt is rank zero.
+/// Recovery keeps the first validated record per identity; fast detection keeps a record per (identity,value). This
 /// preserves fast evidence despite Byzantine equivocation.
 pub struct FirstVotePool {
     context: CheckpointContext,
@@ -211,10 +215,10 @@ pub struct FirstVotePool {
 }
 
 impl FirstVotePool {
-    pub fn new(context: CheckpointContext, rank: u64) -> Self {
+    pub fn new(context: CheckpointContext) -> Self {
         Self {
             context,
-            rank,
+            rank: 0,
             recovery: BTreeMap::new(),
             fast: BTreeMap::new(),
             pending: Vec::new(),

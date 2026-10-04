@@ -853,6 +853,21 @@ impl Node {
             active_elections.clone(),
         ));
 
+        // Explicit experimental opt-in for the all-online checkpoint benchmark.
+        #[cfg(feature = "rai_protocol")]
+        let checkpoint_benchmark = (std::env::var("RAI_CHECKPOINT_BENCHMARK").as_deref()
+            == Ok("1"))
+        .then(|| {
+            let service = crate::consensus::checkpoint_election::BenchmarkCheckpointService::new(
+                &epoch_decision,
+                wallet_reps.clone(),
+                message_flooder.clone(),
+                network_params.ledger.genesis_block.hash(),
+            );
+            epoch_decision.set_election(Box::new(service.clone()));
+            service
+        });
+
         let mut aec_ticker = AecTicker::new(active_elections.clone(), steady_clock.clone());
 
         aec_ticker.add_plugin(ConfirmationSolicitorPlugin {
@@ -933,6 +948,10 @@ impl Node {
         block_processor.set_should_throttle(should_throttle_block_processor);
 
         let mut channel_event_handlers = EventHandlerRegistry::<ChannelEvent>::default();
+        #[cfg(feature = "rai_protocol")]
+        if let Some(service) = &checkpoint_benchmark {
+            channel_event_handlers.add(service.clone());
+        }
         channel_event_handlers.add(inbound_message_queue.clone());
         channel_event_handlers.add(rep_tracker.clone());
         channel_event_handlers.add(bootstrap_responder.clone());
@@ -976,6 +995,8 @@ impl Node {
             network_params.work.clone(),
             #[cfg(feature = "rai_protocol")]
             reports.clone(),
+            #[cfg(feature = "rai_protocol")]
+            checkpoint_benchmark.clone(),
             #[cfg(feature = "ledger_snapshots")]
             ledger_snapshots.clone(),
         ));

@@ -40,6 +40,9 @@ pub struct NetworkMessageProcessor {
     /// RAI: the report phase of the epoch closes (Section 6)
     #[cfg(feature = "rai_protocol")]
     reports: Arc<ReportService>,
+    #[cfg(feature = "rai_protocol")]
+    checkpoint_benchmark:
+        Option<Arc<crate::consensus::checkpoint_election::BenchmarkCheckpointService>>,
     #[cfg(feature = "ledger_snapshots")]
     ledger_snapshots: Arc<LedgerSnapshots>,
 }
@@ -58,6 +61,9 @@ impl NetworkMessageProcessor {
         bootstrapper: Arc<Bootstrapper>,
         work_thresholds: WorkThresholds,
         #[cfg(feature = "rai_protocol")] reports: Arc<ReportService>,
+        #[cfg(feature = "rai_protocol")] checkpoint_benchmark: Option<
+            Arc<crate::consensus::checkpoint_election::BenchmarkCheckpointService>,
+        >,
         #[cfg(feature = "ledger_snapshots")] ledger_snapshots: Arc<LedgerSnapshots>,
     ) -> Self {
         Self {
@@ -74,6 +80,8 @@ impl NetworkMessageProcessor {
             work_thresholds,
             #[cfg(feature = "rai_protocol")]
             reports,
+            #[cfg(feature = "rai_protocol")]
+            checkpoint_benchmark,
             #[cfg(feature = "ledger_snapshots")]
             ledger_snapshots,
         }
@@ -217,6 +225,15 @@ impl NetworkMessageProcessor {
             }
             #[cfg(feature = "rai_protocol")]
             Message::Report(report) => self.reports.handle_report(report, channel),
+            #[cfg(feature = "rai_protocol")]
+            Message::CheckpointFrame(frame) => {
+                if let Some(service) = &self.checkpoint_benchmark {
+                    service.receive(channel.channel_id(), &frame);
+                } else {
+                    self.stats
+                        .inc_dir(StatType::Drop, DetailType::CheckpointFrame, Direction::In);
+                }
+            }
 
             #[cfg(feature = "ledger_snapshots")]
             Message::SnapshotPreproposal(preproposal) => {

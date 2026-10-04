@@ -112,3 +112,8 @@ pub(crate) fn assert_deserializable(original: &Message) {
     let message_out = Message::deserialize(serialized, &header, 0).unwrap();
     assert_eq!(message_out, *original);
 }
+
+#[cfg(feature = "rai_protocol")]
+mod checkpoint_frame;
+#[cfg(feature = "rai_protocol")]
+pub use checkpoint_frame::*;

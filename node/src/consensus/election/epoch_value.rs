@@ -1,3 +1,5 @@
+use serde::{Deserialize, Serialize};
+
 use rsnano_types::{Amount, Blake2HashBuilder, BlockHash, ConsensusEpoch, PublicKey};
 
 use super::{BlockIndex, EpochLedger, SelectedReport, build_state};
@@ -5,7 +7,7 @@ use super::{BlockIndex, EpochLedger, SelectedReport, build_state};
 /// RAI: one of the reports an epoch value selects, by its reporter and the
 /// two roots the reporter signed. The value names the reports; the contents
 /// behind the roots are reconstructed separately and checked against them.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct ReportRef {
     pub reporter: PublicKey,
     /// r_i, the certified-state root
@@ -22,7 +24,7 @@ pub struct ReportRef {
 /// derives `BuildState(S_{e-1}, Q_e)` and checks that its hash is `d_e`. Two
 /// validators that accept the same value therefore hold the same state, and
 /// the value stays small however large the state is.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EpochValue {
     pub epoch: ConsensusEpoch,
     /// `Q_e`, in a canonical order so that two leaders naming the same

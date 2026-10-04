@@ -57,7 +57,7 @@ impl RecoveryCertificate {
         if self.instance != context.instance() {
             return Err(CheckpointError::WrongInstance);
         }
-        if self.rank != rank {
+        if rank != 0 || self.rank != rank {
             return Err(CheckpointError::WrongRank);
         }
         if context
