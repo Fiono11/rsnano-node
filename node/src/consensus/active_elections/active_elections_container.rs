@@ -1220,8 +1220,11 @@ impl ActiveElectionsContainer {
 
     /// RAI, §6.2: whether an instance may continue at a position the latest
     /// checkpoint locked for this block. A notarization lock is continued;
-    /// a recovery-only lock once the block holds a valid closing-epoch NC,
-    /// assembled here from signed votes.
+    /// a recovery-only lock once the block holds a valid NC assembled here
+    /// from signed votes: of the closing epoch, or of the open epoch, where
+    /// the block was re-voted at the boundary and first votes split across
+    /// it met again. Only the locked block itself can be notarized at a
+    /// retained position, since correct validators refuse every rival there.
     fn lock_continuable(&self, slot: &AccountSlot, hash: &BlockHash) -> bool {
         let Some((&decided, state)) = self.decided.iter().next_back() else {
             return false;
@@ -1233,13 +1236,13 @@ impl ActiveElectionsContainer {
             return true;
         }
         // The lock may be inherited: its NC is of the epoch that took it
-        let notarized = (0..=EARLIER_LOCK_EPOCHS)
+        (0..=EARLIER_LOCK_EPOCHS)
             .filter_map(|back| decided.as_u64().checked_sub(back))
+            .chain([decided.next().as_u64()])
             .any(|epoch| {
                 self.certificate_kinds(ConsensusEpoch::new(epoch), hash)
                     .is_some_and(|kinds| kinds.notarization)
-            });
-        notarized
+            })
     }
 
     /// RAI: whether a block sits at a lock of the latest checkpoint it may
@@ -2092,10 +2095,13 @@ impl ActiveElectionsContainer {
                 .retained_depth(account)
                 .is_some_and(|depth| height <= depth)
             {
-                !candidates
-                    .iter()
-                    .any(|candidate| state.is_locked(&slot, candidate))
-                    && !(holds_nc && Self::recovery_only(&state, &slot))
+                // A carried instance of a locked block that may not continue
+                // (a recovery lock without an NC) only occupies the container
+                // until the owner extends the block: it goes, and is started
+                // again once the lock becomes continuable
+                !candidates.iter().any(|candidate| {
+                    state.is_locked(&slot, candidate) && self.lock_continuable(&slot, candidate)
+                }) && !(holds_nc && Self::recovery_only(&state, &slot))
             } else if height > 1 {
                 // The parent position is decided or locked for another
                 // branch: the instance continues a branch the checkpoint
