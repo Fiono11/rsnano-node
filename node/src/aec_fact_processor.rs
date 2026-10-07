@@ -97,6 +97,9 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
             AecFact::CheckpointFinalized { epoch, hashes } => {
                 self.install_checkpoint_blocks(epoch, hashes)
             }
+            AecFact::CheckpointRetained { epoch, retained } => {
+                self.follow_retained_branches(epoch, retained)
+            }
             AecFact::ElectionEnded(election) => {
                 self.election_schedulers.notify();
 
@@ -260,6 +263,34 @@ impl AecFactProcessor {
             hashes.len(),
             cemented,
             queued,
+            missing
+        );
+    }
+
+    /// RAI: the ledger holds the retained branches of a decided checkpoint.
+    /// A retained block it lacks is asked for and forced in on arrival,
+    /// which rolls back an unconfirmed rival; cemented blocks never are.
+    fn follow_retained_branches(
+        &mut self,
+        epoch: ConsensusEpoch,
+        retained: Vec<(rsnano_types::Account, u64, BlockHash)>,
+    ) {
+        let (held, absent): (Vec<_>, Vec<_>) = {
+            let any = self.ledger.any();
+            retained
+                .into_iter()
+                .partition(|(_, _, hash)| any.block_exists(hash))
+        };
+        let missing = absent.len();
+        #[cfg(feature = "rai_protocol")]
+        self.checkpoint_follower.hold(absent);
+        #[cfg(not(feature = "rai_protocol"))]
+        let _ = absent;
+        crate::utils::diagnostic!(
+            "EPOCH_RETAINED epoch={} retained={} held={} missing={}",
+            epoch,
+            held.len() + missing,
+            held.len(),
             missing
         );
     }

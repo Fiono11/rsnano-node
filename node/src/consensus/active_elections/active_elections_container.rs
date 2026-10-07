@@ -1414,6 +1414,76 @@ impl ActiveElectionsContainer {
         if !hashes.is_empty() {
             self.notify(AecFact::CheckpointFinalized { epoch, hashes });
         }
+        #[cfg(feature = "rai_protocol")]
+        self.follow_retained(epoch, state);
+    }
+
+    /// RAI, item 19: the retained branches the ledger follows. A superseded
+    /// recovery lock, and everything the checkpoint retains above it on the
+    /// account, is left to the live instances: following it would roll back
+    /// work the paper keeps (§4.3, §6.2).
+    #[cfg(feature = "rai_protocol")]
+    fn follow_retained(&mut self, epoch: ConsensusEpoch, state: &EpochLedger) {
+        let mut notarized_live: HashMap<(Account, u64), Vec<BlockHash>> = HashMap::new();
+        for election in self.roots.iter().map(|entry| &entry.election) {
+            if election.certificates().has_block() {
+                notarized_live
+                    .entry((election.account(), election.height()))
+                    .or_default()
+                    .extend(election.certificates().notar.iter().copied());
+            }
+        }
+        let retained_blocks = state.retained_blocks();
+        let superseded: Vec<AccountSlot> = retained_blocks
+            .iter()
+            .map(|(slot, _)| *slot)
+            .filter(|slot| self.lock_superseded_here(state, slot, &notarized_live))
+            .collect();
+        let retained: Vec<(Account, u64, BlockHash)> = retained_blocks
+            .into_iter()
+            .filter(|(slot, _)| {
+                !superseded
+                    .iter()
+                    .any(|held| held.account == slot.account && held.height <= slot.height)
+            })
+            .map(|(slot, block)| (slot.account, slot.height, block.hash))
+            .collect();
+        if !superseded.is_empty() {
+            diagnostic!(
+                "EPOCH_LOCKS_SUPERSEDED epoch={} positions={}",
+                epoch,
+                superseded.len()
+            );
+        }
+        if !retained.is_empty() {
+            self.notify(AecFact::CheckpointRetained { epoch, retained });
+        }
+    }
+
+    /// RAI: whether a retained position's recovery-only lock is superseded
+    /// here by a conflicting block that finalized live or holds a
+    /// notarization certificate in a successor instance
+    #[cfg(feature = "rai_protocol")]
+    fn lock_superseded_here(
+        &self,
+        state: &EpochLedger,
+        slot: &AccountSlot,
+        notarized_live: &HashMap<(Account, u64), Vec<BlockHash>>,
+    ) -> bool {
+        if !Self::recovery_only(state, slot) {
+            return false;
+        }
+        let locked = state.notarized(slot);
+        if self
+            .epoch_states
+            .finalized_at(&slot.account, slot.height)
+            .is_some_and(|hash| !locked.contains(&hash))
+        {
+            return true;
+        }
+        notarized_live
+            .get(&(slot.account, slot.height))
+            .is_some_and(|hashes| hashes.iter().any(|hash| !locked.contains(hash)))
     }
 
     /// RAI: whether a decided checkpoint finalized this block of the
@@ -1603,6 +1673,16 @@ impl ActiveElectionsContainer {
         self.current_epoch
     }
 
+    /// RAI, Algorithm 1 step 7: "stop old-epoch account signing" before the
+    /// report freezes. Whether this node may sign a new account vote in the
+    /// epoch: only while it has not left it. A request for an epoch it left
+    /// is answered with the statements it retains, never a fresh signature:
+    /// a vote signed after the report froze would add to V_i a hash the
+    /// signed G_i does not hold. Close rounds are separate instances.
+    pub fn signs_account_votes_in(&self, epoch: ConsensusEpoch) -> bool {
+        epoch.is_close_round() || (!self.frozen.contains(&epoch) && epoch >= self.current_epoch)
+    }
+
     pub fn set_current_epoch(&mut self, epoch: ConsensusEpoch) {
         self.current_epoch = epoch;
     }
@@ -1694,8 +1774,11 @@ impl ActiveElectionsContainer {
                 continue;
             }
             let Some(election) = self.roots.election(&target.election) else {
-                // The exit final vote of an election erased already
-                accepted.push(target);
+                // The exit final vote of an election erased already, unless
+                // its epoch was left in between
+                if self.signs_account_votes_in(target.election.epoch) {
+                    accepted.push(target);
+                }
                 continue;
             };
             if !self.account_voting || self.frozen.contains(&election.epoch()) {
@@ -4721,6 +4804,39 @@ mod tests {
                 "notarized={notarized}"
             );
         }
+    }
+
+    /// RAI: once this node left an epoch it signs no new account vote in it,
+    /// whatever asks: the vote set its frozen report committed to is final
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn no_account_vote_is_signed_in_an_epoch_this_node_left() {
+        let (mut container, _, _, start) = committee_fixture(|_| {});
+        assert!(container.signs_account_votes_in(ConsensusEpoch::ZERO));
+        let block = SavedBlock::new_test_instance_with_key(1);
+        container
+            .insert(
+                AecInsertRequest::new_priority(block.clone(), BlockPriority::new_test_instance()),
+                start,
+            )
+            .unwrap();
+        container.transition_time(start + Duration::from_secs(1));
+        assert_eq!(container.current_epoch(), ConsensusEpoch::new(1));
+        assert!(!container.signs_account_votes_in(ConsensusEpoch::ZERO));
+        assert!(container.signs_account_votes_in(ConsensusEpoch::new(1)));
+        assert!(
+            container.signs_account_votes_in(ConsensusEpoch::close_round(ConsensusEpoch::ZERO, 0))
+        );
+        // An exit final vote of an erased epoch-0 election is not signed
+        let stale = VoteTarget {
+            election: ElectionId::new(
+                SavedBlock::new_test_instance_with_key(9).qualified_root(),
+                ConsensusEpoch::ZERO,
+            ),
+            winner: BlockHash::from(9),
+            vote_type: VoteType::Final,
+        };
+        assert!(container.mark_kudzu_voted(vec![stale]).is_empty());
     }
 
     /// A candidate source which always has a block to schedule

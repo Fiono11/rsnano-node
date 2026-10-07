@@ -23,7 +23,7 @@ pub use epoch_committees::CommitteeInfo;
 use std::{collections::HashMap, isize, sync::Arc, time::Duration};
 
 use rsnano_types::{
-    Amount, Block, BlockHash, BlockPriority, ConsensusEpoch, QualifiedRoot, SavedBlock,
+    Account, Amount, Block, BlockHash, BlockPriority, ConsensusEpoch, QualifiedRoot, SavedBlock,
     TimePriority, VoteError,
 };
 
@@ -98,6 +98,14 @@ pub enum AecFact {
     CheckpointFinalized {
         epoch: ConsensusEpoch,
         hashes: Vec<BlockHash>,
+    },
+
+    /// RAI: the retained blocks of a decided checkpoint the ledger follows,
+    /// with their positions: "Recovery through a fresh child" extends them,
+    /// so the ledger must hold them. A superseded recovery lock is left out.
+    CheckpointRetained {
+        epoch: ConsensusEpoch,
+        retained: Vec<(Account, u64, BlockHash)>,
     },
 
     BlockAddedToElection(BlockHash),

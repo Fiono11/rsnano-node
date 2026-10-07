@@ -4,11 +4,11 @@ use std::{
     time::Duration,
 };
 
-use rsnano_ledger::{AnySet, Ledger, LedgerSet};
+use rsnano_ledger::{AnySet, ConfirmedSet, Ledger, LedgerSet};
 use rsnano_messages::{BlocksReq, Message, Publish};
 use rsnano_network::{Channel, TrafficType};
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
-use rsnano_types::BlockHash;
+use rsnano_types::{Account, BlockHash};
 use rsnano_utils::{
     CancellationToken,
     stats::{DetailType, Direction, StatType, Stats},
@@ -18,14 +18,33 @@ use rsnano_utils::{
 use crate::{cementation::ConfirmingSet, transport::MessageFlooder};
 
 /// RAI: the blocks a decided checkpoint finalized that this node has not
-/// cemented yet. A checkpoint can finalize a block a node never received,
-/// or the rival of the block its ledger holds; the ledger must still end up
-/// with the finalized one, cemented, like every other node. This is the
-/// pure part: what to cement and what to ask for, given what the ledger
-/// holds.
+/// cemented yet, and the retained blocks its ledger does not hold. A
+/// checkpoint can finalize a block a node never received, or the rival of
+/// the block its ledger holds; the ledger must still end up with the
+/// finalized one, cemented, like every other node. A retained branch is
+/// held the same way, uncemented: "Recovery through a fresh child" extends
+/// it. This is the pure part: what to cement and what to ask for, given
+/// what the ledger holds.
 #[derive(Default)]
 pub(crate) struct PendingCheckpointBlocks {
-    pending: HashMap<BlockHash, Option<Timestamp>>,
+    pending: HashMap<BlockHash, Pending>,
+}
+
+/// What the ledger must do with a pending block
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Goal {
+    /// Finalized by the checkpoint: held and cemented
+    Cement,
+    /// Retained by the checkpoint at a position: held, not cemented. Given
+    /// up once the position is cemented, whichever block it holds.
+    Hold { account: Account, height: u64 },
+}
+
+struct Pending {
+    goal: Goal,
+    last: Option<Timestamp>,
+    /// Requests sent without the block arriving: each doubles the wait
+    requests: u32,
 }
 
 /// What one pass over the pending blocks asks of the infrastructure
@@ -35,23 +54,51 @@ pub(crate) struct CheckpointWork {
     pub cement: Vec<BlockHash>,
     /// Not held: ask the other nodes for them
     pub request: Vec<BlockHash>,
-    /// Cemented since: done
+    /// Cemented since, or held for a retained block: done
     pub done: usize,
 }
 
 impl PendingCheckpointBlocks {
     /// More than a whole epoch at the benchmark rate; older ones are dropped
     const MAX_PENDING: usize = 100_000;
-    /// How often one block is cemented or asked for again
+    /// How often one block is cemented, or asked for the first time again
     pub const RETRY: Duration = Duration::from_secs(1);
+    /// A block no peer sends is asked for less and less often: the wait
+    /// doubles with every request, up to this many doublings
+    const MAX_DOUBLINGS: u32 = 3;
 
     pub fn add(&mut self, hashes: impl IntoIterator<Item = BlockHash>) {
-        for hash in hashes {
+        self.add_with(hashes.into_iter().map(|hash| (hash, Goal::Cement)));
+    }
+
+    /// Retained blocks: held, not cemented
+    pub fn hold(&mut self, blocks: impl IntoIterator<Item = (Account, u64, BlockHash)>) {
+        self.add_with(
+            blocks
+                .into_iter()
+                .map(|(account, height, hash)| (hash, Goal::Hold { account, height })),
+        );
+    }
+
+    fn add_with(&mut self, blocks: impl IntoIterator<Item = (BlockHash, Goal)>) {
+        for (hash, goal) in blocks {
             if self.pending.len() >= Self::MAX_PENDING {
                 break;
             }
-            self.pending.entry(hash).or_insert(None);
+            let pending = self.pending.entry(hash).or_insert(Pending {
+                goal,
+                last: None,
+                requests: 0,
+            });
+            // Finalized after it was retained: cemented
+            if goal == Goal::Cement {
+                pending.goal = Goal::Cement;
+            }
         }
+    }
+
+    fn wait(requests: u32) -> Duration {
+        Self::RETRY * (1 << requests.min(Self::MAX_DOUBLINGS))
     }
 
     pub fn wants(&self, hash: &BlockHash) -> bool {
@@ -62,27 +109,41 @@ impl PendingCheckpointBlocks {
         self.pending.len()
     }
 
-    /// One pass: drop what is cemented, and for the rest due again, cement
-    /// what the ledger holds and ask for what it lacks
+    /// One pass: drop what is done, and for the rest due again, cement
+    /// what the ledger holds and ask for what it lacks. `position_cemented`
+    /// tells whether the ledger cemented an account up to a height.
     pub fn tick(
         &mut self,
         now: Timestamp,
         is_cemented: impl Fn(&BlockHash) -> bool,
         is_held: impl Fn(&BlockHash) -> bool,
+        position_cemented: impl Fn(&Account, u64) -> bool,
     ) -> CheckpointWork {
         let mut work = CheckpointWork::default();
-        self.pending.retain(|hash, last| {
-            if is_cemented(hash) {
+        self.pending.retain(|hash, pending| {
+            let held = || is_held(hash);
+            let done = match pending.goal {
+                Goal::Cement => is_cemented(hash),
+                Goal::Hold { account, height } => held() || position_cemented(&account, height),
+            };
+            if done {
                 work.done += 1;
                 return false;
             }
-            if last.is_some_and(|last| last.elapsed(now) < Self::RETRY) {
+            let wait = match pending.goal {
+                // Cementing is retried at the plain interval: the ancestors
+                // it waits for arrive by themselves
+                Goal::Cement if held() => Self::RETRY,
+                _ => Self::wait(pending.requests.saturating_sub(1)),
+            };
+            if pending.last.is_some_and(|last| last.elapsed(now) < wait) {
                 return true;
             }
-            *last = Some(now);
-            if is_held(hash) {
+            pending.last = Some(now);
+            if held() {
                 work.cement.push(*hash);
             } else {
+                pending.requests += 1;
                 work.request.push(*hash);
             }
             true
@@ -137,6 +198,12 @@ impl CheckpointFollower {
         self.pending.lock().unwrap().add(hashes);
     }
 
+    /// The retained blocks of a checkpoint the ledger does not hold: on
+    /// arrival they are forced in, which rolls back an unconfirmed rival
+    pub fn hold(&self, blocks: impl IntoIterator<Item = (Account, u64, BlockHash)>) {
+        self.pending.lock().unwrap().hold(blocks);
+    }
+
     /// A block arriving that a checkpoint finalized: it is forced in
     pub fn wants(&self, hash: &BlockHash) -> bool {
         self.pending.lock().unwrap().wants(hash)
@@ -179,6 +246,11 @@ impl CheckpointFollower {
                 now,
                 |hash| confirmed.block_exists(hash),
                 |hash| any.block_exists(hash),
+                |account, height| {
+                    confirmed
+                        .get_conf_info(account)
+                        .is_some_and(|info| info.height >= height)
+                },
             )
         };
         for hash in &work.cement {
@@ -237,7 +309,12 @@ mod tests {
         pending.add([hash(1), hash(2), hash(3)]);
         let cemented: HashSet<_> = [hash(1)].into();
         let held: HashSet<_> = [hash(1), hash(2)].into();
-        let mut work = pending.tick(now(0), |h| cemented.contains(h), |h| held.contains(h));
+        let mut work = pending.tick(
+            now(0),
+            |h| cemented.contains(h),
+            |h| held.contains(h),
+            no_position,
+        );
         work.request.sort();
         assert_eq!(work.done, 1);
         assert_eq!(work.cement, vec![hash(2)]);
@@ -251,10 +328,27 @@ mod tests {
         let mut pending = PendingCheckpointBlocks::default();
         pending.add([hash(1)]);
         let nothing = |_: &BlockHash| false;
-        assert_eq!(pending.tick(now(0), nothing, nothing).request.len(), 1);
-        assert!(pending.tick(now(0), nothing, nothing).request.is_empty());
+        assert_eq!(
+            pending
+                .tick(now(0), nothing, nothing, no_position)
+                .request
+                .len(),
+            1
+        );
+        assert!(
+            pending
+                .tick(now(0), nothing, nothing, no_position)
+                .request
+                .is_empty()
+        );
         let later = now(0) + PendingCheckpointBlocks::RETRY;
-        assert_eq!(pending.tick(later, nothing, nothing).request.len(), 1);
+        assert_eq!(
+            pending
+                .tick(later, nothing, nothing, no_position)
+                .request
+                .len(),
+            1
+        );
     }
 
     #[test]
@@ -262,18 +356,77 @@ mod tests {
         let mut pending = PendingCheckpointBlocks::default();
         pending.add([hash(1)]);
         let nothing = |_: &BlockHash| false;
-        pending.tick(now(0), nothing, nothing);
+        pending.tick(now(0), nothing, nothing, no_position);
         let later = now(0) + PendingCheckpointBlocks::RETRY;
-        let work = pending.tick(later, nothing, |_| true);
+        let work = pending.tick(later, nothing, |_| true, no_position);
         assert_eq!(work.cement, vec![hash(1)]);
-        let work = pending.tick(later, |_| true, |_| true);
+        let work = pending.tick(later, |_| true, |_| true, no_position);
         assert_eq!(work.done, 1);
         assert_eq!(pending.len(), 0);
+    }
+
+    #[test]
+    fn a_block_no_peer_sends_is_asked_for_less_and_less_often() {
+        let mut pending = PendingCheckpointBlocks::default();
+        pending.add([hash(1)]);
+        let nothing = |_: &BlockHash| false;
+        let mut asked = Vec::new();
+        for second in 0..16 {
+            if !pending
+                .tick(now(second), nothing, nothing, no_position)
+                .request
+                .is_empty()
+            {
+                asked.push(second);
+            }
+        }
+        assert_eq!(asked, vec![0, 1, 3, 7, 15]);
+    }
+
+    #[test]
+    fn a_retained_block_is_held_not_cemented() {
+        let mut pending = PendingCheckpointBlocks::default();
+        pending.hold([(Account::from(1), 2, hash(1))]);
+        let nothing = |_: &BlockHash| false;
+        assert_eq!(
+            pending.tick(now(0), nothing, nothing, no_position).request,
+            vec![hash(1)]
+        );
+        // Arrived: done without cementing
+        let work = pending.tick(now(1), nothing, |_| true, no_position);
+        assert!(work.cement.is_empty());
+        assert_eq!(work.done, 1);
+        assert_eq!(pending.len(), 0);
+    }
+
+    #[test]
+    fn a_retained_block_is_given_up_once_its_position_is_cemented() {
+        let mut pending = PendingCheckpointBlocks::default();
+        pending.hold([(Account::from(1), 2, hash(1))]);
+        let nothing = |_: &BlockHash| false;
+        let cemented_to_2 =
+            |account: &Account, height: u64| *account == Account::from(1) && height <= 2;
+        let work = pending.tick(now(0), nothing, nothing, cemented_to_2);
+        assert!(work.request.is_empty());
+        assert_eq!(work.done, 1);
+    }
+
+    #[test]
+    fn a_retained_block_finalized_later_is_cemented() {
+        let mut pending = PendingCheckpointBlocks::default();
+        pending.hold([(Account::from(1), 2, hash(1))]);
+        pending.add([hash(1)]);
+        let work = pending.tick(now(0), |_| false, |_| true, no_position);
+        assert_eq!(work.cement, vec![hash(1)]);
     }
 
     /*
      * Test helpers
      */
+
+    fn no_position(_: &Account, _: u64) -> bool {
+        false
+    }
 
     fn hash(i: u64) -> BlockHash {
         BlockHash::from(i)

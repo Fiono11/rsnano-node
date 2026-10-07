@@ -69,6 +69,8 @@ pub(crate) struct EpochStates {
     /// The finalized instances each candidate block took part in, by epoch.
     /// A block decided while the epoch changed can be finalized in both.
     instances: HashMap<BlockHash, Vec<Arc<FinalizedInstance>>>,
+    /// The block finalized at each position
+    by_slot: HashMap<(Account, u64), BlockHash>,
     len: usize,
 }
 
@@ -79,6 +81,8 @@ impl EpochStates {
         }
         let hash = self.by_epoch.entry(instance.epoch).or_default();
         hash.add(&instance.account, instance.height, &instance.winner);
+        self.by_slot
+            .insert((instance.account, instance.height), instance.winner);
         *self.count_by_epoch.entry(instance.epoch).or_default() += 1;
         let instance = Arc::new(instance);
         for candidate in &instance.candidates {
@@ -122,6 +126,11 @@ impl EpochStates {
     }
 
     /// Whether this block was finalized explicitly in any epoch
+    /// The block finalized explicitly at a position, if any
+    pub fn finalized_at(&self, account: &Account, height: u64) -> Option<BlockHash> {
+        self.by_slot.get(&(*account, height)).copied()
+    }
+
     pub fn is_finalized(&self, hash: &BlockHash) -> bool {
         self.instances
             .get(hash)
