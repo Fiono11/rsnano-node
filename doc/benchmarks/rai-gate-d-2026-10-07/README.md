@@ -26,3 +26,21 @@ One run per variant is not a noise band. Reproduce one variant:
 ```sh
 python3 tools/rai/run_gate_b.py <dir> --wait-quiet 600 --fork-percentage 10 --byzantine 1 --timeout 150
 ```
+
+## Non-fork goodput (`3fc759b57`)
+
+The [rates](rates/) runs repeat the matrix with the client's non-fork measurement from rai-cross-epoch-minimal: blocks published without a fork are measured apart, a fork position counts once whichever block confirms, and the client ends once every non-fork block is confirmed. Goodput is non-fork confirmations over the client's run; latency is publication to the websocket confirmation the client sees. All nine settled again.
+
+| Variant | Non-fork goodput | Client p50 / p95 / p99 | Node non-fork p50 |
+| --- | --- | --- | --- |
+| nofork | 1,968 blocks/s | 100 / 952 / 1,519 ms | 86–89 ms |
+| fork5 | 1,803 blocks/s | 111 / 1,599 / 2,389 ms | 88–91 ms |
+| fork10 | 1,718 blocks/s | 112 / 2,390 / 2,864 ms | 89–94 ms |
+| nofork-offline1 | 1,987 blocks/s | 111 / 655 / 1,114 ms | 103–104 ms |
+| fork5-offline1 | 1,861 blocks/s | 113 / 926 / 1,384 ms | 103–104 ms |
+| fork10-offline1 | 1,738 blocks/s | 117 / 1,086 / 1,551 ms | 105–108 ms |
+| nofork-byz1 | 1,986 blocks/s | 114 / 753 / 1,222 ms | 104–105 ms |
+| fork5-byz1 | 1,854 blocks/s | 112 / 1,132 / 1,618 ms | 98–101 ms |
+| fork10-byz1 | 1,446 blocks/s | 119 / 1,651 / 2,055 ms | 104–107 ms |
+
+The fork5 run overlapped a `cargo check` on the same host and is not performance-eligible. The long p95 and p99 tails are the blocks published while an epoch closes: the predecessor gate holds their finality until the close decides.

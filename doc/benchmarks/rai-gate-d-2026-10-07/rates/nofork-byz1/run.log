@@ -1,0 +1,521 @@
+2026-10-07T13:35:09.822033Z  INFO nanospam::setup::account_map_factory: Creating account keys file with 45000 keys: "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-l0q6y024/account_keys.txt"
+2026-10-07T13:35:10.540044Z  INFO nanospam::setup::node_config_factory: ********************************************************************************
+2026-10-07T13:35:10.540055Z  INFO nanospam::setup::node_config_factory: Setting up node PR0...
+2026-10-07T13:35:10.540059Z  INFO nanospam::setup::node_config_factory: Creating directory "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-l0q6y024/pr0"
+2026-10-07T13:35:10.540153Z  INFO nanospam::setup::node_config_factory: Creating node config file: "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-l0q6y024/pr0/config-node.toml"
+2026-10-07T13:35:10.540281Z  INFO nanospam::setup::node_config_factory: Creating rpc config file: "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-l0q6y024/pr0/config-rpc.toml"
+2026-10-07T13:35:10.540353Z  INFO nanospam::setup::node_config_factory: ********************************************************************************
+2026-10-07T13:35:10.540357Z  INFO nanospam::setup::node_config_factory: Setting up node PR1...
+2026-10-07T13:35:10.540360Z  INFO nanospam::setup::node_config_factory: Creating directory "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-l0q6y024/pr1"
+2026-10-07T13:35:10.540408Z  INFO nanospam::setup::node_config_factory: Creating node config file: "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-l0q6y024/pr1/config-node.toml"
+2026-10-07T13:35:10.540485Z  INFO nanospam::setup::node_config_factory: Creating rpc config file: "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-l0q6y024/pr1/config-rpc.toml"
+2026-10-07T13:35:10.540552Z  INFO nanospam::setup::node_config_factory: ********************************************************************************
+2026-10-07T13:35:10.540556Z  INFO nanospam::setup::node_config_factory: Setting up node PR2...
+2026-10-07T13:35:10.540559Z  INFO nanospam::setup::node_config_factory: Creating directory "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-l0q6y024/pr2"
+2026-10-07T13:35:10.540600Z  INFO nanospam::setup::node_config_factory: Creating node config file: "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-l0q6y024/pr2/config-node.toml"
+2026-10-07T13:35:10.540670Z  INFO nanospam::setup::node_config_factory: Creating rpc config file: "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-l0q6y024/pr2/config-rpc.toml"
+2026-10-07T13:35:10.540729Z  INFO nanospam::setup::node_config_factory: ********************************************************************************
+2026-10-07T13:35:10.540732Z  INFO nanospam::setup::node_config_factory: Setting up node PR3...
+2026-10-07T13:35:10.540735Z  INFO nanospam::setup::node_config_factory: Creating directory "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-l0q6y024/pr3"
+2026-10-07T13:35:10.540774Z  INFO nanospam::setup::node_config_factory: Creating node config file: "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-l0q6y024/pr3/config-node.toml"
+2026-10-07T13:35:10.540841Z  INFO nanospam::setup::node_config_factory: Creating rpc config file: "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-l0q6y024/pr3/config-rpc.toml"
+2026-10-07T13:35:10.540904Z  INFO nanospam::setup::node_config_factory: ********************************************************************************
+2026-10-07T13:35:10.540907Z  INFO nanospam::setup::node_config_factory: Setting up node PR4...
+2026-10-07T13:35:10.540910Z  INFO nanospam::setup::node_config_factory: Creating directory "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-l0q6y024/pr4"
+2026-10-07T13:35:10.540956Z  INFO nanospam::setup::node_config_factory: Creating node config file: "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-l0q6y024/pr4/config-node.toml"
+2026-10-07T13:35:10.541028Z  INFO nanospam::setup::node_config_factory: Creating rpc config file: "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-l0q6y024/pr4/config-rpc.toml"
+2026-10-07T13:35:10.541134Z  INFO nanospam::setup::node_launcher: Starting node: NANO_TEST_GENESIS_BLOCK="{\n    \"type\": \"open\",\n    \"account\": \"nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne\",\n    \"source\": \"D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532\",\n    \"representative\": \"nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne\",\n    \"signature\": \"3F6792C2DC623DF2E8643777160AB983B66B337E2478E13D2C3448126A8F4CD8DCCD19803C158A057FA44060AE0EFC09B1C311CB4FBF42F8D240610B38F56E08\",\n    \"work\": \"70FEF01F7EC45DEC\"\n    }" NANO_TEST_GENESIS_PRV ="49643F9B10CA1AA34F9AF8ED4AABD29F436104CCC375974B108534A48EAE3FE1" "rsnano" "--network" "test" "--data-path" "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-l0q6y024/pr0" "node" "run"
+2026-10-07T13:35:10.541699Z  INFO nanospam::setup::node_launcher: Waiting for RPC...
+2026-10-07T13:35:10.644905Z  INFO nanospam::setup::node_launcher: Starting node: NANO_TEST_GENESIS_BLOCK="{\n    \"type\": \"open\",\n    \"account\": \"nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne\",\n    \"source\": \"D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532\",\n    \"representative\": \"nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne\",\n    \"signature\": \"3F6792C2DC623DF2E8643777160AB983B66B337E2478E13D2C3448126A8F4CD8DCCD19803C158A057FA44060AE0EFC09B1C311CB4FBF42F8D240610B38F56E08\",\n    \"work\": \"70FEF01F7EC45DEC\"\n    }" NANO_TEST_GENESIS_PRV ="49643F9B10CA1AA34F9AF8ED4AABD29F436104CCC375974B108534A48EAE3FE1" "rsnano" "--network" "test" "--data-path" "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-l0q6y024/pr1" "node" "run"
+2026-10-07T13:35:10.645524Z  INFO nanospam::setup::node_launcher: Waiting for RPC...
+2026-10-07T13:35:10.748774Z  INFO nanospam::setup::node_launcher: Starting node: NANO_TEST_GENESIS_BLOCK="{\n    \"type\": \"open\",\n    \"account\": \"nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne\",\n    \"source\": \"D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532\",\n    \"representative\": \"nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne\",\n    \"signature\": \"3F6792C2DC623DF2E8643777160AB983B66B337E2478E13D2C3448126A8F4CD8DCCD19803C158A057FA44060AE0EFC09B1C311CB4FBF42F8D240610B38F56E08\",\n    \"work\": \"70FEF01F7EC45DEC\"\n    }" NANO_TEST_GENESIS_PRV ="49643F9B10CA1AA34F9AF8ED4AABD29F436104CCC375974B108534A48EAE3FE1" "rsnano" "--network" "test" "--data-path" "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-l0q6y024/pr2" "node" "run"
+2026-10-07T13:35:10.749744Z  INFO nanospam::setup::node_launcher: Waiting for RPC...
+2026-10-07T13:35:10.852579Z  INFO nanospam::setup::node_launcher: Starting node: NANO_TEST_GENESIS_BLOCK="{\n    \"type\": \"open\",\n    \"account\": \"nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne\",\n    \"source\": \"D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532\",\n    \"representative\": \"nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne\",\n    \"signature\": \"3F6792C2DC623DF2E8643777160AB983B66B337E2478E13D2C3448126A8F4CD8DCCD19803C158A057FA44060AE0EFC09B1C311CB4FBF42F8D240610B38F56E08\",\n    \"work\": \"70FEF01F7EC45DEC\"\n    }" NANO_TEST_GENESIS_PRV ="49643F9B10CA1AA34F9AF8ED4AABD29F436104CCC375974B108534A48EAE3FE1" "rsnano" "--network" "test" "--data-path" "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-l0q6y024/pr3" "node" "run"
+2026-10-07T13:35:10.853557Z  INFO nanospam::setup::node_launcher: Waiting for RPC...
+2026-10-07T13:35:10.957189Z  INFO nanospam::setup::node_launcher: Starting node: NANO_TEST_GENESIS_BLOCK="{\n    \"type\": \"open\",\n    \"account\": \"nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne\",\n    \"source\": \"D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532\",\n    \"representative\": \"nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne\",\n    \"signature\": \"3F6792C2DC623DF2E8643777160AB983B66B337E2478E13D2C3448126A8F4CD8DCCD19803C158A057FA44060AE0EFC09B1C311CB4FBF42F8D240610B38F56E08\",\n    \"work\": \"70FEF01F7EC45DEC\"\n    }" NANO_TEST_GENESIS_PRV ="49643F9B10CA1AA34F9AF8ED4AABD29F436104CCC375974B108534A48EAE3FE1" "rsnano" "--network" "test" "--data-path" "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-l0q6y024/pr4" "node" "run"
+2026-10-07T13:35:10.958546Z  INFO nanospam::setup::node_launcher: Waiting for RPC...
+2026-10-07T13:35:11.062295Z  INFO nanospam::wallets_factory: Creating wallet...
+2026-10-07T13:35:11.135720Z  INFO nanospam::wallets_factory: Setting default representative...
+2026-10-07T13:35:11.136004Z  INFO nanospam::wallets_factory: Creating wallet...
+2026-10-07T13:35:11.179589Z  INFO nanospam::wallets_factory: Setting default representative...
+2026-10-07T13:35:11.179915Z  INFO nanospam::wallets_factory: Sending Ӿ56,547,061 to PR1 wallet nano_3atmwjh8t11psdqf3qx6xjfiei94oajch6zsyauowxzjogbbgz168g5mp8f1 ...
+2026-10-07T13:35:11.180438Z  INFO nanospam::wallets_factory: Waiting for confirmation for 70B574FB519B8DEA27D8F4952C2E7B0378B009608D6FC967984D3C83440C9C3D
+2026-10-07T13:35:26.389309Z  INFO nanospam::wallets_factory: Receiving...
+2026-10-07T13:35:26.391409Z  INFO nanospam::wallets_factory: Waiting for confirmation for 011C6AC2721054F46B03A50885AF48083A4A685154A55D85116DBCE413673F86
+2026-10-07T13:35:26.494559Z  INFO nanospam::wallets_factory: DONE
+2026-10-07T13:35:26.494603Z  INFO nanospam::wallets_factory: ********************************************************************************
+2026-10-07T13:35:26.494617Z  INFO nanospam::wallets_factory: Creating wallet...
+2026-10-07T13:35:26.569442Z  INFO nanospam::wallets_factory: Setting default representative...
+2026-10-07T13:35:26.569785Z  INFO nanospam::wallets_factory: Sending Ӿ56,547,061 to PR2 wallet nano_36asm8scxymtsjmgqp14per3zxpgaec1c65qb9en1buscq7qzqa93tfyyzs3 ...
+2026-10-07T13:35:26.570242Z  INFO nanospam::wallets_factory: Waiting for confirmation for 76B3937072C015B69E45D5458B47CF52A54A38F8ED441B0E21561A3048243E90
+2026-10-07T13:35:26.775488Z  INFO nanospam::wallets_factory: Receiving...
+2026-10-07T13:35:26.776725Z  INFO nanospam::wallets_factory: Waiting for confirmation for 402DCF4725254BECF5C5CB5F707C169725EE114819D289F8A5477C2FFF19BDC0
+2026-10-07T13:35:26.982605Z  INFO nanospam::wallets_factory: DONE
+2026-10-07T13:35:26.982720Z  INFO nanospam::wallets_factory: ********************************************************************************
+2026-10-07T13:35:26.982743Z  INFO nanospam::wallets_factory: Creating wallet...
+2026-10-07T13:35:27.062744Z  INFO nanospam::wallets_factory: Setting default representative...
+2026-10-07T13:35:27.062997Z  INFO nanospam::wallets_factory: Sending Ӿ56,547,061 to PR3 wallet nano_1sfb11jzfi8k51fcnrzi1qe3qh1e1jkic3h45oak9yfg5yhbkczzxfwtat7m ...
+2026-10-07T13:35:27.063393Z  INFO nanospam::wallets_factory: Waiting for confirmation for FF4589BE1759B38CC94ABA0AE4FE6644845FE957C02EA9CEA669A28C8D1ADE97
+2026-10-07T13:35:42.271888Z  INFO nanospam::wallets_factory: Receiving...
+2026-10-07T13:35:42.273628Z  INFO nanospam::wallets_factory: Waiting for confirmation for 1210B877FF188F4FF352C0EDE856AA702A1D6763EFA96EA84BB10519898BE6D0
+2026-10-07T13:35:42.376438Z  INFO nanospam::wallets_factory: DONE
+2026-10-07T13:35:42.376516Z  INFO nanospam::wallets_factory: ********************************************************************************
+2026-10-07T13:35:42.376529Z  INFO nanospam::wallets_factory: Creating wallet...
+2026-10-07T13:35:42.454601Z  INFO nanospam::wallets_factory: Setting default representative...
+2026-10-07T13:35:42.454911Z  INFO nanospam::wallets_factory: Sending Ӿ56,547,061 to PR4 wallet nano_1rsxmoinip7d4wafdp855194n43fs7s1jgne6tx8ruatiu6g89815pddzijp ...
+2026-10-07T13:35:42.455377Z  INFO nanospam::wallets_factory: Waiting for confirmation for 23D89F3531AC5EE2378D3606C70B24D2A7B9016B8ADB1A970E6B1D9E7576186D
+2026-10-07T13:35:42.661208Z  INFO nanospam::wallets_factory: Receiving...
+2026-10-07T13:35:42.662790Z  INFO nanospam::wallets_factory: Waiting for confirmation for 8D401F6072C9B3A9EFBA68DA33CC97FF1D15EEB9F09CE4731C1A7614578C3E56
+2026-10-07T13:35:42.869724Z  INFO nanospam::wallets_factory: DONE
+2026-10-07T13:35:42.869846Z  INFO nanospam::wallets_factory: ********************************************************************************
+2026-10-07T13:35:42.869978Z  INFO nanospam::wallets_factory: Sending Ӿ56,547,061 to PR5 (no node) nano_1wtzwadxk9naxc356m4rienp93ht131w7ypadk39qck8uah3bg3zohsmj9th ...
+2026-10-07T13:35:42.871703Z  INFO nanospam::wallets_factory: Waiting for confirmation for A5666BC59C8DD98A7E52D6F61006629E4EDB37063C12A73BFB41D35538B371CA
+2026-10-07T13:35:58.084831Z  INFO nanospam::wallets_factory: Waiting for confirmation for 49EEF9EFFD843E7FE6FB8D0DE0A19E8B88DBE91F26F5FDDB0E8862DEF7553864
+2026-10-07T13:35:58.293860Z  INFO nanospam::wallets_factory: DONE
+2026-10-07T13:35:58.294046Z  INFO nanospam::wallets_factory: Sending initial spam amount...
+2026-10-07T13:35:58.295931Z  INFO nanospam::wallets_factory: Waiting for confirmation for 09C766310244AE158EFF094C6DF2CD1D2C646C27265D9A9DFEFEE8D9942C277C
+2026-10-07T13:35:58.400834Z  INFO nanospam::wallets_factory: Receiving initial spam amount...
+2026-10-07T13:35:58.402341Z  INFO nanospam::wallets_factory: Waiting for confirmation for 8BC5582728E251106D531DD6C56209DB08FC4532F4FE38EC7413783228F4ACF5
+2026-10-07T13:35:58.505178Z  INFO nanospam::wallets_factory: Seeding Ӿ142,857 to nano_1g75aemjxr4xw4npq8z7ukgcm6awcsbexc3r3qg1u6xpo7393hjueimwwgs6 for representative D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532
+2026-10-07T13:35:58.506185Z  INFO nanospam::wallets_factory: Waiting for confirmation for D275098F6A9BAAA5AADB71C30B1E611DD0F5EDD5E2256FED5347B6E6FEDE40B6
+2026-10-07T13:35:58.611163Z  INFO nanospam::wallets_factory: Waiting for confirmation for B3863A7722EC9067487DD14788945E35226622AE6CDC038237206920C32CCF32
+2026-10-07T13:35:58.714527Z  INFO nanospam::wallets_factory: Seeding Ӿ142,857 to nano_3xfcstays433oztxmyqistwpb6ukouatcwacs1eaxs3616x94dutigi3h69f for representative A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04
+2026-10-07T13:35:58.715446Z  INFO nanospam::wallets_factory: Waiting for confirmation for 169BB0F8904BE3DB17566F6936D2DAE8BAFF251635C6C364B2AEEC7EC283AB1E
+2026-10-07T13:35:58.924544Z  INFO nanospam::wallets_factory: Waiting for confirmation for 56351BC3B34FE4C4A199D57573B0B10762A5795F008775DB40903DFF7DBC0C7A
+2026-10-07T13:35:59.133797Z  INFO nanospam::wallets_factory: Seeding Ӿ142,857 to nano_1nj4q1i5saijw4bk56yucyodb4wg5yxicje8b1nhefinrenduz8m59bzdwpd for representative 911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07
+2026-10-07T13:35:59.134965Z  INFO nanospam::wallets_factory: Waiting for confirmation for D354EEA2E485022A425496B0C2E014A3D7A936AF410B06D2DF2864A2E3CC82D5
+2026-10-07T13:35:59.344550Z  INFO nanospam::wallets_factory: Waiting for confirmation for 0128D599A8F9F5384464DD78D73DDDFC1931A392EA2CACC37538542E4B47C2F6
+2026-10-07T13:35:59.554314Z  INFO nanospam::wallets_factory: Seeding Ӿ142,857 to nano_1gabxrcrk4j8ozf18ougn6xz94upsqr3kfr4zsyjb3s9omwoksyq1ze9c63d for representative 65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF
+2026-10-07T13:35:59.555686Z  INFO nanospam::wallets_factory: Waiting for confirmation for 9859072D4AAE0AF4349AEADF6EF20FC72F88730CB25C6A326ABC8051EFD338A7
+2026-10-07T13:35:59.764796Z  INFO nanospam::wallets_factory: Waiting for confirmation for BCDD3A388933BD73994BEE2A0A272E430DA2A2BF04FA070A49CFEAB5D2743A92
+2026-10-07T13:35:59.970912Z  INFO nanospam::wallets_factory: Seeding Ӿ142,857 to nano_3bnfdtqj68zjbncmybd6yp7izw7hbqbtj4619s1r4f9yxeqg7jokzdhapw8d for representative 633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0
+2026-10-07T13:35:59.971624Z  INFO nanospam::wallets_factory: Waiting for confirmation for 7F12834DEF33B5507AE0B836A8AF8DEFE127398E75B8E159BA13C248461131F1
+2026-10-07T13:36:00.180858Z  INFO nanospam::wallets_factory: Waiting for confirmation for E8425CB1C4C1092FF24393E31D82C263196A3A20424ACFBF8CCDF0C7264E8995
+2026-10-07T13:36:00.388304Z  INFO nanospam::wallets_factory: Seeding Ӿ142,857 to nano_3fdfdu17f5wnjc7hrtgjbkhr3nmdwg3qxpoyb3ogk7y3gkcug73eo7tyo74m for representative 735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F
+2026-10-07T13:36:00.389162Z  INFO nanospam::wallets_factory: Waiting for confirmation for CEC1DCE82E5654A7FA72CCEFE2341613E40D12C01F108BE03B7F1F791926F2B1
+2026-10-07T13:36:00.598258Z  INFO nanospam::wallets_factory: Waiting for confirmation for 90842E7DAD4D5C2FEBD394D546BFF34FBB392689B73F87FD710A93AB80D2CD98
+2026-10-07T13:36:00.703748Z  INFO nanospam::high_prio_check: Creating high priority accounts...
+2026-10-07T13:36:00.731458Z  INFO nanospam::high_prio_check: Waiting for confirmations...
+2026-10-07T13:36:02.999402Z  INFO nanospam::app: Waiting for all PRs to see the full quorum...
+2026-10-07T13:36:03.002237Z  INFO nanospam::app: All PRs see the full quorum after 2.720458ms
+2026-10-07T13:36:03.002276Z  INFO nanospam::app: Waiting for all PRs to hold the same cemented ledger...
+2026-10-07T13:36:03.003439Z  INFO nanospam::app: All PRs hold the same ledger of 65 blocks after 1.149667ms
+EPOCH_COMMITTEE derived_by=genesis members=6 accounts=33 n=6 digest=95D409445152DD075E6A4799205DFA5689496EB8EE1A22AC2A200B9DBC2DCF27 shares=["A353E45E:16.7%", "65A90023:16.7%", "D315857C:16.7%", "911999B2:16.7%", "633D9D61:16.7%", "735FE217:16.7%"] t=1791380163003
+EPOCH_START epoch=0 elections=0 t=1791380163003
+EPOCH_COMMITTEE derived_by=genesis members=6 accounts=33 n=6 digest=95D409445152DD075E6A4799205DFA5689496EB8EE1A22AC2A200B9DBC2DCF27 shares=["A353E45E:16.7%", "65A90023:16.7%", "D315857C:16.7%", "911999B2:16.7%", "633D9D61:16.7%", "735FE217:16.7%"] t=1791380163004
+EPOCH_START epoch=0 elections=0 t=1791380163004
+EPOCH_COMMITTEE derived_by=genesis members=6 accounts=33 n=6 digest=95D409445152DD075E6A4799205DFA5689496EB8EE1A22AC2A200B9DBC2DCF27 shares=["A353E45E:16.7%", "65A90023:16.7%", "D315857C:16.7%", "911999B2:16.7%", "633D9D61:16.7%", "735FE217:16.7%"] t=1791380163004
+EPOCH_START epoch=0 elections=0 t=1791380163004
+EPOCH_COMMITTEE derived_by=genesis members=6 accounts=33 n=6 digest=95D409445152DD075E6A4799205DFA5689496EB8EE1A22AC2A200B9DBC2DCF27 shares=["A353E45E:16.7%", "65A90023:16.7%", "D315857C:16.7%", "911999B2:16.7%", "633D9D61:16.7%", "735FE217:16.7%"] t=1791380163004
+EPOCH_START epoch=0 elections=0 t=1791380163004
+EPOCH_COMMITTEE derived_by=genesis members=6 accounts=33 n=6 digest=95D409445152DD075E6A4799205DFA5689496EB8EE1A22AC2A200B9DBC2DCF27 shares=["A353E45E:16.7%", "65A90023:16.7%", "D315857C:16.7%", "911999B2:16.7%", "633D9D61:16.7%", "735FE217:16.7%"] t=1791380163004
+EPOCH_START epoch=0 elections=0 t=1791380163004
+2026-10-07T13:36:03.005050Z  INFO nanospam::app: Started the epochs on every PR
+2026-10-07T13:36:03.005065Z  INFO nanospam::app: Connecting to node PR0... peer_addr=[::1]:17075
+2026-10-07T13:36:03.005505Z  INFO nanospam::app: Performing handshake...
+2026-10-07T13:36:03.006320Z  INFO nanospam::app: Performing handshake...
+2026-10-07T13:36:03.017180Z  INFO nanospam::app: Performing handshake...
+2026-10-07T13:36:03.029248Z  INFO nanospam::app: Performing handshake...
+2026-10-07T13:36:03.041164Z  INFO nanospam::app: Connecting to node PR1... peer_addr=[::1]:17085
+2026-10-07T13:36:03.041414Z  INFO nanospam::app: Performing handshake...
+2026-10-07T13:36:03.042324Z  INFO nanospam::app: Performing handshake...
+2026-10-07T13:36:03.053411Z  INFO nanospam::app: Performing handshake...
+2026-10-07T13:36:03.066006Z  INFO nanospam::app: Performing handshake...
+2026-10-07T13:36:03.076245Z  INFO nanospam::app: Connecting to node PR2... peer_addr=[::1]:17095
+2026-10-07T13:36:03.076485Z  INFO nanospam::app: Performing handshake...
+2026-10-07T13:36:03.077110Z  INFO nanospam::app: Performing handshake...
+2026-10-07T13:36:03.089306Z  INFO nanospam::app: Performing handshake...
+2026-10-07T13:36:03.100544Z  INFO nanospam::app: Performing handshake...
+2026-10-07T13:36:03.111268Z  INFO nanospam::app: Connecting to node PR3... peer_addr=[::1]:17105
+2026-10-07T13:36:03.111539Z  INFO nanospam::app: Performing handshake...
+2026-10-07T13:36:03.112264Z  INFO nanospam::app: Performing handshake...
+2026-10-07T13:36:03.124524Z  INFO nanospam::app: Performing handshake...
+2026-10-07T13:36:03.136396Z  INFO nanospam::app: Performing handshake...
+2026-10-07T13:36:03.147279Z  INFO nanospam::app: Connecting to node PR4... peer_addr=[::1]:17115
+2026-10-07T13:36:03.147589Z  INFO nanospam::app: Performing handshake...
+2026-10-07T13:36:03.148156Z  INFO nanospam::app: Performing handshake...
+2026-10-07T13:36:03.160457Z  INFO nanospam::app: Performing handshake...
+2026-10-07T13:36:03.172574Z  INFO nanospam::app: Performing handshake...
+2026-10-07T13:36:03.183676Z  INFO nanospam::app: Connecting to websocket...
+2026-10-07T13:36:03.184680Z  INFO nanospam::app: Starting with 2000 BPS
+2026-10-07T13:36:03.194603Z  INFO nanospam::byzantine: 1 Byzantine representative(s) voting at random into 5 node(s)
+2026-10-07T13:36:04.186012Z  INFO nanospam::app: Confirmed 704 blocks | 2,000 bps | 775 cps | avg conf time: 103 ms
+2026-10-07T13:36:05.186944Z  INFO nanospam::app: Confirmed 4,504 blocks | 2,000 bps | 3,790 cps | avg conf time: 141 ms
+2026-10-07T13:36:06.187076Z  INFO nanospam::app: Confirmed 6,508 blocks | 2,000 bps | 2,002 cps | avg conf time: 108 ms
+2026-10-07T13:36:07.187559Z  INFO nanospam::app: Confirmed 8,492 blocks | 2,000 bps | 1,982 cps | avg conf time: 111 ms
+2026-10-07T13:36:08.188192Z  INFO nanospam::app: Confirmed 10,425 blocks | 2,000 bps | 1,930 cps | avg conf time: 107 ms
+2026-10-07T13:36:09.188834Z  INFO nanospam::app: Confirmed 12,431 blocks | 2,000 bps | 2,003 cps | avg conf time: 104 ms
+2026-10-07T13:36:10.189358Z  INFO nanospam::app: Confirmed 14,357 blocks | 2,000 bps | 1,924 cps | avg conf time: 107 ms
+EPOCH_ENDED epoch=0 elections=229 active=204 t=1791380171009
+EPOCH_ENDED epoch=0 elections=228 active=203 t=1791380171010
+EPOCH_ENDED epoch=0 elections=229 active=204 t=1791380171010
+EPOCH_ENDED epoch=0 elections=228 active=203 t=1791380171010
+EPOCH_ENDED epoch=0 elections=229 active=204 t=1791380171010
+EPOCH_ADVANCED epoch=1 elections=229 active=204 vote_records=159740 t=1791380171029
+EPOCH_ADVANCED epoch=1 elections=228 active=203 vote_records=159740 t=1791380171033
+EPOCH_ADVANCED epoch=1 elections=229 active=204 vote_records=159740 t=1791380171035
+EPOCH_REPORT epoch=0 certified=16072 residual=211 root=7408B1D1BD048C14143BAE9777B8A4BB150EB620DAC67C63938995DD388B51D9 reports=1 t=1791380171036
+EPOCH_REPORT epoch=0 certified=16072 residual=189 root=7408B1D1BD048C14143BAE9777B8A4BB150EB620DAC67C63938995DD388B51D9 reports=1 t=1791380171042
+EPOCH_REPORT epoch=0 certified=16072 residual=213 root=7408B1D1BD048C14143BAE9777B8A4BB150EB620DAC67C63938995DD388B51D9 reports=1 t=1791380171042
+EPOCH_ADVANCED epoch=1 elections=228 active=203 vote_records=159740 t=1791380171048
+EPOCH_ADVANCED epoch=1 elections=229 active=204 vote_records=159740 t=1791380171056
+EPOCH_REPORT epoch=0 certified=16072 residual=209 root=7408B1D1BD048C14143BAE9777B8A4BB150EB620DAC67C63938995DD388B51D9 reports=1 t=1791380171057
+EPOCH_REPORT epoch=0 certified=16072 residual=211 root=7408B1D1BD048C14143BAE9777B8A4BB150EB620DAC67C63938995DD388B51D9 reports=1 t=1791380171064
+EPOCH_RECONCILED epoch=0 reporter=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF complete=false entries=0 total=16072 symbols=0 dropped=false t=1791380171070
+EPOCH_RECONCILED epoch=0 reporter=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF complete=true entries=211 total=211 symbols=0 dropped=false t=1791380171073
+EPOCH_RECONCILED epoch=0 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=false entries=0 total=16072 symbols=0 dropped=false t=1791380171073
+EPOCH_RECONCILED epoch=0 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=false entries=125 total=125 symbols=0 dropped=false t=1791380171076
+EPOCH_RECONCILED epoch=0 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=false entries=0 total=16072 symbols=0 dropped=false t=1791380171077
+EPOCH_RECONCILED epoch=0 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=true entries=213 total=213 symbols=0 dropped=false t=1791380171085
+EPOCH_CLOSE_UNREADY epoch=0 short_of=reports usable=3 weight=3 required=5 held=4 theirs=["911999B2:7408B1D1:F2E45F08", "65A90023:7408B1D1:F2E45F08", "633D9D61:7408B1D1:36900D37", "A353E45E:7408B1D1:E53D48C6"] t=1791380171085
+EPOCH_RECONCILED epoch=0 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=true entries=64 total=189 symbols=108 dropped=false t=1791380171086
+EPOCH_RECONCILED epoch=0 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=false entries=0 total=16072 symbols=0 dropped=false t=1791380171180
+EPOCH_RECONCILED epoch=0 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=true entries=213 total=213 symbols=0 dropped=false t=1791380171187
+EPOCH_RECONCILED epoch=0 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=false entries=0 total=16072 symbols=0 dropped=false t=1791380171187
+2026-10-07T13:36:11.190249Z  INFO nanospam::app: Confirmed 16,172 blocks | 2,000 bps | 1,812 cps | avg conf time: 112 ms
+EPOCH_RECONCILED epoch=0 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=true entries=211 total=211 symbols=0 dropped=false t=1791380171191
+EPOCH_RECONCILED epoch=0 reporter=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF complete=false entries=0 total=16072 symbols=0 dropped=false t=1791380171192
+EPOCH_RECONCILED epoch=0 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=false entries=0 total=16072 symbols=0 dropped=false t=1791380171194
+EPOCH_RECONCILED epoch=0 reporter=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF complete=true entries=211 total=211 symbols=0 dropped=false t=1791380171197
+EPOCH_RECONCILED epoch=0 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=true entries=189 total=189 symbols=0 dropped=false t=1791380171197
+EPOCH_RECONCILED epoch=0 reporter=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF complete=false entries=0 total=16072 symbols=0 dropped=false t=1791380171198
+EPOCH_RECONCILED epoch=0 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=false entries=0 total=16072 symbols=0 dropped=false t=1791380171198
+EPOCH_RECONCILED epoch=0 reporter=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF complete=true entries=211 total=211 symbols=0 dropped=false t=1791380171201
+EPOCH_RECONCILED epoch=0 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=false entries=0 total=16072 symbols=0 dropped=false t=1791380171201
+EPOCH_RECONCILED epoch=0 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=true entries=209 total=209 symbols=0 dropped=false t=1791380171204
+EPOCH_RECONCILED epoch=0 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=false entries=0 total=16072 symbols=0 dropped=false t=1791380171205
+EPOCH_RECONCILED epoch=0 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=true entries=209 total=209 symbols=0 dropped=false t=1791380171205
+EPOCH_CLOSE_READY epoch=0 t=1791380171206
+EPOCH_RECONCILED epoch=0 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=true entries=211 total=211 symbols=0 dropped=false t=1791380171208
+EPOCH_CLOSE_READY epoch=0 t=1791380171208
+EPOCH_RECONCILED epoch=0 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=false entries=0 total=16072 symbols=0 dropped=false t=1791380171260
+EPOCH_RECONCILED epoch=0 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=true entries=213 total=213 symbols=0 dropped=false t=1791380171264
+EPOCH_RECONCILED epoch=0 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=false entries=0 total=16072 symbols=0 dropped=false t=1791380171265
+EPOCH_RECONCILED epoch=0 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=true entries=209 total=209 symbols=0 dropped=false t=1791380171270
+EPOCH_RECONCILED epoch=0 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=false entries=0 total=16072 symbols=0 dropped=false t=1791380171271
+EPOCH_RECONCILED epoch=0 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=true entries=189 total=189 symbols=0 dropped=false t=1791380171275
+EPOCH_RECONCILED epoch=0 reporter=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF complete=false entries=0 total=16072 symbols=0 dropped=false t=1791380171275
+EPOCH_RECONCILED epoch=0 reporter=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF complete=true entries=211 total=211 symbols=0 dropped=false t=1791380171280
+EPOCH_CLOSE_READY epoch=0 t=1791380171280
+EPOCH_RECONCILED epoch=0 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=false entries=0 total=16072 symbols=0 dropped=false t=1791380171298
+EPOCH_RECONCILED epoch=0 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=true entries=213 total=213 symbols=0 dropped=false t=1791380171301
+EPOCH_RECONCILED epoch=0 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=false entries=0 total=16072 symbols=0 dropped=false t=1791380171302
+EPOCH_RECONCILED epoch=0 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=true entries=209 total=209 symbols=0 dropped=false t=1791380171305
+EPOCH_RECONCILED epoch=0 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=false entries=0 total=16072 symbols=0 dropped=false t=1791380171305
+EPOCH_RECONCILED epoch=0 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=true entries=189 total=189 symbols=0 dropped=false t=1791380171310
+EPOCH_RECONCILED epoch=0 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=false entries=0 total=16072 symbols=0 dropped=false t=1791380171310
+EPOCH_RECONCILED epoch=0 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=true entries=211 total=211 symbols=0 dropped=false t=1791380171315
+EPOCH_CLOSE_READY epoch=0 t=1791380171315
+EPOCH_PROPOSED epoch=0 round=0 value=8D0761B1E1484E9B8EF9787A3429D96DFB42C774E0705C0D50039BA9C0C7A20B state=D06185E701B22A2E26A826BC81B1D04B88D0EF1F257D94862FE312A1F1379E01 reports=5 t=1791380171318
+EPOCH_VALUE epoch=0 value=8D0761B1E1484E9B8EF9787A3429D96DFB42C774E0705C0D50039BA9C0C7A20B state=D06185E701B22A2E26A826BC81B1D04B88D0EF1F257D94862FE312A1F1379E01 t=1791380171318
+EPOCH_RECONCILED epoch=0 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=false entries=0 total=16072 symbols=0 dropped=false t=1791380171351
+EPOCH_RECONCILED epoch=0 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=true entries=211 total=211 symbols=0 dropped=false t=1791380171357
+EPOCH_CLOSE_READY epoch=0 t=1791380171359
+EPOCH_VALUE epoch=0 value=8D0761B1E1484E9B8EF9787A3429D96DFB42C774E0705C0D50039BA9C0C7A20B state=D06185E701B22A2E26A826BC81B1D04B88D0EF1F257D94862FE312A1F1379E01 t=1791380171385
+EPOCH_VALUE epoch=0 value=8D0761B1E1484E9B8EF9787A3429D96DFB42C774E0705C0D50039BA9C0C7A20B state=D06185E701B22A2E26A826BC81B1D04B88D0EF1F257D94862FE312A1F1379E01 t=1791380171388
+EPOCH_VALUE epoch=0 value=8D0761B1E1484E9B8EF9787A3429D96DFB42C774E0705C0D50039BA9C0C7A20B state=D06185E701B22A2E26A826BC81B1D04B88D0EF1F257D94862FE312A1F1379E01 t=1791380171389
+EPOCH_CLOSE_ROUND epoch=0 round=0 leader=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 leads=true t=1791380171470
+EPOCH_CLOSE_ROUND epoch=0 round=0 leader=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 leads=false t=1791380171489
+EPOCH_CLOSE_ROUND epoch=0 round=0 leader=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 leads=false t=1791380171550
+EPOCH_CLOSE_ROUND epoch=0 round=0 leader=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 leads=false t=1791380171595
+EPOCH_CLOSE_ROUND epoch=0 round=0 leader=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 leads=false t=1791380171647
+EPOCH_CLOSE_ROUND epoch=0 round=1 leader=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF leads=false t=1791380171771
+EPOCH_CLOSE_ROUND epoch=0 round=1 leader=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF leads=false t=1791380171799
+EPOCH_VALUE epoch=0 value=8D0761B1E1484E9B8EF9787A3429D96DFB42C774E0705C0D50039BA9C0C7A20B state=D06185E701B22A2E26A826BC81B1D04B88D0EF1F257D94862FE312A1F1379E01 t=1791380171833
+EPOCH_INSTALL epoch=0 finalized=16228 instances_confirmed=94 t=1791380171853
+EPOCH_INSTALL epoch=0 finalized=16228 instances_confirmed=94 t=1791380171854
+EPOCH_INSTALL epoch=0 finalized=16228 instances_confirmed=94 t=1791380171854
+EPOCH_INSTALL epoch=0 finalized=16228 instances_confirmed=94 t=1791380171855
+EPOCH_INSTALL epoch=0 finalized=16228 instances_confirmed=94 t=1791380171856
+EPOCH_COMMITTEE derived_by=0 members=6 accounts=7405 n=6 digest=95D409445152DD075E6A4799205DFA5689496EB8EE1A22AC2A200B9DBC2DCF27 shares=["65A90023:16.7%", "735FE217:16.7%", "D315857C:16.7%", "911999B2:16.7%", "633D9D61:16.7%", "A353E45E:16.7%"] t=1791380172122
+EPOCH_OMITTED epoch=0 instances=61 retained=0 t=1791380172122
+EPOCH_GATE epoch=1 released=1628 finalized=1401 t=1791380172129
+EPOCH_CLOSED epoch=0 round=0 value=8D0761B1E1484E9B8EF9787A3429D96DFB42C774E0705C0D50039BA9C0C7A20B state=D06185E701B22A2E26A826BC81B1D04B88D0EF1F257D94862FE312A1F1379E01 t=1791380172129
+EPOCH_COMMITTEE derived_by=0 members=6 accounts=7405 n=6 digest=95D409445152DD075E6A4799205DFA5689496EB8EE1A22AC2A200B9DBC2DCF27 shares=["65A90023:16.7%", "735FE217:16.7%", "D315857C:16.7%", "911999B2:16.7%", "633D9D61:16.7%", "A353E45E:16.7%"] t=1791380172138
+EPOCH_OMITTED epoch=0 instances=61 retained=0 t=1791380172138
+EPOCH_COMMITTEE derived_by=0 members=6 accounts=7405 n=6 digest=95D409445152DD075E6A4799205DFA5689496EB8EE1A22AC2A200B9DBC2DCF27 shares=["65A90023:16.7%", "735FE217:16.7%", "D315857C:16.7%", "911999B2:16.7%", "633D9D61:16.7%", "A353E45E:16.7%"] t=1791380172150
+EPOCH_OMITTED epoch=0 instances=61 retained=0 t=1791380172150
+EPOCH_GATE epoch=1 released=1628 finalized=1401 t=1791380172154
+EPOCH_CLOSED epoch=0 round=0 value=8D0761B1E1484E9B8EF9787A3429D96DFB42C774E0705C0D50039BA9C0C7A20B state=D06185E701B22A2E26A826BC81B1D04B88D0EF1F257D94862FE312A1F1379E01 t=1791380172154
+EPOCH_GATE epoch=1 released=1629 finalized=1401 t=1791380172157
+EPOCH_CLOSED epoch=0 round=0 value=8D0761B1E1484E9B8EF9787A3429D96DFB42C774E0705C0D50039BA9C0C7A20B state=D06185E701B22A2E26A826BC81B1D04B88D0EF1F257D94862FE312A1F1379E01 t=1791380172158
+EPOCH_COMMITTEE derived_by=0 members=6 accounts=7405 n=6 digest=95D409445152DD075E6A4799205DFA5689496EB8EE1A22AC2A200B9DBC2DCF27 shares=["65A90023:16.7%", "735FE217:16.7%", "D315857C:16.7%", "911999B2:16.7%", "633D9D61:16.7%", "A353E45E:16.7%"] t=1791380172164
+EPOCH_OMITTED epoch=0 instances=61 retained=0 t=1791380172164
+EPOCH_INSTALLED epoch=0 finalized=16228 cemented=16214 queued=14 missing=0 t=1791380172180
+2026-10-07T13:36:12.191951Z  INFO nanospam::app: Confirmed 16,172 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+EPOCH_COMMITTEE derived_by=0 members=6 accounts=7405 n=6 digest=95D409445152DD075E6A4799205DFA5689496EB8EE1A22AC2A200B9DBC2DCF27 shares=["65A90023:16.7%", "735FE217:16.7%", "D315857C:16.7%", "911999B2:16.7%", "633D9D61:16.7%", "A353E45E:16.7%"] t=1791380172197
+EPOCH_OMITTED epoch=0 instances=61 retained=0 t=1791380172197
+EPOCH_INSTALLED epoch=0 finalized=16228 cemented=16204 queued=24 missing=0 t=1791380172197
+EPOCH_GATE epoch=1 released=1629 finalized=1401 t=1791380172203
+EPOCH_CLOSED epoch=0 round=0 value=8D0761B1E1484E9B8EF9787A3429D96DFB42C774E0705C0D50039BA9C0C7A20B state=D06185E701B22A2E26A826BC81B1D04B88D0EF1F257D94862FE312A1F1379E01 t=1791380172203
+EPOCH_INSTALLED epoch=0 finalized=16228 cemented=16204 queued=24 missing=0 t=1791380172204
+EPOCH_GATE epoch=1 released=1628 finalized=1401 t=1791380172226
+EPOCH_CLOSED epoch=0 round=0 value=8D0761B1E1484E9B8EF9787A3429D96DFB42C774E0705C0D50039BA9C0C7A20B state=D06185E701B22A2E26A826BC81B1D04B88D0EF1F257D94862FE312A1F1379E01 t=1791380172226
+EPOCH_INSTALLED epoch=0 finalized=16228 cemented=16228 queued=0 missing=0 t=1791380172268
+EPOCH_FOLLOW cemented=24 cementing=0 requested=0 pending=0 t=1791380172318
+EPOCH_INSTALLED epoch=0 finalized=16228 cemented=16228 queued=0 missing=0 t=1791380172346
+EPOCH_FOLLOW cemented=14 cementing=0 requested=0 pending=0 t=1791380172901
+EPOCH_FOLLOW cemented=24 cementing=0 requested=0 pending=0 t=1791380173167
+2026-10-07T13:36:13.192327Z  INFO nanospam::app: Confirmed 20,224 blocks | 2,000 bps | 4,049 cps | avg conf time: 483 ms
+2026-10-07T13:36:14.193107Z  INFO nanospam::app: Confirmed 22,255 blocks | 2,000 bps | 2,028 cps | avg conf time: 105 ms
+2026-10-07T13:36:15.193742Z  INFO nanospam::app: Confirmed 24,161 blocks | 2,000 bps | 1,904 cps | avg conf time: 108 ms
+2026-10-07T13:36:16.194479Z  INFO nanospam::app: Confirmed 26,177 blocks | 2,000 bps | 2,013 cps | avg conf time: 102 ms
+2026-10-07T13:36:17.195233Z  INFO nanospam::app: Confirmed 28,112 blocks | 2,000 bps | 1,933 cps | avg conf time: 109 ms
+2026-10-07T13:36:18.196370Z  INFO nanospam::app: Confirmed 30,072 blocks | 2,000 bps | 1,957 cps | avg conf time: 111 ms
+EPOCH_ENDED epoch=1 elections=162 active=127 t=1791380179005
+EPOCH_ADVANCED epoch=2 elections=162 active=127 vote_records=317288 t=1791380179026
+EPOCH_ENDED epoch=1 elections=211 active=176 t=1791380179031
+EPOCH_ENDED epoch=1 elections=211 active=176 t=1791380179031
+EPOCH_ENDED epoch=1 elections=211 active=176 t=1791380179032
+EPOCH_ENDED epoch=1 elections=211 active=176 t=1791380179032
+EPOCH_REPORT epoch=1 certified=15589 residual=206 root=B84BB6AD7C970647AEE74962DD8E76426B1A366931285325C0C9C488831F09BF reports=1 t=1791380179035
+EPOCH_CLOSE_UNREADY epoch=1 short_of=reports usable=1 weight=1 required=5 held=0 theirs=[] t=1791380179046
+EPOCH_ADVANCED epoch=2 elections=211 active=176 vote_records=317287 t=1791380179054
+EPOCH_ADVANCED epoch=2 elections=211 active=176 vote_records=317282 t=1791380179055
+EPOCH_ADVANCED epoch=2 elections=211 active=176 vote_records=317280 t=1791380179056
+EPOCH_ADVANCED epoch=2 elections=211 active=176 vote_records=317293 t=1791380179057
+EPOCH_REPORT epoch=1 certified=15589 residual=253 root=B84BB6AD7C970647AEE74962DD8E76426B1A366931285325C0C9C488831F09BF reports=1 t=1791380179064
+EPOCH_REPORT epoch=1 certified=15589 residual=232 root=B84BB6AD7C970647AEE74962DD8E76426B1A366931285325C0C9C488831F09BF reports=1 t=1791380179066
+EPOCH_REPORT epoch=1 certified=15589 residual=254 root=B84BB6AD7C970647AEE74962DD8E76426B1A366931285325C0C9C488831F09BF reports=1 t=1791380179068
+EPOCH_REPORT epoch=1 certified=15589 residual=275 root=B84BB6AD7C970647AEE74962DD8E76426B1A366931285325C0C9C488831F09BF reports=1 t=1791380179070
+EPOCH_RECONCILED epoch=1 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=false entries=0 total=15589 symbols=0 dropped=false t=1791380179101
+EPOCH_RECONCILED epoch=1 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=false entries=254 total=254 symbols=0 dropped=false t=1791380179105
+EPOCH_RECONCILED epoch=1 reporter=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF complete=false entries=0 total=15589 symbols=0 dropped=false t=1791380179105
+EPOCH_RECONCILED epoch=1 reporter=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF complete=false entries=206 total=206 symbols=0 dropped=false t=1791380179108
+EPOCH_RECONCILED epoch=1 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=false entries=0 total=15589 symbols=0 dropped=false t=1791380179109
+EPOCH_RECONCILED epoch=1 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=false entries=232 total=232 symbols=0 dropped=false t=1791380179113
+EPOCH_RECONCILED epoch=1 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=false entries=0 total=15589 symbols=0 dropped=false t=1791380179116
+EPOCH_RECONCILED epoch=1 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=false entries=253 total=253 symbols=0 dropped=false t=1791380179122
+EPOCH_RECONCILED epoch=1 reporter=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF complete=true entries=84 total=206 symbols=162 dropped=false t=1791380179124
+EPOCH_RECONCILED epoch=1 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=true entries=84 total=232 symbols=162 dropped=false t=1791380179125
+EPOCH_RECONCILED epoch=1 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=true entries=84 total=253 symbols=162 dropped=false t=1791380179125
+EPOCH_RECONCILED epoch=1 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=false entries=0 total=15589 symbols=0 dropped=false t=1791380179128
+EPOCH_RECONCILED epoch=1 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=true entries=84 total=254 symbols=162 dropped=false t=1791380179129
+EPOCH_CLOSE_READY epoch=1 t=1791380179130
+EPOCH_RECONCILED epoch=1 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=false entries=275 total=275 symbols=0 dropped=false t=1791380179132
+EPOCH_RECONCILED epoch=1 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=false entries=0 total=15589 symbols=0 dropped=false t=1791380179136
+EPOCH_RECONCILED epoch=1 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=false entries=232 total=232 symbols=0 dropped=false t=1791380179141
+EPOCH_RECONCILED epoch=1 reporter=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF complete=false entries=0 total=15589 symbols=0 dropped=false t=1791380179141
+EPOCH_RECONCILED epoch=1 reporter=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF complete=false entries=206 total=206 symbols=0 dropped=false t=1791380179156
+EPOCH_RECONCILED epoch=1 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=false entries=0 total=15589 symbols=0 dropped=false t=1791380179159
+EPOCH_RECONCILED epoch=1 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=false entries=253 total=253 symbols=0 dropped=false t=1791380179162
+EPOCH_RECONCILED epoch=1 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=true entries=84 total=253 symbols=162 dropped=false t=1791380179166
+EPOCH_RECONCILED epoch=1 reporter=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF complete=true entries=84 total=206 symbols=162 dropped=false t=1791380179166
+EPOCH_RECONCILED epoch=1 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=true entries=84 total=275 symbols=162 dropped=false t=1791380179166
+EPOCH_RECONCILED epoch=1 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=true entries=84 total=232 symbols=162 dropped=false t=1791380179166
+EPOCH_RECONCILED epoch=1 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=false entries=0 total=15589 symbols=0 dropped=false t=1791380179168
+EPOCH_CLOSE_READY epoch=1 t=1791380179170
+EPOCH_RECONCILED epoch=1 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=false entries=275 total=275 symbols=0 dropped=false t=1791380179172
+EPOCH_RECONCILED epoch=1 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=false entries=0 total=15589 symbols=0 dropped=false t=1791380179172
+EPOCH_RECONCILED epoch=1 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=false entries=253 total=253 symbols=0 dropped=false t=1791380179176
+EPOCH_RECONCILED epoch=1 reporter=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF complete=false entries=0 total=15589 symbols=0 dropped=false t=1791380179177
+EPOCH_RECONCILED epoch=1 reporter=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF complete=false entries=206 total=206 symbols=0 dropped=false t=1791380179180
+EPOCH_RECONCILED epoch=1 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=false entries=0 total=15589 symbols=0 dropped=false t=1791380179181
+EPOCH_RECONCILED epoch=1 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=false entries=254 total=254 symbols=0 dropped=false t=1791380179186
+EPOCH_RECONCILED epoch=1 reporter=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF complete=true entries=84 total=206 symbols=162 dropped=false t=1791380179187
+EPOCH_RECONCILED epoch=1 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=true entries=84 total=275 symbols=162 dropped=false t=1791380179188
+EPOCH_RECONCILED epoch=1 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=true entries=84 total=253 symbols=162 dropped=false t=1791380179188
+EPOCH_RECONCILED epoch=1 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=true entries=84 total=254 symbols=162 dropped=false t=1791380179188
+EPOCH_CLOSE_READY epoch=1 t=1791380179191
+2026-10-07T13:36:19.197008Z  INFO nanospam::app: Confirmed 31,886 blocks | 2,000 bps | 1,812 cps | avg conf time: 110 ms
+EPOCH_RECONCILED epoch=1 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=false entries=0 total=15589 symbols=0 dropped=false t=1791380179267
+EPOCH_RECONCILED epoch=1 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=false entries=275 total=275 symbols=0 dropped=false t=1791380179270
+EPOCH_RECONCILED epoch=1 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=false entries=0 total=15589 symbols=0 dropped=false t=1791380179270
+EPOCH_RECONCILED epoch=1 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=false entries=254 total=254 symbols=0 dropped=false t=1791380179273
+EPOCH_RECONCILED epoch=1 reporter=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF complete=false entries=0 total=15589 symbols=0 dropped=false t=1791380179273
+EPOCH_RECONCILED epoch=1 reporter=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF complete=false entries=206 total=206 symbols=0 dropped=false t=1791380179276
+EPOCH_RECONCILED epoch=1 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=false entries=0 total=15589 symbols=0 dropped=false t=1791380179277
+EPOCH_RECONCILED epoch=1 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=false entries=232 total=232 symbols=0 dropped=false t=1791380179280
+EPOCH_RECONCILED epoch=1 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=true entries=84 total=275 symbols=162 dropped=false t=1791380179282
+EPOCH_RECONCILED epoch=1 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=true entries=84 total=254 symbols=162 dropped=false t=1791380179282
+EPOCH_RECONCILED epoch=1 reporter=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF complete=true entries=84 total=206 symbols=162 dropped=false t=1791380179283
+EPOCH_RECONCILED epoch=1 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=true entries=84 total=232 symbols=162 dropped=false t=1791380179283
+EPOCH_CLOSE_READY epoch=1 t=1791380179283
+EPOCH_RECONCILED epoch=1 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=false entries=0 total=15589 symbols=0 dropped=false t=1791380179327
+EPOCH_RECONCILED epoch=1 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=false entries=232 total=232 symbols=0 dropped=false t=1791380179331
+EPOCH_RECONCILED epoch=1 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=false entries=0 total=15589 symbols=0 dropped=false t=1791380179331
+EPOCH_RECONCILED epoch=1 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=false entries=275 total=275 symbols=0 dropped=false t=1791380179334
+EPOCH_RECONCILED epoch=1 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=false entries=0 total=15589 symbols=0 dropped=false t=1791380179334
+EPOCH_RECONCILED epoch=1 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=false entries=254 total=254 symbols=0 dropped=false t=1791380179337
+EPOCH_RECONCILED epoch=1 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=false entries=0 total=15589 symbols=0 dropped=false t=1791380179338
+EPOCH_RECONCILED epoch=1 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=false entries=253 total=253 symbols=0 dropped=false t=1791380179348
+EPOCH_RECONCILED epoch=1 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=true entries=84 total=232 symbols=162 dropped=false t=1791380179351
+EPOCH_RECONCILED epoch=1 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=true entries=84 total=254 symbols=162 dropped=false t=1791380179351
+EPOCH_RECONCILED epoch=1 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=true entries=84 total=275 symbols=162 dropped=false t=1791380179351
+EPOCH_RECONCILED epoch=1 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=true entries=84 total=253 symbols=162 dropped=false t=1791380179352
+EPOCH_CLOSE_READY epoch=1 t=1791380179355
+EPOCH_CLOSE_ROUND epoch=1 round=0 leader=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF leads=false t=1791380179390
+EPOCH_CLOSE_ROUND epoch=1 round=0 leader=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF leads=false t=1791380179414
+EPOCH_CLOSE_ROUND epoch=1 round=0 leader=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF leads=false t=1791380179454
+EPOCH_PROPOSED epoch=1 round=0 value=39983ED9C9ADA33F7C2148AB22DEA76F640F548CF76BFDC94CEB9FC60C539C88 state=FAF8EEBEA8F5A813892A4B206C9616A7ACC0B79B62ADA671F9C1FFA2987E9306 reports=5 t=1791380179490
+EPOCH_VALUE epoch=1 value=39983ED9C9ADA33F7C2148AB22DEA76F640F548CF76BFDC94CEB9FC60C539C88 state=FAF8EEBEA8F5A813892A4B206C9616A7ACC0B79B62ADA671F9C1FFA2987E9306 t=1791380179490
+EPOCH_CLOSE_ROUND epoch=1 round=0 leader=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF leads=false t=1791380179565
+EPOCH_VALUE epoch=1 value=39983ED9C9ADA33F7C2148AB22DEA76F640F548CF76BFDC94CEB9FC60C539C88 state=FAF8EEBEA8F5A813892A4B206C9616A7ACC0B79B62ADA671F9C1FFA2987E9306 t=1791380179592
+EPOCH_VALUE epoch=1 value=39983ED9C9ADA33F7C2148AB22DEA76F640F548CF76BFDC94CEB9FC60C539C88 state=FAF8EEBEA8F5A813892A4B206C9616A7ACC0B79B62ADA671F9C1FFA2987E9306 t=1791380179593
+EPOCH_VALUE epoch=1 value=39983ED9C9ADA33F7C2148AB22DEA76F640F548CF76BFDC94CEB9FC60C539C88 state=FAF8EEBEA8F5A813892A4B206C9616A7ACC0B79B62ADA671F9C1FFA2987E9306 t=1791380179595
+EPOCH_VALUE epoch=1 value=39983ED9C9ADA33F7C2148AB22DEA76F640F548CF76BFDC94CEB9FC60C539C88 state=FAF8EEBEA8F5A813892A4B206C9616A7ACC0B79B62ADA671F9C1FFA2987E9306 t=1791380179605
+EPOCH_CLOSE_ROUND epoch=1 round=0 leader=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF leads=true t=1791380179627
+EPOCH_INSTALL epoch=1 finalized=15759 instances_confirmed=146 t=1791380179986
+EPOCH_INSTALL epoch=1 finalized=15759 instances_confirmed=146 t=1791380179986
+EPOCH_INSTALL epoch=1 finalized=15759 instances_confirmed=146 t=1791380179986
+EPOCH_INSTALL epoch=1 finalized=15759 instances_confirmed=146 t=1791380179987
+EPOCH_INSTALL epoch=1 finalized=15759 instances_confirmed=146 t=1791380179991
+2026-10-07T13:36:20.197528Z  INFO nanospam::app: Confirmed 31,886 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+EPOCH_COMMITTEE derived_by=1 members=6 accounts=13416 n=6 digest=95D409445152DD075E6A4799205DFA5689496EB8EE1A22AC2A200B9DBC2DCF27 shares=["A353E45E:16.7%", "735FE217:16.7%", "D315857C:16.7%", "911999B2:16.7%", "633D9D61:16.7%", "65A90023:16.7%"] t=1791380180223
+EPOCH_OMITTED epoch=1 instances=56 retained=0 t=1791380180223
+EPOCH_COMMITTEE derived_by=1 members=6 accounts=13416 n=6 digest=95D409445152DD075E6A4799205DFA5689496EB8EE1A22AC2A200B9DBC2DCF27 shares=["A353E45E:16.7%", "735FE217:16.7%", "D315857C:16.7%", "911999B2:16.7%", "633D9D61:16.7%", "65A90023:16.7%"] t=1791380180233
+EPOCH_OMITTED epoch=1 instances=56 retained=0 t=1791380180233
+EPOCH_GATE epoch=2 released=1840 finalized=1563 t=1791380180237
+EPOCH_CLOSED epoch=1 round=0 value=39983ED9C9ADA33F7C2148AB22DEA76F640F548CF76BFDC94CEB9FC60C539C88 state=FAF8EEBEA8F5A813892A4B206C9616A7ACC0B79B62ADA671F9C1FFA2987E9306 t=1791380180237
+EPOCH_GATE epoch=2 released=1840 finalized=1563 t=1791380180242
+EPOCH_CLOSED epoch=1 round=0 value=39983ED9C9ADA33F7C2148AB22DEA76F640F548CF76BFDC94CEB9FC60C539C88 state=FAF8EEBEA8F5A813892A4B206C9616A7ACC0B79B62ADA671F9C1FFA2987E9306 t=1791380180242
+EPOCH_COMMITTEE derived_by=1 members=6 accounts=13416 n=6 digest=95D409445152DD075E6A4799205DFA5689496EB8EE1A22AC2A200B9DBC2DCF27 shares=["A353E45E:16.7%", "735FE217:16.7%", "D315857C:16.7%", "911999B2:16.7%", "633D9D61:16.7%", "65A90023:16.7%"] t=1791380180243
+EPOCH_OMITTED epoch=1 instances=56 retained=0 t=1791380180243
+EPOCH_COMMITTEE derived_by=1 members=6 accounts=13416 n=6 digest=95D409445152DD075E6A4799205DFA5689496EB8EE1A22AC2A200B9DBC2DCF27 shares=["A353E45E:16.7%", "735FE217:16.7%", "D315857C:16.7%", "911999B2:16.7%", "633D9D61:16.7%", "65A90023:16.7%"] t=1791380180253
+EPOCH_OMITTED epoch=1 instances=56 retained=0 t=1791380180254
+EPOCH_COMMITTEE derived_by=1 members=6 accounts=13416 n=6 digest=95D409445152DD075E6A4799205DFA5689496EB8EE1A22AC2A200B9DBC2DCF27 shares=["A353E45E:16.7%", "735FE217:16.7%", "D315857C:16.7%", "911999B2:16.7%", "633D9D61:16.7%", "65A90023:16.7%"] t=1791380180258
+EPOCH_OMITTED epoch=1 instances=56 retained=0 t=1791380180258
+EPOCH_GATE epoch=2 released=1839 finalized=1563 t=1791380180259
+EPOCH_CLOSED epoch=1 round=0 value=39983ED9C9ADA33F7C2148AB22DEA76F640F548CF76BFDC94CEB9FC60C539C88 state=FAF8EEBEA8F5A813892A4B206C9616A7ACC0B79B62ADA671F9C1FFA2987E9306 t=1791380180259
+EPOCH_GATE epoch=2 released=1840 finalized=1563 t=1791380180262
+EPOCH_CLOSED epoch=1 round=0 value=39983ED9C9ADA33F7C2148AB22DEA76F640F548CF76BFDC94CEB9FC60C539C88 state=FAF8EEBEA8F5A813892A4B206C9616A7ACC0B79B62ADA671F9C1FFA2987E9306 t=1791380180262
+EPOCH_GATE epoch=2 released=1840 finalized=1563 t=1791380180269
+EPOCH_CLOSED epoch=1 round=0 value=39983ED9C9ADA33F7C2148AB22DEA76F640F548CF76BFDC94CEB9FC60C539C88 state=FAF8EEBEA8F5A813892A4B206C9616A7ACC0B79B62ADA671F9C1FFA2987E9306 t=1791380180269
+EPOCH_INSTALLED epoch=1 finalized=15759 cemented=15699 queued=60 missing=0 t=1791380180295
+EPOCH_INSTALLED epoch=1 finalized=15759 cemented=15690 queued=69 missing=0 t=1791380180299
+EPOCH_INSTALLED epoch=1 finalized=15759 cemented=15690 queued=69 missing=0 t=1791380180309
+EPOCH_INSTALLED epoch=1 finalized=15759 cemented=15691 queued=68 missing=0 t=1791380180312
+EPOCH_INSTALLED epoch=1 finalized=15759 cemented=15693 queued=66 missing=0 t=1791380180357
+EPOCH_FOLLOW cemented=69 cementing=0 requested=0 pending=0 t=1791380180365
+EPOCH_FOLLOW cemented=66 cementing=0 requested=0 pending=0 t=1791380180465
+EPOCH_FOLLOW cemented=68 cementing=0 requested=0 pending=0 t=1791380180668
+EPOCH_FOLLOW cemented=60 cementing=0 requested=0 pending=0 t=1791380180711
+2026-10-07T13:36:21.198324Z  INFO nanospam::app: Confirmed 36,007 blocks | 2,000 bps | 4,116 cps | avg conf time: 520 ms
+EPOCH_FOLLOW cemented=69 cementing=0 requested=0 pending=0 t=1791380181279
+2026-10-07T13:36:22.199396Z  INFO nanospam::app: Confirmed 37,877 blocks | 2,000 bps | 1,867 cps | avg conf time: 106 ms
+2026-10-07T13:36:23.199960Z  INFO nanospam::app: Confirmed 39,924 blocks | 2,000 bps | 2,045 cps | avg conf time: 110 ms
+2026-10-07T13:36:24.200796Z  INFO nanospam::app: Confirmed 41,890 blocks | 2,000 bps | 1,964 cps | avg conf time: 111 ms
+2026-10-07T13:36:25.201773Z  INFO nanospam::app: Confirmed 43,850 blocks | 2,000 bps | 1,957 cps | avg conf time: 110 ms
+2026-10-07T13:36:25.838161Z  INFO nanospam::app: Confirming 45000 blocks took 22.66s
+2026-10-07T13:36:25.838199Z  INFO nanospam::app: Confirmation rate: 1985 cps
+2026-10-07T13:36:25.838222Z  INFO nanospam::app: Average conf time: 182 ms
+2026-10-07T13:36:25.838227Z  INFO nanospam::app: Non-fork confirmation rate: 1985 cps (45000 of 45000 non-fork blocks, 0 of 0 forks)
+2026-10-07T13:36:25.838445Z  INFO nanospam::app: RAI_BENCH_METRICS {"created":45000,"confirmed":45000,"duration_secs":22.660483125,"confirmation_unit":"primary publication or its confirmed fork alternative","alternative_confirmed":0,"confirmation_histogram_ms":{"31":1,"32":1,"39":1,"40":1,"41":2,"43":7,"44":4,"45":4,"46":6,"47":9,"48":10,"49":12,"50":10,"51":13,"52":46,"53":27,"54":24,"55":21,"56":37,"57":34,"58":22,"59":23,"60":21,"61":28,"62":42,"63":57,"64":53,"65":72,"66":93,"67":83,"68":103,"69":111,"70":115,"71":122,"72":119,"73":162,"74":132,"75":159,"76":161,"77":182,"78":207,"79":227,"80":234,"81":237,"82":260,"83":305,"84":296,"85":310,"86":350,"87":384,"88":416,"89":418,"90":450,"91":428,"92":445,"93":512,"94":549,"95":527,"96":558,"97":590,"98":594,"99":626,"100":687,"101":708,"102":697,"103":709,"104":759,"105":746,"106":790,"107":829,"108":854,"109":872,"110":898,"111":892,"112":903,"113":968,"114":938,"115":937,"116":936,"117":935,"118":963,"119":898,"120":863,"121":823,"122":789,"123":756,"124":702,"125":627,"126":643,"127":534,"128":511,"129":439,"130":437,"131":406,"132":358,"133":318,"134":300,"135":275,"136":218,"137":182,"138":154,"139":127,"140":109,"141":69,"142":72,"143":53,"144":43,"145":52,"146":41,"147":36,"148":32,"149":22,"150":24,"151":25,"152":27,"153":30,"154":40,"155":35,"156":32,"157":35,"158":31,"159":47,"160":25,"161":51,"162":48,"163":18,"164":10,"165":12,"166":16,"167":9,"168":19,"169":22,"170":21,"171":61,"172":58,"173":47,"174":25,"175":14,"176":18,"177":17,"178":28,"179":15,"180":12,"181":10,"182":11,"183":7,"184":15,"185":17,"186":16,"187":37,"188":30,"189":34,"190":25,"191":13,"192":14,"193":11,"194":7,"195":8,"196":19,"197":20,"198":19,"199":40,"200":27,"201":35,"202":46,"203":48,"204":60,"205":65,"206":39,"207":21,"208":16,"209":10,"210":11,"211":6,"212":5,"213":6,"214":7,"215":11,"216":11,"217":27,"218":21,"219":17,"220":27,"221":24,"222":19,"223":16,"224":29,"225":14,"226":18,"227":6,"228":9,"229":14,"230":9,"231":11,"232":28,"233":18,"234":26,"235":15,"236":26,"237":16,"238":14,"239":25,"240":20,"241":17,"242":8,"243":2,"247":1,"248":1,"250":1,"252":2,"253":1,"254":6,"255":3,"256":7,"257":2,"259":1,"261":4,"262":5,"263":4,"264":3,"265":2,"266":11,"267":7,"268":6,"269":2,"270":1,"272":2,"273":1,"274":3,"275":10,"276":13,"277":17,"278":17,"279":6,"280":5,"281":6,"282":9,"283":5,"284":7,"285":2,"286":5,"287":3,"288":6,"289":8,"290":5,"291":5,"292":3,"293":4,"294":5,"295":1,"296":3,"297":4,"298":5,"299":6,"300":6,"301":2,"302":1,"303":3,"304":8,"305":3,"306":2,"307":1,"308":4,"309":6,"310":2,"311":5,"312":4,"313":2,"314":5,"315":1,"316":11,"317":3,"318":5,"319":2,"320":15,"321":8,"322":1,"323":4,"324":2,"325":3,"326":3,"327":1,"328":3,"329":4,"330":11,"331":1,"332":5,"333":5,"334":10,"335":8,"336":6,"337":8,"338":5,"339":2,"340":7,"341":7,"342":5,"343":5,"344":3,"345":6,"346":4,"347":8,"348":10,"349":7,"350":7,"351":6,"352":9,"353":6,"354":12,"355":5,"356":6,"357":10,"358":3,"359":2,"360":10,"361":6,"362":7,"363":6,"364":7,"365":10,"366":9,"367":9,"368":6,"369":3,"370":7,"371":7,"372":3,"373":7,"374":9,"375":5,"376":4,"377":4,"378":4,"379":4,"380":6,"381":5,"382":8,"383":6,"384":4,"385":5,"386":5,"387":10,"388":1,"389":4,"390":8,"391":7,"392":7,"393":3,"394":7,"395":4,"396":6,"397":7,"398":6,"399":5,"400":6,"401":8,"402":3,"403":9,"404":4,"405":9,"406":3,"407":5,"408":3,"409":7,"410":2,"411":5,"412":3,"413":5,"414":4,"415":4,"416":3,"417":5,"418":5,"419":5,"420":2,"421":5,"422":3,"423":4,"424":4,"425":2,"426":4,"427":4,"428":6,"429":6,"431":5,"432":1,"433":4,"434":7,"435":2,"436":5,"437":5,"438":3,"439":2,"440":5,"441":8,"442":3,"443":5,"444":6,"445":6,"446":3,"447":4,"448":5,"449":6,"450":6,"451":3,"452":4,"453":4,"454":4,"455":6,"456":4,"457":3,"458":5,"459":4,"460":5,"461":4,"462":3,"463":4,"464":5,"465":6,"466":3,"467":4,"468":5,"469":6,"470":4,"471":6,"472":4,"473":3,"474":4,"475":5,"476":4,"477":2,"478":3,"479":2,"480":5,"481":3,"482":2,"483":3,"484":6,"485":5,"486":3,"487":4,"488":5,"489":2,"490":4,"491":6,"492":2,"493":5,"494":5,"495":4,"496":4,"497":4,"498":3,"499":6,"500":3,"501":2,"502":4,"503":4,"504":5,"505":3,"506":4,"507":5,"508":3,"509":4,"510":3,"511":5,"512":5,"513":3,"514":5,"515":3,"516":3,"517":5,"518":5,"519":4,"520":5,"521":4,"522":5,"523":8,"524":4,"525":4,"526":6,"527":5,"528":5,"529":8,"530":9,"531":10,"532":6,"533":4,"534":8,"535":5,"536":5,"537":7,"538":8,"539":4,"540":6,"541":10,"542":10,"543":7,"544":8,"545":9,"546":12,"547":6,"548":10,"549":14,"550":3,"551":7,"552":6,"553":10,"554":8,"555":6,"556":7,"557":9,"558":7,"559":10,"560":3,"561":9,"562":8,"563":11,"564":12,"565":5,"566":7,"567":17,"568":3,"569":7,"570":7,"571":6,"572":8,"573":9,"574":11,"575":7,"576":11,"577":14,"578":13,"579":7,"580":4,"581":10,"582":10,"583":13,"584":10,"585":6,"586":7,"587":8,"588":6,"589":6,"590":9,"591":7,"592":15,"593":7,"594":7,"595":6,"596":3,"597":7,"598":8,"599":11,"600":6,"601":8,"602":6,"603":6,"604":8,"605":8,"606":5,"607":5,"608":10,"609":5,"610":6,"611":7,"612":10,"613":6,"614":2,"615":2,"616":1,"617":5,"618":7,"619":5,"620":5,"621":5,"622":4,"623":6,"624":4,"625":4,"626":10,"627":2,"628":4,"629":5,"630":7,"631":5,"632":7,"633":5,"634":4,"635":4,"636":3,"637":5,"638":6,"639":6,"640":5,"641":5,"642":4,"643":4,"644":7,"645":3,"646":4,"647":8,"648":2,"649":1,"650":3,"651":8,"652":6,"653":6,"654":6,"655":5,"656":7,"657":4,"658":7,"659":6,"660":7,"661":7,"662":5,"663":5,"664":4,"665":8,"666":6,"667":8,"668":6,"669":8,"670":5,"671":6,"672":5,"673":6,"674":4,"675":9,"676":5,"677":8,"678":6,"679":4,"680":5,"681":9,"682":2,"683":4,"684":4,"685":1,"686":7,"687":7,"688":8,"689":6,"690":6,"691":6,"692":6,"693":6,"694":6,"695":8,"696":6,"697":2,"698":3,"700":5,"701":2,"702":6,"703":2,"704":3,"705":2,"706":5,"707":3,"708":1,"709":3,"710":5,"711":4,"712":3,"713":5,"714":3,"715":3,"716":5,"718":3,"719":6,"720":3,"721":1,"722":3,"723":9,"724":8,"725":2,"726":6,"727":7,"728":4,"729":3,"730":3,"731":4,"732":3,"733":4,"734":12,"735":5,"736":2,"737":3,"738":1,"739":5,"740":8,"741":4,"742":3,"743":3,"744":3,"745":2,"746":6,"747":4,"748":1,"749":5,"750":3,"751":4,"752":1,"753":4,"754":1,"755":6,"756":2,"757":5,"758":5,"759":2,"760":3,"761":6,"762":3,"763":2,"764":5,"765":5,"766":1,"767":4,"768":1,"769":2,"770":5,"771":6,"772":2,"773":2,"774":7,"775":4,"776":4,"777":3,"778":4,"779":4,"780":5,"781":4,"782":2,"783":5,"784":4,"785":2,"786":2,"787":8,"788":3,"789":3,"790":5,"791":2,"792":3,"793":3,"794":4,"795":6,"796":6,"797":2,"798":4,"799":5,"800":4,"801":6,"802":5,"803":4,"804":4,"805":2,"806":2,"807":13,"808":3,"809":4,"810":5,"811":5,"812":2,"813":3,"814":5,"815":1,"816":2,"817":3,"818":3,"819":6,"820":5,"821":4,"822":6,"823":7,"824":3,"825":1,"826":1,"827":4,"828":4,"829":2,"830":3,"831":2,"832":6,"833":1,"834":3,"835":5,"836":3,"837":4,"838":1,"839":4,"840":2,"841":4,"842":2,"843":7,"844":10,"845":1,"846":2,"847":7,"848":2,"849":4,"850":2,"851":7,"852":6,"853":5,"854":1,"855":1,"856":1,"857":5,"858":5,"859":5,"860":2,"861":1,"862":3,"863":3,"864":6,"865":2,"866":6,"867":2,"868":1,"870":2,"871":2,"872":6,"873":7,"874":3,"875":5,"876":4,"877":4,"878":5,"879":5,"881":2,"882":6,"883":2,"884":4,"885":4,"886":5,"887":7,"888":4,"889":2,"890":4,"891":6,"892":3,"893":4,"894":4,"895":2,"896":8,"897":6,"898":6,"899":1,"900":4,"901":2,"902":6,"903":3,"904":3,"905":5,"906":4,"907":6,"908":4,"909":3,"910":2,"911":1,"914":2,"915":3,"916":6,"917":4,"918":3,"919":3,"920":2,"921":2,"922":3,"923":3,"924":2,"925":4,"926":2,"927":4,"928":5,"929":2,"930":3,"931":1,"932":1,"933":2,"934":3,"935":6,"936":2,"937":4,"938":5,"939":3,"940":2,"941":4,"942":2,"943":5,"944":2,"945":3,"946":4,"947":4,"948":4,"949":3,"950":5,"951":3,"952":3,"953":3,"954":9,"955":2,"956":3,"957":2,"958":4,"959":4,"960":4,"961":5,"962":6,"963":2,"964":5,"965":3,"966":3,"967":1,"968":1,"969":6,"970":3,"971":5,"972":7,"973":5,"974":5,"975":1,"976":5,"977":3,"978":5,"979":4,"980":4,"981":4,"982":3,"983":2,"984":1,"985":5,"986":3,"987":1,"988":8,"989":6,"990":4,"991":6,"992":2,"993":2,"994":4,"995":8,"996":5,"997":5,"998":4,"999":3,"1000":5,"1001":2,"1002":7,"1003":5,"1004":9,"1005":3,"1006":2,"1007":5,"1008":3,"1009":6,"1010":6,"1012":3,"1013":9,"1014":4,"1015":4,"1016":3,"1017":7,"1018":3,"1019":4,"1020":5,"1021":6,"1022":1,"1023":5,"1024":5,"1025":3,"1026":5,"1027":3,"1028":4,"1029":3,"1030":3,"1031":1,"1032":3,"1033":6,"1034":5,"1035":5,"1036":3,"1037":3,"1038":2,"1039":6,"1040":3,"1041":1,"1042":5,"1043":3,"1044":4,"1045":3,"1046":5,"1047":2,"1048":8,"1049":3,"1050":4,"1051":1,"1052":2,"1053":4,"1054":5,"1055":2,"1056":5,"1057":5,"1058":1,"1059":3,"1060":2,"1061":1,"1062":8,"1063":4,"1064":2,"1065":3,"1066":4,"1067":6,"1068":7,"1069":6,"1070":5,"1071":2,"1072":2,"1073":6,"1074":4,"1075":4,"1076":5,"1077":6,"1078":8,"1079":2,"1080":3,"1081":3,"1082":1,"1083":1,"1084":4,"1085":1,"1086":2,"1087":8,"1088":5,"1089":2,"1090":4,"1091":3,"1092":4,"1093":4,"1094":6,"1095":4,"1096":3,"1097":2,"1098":3,"1099":5,"1100":6,"1101":5,"1102":3,"1103":3,"1104":3,"1105":5,"1106":3,"1107":2,"1108":2,"1109":5,"1110":5,"1111":2,"1112":5,"1113":9,"1114":4,"1115":7,"1116":2,"1117":5,"1118":3,"1119":1,"1120":6,"1121":3,"1122":5,"1123":4,"1124":2,"1125":4,"1126":5,"1127":5,"1128":4,"1129":4,"1130":4,"1131":2,"1132":4,"1133":2,"1134":3,"1135":3,"1136":3,"1137":6,"1138":3,"1139":3,"1140":7,"1141":4,"1142":4,"1143":5,"1144":4,"1145":3,"1146":6,"1147":3,"1148":5,"1149":6,"1150":4,"1151":3,"1152":4,"1153":3,"1154":2,"1155":4,"1156":8,"1157":3,"1158":5,"1159":6,"1160":1,"1161":4,"1162":6,"1163":4,"1164":5,"1165":11,"1166":3,"1168":1,"1169":5,"1170":3,"1171":8,"1172":6,"1173":3,"1174":6,"1175":4,"1176":2,"1177":5,"1178":4,"1179":3,"1180":9,"1181":1,"1182":4,"1183":3,"1184":6,"1185":3,"1186":3,"1187":5,"1188":2,"1189":4,"1190":2,"1191":3,"1192":4,"1193":10,"1194":2,"1195":2,"1196":2,"1197":3,"1198":3,"1199":4,"1200":5,"1201":6,"1202":1,"1203":5,"1204":6,"1205":2,"1206":3,"1207":7,"1208":5,"1209":3,"1210":3,"1211":4,"1212":6,"1213":1,"1214":2,"1215":6,"1216":8,"1217":5,"1218":8,"1219":4,"1220":1,"1221":5,"1222":6,"1223":7,"1224":3,"1225":4,"1226":6,"1227":5,"1228":3,"1229":5,"1230":3,"1231":1,"1232":3,"1233":2,"1234":4,"1235":5,"1236":4,"1237":3,"1238":4,"1239":6,"1240":6,"1241":9,"1242":7,"1243":7,"1244":4,"1245":4,"1246":3,"1248":3,"1249":5,"1250":4,"1251":3,"1253":2,"1255":6,"1256":1,"1257":1,"1258":6,"1259":2,"1260":3,"1261":2,"1262":1,"1263":4,"1265":1,"1266":2,"1267":1,"1268":2,"1269":3,"1270":4,"1272":2,"1273":4,"1274":2,"1275":2,"1276":3,"1277":2,"1279":2,"1281":2,"1282":1,"1283":3,"1284":2,"1285":3,"1286":3,"1288":2,"1289":2,"1290":5,"1291":1,"1292":2,"1294":2,"1295":3,"1296":3,"1297":1,"1298":5,"1299":1,"1300":1,"1301":3,"1303":1,"1306":5,"1307":4,"1308":4,"1309":3,"1310":2,"1311":3,"1312":1,"1314":2,"1315":1,"1316":2,"1317":3,"1319":2,"1321":1,"1323":2,"1324":2,"1325":2,"1326":4,"1327":5,"1328":4,"1329":4,"1330":5,"1331":2,"1332":1,"1333":9,"1334":7,"1335":2,"1336":4,"1337":9,"1338":4,"1339":2,"1340":5,"1341":6,"1342":4,"1343":4,"1344":6,"1345":3,"1346":6,"1347":3,"1349":3,"1350":3,"1351":3,"1352":1,"1353":5,"1354":2,"1355":1,"1356":3,"1357":1,"1358":1,"1359":2,"1361":3,"1362":2,"1363":4,"1364":1,"1365":1,"1366":2,"1367":2,"1368":2,"1369":2,"1370":1,"1371":2,"1372":1,"1373":1,"1374":2,"1375":2,"1377":2,"1378":3,"1379":2,"1381":1,"1382":1,"1384":1,"1394":1,"1397":1,"1399":1,"1405":1,"1444":1,"1445":1,"1446":2,"1447":2,"1448":2,"1449":2,"1451":2,"1454":1,"1459":2},"nonfork_created":45000,"nonfork_confirmed":45000,"nonfork_histogram_ms":{"31":1,"32":1,"39":1,"40":1,"41":2,"43":7,"44":4,"45":4,"46":6,"47":9,"48":10,"49":12,"50":10,"51":13,"52":46,"53":27,"54":24,"55":21,"56":37,"57":34,"58":22,"59":23,"60":21,"61":28,"62":42,"63":57,"64":53,"65":72,"66":93,"67":83,"68":103,"69":111,"70":115,"71":122,"72":119,"73":162,"74":132,"75":159,"76":161,"77":182,"78":207,"79":227,"80":234,"81":237,"82":260,"83":305,"84":296,"85":310,"86":350,"87":384,"88":416,"89":418,"90":450,"91":428,"92":445,"93":512,"94":549,"95":527,"96":558,"97":590,"98":594,"99":626,"100":687,"101":708,"102":697,"103":709,"104":759,"105":746,"106":790,"107":829,"108":854,"109":872,"110":898,"111":892,"112":903,"113":968,"114":938,"115":937,"116":936,"117":935,"118":963,"119":898,"120":863,"121":823,"122":789,"123":756,"124":702,"125":627,"126":643,"127":534,"128":511,"129":439,"130":437,"131":406,"132":358,"133":318,"134":300,"135":275,"136":218,"137":182,"138":154,"139":127,"140":109,"141":69,"142":72,"143":53,"144":43,"145":52,"146":41,"147":36,"148":32,"149":22,"150":24,"151":25,"152":27,"153":30,"154":40,"155":35,"156":32,"157":35,"158":31,"159":47,"160":25,"161":51,"162":48,"163":18,"164":10,"165":12,"166":16,"167":9,"168":19,"169":22,"170":21,"171":61,"172":58,"173":47,"174":25,"175":14,"176":18,"177":17,"178":28,"179":15,"180":12,"181":10,"182":11,"183":7,"184":15,"185":17,"186":16,"187":37,"188":30,"189":34,"190":25,"191":13,"192":14,"193":11,"194":7,"195":8,"196":19,"197":20,"198":19,"199":40,"200":27,"201":35,"202":46,"203":48,"204":60,"205":65,"206":39,"207":21,"208":16,"209":10,"210":11,"211":6,"212":5,"213":6,"214":7,"215":11,"216":11,"217":27,"218":21,"219":17,"220":27,"221":24,"222":19,"223":16,"224":29,"225":14,"226":18,"227":6,"228":9,"229":14,"230":9,"231":11,"232":28,"233":18,"234":26,"235":15,"236":26,"237":16,"238":14,"239":25,"240":20,"241":17,"242":8,"243":2,"247":1,"248":1,"250":1,"252":2,"253":1,"254":6,"255":3,"256":7,"257":2,"259":1,"261":4,"262":5,"263":4,"264":3,"265":2,"266":11,"267":7,"268":6,"269":2,"270":1,"272":2,"273":1,"274":3,"275":10,"276":13,"277":17,"278":17,"279":6,"280":5,"281":6,"282":9,"283":5,"284":7,"285":2,"286":5,"287":3,"288":6,"289":8,"290":5,"291":5,"292":3,"293":4,"294":5,"295":1,"296":3,"297":4,"298":5,"299":6,"300":6,"301":2,"302":1,"303":3,"304":8,"305":3,"306":2,"307":1,"308":4,"309":6,"310":2,"311":5,"312":4,"313":2,"314":5,"315":1,"316":11,"317":3,"318":5,"319":2,"320":15,"321":8,"322":1,"323":4,"324":2,"325":3,"326":3,"327":1,"328":3,"329":4,"330":11,"331":1,"332":5,"333":5,"334":10,"335":8,"336":6,"337":8,"338":5,"339":2,"340":7,"341":7,"342":5,"343":5,"344":3,"345":6,"346":4,"347":8,"348":10,"349":7,"350":7,"351":6,"352":9,"353":6,"354":12,"355":5,"356":6,"357":10,"358":3,"359":2,"360":10,"361":6,"362":7,"363":6,"364":7,"365":10,"366":9,"367":9,"368":6,"369":3,"370":7,"371":7,"372":3,"373":7,"374":9,"375":5,"376":4,"377":4,"378":4,"379":4,"380":6,"381":5,"382":8,"383":6,"384":4,"385":5,"386":5,"387":10,"388":1,"389":4,"390":8,"391":7,"392":7,"393":3,"394":7,"395":4,"396":6,"397":7,"398":6,"399":5,"400":6,"401":8,"402":3,"403":9,"404":4,"405":9,"406":3,"407":5,"408":3,"409":7,"410":2,"411":5,"412":3,"413":5,"414":4,"415":4,"416":3,"417":5,"418":5,"419":5,"420":2,"421":5,"422":3,"423":4,"424":4,"425":2,"426":4,"427":4,"428":6,"429":6,"431":5,"432":1,"433":4,"434":7,"435":2,"436":5,"437":5,"438":3,"439":2,"440":5,"441":8,"442":3,"443":5,"444":6,"445":6,"446":3,"447":4,"448":5,"449":6,"450":6,"451":3,"452":4,"453":4,"454":4,"455":6,"456":4,"457":3,"458":5,"459":4,"460":5,"461":4,"462":3,"463":4,"464":5,"465":6,"466":3,"467":4,"468":5,"469":6,"470":4,"471":6,"472":4,"473":3,"474":4,"475":5,"476":4,"477":2,"478":3,"479":2,"480":5,"481":3,"482":2,"483":3,"484":6,"485":5,"486":3,"487":4,"488":5,"489":2,"490":4,"491":6,"492":2,"493":5,"494":5,"495":4,"496":4,"497":4,"498":3,"499":6,"500":3,"501":2,"502":4,"503":4,"504":5,"505":3,"506":4,"507":5,"508":3,"509":4,"510":3,"511":5,"512":5,"513":3,"514":5,"515":3,"516":3,"517":5,"518":5,"519":4,"520":5,"521":4,"522":5,"523":8,"524":4,"525":4,"526":6,"527":5,"528":5,"529":8,"530":9,"531":10,"532":6,"533":4,"534":8,"535":5,"536":5,"537":7,"538":8,"539":4,"540":6,"541":10,"542":10,"543":7,"544":8,"545":9,"546":12,"547":6,"548":10,"549":14,"550":3,"551":7,"552":6,"553":10,"554":8,"555":6,"556":7,"557":9,"558":7,"559":10,"560":3,"561":9,"562":8,"563":11,"564":12,"565":5,"566":7,"567":17,"568":3,"569":7,"570":7,"571":6,"572":8,"573":9,"574":11,"575":7,"576":11,"577":14,"578":13,"579":7,"580":4,"581":10,"582":10,"583":13,"584":10,"585":6,"586":7,"587":8,"588":6,"589":6,"590":9,"591":7,"592":15,"593":7,"594":7,"595":6,"596":3,"597":7,"598":8,"599":11,"600":6,"601":8,"602":6,"603":6,"604":8,"605":8,"606":5,"607":5,"608":10,"609":5,"610":6,"611":7,"612":10,"613":6,"614":2,"615":2,"616":1,"617":5,"618":7,"619":5,"620":5,"621":5,"622":4,"623":6,"624":4,"625":4,"626":10,"627":2,"628":4,"629":5,"630":7,"631":5,"632":7,"633":5,"634":4,"635":4,"636":3,"637":5,"638":6,"639":6,"640":5,"641":5,"642":4,"643":4,"644":7,"645":3,"646":4,"647":8,"648":2,"649":1,"650":3,"651":8,"652":6,"653":6,"654":6,"655":5,"656":7,"657":4,"658":7,"659":6,"660":7,"661":7,"662":5,"663":5,"664":4,"665":8,"666":6,"667":8,"668":6,"669":8,"670":5,"671":6,"672":5,"673":6,"674":4,"675":9,"676":5,"677":8,"678":6,"679":4,"680":5,"681":9,"682":2,"683":4,"684":4,"685":1,"686":7,"687":7,"688":8,"689":6,"690":6,"691":6,"692":6,"693":6,"694":6,"695":8,"696":6,"697":2,"698":3,"700":5,"701":2,"702":6,"703":2,"704":3,"705":2,"706":5,"707":3,"708":1,"709":3,"710":5,"711":4,"712":3,"713":5,"714":3,"715":3,"716":5,"718":3,"719":6,"720":3,"721":1,"722":3,"723":9,"724":8,"725":2,"726":6,"727":7,"728":4,"729":3,"730":3,"731":4,"732":3,"733":4,"734":12,"735":5,"736":2,"737":3,"738":1,"739":5,"740":8,"741":4,"742":3,"743":3,"744":3,"745":2,"746":6,"747":4,"748":1,"749":5,"750":3,"751":4,"752":1,"753":4,"754":1,"755":6,"756":2,"757":5,"758":5,"759":2,"760":3,"761":6,"762":3,"763":2,"764":5,"765":5,"766":1,"767":4,"768":1,"769":2,"770":5,"771":6,"772":2,"773":2,"774":7,"775":4,"776":4,"777":3,"778":4,"779":4,"780":5,"781":4,"782":2,"783":5,"784":4,"785":2,"786":2,"787":8,"788":3,"789":3,"790":5,"791":2,"792":3,"793":3,"794":4,"795":6,"796":6,"797":2,"798":4,"799":5,"800":4,"801":6,"802":5,"803":4,"804":4,"805":2,"806":2,"807":13,"808":3,"809":4,"810":5,"811":5,"812":2,"813":3,"814":5,"815":1,"816":2,"817":3,"818":3,"819":6,"820":5,"821":4,"822":6,"823":7,"824":3,"825":1,"826":1,"827":4,"828":4,"829":2,"830":3,"831":2,"832":6,"833":1,"834":3,"835":5,"836":3,"837":4,"838":1,"839":4,"840":2,"841":4,"842":2,"843":7,"844":10,"845":1,"846":2,"847":7,"848":2,"849":4,"850":2,"851":7,"852":6,"853":5,"854":1,"855":1,"856":1,"857":5,"858":5,"859":5,"860":2,"861":1,"862":3,"863":3,"864":6,"865":2,"866":6,"867":2,"868":1,"870":2,"871":2,"872":6,"873":7,"874":3,"875":5,"876":4,"877":4,"878":5,"879":5,"881":2,"882":6,"883":2,"884":4,"885":4,"886":5,"887":7,"888":4,"889":2,"890":4,"891":6,"892":3,"893":4,"894":4,"895":2,"896":8,"897":6,"898":6,"899":1,"900":4,"901":2,"902":6,"903":3,"904":3,"905":5,"906":4,"907":6,"908":4,"909":3,"910":2,"911":1,"914":2,"915":3,"916":6,"917":4,"918":3,"919":3,"920":2,"921":2,"922":3,"923":3,"924":2,"925":4,"926":2,"927":4,"928":5,"929":2,"930":3,"931":1,"932":1,"933":2,"934":3,"935":6,"936":2,"937":4,"938":5,"939":3,"940":2,"941":4,"942":2,"943":5,"944":2,"945":3,"946":4,"947":4,"948":4,"949":3,"950":5,"951":3,"952":3,"953":3,"954":9,"955":2,"956":3,"957":2,"958":4,"959":4,"960":4,"961":5,"962":6,"963":2,"964":5,"965":3,"966":3,"967":1,"968":1,"969":6,"970":3,"971":5,"972":7,"973":5,"974":5,"975":1,"976":5,"977":3,"978":5,"979":4,"980":4,"981":4,"982":3,"983":2,"984":1,"985":5,"986":3,"987":1,"988":8,"989":6,"990":4,"991":6,"992":2,"993":2,"994":4,"995":8,"996":5,"997":5,"998":4,"999":3,"1000":5,"1001":2,"1002":7,"1003":5,"1004":9,"1005":3,"1006":2,"1007":5,"1008":3,"1009":6,"1010":6,"1012":3,"1013":9,"1014":4,"1015":4,"1016":3,"1017":7,"1018":3,"1019":4,"1020":5,"1021":6,"1022":1,"1023":5,"1024":5,"1025":3,"1026":5,"1027":3,"1028":4,"1029":3,"1030":3,"1031":1,"1032":3,"1033":6,"1034":5,"1035":5,"1036":3,"1037":3,"1038":2,"1039":6,"1040":3,"1041":1,"1042":5,"1043":3,"1044":4,"1045":3,"1046":5,"1047":2,"1048":8,"1049":3,"1050":4,"1051":1,"1052":2,"1053":4,"1054":5,"1055":2,"1056":5,"1057":5,"1058":1,"1059":3,"1060":2,"1061":1,"1062":8,"1063":4,"1064":2,"1065":3,"1066":4,"1067":6,"1068":7,"1069":6,"1070":5,"1071":2,"1072":2,"1073":6,"1074":4,"1075":4,"1076":5,"1077":6,"1078":8,"1079":2,"1080":3,"1081":3,"1082":1,"1083":1,"1084":4,"1085":1,"1086":2,"1087":8,"1088":5,"1089":2,"1090":4,"1091":3,"1092":4,"1093":4,"1094":6,"1095":4,"1096":3,"1097":2,"1098":3,"1099":5,"1100":6,"1101":5,"1102":3,"1103":3,"1104":3,"1105":5,"1106":3,"1107":2,"1108":2,"1109":5,"1110":5,"1111":2,"1112":5,"1113":9,"1114":4,"1115":7,"1116":2,"1117":5,"1118":3,"1119":1,"1120":6,"1121":3,"1122":5,"1123":4,"1124":2,"1125":4,"1126":5,"1127":5,"1128":4,"1129":4,"1130":4,"1131":2,"1132":4,"1133":2,"1134":3,"1135":3,"1136":3,"1137":6,"1138":3,"1139":3,"1140":7,"1141":4,"1142":4,"1143":5,"1144":4,"1145":3,"1146":6,"1147":3,"1148":5,"1149":6,"1150":4,"1151":3,"1152":4,"1153":3,"1154":2,"1155":4,"1156":8,"1157":3,"1158":5,"1159":6,"1160":1,"1161":4,"1162":6,"1163":4,"1164":5,"1165":11,"1166":3,"1168":1,"1169":5,"1170":3,"1171":8,"1172":6,"1173":3,"1174":6,"1175":4,"1176":2,"1177":5,"1178":4,"1179":3,"1180":9,"1181":1,"1182":4,"1183":3,"1184":6,"1185":3,"1186":3,"1187":5,"1188":2,"1189":4,"1190":2,"1191":3,"1192":4,"1193":10,"1194":2,"1195":2,"1196":2,"1197":3,"1198":3,"1199":4,"1200":5,"1201":6,"1202":1,"1203":5,"1204":6,"1205":2,"1206":3,"1207":7,"1208":5,"1209":3,"1210":3,"1211":4,"1212":6,"1213":1,"1214":2,"1215":6,"1216":8,"1217":5,"1218":8,"1219":4,"1220":1,"1221":5,"1222":6,"1223":7,"1224":3,"1225":4,"1226":6,"1227":5,"1228":3,"1229":5,"1230":3,"1231":1,"1232":3,"1233":2,"1234":4,"1235":5,"1236":4,"1237":3,"1238":4,"1239":6,"1240":6,"1241":9,"1242":7,"1243":7,"1244":4,"1245":4,"1246":3,"1248":3,"1249":5,"1250":4,"1251":3,"1253":2,"1255":6,"1256":1,"1257":1,"1258":6,"1259":2,"1260":3,"1261":2,"1262":1,"1263":4,"1265":1,"1266":2,"1267":1,"1268":2,"1269":3,"1270":4,"1272":2,"1273":4,"1274":2,"1275":2,"1276":3,"1277":2,"1279":2,"1281":2,"1282":1,"1283":3,"1284":2,"1285":3,"1286":3,"1288":2,"1289":2,"1290":5,"1291":1,"1292":2,"1294":2,"1295":3,"1296":3,"1297":1,"1298":5,"1299":1,"1300":1,"1301":3,"1303":1,"1306":5,"1307":4,"1308":4,"1309":3,"1310":2,"1311":3,"1312":1,"1314":2,"1315":1,"1316":2,"1317":3,"1319":2,"1321":1,"1323":2,"1324":2,"1325":2,"1326":4,"1327":5,"1328":4,"1329":4,"1330":5,"1331":2,"1332":1,"1333":9,"1334":7,"1335":2,"1336":4,"1337":9,"1338":4,"1339":2,"1340":5,"1341":6,"1342":4,"1343":4,"1344":6,"1345":3,"1346":6,"1347":3,"1349":3,"1350":3,"1351":3,"1352":1,"1353":5,"1354":2,"1355":1,"1356":3,"1357":1,"1358":1,"1359":2,"1361":3,"1362":2,"1363":4,"1364":1,"1365":1,"1366":2,"1367":2,"1368":2,"1369":2,"1370":1,"1371":2,"1372":1,"1373":1,"1374":2,"1375":2,"1377":2,"1378":3,"1379":2,"1381":1,"1382":1,"1384":1,"1394":1,"1397":1,"1399":1,"1405":1,"1444":1,"1445":1,"1446":2,"1447":2,"1448":2,"1449":2,"1451":2,"1454":1,"1459":2},"fork_created":0,"fork_confirmed":0,"fork_unresolved_at_end":0}
+EPOCH_ENDED epoch=2 elections=0 active=0 t=1791380187036
+EPOCH_ENDED epoch=2 elections=0 active=0 t=1791380187060
+EPOCH_ADVANCED epoch=3 elections=0 active=0 vote_records=450376 t=1791380187077
+EPOCH_ADVANCED epoch=3 elections=0 active=0 vote_records=450363 t=1791380187086
+EPOCH_CLOSE_UNREADY epoch=2 short_of=reports usable=0 weight=0 required=5 held=0 theirs=[] t=1791380187086
+EPOCH_REPORT epoch=2 certified=13045 residual=123 root=12A11E955E7F848EF4BAA4BF0622D68621A9730DEBA8AB31B2A368D566048D36 reports=1 t=1791380187094
+EPOCH_CLOSE_UNREADY epoch=2 short_of=reports usable=0 weight=0 required=5 held=1 theirs=["A353E45E:12A11E95:013EA96B"] t=1791380187095
+EPOCH_REPORT epoch=2 certified=13045 residual=123 root=12A11E955E7F848EF4BAA4BF0622D68621A9730DEBA8AB31B2A368D566048D36 reports=1 t=1791380187101
+EPOCH_ENDED epoch=2 elections=0 active=0 t=1791380187137
+EPOCH_ENDED epoch=2 elections=0 active=0 t=1791380187137
+EPOCH_ENDED epoch=2 elections=0 active=0 t=1791380187137
+EPOCH_ADVANCED epoch=3 elections=0 active=0 vote_records=450380 t=1791380187156
+EPOCH_ADVANCED epoch=3 elections=0 active=0 vote_records=450376 t=1791380187158
+EPOCH_ADVANCED epoch=3 elections=0 active=0 vote_records=450367 t=1791380187158
+EPOCH_REPORT epoch=2 certified=13045 residual=123 root=12A11E955E7F848EF4BAA4BF0622D68621A9730DEBA8AB31B2A368D566048D36 reports=1 t=1791380187168
+EPOCH_REPORT epoch=2 certified=13045 residual=123 root=12A11E955E7F848EF4BAA4BF0622D68621A9730DEBA8AB31B2A368D566048D36 reports=1 t=1791380187169
+EPOCH_REPORT epoch=2 certified=13045 residual=123 root=12A11E955E7F848EF4BAA4BF0622D68621A9730DEBA8AB31B2A368D566048D36 reports=1 t=1791380187169
+EPOCH_RECONCILED epoch=2 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=false entries=0 total=13045 symbols=0 dropped=false t=1791380187194
+EPOCH_RECONCILED epoch=2 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=false entries=123 total=123 symbols=0 dropped=false t=1791380187197
+EPOCH_RECONCILED epoch=2 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=false entries=0 total=13045 symbols=0 dropped=false t=1791380187197
+EPOCH_RECONCILED epoch=2 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=false entries=123 total=123 symbols=0 dropped=false t=1791380187199
+EPOCH_RECONCILED epoch=2 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=false entries=0 total=13045 symbols=0 dropped=false t=1791380187200
+EPOCH_RECONCILED epoch=2 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=false entries=123 total=123 symbols=0 dropped=false t=1791380187202
+EPOCH_RECONCILED epoch=2 reporter=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF complete=false entries=0 total=13045 symbols=0 dropped=false t=1791380187202
+EPOCH_RECONCILED epoch=2 reporter=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF complete=false entries=123 total=123 symbols=0 dropped=false t=1791380187204
+EPOCH_RECONCILED epoch=2 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=true entries=116 total=123 symbols=243 dropped=false t=1791380187206
+EPOCH_RECONCILED epoch=2 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=true entries=106 total=123 symbols=162 dropped=false t=1791380187206
+EPOCH_RECONCILED epoch=2 reporter=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF complete=true entries=106 total=123 symbols=162 dropped=false t=1791380187206
+EPOCH_RECONCILED epoch=2 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=true entries=128 total=123 symbols=243 dropped=false t=1791380187207
+EPOCH_CLOSE_READY epoch=2 t=1791380187210
+EPOCH_RECONCILED epoch=2 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=false entries=0 total=13045 symbols=0 dropped=false t=1791380187290
+EPOCH_RECONCILED epoch=2 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=false entries=123 total=123 symbols=0 dropped=false t=1791380187292
+EPOCH_RECONCILED epoch=2 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=false entries=0 total=13045 symbols=0 dropped=false t=1791380187292
+EPOCH_RECONCILED epoch=2 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=false entries=123 total=123 symbols=0 dropped=false t=1791380187295
+EPOCH_RECONCILED epoch=2 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=false entries=0 total=13045 symbols=0 dropped=false t=1791380187295
+EPOCH_RECONCILED epoch=2 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=false entries=123 total=123 symbols=0 dropped=false t=1791380187297
+EPOCH_RECONCILED epoch=2 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=false entries=0 total=13045 symbols=0 dropped=false t=1791380187297
+EPOCH_RECONCILED epoch=2 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=false entries=123 total=123 symbols=0 dropped=false t=1791380187299
+EPOCH_RECONCILED epoch=2 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=true entries=106 total=123 symbols=162 dropped=false t=1791380187301
+EPOCH_RECONCILED epoch=2 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=true entries=116 total=123 symbols=243 dropped=false t=1791380187302
+EPOCH_RECONCILED epoch=2 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=true entries=116 total=123 symbols=243 dropped=false t=1791380187302
+EPOCH_RECONCILED epoch=2 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=true entries=128 total=123 symbols=243 dropped=false t=1791380187302
+EPOCH_CLOSE_READY epoch=2 t=1791380187305
+EPOCH_RECONCILED epoch=2 reporter=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF complete=false entries=0 total=13045 symbols=0 dropped=false t=1791380187308
+EPOCH_RECONCILED epoch=2 reporter=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF complete=false entries=123 total=123 symbols=0 dropped=false t=1791380187310
+EPOCH_RECONCILED epoch=2 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=false entries=0 total=13045 symbols=0 dropped=false t=1791380187311
+EPOCH_RECONCILED epoch=2 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=false entries=123 total=123 symbols=0 dropped=false t=1791380187313
+EPOCH_RECONCILED epoch=2 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=false entries=0 total=13045 symbols=0 dropped=false t=1791380187314
+EPOCH_RECONCILED epoch=2 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=false entries=123 total=123 symbols=0 dropped=false t=1791380187316
+EPOCH_RECONCILED epoch=2 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=false entries=0 total=13045 symbols=0 dropped=false t=1791380187316
+EPOCH_RECONCILED epoch=2 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=false entries=123 total=123 symbols=0 dropped=false t=1791380187318
+EPOCH_RECONCILED epoch=2 reporter=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF complete=true entries=106 total=123 symbols=162 dropped=false t=1791380187321
+EPOCH_RECONCILED epoch=2 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=true entries=106 total=123 symbols=162 dropped=false t=1791380187321
+EPOCH_RECONCILED epoch=2 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=true entries=116 total=123 symbols=243 dropped=false t=1791380187321
+EPOCH_RECONCILED epoch=2 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=true entries=116 total=123 symbols=243 dropped=false t=1791380187321
+EPOCH_CLOSE_READY epoch=2 t=1791380187323
+EPOCH_RECONCILED epoch=2 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=false entries=0 total=13045 symbols=0 dropped=false t=1791380187354
+EPOCH_RECONCILED epoch=2 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=false entries=123 total=123 symbols=0 dropped=false t=1791380187356
+EPOCH_RECONCILED epoch=2 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=false entries=0 total=13045 symbols=0 dropped=false t=1791380187357
+EPOCH_RECONCILED epoch=2 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=false entries=123 total=123 symbols=0 dropped=false t=1791380187359
+EPOCH_RECONCILED epoch=2 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=false entries=0 total=13045 symbols=0 dropped=false t=1791380187359
+EPOCH_RECONCILED epoch=2 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=false entries=123 total=123 symbols=0 dropped=false t=1791380187361
+EPOCH_RECONCILED epoch=2 reporter=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF complete=false entries=0 total=13045 symbols=0 dropped=false t=1791380187361
+EPOCH_RECONCILED epoch=2 reporter=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF complete=false entries=123 total=123 symbols=0 dropped=false t=1791380187363
+EPOCH_RECONCILED epoch=2 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=true entries=116 total=123 symbols=243 dropped=false t=1791380187364
+EPOCH_RECONCILED epoch=2 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=true entries=106 total=123 symbols=162 dropped=false t=1791380187366
+EPOCH_RECONCILED epoch=2 reporter=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF complete=true entries=106 total=123 symbols=162 dropped=false t=1791380187366
+EPOCH_RECONCILED epoch=2 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=true entries=128 total=123 symbols=243 dropped=false t=1791380187366
+EPOCH_CLOSE_READY epoch=2 t=1791380187369
+EPOCH_RECONCILED epoch=2 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=false entries=0 total=13045 symbols=0 dropped=false t=1791380187373
+EPOCH_RECONCILED epoch=2 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=false entries=123 total=123 symbols=0 dropped=false t=1791380187375
+EPOCH_RECONCILED epoch=2 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=false entries=0 total=13045 symbols=0 dropped=false t=1791380187375
+EPOCH_RECONCILED epoch=2 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=false entries=123 total=123 symbols=0 dropped=false t=1791380187377
+EPOCH_RECONCILED epoch=2 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=false entries=0 total=13045 symbols=0 dropped=false t=1791380187378
+EPOCH_RECONCILED epoch=2 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=false entries=123 total=123 symbols=0 dropped=false t=1791380187380
+EPOCH_RECONCILED epoch=2 reporter=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF complete=false entries=0 total=13045 symbols=0 dropped=false t=1791380187380
+EPOCH_RECONCILED epoch=2 reporter=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF complete=false entries=123 total=123 symbols=0 dropped=false t=1791380187382
+EPOCH_RECONCILED epoch=2 reporter=65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF complete=true entries=106 total=123 symbols=162 dropped=false t=1791380187383
+EPOCH_RECONCILED epoch=2 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=true entries=128 total=123 symbols=243 dropped=false t=1791380187385
+EPOCH_RECONCILED epoch=2 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=true entries=116 total=123 symbols=243 dropped=false t=1791380187385
+EPOCH_RECONCILED epoch=2 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=true entries=116 total=123 symbols=243 dropped=false t=1791380187385
+EPOCH_CLOSE_READY epoch=2 t=1791380187387
+EPOCH_CLOSE_ROUND epoch=2 round=0 leader=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F leads=false t=1791380187486
+EPOCH_CLOSE_ROUND epoch=2 round=0 leader=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F leads=false t=1791380187593
+EPOCH_CLOSE_ROUND epoch=2 round=0 leader=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F leads=false t=1791380187611
+EPOCH_CLOSE_ROUND epoch=2 round=0 leader=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F leads=false t=1791380187649
+EPOCH_CLOSE_ROUND epoch=2 round=0 leader=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F leads=false t=1791380187676
+EPOCH_CLOSE_ROUND epoch=2 round=1 leader=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 leads=false t=1791380189933
+EPOCH_CLOSE_ROUND epoch=2 round=1 leader=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 leads=false t=1791380190041
+EPOCH_CLOSE_ROUND epoch=2 round=1 leader=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 leads=false t=1791380190078
+EPOCH_CLOSE_ROUND epoch=2 round=1 leader=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 leads=false t=1791380190102
+EPOCH_CLOSE_ROUND epoch=2 round=1 leader=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 leads=true t=1791380190133
+EPOCH_PROPOSED epoch=2 round=1 value=B8859D794A4E8B8C80446AFF3FCA3094F1E96601D6383E5F4482BD115B5139B1 state=6D79873C204A6C07825E7A292BD49BD02CB6F3031CF523F1D1AE736911029B51 reports=5 t=1791380190209
+EPOCH_VALUE epoch=2 value=B8859D794A4E8B8C80446AFF3FCA3094F1E96601D6383E5F4482BD115B5139B1 state=6D79873C204A6C07825E7A292BD49BD02CB6F3031CF523F1D1AE736911029B51 t=1791380190209
+EPOCH_VALUE epoch=2 value=B8859D794A4E8B8C80446AFF3FCA3094F1E96601D6383E5F4482BD115B5139B1 state=6D79873C204A6C07825E7A292BD49BD02CB6F3031CF523F1D1AE736911029B51 t=1791380190290
+EPOCH_VALUE epoch=2 value=B8859D794A4E8B8C80446AFF3FCA3094F1E96601D6383E5F4482BD115B5139B1 state=6D79873C204A6C07825E7A292BD49BD02CB6F3031CF523F1D1AE736911029B51 t=1791380190291
+EPOCH_VALUE epoch=2 value=B8859D794A4E8B8C80446AFF3FCA3094F1E96601D6383E5F4482BD115B5139B1 state=6D79873C204A6C07825E7A292BD49BD02CB6F3031CF523F1D1AE736911029B51 t=1791380190294
+EPOCH_VALUE epoch=2 value=B8859D794A4E8B8C80446AFF3FCA3094F1E96601D6383E5F4482BD115B5139B1 state=6D79873C204A6C07825E7A292BD49BD02CB6F3031CF523F1D1AE736911029B51 t=1791380190294
+EPOCH_INSTALL epoch=2 finalized=13045 instances_confirmed=10 t=1791380190400
+EPOCH_INSTALL epoch=2 finalized=13045 instances_confirmed=10 t=1791380190400
+EPOCH_INSTALL epoch=2 finalized=13045 instances_confirmed=10 t=1791380190400
+EPOCH_INSTALL epoch=2 finalized=13045 instances_confirmed=10 t=1791380190401
+EPOCH_INSTALL epoch=2 finalized=13045 instances_confirmed=10 t=1791380190402
+EPOCH_COMMITTEE derived_by=2 members=6 accounts=17741 n=6 digest=95D409445152DD075E6A4799205DFA5689496EB8EE1A22AC2A200B9DBC2DCF27 shares=["A353E45E:16.7%", "735FE217:16.7%", "D315857C:16.7%", "911999B2:16.7%", "633D9D61:16.7%", "65A90023:16.7%"] t=1791380190550
+EPOCH_CLOSED epoch=2 round=1 value=B8859D794A4E8B8C80446AFF3FCA3094F1E96601D6383E5F4482BD115B5139B1 state=6D79873C204A6C07825E7A292BD49BD02CB6F3031CF523F1D1AE736911029B51 t=1791380190550
+EPOCH_COMMITTEE derived_by=2 members=6 accounts=17741 n=6 digest=95D409445152DD075E6A4799205DFA5689496EB8EE1A22AC2A200B9DBC2DCF27 shares=["A353E45E:16.7%", "735FE217:16.7%", "D315857C:16.7%", "911999B2:16.7%", "633D9D61:16.7%", "65A90023:16.7%"] t=1791380190559
+EPOCH_CLOSED epoch=2 round=1 value=B8859D794A4E8B8C80446AFF3FCA3094F1E96601D6383E5F4482BD115B5139B1 state=6D79873C204A6C07825E7A292BD49BD02CB6F3031CF523F1D1AE736911029B51 t=1791380190559
+EPOCH_COMMITTEE derived_by=2 members=6 accounts=17741 n=6 digest=95D409445152DD075E6A4799205DFA5689496EB8EE1A22AC2A200B9DBC2DCF27 shares=["A353E45E:16.7%", "735FE217:16.7%", "D315857C:16.7%", "911999B2:16.7%", "633D9D61:16.7%", "65A90023:16.7%"] t=1791380190559
+EPOCH_CLOSED epoch=2 round=1 value=B8859D794A4E8B8C80446AFF3FCA3094F1E96601D6383E5F4482BD115B5139B1 state=6D79873C204A6C07825E7A292BD49BD02CB6F3031CF523F1D1AE736911029B51 t=1791380190559
+EPOCH_COMMITTEE derived_by=2 members=6 accounts=17741 n=6 digest=95D409445152DD075E6A4799205DFA5689496EB8EE1A22AC2A200B9DBC2DCF27 shares=["A353E45E:16.7%", "735FE217:16.7%", "D315857C:16.7%", "911999B2:16.7%", "633D9D61:16.7%", "65A90023:16.7%"] t=1791380190571
+EPOCH_CLOSED epoch=2 round=1 value=B8859D794A4E8B8C80446AFF3FCA3094F1E96601D6383E5F4482BD115B5139B1 state=6D79873C204A6C07825E7A292BD49BD02CB6F3031CF523F1D1AE736911029B51 t=1791380190571
+EPOCH_INSTALLED epoch=2 finalized=13045 cemented=13045 queued=0 missing=0 t=1791380190572
+EPOCH_INSTALLED epoch=2 finalized=13045 cemented=13045 queued=0 missing=0 t=1791380190579
+EPOCH_INSTALLED epoch=2 finalized=13045 cemented=13045 queued=0 missing=0 t=1791380190586
+EPOCH_COMMITTEE derived_by=2 members=6 accounts=17741 n=6 digest=95D409445152DD075E6A4799205DFA5689496EB8EE1A22AC2A200B9DBC2DCF27 shares=["A353E45E:16.7%", "735FE217:16.7%", "D315857C:16.7%", "911999B2:16.7%", "633D9D61:16.7%", "65A90023:16.7%"] t=1791380190590
+EPOCH_CLOSED epoch=2 round=1 value=B8859D794A4E8B8C80446AFF3FCA3094F1E96601D6383E5F4482BD115B5139B1 state=6D79873C204A6C07825E7A292BD49BD02CB6F3031CF523F1D1AE736911029B51 t=1791380190590
+EPOCH_INSTALLED epoch=2 finalized=13045 cemented=13045 queued=0 missing=0 t=1791380190591
+EPOCH_INSTALLED epoch=2 finalized=13045 cemented=13045 queued=0 missing=0 t=1791380190607
