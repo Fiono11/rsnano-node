@@ -335,6 +335,46 @@ impl AecService {
         self.aec.read().unwrap().epoch_proposals_due()
     }
 
+    /// RAI: the certificates the signed votes held here assemble for each
+    /// block, one lock for the whole list
+    #[cfg(feature = "rai_protocol")]
+    pub fn certificate_kinds(
+        &self,
+        epoch: ConsensusEpoch,
+        hashes: &[BlockHash],
+    ) -> Option<Vec<crate::consensus::election::CertificateKinds>> {
+        let aec = self.aec.read().unwrap();
+        hashes
+            .iter()
+            .map(|hash| aec.certificate_kinds(epoch, hash))
+            .collect()
+    }
+
+    /// RAI: the signed votes held for blocks of an epoch, to relay
+    #[cfg(feature = "rai_protocol")]
+    pub fn evidence_votes(
+        &self,
+        epoch: ConsensusEpoch,
+        hashes: &[BlockHash],
+    ) -> Vec<std::sync::Arc<rsnano_types::Vote>> {
+        self.aec.read().unwrap().evidence_votes(epoch, hashes)
+    }
+
+    /// RAI: whether this node holds a voter's signed vote for a block
+    #[cfg(feature = "rai_protocol")]
+    pub fn has_votes(
+        &self,
+        epoch: ConsensusEpoch,
+        voter: &PublicKey,
+        votes: &[(BlockHash, crate::consensus::election::ResidualKind)],
+    ) -> Vec<bool> {
+        let aec = self.aec.read().unwrap();
+        votes
+            .iter()
+            .map(|(hash, kind)| aec.has_vote(epoch, voter, hash, *kind))
+            .collect()
+    }
+
     /// RAI: `O_e = C_{e-2}`, the committee an epoch's reports are counted in
     #[cfg(feature = "rai_protocol")]
     pub fn epoch_committee(

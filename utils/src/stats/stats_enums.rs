@@ -149,6 +149,9 @@ pub enum DetailType {
     ReportSymbolsReply,
     /// RAI: blocks asked for by hash after a checkpoint
     BlocksReq,
+    /// RAI: the signed votes behind report certificates
+    EvidenceReq,
+    ReportUnverified,
     CheckpointBlockCemented,
     CheckpointBlockRequested,
     CheckpointBlockForced,

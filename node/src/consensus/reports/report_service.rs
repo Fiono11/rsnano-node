@@ -3,13 +3,15 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use rsnano_messages::{Message, Report, ReportSymbolsReply, ReportSymbolsReq};
+use rsnano_messages::{
+    ConfirmAck, EvidenceReq, Message, Report, ReportSymbolsReply, ReportSymbolsReq,
+};
 use rsnano_network::{Channel, TrafficType};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{ConsensusEpoch, PublicKey};
 use rsnano_utils::stats::{DetailType, Direction, StatType, Stats};
 
-use super::{ReconcileResult, ReportExchange, ReportMessage};
+use super::{ReconcileResult, ReportExchange, ReportMessage, unjustified};
 use crate::{
     consensus::{AecService, EpochReport},
     transport::MessageFlooder,
@@ -270,6 +272,88 @@ impl ReportService {
             .unwrap()
             .stream_requests(self.clock.now());
         self.send(requests, None);
+        self.verify_reports();
+    }
+
+    /// RAI: checks every reconstructed report against the signed votes
+    /// held here before it becomes usable, and asks for what is missing
+    fn verify_reports(&self) {
+        let now = self.clock.now();
+        let epochs = self.exchange.lock().unwrap().pending_epochs();
+        for epoch in epochs {
+            let previous = self.active_elections.epoch_previous_state(epoch);
+            let aec = &self.active_elections;
+            let requests = self.exchange.lock().unwrap().verify(
+                epoch,
+                now,
+                |reporter, certified, residual, only| {
+                    unjustified(
+                        certified,
+                        residual,
+                        only,
+                        &|hashes| aec.certificate_kinds(epoch, hashes),
+                        &|block| {
+                            previous.as_ref().is_some_and(|previous| {
+                                previous.is_finalized(
+                                    &crate::consensus::election::AccountSlot::new(
+                                        block.account,
+                                        block.height,
+                                    ),
+                                    &block.hash,
+                                )
+                            })
+                        },
+                        &|votes| aec.has_votes(epoch, reporter, votes),
+                    )
+                },
+            );
+            for (reporter, missing) in requests {
+                self.stats.add(
+                    StatType::Message,
+                    DetailType::ReportUnverified,
+                    missing.len() as u64,
+                );
+                crate::utils::diagnostic!(
+                    "EPOCH_EVIDENCE_MISSING epoch={} reporter={} hashes={}",
+                    epoch,
+                    reporter,
+                    missing.len()
+                );
+                for chunk in missing.chunks(EvidenceReq::MAX_HASHES) {
+                    self.stats
+                        .inc_dir(StatType::Message, DetailType::EvidenceReq, Direction::Out);
+                    self.flooder.lock().unwrap().flood_prs_and_some_non_prs(
+                        &Message::EvidenceReq(EvidenceReq {
+                            epoch,
+                            hashes: chunk.to_vec(),
+                        }),
+                        TrafficType::Generic,
+                        1.0,
+                    );
+                }
+            }
+        }
+    }
+
+    /// RAI: a node lacking the evidence of a report's certificates asks for
+    /// it; the signed votes held here go back as certificate evidence
+    pub fn handle_evidence_request(&self, request: EvidenceReq, channel: &Arc<Channel>) {
+        self.stats
+            .inc_dir(StatType::Message, DetailType::EvidenceReq, Direction::In);
+        let hashes: Vec<_> = request
+            .hashes
+            .into_iter()
+            .take(EvidenceReq::MAX_HASHES)
+            .collect();
+        let votes = self.active_elections.evidence_votes(request.epoch, &hashes);
+        let mut flooder = self.flooder.lock().unwrap();
+        for vote in votes {
+            flooder.try_send(
+                channel,
+                &Message::ConfirmAck(ConfirmAck::new_with_certificate_evidence((*vote).clone())),
+                TrafficType::VoteReply,
+            );
+        }
     }
 
     /// How many reports of the epoch are usable here: what an epoch proposal

@@ -188,6 +188,18 @@ impl CertifiedState {
     }
 }
 
+/// RAI: the certificates a node can assemble for one block from the signed
+/// votes it holds
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CertificateKinds {
+    /// First and final votes of a certificate's weight
+    pub notarization: bool,
+    /// Final votes of a certificate's weight
+    pub finalization: bool,
+    /// First votes of the fast threshold's weight
+    pub fast: bool,
+}
+
 /// Vote kinds retained in a reporter's residual evidence.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ResidualKind {

@@ -252,6 +252,8 @@ impl NetworkMessageProcessor {
             Message::BlocksReq(request) => {
                 self.checkpoint_follower.handle_request(request, channel)
             }
+            #[cfg(feature = "rai_protocol")]
+            Message::EvidenceReq(request) => self.reports.handle_evidence_request(request, channel),
 
             #[cfg(feature = "ledger_snapshots")]
             Message::SnapshotPreproposal(preproposal) => {

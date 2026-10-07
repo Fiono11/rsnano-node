@@ -69,6 +69,11 @@ mod epoch_prop;
 pub use epoch_prop::*;
 
 #[cfg(feature = "rai_protocol")]
+mod evidence_req;
+#[cfg(feature = "rai_protocol")]
+pub use evidence_req::*;
+
+#[cfg(feature = "rai_protocol")]
 mod blocks_req;
 #[cfg(feature = "rai_protocol")]
 pub use blocks_req::*;

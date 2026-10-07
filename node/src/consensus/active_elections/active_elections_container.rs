@@ -13,7 +13,7 @@ use rsnano_ledger::RepWeights;
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{
     Account, Amount, Block, BlockHash, BlockPriority, ConsensusEpoch, PublicKey, QualifiedRoot,
-    SavedBlock, TimePriority, VoteError, VoteKind,
+    SavedBlock, TimePriority, Vote, VoteError, VoteKind,
 };
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -2283,6 +2283,11 @@ impl ActiveElectionsContainer {
             // Close-election kinds; an account domain ignores them
             VoteKind::Notar | VoteKind::Timeout | VoteKind::Abstain => return,
         };
+        // Indexed by block before any placement: a report's certificates are
+        // checked by hash, and a block this node does not hold may still be
+        // in a report
+        self.vote_records
+            .support_vote(&vote.vote.vote, vote.filtered_blocks().copied());
         for hash in vote.filtered_blocks() {
             let placed = self
                 .roots
@@ -2310,6 +2315,65 @@ impl ActiveElectionsContainer {
                 previous,
             );
         }
+    }
+
+    /// RAI: the certificates the signed votes held here assemble for a block
+    /// of an epoch, counted in the committee that issued the epoch's votes.
+    /// Notarization weight comes from first and final votes alike, as an
+    /// election counts it. None without a known committee.
+    pub fn certificate_kinds(
+        &self,
+        epoch: ConsensusEpoch,
+        hash: &BlockHash,
+    ) -> Option<crate::consensus::election::CertificateKinds> {
+        let committee = self.committees.committee(epoch)?;
+        let thresholds = committee.thresholds();
+        let Some(support) = self.vote_records.support(epoch, hash) else {
+            return Some(Default::default());
+        };
+        let weight = |voters: &mut dyn Iterator<Item = &PublicKey>| {
+            voters.fold(Amount::ZERO, |sum, voter| {
+                sum.number()
+                    .checked_add(committee.weight(voter).number())
+                    .map(Amount::raw)
+                    .unwrap_or(Amount::MAX)
+            })
+        };
+        let notarizing: BTreeSet<&PublicKey> =
+            support.first.iter().chain(support.final_.iter()).collect();
+        Some(crate::consensus::election::CertificateKinds {
+            notarization: weight(&mut notarizing.into_iter()) >= thresholds.certificate,
+            finalization: weight(&mut support.final_.iter()) >= thresholds.certificate,
+            fast: weight(&mut support.first.iter()) >= thresholds.fast,
+        })
+    }
+
+    /// RAI: the signed votes held for the given blocks of an epoch, for a
+    /// node that lacks the evidence of a report's certificates
+    pub fn evidence_votes(&self, epoch: ConsensusEpoch, hashes: &[BlockHash]) -> Vec<Arc<Vote>> {
+        let mut votes: Vec<Arc<Vote>> = Vec::new();
+        for hash in hashes {
+            if let Some(support) = self.vote_records.support(epoch, hash) {
+                for vote in support.votes() {
+                    if !votes.iter().any(|held| Arc::ptr_eq(held, vote)) {
+                        votes.push(vote.clone());
+                    }
+                }
+            }
+        }
+        votes
+    }
+
+    /// RAI: whether this node holds a voter's signed vote of a kind for a
+    /// block of an epoch
+    pub fn has_vote(
+        &self,
+        epoch: ConsensusEpoch,
+        voter: &PublicKey,
+        hash: &BlockHash,
+        kind: ResidualKind,
+    ) -> bool {
+        self.vote_records.has_vote(epoch, voter, hash, kind)
     }
 
     /// RAI: the votes of one voter received for one epoch, with the parent
@@ -2806,6 +2870,75 @@ mod tests {
         container.set_current_epoch(ConsensusEpoch::new(1));
         container.release_undecided_instances(ConsensusEpoch::ZERO);
         assert!(container.election_for_block(&block.hash()).is_none());
+    }
+
+    /// RAI: the certificates assembled from the signed votes held count
+    /// final voters toward notarization, as an election does, so a report's
+    /// notarized entry that leaned on final votes can be verified
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn certificate_kinds_count_final_voters_as_an_election_does() {
+        let now = Timestamp::new_test_instance();
+        let mut container = ActiveElectionsContainer::default();
+        let reps: Vec<PrivateKey> = (1..=4).map(PrivateKey::from).collect();
+        container.set_genesis_committee(
+            reps.iter()
+                .enumerate()
+                .map(|(i, rep)| AccountFrontier {
+                    account: PrivateKey::from(10 + i as u64).account(),
+                    height: 1,
+                    hash: BlockHash::from(70 + i as u64),
+                    representative: rep.public_key(),
+                    balance: Amount::raw(100),
+                })
+                .collect(),
+        );
+        container.start_epochs(now);
+        let block = SavedBlock::new_test_instance();
+        let hash = block.hash();
+        container
+            .insert(
+                AecInsertRequest::new_priority(block, BlockPriority::new_test_instance()),
+                now,
+            )
+            .unwrap();
+        assert_eq!(
+            container.certificate_kinds(ConsensusEpoch::ZERO, &hash),
+            Some(Default::default())
+        );
+        for (rep, kind) in reps.iter().zip([
+            VoteKind::First,
+            VoteKind::First,
+            VoteKind::Final,
+            VoteKind::Final,
+        ]) {
+            let vote = Vote::new_in_epoch(rep, kind, ConsensusEpoch::ZERO, vec![hash]);
+            container.apply_vote(ApplyVoteArgs {
+                vote: &ReceivedVote::new(Arc::new(vote), VoteDelivery::Direct, None).into(),
+                rep_weights: &RepWeights::default(),
+                quorum_snapshot: &QuorumSnapshot::new_test_instance(),
+                now,
+            });
+        }
+        let kinds = container
+            .certificate_kinds(ConsensusEpoch::ZERO, &hash)
+            .unwrap();
+        assert!(kinds.notarization);
+        assert!(!kinds.finalization);
+        assert!(!kinds.fast);
+        // The signed votes are kept for a node that lacks them
+        assert_eq!(
+            container
+                .evidence_votes(ConsensusEpoch::ZERO, &[hash])
+                .len(),
+            4
+        );
+        assert!(container.has_vote(
+            ConsensusEpoch::ZERO,
+            &reps[2].public_key(),
+            &hash,
+            ResidualKind::Final
+        ));
     }
 
     #[test]

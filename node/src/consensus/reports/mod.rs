@@ -2,8 +2,8 @@ mod epoch_decision;
 mod report_plugin;
 mod report_service;
 use crate::consensus::election::{
-    CertifiedBlock, CertifiedState, CodedSymbol, Decoder, Encoder, ReportCommitment, ResidualKind,
-    ResidualVotes,
+    CertificateKinds, CertifiedBlock, CertifiedState, CertifiedStatus, CodedSymbol, Decoder,
+    Encoder, ReportCommitment, ResidualKind, ResidualVotes,
 };
 pub use epoch_decision::EpochDecisionService;
 pub(crate) use report_plugin::{ReportPlugin, ReportTicker};
@@ -40,6 +40,12 @@ struct TheirReport {
     derived: Option<Timestamp>,
     certified_stream: Option<Stream<CertifiedState>>,
     residual_stream: Option<Stream<ResidualVotes>>,
+    /// Every certified entry and residual record is justified by signed
+    /// votes held here: only then is the report usable
+    verified: bool,
+    /// The hashes still lacking evidence, rechecked alone
+    missing: Vec<BlockHash>,
+    verified_at: Option<Timestamp>,
 }
 
 /// RAI: one running reconciliation of an inventory against a fixed base,
@@ -124,6 +130,59 @@ impl TheirReport {
     fn is_complete(&self) -> bool {
         self.reconstructed.is_some() && self.residual.is_some()
     }
+
+    fn is_usable(&self) -> bool {
+        self.is_complete() && self.verified
+    }
+}
+
+/// RAI, "Reports that remain reconstructible": the hashes of a
+/// reconstructed report whose evidence this node lacks. A root authenticates
+/// the tags of a report, not the quorums behind them: a notarized entry
+/// needs a notarization certificate assembled here from signed votes of the
+/// epoch, a finalized entry a finalization or fast certificate or the
+/// predecessor checkpoint's finality, and a residual record the reporter's
+/// own signed vote. `only` restricts the check to hashes found missing
+/// before. None while the epoch's committee is not known here.
+pub(crate) fn unjustified(
+    certified: &CertifiedState,
+    residual: &ResidualVotes,
+    only: Option<&[BlockHash]>,
+    certificate_kinds: &dyn Fn(&[BlockHash]) -> Option<Vec<CertificateKinds>>,
+    previously_finalized: &dyn Fn(&CertifiedBlock) -> bool,
+    reporter_votes: &dyn Fn(&[(BlockHash, ResidualKind)]) -> Vec<bool>,
+) -> Option<Vec<BlockHash>> {
+    let wanted = |hash: &BlockHash| only.is_none_or(|only| only.contains(hash));
+    let entries: Vec<(&CertifiedBlock, CertifiedStatus)> = certified
+        .entries()
+        .filter(|(block, _)| wanted(&block.hash))
+        .map(|(block, entry)| (block, entry.status))
+        .collect();
+    let hashes: Vec<BlockHash> = entries.iter().map(|(block, _)| block.hash).collect();
+    let kinds = certificate_kinds(&hashes)?;
+    let mut missing = Vec::new();
+    for ((block, status), kinds) in entries.iter().zip(kinds) {
+        let justified = match status {
+            CertifiedStatus::Notarized => kinds.notarization,
+            CertifiedStatus::Finalized => {
+                kinds.finalization || kinds.fast || previously_finalized(block)
+            }
+        };
+        if !justified {
+            missing.push(block.hash);
+        }
+    }
+    let records: Vec<(BlockHash, ResidualKind)> = residual
+        .entries()
+        .filter(|(block, _, _)| wanted(&block.hash))
+        .map(|(block, kind, _)| (block.hash, kind))
+        .collect();
+    for ((hash, _), held) in records.iter().zip(reporter_votes(&records)) {
+        if !held && !missing.contains(hash) {
+            missing.push(*hash);
+        }
+    }
+    Some(missing)
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ReportMessage {
@@ -271,6 +330,7 @@ impl ReportExchange {
         if their.report.certified != certified
             || their.report.residual != residual
             || their.report.predecessor != predecessor
+            || !their.verified
         {
             return None;
         }
@@ -287,13 +347,17 @@ impl ReportExchange {
                 held.residuals.get(&report.residual)?,
             ))
         });
-        let theirs = held.theirs.values().filter_map(|their| {
-            Some((
-                &their.report,
-                their.reconstructed.as_ref()?,
-                their.residual.as_ref()?,
-            ))
-        });
+        let theirs = held
+            .theirs
+            .values()
+            .filter(|their| their.verified)
+            .filter_map(|their| {
+                Some((
+                    &their.report,
+                    their.reconstructed.as_ref()?,
+                    their.residual.as_ref()?,
+                ))
+            });
         own.chain(theirs).collect()
     }
     pub fn handle_report(&mut self, report: Report) -> bool {
@@ -331,6 +395,9 @@ impl ReportExchange {
                 derived: None,
                 certified_stream: None,
                 residual_stream: None,
+                verified: false,
+                missing: Vec::new(),
+                verified_at: None,
             },
         );
         true
@@ -386,6 +453,63 @@ impl ReportExchange {
             total,
             symbols: 0,
             dropped: false,
+        })
+    }
+
+    /// RAI: checks the reconstructed reports not yet verified, at most once
+    /// per `RETRY_INTERVAL` each: the first time every entry, later only the
+    /// hashes found missing. Returns, per reporter, the hashes still lacking
+    /// evidence, which are asked for.
+    pub fn verify(
+        &mut self,
+        epoch: ConsensusEpoch,
+        now: Timestamp,
+        mut check: impl FnMut(
+            &PublicKey,
+            &CertifiedState,
+            &ResidualVotes,
+            Option<&[BlockHash]>,
+        ) -> Option<Vec<BlockHash>>,
+    ) -> Vec<(PublicKey, Vec<BlockHash>)> {
+        let mut requests = Vec::new();
+        let Some(held) = self.epochs.get_mut(&epoch) else {
+            return requests;
+        };
+        for (reporter, their) in &mut held.theirs {
+            if their.verified
+                || their
+                    .verified_at
+                    .is_some_and(|at| at.elapsed(now) < Self::RETRY_INTERVAL)
+            {
+                continue;
+            }
+            let (Some(certified), Some(residual)) = (&their.reconstructed, &their.residual) else {
+                continue;
+            };
+            let only = their
+                .verified_at
+                .is_some()
+                .then_some(their.missing.as_slice());
+            let Some(missing) = check(reporter, certified, residual, only) else {
+                continue;
+            };
+            their.verified_at = Some(now);
+            their.verified = missing.is_empty();
+            if !missing.is_empty() {
+                requests.push((*reporter, missing.clone()));
+            }
+            their.missing = missing;
+        }
+        requests
+    }
+
+    /// RAI: reconstructed reports still lacking evidence, for the record
+    pub fn unverified_count(&self, epoch: ConsensusEpoch) -> usize {
+        self.epochs.get(&epoch).map_or(0, |held| {
+            held.theirs
+                .values()
+                .filter(|their| their.is_complete() && !their.verified)
+                .count()
         })
     }
 
@@ -697,6 +821,7 @@ mod tests {
             .unwrap();
         assert!(messages.is_empty());
         assert!(result.unwrap().complete);
+        trust_all(&mut exchange, report.epoch);
         assert_eq!(exchange.usable(report.epoch).len(), 1);
     }
 
@@ -723,6 +848,7 @@ mod tests {
             report.reporter,
             Timestamp::new_test_instance(),
         );
+        trust_all(&mut exchange, report.epoch);
         assert_eq!(exchange.usable(report.epoch).len(), 1);
     }
 
@@ -744,6 +870,7 @@ mod tests {
             [(block(), ResidualKind::First, BlockHash::ZERO)],
             now,
         );
+        trust_all(&mut exchange, report.epoch);
         assert_eq!(exchange.usable(report.epoch).len(), 1);
     }
 
@@ -776,6 +903,7 @@ mod tests {
         live.certify(block(), BlockHash::ZERO, CertifiedStatus::Finalized);
         exchange.refresh_live(epoch, live);
         assert_ne!(exchange.live_root(epoch), Some(own.certified));
+        trust_all(&mut exchange, epoch);
         assert_eq!(exchange.usable(epoch).len(), 1);
         assert_eq!(exchange.usable(epoch)[0].1.root(), own.certified);
     }
@@ -793,6 +921,7 @@ mod tests {
         assert!(messages.is_empty() && result.is_none());
         let rounds = pull(&mut requester, &mut reporter, now);
         assert!(rounds >= 1);
+        trust_all(&mut requester, report.epoch);
         let usable = requester.usable(report.epoch);
         assert_eq!(usable.len(), 1);
         assert_eq!(usable[0].1.root(), report.certified);
@@ -804,6 +933,7 @@ mod tests {
         let (mut reporter, report, mut requester, now) = diverged(3000, 3010);
         requester.reconcile(report.epoch, report.reporter, now);
         pull(&mut requester, &mut reporter, now);
+        trust_all(&mut requester, report.epoch);
         assert_eq!(requester.usable(report.epoch).len(), 1);
     }
 
@@ -847,6 +977,7 @@ mod tests {
         assert_eq!(again, first);
         carry(&mut requester, &mut reporter, again, later);
         requester.derive_residual(report.epoch, report.reporter, [], later);
+        trust_all(&mut requester, report.epoch);
         assert_eq!(requester.usable(report.epoch).len(), 1);
     }
 
@@ -874,6 +1005,7 @@ mod tests {
         requester.derive_residual(report.epoch, report.reporter, [], now);
         assert!(requester.usable(report.epoch).is_empty());
         pull(&mut requester, &mut reporter, now);
+        trust_all(&mut requester, report.epoch);
         let usable = requester.usable(report.epoch);
         assert_eq!(usable.len(), 1);
         assert!(usable[0].2.contains(&block(), ResidualKind::First));
@@ -889,7 +1021,100 @@ mod tests {
         second.handle_report(report.clone());
         second.reconcile(report.epoch, report.reporter, now);
         pull(&mut second, &mut first, now);
+        trust_all(&mut second, report.epoch);
         assert_eq!(second.usable(report.epoch).len(), 1);
+    }
+
+    /// RAI: a root authenticates a report's tags, not the quorums behind
+    /// them. A notarized entry needs a notarization certificate held here,
+    /// a finalized one a finalization or fast certificate or the
+    /// predecessor's finality, a residual record the reporter's own vote.
+    #[test]
+    fn a_report_entry_without_evidence_here_is_unjustified() {
+        let notarized = CertifiedBlock::new(Account::from(1), 1, BlockHash::from(11));
+        let finalized = CertifiedBlock::new(Account::from(2), 1, BlockHash::from(12));
+        let inherited = CertifiedBlock::new(Account::from(3), 1, BlockHash::from(13));
+        let voted = CertifiedBlock::new(Account::from(4), 1, BlockHash::from(14));
+        let mut certified = CertifiedState::new();
+        certified.certify(notarized, BlockHash::ZERO, CertifiedStatus::Notarized);
+        certified.certify(finalized, BlockHash::ZERO, CertifiedStatus::Finalized);
+        certified.certify(inherited, BlockHash::ZERO, CertifiedStatus::Finalized);
+        let mut residual = ResidualVotes::new();
+        residual.record(voted, BlockHash::ZERO, ResidualKind::First);
+        let kinds = |hashes: &[BlockHash]| {
+            Some(
+                hashes
+                    .iter()
+                    .map(|hash| CertificateKinds {
+                        // A notarization certificate for both, finality for none
+                        notarization: *hash == notarized.hash || *hash == finalized.hash,
+                        ..Default::default()
+                    })
+                    .collect(),
+            )
+        };
+        let previously = |block: &CertifiedBlock| *block == inherited;
+        let no_votes = |votes: &[(BlockHash, ResidualKind)]| vec![false; votes.len()];
+        let missing = unjustified(&certified, &residual, None, &kinds, &previously, &no_votes);
+        let mut missing = missing.unwrap();
+        missing.sort();
+        assert_eq!(missing, vec![finalized.hash, voted.hash]);
+        // Rechecking only what was missing, once the votes arrived
+        let all = |hashes: &[BlockHash]| {
+            Some(
+                hashes
+                    .iter()
+                    .map(|_| CertificateKinds {
+                        notarization: true,
+                        finalization: true,
+                        fast: false,
+                    })
+                    .collect(),
+            )
+        };
+        let votes = |votes: &[(BlockHash, ResidualKind)]| vec![true; votes.len()];
+        assert_eq!(
+            unjustified(
+                &certified,
+                &residual,
+                Some(&missing),
+                &all,
+                &previously,
+                &votes
+            ),
+            Some(Vec::new())
+        );
+    }
+
+    /// A reconstructed report is usable only once verified, and a report
+    /// whose evidence is missing is rechecked after the retry interval on
+    /// the missing hashes alone
+    #[test]
+    fn an_unverified_report_is_not_usable_until_its_evidence_arrives() {
+        let (mut reporter, report, mut requester, now) = diverged(3, 40);
+        requester.reconcile(report.epoch, report.reporter, now);
+        pull(&mut requester, &mut reporter, now);
+        assert!(requester.usable(report.epoch).is_empty());
+        let lacking = BlockHash::from(1001);
+        let requests = requester.verify(report.epoch, now, |_, _, _, only| {
+            assert!(only.is_none());
+            Some(vec![lacking])
+        });
+        assert_eq!(requests, vec![(report.reporter, vec![lacking])]);
+        assert!(requester.usable(report.epoch).is_empty());
+        assert_eq!(requester.unverified_count(report.epoch), 1);
+        // Not rechecked before the retry interval
+        assert!(
+            requester
+                .verify(report.epoch, now, |_, _, _, _| unreachable!())
+                .is_empty()
+        );
+        let later = now + ReportExchange::RETRY_INTERVAL;
+        requester.verify(report.epoch, later, |_, _, _, only| {
+            assert_eq!(only, Some(&[lacking][..]));
+            Some(Vec::new())
+        });
+        assert_eq!(requester.usable(report.epoch).len(), 1);
     }
 
     /*
@@ -975,5 +1200,12 @@ mod tests {
         let requests = requester.stream_requests(now);
         replies += carry(requester, holder, requests, now);
         replies
+    }
+
+    /// Every entry counts as justified: the evidence check is tested apart
+    fn trust_all(exchange: &mut ReportExchange, epoch: ConsensusEpoch) {
+        exchange.verify(epoch, Timestamp::new_test_instance(), |_, _, _, _| {
+            Some(Vec::new())
+        });
     }
 }
