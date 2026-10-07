@@ -44,3 +44,21 @@ The [rates](rates/) runs repeat the matrix with the client's non-fork measuremen
 | fork10-byz1 | 1,446 blocks/s | 119 / 1,651 / 2,055 ms | 104–107 ms |
 
 The fork5 run overlapped a `cargo check` on the same host and is not performance-eligible. The long p95 and p99 tails are the blocks published while an epoch closes: the predecessor gate holds their finality until the close decides.
+
+## Evidence verification (`ce44d32dd`)
+
+The [evidence](evidence/) runs repeat the matrix with item 16: a report is used only once every N and F entry it carries is backed by signed votes this node holds, fetched with `EvidenceReq` when missing. The genesis state is seeded with the confirmed setup history, so setup blocks need no fresh certificate. All nine settled, with no dropped stream.
+
+| Variant | Uncemented, same on all | Close rounds | Last close, median / max | Non-fork goodput | Client p50 / p95 / p99 |
+| --- | --- | --- | --- | --- | --- |
+| nofork | 0 | 0, 0, 0 | 1.22 / 1.74 s | 1,954 blocks/s | 101 / 897 / 1,408 ms |
+| fork5 | 1 | 0, 0, 0 | 1.96 / 2.03 s | 1,837 blocks/s | 104 / 1,456 / 1,951 ms |
+| fork10 | 3 | 0, 0, 0 | 1.90 / 2.77 s | 1,724 blocks/s | 113 / 2,069 / 2,819 ms |
+| nofork-offline1 | 0 | 0, 0, 1 | 1.45 / 3.78 s | 1,978 blocks/s | 111 / 1,080 / 1,540 ms |
+| fork5-offline1 | 1 | 0, 0, 1 | 1.30 / 3.45 s | 1,848 blocks/s | 113 / 1,085 / 1,547 ms |
+| fork10-offline1 | 0 | 0, 0, 1 | 1.95 / 3.86 s | 1,732 blocks/s | 116 / 1,349 / 1,833 ms |
+| nofork-byz1 | 0 | 0, 0, 1 | 1.69 / 3.68 s | 1,979 blocks/s | 111 / 1,116 / 1,707 ms |
+| fork5-byz1 | 3 | 0, 0, 1 | 1.82 / 3.77 s | 1,858 blocks/s | 113 / 1,140 / 1,606 ms |
+| fork10-byz1 | 6 | 0, 0, 1 | 1.94 / 4.08 s | 1,440 blocks/s | 115 / 1,432 / 1,990 ms |
+
+Verification costs nothing measurable against the rates runs. fork10-byz1 stays the slowest variant, as before. Edits saved in the editor during the last four runs may have triggered rust-analyzer checks; `top` showed the host idle when sampled.
