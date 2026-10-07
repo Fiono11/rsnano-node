@@ -32,6 +32,10 @@ pub(crate) const NODE_CONFIG: &str = r#"
     cps_limit = CPS_LIMIT
 
 [node.active_elections]
+    # RAI keeps every unresolved fork instance as evidence until its owner
+    # extends the position; a 10% fork workload leaves about 4,500 of them,
+    # which the default cap of 5,000 would let starve new activations
+    size = 20000
     epoch_duration_ms = EPOCH_DURATION_MS
     account_voting = ACCOUNT_VOTING
     committee_model = "COMMITTEE_MODEL"
