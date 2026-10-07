@@ -1010,10 +1010,10 @@ impl ActiveElectionsContainer {
     /// finalized nor retained is omitted: "an omitted candidate can be
     /// retried with fresh epoch votes", so it is erased and its block, still
     /// in the ledger, is proposed again in the open epoch. One whose
-    /// position the checkpoint retained as a fork is closed: "a checkpoint
-    /// never reopens a retained position", the owner resolves it with a
-    /// child, and the instance is erased with nothing rolled back. A late
-    /// one is discarded instead.
+    /// position the checkpoint retained cannot receive new votes, but its
+    /// instance stays to collect certificates released before the freeze;
+    /// the owner may also resolve it with a fresh child. A late one is
+    /// discarded instead.
     fn release_undecided_instances(&mut self, epoch: ConsensusEpoch) {
         let Some(state) = self.decided.get(&epoch).cloned() else {
             return;
@@ -1037,7 +1037,16 @@ impl ActiveElectionsContainer {
                 retained.push(election.id());
             }
         }
-        for id in omitted.iter().chain(&retained) {
+        for id in &omitted {
+            self.erase_election(id);
+        }
+        // A retained position takes no new votes, but its old-domain
+        // instance still collects the certificates released before the
+        // freeze: a final vote that reached one node reaches the others, and
+        // they finalize the same block. Keeping it is evidence collection,
+        // not reopening its voting slot.
+        #[cfg(not(feature = "rai_protocol"))]
+        for id in &retained {
             self.erase_election(id);
         }
         #[cfg(feature = "rai_protocol")]
@@ -2711,6 +2720,92 @@ mod tests {
         // A close of an epoch this node is still in waits as well
         let result = apply(&mut container, ConsensusEpoch::new(1));
         assert_eq!(result.get(&value), Some(&Err(VoteError::Indeterminate)));
+    }
+
+    /// RAI: closing a position to new voting does not lose an old-domain
+    /// certificate that arrives after the checkpoint retained the position:
+    /// the instance stays, signs nothing, and finalizes on the late votes
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn a_retained_instance_learns_late_finality_without_signing() {
+        let now = Timestamp::new_test_instance();
+        let mut container = ActiveElectionsContainer::default();
+        let block = SavedBlock::new_test_instance_with_key(2);
+        let rep = PrivateKey::from(1);
+        let mut weights = RepWeights::default();
+        weights.put(rep.public_key(), Amount::nano(70_000_000));
+        container
+            .insert(
+                AecInsertRequest::new_priority(block.clone(), BlockPriority::new_test_instance()),
+                now,
+            )
+            .unwrap();
+        let vote = |kind| {
+            FilteredVote::from(ReceivedVote::new(
+                Arc::new(Vote::new_in_epoch(
+                    &rep,
+                    kind,
+                    ConsensusEpoch::ZERO,
+                    vec![block.hash()],
+                )),
+                VoteDelivery::Direct,
+                None,
+            ))
+        };
+        container.apply_vote(ApplyVoteArgs {
+            vote: &vote(VoteKind::First),
+            rep_weights: &weights,
+            quorum_snapshot: &QuorumSnapshot::new_test_instance(),
+            now,
+        });
+        assert!(!container.is_finalized(&block.hash()));
+
+        // The checkpoint retains the position as a notarized fork
+        let mut state = EpochLedger::new();
+        state.retain_for_test(
+            AccountSlot::new(block.account(), block.height()),
+            block.hash(),
+            block.previous(),
+        );
+        container
+            .decided
+            .insert(ConsensusEpoch::ZERO, Arc::new(state));
+        container.frozen.insert(ConsensusEpoch::ZERO);
+        container.set_current_epoch(ConsensusEpoch::new(1));
+        container.release_undecided_instances(ConsensusEpoch::ZERO);
+        assert!(container.election_for_block(&block.hash()).is_some());
+        assert!(container.kudzu_votes_due(|_| true).is_empty());
+
+        // The final vote another node received before the freeze arrives late
+        container.apply_vote(ApplyVoteArgs {
+            vote: &vote(VoteKind::Final),
+            rep_weights: &weights,
+            quorum_snapshot: &QuorumSnapshot::new_test_instance(),
+            now,
+        });
+        assert!(container.finalized_in_epoch(&block.hash(), ConsensusEpoch::ZERO));
+    }
+
+    /// An instance whose position the checkpoint omitted is erased: its
+    /// block goes back to the open epoch
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn an_omitted_instance_is_erased() {
+        let now = Timestamp::new_test_instance();
+        let mut container = ActiveElectionsContainer::default();
+        let block = SavedBlock::new_test_instance_with_key(2);
+        container
+            .insert(
+                AecInsertRequest::new_priority(block.clone(), BlockPriority::new_test_instance()),
+                now,
+            )
+            .unwrap();
+        container
+            .decided
+            .insert(ConsensusEpoch::ZERO, Arc::new(EpochLedger::new()));
+        container.set_current_epoch(ConsensusEpoch::new(1));
+        container.release_undecided_instances(ConsensusEpoch::ZERO);
+        assert!(container.election_for_block(&block.hash()).is_none());
     }
 
     #[test]

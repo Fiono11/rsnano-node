@@ -115,6 +115,7 @@ def main():
     parser.add_argument('--min-closed', type=int, default=3)
     parser.add_argument('--weighted', action='store_true', help='stake-weighted committees instead of equal weight f = p = 1')
     parser.add_argument('--byzantine', type=int, default=0, help='representatives played by the client with random votes, no node')
+    parser.add_argument('--offline', type=int, default=0, help='representatives funded but never started')
     parser.add_argument('--allow-busy', action='store_true', help='Correctness run only; does not satisfy the performance gate')
     parser.add_argument('--wait-quiet', type=int, default=0, help='seconds to wait for a quiet host before giving up')
     parser.add_argument('--keep', action='store_true', help='leave the nodes running and their data for a post-mortem; print the process group')
@@ -140,7 +141,7 @@ def main():
         (args.output / 'result.json').write_text(json.dumps(result, indent=2) + '\n')
         print(json.dumps(result, indent=2))
         return 7
-    nodes = PRS - args.byzantine
+    nodes = PRS - args.byzantine - args.offline
     result['nodes'] = nodes
     for i in range(PRS):
         try:
@@ -153,7 +154,7 @@ def main():
         command = [str(binary_dir / 'nanospam'), '--data-dir', str(data), '--prs', str(PRS), '--no-prio',
                    '--blocks', str(args.blocks), '--accounts', str(args.accounts), '--rate', str(args.rate),
                    '--fork-percentage', str(args.fork_percentage), '--epoch-duration-ms', str(args.epoch_ms),
-                   '--byzantine', str(args.byzantine), '--no-kill']
+                   '--byzantine', str(args.byzantine), '--offline', str(args.offline), '--no-kill']
         if not args.weighted:
             command += ['--committee-model', 'equal_weight', '--committee-f', '1', '--committee-p', '1']
         result['command'] = command

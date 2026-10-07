@@ -201,6 +201,15 @@ impl EpochLedger {
     /// RAI: seeds the closed genesis state `S_G`: every account at the
     /// block it stood at when the epochs started. Those positions are
     /// finalized, and rule 1 never rolls them back.
+    /// A slot the checkpoint kept as a notarized fork, for tests
+    #[cfg(test)]
+    pub fn retain_for_test(&mut self, slot: AccountSlot, hash: BlockHash, previous: BlockHash) {
+        self.notarized
+            .entry(slot)
+            .or_default()
+            .insert(PlacedBlock::new(hash, previous));
+    }
+
     pub fn finalize_genesis(&mut self, slot: AccountSlot, hash: BlockHash) {
         self.finalize(slot, PlacedBlock::new(hash, BlockHash::ZERO));
     }
