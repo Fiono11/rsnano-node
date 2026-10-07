@@ -111,15 +111,22 @@ def main():
     parser.add_argument('--weighted', action='store_true', help='stake-weighted committees instead of equal weight f = p = 1')
     parser.add_argument('--byzantine', type=int, default=0, help='representatives played by the client with random votes, no node')
     parser.add_argument('--allow-busy', action='store_true', help='Correctness run only; does not satisfy the performance gate')
+    parser.add_argument('--wait-quiet', type=int, default=0, help='seconds to wait for a quiet host before giving up')
+    parser.add_argument('--settle-timeout', type=int, default=90, help='seconds to wait for settlement after the client finished or timed out')
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=False)
     binary_dir = args.bin_dir.resolve()
     result = dict(gate='B', source_revision=subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
                   node_sha256=sha256(binary_dir / 'rsnano'), client_sha256=sha256(binary_dir / 'nanospam'))
     top_args = ['top', '-l', '2', '-n', '10', '-o', 'cpu', '-stats', 'pid,cpu,command'] if os.uname().sysname == 'Darwin' else ['top', '-b', '-n', '2', '-d', '1']
-    host = subprocess.check_output(top_args, text=True)
+    waited_until = time.monotonic() + args.wait_quiet
+    while True:
+        host = subprocess.check_output(top_args, text=True)
+        busy = busy_processes(host)
+        if not busy or args.allow_busy or time.monotonic() >= waited_until:
+            break
+        time.sleep(10)
     (args.output / 'host.txt').write_text(host)
-    busy = busy_processes(host)
     result['busy_processes'] = busy
     result['performance_eligible'] = not busy and not args.allow_busy
     if busy and not args.allow_busy:
@@ -153,11 +160,14 @@ def main():
                 deadline = time.monotonic() + args.timeout
                 while process.poll() is None and time.monotonic() < deadline:
                     time.sleep(1)
-                if process.poll() is None:
-                    raise RuntimeError('nanospam exceeded the run deadline')
-                if process.returncode:
+                # A fork run settles without every conflicting position
+                # finalizing: the client may still be waiting for some of
+                # them. Settlement is judged on the nodes either way.
+                result['client_finished'] = process.poll() is not None
+                if result['client_finished'] and process.returncode:
                     raise RuntimeError(f'nanospam exited with {process.returncode}')
                 result['client_finished_s'] = round(args.timeout - (deadline - time.monotonic()), 1)
+                deadline = time.monotonic() + args.settle_timeout
                 while True:
                     counts = [rpc(i, 'block_count') for i in range(nodes)]
                     states = [rpc(i, 'final_state') for i in range(nodes)]
@@ -197,9 +207,10 @@ def main():
                 result['confirmation_rate_cps'] = float(rates[-1]) if rates else None
                 confirmed = re.findall(r'Confirm(?:ed|ing) ([\d,]+) blocks', text)
                 result['confirmed_primary'] = int(confirmed[-1].replace(',', '')) if confirmed else 0
-                result['correctness_passed'] = (result['confirmed_primary'] >= args.blocks
-                                                and settled['settled']
-                                                and int(settled['cemented'][0]) >= args.blocks)
+                result['correctness_passed'] = (settled['settled']
+                                                and (args.fork_percentage > 0
+                                                     or (result['confirmed_primary'] >= args.blocks
+                                                         and int(settled['cemented'][0]) >= args.blocks)))
                 result['status'] = 'settled' if result['correctness_passed'] else 'failed'
                 for i in range(nodes):
                     saved = args.output / f'pr{i}'

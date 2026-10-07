@@ -54,7 +54,7 @@ struct Stream<B> {
 }
 
 impl<B> Stream<B> {
-    const FIRST_BATCH: u16 = 64;
+    const FIRST_BATCH: u16 = 16;
 
     fn new(base: B, decoder: Decoder) -> Self {
         Self {
@@ -112,7 +112,11 @@ impl<B> Stream<B> {
         self.decoder.add_symbols(&symbols);
         // The next request goes out with this reply's handling
         self.requested_at = Some(now);
-        self.batch = (self.batch.saturating_mul(2)).min(ReportSymbolsReply::MAX_SYMBOLS as u16);
+        // Half of what came so far: the overshoot past the symbol that
+        // completes the decode stays under half of the symbols needed
+        self.batch = (self.decoder.received() / 2)
+            .clamp(Self::FIRST_BATCH as usize, ReportSymbolsReply::MAX_SYMBOLS)
+            as u16;
         true
     }
 }
