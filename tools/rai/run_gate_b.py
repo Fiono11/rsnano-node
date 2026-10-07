@@ -75,6 +75,36 @@ def settlement(counts, states, min_closed):
                 settled=all_cemented and agree and every == any_ and len(every) >= min_closed)
 
 
+def quantile(histogram, q):
+    """The q-quantile of a {ms: count} histogram"""
+    items = sorted((int(ms), count) for ms, count in histogram.items())
+    total = sum(count for _, count in items)
+    if not total:
+        return None
+    rank, seen = q * total, 0
+    for ms, count in items:
+        seen += count
+        if seen >= rank:
+            return ms
+    return items[-1][0]
+
+
+def client_metrics(text):
+    """The client's RAI_BENCH_METRICS line: the non-fork goodput and latency
+    the paper's tables use, comparable across fork variants"""
+    lines = [line.split('RAI_BENCH_METRICS ', 1)[1] for line in text.splitlines() if 'RAI_BENCH_METRICS ' in line]
+    if not lines:
+        return None
+    m = json.loads(lines[-1])
+    histogram = m['nonfork_histogram_ms']
+    return dict(nonfork_goodput_cps=round(m['nonfork_confirmed'] / m['duration_secs'], 1),
+                nonfork_created=m['nonfork_created'], nonfork_confirmed=m['nonfork_confirmed'],
+                nonfork_p50_ms=quantile(histogram, .5), nonfork_p95_ms=quantile(histogram, .95),
+                nonfork_p99_ms=quantile(histogram, .99),
+                fork_created=m['fork_created'], fork_confirmed=m['fork_confirmed'],
+                duration_secs=round(m['duration_secs'], 2))
+
+
 def close_timings(text):
     """Per epoch: when the first node ended and left it, and when the first
     and the last node saw its close certificate, from the node diagnostics
@@ -210,6 +240,7 @@ def main():
                                          recovered=sum(x['entries'] for x in streams))
                 if result['streams']['recovered']:
                     result['streams']['symbols_per_item'] = round(result['streams']['symbols'] / result['streams']['recovered'], 2)
+                result['client'] = client_metrics(text)
                 rates = re.findall(r'Confirmation rate: ([\d.]+) cps', text)
                 result['confirmation_rate_cps'] = float(rates[-1]) if rates else None
                 confirmed = re.findall(r'Confirm(?:ed|ing) ([\d,]+) blocks', text)

@@ -256,6 +256,32 @@ impl NanoSpamApp {
         info!("Confirmation rate: {cps} cps");
         let conf_time = logic.sum_conf_time_total.as_millis() / created_blocks as u128;
         info!("Average conf time: {conf_time} ms");
+        // The blocks published without a fork alternative: the primary
+        // throughput and latency, comparable across fork variants. Forks are
+        // counted apart and do not hold the run open.
+        let nonfork_cps = (logic.nonfork_confirmed as f64 / duration_secs) as i32;
+        info!(
+            "Non-fork confirmation rate: {nonfork_cps} cps ({} of {} non-fork blocks, {} of {} forks)",
+            logic.nonfork_confirmed,
+            logic.nonfork_created,
+            logic.fork_confirmed,
+            logic.fork_created
+        );
+        let metrics = serde_json::json!({
+            "created": created_blocks,
+            "confirmed": logic.confirmed_total,
+            "duration_secs": duration_secs,
+            "confirmation_unit": "primary publication or its confirmed fork alternative",
+            "alternative_confirmed": logic.alternative_confirmed,
+            "confirmation_histogram_ms": logic.confirmation_histogram_ms,
+            "nonfork_created": logic.nonfork_created,
+            "nonfork_confirmed": logic.nonfork_confirmed,
+            "nonfork_histogram_ms": logic.nonfork_histogram_ms,
+            "fork_created": logic.fork_created,
+            "fork_confirmed": logic.fork_confirmed,
+            "fork_unresolved_at_end": logic.fork_created - logic.fork_confirmed,
+        });
+        info!("RAI_BENCH_METRICS {metrics}");
 
         Ok(())
     }
