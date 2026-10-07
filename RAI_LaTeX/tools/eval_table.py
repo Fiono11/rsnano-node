@@ -15,7 +15,20 @@ BASELINE = {
     'fork10': '87.3', 'fork10-offline1': '69.2', 'fork10-byz1': '86.4',
 }
 
-def main(matrix, out):
+def earlier_table(matrix):
+    """A compact table of an earlier build's RAI rows, for comparison"""
+    rows = []
+    for key, label in VARIANTS:
+        d = json.load(open(Path(matrix) / f'{key}.summary.json'))
+        c = d['client']
+        n = lambda x: f'{int(round(x)):,}'.replace(',', '{,}')
+        rows.append(f"{label} & {n(c['nonfork_goodput_cps'])} & {c['nonfork_p50_ms']} & {c['nonfork_p95_ms']} & {c['nonfork_p99_ms']}\\\\")
+        if key in ('nofork-byz1', 'fork5-byz1'):
+            rows.append('\\midrule')
+    return '\n'.join(rows)
+
+
+def main(matrix, out, earlier=None):
     rows = []
     for key, label in VARIANTS:
         d = json.load(open(Path(matrix) / f'{key}.summary.json'))
@@ -46,8 +59,21 @@ Variant & Blocks/s & p50 & p95 & p99 & Blocks/s & p50 & p95 & p99 & CP\\
 \bottomrule
 \end{tabular}
 \end{table*}
-''')
+''' + (r'''
+\begin{table}[t]
+\caption{The RAI prototype before the four changes of Section~\ref{sec:eval} (predecessor-backed overlap route, no manifest, fixed retention, in-memory records), same workload, one run per variant: non-fork goodput (blocks/s) and latency (ms).}
+\label{tab:earlier}
+\centering
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+Variant & Blocks/s & p50 & p95 & p99\\
+\midrule
+''' + earlier_table(earlier) + r'''
+\bottomrule
+\end{tabular}
+\end{table}
+''' if earlier else ''))
     print(body)
 
 if __name__ == '__main__':
-    main(sys.argv[1], sys.argv[2])
+    main(sys.argv[1], sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None)

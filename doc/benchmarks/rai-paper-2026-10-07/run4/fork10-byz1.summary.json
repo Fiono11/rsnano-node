@@ -1,0 +1,230 @@
+{
+  "gate": "B",
+  "source_revision": "73ac5d97809c3cca8789e111afe9c68115581444",
+  "node_sha256": "9d10d80b9123698a52056b212265eea51f94c88a9c2542de00ec0b8124fe4794",
+  "client_sha256": "7a1e26bf4d4c67bef26a5b0ea18bc288adc1ac2fb666cf4d94ec5f80ee329337",
+  "busy_processes": [],
+  "performance_eligible": true,
+  "nodes": 5,
+  "command": [
+    "/Users/ruimorais/rsnano-node/.claude/worktrees/rai-kudzu-close/target/release/nanospam",
+    "--data-dir",
+    "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-ya0udnws",
+    "--prs",
+    "6",
+    "--no-prio",
+    "--blocks",
+    "45000",
+    "--accounts",
+    "45000",
+    "--rate",
+    "2000",
+    "--fork-percentage",
+    "10",
+    "--epoch-duration-ms",
+    "8000",
+    "--byzantine",
+    "1",
+    "--offline",
+    "0",
+    "--no-kill",
+    "--committee-model",
+    "equal_weight",
+    "--committee-f",
+    "1",
+    "--committee-p",
+    "1"
+  ],
+  "status": "settled",
+  "client_finished": false,
+  "client_finished_s": 150.7,
+  "settled_after_s": 60.1,
+  "settlement": {
+    "all_cemented": true,
+    "cemented": [
+      29078
+    ],
+    "held": [
+      39100
+    ],
+    "uncemented": [
+      10022
+    ],
+    "decided_everywhere": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8
+    ],
+    "decided_somewhere": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8
+    ],
+    "values_agree": true,
+    "settled": true
+  },
+  "finalization_p50_ms": [
+    128,
+    129,
+    125,
+    128,
+    127
+  ],
+  "close_rounds": [
+    [
+      0,
+      "0"
+    ],
+    [
+      1,
+      "0"
+    ],
+    [
+      2,
+      "1"
+    ],
+    [
+      3,
+      "0"
+    ],
+    [
+      4,
+      "0"
+    ],
+    [
+      5,
+      "0"
+    ],
+    [
+      6,
+      "0"
+    ],
+    [
+      7,
+      "0"
+    ],
+    [
+      8,
+      "1"
+    ]
+  ],
+  "close_timings": {
+    "0": {
+      "nodes_left": 5,
+      "nodes_closed": 5,
+      "first_close_ms": 2242,
+      "last_close_ms": 2509,
+      "left_spread_ms": 84,
+      "rounds": [
+        0
+      ]
+    },
+    "1": {
+      "nodes_left": 5,
+      "nodes_closed": 5,
+      "first_close_ms": 4866,
+      "last_close_ms": 9174,
+      "left_spread_ms": 11,
+      "rounds": [
+        0
+      ]
+    },
+    "2": {
+      "nodes_left": 5,
+      "nodes_closed": 5,
+      "first_close_ms": 6000,
+      "last_close_ms": 6203,
+      "left_spread_ms": 70,
+      "rounds": [
+        1
+      ]
+    },
+    "3": {
+      "nodes_left": 5,
+      "nodes_closed": 5,
+      "first_close_ms": 967,
+      "last_close_ms": 1009,
+      "left_spread_ms": 20,
+      "rounds": [
+        0
+      ]
+    },
+    "4": {
+      "nodes_left": 5,
+      "nodes_closed": 5,
+      "first_close_ms": 942,
+      "last_close_ms": 948,
+      "left_spread_ms": 18,
+      "rounds": [
+        0
+      ]
+    },
+    "5": {
+      "nodes_left": 5,
+      "nodes_closed": 5,
+      "first_close_ms": 1039,
+      "last_close_ms": 1067,
+      "left_spread_ms": 43,
+      "rounds": [
+        0
+      ]
+    },
+    "6": {
+      "nodes_left": 5,
+      "nodes_closed": 5,
+      "first_close_ms": 1210,
+      "last_close_ms": 1248,
+      "left_spread_ms": 12,
+      "rounds": [
+        0
+      ]
+    },
+    "7": {
+      "nodes_left": 5,
+      "nodes_closed": 5,
+      "first_close_ms": 1154,
+      "last_close_ms": 1172,
+      "left_spread_ms": 29,
+      "rounds": [
+        0
+      ]
+    },
+    "8": {
+      "nodes_left": 5,
+      "nodes_closed": 5,
+      "first_close_ms": 3560,
+      "last_close_ms": 3572,
+      "left_spread_ms": 19,
+      "rounds": [
+        1
+      ]
+    }
+  },
+  "close_duration_ms": {
+    "max": 9174,
+    "median": 1248
+  },
+  "streams": {
+    "count": 54,
+    "dropped": 0,
+    "symbols": 178880,
+    "recovered": 130308,
+    "symbols_per_item": 1.37
+  },
+  "client": null,
+  "confirmation_rate_cps": null,
+  "confirmed_primary": 29013,
+  "correctness_passed": true
+}
