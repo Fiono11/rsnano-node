@@ -1,6 +1,6 @@
 # Paper matrix — 7 October 2026 (run5)
 
-**All nine variants settled on `172fb25b6`**, one run each: six equal-weight representatives (f = p = 1), 45,000 blocks at 2,000/s, 45,000 accounts, 8 s epochs, quiet host (`--wait-quiet 900`), `--timeout 150 --settle-timeout 90`. Settled means identical cemented state and identical decided checkpoints on every running node. These are the RAI rows of the paper's Table 3 (`RAI_LaTeX/tools/eval_table.py run5`).
+**All nine variants settled on `172fb25b6`**, one run each: six equal-weight representatives (f = p = 1), 45,000 blocks at 2,000/s, 45,000 accounts, 8 s epochs, quiet host (`--wait-quiet 900`), `--timeout 150 --settle-timeout 90`. Settled means identical cemented state and identical decided checkpoints on every running node. These are the RAI rows of the paper's evaluation table (`RAI_LaTeX/tools/eval_table.py run5 <out> run2`).
 
 | Variant | Status | Uncemented, same on all | Close rounds | Last close, median / max | Non-fork goodput | Client p50 / p95 / p99 | Symbols per item / dropped streams |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -18,10 +18,10 @@
 
 | Pass | Build | Result |
 | --- | --- | --- |
-| [run2](run2/) | `a4872d09e`: re-voted-parent fix, predecessor-backed overlap route, no manifest, in-memory records | 9/9 settled; the paper's comparison table (Table 4) |
+| [run2](run2/) | `a4872d09e`: re-voted-parent fix, predecessor-backed overlap route, no manifest, in-memory records | 9/9 settled; the paper's comparison table of the earlier build |
 | [run3](run3/) | `617eeffde`: prefix-wide overlap rule, manifest, install acknowledgements, durable records | 8/9; fork5-byz1 left 337 non-fork blocks unfinalized (first votes split across a boundary leave a recovery lock nobody re-votes) |
 | [run4](run4/) | `73ac5d978`: every unfinalized instance re-voted in the new epoch | 9/9 settled, but fork10-offline1 and fork10-byz1 never finished the client measurement: carried fork duplicates filled the election container (cap 5,000) and nothing new was activated |
-| run5 (this) | `172fb25b6`: manifest fetched from the proposer, owner continuation in the generator, re-voted recovery lock continues on an open-epoch NC, idle duplicates discarded at install, cap 20,000 | 9/9 settled and measured; the paper's Table 3 |
+| run5 (this) | `172fb25b6`: manifest fetched from the proposer, owner continuation in the generator, re-voted recovery lock continues on an open-epoch NC, idle duplicates discarded at install, cap 20,000 | 9/9 settled and measured; the paper's evaluation table |
 
 The build before all of these (`25646c27e`, [paper-run1](../rai-gate-d-2026-10-07/paper-run1/)) never closed an epoch in fork10 and fork5-offline1: a block voted in two consecutive epochs lost its recorded parent when the older epoch's slot state was dropped, so the next report carried a residual record with a zero parent and `BuildState` failed at every leader; fixed in `a4872d09e`, which also refuses malformed reports.
 
