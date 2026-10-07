@@ -73,6 +73,18 @@ impl DelayedBlocks {
         }
     }
 
+    /// The unconfirmed blocks first published at least `age` ago
+    pub fn stale(&self, now: Timestamp, age: Duration) -> Vec<BlockHash> {
+        self.blocks
+            .iter()
+            .filter(|(_, info)| {
+                info.first_publish
+                    .is_some_and(|published| published.elapsed(now) >= age)
+            })
+            .map(|(hash, _)| *hash)
+            .collect()
+    }
+
     #[allow(dead_code)]
     pub fn len(&self) -> usize {
         self.blocks.len()

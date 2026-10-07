@@ -149,7 +149,7 @@ impl EpochDecisionService {
         if self.active_elections.holds_epoch_value(prop.epoch, &hash) {
             return;
         }
-        let Some((_, state)) = self.validate(&value) else {
+        let Some((_, state)) = self.validate(&value, Some(_channel)) else {
             return;
         };
         self.active_elections.accept_epoch_value(value, state);
@@ -397,7 +397,11 @@ impl EpochDecisionService {
 
     /// RAI: derive the state a value's reports determine and check that it
     /// hashes to the `d_e` the value carries
-    fn validate(&self, value: &EpochValue) -> Option<(BlockHash, Arc<EpochLedger>)> {
+    fn validate(
+        &self,
+        value: &EpochValue,
+        channel: Option<&Arc<Channel>>,
+    ) -> Option<(BlockHash, Arc<EpochLedger>)> {
         let previous = self.active_elections.epoch_previous_state(value.epoch)?;
         let committee = self.active_elections.epoch_committee(value.epoch)?;
         let exchange = self.exchange.lock().unwrap();
@@ -415,7 +419,7 @@ impl EpochDecisionService {
         if states.len() != value.reports().len() {
             return None;
         }
-        if !self.evidence_committed(value, &states, &previous) {
+        if !self.evidence_committed(value, &states, &previous, channel) {
             return None;
         }
         let index = ReportIndex::new(&previous, &states);
@@ -458,6 +462,7 @@ impl EpochDecisionService {
         value: &EpochValue,
         states: &[SelectedReport],
         previous: &EpochLedger,
+        channel: Option<&Arc<Channel>>,
     ) -> bool {
         let epoch = value.epoch;
         let claims = manifest_claims(epoch, states, &|block, entry| {
@@ -475,7 +480,7 @@ impl EpochDecisionService {
             .get(&value.manifest)
             .map(|(_, manifest)| manifest.clone());
         let Some(manifest) = held else {
-            self.request_manifest(epoch, value.manifest);
+            self.request_manifest(epoch, value.manifest, channel);
             return false;
         };
         let missing = self.active_elections.missing_manifest_votes(&manifest);
@@ -580,8 +585,16 @@ impl EpochDecisionService {
     }
 
     /// Asks for the next chunk of a manifest this node lacks, at most once
-    /// per retry interval
-    fn request_manifest(&self, epoch: ConsensusEpoch, digest: BlockHash) {
+    /// per retry interval: from the node the proposal came from, which holds
+    /// it, or from every representative when that is unknown. Flooding every
+    /// chunk request would bring back a reply per holder and swamp the
+    /// inbound queues.
+    fn request_manifest(
+        &self,
+        epoch: ConsensusEpoch,
+        digest: BlockHash,
+        channel: Option<&Arc<Channel>>,
+    ) {
         let now = self.clock.now();
         let from = {
             let mut assemblies = self.assemblies.lock().unwrap();
@@ -594,17 +607,36 @@ impl EpochDecisionService {
             *asked = now;
             assembly.next_from()
         };
-        self.stats
-            .inc_dir(StatType::Message, DetailType::ManifestReq, Direction::Out);
-        self.flooder.lock().unwrap().flood_prs_and_some_non_prs(
-            &Message::ManifestReq(ManifestReq {
+        self.send_manifest_request(
+            ManifestReq {
                 epoch,
                 manifest: digest,
                 from,
-            }),
-            TrafficType::Generic,
-            1.0,
+            },
+            channel,
         );
+    }
+
+    fn send_manifest_request(&self, request: ManifestReq, channel: Option<&Arc<Channel>>) {
+        self.stats
+            .inc_dir(StatType::Message, DetailType::ManifestReq, Direction::Out);
+        let mut flooder = self.flooder.lock().unwrap();
+        match channel {
+            Some(channel) => {
+                let _ = flooder.try_send(
+                    channel,
+                    &Message::ManifestReq(request),
+                    TrafficType::Generic,
+                );
+            }
+            None => {
+                flooder.flood_prs_and_some_non_prs(
+                    &Message::ManifestReq(request),
+                    TrafficType::Generic,
+                    1.0,
+                );
+            }
+        }
     }
 
     /// RAI: a validator asks for a manifest this node holds; one chunk goes back
@@ -639,7 +671,7 @@ impl EpochDecisionService {
     /// RAI: a chunk of a manifest this node asked for. The complete manifest
     /// is checked against its digest and kept; the proposal that named it is
     /// checked again when its leader repeats it.
-    pub fn handle_manifest_reply(&self, reply: ManifestReply, _channel: &Arc<Channel>) {
+    pub fn handle_manifest_reply(&self, reply: ManifestReply, channel: &Arc<Channel>) {
         self.stats
             .inc_dir(StatType::Message, DetailType::ManifestReply, Direction::In);
         let next = {
@@ -669,16 +701,14 @@ impl EpochDecisionService {
                 }
             }
         };
-        self.stats
-            .inc_dir(StatType::Message, DetailType::ManifestReq, Direction::Out);
-        self.flooder.lock().unwrap().flood_prs_and_some_non_prs(
-            &Message::ManifestReq(ManifestReq {
+        // The next chunk from the node that served this one
+        self.send_manifest_request(
+            ManifestReq {
                 epoch: reply.epoch,
                 manifest: reply.manifest,
                 from: next,
-            }),
-            TrafficType::Generic,
-            1.0,
+            },
+            Some(channel),
         );
     }
 

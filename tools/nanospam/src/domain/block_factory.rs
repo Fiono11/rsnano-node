@@ -55,6 +55,12 @@ pub(crate) enum SpamStrategy {
 }
 
 impl BlockFactory {
+    /// RAI, "Fresh-child recovery": an unconfirmed non-fork block that
+    /// waited long enough may be extended by the owner's next block
+    pub fn allow_continuation(&mut self, hash: &BlockHash) {
+        self.account_map.allow_continuation(hash);
+    }
+
     pub(crate) fn new(
         account_map: AccountMap,
         max_blocks: usize,
@@ -136,12 +142,11 @@ fn create_send_or_receive_block(
 ) -> BlockResult {
     if let Some((receiver, send_hash, amount_sent)) = account_map.next_receivable() {
         let state = account_map.state(&receiver).unwrap();
-        assert!(state.confirmed());
         let is_fork = is_fork && can_fork(account_map, &receiver);
         let representative = representative(state, representatives);
         let receive: Block = StateBlockArgs {
             key: &state.key,
-            previous: state.confirmed_frontier,
+            previous: state.unconfirmed_frontier,
             representative,
             balance: state.balance + amount_sent,
             link: send_hash.into(),
@@ -155,7 +160,7 @@ fn create_send_or_receive_block(
         let result = if is_fork {
             let fork: Block = StateBlockArgs {
                 key: &state.key,
-                previous: state.confirmed_frontier,
+                previous: state.unconfirmed_frontier,
                 representative: fork_representative(representative, representatives),
                 balance: state.balance + amount_sent,
                 link: send_hash.into(),
@@ -172,7 +177,6 @@ fn create_send_or_receive_block(
         account_map.process_receive(receiver, send_hash, receive_hash, fork_hash);
         result
     } else if let Some(state) = account_map.random_account_that_can_send() {
-        assert!(state.confirmed());
         let is_fork = is_fork && can_fork(account_map, &state.key.account());
         let destination = account_map.random_account().unwrap();
         let new_balance: Amount = rand::rng().random_range(..state.balance.number()).into();
@@ -181,7 +185,7 @@ fn create_send_or_receive_block(
 
         let send: Block = StateBlockArgs {
             key: &state.key,
-            previous: state.confirmed_frontier,
+            previous: state.unconfirmed_frontier,
             representative,
             balance: new_balance,
             link: destination.into(),
@@ -194,7 +198,7 @@ fn create_send_or_receive_block(
         let result = if is_fork {
             let fork: Block = StateBlockArgs {
                 key: &state.key,
-                previous: state.confirmed_frontier,
+                previous: state.unconfirmed_frontier,
                 representative: fork_representative(representative, representatives),
                 balance: new_balance,
                 link: destination.into(),
@@ -243,7 +247,7 @@ fn create_change_block(
         .unwrap_or_else(|| PublicKey::from_bytes(rand::rng().random()));
     let block: Block = StateBlockArgs {
         key: &state.key,
-        previous: state.confirmed_frontier,
+        previous: state.unconfirmed_frontier,
         representative,
         balance: state.balance,
         link: Link::ZERO,

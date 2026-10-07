@@ -8,6 +8,10 @@ use rsnano_types::{Block, BlockHash};
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::{collections::BTreeMap, time::Duration};
 
+/// RAI: how long an owner waits for an unconfirmed non-fork block before
+/// extending it with a fresh child (the paper's retry-or-fresh-child policy)
+const CONTINUE_AFTER: Duration = Duration::from_secs(5);
+
 pub(crate) struct SpamSpec {
     pub(crate) spam_strategy: SpamStrategy,
     pub(crate) max_blocks: usize,
@@ -50,12 +54,15 @@ pub(crate) struct SpamLogic {
     pub(crate) nonfork_histogram_ms: BTreeMap<u64, usize>,
     /// When the last non-fork block was confirmed
     pub(crate) nonfork_done_at: Option<Timestamp>,
+    /// When the unconfirmed blocks were last scanned for owner continuation
+    continuation_scanned: Option<Timestamp>,
 }
 
 impl SpamLogic {
     pub(crate) fn new(account_map: AccountMap, spec: SpamSpec) -> Self {
         Self {
             delayed: Default::default(),
+            continuation_scanned: None,
             high_prio_tracker: Default::default(),
             block_factory: BlockFactory::new(
                 account_map,
@@ -113,6 +120,18 @@ impl SpamLogic {
         if self.next_block.is_none() {
             if self.block_factory.max_blocks_reached() {
                 return None;
+            }
+            // RAI, "Fresh-child recovery": the owner's persistent submission
+            // extends an unconfirmed non-fork frontier that waited this long;
+            // the scan over the unconfirmed blocks runs twice a second
+            if self
+                .continuation_scanned
+                .is_none_or(|last| last.elapsed(now) >= Duration::from_millis(500))
+            {
+                self.continuation_scanned = Some(now);
+                for hash in self.delayed.stale(now, CONTINUE_AFTER) {
+                    self.block_factory.allow_continuation(&hash);
+                }
             }
 
             match self.block_factory.create_next(is_fork) {

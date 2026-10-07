@@ -20,6 +20,10 @@ pub(crate) struct AccountMap {
     /// Receiving account + send hash => amount
     confirmed_receivable: FxHashMap<(Account, BlockHash), Amount>,
     unconfirmed: FxHashMap<BlockHash, UnconfirmedEntry>,
+    /// RAI, "Fresh-child recovery": accounts whose unconfirmed non-fork
+    /// frontier has waited long enough that the owner extends it with its
+    /// next block instead of waiting for it to confirm
+    continuable: FxHashSet<Account>,
 }
 
 struct UnconfirmedEntry {
@@ -131,6 +135,7 @@ impl AccountMap {
         amount: Amount,
         fork: Option<BlockHash>,
     ) {
+        self.continuable.remove(&source);
         self.receivable
             .entry(destination)
             .or_default()
@@ -162,6 +167,7 @@ impl AccountMap {
         receive_hash: BlockHash,
         fork: Option<BlockHash>,
     ) {
+        self.continuable.remove(&receiver);
         let entries = self
             .receivable
             .get_mut(&receiver)
@@ -194,6 +200,7 @@ impl AccountMap {
     }
 
     pub fn process_change(&mut self, account: Account, hash: BlockHash) {
+        self.continuable.remove(&account);
         let state = self.account_states.get_mut(&account).unwrap();
         state.unconfirmed_frontier = hash;
         self.confirmed_accounts.remove(&account);
@@ -229,6 +236,7 @@ impl AccountMap {
         state.confirmed_frontier = *hash;
         if state.confirmed() {
             self.confirmed_accounts.insert(entry.source);
+            self.continuable.remove(&entry.source);
         }
     }
 
@@ -243,10 +251,36 @@ impl AccountMap {
         entries.first().cloned()
     }
 
+    /// RAI, "Fresh-child recovery": the owner of an unconfirmed non-fork
+    /// block may extend it with a fresh child rather than wait; a forked
+    /// position is never extended, since the owner equivocated there
+    pub fn allow_continuation(&mut self, hash: &BlockHash) {
+        let Some(entry) = self.unconfirmed.get(hash) else {
+            return;
+        };
+        if entry.fork.is_some() {
+            return;
+        }
+        let account = entry.source;
+        if self
+            .account_states
+            .get(&account)
+            .is_some_and(|state| state.unconfirmed_frontier == *hash)
+        {
+            self.continuable.insert(account);
+        }
+    }
+
+    /// Whether the account may be built on: its frontier is confirmed, or an
+    /// unconfirmed non-fork frontier the owner may continue
+    fn buildable(&self, account: &Account) -> bool {
+        self.confirmed_accounts.contains(account) || self.continuable.contains(account)
+    }
+
     pub fn next_receivable(&self) -> Option<(Account, BlockHash, Amount)> {
         self.confirmed_receivable.iter().take(100).find_map(
             |((receiving_account, send_hash), amount)| {
-                if self.confirmed_accounts.contains(receiving_account) {
+                if self.buildable(receiving_account) {
                     Some((*receiving_account, *send_hash, *amount))
                 } else {
                     None
@@ -259,7 +293,8 @@ impl AccountMap {
         for _ in 0..100 {
             let account = self.active_accounts_vec.iter().choose(&mut rng())?;
             let state = self.account_states.get(account).unwrap();
-            if state.confirmed() && !state.balance.is_zero() {
+            if (state.confirmed() || self.continuable.contains(account)) && !state.balance.is_zero()
+            {
                 return Some(state);
             }
         }
