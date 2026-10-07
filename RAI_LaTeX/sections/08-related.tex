@@ -1,0 +1,31 @@
+\section{Related Work}
+\label{sec:related}
+\subsection{Payments without a global execution order}
+Guerraoui et al.\ characterize asset transfer's consensus number, including the single-owner case~\cite{consensusnumber}. FastPay provides prefunded Byzantine settlement without a global transaction order~\cite{fastpay}. Astro builds asynchronous payments on broadcast~\cite{astro}; Zef adds private coin payments and storage-conscious lifecycle mechanisms~\cite{zef}. Nano provides account-local chains and distinct send and receive operations~\cite{nano}. These precedents establish the application-level opportunity, not RAI's transition rules; RAI does not claim that single-writer consensus avoidance or account-local ordering is new.
+
+Astro's extended version discusses asynchronous replica reconfiguration with view-tagged messages and account-log transfer~\cite{astro,dbrb}. RAI's distinction is the frozen-report evidence that preserves first- and final-vote obligations across a boundary while the next epoch is already voting.
+
+\subsection{Hybrid execution and contention recovery}
+Sui Lutris uses consensus for shared objects and checkpoint sequencing, including end-of-epoch handling of processed certificates~\cite{lutris}. RAI reconstructs account obligations from reports and does not continuously sequence ordinary certificates; there is no certificate sequence to drain before the epoch ends, which is what makes the pipelined transition possible. Cuttlefish broadens the fast path with collective objects and uses FastUnlock to address contention~\cite{cuttlefish}. RAI's boundary promotion is narrower: it finalizes only a uniquely retained notarized prefix at reconfiguration.
+
+\subsection{Dynamic membership and certificate boundaries}
+Pastro studies permissionless asynchronous asset transfer with weighted stake and a dynamic adversary~\cite{pastro}; RAI assumes equal-weight authenticated committees and static corruption. Dynamic Byzantine Reliable Broadcast and asynchronous Byzantine reconfiguration address broader changing-participation settings~\cite{dbrb,reconfiguration}. PDCC combines certificate-based payments with membership change and periodic settlement; its installation rule accepts certificates for the installed configuration and states a correct-member overlap assumption~\cite{pdcc}. RAI instead preserves eligible old-domain certificates that may be assembled later. Table~\ref{tab:related} summarizes the boundary mechanisms.
+
+\begin{table*}[t]
+\caption{Selected boundary mechanisms. The comparison concerns the cited designs, not measured performance or a completeness ranking.}
+\label{tab:related}
+\begin{tabularx}{\textwidth}{@{}p{0.84in}YY@{}}
+\toprule
+Design & Relevant mechanism & Distinction from RAI\\
+\midrule
+Astro~\cite{astro} & Asynchronous view changes and account-log transfer in the extended-version appendix. & RAI studies frozen-report quorum obligations and overlaps the next epoch's voting with the close.\\
+Sui Lutris~\cite{lutris} & Processed certificates enter consensus before end-of-epoch handover. & RAI has no continuous account-certificate sequence to drain.\\
+Pastro~\cite{pastro} & Permissionless asynchronous asset transfer with dynamic participation. & RAI's membership and corruption assumptions are narrower.\\
+PDCC~\cite{pdcc} & Checkpoint-installed configurations and current-configuration certificate acceptance. & RAI's eligibility predicate preserves eligible late old-domain finality.\\
+RAI & Immutable reports, eligible candidates over abstract consensus and convergence services, obligation locks, narrow notarized-prefix promotion. & Account certificates finalize online; a decided checkpoint can also finalize a uniquely retained notarized prefix.\\
+\bottomrule
+\end{tabularx}
+\end{table*}
+
+\subsection{Agreement with external validity and set reconciliation}
+Consensus with external validity, where a predicate restricts decidable values, is a standard interface~\cite{externalvalidity}; RAI uses it with the eligibility predicate of Section~\ref{sec:manifest} and requires verifiable decisions so that the successor can install without voting. Any protocol meeting A1--A4 fits; Section~\ref{sec:eval} instantiates it with a leader-based voting construction~\cite{simplex,kudzu}. Likewise, authenticated set reconciliation is a mature building block~\cite{iblt,whatsthedifference,rateless}; RAI's requirement is only that each frozen tagged ledger and voted-but-not-ledger set be reconstructible and checkable against its signed root. The preservation proof depends on those memberships and quorum intersections, not on a particular reconciliation or agreement mechanism.

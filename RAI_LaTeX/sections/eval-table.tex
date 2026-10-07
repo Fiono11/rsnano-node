@@ -1,0 +1,24 @@
+\begin{table*}[t]
+\caption{Non-fork goodput (blocks/s) and non-fork confirmation latency (ms) at an offered 2{,}000 blocks/s, one run per variant. With forks the non-fork share of the offered load is 95\% or 90\%. CP is the number of checkpoints every running validator decided identically. A baseline run that did not finish is given by the share of the 45{,}000 blocks confirmed when its publishing deadline expired.}
+\label{tab:eval}
+\centering
+\begin{tabular}{@{}lrrrrrrrrc@{}}
+\toprule
+& \multicolumn{4}{c}{RsNano \texttt{develop} (no checkpoints)} & \multicolumn{5}{c}{RAI prototype (8\,s epochs)}\\
+\cmidrule(lr){2-5}\cmidrule(l){6-10}
+Variant & Blocks/s & p50 & p95 & p99 & Blocks/s & p50 & p95 & p99 & CP\\
+\midrule
+No forks & 1901 & 189 & 410 & 622 & 1{,}968 & 98 & 280 & 880 & 3\\
+No forks, 1 offline & 1907 & 207 & 238 & 285 & 1{,}978 & 110 & 205 & 441 & 3\\
+No forks, 1 Byzantine & 1921 & 205 & 234 & 289 & 1{,}978 & 112 & 189 & 433 & 3\\
+\midrule
+5\% forks & \multicolumn{4}{c}{did not finish: 95.4\% confirmed} & 1{,}824 & 108 & 611 & 859 & 3\\
+5\% forks, 1 offline & \multicolumn{4}{c}{did not finish: 90.4\% confirmed} & 1{,}836 & 117 & 245 & 552 & 3\\
+5\% forks, 1 Byzantine & \multicolumn{4}{c}{did not finish: 93.0\% confirmed} & 1{,}841 & 118 & 298 & 513 & 3\\
+\midrule
+10\% forks & \multicolumn{4}{c}{did not finish: 87.3\% confirmed} & 1{,}679 & 128 & 660 & 960 & 3\\
+10\% forks, 1 offline & \multicolumn{4}{c}{did not finish: 69.2\% confirmed} & 1{,}677 & 131 & 411 & 492 & 3\\
+10\% forks, 1 Byzantine & \multicolumn{4}{c}{did not finish: 86.4\% confirmed} & 1{,}681 & 131 & 448 & 717 & 3\\
+\bottomrule
+\end{tabular}
+\end{table*}

@@ -1,0 +1,91 @@
+\section{Model, Assumptions, and Abstract Services}
+\label{sec:model}
+\subsection{Participants, faults, and retained evidence}
+Clients own accounts and sign blocks. An authenticated committee contains $N=3f+2p+1$ equal-weight validator identities, where $f,p\geq0$ are integers. At most $f$ members of each committee are Byzantine. Corruption is globally static: adversarial identities are fixed throughout the execution, and a correct departing identity is not later compromised. Membership admission, Sybil resistance, and preservation of the per-committee fault bound are deployment assumptions; deterministic committee selection does not establish them.
+
+Signatures are unforgeable and hashes collision resistant. Canonical encodings bind the network session and message domain. An account vote binds its epoch, committee, account, slot, vote type, block hash, and admission-witness digest; the witness identifies the anchor and evidence under which the vote was admitted. Checkpoint votes bind the handoff context and deciding committee. Distinct signatures by one identity never contribute twice to a quorum for the same block.
+
+Correct validators persist their first vote and terminal state before releasing signatures. They retain blocks, signed votes, and finite dependency evidence, and relay them after local voting ends. A certificate is a deterministic local view of sufficient individually verified votes, not a separately gossiped object. A retained item held by a correct validator eventually reaches every correct validator that needs it (the \emph{data service}). Departing validators continue service until correct successors hold durable copies. Epoch labels alone do not protect against stolen old keys; adaptive or mobile corruption is outside the model.
+
+\begin{table}[t]
+\caption{Account and closure thresholds. The example has $f=p=1$ and $N=6$.}
+\label{tab:thresholds}
+\centering
+\begin{tabularx}{\columnwidth}{@{}Ylc@{}}
+\toprule
+Evidence & Threshold & Example\\
+\midrule
+Notarization $\NC$ & $q=N-f-p$ & 4\\
+Normal finality $\FC$ & $q$ final votes & 4\\
+Fast finality $\FF$ & $N-p$ first votes & 5\\
+Recovery support & $r=f+p+1$ & 3\\
+Selected reports & $N-f$ & 5\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Quorums and the role of \texorpdfstring{$p$}{p}}
+The account path uses
+\begin{align}
+N&=3f+2p+1, &q&=2f+p+1, &r&=f+p+1.\label{eq:thresholds}
+\end{align}
+Table~\ref{tab:thresholds} distinguishes first, final, and report quorums. The parameter $p$ is the number of first-vote responses the fast path can omit, not an additional fault allowance; increasing $p$ at fixed $f$ increases committee size. We repeatedly use
+\begin{align}
+2q-N&=f+1,\label{eq:intersect}\\
+q-2f&=p+1,\label{eq:normal-exposure}\\
+(N-p)-2f&=f+p+1=r.\label{eq:fast-exposure}
+\end{align}
+
+\subsection{Accounts and canonical state}
+Each account is a tree of owner-signed blocks rooted at genesis. A block's slot is one greater than its parent's slot; slots are account positions, not times. Blocks of one account conflict when neither is an ancestor of the other. An owner equivocates by signing conflicting blocks; safety covers such owners, liveness does not promise a winner under persistent contention.
+
+A closed checkpoint is $S_e=(L_e,\Sigma_e)$. The ledger $L_e$ identifies finalized prefixes, retained unresolved branches, and lock records. A lock record names its block, its strength (notarization or recovery), and the epoch whose potential finality it protects; a certificate in an unrelated epoch cannot silently discharge an older lock. The application state $\Sigma_e$ contains balances, received-send identifiers, and applied-operation identifiers. A block is final either from an eligible account $\FC/\FF$ or because a decided checkpoint promoted it under Section~\ref{sec:build}; an undecided candidate has no finality effect.
+
+Let $F_e$ be the finalized block set of $L_e$. A validator also maintains a certified live overlay $O_i$ of locally finalized blocks not yet in $F_e$. Its effective final set is $F_e\cup O_i$, and its live application view is the deterministic replay of that set. Section~\ref{sec:install} defines installation without rolling back or reissuing effects. A deterministic function derives the committee $C_e$ from $\Sigma_e$, never from a private overlay.
+
+\subsection{Latent finality and progress assumptions}
+\begin{definition}[Latent and late finality]
+For a fixed epoch and admission context, a block is latent-final at a cut if released signatures and valid dependency evidence suffice to verify an eligible $\FC$ or $\FF$ for it or for a descendant selecting it. Late finality is such a proof assembled or exposed after reports freeze or after a checkpoint is decided. A closure obligation also covers a certificate completed by subsequent old-epoch signatures from identities that have not stopped.
+\end{definition}
+Preservation requires retaining the selected branch or a compatible finalized extension. Checkpoint promotion is permitted only for a uniquely retained prefix already protected by closing-epoch notarization.
+
+Safety has no message-delay bound. Progress requires finite relevant admitted work, fair processing and retry, retained-data availability, and recurring sufficiently long bounded-delay windows in which $\delta$ bounds delivery and processing and clock rates lie in $[1-\rho,1+\rho]$. Table~\ref{tab:assumptions} maps premises to guarantees. An uncontested continuation has no conflicting owner-signed alternative at any new position, including signatures created earlier.
+
+\subsection{The two abstract services}
+\label{sec:services}
+RAI commits to sets by their roots and agrees on candidates by their digests. Two services turn these commitments into shared state. RAI states their interfaces and the properties it uses; it does not fix their mechanics.
+
+\para{Convergence.}
+A reporter calls $\Freeze_i(\ctx_e,T_i,G_i)$, which returns the signed header $R_i$ of Section~\ref{sec:reports} and retains the frozen sets. Any validator calls $\Conv_j(R_i)$, which returns $(T,G)$ or is still pending. The service must provide:
+\begin{description}[leftmargin=1.2em,itemsep=1pt]
+\item[C1 (Integrity).] If $\Conv_j(R_i)$ returns $(T,G)$ at a correct $j$, then $\Root(T)$ and $\Root(G)$ are the roots signed in $R_i$. With collision resistance, $(T,G)=(T_i,G_i)$ when $i$ is correct, and a Byzantine $i$ is bound to one pair per header.
+\item[C2 (Termination).] If a correct $i$ froze $R_i$ and $R_i$ reaches a correct $j$, then under the data service and fair retry $\Conv_j(R_i)$ eventually returns.
+\end{description}
+Full transfer of the committed sets, an authenticated difference against a shared projection, and set reconciliation all satisfy C1 and C2; they differ in cost. A Byzantine reporter can make only its own report unreconstructible.
+
+\para{Consensus.}
+For handoff $e$, members of the closing committee $K_e$ call $\mathsf{Propose}(\ctx_e,v)$ with candidates of the form $v=(Q,\mu,d)$ of Section~\ref{sec:manifest}, and $\Agree(\ctx_e)$ returns a value $v$ with a proof $\pi_e$ that $\mathsf{Verify}(\ctx_e,v,\pi_e)$ accepts at any party knowing $K_e$. RAI supplies the predicate $\Elig_e(v)$ of Section~\ref{sec:manifest}, which a correct member can evaluate once it has reconstructed the reports $v$ names. The service must provide:
+\begin{description}[leftmargin=1.2em,itemsep=1pt]
+\item[A1 (Agreement).] Two accepted proofs for $\ctx_e$ carry the same $v$.
+\item[A2 (Eligibility).] An accepted proof for $\ctx_e$ carries a $v$ with $\Elig_e(v)$. Equivalently, a correct member supports a value only after checking $\Elig_e$ on reconstructed inputs, and no decision forms without correct support.
+\item[A3 (Integrity).] A proof cannot be replayed for another context, and $\mathsf{Verify}$ needs only $K_e$ and the retained inputs $v$ names.
+\item[A4 (Termination).] If at least $N-f$ correct members of $K_e$ eventually hold some eligible candidate for $\ctx_e$, then every correct member eventually decides, given recurring prepared windows long enough for the service's own rounds.
+\end{description}
+A2 is external validity with a predicate the service treats as opaque. The members that evaluate it need reconstructed reports, which is where C2 feeds A4: convergence makes correct reports usable, usable reports make an eligible candidate constructible at every correct member, and the consensus service then decides it. Nothing in A1--A4 refers to accounts, blocks, or report contents; any Byzantine agreement protocol with external validity and verifiable decisions, leader-based or not, fits the interface.
+
+\begin{table*}[t]
+\caption{Assumption-to-guarantee map. None of the progress premises is a throughput or resource-isolation guarantee.}
+\label{tab:assumptions}
+\begin{tabularx}{\textwidth}{@{}p{1.10in}Yp{2.16in}@{}}
+\toprule
+Premise & Required condition & Guarantees using it\\
+\midrule
+Safety model & Static Byzantine identities; at most $f$ per committee; authentication; persistent voting; valid ancestry and prefix-wide eligibility. & Account exclusion and cross-epoch safety.\\
+Convergence C1, consensus A1--A3 & Reconstructed sets match their signed roots; one eligible value decided per context, verifiably. & Deterministic construction at every correct validator; identical installed checkpoints.\\
+Data service & Correct holders retain and eventually serve blocks, votes, frozen reports, and committed candidate inputs. & Report usability and successor installation.\\
+Finite preparation & Relevant admitted closing-epoch evidence is finite; reconstruction and validation are fairly scheduled. & Eventual reconstruction and finite $\Build$.\\
+Convergence C2, consensus A4 & Correct reports reconstruct; a held eligible candidate is decided in a prepared window with $N-f$ responsive correct old members. & Handoff termination.\\
+Account progress & Available dependencies; common-open ready intervals; persistent uncontested submission with retry or fresh-child continuation. & Account finality and eventual checkpoint inclusion.\\
+\bottomrule
+\end{tabularx}
+\end{table*}

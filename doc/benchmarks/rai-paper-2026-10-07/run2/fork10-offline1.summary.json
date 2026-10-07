@@ -1,0 +1,144 @@
+{
+  "gate": "B",
+  "source_revision": "a4872d09e7a84a6434545bff026e2b18c9edcd4f",
+  "node_sha256": "92aa6acca16125e2850e87f69014685cc512945cd078386791140c4f65ed668f",
+  "client_sha256": "cdfd4b72aab38f188e18ca898babd3bcf2cbeb655bd53b5a607fdb2c045d897c",
+  "busy_processes": [],
+  "performance_eligible": true,
+  "nodes": 5,
+  "command": [
+    "/Users/ruimorais/rsnano-node/.claude/worktrees/rai-kudzu-close/target/release/nanospam",
+    "--data-dir",
+    "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-u1zyevc8",
+    "--prs",
+    "6",
+    "--no-prio",
+    "--blocks",
+    "45000",
+    "--accounts",
+    "45000",
+    "--rate",
+    "2000",
+    "--fork-percentage",
+    "10",
+    "--epoch-duration-ms",
+    "8000",
+    "--byzantine",
+    "0",
+    "--offline",
+    "1",
+    "--no-kill",
+    "--committee-model",
+    "equal_weight",
+    "--committee-f",
+    "1",
+    "--committee-p",
+    "1"
+  ],
+  "status": "settled",
+  "client_finished": true,
+  "client_finished_s": 78.5,
+  "settled_after_s": 63.5,
+  "settlement": {
+    "all_cemented": true,
+    "cemented": [
+      40552
+    ],
+    "held": [
+      45065
+    ],
+    "uncemented": [
+      4513
+    ],
+    "decided_everywhere": [
+      0,
+      1,
+      2
+    ],
+    "decided_somewhere": [
+      0,
+      1,
+      2
+    ],
+    "values_agree": true,
+    "settled": true
+  },
+  "finalization_p50_ms": [
+    114,
+    111,
+    113,
+    110,
+    115
+  ],
+  "close_rounds": [
+    [
+      0,
+      "0"
+    ],
+    [
+      1,
+      "0"
+    ],
+    [
+      2,
+      "1"
+    ]
+  ],
+  "close_timings": {
+    "0": {
+      "nodes_left": 5,
+      "nodes_closed": 5,
+      "first_close_ms": 1573,
+      "last_close_ms": 1589,
+      "left_spread_ms": 33,
+      "rounds": [
+        0
+      ]
+    },
+    "1": {
+      "nodes_left": 5,
+      "nodes_closed": 5,
+      "first_close_ms": 2868,
+      "last_close_ms": 2939,
+      "left_spread_ms": 140,
+      "rounds": [
+        0
+      ]
+    },
+    "2": {
+      "nodes_left": 5,
+      "nodes_closed": 5,
+      "first_close_ms": 4299,
+      "last_close_ms": 4307,
+      "left_spread_ms": 14,
+      "rounds": [
+        1
+      ]
+    }
+  },
+  "close_duration_ms": {
+    "max": 4307,
+    "median": 2939
+  },
+  "streams": {
+    "count": 34,
+    "dropped": 0,
+    "symbols": 3328,
+    "recovered": 1679,
+    "symbols_per_item": 1.98
+  },
+  "client": {
+    "nonfork_goodput_cps": 1676.8,
+    "nonfork_created": 40485,
+    "nonfork_confirmed": 40485,
+    "nonfork_p50_ms": 131,
+    "nonfork_p95_ms": 411,
+    "nonfork_p99_ms": 492,
+    "fork_created": 4515,
+    "fork_confirmed": 2,
+    "duration_secs": 24.14
+  },
+  "confirmation_rate_cps": 1863.0,
+  "confirmed_primary": 45000,
+  "correctness_passed": true
+}
