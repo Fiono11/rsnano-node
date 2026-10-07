@@ -262,6 +262,10 @@ impl NetworkMessageProcessor {
             Message::ManifestReply(reply) => {
                 self.epoch_decision.handle_manifest_reply(reply, channel)
             }
+            #[cfg(feature = "rai_protocol")]
+            Message::EpochInstalled(message) => {
+                self.reports.handle_epoch_installed(message, channel)
+            }
 
             #[cfg(feature = "ledger_snapshots")]
             Message::SnapshotPreproposal(preproposal) => {

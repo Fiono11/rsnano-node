@@ -40,6 +40,9 @@ pub enum Message {
     ManifestReq(ManifestReq),
     #[cfg(feature = "rai_protocol")]
     ManifestReply(ManifestReply),
+    /// RAI: a member's signed acknowledgement that it installed a checkpoint
+    #[cfg(feature = "rai_protocol")]
+    EpochInstalled(EpochInstalled),
 
     #[cfg(feature = "ledger_snapshots")]
     SnapshotPreproposal(Preproposal),
@@ -136,6 +139,8 @@ impl From<&ParseMessageError> for DetailType {
             ParseMessageError::InvalidMessage(MessageType::ManifestReq) => Self::ManifestReq,
             #[cfg(feature = "rai_protocol")]
             ParseMessageError::InvalidMessage(MessageType::ManifestReply) => Self::ManifestReply,
+            #[cfg(feature = "rai_protocol")]
+            ParseMessageError::InvalidMessage(MessageType::EpochInstalled) => Self::EpochInstalled,
 
             #[cfg(feature = "ledger_snapshots")]
             ParseMessageError::InvalidMessage(MessageType::Preproposal) => todo!(),
@@ -202,6 +207,8 @@ impl Message {
             Message::ManifestReq(_) => MessageType::ManifestReq,
             #[cfg(feature = "rai_protocol")]
             Message::ManifestReply(_) => MessageType::ManifestReply,
+            #[cfg(feature = "rai_protocol")]
+            Message::EpochInstalled(_) => MessageType::EpochInstalled,
 
             #[cfg(feature = "ledger_snapshots")]
             Message::SnapshotPreproposal(_) => MessageType::Preproposal,
@@ -247,6 +254,8 @@ impl Message {
             Message::ManifestReq(x) => Some(x),
             #[cfg(feature = "rai_protocol")]
             Message::ManifestReply(x) => Some(x),
+            #[cfg(feature = "rai_protocol")]
+            Message::EpochInstalled(x) => Some(x),
 
             _ => None,
         }
@@ -292,6 +301,8 @@ impl Message {
             Message::ManifestReq(m) => m.serialize(writer),
             #[cfg(feature = "rai_protocol")]
             Message::ManifestReply(m) => m.serialize(writer),
+            #[cfg(feature = "rai_protocol")]
+            Message::EpochInstalled(m) => m.serialize(writer),
 
             #[cfg(feature = "ledger_snapshots")]
             Message::SnapshotPreproposal(m) => m.serialize(writer),
@@ -358,6 +369,10 @@ impl Message {
             #[cfg(feature = "rai_protocol")]
             MessageType::ManifestReply => {
                 Message::ManifestReply(ManifestReply::deserialize(payload)?)
+            }
+            #[cfg(feature = "rai_protocol")]
+            MessageType::EpochInstalled => {
+                Message::EpochInstalled(EpochInstalled::deserialize(payload)?)
             }
 
             #[cfg(feature = "ledger_snapshots")]

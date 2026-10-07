@@ -4,7 +4,7 @@ use std::{
 };
 
 use rsnano_messages::{
-    ConfirmAck, EvidenceReq, Message, Report, ReportSymbolsReply, ReportSymbolsReq,
+    ConfirmAck, EpochInstalled, EvidenceReq, Message, Report, ReportSymbolsReply, ReportSymbolsReq,
 };
 use rsnano_network::{Channel, TrafficType};
 use rsnano_nullable_clock::SteadyClock;
@@ -131,6 +131,57 @@ impl ReportService {
             messages.len()
         );
         self.send(messages, None);
+    }
+
+    /// RAI, "Retained evidence": this node installed the decided checkpoint
+    /// of an epoch; it says so, signed, and counts its own acknowledgement
+    pub fn epoch_installed(&self, epoch: ConsensusEpoch) {
+        let Some(state) = self.active_elections.epoch_previous_state(epoch.next()) else {
+            return;
+        };
+        let state = state.state_hash();
+        let mut keys = Vec::new();
+        self.wallet_reps.lock().unwrap().rep_priv_keys(&mut keys);
+        for key in keys {
+            let message = EpochInstalled::new(&key, epoch, state);
+            self.acknowledge(&message);
+            self.stats.inc_dir(
+                StatType::Message,
+                DetailType::EpochInstalled,
+                Direction::Out,
+            );
+            self.flooder.lock().unwrap().flood_prs_and_some_non_prs(
+                &Message::EpochInstalled(message),
+                TrafficType::Generic,
+                1.0,
+            );
+        }
+    }
+
+    /// RAI: a member acknowledges a checkpoint it installed
+    pub fn handle_epoch_installed(&self, message: EpochInstalled, _channel: &Arc<Channel>) {
+        self.stats
+            .inc_dir(StatType::Message, DetailType::EpochInstalled, Direction::In);
+        if !message.verify() {
+            return;
+        }
+        self.acknowledge(&message);
+    }
+
+    /// Counts an acknowledgement in the successor committee; once `N - f` of
+    /// its weight installed the checkpoint, the epoch's reports are released
+    fn acknowledge(&self, message: &EpochInstalled) {
+        if !self
+            .active_elections
+            .acknowledge_install(message.epoch, message.state, message.member)
+        {
+            return;
+        }
+        if self.exchange.lock().unwrap().release_epoch(message.epoch) {
+            self.stats
+                .inc(StatType::Message, DetailType::EpochEvidenceReleased);
+            crate::utils::diagnostic!("EPOCH_EVIDENCE_RELEASED epoch={}", message.epoch);
+        }
     }
 
     /// Verify and store a signed report for reconstruction on the next tick.

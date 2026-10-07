@@ -21,14 +21,20 @@ impl ReportPlugin {
 
 impl EventHandlerMut<AecFact> for ReportPlugin {
     fn handle(&mut self, event: &AecFact) {
-        if let AecFact::EpochAdvanced(current, report) = event {
-            let Some(left) = current.as_u64().checked_sub(1) else {
-                return;
-            };
-            if let Some(report) = report {
-                self.reports
-                    .epoch_left(ConsensusEpoch::new(left), report.clone());
+        match event {
+            AecFact::EpochAdvanced(current, report) => {
+                let Some(left) = current.as_u64().checked_sub(1) else {
+                    return;
+                };
+                if let Some(report) = report {
+                    self.reports
+                        .epoch_left(ConsensusEpoch::new(left), report.clone());
+                }
             }
+            // The checkpoint of the epoch is installed here: the successors
+            // are told, so that the epoch's handoff evidence can be released
+            AecFact::CheckpointFinalized { epoch, .. } => self.reports.epoch_installed(*epoch),
+            _ => {}
         }
     }
 }

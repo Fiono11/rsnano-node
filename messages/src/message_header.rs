@@ -60,6 +60,9 @@ pub enum MessageType {
     ManifestReq = 0x17,
     #[cfg(feature = "rai_protocol")]
     ManifestReply = 0x18,
+    /// RAI: a member's signed acknowledgement that it installed a checkpoint
+    #[cfg(feature = "rai_protocol")]
+    EpochInstalled = 0x19,
 }
 
 impl MessageType {
@@ -92,6 +95,8 @@ impl MessageType {
             MessageType::ManifestReq => "manifest_req",
             #[cfg(feature = "rai_protocol")]
             MessageType::ManifestReply => "manifest_reply",
+            #[cfg(feature = "rai_protocol")]
+            MessageType::EpochInstalled => "epoch_installed",
             #[cfg(feature = "rai_protocol")]
             MessageType::ReportSymbolsReq => "report_symbols_req",
             #[cfg(feature = "rai_protocol")]
@@ -250,6 +255,8 @@ impl MessageHeader {
             #[cfg(feature = "rai_protocol")]
             MessageType::ManifestReply => ManifestReply::serialized_size(self.extensions),
             #[cfg(feature = "rai_protocol")]
+            MessageType::EpochInstalled => EpochInstalled::serialized_size(self.extensions),
+            #[cfg(feature = "rai_protocol")]
             MessageType::ReportSymbolsReq => ReportSymbolsReq::serialized_size(self.extensions),
             #[cfg(feature = "rai_protocol")]
             MessageType::ReportSymbolsReply => ReportSymbolsReply::serialized_size(self.extensions),
@@ -331,6 +338,8 @@ impl From<MessageType> for DetailType {
             MessageType::ManifestReq => DetailType::ManifestReq,
             #[cfg(feature = "rai_protocol")]
             MessageType::ManifestReply => DetailType::ManifestReply,
+            #[cfg(feature = "rai_protocol")]
+            MessageType::EpochInstalled => DetailType::EpochInstalled,
             #[cfg(feature = "rai_protocol")]
             MessageType::ReportSymbolsReq => DetailType::ReportSymbolsReq,
             #[cfg(feature = "rai_protocol")]

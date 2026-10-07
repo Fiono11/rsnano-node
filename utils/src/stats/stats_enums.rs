@@ -154,6 +154,9 @@ pub enum DetailType {
     /// RAI: a candidate's evidence manifest, fetched by digest
     ManifestReq,
     ManifestReply,
+    /// RAI: a member installed a checkpoint; handoff evidence may be released
+    EpochInstalled,
+    EpochEvidenceReleased,
     ReportUnverified,
     CheckpointBlockCemented,
     CheckpointBlockRequested,

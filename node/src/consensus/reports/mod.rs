@@ -861,6 +861,13 @@ impl ReportExchange {
         }
     }
 
+    /// RAI, "Retained evidence": the handoff evidence of an epoch, its
+    /// frozen reports, reconstructions and symbol encoders, is released once
+    /// the successors hold the checkpoint it produced
+    pub fn release_epoch(&mut self, epoch: ConsensusEpoch) -> bool {
+        self.epochs.remove(&epoch).is_some()
+    }
+
     pub fn pending_epochs(&self) -> Vec<ConsensusEpoch> {
         self.epochs.keys().copied().collect()
     }
@@ -1384,6 +1391,21 @@ mod tests {
             Some(Verification::Missing(Vec::new()))
         });
         assert_eq!(requester.usable(report.epoch).len(), 1);
+    }
+
+    /// RAI, "Retained evidence": releasing an epoch drops its reports and
+    /// reconstructions; nothing of the epoch is usable or served afterwards
+    #[test]
+    fn a_released_epoch_holds_no_reports() {
+        let (mut reporter, report, mut requester, now) = diverged(3, 40);
+        requester.reconcile(report.epoch, report.reporter, now);
+        pull(&mut requester, &mut reporter, now);
+        trust_all(&mut requester, report.epoch);
+        assert_eq!(requester.usable(report.epoch).len(), 1);
+        assert!(requester.release_epoch(report.epoch));
+        assert!(requester.usable(report.epoch).is_empty());
+        assert!(requester.reports(report.epoch).is_empty());
+        assert!(!requester.release_epoch(report.epoch));
     }
 
     /// RAI: a report no derivation can use is never usable, and no evidence

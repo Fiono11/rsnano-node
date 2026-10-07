@@ -410,6 +410,20 @@ impl AecService {
 
     /// RAI: whether this node holds a voter's signed vote for a block
     #[cfg(feature = "rai_protocol")]
+    /// RAI: a successor member installed an epoch's checkpoint; true when
+    /// `N - f` of the successor committee's weight has, for the first time
+    pub fn acknowledge_install(
+        &self,
+        epoch: ConsensusEpoch,
+        state: BlockHash,
+        member: PublicKey,
+    ) -> bool {
+        self.aec
+            .write()
+            .unwrap()
+            .acknowledge_install(epoch, state, member)
+    }
+
     /// RAI: the evidence manifest this node would commit to for the claims
     pub fn evidence_manifest(
         &self,

@@ -139,6 +139,9 @@ pub(crate) struct ActiveElectionsContainer {
     /// is erased on confirmation. `Sigma_e` derives the committee from them
     /// like from any finalized block.
     checkpoint_delegations: BTreeMap<ConsensusEpoch, HashMap<BlockHash, Delegation>>,
+    /// RAI: the successor-committee members that acknowledged installing
+    /// each epoch's checkpoint
+    install_acks: BTreeMap<ConsensusEpoch, BTreeSet<PublicKey>>,
     /// RAI: elections of the current epoch which got a certificate so far
     decided_in_current_epoch: usize,
     /// RAI: how long an epoch lasts from its first election; zero: no time limit
@@ -212,6 +215,7 @@ impl ActiveElectionsContainer {
             frozen: BTreeSet::new(),
             vote_records: VoteRecords::default(),
             checkpoint_delegations: BTreeMap::new(),
+            install_acks: BTreeMap::new(),
             decided_in_current_epoch: 0,
             epoch_duration: config.epoch_duration,
             epochs_started: false,
@@ -3020,6 +3024,48 @@ impl ActiveElectionsContainer {
         })
     }
 
+    /// RAI, "Retained evidence": a member of the successor committee
+    /// `K_{e+1}` installed `S_e`. True when the acknowledging members carry
+    /// `N - f` of that committee's weight for the first time, which is when
+    /// the epoch's handoff evidence may be released here. An acknowledgement
+    /// of a state this node has not decided, or of another state than it
+    /// decided, counts for nothing.
+    pub fn acknowledge_install(
+        &mut self,
+        epoch: ConsensusEpoch,
+        state: BlockHash,
+        member: PublicKey,
+    ) -> bool {
+        if !self
+            .decided
+            .get(&epoch)
+            .is_some_and(|decided| decided.state_hash() == state)
+        {
+            return false;
+        }
+        let Some(successors) = self.committees.committee(epoch.next()) else {
+            return false;
+        };
+        if successors.weight(&member).is_zero() {
+            return false;
+        }
+        let acks = self.install_acks.entry(epoch).or_default();
+        if !acks.insert(member) {
+            return false;
+        }
+        let weight = acks.iter().fold(Amount::ZERO, |sum, member| {
+            sum.number()
+                .checked_add(successors.weight(member).number())
+                .map(Amount::raw)
+                .unwrap_or(Amount::MAX)
+        });
+        let before = weight
+            .number()
+            .saturating_sub(successors.weight(&member).number());
+        let threshold = successors.thresholds().report.number();
+        weight.number() >= threshold && before < threshold
+    }
+
     /// RAI, "Immutable candidate inputs": the evidence manifest this node
     /// would commit to for the given claims: for every block, the members
     /// whose signed first and final votes it holds in the claim's epoch.
@@ -5071,6 +5117,42 @@ mod tests {
         container.genesis_state = Arc::new(history);
         container.start_epochs(start);
         (container, reps, rep_weights, start)
+    }
+
+    /// RAI, "Retained evidence": an epoch's handoff evidence is released
+    /// once members of the successor committee carrying N - f of its weight
+    /// acknowledged installing the decided checkpoint; an acknowledgement of
+    /// another state, of an undecided epoch, or by a non-member counts for
+    /// nothing, and the threshold is reported once
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn install_acknowledgements_release_an_epoch_once_the_successors_hold_it() {
+        let (mut container, reps, _, _) = committee_fixture(|_| {});
+        let state = Arc::new(EpochLedger::new());
+        let digest = state.state_hash();
+        // Undecided here: nothing counts
+        assert!(!container.acknowledge_install(ConsensusEpoch::ZERO, digest, reps[0].public_key()));
+        container
+            .decided
+            .insert(ConsensusEpoch::ZERO, state.clone());
+        // Another state, a non-member: nothing counts
+        assert!(!container.acknowledge_install(
+            ConsensusEpoch::ZERO,
+            BlockHash::from(99),
+            reps[0].public_key()
+        ));
+        assert!(!container.acknowledge_install(ConsensusEpoch::ZERO, digest, PublicKey::from(1)));
+        let mut reached = Vec::new();
+        for rep in &reps {
+            reached.push(container.acknowledge_install(
+                ConsensusEpoch::ZERO,
+                digest,
+                rep.public_key(),
+            ));
+        }
+        assert_eq!(reached.iter().filter(|r| **r).count(), 1);
+        // A repeated acknowledgement changes nothing
+        assert!(!container.acknowledge_install(ConsensusEpoch::ZERO, digest, reps[0].public_key()));
     }
 
     /// A container in epoch 1 with epoch 0 ended at its timed boundary but
