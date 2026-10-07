@@ -25,6 +25,11 @@ pub(crate) struct VoteRecords {
     /// the certificates these assemble, and a node lacking them is sent the
     /// original signed votes.
     support: BTreeMap<ConsensusEpoch, HashMap<BlockHash, HashSupport>>,
+    /// RAI, late notarization: who cast a notarization-only vote for each
+    /// block in each epoch after leaving it. Kept apart from `support`:
+    /// these votes are in no report, manifest or evidence reply, and they
+    /// count towards a closing-epoch NC only, never towards finality.
+    late_notar: BTreeMap<ConsensusEpoch, HashMap<BlockHash, BTreeSet<PublicKey>>>,
 }
 
 /// RAI: the identities whose signed votes of one kind this node holds for
@@ -86,6 +91,36 @@ impl VoteRecords {
         }
     }
 
+    /// RAI, late notarization: a notarization-only account vote received
+    pub fn late_notar_vote(&mut self, vote: &Vote, hashes: impl IntoIterator<Item = BlockHash>) {
+        if vote.kind() != VoteKind::Notar {
+            return;
+        }
+        let epoch = self.late_notar.entry(vote.epoch).or_default();
+        for hash in hashes {
+            epoch.entry(hash).or_default().insert(vote.voter);
+        }
+    }
+
+    /// RAI, late notarization: who cast a notarization-only vote for a block
+    /// in an epoch
+    pub fn late_notarizers(
+        &self,
+        epoch: ConsensusEpoch,
+        hash: &BlockHash,
+    ) -> Option<&BTreeSet<PublicKey>> {
+        self.late_notar.get(&epoch)?.get(hash)
+    }
+
+    /// RAI, late notarization: the blocks with notarization-only votes in an
+    /// epoch, and their voters
+    pub fn late_notarized_blocks(
+        &self,
+        epoch: ConsensusEpoch,
+    ) -> impl Iterator<Item = (&BlockHash, &BTreeSet<PublicKey>)> {
+        self.late_notar.get(&epoch).into_iter().flatten()
+    }
+
     /// RAI: who voted for a block in an epoch
     pub fn support(&self, epoch: ConsensusEpoch, hash: &BlockHash) -> Option<&HashSupport> {
         self.support.get(&epoch)?.get(hash)
@@ -135,6 +170,7 @@ impl VoteRecords {
             }
         }
         self.support.retain(|held, _| *held >= epoch);
+        self.late_notar.retain(|held, _| *held >= epoch);
     }
 
     pub fn len(&self) -> usize {

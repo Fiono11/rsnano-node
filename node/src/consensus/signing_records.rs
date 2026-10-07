@@ -1,7 +1,6 @@
-use std::sync::Arc;
-
-use rsnano_ledger::Ledger;
 use rsnano_messages::Report;
+use rsnano_nullable_lmdb::LmdbEnvironment;
+use rsnano_store_lmdb::LmdbSigningStore;
 use rsnano_types::{Account, BlockHash, ConsensusEpoch, PublicKey, Signature};
 
 use crate::consensus::election::{CertifiedState, EpochSlot, Item, LocalSlotState, ResidualVotes};
@@ -35,13 +34,17 @@ pub struct Recovered {
 
 /// RAI, "Participants, faults, and retained evidence": "Correct validators
 /// persist their first vote and terminal state before releasing
-/// signatures." This is the infrastructure side: the records go to the
-/// ledger's LMDB environment, one write transaction per batch of votes
+/// signatures." This is the infrastructure side: the records go to an
+/// LMDB environment of their own, one write transaction per batch of votes
 /// (group commit) and one per frozen report, before the signatures are
 /// broadcast; a restart reloads them into the election container and the
-/// report exchange, which then refuse whatever the records forbid.
+/// report exchange, which then refuse whatever the records forbid. The
+/// environment is not the ledger's: LMDB has one writer per environment,
+/// and the voter must not wait for block processing or cementing to
+/// release it.
 pub struct SigningRecords {
-    ledger: Arc<Ledger>,
+    env: LmdbEnvironment,
+    store: LmdbSigningStore,
 }
 
 const SLOT: u8 = b'S';
@@ -52,12 +55,13 @@ const CERTIFIED: u8 = b'T';
 const RESIDUAL: u8 = b'G';
 
 impl SigningRecords {
-    pub fn new(ledger: Arc<Ledger>) -> Self {
-        Self { ledger }
+    pub fn new(env: LmdbEnvironment) -> anyhow::Result<Self> {
+        let store = LmdbSigningStore::new(&env)?;
+        Ok(Self { env, store })
     }
 
     pub fn new_null() -> Self {
-        Self::new(Arc::new(Ledger::new_null()))
+        Self::new(LmdbEnvironment::new_null()).expect("a nulled environment opens")
     }
 
     /// Persists the slot states of a batch of votes about to be released
@@ -65,8 +69,8 @@ impl SigningRecords {
         if records.is_empty() {
             return;
         }
-        let store = &self.ledger.store.signing;
-        let mut txn = self.ledger.store.env.begin_write();
+        let store = &self.store;
+        let mut txn = self.env.begin_write();
         for record in records {
             store.put(
                 &mut txn,
@@ -82,18 +86,15 @@ impl SigningRecords {
 
     /// Persists that this node left an epoch: it signs nothing new in it
     pub fn write_frozen(&self, epoch: ConsensusEpoch) {
-        let mut txn = self.ledger.store.env.begin_write();
-        self.ledger
-            .store
-            .signing
-            .put(&mut txn, &epoch_key(FROZEN, epoch), &[]);
+        let mut txn = self.env.begin_write();
+        self.store.put(&mut txn, &epoch_key(FROZEN, epoch), &[]);
         txn.commit();
     }
 
     /// Persists a frozen report before its headers are broadcast
     pub fn write_report(&self, record: &ReportRecord) {
-        let store = &self.ledger.store.signing;
-        let mut txn = self.ledger.store.env.begin_write();
+        let store = &self.store;
+        let mut txn = self.env.begin_write();
         store.put(
             &mut txn,
             &epoch_key(REPORT, record.epoch),
@@ -114,8 +115,8 @@ impl SigningRecords {
 
     /// Drops the records of epochs before the given one
     pub fn forget_before(&self, epoch: ConsensusEpoch) {
-        let store = &self.ledger.store.signing;
-        let mut txn = self.ledger.store.env.begin_write();
+        let store = &self.store;
+        let mut txn = self.env.begin_write();
         let old: Vec<Vec<u8>> = store
             .with_prefix(&txn, &[SLOT])
             .into_iter()
@@ -137,8 +138,8 @@ impl SigningRecords {
 
     /// Everything persisted, for a restart
     pub fn load(&self) -> Recovered {
-        let store = &self.ledger.store.signing;
-        let txn = self.ledger.store.env.begin_read();
+        let store = &self.store;
+        let txn = self.env.begin_read();
         let mut recovered = Recovered::default();
         let parents: Vec<(BlockHash, BlockHash)> = store
             .with_prefix(&txn, &[PARENT])

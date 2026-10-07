@@ -70,6 +70,7 @@ impl VoteGenerators {
             VoteType::Notar,
             VoteType::Timeout,
             VoteType::Abstain,
+            VoteType::LateNotar,
         ];
         #[cfg(not(feature = "rai_protocol"))]
         let vote_types = vec![VoteType::NonFinal, VoteType::Final];
@@ -166,6 +167,7 @@ impl VoteGenerators {
             VoteType::Notar => DetailType::GenerateVoteNotar,
             VoteType::Timeout => DetailType::GenerateVoteTimeout,
             VoteType::Abstain => DetailType::GenerateVoteAbstain,
+            VoteType::LateNotar => DetailType::GenerateVoteNotar,
         };
         self.stats.inc(StatType::Election, detail);
         self.generator(vote_type).add(root, hash, epoch);
@@ -212,6 +214,7 @@ impl ContainerInfoProvider for VoteGenerators {
                 VoteType::Notar => "notar",
                 VoteType::Timeout => "timeout",
                 VoteType::Abstain => "abstain",
+                VoteType::LateNotar => "late_notar",
             };
             builder = builder.node(name, generator.container_info());
         }

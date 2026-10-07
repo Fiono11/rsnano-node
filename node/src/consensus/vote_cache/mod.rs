@@ -16,7 +16,7 @@ use std::{
 
 use rsnano_ledger::LedgerEvent;
 use rsnano_nullable_clock::SteadyClock;
-use rsnano_types::{Amount, BlockHash, ConsensusEpoch, Vote, VoteDelivery, VoteError};
+use rsnano_types::{Amount, BlockHash, ConsensusEpoch, Vote, VoteDelivery, VoteError, VoteKind};
 use rsnano_utils::{
     EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -252,10 +252,13 @@ impl EventHandler<AecFact> for VoteCache {
             AecFact::VoteProcessed(vote, voter_weight, results) => {
                 // Cache the votes that didn't match any election. Evidence votes are
                 // batches handed over for one election; their other hashes are not cached.
+                // RAI: a late notarization opens no instance, so it would never
+                // be replayed; the container recorded it already.
                 if !matches!(
                     vote.delivery,
                     VoteDelivery::Replayed | VoteDelivery::Evidence
-                ) {
+                ) && !(vote.kind() == VoteKind::Notar && !vote.epoch.is_close_round())
+                {
                     self.process(vote.vote.clone(), *voter_weight, results);
                 }
             }

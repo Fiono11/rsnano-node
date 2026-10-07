@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     sync::Arc,
 };
 
@@ -26,7 +26,7 @@ pub(crate) struct FinalizedInstance {
 }
 
 /// RAI: what a block delegates: its balance to its representative
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Delegation {
     pub hash: BlockHash,
     pub representative: PublicKey,
@@ -34,7 +34,7 @@ pub struct Delegation {
 }
 
 /// RAI: a block finalized in an instance of an epoch, with what it delegates
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct FinalizedBlock {
     pub account: Account,
     pub height: u64,
@@ -150,7 +150,8 @@ impl EpochStates {
     /// The winner of every instance finalized in the given epoch, with what
     /// it delegates: what the epoch's state hashes for these instances
     pub fn finalized_blocks_in(&self, epoch: ConsensusEpoch) -> Vec<FinalizedBlock> {
-        let mut seen: Vec<FinalizedBlock> = Vec::new();
+        let mut blocks: Vec<FinalizedBlock> = Vec::new();
+        let mut seen: HashSet<FinalizedBlock> = HashSet::new();
         for instances in self.instances.values() {
             for instance in instances.iter().filter(|i| i.epoch == epoch) {
                 let Some(delegation) = instance.delegation else {
@@ -161,12 +162,12 @@ impl EpochStates {
                     height: instance.height,
                     delegation,
                 };
-                if !seen.contains(&entry) {
-                    seen.push(entry);
+                if seen.insert(entry) {
+                    blocks.push(entry);
                 }
             }
         }
-        seen
+        blocks
     }
 
     /// The blocks finalized in the given epoch, as (account, height, hash)

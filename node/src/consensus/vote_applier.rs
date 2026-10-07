@@ -6,7 +6,7 @@ use std::{
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 
 use rsnano_ledger::{AnySet, Ledger, RepWeightCache};
-use rsnano_types::{Amount, BlockHash, VoteError};
+use rsnano_types::{Amount, BlockHash, VoteError, VoteKind};
 use rsnano_utils::sync::backpressure_channel::Sender;
 
 use super::{AecFact, AecService, FilteredVote, ReceivedVote};
@@ -128,8 +128,14 @@ impl VoteApplier {
         let current = self.active_elections.current_epoch();
         // A final vote is an exit statement, it does not open an instance: the
         // representatives answer a crawler with final votes for cemented blocks.
-        // A close vote is for no block at all.
-        if vote.epoch > current || vote.is_final() || vote.epoch.is_close_round() {
+        // A close vote is for no block at all. A notarization-only account
+        // vote is a late notarization in a closing epoch: it supports the
+        // closing-epoch NC of a block of the open epoch, where its instance is.
+        if vote.epoch > current
+            || vote.is_final()
+            || vote.epoch.is_close_round()
+            || vote.kind() == VoteKind::Notar
+        {
             return false;
         }
         let mut started = false;

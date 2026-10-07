@@ -34,6 +34,10 @@ pub enum VoteType {
     Timeout,
     /// RAI: the abstaining first vote of a close round
     Abstain,
+    /// RAI, late notarization: a notarization-only account vote in the
+    /// closing epoch. Signed as a NotarVote, but generated apart from the
+    /// close rounds' votes, which must not wait behind it.
+    LateNotar,
 }
 
 impl From<VoteKind> for VoteType {
@@ -56,6 +60,7 @@ impl From<VoteType> for VoteKind {
             VoteType::Notar => VoteKind::Notar,
             VoteType::Timeout => VoteKind::Timeout,
             VoteType::Abstain => VoteKind::Abstain,
+            VoteType::LateNotar => VoteKind::Notar,
         }
     }
 }

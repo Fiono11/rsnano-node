@@ -33,6 +33,7 @@ use rsnano_nullable_lmdb::{
     EnvironmentFlags, EnvironmentOptions, LmdbEnvironment, LmdbEnvironmentFactory,
 };
 use rsnano_output_tracker::OutputListenerMt;
+use rsnano_store_lmdb::get_lmdb_flags;
 use rsnano_types::{
     Account, Amount, Block, BlockHash, NetworkType, NodeId, Peer, PrivateKey, QualifiedRoot, Root,
     SavedBlock, Vote, VoteError, WorkNonce, WorkRequest, currency_constants::CURRENCY_NAME,
@@ -848,7 +849,26 @@ impl Node {
         // RAI, Section 6: the report phase of the epoch closes
         // RAI: durable signing records, persisted before any signature
         // leaves and reloaded here so that a restart signs nothing it forbids
-        let signing = Arc::new(crate::consensus::SigningRecords::new(ledger.clone()));
+        let signing = if is_nulled {
+            Arc::new(crate::consensus::SigningRecords::new_null())
+        } else {
+            let mut signing_path = application_path.clone();
+            signing_path.push("signing.ldb");
+            let options = EnvironmentOptions {
+                path: signing_path,
+                max_dbs: 1,
+                map_size: 16 * 1024 * 1024 * 1024,
+                flags: get_lmdb_flags(&config.lmdb_config),
+            };
+            Arc::new(
+                crate::consensus::SigningRecords::new(
+                    lmdb_env_factory
+                        .create(options)
+                        .expect("Could not create LMDB env for signing records"),
+                )
+                .expect("Could not open the signing records"),
+            )
+        };
         #[cfg(feature = "rai_protocol")]
         let reports = Arc::new(ReportService::new(
             active_elections.clone(),

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Generate sections/eval-table.tex from a matrix directory of run_gate_b.py summaries."""
+"""Generate sections/eval-table.tex from a matrix directory of run_gate_b.py summaries,
+followed by the matrices of earlier builds to compare against (usage: matrix out [earlier ...])."""
 import json, sys
 from pathlib import Path
 
@@ -15,20 +16,22 @@ BASELINE = {
     'fork10': '87.3', 'fork10-offline1': '69.2', 'fork10-byz1': '86.4',
 }
 
-def earlier_table(matrix):
-    """A compact table of an earlier build's RAI rows, for comparison"""
+def earlier_table(matrices):
+    """The RAI rows of earlier builds side by side, for comparison"""
     rows = []
+    n = lambda x: f'{int(round(x)):,}'.replace(',', '{,}')
     for key, label in VARIANTS:
-        d = json.load(open(Path(matrix) / f'{key}.summary.json'))
-        c = d['client']
-        n = lambda x: f'{int(round(x)):,}'.replace(',', '{,}')
-        rows.append(f"{label} & {n(c['nonfork_goodput_cps'])} & {c['nonfork_p50_ms']} & {c['nonfork_p95_ms']} & {c['nonfork_p99_ms']}\\\\")
+        cells = []
+        for matrix in matrices:
+            c = json.load(open(Path(matrix) / f'{key}.summary.json'))['client']
+            cells.append(f"{n(c['nonfork_goodput_cps'])} & {c['nonfork_p50_ms']} & {c['nonfork_p95_ms']} & {c['nonfork_p99_ms']}")
+        rows.append(f"{label} & {' & '.join(cells)}\\\\")
         if key in ('nofork-byz1', 'fork5-byz1'):
             rows.append('\\midrule')
     return '\n'.join(rows)
 
 
-def main(matrix, out, earlier=None):
+def main(matrix, out, earlier=()):
     rows = []
     for key, label in VARIANTS:
         d = json.load(open(Path(matrix) / f'{key}.summary.json'))
@@ -60,20 +63,22 @@ Variant & Blocks/s & p50 & p95 & p99 & Blocks/s & p50 & p95 & p99 & CP\\
 \end{tabular}
 \end{table*}
 ''' + (r'''
-\begin{table}[t]
-\caption{The RAI prototype before the four changes of Section~\ref{sec:eval} (predecessor-backed overlap route, no manifest, fixed retention, in-memory records), same workload, one run per variant: non-fork goodput (blocks/s) and latency (ms).}
+\begin{table*}[t]
+\caption{The RAI prototype on the same workload without late notarization (the core rule alone: every block published during a close waits for the checkpoint) and on an earlier build whose overlap rule included the predecessor-backed route of the supplement, one run per variant: non-fork goodput (blocks/s) and latency (ms).}
 \label{tab:earlier}
 \centering
-\begin{tabular}{@{}lrrrr@{}}
+\begin{tabular}{@{}lrrrrrrrr@{}}
 \toprule
-Variant & Blocks/s & p50 & p95 & p99\\
+& \multicolumn{4}{c}{Without late notarization} & \multicolumn{4}{c}{Predecessor-backed route (earlier build)}\\
+\cmidrule(lr){2-5}\cmidrule(l){6-9}
+Variant & Blocks/s & p50 & p95 & p99 & Blocks/s & p50 & p95 & p99\\
 \midrule
 ''' + earlier_table(earlier) + r'''
 \bottomrule
 \end{tabular}
-\end{table}
+\end{table*}
 ''' if earlier else ''))
     print(body)
 
 if __name__ == '__main__':
-    main(sys.argv[1], sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None)
+    main(sys.argv[1], sys.argv[2], sys.argv[3:])

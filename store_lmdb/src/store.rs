@@ -2,8 +2,8 @@
 use crate::forks_store::LmdbForksStore;
 use crate::{
     LmdbAccountStore, LmdbBlockStore, LmdbConfirmationHeightStore, LmdbFinalVoteStore,
-    LmdbOnlineWeightStore, LmdbPeerStore, LmdbPendingStore, LmdbRepWeightStore, LmdbSigningStore,
-    LmdbVersionStore, successor_store::LmdbSuccessorStore,
+    LmdbOnlineWeightStore, LmdbPeerStore, LmdbPendingStore, LmdbRepWeightStore, LmdbVersionStore,
+    successor_store::LmdbSuccessorStore,
 };
 use rsnano_nullable_lmdb::{LmdbEnvironment, ReadTransaction, WriteTransaction};
 use serde::{Deserialize, Serialize};
@@ -46,7 +46,6 @@ pub struct LmdbStore {
     pub peer: LmdbPeerStore,
     pub version: LmdbVersionStore,
     /// RAI: durable signing records (votes, left epochs, frozen reports)
-    pub signing: LmdbSigningStore,
     #[cfg(feature = "ledger_snapshots")]
     pub forks: LmdbForksStore,
 }
@@ -69,7 +68,6 @@ impl LmdbStore {
             final_vote: LmdbFinalVoteStore::new(&env)?,
             successors: LmdbSuccessorStore::new(&env)?,
             version: LmdbVersionStore::new(&env)?,
-            signing: LmdbSigningStore::new(&env)?,
             #[cfg(feature = "ledger_snapshots")]
             forks: LmdbForksStore::new(&env)?,
             env,

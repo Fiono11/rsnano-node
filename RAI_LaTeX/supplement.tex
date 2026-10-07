@@ -90,6 +90,7 @@ The window must be a common prepared interval, not an arbitrary sum of short syn
 
 \section{Optional Predecessor-Backed Fresh Work}
 \label{supp:epb}
+The main protocol's late notarization (main manuscript, Section~4.2) already gives fresh successor work closing-epoch exclusion: the outgoing committee notarizes it in its own domain until it installs the predecessor, and same-domain account exclusion applies without any member common to the two committees. The extension below is an alternative for the opposite situation, where the old committee no longer signs but common members carry the exclusion into the successor's votes.
 \subsection{Why an unqualified membership intersection is insufficient}
 The core protocol does not finalize arbitrary fresh successor blocks before predecessor closure. A possible optimization uses common committee members to exclude an old rival at the fresh block's position. The temporal premise is essential: a member that voted after installing the predecessor checkpoint is no longer subject to the pending-predecessor cross-epoch guard. Membership in both committees alone does not show which guard governed its successor vote.
 
@@ -126,7 +127,7 @@ The main manuscript does not assume these obligations are discharged by the loca
 \subsection{A parent-only overlap counterexample}
 Take disjoint correct old and successor committees, each satisfying its own fault bound. Let an equivocating account owner sign two children $A$ and $B$ of the same parent $P$. The old committee notarizes $P$ and certifies $A$. Independently, the successor re-notarizes $P$ and certifies $B$, before learning the closing checkpoint. Every within-epoch quorum-intersection rule can hold: the old committee supported only $A$ at the child position and the successor supported only $B$.
 
-If the sole cross-epoch condition were that $P$ has notarizations in both domains, the two incompatible children could both be treated as final. The missing exclusion is at the children's position. The core rule closes this case by requiring old-domain notarization for every unresolved position it finalizes, including the certificate target. Alternatively, a correctly composed predecessor-backed witness could exclude an old rival at that position; merely notarizing $P$ twice cannot.
+If the sole cross-epoch condition were that $P$ has notarizations in both domains, the two incompatible children could both be treated as final. The missing exclusion is at the children's position. The core rule closes this case by requiring old-domain notarization for every unresolved position it finalizes, including the certificate target; with late notarization, the old committee supplies that notarization for the child it supports, and within its own domain it cannot notarize both children. Alternatively, a correctly composed predecessor-backed witness could exclude an old rival at that position; merely notarizing $P$ twice cannot.
 
 \balance
 \subsection{A finality witness must not choose the output prefix}

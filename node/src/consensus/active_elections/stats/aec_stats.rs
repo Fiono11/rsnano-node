@@ -51,6 +51,9 @@ pub(crate) struct AecStats {
     /// RAI: notarized instances given an open-epoch instance when their
     /// epoch was left
     pub carried: u64,
+    /// RAI: notarization-only votes cast in the closing epoch for blocks
+    /// first-voted in the open one
+    pub late_notarized: u64,
     /// RAI: close rounds abandoned because the two committees of the joint
     /// election certified different values
     pub close_conflicts: u64,
@@ -235,6 +238,7 @@ impl StatsSource for AecStats {
             self.rechecked_discarded,
         );
         result.insert(AEC_STAT_KEY, "carried", self.carried);
+        result.insert(AEC_STAT_KEY, "late_notarized", self.late_notarized);
         result.insert(AEC_STAT_KEY, "close_conflicts", self.close_conflicts);
         result.insert(AEC_STAT_KEY, "recounted", self.recounted);
         result.insert(

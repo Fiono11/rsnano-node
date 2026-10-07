@@ -635,8 +635,13 @@ impl ActiveElectionsContainer {
     /// lock only the owner can resolve; a block this node never voted is
     /// proposed in the new epoch, "a replica that learns of a block only
     /// after switching proposes it in the new epoch".
+    ///
+    /// A position whose committed votes are split so that no candidate can
+    /// be notarized any more is not carried: every voter re-votes the block
+    /// it voted, so the split would only repeat in the new epoch.
     #[cfg(feature = "rai_protocol")]
     fn carry_notarized_instances(&mut self, left: ConsensusEpoch, now: Timestamp) {
+        let mut split = 0;
         let carried: Vec<SavedBlock> = self
             .roots
             .iter()
@@ -645,6 +650,14 @@ impl ActiveElectionsContainer {
                 election.epoch() == left
                     && !election.is_confirmed()
                     && !election.state().has_ended()
+            })
+            .filter(|election| {
+                let reachable = election.certificates().has_block()
+                    || self.notarization_reachable(left, election);
+                if !reachable {
+                    split += 1;
+                }
+                reachable
             })
             .filter_map(|election| {
                 let first_voted = self
@@ -673,10 +686,52 @@ impl ActiveElectionsContainer {
         for block in carried {
             self.insert_for_vote(block, open, now);
         }
-        if count > 0 {
+        if count > 0 || split > 0 {
             self.stats.carried += count as u64;
-            diagnostic!("EPOCH_CARRIED epoch={} instances={}", left, count);
+            diagnostic!(
+                "EPOCH_CARRIED epoch={} instances={} split={}",
+                left,
+                count,
+                split
+            );
         }
+    }
+
+    /// RAI: whether some candidate of the instance can still be notarized
+    /// in its epoch. A member that first- or final-voted a candidate is
+    /// committed to it ("the same block again, never another at the
+    /// position"); only the weight of members not seen voting here can
+    /// still join a candidate. Votes this node has not seen count as not
+    /// cast, so the answer errs towards reachable.
+    #[cfg(feature = "rai_protocol")]
+    fn notarization_reachable(&self, epoch: ConsensusEpoch, election: &Election) -> bool {
+        let Some(committee) = self.committees.committee(epoch) else {
+            return true;
+        };
+        let weight = |voters: &mut dyn Iterator<Item = &PublicKey>| {
+            voters.fold(Amount::ZERO, |sum, voter| {
+                sum.number()
+                    .checked_add(committee.weight(voter).number())
+                    .map(Amount::raw)
+                    .unwrap_or(Amount::MAX)
+            })
+        };
+        let mut committed: BTreeSet<&PublicKey> = BTreeSet::new();
+        let mut best = Amount::ZERO;
+        for hash in election.candidate_blocks().keys() {
+            let Some(support) = self.vote_records.support(epoch, hash) else {
+                continue;
+            };
+            let voters: BTreeSet<&PublicKey> =
+                support.first.iter().chain(support.final_.iter()).collect();
+            best = best.max(weight(&mut voters.iter().copied()));
+            committed.extend(voters);
+        }
+        let total = weight(&mut committee.weights().keys());
+        let uncommitted = total
+            .number()
+            .saturating_sub(weight(&mut committed.into_iter()).number());
+        Amount::raw(best.number().saturating_add(uncommitted)) >= committee.thresholds().certificate
     }
 
     /// RAI: how one epoch stands on this node: what its finalized instances
@@ -1091,6 +1146,12 @@ impl ActiveElectionsContainer {
         // finalized delegates like any other, and its instance goes with
         // the installation
         self.install_checkpoint(epoch, &state, now);
+        #[cfg(feature = "rai_protocol")]
+        self.log_late_notarization(epoch);
+        // The next epoch's instances waited for this checkpoint only: they
+        // are released before the bookkeeping below, which concerns this
+        // epoch's slots and the committee two epochs on
+        self.release_predecessor_gate(epoch.next(), now);
         let frontiers = self.decided_frontiers(epoch, &state);
         let live: FxHashSet<(Account, u64)> = self
             .roots
@@ -1102,7 +1163,31 @@ impl ActiveElectionsContainer {
         self.slots.remove_epoch_except(epoch, &live);
         self.derive_committee(epoch, frontiers, now);
         self.release_undecided_instances(epoch, now);
-        self.release_predecessor_gate(epoch.next(), now);
+    }
+
+    /// RAI, late notarization: how many blocks were notarized late in an
+    /// epoch, and how many of those reached a closing-epoch NC here
+    #[cfg(feature = "rai_protocol")]
+    fn log_late_notarization(&self, epoch: ConsensusEpoch) {
+        let blocks: Vec<BlockHash> = self
+            .vote_records
+            .late_notarized_blocks(epoch)
+            .map(|(hash, _)| *hash)
+            .collect();
+        if blocks.is_empty() {
+            return;
+        }
+        let notarized = blocks
+            .iter()
+            .filter(|hash| self.closing_notarized(epoch, hash))
+            .count();
+        diagnostic!(
+            "EPOCH_LATE_NOTAR epoch={} blocks={} notarized={} cast={}",
+            epoch,
+            blocks.len(),
+            notarized,
+            self.stats.late_notarized
+        );
     }
 
     /// RAI: the instances of a decided epoch that the checkpoint did not
@@ -1825,9 +1910,74 @@ impl ActiveElectionsContainer {
             slot.mark_voted(target.winner, kind);
             self.slots.record_parent(target.winner, previous);
             self.dirty_signing.push(election.epoch_slot());
+            #[cfg(feature = "rai_protocol")]
+            let late = (kind == VoteKind::First)
+                .then(|| (election.account(), election.height()))
+                .and_then(|(account, height)| self.late_notarization(&target, account, height));
             accepted.push(target);
+            #[cfg(feature = "rai_protocol")]
+            accepted.extend(late);
         }
         accepted
+    }
+
+    /// RAI, late notarization: while the epoch before the current one is
+    /// closing here (left, its checkpoint not installed), a first vote for a
+    /// block of the current epoch comes with a notarization-only vote for
+    /// the same block in the closing epoch, unless this node voted another
+    /// block at the position there. The vote carries no finality: no report
+    /// holds it and it counts towards no fast or final certificate. It
+    /// supplies the closing-epoch NC with which the core overlap exception
+    /// finalizes the block before the checkpoint is known. A block this node
+    /// first-voted in the closing epoch is notarized there by that vote.
+    #[cfg(feature = "rai_protocol")]
+    fn late_notarization(
+        &mut self,
+        target: &VoteTarget,
+        account: Account,
+        height: u64,
+    ) -> Option<VoteTarget> {
+        let epoch = target.election.epoch;
+        let before = ConsensusEpoch::new(epoch.as_u64().checked_sub(1)?);
+        if epoch != self.current_epoch
+            || !self.frozen.contains(&before)
+            || self.decided.contains_key(&before)
+        {
+            return None;
+        }
+        let winner = target.winner;
+        let slot = EpochSlot {
+            account,
+            height,
+            epoch: before,
+        };
+        let voted_here = self.slots.get(&slot).is_some_and(|state| {
+            !state.notar_voted.is_empty()
+                || state.first_voted.is_some()
+                || state.final_voted.is_some()
+        });
+        if voted_here {
+            let state = self.slots.get(&slot)?;
+            // Single support across kinds: never another block, and a first
+            // vote for this one notarizes already
+            if state.first_voted.is_some()
+                || state.final_voted.is_some()
+                || state.notar_voted.iter().any(|hash| *hash != winner)
+            {
+                return None;
+            }
+        } else {
+            self.slots
+                .get_or_default(&slot)
+                .mark_voted(winner, VoteKind::Notar);
+            self.dirty_signing.push(slot);
+            self.stats.late_notarized += 1;
+        }
+        Some(VoteTarget {
+            election: ElectionId::new(target.election.root.clone(), before),
+            winner,
+            vote_type: VoteType::LateNotar,
+        })
     }
 
     /// RAI, durable signing records: the slot states changed since the last
@@ -1974,9 +2124,7 @@ impl ActiveElectionsContainer {
                 .roots
                 .election_for_block_in_epoch(&previous, epoch)
                 .is_some_and(|parent| parent.overlap_eligible());
-        let carried = self
-            .certificate_kinds(before, &block)
-            .is_some_and(|kinds| kinds.notarization);
+        let carried = self.closing_notarized(before, &block);
         let eligible = carried && (parent_finalized || parent_eligible);
         if !eligible {
             return;
@@ -2993,8 +3141,15 @@ impl ActiveElectionsContainer {
         let kind = match vote.kind() {
             VoteKind::First => ResidualKind::First,
             VoteKind::Final => ResidualKind::Final,
+            // Late notarization: support for a closing-epoch NC, outside
+            // the residual records and every certificate but the NC
+            VoteKind::Notar => {
+                self.vote_records
+                    .late_notar_vote(&vote.vote.vote, vote.filtered_blocks().copied());
+                return;
+            }
             // Close-election kinds; an account domain ignores them
-            VoteKind::Notar | VoteKind::Timeout | VoteKind::Abstain => return,
+            VoteKind::Timeout | VoteKind::Abstain => return,
         };
         // Indexed by block before any placement: a report's certificates are
         // checked by hash, and a block this node does not hold may still be
@@ -3086,6 +3241,30 @@ impl ActiveElectionsContainer {
             finalization: weight(&mut support.final_.iter()) >= thresholds.certificate,
             fast: weight(&mut support.first.iter()) >= thresholds.fast,
         })
+    }
+
+    /// RAI, the core overlap exception: whether a block holds a closing-epoch
+    /// NC here. Late notarization-only votes count with the first and final
+    /// votes, as notarization support only: the same member supports one
+    /// block per position in the epoch whatever the kind, so account
+    /// exclusion holds across them. `certificate_kinds`, which reports and
+    /// the checkpoint construction read, does not count them.
+    #[cfg(feature = "rai_protocol")]
+    fn closing_notarized(&self, epoch: ConsensusEpoch, hash: &BlockHash) -> bool {
+        let Some(committee) = self.committees.committee(epoch) else {
+            return false;
+        };
+        let mut voters: BTreeSet<&PublicKey> = BTreeSet::new();
+        if let Some(support) = self.vote_records.support(epoch, hash) {
+            voters.extend(support.first.iter().chain(support.final_.iter()));
+        }
+        if let Some(late) = self.vote_records.late_notarizers(epoch, hash) {
+            voters.extend(late.iter());
+        }
+        let weight = voters.into_iter().fold(0u128, |sum, voter| {
+            sum.saturating_add(committee.weight(voter).number())
+        });
+        Amount::raw(weight) >= committee.thresholds().certificate
     }
 
     /// RAI, "Retained evidence": a member of the successor committee
@@ -4633,6 +4812,111 @@ mod tests {
         assert!(container.finalized_in_epoch(&unknown.hash(), epoch1));
     }
 
+    /// RAI, late notarization: a fresh block notarized in the closing epoch
+    /// by notarization-only votes cast after the boundary finalizes before
+    /// the predecessor checkpoint, on its open-epoch certificate. The late
+    /// votes support that NC only: the closing epoch's certificates, which
+    /// reports and the checkpoint construction read, do not count them.
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn a_fresh_block_notarized_late_in_the_closing_epoch_finalizes_before_the_predecessor() {
+        let (mut container, reps, rep_weights, now) = overlap_fixture(|history| {
+            let fresh = SavedBlock::new_test_instance_with_key(2);
+            history.finalize_genesis(AccountSlot::new(fresh.account(), 1), fresh.previous());
+        });
+        let epoch1 = ConsensusEpoch::new(1);
+        let fresh = SavedBlock::new_test_instance_with_key(2);
+        container
+            .insert(
+                AecInsertRequest::new_priority(fresh.clone(), BlockPriority::new_test_instance()),
+                now,
+            )
+            .unwrap();
+        for rep in &reps[..3] {
+            vote_in(
+                &mut container,
+                rep,
+                VoteKind::Notar,
+                ConsensusEpoch::ZERO,
+                fresh.hash(),
+                &rep_weights,
+                now,
+            );
+        }
+        let kinds = container
+            .certificate_kinds(ConsensusEpoch::ZERO, &fresh.hash())
+            .unwrap();
+        assert!(!kinds.notarization && !kinds.finalization && !kinds.fast);
+        for kind in [VoteKind::First, VoteKind::Final] {
+            for rep in &reps[..3] {
+                vote_in(
+                    &mut container,
+                    rep,
+                    kind,
+                    epoch1,
+                    fresh.hash(),
+                    &rep_weights,
+                    now,
+                );
+            }
+        }
+        assert!(container.finalized_in_epoch(&fresh.hash(), epoch1));
+        assert_eq!(container.stats.overlap_eligible, 1);
+    }
+
+    /// RAI, late notarization: while the closing epoch's checkpoint is not
+    /// installed, a first vote in the open epoch comes with a durable
+    /// notarization-only vote for the same block in the closing epoch; a
+    /// re-broadcast repeats it without a new record, and once the checkpoint
+    /// is decided no late vote is cast
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn a_first_vote_in_the_open_epoch_brings_a_late_notarization_until_the_predecessor_is_decided()
+    {
+        let (mut container, _, _, now) = overlap_fixture(|_| {});
+        let epoch1 = ConsensusEpoch::new(1);
+        assert!(container.frozen.contains(&ConsensusEpoch::ZERO));
+        let block = SavedBlock::new_test_instance_with_key(2);
+        container
+            .insert(
+                AecInsertRequest::new_priority(block.clone(), BlockPriority::new_test_instance()),
+                now,
+            )
+            .unwrap();
+        let first = VoteTarget {
+            election: ElectionId::new(block.qualified_root(), epoch1),
+            winner: block.hash(),
+            vote_type: VoteType::NonFinal,
+        };
+        let late = VoteTarget {
+            election: ElectionId::new(block.qualified_root(), ConsensusEpoch::ZERO),
+            winner: block.hash(),
+            vote_type: VoteType::LateNotar,
+        };
+        assert_eq!(
+            container.mark_kudzu_voted(vec![first.clone()]),
+            vec![first.clone(), late.clone()]
+        );
+        let records = container.take_signing_records();
+        let closing = records
+            .iter()
+            .find(|record| record.slot.epoch == ConsensusEpoch::ZERO)
+            .unwrap();
+        assert_eq!(closing.state.notar_voted, vec![block.hash()]);
+        assert_eq!(closing.state.first_voted, None);
+
+        assert_eq!(
+            container.mark_kudzu_voted(vec![first.clone()]),
+            vec![first.clone(), late]
+        );
+        assert_eq!(container.stats.late_notarized, 1);
+
+        container
+            .decided
+            .insert(ConsensusEpoch::ZERO, Arc::new(EpochLedger::new()));
+        assert_eq!(container.mark_kudzu_voted(vec![first.clone()]), vec![first]);
+    }
+
     /// RAI, the core overlap exception: a closing-epoch notarized parent on
     /// finalized history finalizes before the predecessor checkpoint, but
     /// its fresh child does not, however many first votes it has: "a fresh
@@ -4924,6 +5208,64 @@ mod tests {
             }
         }
         assert!(container.finalized_in_epoch(&block.hash(), epoch1));
+    }
+
+    /// RAI: at the boundary a position is carried while one of its
+    /// candidates can still be notarized; a split of the committed votes
+    /// that no candidate can overcome is not carried, since re-voting the
+    /// same blocks would only repeat it
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn a_split_no_candidate_can_overcome_is_not_carried() {
+        for rival_votes in [0, 2] {
+            let (mut container, reps, rep_weights, start) = committee_fixture(|_| {});
+            let block = SavedBlock::new_test_instance_with_key(2);
+            let rival = sibling_of(&block);
+            container
+                .insert(
+                    AecInsertRequest::new_priority(
+                        block.clone(),
+                        BlockPriority::new_test_instance(),
+                    ),
+                    start,
+                )
+                .unwrap();
+            assert!(container.try_add_fork(&rival, Amount::ZERO));
+            for rep in &reps[..2] {
+                vote_in(
+                    &mut container,
+                    rep,
+                    VoteKind::First,
+                    ConsensusEpoch::ZERO,
+                    block.hash(),
+                    &rep_weights,
+                    start,
+                );
+            }
+            for rep in &reps[2..2 + rival_votes] {
+                vote_in(
+                    &mut container,
+                    rep,
+                    VoteKind::First,
+                    ConsensusEpoch::ZERO,
+                    rival.hash(),
+                    &rep_weights,
+                    start,
+                );
+            }
+            container.transition_time(start + Duration::from_secs(1));
+            let epoch1 = ConsensusEpoch::new(1);
+            assert_eq!(container.current_epoch(), epoch1);
+            let carried = container
+                .roots
+                .election_for_block_in_epoch(&block.hash(), epoch1)
+                .is_some()
+                || container
+                    .roots
+                    .election_for_block_in_epoch(&rival.hash(), epoch1)
+                    .is_some();
+            assert_eq!(carried, rival_votes == 0, "rival_votes={rival_votes}");
+        }
     }
 
     /// RAI, §6.2: an instance continues at a recovery-only lock once its
