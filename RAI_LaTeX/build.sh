@@ -12,7 +12,7 @@ for candidate in bibtex bibtex.original bibtex8; do
     break
   fi
 done
-for document in main supplement; do
+for document in main; do
   pdflatex -interaction=nonstopmode -halt-on-error "$document.tex"
   if [ -n "$BIB" ]; then
     "$BIB" "$document"

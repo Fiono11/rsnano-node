@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""Generate sections/eval-table.tex from a matrix directory of run_gate_b.py summaries,
-followed by the matrices of earlier builds to compare against (usage: matrix out [earlier ...])."""
+"""Generate sections/eval-table.tex from a matrix directory of run_gate_b.py summaries."""
 import json, sys
 from pathlib import Path
 
@@ -16,22 +15,7 @@ BASELINE = {
     'fork10': '87.3', 'fork10-offline1': '69.2', 'fork10-byz1': '86.4',
 }
 
-def earlier_table(matrices):
-    """The RAI rows of earlier builds side by side, for comparison"""
-    rows = []
-    n = lambda x: f'{int(round(x)):,}'.replace(',', '{,}')
-    for key, label in VARIANTS:
-        cells = []
-        for matrix in matrices:
-            c = json.load(open(Path(matrix) / f'{key}.summary.json'))['client']
-            cells.append(f"{n(c['nonfork_goodput_cps'])} & {c['nonfork_p50_ms']} & {c['nonfork_p95_ms']} & {c['nonfork_p99_ms']}")
-        rows.append(f"{label} & {' & '.join(cells)}\\\\")
-        if key in ('nofork-byz1', 'fork5-byz1'):
-            rows.append('\\midrule')
-    return '\n'.join(rows)
-
-
-def main(matrix, out, earlier=()):
+def main(matrix, out):
     rows = []
     for key, label in VARIANTS:
         d = json.load(open(Path(matrix) / f'{key}.summary.json'))
@@ -62,23 +46,8 @@ Variant & Blocks/s & p50 & p95 & p99 & Blocks/s & p50 & p95 & p99 & CP\\
 \bottomrule
 \end{tabular}
 \end{table*}
-''' + (r'''
-\begin{table*}[t]
-\caption{The RAI prototype on the same workload without late notarization (the core rule alone: every block published during a close waits for the checkpoint) and on an earlier build whose overlap rule included the predecessor-backed route of the supplement, one run per variant: non-fork goodput (blocks/s) and latency (ms).}
-\label{tab:earlier}
-\centering
-\begin{tabular}{@{}lrrrrrrrr@{}}
-\toprule
-& \multicolumn{4}{c}{Without late notarization} & \multicolumn{4}{c}{Predecessor-backed route (earlier build)}\\
-\cmidrule(lr){2-5}\cmidrule(l){6-9}
-Variant & Blocks/s & p50 & p95 & p99 & Blocks/s & p50 & p95 & p99\\
-\midrule
-''' + earlier_table(earlier) + r'''
-\bottomrule
-\end{tabular}
-\end{table*}
-''' if earlier else ''))
+''')
     print(body)
 
 if __name__ == '__main__':
-    main(sys.argv[1], sys.argv[2], sys.argv[3:])
+    main(sys.argv[1], sys.argv[2])
