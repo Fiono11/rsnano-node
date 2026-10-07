@@ -313,11 +313,25 @@ impl ReportService {
                     DetailType::ReportUnverified,
                     missing.len() as u64,
                 );
+                let sample: Vec<String> = missing
+                    .iter()
+                    .take(4)
+                    .map(|hash| {
+                        let (first, final_) = self.active_elections.support_counts(epoch, hash);
+                        format!(
+                            "{}:first={}:final={}",
+                            &hash.to_string()[..16],
+                            first,
+                            final_
+                        )
+                    })
+                    .collect();
                 crate::utils::diagnostic!(
-                    "EPOCH_EVIDENCE_MISSING epoch={} reporter={} hashes={}",
+                    "EPOCH_EVIDENCE_MISSING epoch={} reporter={} hashes={} sample={:?}",
                     epoch,
                     reporter,
-                    missing.len()
+                    missing.len(),
+                    sample
                 );
                 for chunk in missing.chunks(EvidenceReq::MAX_HASHES) {
                     self.stats

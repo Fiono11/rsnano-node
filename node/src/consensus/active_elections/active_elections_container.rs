@@ -426,6 +426,25 @@ impl ActiveElectionsContainer {
         self.log_committee("genesis", &committee);
     }
 
+    /// RAI: the confirmed history of the setup, every account's chain up to
+    /// its confirmation height, added to `S_{-1}` before the epochs start.
+    /// The blocks the setup finalized were counted under the ledger's live
+    /// weights, not the genesis committee; they are final in the genesis
+    /// state, and a report naming them needs no certificate of epoch 0.
+    pub fn set_genesis_history(&mut self, history: Vec<(AccountSlot, BlockHash, BlockHash)>) {
+        if self.epochs_started {
+            return;
+        }
+        let mut genesis = (*self.genesis_state).clone();
+        for (slot, hash, previous) in history {
+            genesis.finalize_genesis_block(
+                slot,
+                crate::consensus::election::PlacedBlock::new(hash, previous),
+            );
+        }
+        self.genesis_state = Arc::new(genesis);
+    }
+
     /// RAI: the frontiers an epoch finalized, as of the value its close
     /// agreed on: the committee the epoch two after counts in. The
     /// instances collected so far in that epoch are counted now.
@@ -2362,6 +2381,15 @@ impl ActiveElectionsContainer {
             }
         }
         votes
+    }
+
+    /// RAI: how many first and final voters this node holds for a block
+    pub fn support_counts(&self, epoch: ConsensusEpoch, hash: &BlockHash) -> (usize, usize) {
+        self.vote_records
+            .support(epoch, hash)
+            .map_or((0, 0), |support| {
+                (support.first.len(), support.final_.len())
+            })
     }
 
     /// RAI: whether this node holds a voter's signed vote of a kind for a

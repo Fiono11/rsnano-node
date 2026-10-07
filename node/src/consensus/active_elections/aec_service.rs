@@ -146,6 +146,18 @@ impl AecService {
         self.aec.write().unwrap().set_genesis_committee(frontiers)
     }
 
+    /// RAI: the confirmed setup history, added to the genesis state
+    pub fn set_genesis_history(
+        &self,
+        history: Vec<(
+            crate::consensus::election::AccountSlot,
+            BlockHash,
+            BlockHash,
+        )>,
+    ) {
+        self.aec.write().unwrap().set_genesis_history(history)
+    }
+
     /// RAI: the setup is over, epoch 0 starts now
     pub fn start_epochs(&self) {
         let now = self.clock.now();
@@ -348,6 +360,12 @@ impl AecService {
             .iter()
             .map(|hash| aec.certificate_kinds(epoch, hash))
             .collect()
+    }
+
+    /// RAI: how many first and final voters this node holds for a block
+    #[cfg(feature = "rai_protocol")]
+    pub fn support_counts(&self, epoch: ConsensusEpoch, hash: &BlockHash) -> (usize, usize) {
+        self.aec.read().unwrap().support_counts(epoch, hash)
     }
 
     /// RAI: the signed votes held for blocks of an epoch, to relay
