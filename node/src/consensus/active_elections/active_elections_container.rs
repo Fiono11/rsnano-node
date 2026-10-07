@@ -1901,6 +1901,8 @@ impl ActiveElectionsContainer {
         let kind = match vote.kind() {
             VoteKind::First => ResidualKind::First,
             VoteKind::Final => ResidualKind::Final,
+            // Close-election kinds; an account domain ignores them
+            VoteKind::Notar | VoteKind::Timeout | VoteKind::Abstain => return,
         };
         for hash in vote.filtered_blocks() {
             let placed = self

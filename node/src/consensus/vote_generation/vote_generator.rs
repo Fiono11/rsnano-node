@@ -108,6 +108,9 @@ impl VoteGenerator {
     fn thread_name(kind: VoteKind) -> String {
         match kind {
             VoteKind::First => "Voting".to_owned(),
+            VoteKind::Notar => "Voting notar".to_owned(),
+            VoteKind::Timeout => "Voting timeout".to_owned(),
+            VoteKind::Abstain => "Voting abstain".to_owned(),
             VoteKind::Final => "Voting final".to_owned(),
         }
     }
@@ -323,6 +326,9 @@ impl SharedState {
                     .inc(self.stat_type(), DetailType::GeneratorBroadcasts);
                 let sample = match self.kind {
                     VoteKind::First => Sample::VoteGeneratorHashes,
+                    VoteKind::Notar => Sample::VoteGeneratorNotarHashes,
+                    VoteKind::Timeout => Sample::VoteGeneratorTimeoutHashes,
+                    VoteKind::Abstain => Sample::VoteGeneratorAbstainHashes,
                     VoteKind::Final => Sample::VoteGeneratorFinalHashes,
                 };
                 self.stats.sample(
@@ -500,6 +506,9 @@ impl SharedState {
     fn stat_type(&self) -> StatType {
         match self.kind {
             VoteKind::First => StatType::VoteGenerator,
+            VoteKind::Notar => StatType::VoteGeneratorNotar,
+            VoteKind::Timeout => StatType::VoteGeneratorTimeout,
+            VoteKind::Abstain => StatType::VoteGeneratorAbstain,
             VoteKind::Final => StatType::VoteGeneratorFinal,
         }
     }

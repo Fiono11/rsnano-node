@@ -47,7 +47,7 @@ impl FinalizedInstance {
     /// allVotes(firstVote), which the settled predicate of a replica that
     /// missed it depends on.
     pub fn statements(&self) -> Vec<(VoteKind, Vec<BlockHash>)> {
-        self.slot.statements_for(&self.candidates)
+        self.slot.statements_for(&self.candidates, self.winner)
     }
 }
 

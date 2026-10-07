@@ -75,7 +75,14 @@ impl SlotStates {
             .get(&(account, height))
             .into_iter()
             .flat_map(|states| states.iter())
-            .flat_map(|(_, state)| state.first_voted.into_iter().chain(state.final_voted))
+            .flat_map(|(_, state)| {
+                state
+                    .first_voted
+                    .into_iter()
+                    .chain(state.final_voted)
+                    .chain(state.timeout_voted)
+                    .chain(state.notar_voted.iter().copied())
+            })
             .collect()
     }
 
@@ -100,7 +107,13 @@ impl SlotStates {
             let before = states.len();
             states.retain(|(e, held)| {
                 if *e == epoch {
-                    for hash in held.first_voted.into_iter().chain(held.final_voted) {
+                    for hash in held
+                        .first_voted
+                        .into_iter()
+                        .chain(held.final_voted)
+                        .chain(held.timeout_voted)
+                        .chain(held.notar_voted.iter().copied())
+                    {
                         parents.remove(&hash);
                     }
                 }
@@ -118,7 +131,13 @@ impl SlotStates {
         };
         if let Some(position) = states.iter().position(|(epoch, _)| *epoch == slot.epoch) {
             let (_, held) = states.remove(position);
-            for hash in held.first_voted.into_iter().chain(held.final_voted) {
+            for hash in held
+                .first_voted
+                .into_iter()
+                .chain(held.final_voted)
+                .chain(held.timeout_voted)
+                .chain(held.notar_voted)
+            {
                 self.parents.remove(&hash);
             }
             self.len -= 1;

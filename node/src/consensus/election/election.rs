@@ -19,7 +19,7 @@ use super::{
     ConfirmationType, ConfirmedElection, ElectionId, ElectionState,
     block_tallies::BlockTallies,
     committee::Committees,
-    single_support::{Certificates, LocalSlotState, SlotVotes, kudzu_state},
+    kudzu::{Certificates, LocalSlotState, SlotVotes, kudzu_state},
 };
 use rustc_hash::FxHashMap;
 
@@ -28,6 +28,12 @@ pub enum VoteType {
     /// Legacy non-final vote. Under the Kudzu rules this is the FirstVote.
     NonFinal,
     Final,
+    /// Kudzu NotarVote (second look), cast in close rounds only
+    Notar,
+    /// Kudzu NotarVote for the timeout block, cast in close rounds only
+    Timeout,
+    /// RAI: the abstaining first vote of a close round
+    Abstain,
 }
 
 impl From<VoteKind> for VoteType {
@@ -35,6 +41,9 @@ impl From<VoteKind> for VoteType {
         match kind {
             VoteKind::First => VoteType::NonFinal,
             VoteKind::Final => VoteType::Final,
+            VoteKind::Notar => VoteType::Notar,
+            VoteKind::Timeout => VoteType::Timeout,
+            VoteKind::Abstain => VoteType::Abstain,
         }
     }
 }
@@ -44,6 +53,9 @@ impl From<VoteType> for VoteKind {
         match vote_type {
             VoteType::NonFinal => VoteKind::First,
             VoteType::Final => VoteKind::Final,
+            VoteType::Notar => VoteKind::Notar,
+            VoteType::Timeout => VoteKind::Timeout,
+            VoteType::Abstain => VoteKind::Abstain,
         }
     }
 }
@@ -281,7 +293,9 @@ impl Election {
         // RAI, single-support voting: an account domain has first votes and
         // final votes only. Nobody correct issues a notarization or timeout
         // vote in one, and one received supports nothing.
-
+        if !matches!(vote.kind(), VoteKind::First | VoteKind::Final) {
+            return Err(VoteError::Ignored);
+        }
         self.kudzu.add(vote.voter, hash, vote.kind())?;
         self.votes.insert(
             vote.voter,
@@ -299,7 +313,7 @@ impl Election {
         self.certificates
             .is_terminated()
             .then(|| CertificateEvidence {
-                statements: slot.statements_for(self.candidate_blocks.keys()),
+                statements: slot.statements_for(self.candidate_blocks.keys(), self.winner.hash()),
                 blocks: self
                     .candidate_blocks
                     .values()
@@ -407,7 +421,7 @@ impl Election {
     /// block tree and explicit finalization is still possible (Lemma 5.7).
     /// The per-slot precondition notarized ⊆ {winner} is checked by the caller.
     fn kudzu_is_final(&self) -> bool {
-        self.has_quorum()
+        self.has_quorum() && self.certificates.explicit_finalization_possible()
     }
 
     pub fn vote_type(&self) -> VoteType {
@@ -666,6 +680,7 @@ impl Election {
             &self.kudzu,
             &self.certificates,
             self.candidate_blocks.keys(),
+            true,
         );
     }
 
@@ -912,6 +927,27 @@ mod tests {
     /// RAI, single-support voting: a rival with many first votes gets no
     /// second look. Split first votes make no certificate, and the domain
     /// settles unresolved, for the checkpoint or an uncontested child.
+    /// RAI, single-support voting: an account domain has first and final
+    /// votes only; a notarization, timeout or abstaining vote received
+    /// there supports nothing. Without RAI those kinds are not on the wire.
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn an_account_domain_has_first_and_final_votes_only() {
+        let (mut election, block, _) = election_with_fork();
+        let committees = committees(&[(1, 40), (2, 27), (3, 33)]);
+        for kind in [VoteKind::Notar, VoteKind::Timeout, VoteKind::Abstain] {
+            assert_eq!(
+                try_vote(&mut election, 1, block, kind),
+                Err(VoteError::Ignored)
+            );
+        }
+        vote(&mut election, 1, block, VoteKind::First);
+        election.update_kudzu_tallies(&committees);
+        assert!(!election.has_quorum());
+        assert!(!election.certificates().timeout);
+        assert_eq!(election.winner_tally(), Amount::raw(40));
+    }
+
     #[test]
     fn no_second_look_in_an_account_domain() {
         let (mut election, block, fork) = election_with_fork();
@@ -1160,6 +1196,26 @@ mod tests {
         } else {
             assert_eq!(election.state(), ElectionState::ExpiredUnconfirmed);
         }
+    }
+
+    /// RAI: in an instance of an epoch this node has left without proposing
+    /// it casts no first vote of any kind. Nor a second look: a second look
+    /// follows a first vote.
+    #[test]
+    fn stale_instance_casts_no_first_vote() {
+        let (mut election, block, _) = election_with_fork();
+        let slot = LocalSlotState::stale();
+        assert!(election.kudzu_votes_due(&slot, |_| true).is_empty());
+
+        notarization_certificate(&mut election, block);
+        election.update_kudzu_tallies(&committees(&[(1, 40), (2, 27), (3, 33)]));
+        assert!(election.has_quorum());
+        assert!(
+            !election
+                .kudzu_votes_due(&slot, |_| true)
+                .iter()
+                .any(|(_, kind)| matches!(kind, VoteKind::First | VoteKind::Notar))
+        );
     }
 
     #[test]

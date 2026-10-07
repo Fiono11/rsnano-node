@@ -32,6 +32,9 @@ pub enum StatType {
     Telemetry,
     VoteGenerator,
     VoteGeneratorFinal,
+    VoteGeneratorNotar,
+    VoteGeneratorTimeout,
+    VoteGeneratorAbstain,
     VoteCache,
     VoteCacheProcessor,
     Hinting,
@@ -139,6 +142,8 @@ pub enum DetailType {
     AscPullAck,
     /// RAI: the report phase of an epoch close (Section 6)
     Report,
+    /// RAI: a leader's proposal in a round of an epoch's close election
+    EpochProp,
     CloseProofReq,
     CloseProofReply,
     CheckpointReq,
@@ -168,6 +173,9 @@ pub enum DetailType {
     // election specific
     GenerateVoteNormal,
     GenerateVoteFinal,
+    GenerateVoteNotar,
+    GenerateVoteTimeout,
+    GenerateVoteAbstain,
     ConfirmationRequest,
 
     // election types
@@ -247,6 +255,9 @@ pub enum DetailType {
     CertificateVotes,
     InstanceJoined,
     EvidenceFirst,
+    EvidenceNotar,
+    EvidenceTimeout,
+    EvidenceAbstain,
     EvidenceFinal,
     ForkCandidate,
 
@@ -399,6 +410,9 @@ pub enum Sample {
     RepResponseTime,
     VoteGeneratorFinalHashes,
     VoteGeneratorHashes,
+    VoteGeneratorNotarHashes,
+    VoteGeneratorTimeoutHashes,
+    VoteGeneratorAbstainHashes,
 }
 
 impl Sample {

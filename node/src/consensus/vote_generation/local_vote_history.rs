@@ -295,4 +295,64 @@ mod tests {
         assert_eq!(votes.len(), 1);
         assert!(Arc::ptr_eq(&votes[0], &vote3));
     }
+
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn kudzu_keeps_votes_per_hash_and_kind() {
+        use rsnano_types::{ConsensusEpoch, VoteKind};
+
+        let history = LocalVoteHistory::with_max_cache(256);
+        let root = Root::from(1);
+        let key = PrivateKey::from(1);
+        let hash_a = BlockHash::from(2);
+        let hash_b = BlockHash::from(3);
+        let first = Arc::new(Vote::new_of_kind_at(
+            &key,
+            VoteKind::First,
+            UnixMillisTimestamp::new(1000),
+            vec![hash_a],
+        ));
+        let notar = Arc::new(Vote::new_of_kind_at(
+            &key,
+            VoteKind::Notar,
+            UnixMillisTimestamp::new(2000),
+            vec![hash_b],
+        ));
+        let final_ = Arc::new(Vote::new_of_kind(&key, VoteKind::Final, vec![hash_a]));
+
+        history.add(&root, &hash_a, &first);
+        history.add(&root, &hash_b, &notar);
+        history.add(&root, &hash_a, &final_);
+        assert_eq!(history.size(), 3);
+        assert_eq!(history.votes(&root, &hash_a, false).len(), 2);
+        assert_eq!(history.votes(&root, &hash_a, true).len(), 1);
+        assert_eq!(history.votes(&root, &hash_b, false).len(), 1);
+
+        // A newer vote of the same kind for the same hash replaces the old one
+        let newer_first = Arc::new(Vote::new_of_kind_at(
+            &key,
+            VoteKind::First,
+            UnixMillisTimestamp::new(3000),
+            vec![hash_a],
+        ));
+        history.add(&root, &hash_a, &newer_first);
+        assert_eq!(history.size(), 3);
+        let votes = history.votes(&root, &hash_a, false);
+        assert!(votes.iter().any(|v| Arc::ptr_eq(v, &newer_first)));
+        assert!(!votes.iter().any(|v| Arc::ptr_eq(v, &first)));
+
+        // RAI: a vote of the same kind in another epoch is a different statement
+        let next_epoch = Arc::new(Vote::new_in_epoch_at(
+            &key,
+            VoteKind::First,
+            ConsensusEpoch::new(1),
+            UnixMillisTimestamp::new(4000),
+            vec![hash_a],
+        ));
+        history.add(&root, &hash_a, &next_epoch);
+        assert_eq!(history.size(), 4);
+        let votes = history.votes(&root, &hash_a, false);
+        assert!(votes.iter().any(|v| Arc::ptr_eq(v, &newer_first)));
+        assert!(votes.iter().any(|v| Arc::ptr_eq(v, &next_epoch)));
+    }
 }

@@ -61,6 +61,17 @@ impl VoteGenerators {
     ) -> Self {
         let voting_delay = Self::voting_delay_for(network_params.network.current_network);
 
+        // RAI: the close election's notarization, timeout and abstain votes
+        // have generators of their own
+        #[cfg(feature = "rai_protocol")]
+        let vote_types = vec![
+            VoteType::NonFinal,
+            VoteType::Final,
+            VoteType::Notar,
+            VoteType::Timeout,
+            VoteType::Abstain,
+        ];
+        #[cfg(not(feature = "rai_protocol"))]
         let vote_types = vec![VoteType::NonFinal, VoteType::Final];
 
         let generators = vote_types
@@ -152,6 +163,9 @@ impl VoteGenerators {
         let detail = match vote_type {
             VoteType::NonFinal => DetailType::GenerateVoteNormal,
             VoteType::Final => DetailType::GenerateVoteFinal,
+            VoteType::Notar => DetailType::GenerateVoteNotar,
+            VoteType::Timeout => DetailType::GenerateVoteTimeout,
+            VoteType::Abstain => DetailType::GenerateVoteAbstain,
         };
         self.stats.inc(StatType::Election, detail);
         self.generator(vote_type).add(root, hash, epoch);
@@ -195,6 +209,9 @@ impl ContainerInfoProvider for VoteGenerators {
             let name = match vote_type {
                 VoteType::NonFinal => "non_final",
                 VoteType::Final => "final",
+                VoteType::Notar => "notar",
+                VoteType::Timeout => "timeout",
+                VoteType::Abstain => "abstain",
             };
             builder = builder.node(name, generator.container_info());
         }

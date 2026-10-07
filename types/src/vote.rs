@@ -6,31 +6,54 @@ use super::{
 };
 use crate::{DeserializationError, SignatureError};
 
-/// Account vote kinds. A kind is carried in the 4 duration bits of the vote
+/// Kudzu vote kinds. A kind is carried in the 4 duration bits of the vote
 /// timestamp, so the wire format and the signed payload stay unchanged.
-/// Every legacy non-final vote reads as a First vote.
+/// Every legacy non-final vote reads as a First vote. Account elections take
+/// first and final votes only; the notarization, timeout and abstain kinds
+/// belong to the epoch close election, and are read as such only with the
+/// RAI protocol on.
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash, EnumCount, EnumIter)]
 pub enum VoteKind {
     /// FirstVote: the one-shot vote for the block proposed at this slot. Contains a notarization vote.
     First,
+    /// NotarVote: cast on a second look or after a timeout termination
+    Notar,
+    /// NotarVote for the timeout block
+    Timeout,
+    /// RAI: the first vote of a replica that abstains from proposing in a
+    /// close round: a first vote for the timeout block, and a timeout vote
+    Abstain,
     /// FinalVote
     Final,
 }
 
 impl VoteKind {
+    const ABSTAIN_BITS: u8 = 0xC;
+    const NOTAR_BITS: u8 = 0xD;
+    const TIMEOUT_BITS: u8 = 0xE;
+
     pub fn duration_bits(self) -> u8 {
         match self {
             VoteKind::First => 0x9, /*8192ms, the legacy non-final duration*/
+            VoteKind::Notar => Self::NOTAR_BITS,
+            VoteKind::Timeout => Self::TIMEOUT_BITS,
+            VoteKind::Abstain => Self::ABSTAIN_BITS,
             VoteKind::Final => Vote::DURATION_MAX,
         }
     }
 
     fn from_timestamp(timestamp: VoteTimestamp) -> Self {
         if timestamp.is_final() {
-            VoteKind::Final
-        } else {
-            VoteKind::First
+            return VoteKind::Final;
         }
+        #[cfg(feature = "rai_protocol")]
+        match timestamp.duration_bits() {
+            Self::NOTAR_BITS => return VoteKind::Notar,
+            Self::TIMEOUT_BITS => return VoteKind::Timeout,
+            Self::ABSTAIN_BITS => return VoteKind::Abstain,
+            _ => {}
+        }
+        VoteKind::First
     }
 
     pub fn is_final(self) -> bool {
@@ -40,6 +63,9 @@ impl VoteKind {
     pub fn as_str(&self) -> &'static str {
         match self {
             VoteKind::First => "first",
+            VoteKind::Notar => "notar",
+            VoteKind::Timeout => "timeout",
+            VoteKind::Abstain => "abstain",
             VoteKind::Final => "final",
         }
     }
@@ -400,7 +426,13 @@ mod tests {
 
     #[test]
     fn kind_survives_serialization_and_signing() {
-        for kind in VoteKind::iter() {
+        // Without RAI every non-final vote reads as a first vote
+        let kinds: Vec<VoteKind> = if cfg!(feature = "rai_protocol") {
+            VoteKind::iter().collect()
+        } else {
+            vec![VoteKind::First, VoteKind::Final]
+        };
+        for kind in kinds {
             let vote = Vote::new_of_kind(&PrivateKey::from(1), kind, vec![BlockHash::from(1)]);
             assert_eq!(vote.kind(), kind);
             assert_eq!(vote.is_final(), kind.is_final());
@@ -411,6 +443,18 @@ mod tests {
             let deserialized = Vote::deserialize(&bytes).unwrap();
             assert_eq!(deserialized.kind(), kind);
             assert_eq!(deserialized, vote);
+        }
+    }
+
+    /// Without RAI the close vote kinds do not exist on the wire: a legacy
+    /// vote with those duration bits is an ordinary non-final vote
+    #[cfg(not(feature = "rai_protocol"))]
+    #[test]
+    fn close_vote_kinds_read_as_first_votes_without_rai() {
+        for kind in [VoteKind::Notar, VoteKind::Timeout, VoteKind::Abstain] {
+            let vote = Vote::new_of_kind(&PrivateKey::from(1), kind, vec![BlockHash::from(1)]);
+            assert_eq!(vote.kind(), VoteKind::First);
+            assert!(vote.validate().is_ok());
         }
     }
 

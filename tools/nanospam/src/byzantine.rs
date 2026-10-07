@@ -115,7 +115,13 @@ pub(crate) async fn run_byzantine(
                 if hashes.is_empty() || rng.random_bool(0.1) {
                     hashes.push(BlockHash::from_bytes(rng.random()));
                 }
-                let kind = [VoteKind::First, VoteKind::Final][rng.random_range(0..2)];
+                let kind = [
+                    VoteKind::First,
+                    VoteKind::Notar,
+                    VoteKind::Timeout,
+                    VoteKind::Abstain,
+                    VoteKind::Final,
+                ][rng.random_range(0..5)];
                 // Any epoch it feels like, including ones nobody has reached
                 let epoch = ConsensusEpoch::new(rng.random_range(0..4));
                 let vote = Vote::new_in_epoch(&key, kind, epoch, hashes);

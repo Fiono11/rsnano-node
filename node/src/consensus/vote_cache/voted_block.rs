@@ -309,6 +309,62 @@ mod tests {
         assert_eq!(block.final_tally(), Amount::raw(10));
     }
 
+    /// Kudzu: one cached vote per kind per representative, all replayed
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn keeps_one_vote_per_kind_per_representative() {
+        use rsnano_types::VoteKind;
+
+        let hash = BlockHash::from(1);
+        let rep = PrivateKey::from(1);
+        let first = Arc::new(Vote::new_of_kind_at(
+            &rep,
+            VoteKind::First,
+            UnixMillisTimestamp::new(1000),
+            vec![hash],
+        ));
+        let timeout = Arc::new(Vote::new_of_kind_at(
+            &rep,
+            VoteKind::Timeout,
+            UnixMillisTimestamp::new(2000),
+            vec![hash],
+        ));
+        let final_ = Arc::new(Vote::new_of_kind(&rep, VoteKind::Final, vec![hash]));
+        let mut block = VotedBlock::new(
+            1,
+            hash,
+            64,
+            first.clone(),
+            Amount::raw(5),
+            Timestamp::new(1),
+        );
+
+        assert!(block.add_vote(timeout.clone(), Amount::raw(5), Timestamp::new(2)));
+        assert!(block.add_vote(final_.clone(), Amount::raw(5), Timestamp::new(3)));
+        // Another vote of a kind already held is rejected
+        assert!(!block.add_vote(timeout.clone(), Amount::raw(5), Timestamp::new(4)));
+        // RAI: a first vote of another epoch is a statement of its own, it
+        // does not replace the one of the first epoch
+        let first_next_epoch = Arc::new(Vote::new_in_epoch(
+            &rep,
+            VoteKind::First,
+            ConsensusEpoch::new(1),
+            vec![hash],
+        ));
+        assert!(block.add_vote(first_next_epoch.clone(), Amount::raw(5), Timestamp::new(5)));
+        assert!(!block.add_vote(first_next_epoch.clone(), Amount::raw(5), Timestamp::new(6)));
+
+        assert_eq!(block.vote_count(), 1);
+        assert_eq!(block.non_final_tally(), Amount::raw(5));
+        assert_eq!(block.final_tally(), Amount::raw(5));
+        let votes: Vec<_> = block.iter_votes().collect();
+        assert_eq!(votes.len(), 4);
+        assert!(votes.iter().any(|v| Arc::ptr_eq(v, &first)));
+        assert!(votes.iter().any(|v| Arc::ptr_eq(v, &timeout)));
+        assert!(votes.iter().any(|v| Arc::ptr_eq(v, &final_)));
+        assert!(votes.iter().any(|v| Arc::ptr_eq(v, &first_next_epoch)));
+    }
+
     #[test]
     fn duplicate_vote_with_same_timestamp_is_ignored() {
         let hash = BlockHash::from(1);

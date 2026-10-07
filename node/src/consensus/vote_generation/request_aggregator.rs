@@ -514,6 +514,9 @@ impl RequestAggregatorLoop {
                     StatType::RequestAggregatorReplies,
                     match kind {
                         VoteKind::First => DetailType::EvidenceFirst,
+                        VoteKind::Notar => DetailType::EvidenceNotar,
+                        VoteKind::Timeout => DetailType::EvidenceTimeout,
+                        VoteKind::Abstain => DetailType::EvidenceAbstain,
                         VoteKind::Final => DetailType::EvidenceFinal,
                     },
                 );
