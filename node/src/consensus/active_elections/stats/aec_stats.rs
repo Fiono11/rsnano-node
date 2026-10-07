@@ -46,6 +46,9 @@ pub(crate) struct AecStats {
     pub overlap_eligible: u64,
     /// RAI: early instances discarded by the recheck against S_{e-1}
     pub rechecked_discarded: u64,
+    /// RAI: notarized instances given an open-epoch instance when their
+    /// epoch was left
+    pub carried: u64,
     /// RAI: close rounds abandoned because the two committees of the joint
     /// election certified different values
     pub close_conflicts: u64,
@@ -228,6 +231,7 @@ impl StatsSource for AecStats {
             "rechecked_discarded",
             self.rechecked_discarded,
         );
+        result.insert(AEC_STAT_KEY, "carried", self.carried);
         result.insert(AEC_STAT_KEY, "close_conflicts", self.close_conflicts);
         result.insert(AEC_STAT_KEY, "recounted", self.recounted);
         result.insert(

@@ -292,10 +292,11 @@ impl ReportService {
                 now,
                 |reporter, certified, residual, only| {
                     unjustified(
+                        epoch,
                         certified,
                         residual,
                         only,
-                        &|hashes| aec.certificate_kinds(epoch, hashes),
+                        &|epoch, hashes| aec.certificate_kinds(epoch, hashes),
                         &|block, entry| {
                             previous
                                 .as_ref()

@@ -30,10 +30,15 @@ pub(crate) fn unattached_dependency(
     block: &SavedBlock,
     checkpoint: Option<&EpochLedger>,
 ) -> Option<Unattached> {
+    // The block a lock names may be continued, not reopened; whether a
+    // recovery-only lock may be continued yet depends on the votes the
+    // container holds (see `ActiveElectionsContainer::lock_continuable`)
     if checkpoint.is_some_and(|state| {
+        let slot = AccountSlot::new(block.account(), block.height());
         state
             .retained_depth(block.account())
             .is_some_and(|depth| block.height() <= depth)
+            && !state.is_locked(&slot, &block.hash())
     }) {
         return Some(Unattached::Retained);
     }
@@ -84,16 +89,30 @@ mod tests {
     }
 
     #[test]
-    fn a_child_at_a_retained_depth_cannot_reopen_that_position() {
+    fn a_rival_at_a_retained_depth_cannot_reopen_that_position() {
+        let (ledger, parent, child, _) = locked_parent_fixture();
+        let checkpoint = rival_lock_at(&parent, &child);
+        assert!(!attachable(&ledger, &child, Some(&checkpoint)));
+    }
+
+    /// RAI, §6.2: the block the lock names may be continued. It
+    /// still needs an admissible parent: here a lock below the tip is not
+    /// one.
+    #[test]
+    fn the_locked_block_itself_is_not_refused_as_retained() {
         let (ledger, parent, child, _) = locked_parent_fixture();
         let checkpoint = locks_of(&[&parent, &child]);
-        assert!(!attachable(&ledger, &child, Some(&checkpoint)));
+        assert_eq!(
+            unattached_dependency(&ledger.any(), &child, Some(&checkpoint)),
+            Some(Unattached::Previous)
+        );
+        assert!(attachable(&ledger, &parent, Some(&checkpoint)));
     }
 
     #[test]
     fn a_reopened_retained_position_is_named_as_such() {
         let (ledger, parent, child, _) = locked_parent_fixture();
-        let checkpoint = locks_of(&[&parent, &child]);
+        let checkpoint = rival_lock_at(&parent, &child);
         assert_eq!(
             unattached_dependency(&ledger.any(), &child, Some(&checkpoint)),
             Some(Unattached::Retained)
@@ -174,6 +193,18 @@ mod tests {
                 block.previous(),
             );
         }
+        state
+    }
+
+    /// The parent locked, and another block than `block` locked at its
+    /// position
+    fn rival_lock_at(parent: &SavedBlock, block: &SavedBlock) -> EpochLedger {
+        let mut state = lock_of(parent);
+        state.retain_for_test(
+            AccountSlot::new(block.account(), block.height()),
+            BlockHash::from(999),
+            block.previous(),
+        );
         state
     }
 

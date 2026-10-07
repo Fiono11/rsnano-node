@@ -11,7 +11,7 @@ pub use report_service::ReportService;
 use rsnano_messages::{Report, ReportSet, ReportSymbolsReply, ReportSymbolsReq};
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{BlockHash, ConsensusEpoch, PrivateKey, PublicKey};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// RAI: frozen reports and their local reconstructions. A report whose
 /// roots match a state held here is usable at once; any other is rebuilt by
@@ -145,10 +145,11 @@ impl TheirReport {
 /// own signed vote. `only` restricts the check to hashes found missing
 /// before. None while the epoch's committee is not known here.
 pub(crate) fn unjustified(
+    epoch: ConsensusEpoch,
     certified: &CertifiedState,
     residual: &ResidualVotes,
     only: Option<&[BlockHash]>,
-    certificate_kinds: &dyn Fn(&[BlockHash]) -> Option<Vec<CertificateKinds>>,
+    certificate_kinds: &dyn Fn(ConsensusEpoch, &[BlockHash]) -> Option<Vec<CertificateKinds>>,
     inherited: &dyn Fn(&CertifiedBlock, Certification) -> bool,
     reporter_votes: &dyn Fn(&[(BlockHash, ResidualKind)]) -> Vec<bool>,
 ) -> Option<Vec<BlockHash>> {
@@ -159,20 +160,103 @@ pub(crate) fn unjustified(
         .map(|(block, entry)| (block, *entry))
         .collect();
     let hashes: Vec<BlockHash> = entries.iter().map(|(block, _)| block.hash).collect();
-    let kinds = certificate_kinds(&hashes)?;
+    let kinds = certificate_kinds(epoch, &hashes)?;
+    let mut justified: HashSet<CertifiedBlock> = HashSet::new();
+    let mut anchors: Vec<CertifiedBlock> = Vec::new();
+    // F entries without a proof of this epoch: finality assembled in a
+    // retained earlier epoch counts too, a certificate formed after that
+    // epoch's checkpoint was decided
+    let mut unproven: Vec<CertifiedBlock> = Vec::new();
     let mut missing = Vec::new();
     for ((block, entry), kinds) in entries.iter().zip(kinds) {
         // What the predecessor checkpoint itself holds is justified by it;
         // R, inherited protection, is justified by nothing else
-        let justified = inherited(block, *entry)
-            || match entry.status {
-                CertifiedStatus::Recovery => false,
-                CertifiedStatus::Notarized => kinds.notarization,
-                CertifiedStatus::Finalized => kinds.finalization || kinds.fast,
-            };
-        if !justified {
-            missing.push(block.hash);
+        let inherited = inherited(block, *entry);
+        match entry.status {
+            CertifiedStatus::Recovery | CertifiedStatus::Notarized => {
+                let fresh = entry.status == CertifiedStatus::Notarized && kinds.notarization;
+                if inherited || fresh {
+                    justified.insert(**block);
+                } else {
+                    missing.push(block.hash);
+                }
+            }
+            CertifiedStatus::Finalized => {
+                if inherited || kinds.finalization || kinds.fast {
+                    anchors.push(**block);
+                } else {
+                    unproven.push(**block);
+                }
+            }
         }
+    }
+    let earlier: Vec<ConsensusEpoch> = (1..=EARLIER_FINALITY_EPOCHS)
+        .filter_map(|back| epoch.as_u64().checked_sub(back).map(ConsensusEpoch::new))
+        .collect();
+    for before in earlier {
+        if unproven.is_empty() {
+            break;
+        }
+        let hashes: Vec<BlockHash> = unproven.iter().map(|block| block.hash).collect();
+        let Some(kinds) = certificate_kinds(before, &hashes) else {
+            continue;
+        };
+        let mut still = Vec::new();
+        for (block, kinds) in unproven.into_iter().zip(kinds) {
+            if kinds.finalization || kinds.fast {
+                anchors.push(block);
+            } else {
+                still.push(block);
+            }
+        }
+        unproven = still;
+    }
+    // "An entry tagged F must have an explicit valid finality proof for the
+    // block or a selected descendant": the F prefix below a justified F
+    // entry is justified by it. On a recheck, an F entry outside the
+    // rechecked set was justified before and anchors its prefix as well.
+    if only.is_some() {
+        anchors.extend(
+            certified
+                .entries()
+                .filter(|(block, entry)| {
+                    entry.status == CertifiedStatus::Finalized && !wanted(&block.hash)
+                })
+                .map(|(block, _)| *block),
+        );
+    }
+    if !unproven.is_empty() {
+        let by_hash: HashMap<BlockHash, CertifiedBlock> = certified
+            .entries()
+            .map(|(block, _)| (block.hash, *block))
+            .collect();
+        for anchor in anchors {
+            let mut current = anchor;
+            while justified.insert(current) {
+                let Some(entry) = certified.certification(&current) else {
+                    break;
+                };
+                if current.height <= 1 || entry.previous.is_zero() {
+                    break;
+                }
+                let Some(parent) = by_hash.get(&entry.previous) else {
+                    break;
+                };
+                if parent.height + 1 != current.height
+                    || parent.account != current.account
+                    || certified.status(parent) != Some(CertifiedStatus::Finalized)
+                {
+                    break;
+                }
+                current = *parent;
+            }
+        }
+        missing.extend(
+            unproven
+                .iter()
+                .filter(|block| !justified.contains(block))
+                .map(|block| block.hash),
+        );
     }
     let records: Vec<(BlockHash, ResidualKind)> = residual
         .entries()
@@ -186,6 +270,10 @@ pub(crate) fn unjustified(
     }
     Some(missing)
 }
+
+/// RAI: how many epochs before a report's own an F entry's finality proof
+/// may come from: the vote records kept here
+const EARLIER_FINALITY_EPOCHS: u64 = 3;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ReportMessage {
     Broadcast(Report),
@@ -1027,6 +1115,59 @@ mod tests {
         assert_eq!(second.usable(report.epoch).len(), 1);
     }
 
+    /// RAI: "an entry tagged F must have an explicit valid finality proof
+    /// for the block or a selected descendant". A proven F entry justifies
+    /// the F entries below it on its chain; a finalization assembled in an
+    /// earlier epoch proves one too.
+    #[test]
+    fn a_finalized_descendant_or_an_earlier_epoch_proves_an_f_entry() {
+        let account = Account::from(1);
+        let parent = CertifiedBlock::new(account, 1, BlockHash::from(11));
+        let child = CertifiedBlock::new(account, 2, BlockHash::from(12));
+        let late = CertifiedBlock::new(Account::from(2), 1, BlockHash::from(21));
+        let unproven = CertifiedBlock::new(Account::from(3), 1, BlockHash::from(31));
+        let mut certified = CertifiedState::new();
+        certified.certify(parent, BlockHash::ZERO, CertifiedStatus::Finalized);
+        certified.certify(child, parent.hash, CertifiedStatus::Finalized);
+        certified.certify(late, BlockHash::ZERO, CertifiedStatus::Finalized);
+        certified.certify(unproven, BlockHash::ZERO, CertifiedStatus::Finalized);
+        let kinds = |epoch: ConsensusEpoch, hashes: &[BlockHash]| {
+            Some(
+                hashes
+                    .iter()
+                    .map(|hash| CertificateKinds {
+                        // The child this epoch, the late block the epoch before
+                        finalization: (epoch == EPOCH && *hash == child.hash)
+                            || (epoch < EPOCH && *hash == late.hash),
+                        ..Default::default()
+                    })
+                    .collect(),
+            )
+        };
+        let nothing = |_: &CertifiedBlock, _: Certification| false;
+        let no_votes = |votes: &[(BlockHash, ResidualKind)]| vec![false; votes.len()];
+        let residual = ResidualVotes::new();
+        let missing = unjustified(
+            EPOCH, &certified, &residual, None, &kinds, &nothing, &no_votes,
+        );
+        assert_eq!(missing, Some(vec![unproven.hash]));
+        // Rechecking the parent alone: its proven child still anchors it
+        let only = [parent.hash];
+        let none = |_: ConsensusEpoch, hashes: &[BlockHash]| {
+            Some(vec![CertificateKinds::default(); hashes.len()])
+        };
+        let missing = unjustified(
+            EPOCH,
+            &certified,
+            &residual,
+            Some(&only),
+            &none,
+            &nothing,
+            &no_votes,
+        );
+        assert_eq!(missing, Some(vec![]));
+    }
+
     /// RAI: an R entry is inherited protection. Only the predecessor
     /// checkpoint justifies it; certificates held here do not.
     #[test]
@@ -1036,7 +1177,7 @@ mod tests {
         let mut certified = CertifiedState::new();
         certified.certify(carried, BlockHash::ZERO, CertifiedStatus::Recovery);
         certified.certify(invented, BlockHash::ZERO, CertifiedStatus::Recovery);
-        let everything = |hashes: &[BlockHash]| {
+        let everything = |_: ConsensusEpoch, hashes: &[BlockHash]| {
             Some(
                 hashes
                     .iter()
@@ -1053,6 +1194,7 @@ mod tests {
         };
         let no_votes = |votes: &[(BlockHash, ResidualKind)]| vec![false; votes.len()];
         let missing = unjustified(
+            EPOCH,
             &certified,
             &ResidualVotes::new(),
             None,
@@ -1079,7 +1221,7 @@ mod tests {
         certified.certify(inherited, BlockHash::ZERO, CertifiedStatus::Finalized);
         let mut residual = ResidualVotes::new();
         residual.record(voted, BlockHash::ZERO, ResidualKind::First);
-        let kinds = |hashes: &[BlockHash]| {
+        let kinds = |_: ConsensusEpoch, hashes: &[BlockHash]| {
             Some(
                 hashes
                     .iter()
@@ -1093,12 +1235,20 @@ mod tests {
         };
         let previously = |block: &CertifiedBlock, _: Certification| *block == inherited;
         let no_votes = |votes: &[(BlockHash, ResidualKind)]| vec![false; votes.len()];
-        let missing = unjustified(&certified, &residual, None, &kinds, &previously, &no_votes);
+        let missing = unjustified(
+            EPOCH,
+            &certified,
+            &residual,
+            None,
+            &kinds,
+            &previously,
+            &no_votes,
+        );
         let mut missing = missing.unwrap();
         missing.sort();
         assert_eq!(missing, vec![finalized.hash, voted.hash]);
         // Rechecking only what was missing, once the votes arrived
-        let all = |hashes: &[BlockHash]| {
+        let all = |_: ConsensusEpoch, hashes: &[BlockHash]| {
             Some(
                 hashes
                     .iter()
@@ -1113,6 +1263,7 @@ mod tests {
         let votes = |votes: &[(BlockHash, ResidualKind)]| vec![true; votes.len()];
         assert_eq!(
             unjustified(
+                EPOCH,
                 &certified,
                 &residual,
                 Some(&missing),
@@ -1246,4 +1397,8 @@ mod tests {
             Some(Vec::new())
         });
     }
+
+    /* Test helpers */
+
+    const EPOCH: ConsensusEpoch = ConsensusEpoch::new(1);
 }

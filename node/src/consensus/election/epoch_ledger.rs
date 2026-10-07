@@ -293,6 +293,18 @@ impl EpochLedger {
         self.locks.insert(hash, RetainedKind::Notarized);
     }
 
+    /// A slot the checkpoint kept as a recovery-only lock, for tests
+    #[cfg(test)]
+    pub fn retain_recovery_for_test(
+        &mut self,
+        slot: AccountSlot,
+        hash: BlockHash,
+        previous: BlockHash,
+    ) {
+        self.keep(slot, PlacedBlock::new(hash, previous));
+        self.locks.insert(hash, RetainedKind::Recovery);
+    }
+
     /// RAI: seeds the closed genesis state `S_G`: every account at the
     /// block it stood at when the epochs started. Those positions are
     /// finalized, and rule 1 never rolls them back.
