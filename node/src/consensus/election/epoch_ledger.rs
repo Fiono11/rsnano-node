@@ -143,6 +143,14 @@ impl EpochLedger {
                 .is_some_and(|blocks| blocks.contains(&PlacedBlock::new(hash, previous)))
     }
 
+    /// The height of the account's finalized tip
+    pub fn finalized_depth(&self, account: Account) -> Option<u64> {
+        self.finalized
+            .range(AccountSlot::new(account, 0)..=AccountSlot::new(account, u64::MAX))
+            .next_back()
+            .map(|(s, _)| s.height)
+    }
+
     pub fn retained_depth(&self, account: Account) -> Option<u64> {
         self.notarized
             .range(AccountSlot::new(account, 0)..=AccountSlot::new(account, u64::MAX))
@@ -424,12 +432,14 @@ pub struct BuildRules<'a> {
     pub backing: &'a dyn PredecessorBacking,
 }
 
-/// Revised BuildState: explicit F entries alone extend finality. A represented
-/// NC or enough reporter first votes retain a parent-closed lock, without any
-/// application effect. Inherited unresolved branches survive report omission.
-/// No fixed-point or sole-survivor finalization is performed: the
-/// unique-branch variant of rai-cross-epoch-minimal is not ported, it is
-/// unsafe with the overlap exceptions.
+/// Revised BuildState: explicit F entries extend finality, and so does Rule 3
+/// promotion of a unique retained child with a closing-epoch NC at the
+/// finalized tip. A represented NC or enough reporter first votes otherwise
+/// retain a parent-closed lock, without any application effect. Inherited
+/// unresolved branches survive report omission. No sole-survivor
+/// finalization without an NC is performed: the unique-branch variant of
+/// rai-cross-epoch-minimal is not ported, it is unsafe with the overlap
+/// exceptions.
 pub fn build_state(
     previous: &EpochLedger,
     selection: &[SelectedReport],
@@ -599,7 +609,60 @@ pub fn build_state(
         }
     }
     ledger.notarized.retain(|_, blocks| !blocks.is_empty());
+    // Rule 3, checkpoint promotion: the notarized blocks a selected report
+    // represents in this epoch
+    let represented: BTreeSet<BlockHash> = evidence
+        .values()
+        .flat_map(|at| at.notarized.iter().copied())
+        .collect();
+    promote_unique_notarized_prefixes(&mut ledger, previous, &represented);
     Ok(ledger)
+}
+
+/// RAI, Rule 3 (checkpoint promotion): "For each account, starting at the tip
+/// of F*, repeatedly promote the next block only while (i) it is the unique
+/// child retained in R_Q and (ii) the manifest verifies a closing-epoch NC
+/// for that block. Stop at the first fork or block without such an NC."
+/// A recovery-only block is never promoted, nor is a notarization lock the
+/// predecessor carried: its NC is of an earlier epoch. The promotion takes
+/// effect only if the candidate is decided, which is when a derived state
+/// is installed.
+fn promote_unique_notarized_prefixes(
+    ledger: &mut EpochLedger,
+    previous: &EpochLedger,
+    represented: &BTreeSet<BlockHash>,
+) {
+    let accounts: BTreeSet<Account> = ledger.notarized.keys().map(|slot| slot.account).collect();
+    for account in accounts {
+        loop {
+            let (height, parent) = match ledger.finalized_depth(account) {
+                Some(depth) => (
+                    depth + 1,
+                    ledger
+                        .finalized(&AccountSlot::new(account, depth))
+                        .expect("finalized depth names a finalized slot"),
+                ),
+                None => (1, BlockHash::ZERO),
+            };
+            let slot = AccountSlot::new(account, height);
+            let Some(children) = ledger.notarized.get(&slot) else {
+                break;
+            };
+            let [child] = children.iter().copied().collect::<Vec<_>>()[..] else {
+                break;
+            };
+            let inherited = previous.is_locked(&slot, &child.hash)
+                && previous.retained_kind(&child.hash) == RetainedKind::Notarized;
+            if child.previous != parent
+                || ledger.retained_kind(&child.hash) != RetainedKind::Notarized
+                || !represented.contains(&child.hash)
+                || inherited
+            {
+                break;
+            }
+            ledger.finalize(slot, child);
+        }
+    }
 }
 
 /// Return a complete selected prefix ending at already-final history or an
@@ -649,13 +712,16 @@ mod tests {
     use rsnano_types::PrivateKey;
     use std::collections::HashMap;
 
-    /// A unique represented NC is a lock, not application finality.
+    /// RAI, Rule 3: a unique represented closing-epoch NC at the finalized
+    /// tip is promoted by the checkpoint; the lock becomes finality
     #[test]
-    fn a_unique_notarization_is_retained_without_finality() {
+    fn a_unique_notarization_at_the_finalized_tip_is_promoted() {
         let mut index = StubIndex::default();
         let block = index.add(1, 1, BlockHash::ZERO);
+        let child = index.add(1, 2, block);
         let mut certified = CertifiedState::new();
         certify(&mut certified, &index, block, CertifiedStatus::Notarized);
+        certify(&mut certified, &index, child, CertifiedStatus::Notarized);
         let residual = ResidualVotes::new();
 
         let ledger = derive(
@@ -664,10 +730,79 @@ mod tests {
             &index,
         );
 
+        assert_eq!(ledger.finalized(&slot(1, 1)), Some(block));
+        assert_eq!(ledger.finalized(&slot(1, 2)), Some(child));
+        assert_eq!(ledger.notarized_count(), 0);
+        assert!(ledger.locks.is_empty());
+        assert_eq!(ledger.finalized_count(), 2);
+    }
+
+    /// RAI, Rule 3: promotion stops at the first fork, at a recovery-only
+    /// lock, and at a block that does not continue the finalized tip
+    #[test]
+    fn promotion_stops_at_a_fork_a_recovery_lock_or_a_gap() {
+        let mut index = StubIndex::default();
+        let block = index.add(1, 1, BlockHash::ZERO);
+        let recovered = index.add(1, 2, block);
+        let grandchild = index.add(1, 3, recovered);
+        let mut certified = CertifiedState::new();
+        certify(&mut certified, &index, block, CertifiedStatus::Notarized);
+        certify(
+            &mut certified,
+            &index,
+            grandchild,
+            CertifiedStatus::Notarized,
+        );
+        let mut votes = ResidualVotes::new();
+        record(&mut votes, &index, recovered, ResidualKind::First);
+        let selected: Vec<_> = (1..=3)
+            .map(|i| reported_by(i, &certified, &votes))
+            .collect();
+
+        let ledger = derive(&EpochLedger::new(), &selected, &index);
+
+        assert_eq!(ledger.finalized(&slot(1, 1)), Some(block));
+        assert_eq!(ledger.retained_kind(&recovered), RetainedKind::Recovery);
+        assert_eq!(ledger.notarized(&slot(1, 2)), vec![recovered]);
+        // Notarized, but above an unpromoted block: not promoted
+        assert_eq!(ledger.notarized(&slot(1, 3)), vec![grandchild]);
+        assert_eq!(ledger.finalized_count(), 1);
+
+        // A fork of two inherited survivors at the tip stops promotion too
+        let other = index.add(2, 1, BlockHash::ZERO);
+        let rival = index.add(2, 1, BlockHash::ZERO);
+        let mut previous = EpochLedger::new();
+        for hash in [other, rival] {
+            previous.keep(slot(2, 1), placed(&index, hash));
+            previous.locks.insert(hash, RetainedKind::Recovery);
+        }
+        let forked = derive(&previous, &[], &index);
+        assert_eq!(forked.finalized(&slot(2, 1)), None);
+        assert_eq!(forked.notarized(&slot(2, 1)).len(), 2);
+    }
+
+    /// RAI, Rule 3: the NC must be of the closing epoch; a notarization lock
+    /// the predecessor carried is re-reported under N without a new NC and is
+    /// not promoted
+    #[test]
+    fn an_inherited_notarization_lock_is_not_promoted() {
+        let mut index = StubIndex::default();
+        let block = index.add(1, 1, BlockHash::ZERO);
+        let mut previous = EpochLedger::new();
+        previous.keep(slot(1, 1), placed(&index, block));
+        previous.locks.insert(block, RetainedKind::Notarized);
+        let base = previous.report_ledger();
+        assert_eq!(
+            base.certification(&certified_at(&index, block))
+                .unwrap()
+                .status,
+            CertifiedStatus::Notarized
+        );
+
+        let ledger = derive(&previous, &[report(&base, &ResidualVotes::new())], &index);
+
+        assert_eq!(ledger, previous);
         assert_eq!(ledger.finalized(&slot(1, 1)), None);
-        assert_eq!(ledger.notarized(&slot(1, 1)), vec![block]);
-        assert_eq!(ledger.retained_kind(&block), RetainedKind::Notarized);
-        assert_eq!(ledger.finalized_count(), 0);
     }
 
     #[test]
@@ -711,12 +846,11 @@ mod tests {
             &index,
         );
 
-        assert_eq!(ledger.finalized(&slot(1, 1)), None);
-        assert_eq!(ledger.notarized(&slot(1, 1)), vec![certified_block]);
-        assert_eq!(
-            ledger.retained_kind(&certified_block),
-            RetainedKind::Notarized
-        );
+        // Unique at the tip with a closing-epoch NC: promoted (Rule 3); the
+        // supported rival is not retained
+        assert_eq!(ledger.finalized(&slot(1, 1)), Some(certified_block));
+        assert!(ledger.notarized(&slot(1, 1)).is_empty());
+        assert!(!ledger.locks.contains_key(&supported));
     }
 
     /// Recovery preserves the branch of a possible latent FF, not finality.
@@ -1004,7 +1138,7 @@ mod tests {
 
         let from_reports = ReportIndex::new(&EpochLedger::new(), &selection);
         let ledger = derive(&EpochLedger::new(), &selection, &from_reports);
-        assert_eq!(ledger.notarized(&slot(1, 1)), vec![block]);
+        assert_eq!(ledger.finalized(&slot(1, 1)), Some(block));
     }
 
     /// Rule 1: "Inherited provisional forks are not omitted merely because
@@ -1091,12 +1225,12 @@ mod tests {
             backing: &backing,
         };
         let backed = build_state(&previous, &reports, &index, rules).unwrap();
-        assert_eq!(backed.notarized(&slot(1, 2)), vec![fresh]);
+        // The superseding NC is unique at the finalized tip: Rule 3 promotes it
+        assert_eq!(backed.finalized(&slot(1, 2)), Some(fresh));
+        assert!(backed.notarized(&slot(1, 2)).is_empty());
         assert!(backed.notarized(&slot(1, 3)).is_empty());
-        assert_eq!(backed.retained_kind(&fresh), RetainedKind::Notarized);
         assert_eq!(backed.retained_kind(&carried), RetainedKind::Ancestor);
         assert_eq!(backed.retained_kind(&child), RetainedKind::Ancestor);
-        assert!(backed.finalized(&slot(1, 2)).is_none());
 
         previous.locks.insert(carried, RetainedKind::Notarized);
         let kept = build_state(&previous, &reports, &index, rules).unwrap();
@@ -1223,10 +1357,8 @@ mod tests {
             &index,
         );
         assert_ne!(recovered.state_hash(), notarized.state_hash());
-        assert_eq!(
-            recovered.notarized(&slot(1, 1)),
-            notarized.notarized(&slot(1, 1))
-        );
+        assert_eq!(recovered.notarized(&slot(1, 1)), vec![block]);
+        assert_eq!(notarized.finalized(&slot(1, 1)), Some(block));
     }
 
     #[test]
