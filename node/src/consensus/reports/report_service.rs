@@ -320,11 +320,13 @@ fn log_reconciled(result: Option<ReconcileResult>) {
         return;
     };
     crate::utils::diagnostic!(
-        "EPOCH_RECONCILED epoch={} reporter={} complete={} entries={} total={}",
+        "EPOCH_RECONCILED epoch={} reporter={} complete={} entries={} total={} symbols={} dropped={}",
         result.epoch,
         result.reporter,
         result.complete,
         result.entries,
-        result.total
+        result.total,
+        result.symbols,
+        result.dropped
     );
 }

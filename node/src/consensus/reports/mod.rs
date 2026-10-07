@@ -134,6 +134,10 @@ pub(crate) struct ReconcileResult {
     pub complete: bool,
     pub entries: usize,
     pub total: usize,
+    /// Coded symbols the stream needed; 0 when no stream ran
+    pub symbols: usize,
+    /// The stream did not rebuild the signed root and was dropped
+    pub dropped: bool,
 }
 impl ReportExchange {
     pub const MAX_EPOCHS: usize = 4;
@@ -376,6 +380,8 @@ impl ReportExchange {
             complete,
             entries: total,
             total,
+            symbols: 0,
+            dropped: false,
         })
     }
 
@@ -469,6 +475,7 @@ impl ReportExchange {
                         continue;
                     }
                     if stream.decoder.failed() {
+                        results.push(dropped(reply, *reporter, stream.decoder.received()));
                         their.certified_stream = None;
                         continue;
                     }
@@ -481,9 +488,11 @@ impl ReportExchange {
                         continue;
                     }
                     let entries = stream.decoder.recovered().count();
+                    let symbols = stream.decoder.received();
                     let rebuilt = stream.base.with_difference(stream.decoder.recovered());
                     their.certified_stream = None;
                     let Some(rebuilt) = rebuilt.filter(|state| state.root() == reply.target) else {
+                        results.push(dropped(reply, *reporter, symbols));
                         continue;
                     };
                     let total = rebuilt.len();
@@ -494,6 +503,8 @@ impl ReportExchange {
                         complete: their.is_complete(),
                         entries,
                         total,
+                        symbols,
+                        dropped: false,
                     });
                 }
                 ReportSet::Residual => {
@@ -507,6 +518,7 @@ impl ReportExchange {
                         continue;
                     }
                     if stream.decoder.failed() {
+                        results.push(dropped(reply, *reporter, stream.decoder.received()));
                         their.residual_stream = None;
                         continue;
                     }
@@ -519,9 +531,11 @@ impl ReportExchange {
                         continue;
                     }
                     let entries = stream.decoder.recovered().count();
+                    let symbols = stream.decoder.received();
                     let rebuilt = stream.base.with_difference(stream.decoder.recovered());
                     their.residual_stream = None;
                     let Some(rebuilt) = rebuilt.filter(|votes| votes.root() == reply.target) else {
+                        results.push(dropped(reply, *reporter, symbols));
                         continue;
                     };
                     let total = rebuilt.len();
@@ -532,6 +546,8 @@ impl ReportExchange {
                         complete: their.is_complete(),
                         entries,
                         total,
+                        symbols,
+                        dropped: false,
                     });
                 }
             }
@@ -582,6 +598,8 @@ impl ReportExchange {
                     complete: their.is_complete(),
                     entries: 0,
                     total,
+                    symbols: 0,
+                    dropped: false,
                 }),
             ));
         }
@@ -593,6 +611,19 @@ impl ReportExchange {
         Some((Vec::new(), None))
     }
 }
+/// A stream that did not rebuild the signed root
+fn dropped(reply: &ReportSymbolsReply, reporter: PublicKey, symbols: usize) -> ReconcileResult {
+    ReconcileResult {
+        epoch: reply.epoch,
+        reporter,
+        complete: false,
+        entries: 0,
+        total: 0,
+        symbols,
+        dropped: true,
+    }
+}
+
 impl EpochReports {
     /// Symbol streams served per epoch; a request for another root rebuilds
     /// its encoder

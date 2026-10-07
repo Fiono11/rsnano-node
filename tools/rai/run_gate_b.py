@@ -109,6 +109,7 @@ def main():
     parser.add_argument('--epoch-ms', type=int, default=8000)
     parser.add_argument('--min-closed', type=int, default=3)
     parser.add_argument('--weighted', action='store_true', help='stake-weighted committees instead of equal weight f = p = 1')
+    parser.add_argument('--byzantine', type=int, default=0, help='representatives played by the client with random votes, no node')
     parser.add_argument('--allow-busy', action='store_true', help='Correctness run only; does not satisfy the performance gate')
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=False)
@@ -126,6 +127,8 @@ def main():
         (args.output / 'result.json').write_text(json.dumps(result, indent=2) + '\n')
         print(json.dumps(result, indent=2))
         return 7
+    nodes = PRS - args.byzantine
+    result['nodes'] = nodes
     for i in range(PRS):
         try:
             rpc(i, 'version')
@@ -137,7 +140,7 @@ def main():
         command = [str(binary_dir / 'nanospam'), '--data-dir', str(data), '--prs', str(PRS), '--no-prio',
                    '--blocks', str(args.blocks), '--accounts', str(args.accounts), '--rate', str(args.rate),
                    '--fork-percentage', str(args.fork_percentage), '--epoch-duration-ms', str(args.epoch_ms),
-                   '--no-kill']
+                   '--byzantine', str(args.byzantine), '--no-kill']
         if not args.weighted:
             command += ['--committee-model', 'equal_weight', '--committee-f', '1', '--committee-p', '1']
         result['command'] = command
@@ -156,8 +159,8 @@ def main():
                     raise RuntimeError(f'nanospam exited with {process.returncode}')
                 result['client_finished_s'] = round(args.timeout - (deadline - time.monotonic()), 1)
                 while True:
-                    counts = [rpc(i, 'block_count') for i in range(PRS)]
-                    states = [rpc(i, 'final_state') for i in range(PRS)]
+                    counts = [rpc(i, 'block_count') for i in range(nodes)]
+                    states = [rpc(i, 'final_state') for i in range(nodes)]
                     settled = settlement(counts, states, args.min_closed)
                     if settled['settled'] or time.monotonic() >= deadline:
                         break
@@ -166,8 +169,8 @@ def main():
                 result['settlement'] = settled
                 result['block_counts'] = counts
                 result['final_states'] = states
-                result['stats'] = [rpc(i, 'stats', type='objects') for i in range(PRS)]
-                result['counters'] = [rpc(i, 'stats', type='counters') for i in range(PRS)]
+                result['stats'] = [rpc(i, 'stats', type='objects') for i in range(nodes)]
+                result['counters'] = [rpc(i, 'stats', type='counters') for i in range(nodes)]
                 result['finalization_p50_ms'] = [
                     int(entry['value']) for counters in result['counters']
                     for entry in counters.get('entries', [])
@@ -181,6 +184,15 @@ def main():
                 result['close_timings'] = timings
                 last = [t['last_close_ms'] for t in timings.values()]
                 result['close_duration_ms'] = dict(max=max(last), median=statistics.median(last)) if last else None
+                streams = [dict(entries=int(e), symbols=int(n)) for e, n in
+                           re.findall(r'^EPOCH_RECONCILED .*complete=\S+ entries=(\d+) total=\d+ symbols=(\d+) dropped=false', text, re.M)
+                           if int(n) > 0]
+                result['streams'] = dict(count=len(streams),
+                                         dropped=len(re.findall(r'^EPOCH_RECONCILED .*dropped=true', text, re.M)),
+                                         symbols=sum(x['symbols'] for x in streams),
+                                         recovered=sum(x['entries'] for x in streams))
+                if result['streams']['recovered']:
+                    result['streams']['symbols_per_item'] = round(result['streams']['symbols'] / result['streams']['recovered'], 2)
                 rates = re.findall(r'Confirmation rate: ([\d.]+) cps', text)
                 result['confirmation_rate_cps'] = float(rates[-1]) if rates else None
                 confirmed = re.findall(r'Confirm(?:ed|ing) ([\d,]+) blocks', text)
@@ -189,7 +201,7 @@ def main():
                                                 and settled['settled']
                                                 and int(settled['cemented'][0]) >= args.blocks)
                 result['status'] = 'settled' if result['correctness_passed'] else 'failed'
-                for i in range(PRS):
+                for i in range(nodes):
                     saved = args.output / f'pr{i}'
                     saved.mkdir()
                     for config in (data / f'pr{i}').glob('config-*'):
