@@ -392,13 +392,6 @@ impl AecService {
             .complete_report(epoch, certified, residual)
     }
 
-    /// RAI, Rule 3: whether an epoch's notarization of a block is
-    /// predecessor-backed
-    #[cfg(feature = "rai_protocol")]
-    pub fn predecessor_backed(&self, epoch: ConsensusEpoch, hash: &BlockHash) -> bool {
-        self.aec.read().unwrap().predecessor_backed(epoch, hash)
-    }
-
     /// RAI: how many first and final voters this node holds for a block
     #[cfg(feature = "rai_protocol")]
     pub fn support_counts(&self, epoch: ConsensusEpoch, hash: &BlockHash) -> (usize, usize) {

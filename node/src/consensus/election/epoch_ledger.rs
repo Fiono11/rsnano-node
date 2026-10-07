@@ -400,36 +400,11 @@ pub enum BuildStateError {
     InvalidRecoveryEntry,
 }
 
-/// RAI, Rule 3: whether a represented epoch-e NC is predecessor-backed,
-/// "at least q members of K_{e-1} are among B's epoch-e first voters". Read
-/// off the signed votes the deriving validator retains. Correct validators
-/// converge on it as the finite vote set of the epoch reaches them; until
-/// then a validator that lacks the votes refuses a value that supersedes,
-/// and keeps collecting.
-pub trait PredecessorBacking {
-    fn predecessor_backed(&self, hash: &BlockHash) -> bool;
-}
-
-/// No represented NC is predecessor-backed: Rule 3 never supersedes
-impl PredecessorBacking for () {
-    fn predecessor_backed(&self, _: &BlockHash) -> bool {
-        false
-    }
-}
-
-impl PredecessorBacking for BTreeSet<BlockHash> {
-    fn predecessor_backed(&self, hash: &BlockHash) -> bool {
-        self.contains(hash)
-    }
-}
-
 /// What BuildState needs besides the predecessor and the selected reports
 #[derive(Clone, Copy)]
-pub struct BuildRules<'a> {
+pub struct BuildRules {
     /// r = f + p + 1 as weight: the reporter first votes a recovery lock needs
     pub many: Amount,
-    /// Rule 3
-    pub backing: &'a dyn PredecessorBacking,
 }
 
 /// Revised BuildState: explicit F entries extend finality, and so does Rule 3
@@ -507,9 +482,6 @@ pub fn build_state(
             }
         }
     }
-    // Rule 3: the inherited recovery-only locks a predecessor-backed
-    // represented NC superseded, with every retained descendant of theirs
-    let mut superseded: BTreeSet<BlockHash> = BTreeSet::new();
     for (slot, at) in &evidence {
         if ledger.finalized(slot).is_some() {
             continue;
@@ -532,13 +504,12 @@ pub fn build_state(
             _ => return Err(BuildStateError::ConflictingNotarizations),
         };
         if let Some((hash, kind)) = target {
-            // Rule 3: "If S_{e-1} carries only recovery-only locks at (a, v)
-            // and a selected report exposes a represented epoch-e NC for a
-            // different block at (a, v) that is predecessor-backed, the
-            // inherited recovery lock is dropped and Rule 1 applies. A
-            // represented NC that is not predecessor-backed does not
-            // supersede an inherited lock; the inherited lock is retained
-            // and the new block is ineligible early work."
+            // "Inherited state and discharge": a represented NC for a
+            // different block at a position S_{e-1} locks only for recovery
+            // is ineligible early work; the inherited lock is retained and
+            // is discharged by explicit compatible finality alone. The
+            // predecessor-backed supersession of an earlier revision is not
+            // part of the core protocol.
             let inherited = previous.notarized(slot);
             if kind == RetainedKind::Notarized
                 && !inherited.is_empty()
@@ -547,18 +518,7 @@ pub fn build_state(
                     .iter()
                     .all(|held| previous.retained_kind(held) != RetainedKind::Notarized)
             {
-                if !rules.backing.predecessor_backed(&hash) {
-                    continue;
-                }
-                for held in inherited {
-                    superseded.insert(held);
-                    ledger.locks.remove(&held);
-                }
-                ledger
-                    .notarized
-                    .get_mut(slot)
-                    .unwrap()
-                    .retain(|block| !superseded.contains(&block.hash));
+                continue;
             }
             match selected_path(&ledger, index, *slot, hash) {
                 Ok(path) => {
@@ -573,22 +533,6 @@ pub fn build_state(
                 // Explicit finality excludes an incompatible nonfinal branch.
                 Err(BuildStateError::ConflictingFinality) => {}
                 Err(error) => return Err(error),
-            }
-        }
-    }
-    // A retained descendant of a superseded lock goes with it: slots are
-    // walked in account and height order, so a parent is seen first
-    if !superseded.is_empty() {
-        for blocks in ledger.notarized.values_mut() {
-            let gone: Vec<PlacedBlock> = blocks
-                .iter()
-                .filter(|block| superseded.contains(&block.previous))
-                .copied()
-                .collect();
-            for block in gone {
-                superseded.insert(block.hash);
-                ledger.locks.remove(&block.hash);
-                blocks.remove(&block);
             }
         }
     }
@@ -1192,12 +1136,13 @@ mod tests {
         assert_eq!(derive(&promoted, &[], &index), promoted);
     }
 
-    /// RAI, Rule 3: only a predecessor-backed represented NC supersedes an
-    /// inherited recovery-only lock, and it takes the lock's retained
-    /// descendants with it; an unbacked NC is ineligible early work, and a
-    /// represented notarization lock is never superseded
+    /// "Inherited state and discharge": a represented NC for a different
+    /// block never supersedes an inherited recovery-only lock, whatever its
+    /// votes; the lock and its retained descendants stay, and the new block
+    /// is ineligible early work. A represented notarization lock is kept
+    /// alongside a new NC at its position.
     #[test]
-    fn a_predecessor_backed_notarization_supersedes_an_inherited_recovery_lock_only() {
+    fn a_represented_notarization_never_supersedes_an_inherited_recovery_lock() {
         let mut index = StubIndex::default();
         let base = index.add(1, 1, BlockHash::ZERO);
         let carried = index.add(1, 2, base);
@@ -1214,31 +1159,20 @@ mod tests {
         let no_votes = ResidualVotes::new();
         let reports = [report(&certified, &no_votes)];
 
-        let unbacked = build_state(&previous, &reports, &index, certificate_rules()).unwrap();
-        assert_eq!(unbacked.notarized(&slot(1, 2)), vec![carried]);
-        assert_eq!(unbacked.notarized(&slot(1, 3)), vec![child]);
-        assert_eq!(unbacked.retained_kind(&carried), RetainedKind::Recovery);
-
-        let backing: BTreeSet<BlockHash> = [fresh].into_iter().collect();
-        let rules = BuildRules {
-            many: MANY,
-            backing: &backing,
-        };
-        let backed = build_state(&previous, &reports, &index, rules).unwrap();
-        // The superseding NC is unique at the finalized tip: Rule 3 promotes it
-        assert_eq!(backed.finalized(&slot(1, 2)), Some(fresh));
-        assert!(backed.notarized(&slot(1, 2)).is_empty());
-        assert!(backed.notarized(&slot(1, 3)).is_empty());
-        assert_eq!(backed.retained_kind(&carried), RetainedKind::Ancestor);
-        assert_eq!(backed.retained_kind(&child), RetainedKind::Ancestor);
+        let kept = build_state(&previous, &reports, &index, certificate_rules()).unwrap();
+        assert_eq!(kept.notarized(&slot(1, 2)), vec![carried]);
+        assert_eq!(kept.notarized(&slot(1, 3)), vec![child]);
+        assert_eq!(kept.retained_kind(&carried), RetainedKind::Recovery);
+        assert!(kept.finalized(&slot(1, 2)).is_none());
 
         previous.locks.insert(carried, RetainedKind::Notarized);
-        let kept = build_state(&previous, &reports, &index, rules).unwrap();
+        let both = build_state(&previous, &reports, &index, certificate_rules()).unwrap();
         assert_eq!(
-            vec_sorted(&kept.notarized(&slot(1, 2))),
+            vec_sorted(&both.notarized(&slot(1, 2))),
             vec_sorted(&[carried, fresh])
         );
-        assert_eq!(kept.notarized(&slot(1, 3)), vec![child]);
+        assert_eq!(both.retained_kind(&fresh), RetainedKind::Notarized);
+        assert_eq!(both.retained_kind(&carried), RetainedKind::Notarized);
     }
 
     /// The unique-branch variant: a sole preserved block is finalized with
@@ -1416,11 +1350,8 @@ mod tests {
     }
 
     /// The paper's rules, with no represented NC predecessor-backed
-    fn certificate_rules() -> BuildRules<'static> {
-        BuildRules {
-            many: MANY,
-            backing: &(),
-        }
+    fn certificate_rules() -> BuildRules {
+        BuildRules { many: MANY }
     }
 
     fn report<'a>(

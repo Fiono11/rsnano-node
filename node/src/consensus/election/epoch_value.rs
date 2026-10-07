@@ -397,11 +397,8 @@ mod tests {
     const MANY: Amount = Amount::raw(25);
     const REPORTER_WEIGHT: Amount = Amount::raw(10);
 
-    fn rules() -> BuildRules<'static> {
-        BuildRules {
-            many: MANY,
-            backing: &(),
-        }
+    fn rules() -> BuildRules {
+        BuildRules { many: MANY }
     }
     /// q_report for three reporters of `REPORTER_WEIGHT` each
     const QUORUM: Amount = Amount::raw(30);

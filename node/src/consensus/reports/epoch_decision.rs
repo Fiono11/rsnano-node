@@ -15,8 +15,8 @@ use crate::{
         AecService,
         active_elections::EpochProposalContext,
         election::{
-            BuildRules, Committee, EpochLedger, EpochValue, PredecessorBacking, ReportIndex,
-            ReportRef, ReportSource, SelectedReport,
+            BuildRules, Committee, EpochLedger, EpochValue, ReportIndex, ReportRef, ReportSource,
+            SelectedReport,
         },
     },
     transport::MessageFlooder,
@@ -347,13 +347,8 @@ impl EpochDecisionService {
         }
         let states: Vec<SelectedReport> = resolved.iter().map(|(_, state)| *state).collect();
         let index = ReportIndex::new(&previous, &states);
-        let backing = Backing {
-            active_elections: &self.active_elections,
-            epoch,
-        };
         let rules = BuildRules {
             many: committee.thresholds().many,
-            backing: &backing,
         };
         match EpochValue::propose(
             epoch,
@@ -398,13 +393,8 @@ impl EpochDecisionService {
             return None;
         }
         let index = ReportIndex::new(&previous, &states);
-        let backing = Backing {
-            active_elections: &self.active_elections,
-            epoch: value.epoch,
-        };
         let rules = BuildRules {
             many: committee.thresholds().many,
-            backing: &backing,
         };
         match value.validate(
             &previous,
@@ -471,19 +461,6 @@ impl EpochDecisionService {
             TrafficType::Generic,
             1.0,
         );
-    }
-}
-
-/// RAI, Rule 3: predecessor backing read off the signed votes this node
-/// holds. Correct validators converge on it as the epoch's votes reach them.
-struct Backing<'a> {
-    active_elections: &'a AecService,
-    epoch: ConsensusEpoch,
-}
-
-impl PredecessorBacking for Backing<'_> {
-    fn predecessor_backed(&self, hash: &BlockHash) -> bool {
-        self.active_elections.predecessor_backed(self.epoch, hash)
     }
 }
 
