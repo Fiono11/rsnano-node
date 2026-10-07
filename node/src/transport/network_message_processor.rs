@@ -12,7 +12,10 @@ use rsnano_utils::stats::{DetailType, Direction, StatType, Stats};
 use rsnano_work::WorkThresholds;
 
 #[cfg(feature = "rai_protocol")]
-use crate::consensus::reports::{EpochDecisionService, ReportService};
+use crate::consensus::{
+    CheckpointFollower,
+    reports::{EpochDecisionService, ReportService},
+};
 #[cfg(feature = "ledger_snapshots")]
 use crate::ledger_snapshots::LedgerSnapshots;
 use crate::{
@@ -43,6 +46,9 @@ pub struct NetworkMessageProcessor {
     /// RAI: the value half of the joint epoch election
     #[cfg(feature = "rai_protocol")]
     epoch_decision: Arc<EpochDecisionService>,
+    /// RAI: blocks a checkpoint finalized that this node is fetching
+    #[cfg(feature = "rai_protocol")]
+    checkpoint_follower: Arc<CheckpointFollower>,
     #[cfg(feature = "ledger_snapshots")]
     ledger_snapshots: Arc<LedgerSnapshots>,
 }
@@ -62,6 +68,7 @@ impl NetworkMessageProcessor {
         work_thresholds: WorkThresholds,
         #[cfg(feature = "rai_protocol")] reports: Arc<ReportService>,
         #[cfg(feature = "rai_protocol")] epoch_decision: Arc<EpochDecisionService>,
+        #[cfg(feature = "rai_protocol")] checkpoint_follower: Arc<CheckpointFollower>,
         #[cfg(feature = "ledger_snapshots")] ledger_snapshots: Arc<LedgerSnapshots>,
     ) -> Self {
         Self {
@@ -80,6 +87,8 @@ impl NetworkMessageProcessor {
             reports,
             #[cfg(feature = "rai_protocol")]
             epoch_decision,
+            #[cfg(feature = "rai_protocol")]
+            checkpoint_follower,
             #[cfg(feature = "ledger_snapshots")]
             ledger_snapshots,
         }
@@ -131,10 +140,18 @@ impl NetworkMessageProcessor {
                     } else {
                         BlockSource::Live
                     };
+                    // RAI: a block a decided checkpoint finalized is forced
+                    // in, rolling back an unconfirmed rival this ledger holds
+                    #[cfg(feature = "rai_protocol")]
+                    let source = if self.checkpoint_follower.wants(&publish.block.hash()) {
+                        BlockSource::Forced
+                    } else {
+                        source
+                    };
 
                     trace!(block_hash = ?publish.block.hash(), channel_id = ?channel.channel_id(), "Received publish");
 
-                    if self.bootstrapper.is_bootstrapping() {
+                    if self.bootstrapper.is_bootstrapping() && source != BlockSource::Forced {
                         // We ignore live blocks during bootstrap, so that those live blocks won't
                         // fill up the bootstrap queue
                         ok = false;
@@ -231,6 +248,10 @@ impl NetworkMessageProcessor {
             }
             #[cfg(feature = "rai_protocol")]
             Message::ReportSymbolsReply(reply) => self.reports.handle_symbols_reply(reply, channel),
+            #[cfg(feature = "rai_protocol")]
+            Message::BlocksReq(request) => {
+                self.checkpoint_follower.handle_request(request, channel)
+            }
 
             #[cfg(feature = "ledger_snapshots")]
             Message::SnapshotPreproposal(preproposal) => {

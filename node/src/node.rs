@@ -834,6 +834,17 @@ impl Node {
         // Start bootstrap from genesis account
         bootstrapper.enqueue(network_params.ledger.genesis_account);
 
+        // RAI: the ledger follows the decided checkpoints, fetching the
+        // finalized blocks it lacks
+        #[cfg(feature = "rai_protocol")]
+        let checkpoint_follower = Arc::new(crate::consensus::CheckpointFollower::new(
+            ledger.clone(),
+            confirming_set.clone(),
+            message_flooder.clone(),
+            steady_clock.clone(),
+            stats.clone(),
+        ));
+
         // RAI, Section 6: the report phase of the epoch closes
         #[cfg(feature = "rai_protocol")]
         let reports = Arc::new(ReportService::new(
@@ -983,6 +994,8 @@ impl Node {
             reports.clone(),
             #[cfg(feature = "rai_protocol")]
             epoch_decision.clone(),
+            #[cfg(feature = "rai_protocol")]
+            checkpoint_follower.clone(),
             #[cfg(feature = "ledger_snapshots")]
             ledger_snapshots.clone(),
         ));
@@ -1122,6 +1135,12 @@ impl Node {
             ticker_pool.insert(monitor, config.monitor.interval)
         }
 
+        #[cfg(feature = "rai_protocol")]
+        ticker_pool.insert(
+            crate::consensus::CheckpointFollowerTicker(checkpoint_follower.clone()),
+            Duration::from_secs(1),
+        );
+
         let wallets_ticker = WalletsTicker(wallets.clone());
         ticker_pool.insert(wallets_ticker, Duration::from_millis(500));
 
@@ -1253,6 +1272,8 @@ impl Node {
             bootstrapper: bootstrapper.clone(),
             ledger: ledger.clone(),
             vote_cache: vote_cache.clone(),
+            #[cfg(feature = "rai_protocol")]
+            checkpoint_follower: checkpoint_follower.clone(),
             plugins: aec_event_handlers,
         };
 

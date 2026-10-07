@@ -147,6 +147,11 @@ pub enum DetailType {
     /// RAI: rateless report reconciliation
     ReportSymbolsReq,
     ReportSymbolsReply,
+    /// RAI: blocks asked for by hash after a checkpoint
+    BlocksReq,
+    CheckpointBlockCemented,
+    CheckpointBlockRequested,
+    CheckpointBlockForced,
     CloseProofReq,
     CloseProofReply,
     CheckpointReq,

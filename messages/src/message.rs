@@ -29,6 +29,9 @@ pub enum Message {
     ReportSymbolsReq(ReportSymbolsReq),
     #[cfg(feature = "rai_protocol")]
     ReportSymbolsReply(ReportSymbolsReply),
+    /// RAI: a request for blocks by hash, answered with evidence publishes
+    #[cfg(feature = "rai_protocol")]
+    BlocksReq(BlocksReq),
 
     #[cfg(feature = "ledger_snapshots")]
     SnapshotPreproposal(Preproposal),
@@ -117,6 +120,8 @@ impl From<&ParseMessageError> for DetailType {
             ParseMessageError::InvalidMessage(MessageType::ReportSymbolsReply) => {
                 Self::ReportSymbolsReply
             }
+            #[cfg(feature = "rai_protocol")]
+            ParseMessageError::InvalidMessage(MessageType::BlocksReq) => Self::BlocksReq,
 
             #[cfg(feature = "ledger_snapshots")]
             ParseMessageError::InvalidMessage(MessageType::Preproposal) => todo!(),
@@ -175,6 +180,8 @@ impl Message {
             Message::ReportSymbolsReq(_) => MessageType::ReportSymbolsReq,
             #[cfg(feature = "rai_protocol")]
             Message::ReportSymbolsReply(_) => MessageType::ReportSymbolsReply,
+            #[cfg(feature = "rai_protocol")]
+            Message::BlocksReq(_) => MessageType::BlocksReq,
 
             #[cfg(feature = "ledger_snapshots")]
             Message::SnapshotPreproposal(_) => MessageType::Preproposal,
@@ -212,6 +219,8 @@ impl Message {
             Message::ReportSymbolsReq(x) => Some(x),
             #[cfg(feature = "rai_protocol")]
             Message::ReportSymbolsReply(x) => Some(x),
+            #[cfg(feature = "rai_protocol")]
+            Message::BlocksReq(x) => Some(x),
 
             _ => None,
         }
@@ -249,6 +258,8 @@ impl Message {
             Message::ReportSymbolsReq(m) => m.serialize(writer),
             #[cfg(feature = "rai_protocol")]
             Message::ReportSymbolsReply(m) => m.serialize(writer),
+            #[cfg(feature = "rai_protocol")]
+            Message::BlocksReq(m) => m.serialize(writer),
 
             #[cfg(feature = "ledger_snapshots")]
             Message::SnapshotPreproposal(m) => m.serialize(writer),
@@ -306,6 +317,8 @@ impl Message {
             MessageType::ReportSymbolsReply => {
                 Message::ReportSymbolsReply(ReportSymbolsReply::deserialize(payload)?)
             }
+            #[cfg(feature = "rai_protocol")]
+            MessageType::BlocksReq => Message::BlocksReq(BlocksReq::deserialize(payload)?),
 
             #[cfg(feature = "ledger_snapshots")]
             MessageType::Preproposal => {

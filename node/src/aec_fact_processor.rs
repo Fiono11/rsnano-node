@@ -46,6 +46,10 @@ pub(crate) struct AecFactProcessor {
     pub(crate) bootstrapper: Arc<Bootstrapper>,
     pub(crate) ledger: Arc<Ledger>,
     pub(crate) vote_cache: Arc<VoteCache>,
+    /// RAI: fetches and cements the checkpoint-finalized blocks the ledger
+    /// lacks or has not cemented
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) checkpoint_follower: Arc<crate::consensus::CheckpointFollower>,
     pub(crate) plugins: EventHandlerRegistry<AecFact>,
 }
 
@@ -226,6 +230,7 @@ impl AecFactProcessor {
         let mut cemented = 0;
         let mut queued = 0;
         let mut missing = 0;
+        let mut follow = Vec::new();
         {
             let any = self.ledger.any();
             let confirmed = self.ledger.confirmed();
@@ -235,11 +240,20 @@ impl AecFactProcessor {
                 } else if any.block_exists(hash) {
                     self.confirming_set.add_block(*hash);
                     queued += 1;
+                    follow.push(*hash);
                 } else {
                     missing += 1;
+                    follow.push(*hash);
                 }
             }
         }
+        // Cementing can fail on an ancestor not held yet, and a missing block
+        // never arrives by itself if this ledger holds its rival: both are
+        // followed until cemented
+        #[cfg(feature = "rai_protocol")]
+        self.checkpoint_follower.add(follow);
+        #[cfg(not(feature = "rai_protocol"))]
+        let _ = follow;
         crate::utils::diagnostic!(
             "EPOCH_INSTALLED epoch={} finalized={} cemented={} queued={} missing={}",
             epoch,

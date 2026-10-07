@@ -49,6 +49,9 @@ pub enum MessageType {
     /// RAI: a leader's proposal of an epoch value in one close round
     #[cfg(feature = "rai_protocol")]
     EpochProp = 0x16,
+    /// RAI: blocks asked for by hash (checkpoint catch-up)
+    #[cfg(feature = "rai_protocol")]
+    BlocksReq = 0x1d,
 }
 
 impl MessageType {
@@ -74,6 +77,8 @@ impl MessageType {
             #[cfg(feature = "rai_protocol")]
             MessageType::EpochProp => "epoch_prop",
             #[cfg(feature = "rai_protocol")]
+            MessageType::BlocksReq => "blocks_req",
+            #[cfg(feature = "rai_protocol")]
             MessageType::ReportSymbolsReq => "report_symbols_req",
             #[cfg(feature = "rai_protocol")]
             MessageType::ReportSymbolsReply => "report_symbols_reply",
@@ -92,7 +97,7 @@ impl MessageType {
     pub const fn max_id() -> usize {
         #[cfg(feature = "rai_protocol")]
         {
-            Self::EpochProp as usize
+            Self::BlocksReq as usize
         }
         #[cfg(all(not(feature = "rai_protocol"), feature = "ledger_snapshots"))]
         {
@@ -223,6 +228,8 @@ impl MessageHeader {
             #[cfg(feature = "rai_protocol")]
             MessageType::EpochProp => EpochProp::serialized_size(self.extensions),
             #[cfg(feature = "rai_protocol")]
+            MessageType::BlocksReq => BlocksReq::serialized_size(self.extensions),
+            #[cfg(feature = "rai_protocol")]
             MessageType::ReportSymbolsReq => ReportSymbolsReq::serialized_size(self.extensions),
             #[cfg(feature = "rai_protocol")]
             MessageType::ReportSymbolsReply => ReportSymbolsReply::serialized_size(self.extensions),
@@ -296,6 +303,8 @@ impl From<MessageType> for DetailType {
             MessageType::Report => DetailType::Report,
             #[cfg(feature = "rai_protocol")]
             MessageType::EpochProp => DetailType::EpochProp,
+            #[cfg(feature = "rai_protocol")]
+            MessageType::BlocksReq => DetailType::BlocksReq,
             #[cfg(feature = "rai_protocol")]
             MessageType::ReportSymbolsReq => DetailType::ReportSymbolsReq,
             #[cfg(feature = "rai_protocol")]

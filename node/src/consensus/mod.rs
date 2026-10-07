@@ -5,6 +5,8 @@ mod bootstrap_election_activator;
 mod bootstrap_stale_elections;
 mod bootstrap_weights;
 mod bounded_hash_map;
+#[cfg(feature = "rai_protocol")]
+mod checkpoint_follower;
 mod confirm_req_sender;
 mod confirmation_solicitor;
 mod confirmation_solicitor_plugin;
@@ -19,6 +21,10 @@ mod local_votes_remover;
 mod rep_tiers;
 #[cfg(feature = "rai_protocol")]
 pub mod reports;
+#[cfg(feature = "rai_protocol")]
+pub use checkpoint_follower::CheckpointFollower;
+#[cfg(feature = "rai_protocol")]
+pub(crate) use checkpoint_follower::CheckpointFollowerTicker;
 mod vote_applier;
 mod vote_broadcaster;
 pub mod vote_cache;
