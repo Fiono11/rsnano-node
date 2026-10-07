@@ -25,42 +25,6 @@ impl CommitteeModel {
     }
 }
 
-/// Version 1.2 election thresholds, counted in distinct identities.
-/// Kept separate from account-vote amounts and their recovery threshold.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct CheckpointThresholds {
-    pub n: u64,
-    pub q: u64,
-    pub f_fast: u64,
-    pub p_recovery: u64,
-    pub w: u64,
-    f: u64,
-    p: u64,
-}
-
-impl CheckpointThresholds {
-    pub fn new(n: u64, f: u32, p: u32) -> Option<Self> {
-        let (f, p) = (u64::from(f), u64::from(p));
-        if n != 3 * f + 2 * p + 1 {
-            return None;
-        }
-        Some(Self {
-            n,
-            q: n - f - p,
-            f_fast: n - p,
-            p_recovery: n - f,
-            w: f + 1,
-            f,
-            p,
-        })
-    }
-
-    /// Candidate support for a valid distinct-identity recovery snapshot.
-    pub fn recovery_support(self, m: u64) -> Option<u64> {
-        (self.q..=self.n).contains(&m).then(|| m - self.f - self.p)
-    }
-}
-
 /// RAI: the voting weights the instances of one consensus epoch are counted
 /// with, and the Kudzu thresholds derived from them. The committee's members
 /// are the same throughout a run; the weight of each moves with the balances
@@ -106,21 +70,14 @@ impl Committee {
             .into_iter()
             .map(|key| (key, Amount::raw(1)))
             .collect();
-        CheckpointThresholds::new(weights.len() as u64, f, p)?;
+        if Some(weights.len() as u64) != (CommitteeModel::EqualWeight { f, p }).expected_members() {
+            return None;
+        }
         Some(Self {
             weights,
             thresholds: KudzuThresholds::equal_weight(f, p),
             model: CommitteeModel::EqualWeight { f, p },
         })
-    }
-
-    pub fn checkpoint_thresholds(&self) -> Option<CheckpointThresholds> {
-        match self.model {
-            CommitteeModel::Weighted => None,
-            CommitteeModel::EqualWeight { f, p } => {
-                CheckpointThresholds::new(self.len() as u64, f, p)
-            }
-        }
     }
 
     pub fn weight(&self, rep: &PublicKey) -> Amount {
@@ -379,35 +336,6 @@ mod tests {
     }
 
     #[test]
-    fn checkpoint_thresholds_cover_both_simulator_populations() {
-        for (f, p, n, q, fast, recovery, w) in [
-            (1, 1, 6, 4, 5, 5, 2),
-            (2, 1, 9, 6, 8, 7, 3),
-            (0, 0, 1, 1, 1, 1, 1),
-        ] {
-            let t = CheckpointThresholds::new(n, f, p).unwrap();
-            assert_eq!((t.q, t.f_fast, t.p_recovery, t.w), (q, fast, recovery, w));
-            assert_eq!(2 * t.q - n, u64::from(f) + 1);
-            assert_eq!(2 * t.f_fast - n, 3 * u64::from(f) + 1);
-            assert_eq!(t.f_fast + t.p_recovery - n, t.q);
-            assert_eq!(t.recovery_support(t.p_recovery), Some(u64::from(f + p) + 1));
-            assert!(t.recovery_support(q - 1).is_none());
-            assert!(t.recovery_support(n + 1).is_none());
-            assert!(CheckpointThresholds::new(n + 1, f, p).is_none());
-        }
-        let t = CheckpointThresholds::new(6, 1, 1).unwrap();
-        assert_eq!(t.recovery_support(4), Some(2));
-        assert_eq!(t.recovery_support(5), Some(3));
-        let n = CommitteeModel::EqualWeight {
-            f: u32::MAX,
-            p: u32::MAX,
-        }
-        .expected_members()
-        .unwrap();
-        assert!(CheckpointThresholds::new(n, u32::MAX, u32::MAX).is_some());
-    }
-
-    #[test]
     fn largest_holders_and_ties_are_selected_deterministically() {
         let model = CommitteeModel::EqualWeight { f: 1, p: 1 };
         let frontiers: Vec<_> = (1..=8)
@@ -451,7 +379,6 @@ mod tests {
         assert_eq!(committee.weight(&rep(1)), Amount::ZERO);
         assert_eq!(committee.thresholds().certificate, Amount::raw(4));
         assert_eq!(committee.thresholds().report, Amount::raw(5));
-        assert!(committee.checkpoint_thresholds().is_none());
     }
 
     #[test]

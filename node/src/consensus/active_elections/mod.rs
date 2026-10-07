@@ -3,6 +3,7 @@ mod aec_service;
 mod apply_vote_helper;
 mod checkpoint_state;
 mod cooldown_controller;
+mod epoch_close;
 mod epoch_committees;
 mod epoch_states;
 mod recently_confirmed_cache;
@@ -16,6 +17,7 @@ pub use active_elections_container::*;
 pub use aec_service::{AecService, AecSnapshot, BucketSnapshot};
 pub use cooldown_controller::AecCooldownReason;
 
+pub use epoch_close::EpochCloseInfo;
 pub use epoch_committees::CommitteeInfo;
 
 use std::{collections::HashMap, isize, sync::Arc, time::Duration};
@@ -46,6 +48,11 @@ pub struct ActiveElectionsConfig {
     /// from the voting. For the benchmark's silent representative.
     pub account_voting: bool,
     pub committee_model: crate::consensus::election::CommitteeModel,
+    /// RAI: Δ_E of a round of an epoch's close election: a replica first
+    /// votes the timeout value once it waited this long for a valid
+    /// proposal. A round led by a representative which does not propose
+    /// costs this long; a leader proposes as soon as it can derive a value
+    pub close_round_timeout: Duration,
 }
 
 impl Default for ActiveElectionsConfig {
@@ -56,6 +63,7 @@ impl Default for ActiveElectionsConfig {
             epoch_duration: Duration::ZERO,
             account_voting: true,
             committee_model: Default::default(),
+            close_round_timeout: Duration::from_secs(2),
         }
     }
 }

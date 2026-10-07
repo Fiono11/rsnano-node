@@ -63,6 +63,11 @@ mod report;
 #[cfg(feature = "rai_protocol")]
 pub use report::*;
 
+#[cfg(feature = "rai_protocol")]
+mod epoch_prop;
+#[cfg(feature = "rai_protocol")]
+pub use epoch_prop::*;
+
 #[cfg(feature = "ledger_snapshots")]
 mod preproposal;
 #[cfg(feature = "ledger_snapshots")]

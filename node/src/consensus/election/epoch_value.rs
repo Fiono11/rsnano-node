@@ -14,8 +14,8 @@ pub struct ReportRef {
     pub residual: BlockHash,
 }
 
-/// RAI: the value an epoch election decides, `(Q_e, d_e)`. It names
-/// the selected report roots and the hash of the
+/// RAI: the value an epoch election decides, `X = (h_p, Q_e, d_e)`. It names
+/// a parent epoch value, the selected report roots, and only the hash of the
 /// state derived from those reports: the state itself is never carried.
 ///
 /// Every validator that accepts a proposal reconstructs the reports of `Q_e`,
@@ -25,6 +25,13 @@ pub struct ReportRef {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EpochValue {
     pub epoch: ConsensusEpoch,
+    /// The epoch-election slot this placement sits in. Election slots are
+    /// separate from account slots, and the placement hash binds this one:
+    /// the same reports and state proposed in two slots are two placements,
+    /// so a vote in one slot cannot be replayed into the other.
+    pub slot: u32,
+    /// The epoch value this one descends from, zero for the first of an epoch
+    pub parent: BlockHash,
     /// `Q_e`, in a canonical order so that two leaders naming the same
     /// reports name them the same way
     reports: Vec<ReportRef>,
@@ -36,9 +43,17 @@ impl EpochValue {
     /// The value a proposal carries, as it came off the wire. The reports
     /// are checked for canonical order and distinct reporters when the value
     /// is validated, not here.
-    pub fn from_parts(epoch: ConsensusEpoch, reports: Vec<ReportRef>, state: BlockHash) -> Self {
+    pub fn from_parts(
+        epoch: ConsensusEpoch,
+        slot: u32,
+        parent: BlockHash,
+        reports: Vec<ReportRef>,
+        state: BlockHash,
+    ) -> Self {
         Self {
             epoch,
+            slot,
+            parent,
             reports,
             state,
         }
@@ -49,11 +64,41 @@ impl EpochValue {
         &self.reports
     }
 
+    /// RAI: `(Q_e, d_e)`, the payload of a placement. "A child of a
+    /// non-genesis placement must copy its parent's (Q_e, d_e)": only a
+    /// child of election genesis may introduce a selection of its own, so
+    /// once a placement is joint-complete every later slot carries the same
+    /// state, and the election decides which slot's placement it finalizes
+    /// rather than which state.
+    pub fn copies(&self, parent: &EpochValue) -> bool {
+        self.reports == parent.reports && self.state == parent.state
+    }
+
+    /// A child of the notional genesis placement, which starts the election
+    /// and is the only placement that may introduce a report selection
+    pub fn extends_genesis(&self) -> bool {
+        self.parent.is_zero()
+    }
+
+    /// The same payload in the next election slot: what a leader proposes
+    /// when a joint-complete placement already exists
+    pub fn extend(&self, slot: u32) -> Self {
+        Self {
+            epoch: self.epoch,
+            slot,
+            parent: self.hash(),
+            reports: self.reports.clone(),
+            state: self.state,
+        }
+    }
+
     /// Builds the value a leader proposes: the state the selected reports
     /// determine, and its hash. The caller has reconstructed every report it
     /// selects, which is what makes them usable.
     pub fn propose(
         epoch: ConsensusEpoch,
+        slot: u32,
+        parent: BlockHash,
         previous: &EpochLedger,
         selection: &[(ReportRef, SelectedReport)],
         index: &dyn BlockIndex,
@@ -65,6 +110,8 @@ impl EpochValue {
         let ledger = build_state(previous, &states, index, many);
         let value = Self {
             epoch,
+            slot,
+            parent,
             reports,
             state: ledger.state_hash(),
         };
@@ -75,7 +122,9 @@ impl EpochValue {
     pub fn hash(&self) -> BlockHash {
         let mut builder = Blake2HashBuilder::new()
             .update(b"RAI epoch value")
-            .update(self.epoch.as_u64().to_le_bytes());
+            .update(self.epoch.as_u64().to_le_bytes())
+            .update(self.slot.to_le_bytes())
+            .update(self.parent.as_bytes());
         for report in &self.reports {
             builder = builder
                 .update(report.reporter.as_bytes())
@@ -289,6 +338,8 @@ mod tests {
             world.selection().into_iter().take(2).collect();
         let (some, _) = EpochValue::propose(
             ConsensusEpoch::ZERO,
+            0,
+            BlockHash::ZERO,
             &EpochLedger::new(),
             &fewer,
             &world.index,
@@ -302,11 +353,13 @@ mod tests {
     /// and the same derived state proposed in two slots are two placements.
     /// Without this a vote cast in one slot would carry into the other.
     #[test]
-    fn the_epoch_is_bound_into_the_hash() {
+    fn the_election_slot_is_bound_into_the_hash() {
         let world = World::new(3);
         let (first, _) = world.propose();
         let (second, _) = EpochValue::propose(
-            ConsensusEpoch::new(1),
+            ConsensusEpoch::ZERO,
+            1,
+            BlockHash::ZERO,
             &EpochLedger::new(),
             &world.selection(),
             &world.index,
@@ -315,7 +368,7 @@ mod tests {
 
         assert_eq!(first.reports(), second.reports());
         assert_eq!(first.state, second.state);
-        assert_ne!(first.epoch, second.epoch);
+        assert_ne!(first.slot, second.slot);
         assert_ne!(first.hash(), second.hash());
     }
 
@@ -413,6 +466,8 @@ mod tests {
         fn propose(&self) -> (EpochValue, EpochLedger) {
             EpochValue::propose(
                 ConsensusEpoch::ZERO,
+                0,
+                BlockHash::ZERO,
                 &EpochLedger::new(),
                 &self.selection(),
                 &self.index,

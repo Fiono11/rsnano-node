@@ -162,7 +162,11 @@ impl VoteCache {
             .lock()
             .unwrap()
             .iter()
-            .filter(|block| block.iter_votes().any(|vote| vote.epoch == epoch))
+            .filter(|block| {
+                block
+                    .iter_votes()
+                    .any(|vote| vote.epoch.required_epoch() == epoch)
+            })
             .map(|block| *block.block_hash())
             .collect()
     }

@@ -413,3 +413,68 @@ fn kudzu_fork_candidate_is_handed_to_a_replica_that_holds_the_other_fork() {
             .is_some_and(|e| e.candidate_blocks().contains_key(&fork1.hash()))
     });
 }
+
+/// RAI: an epoch closes end to end on one node. The genesis representative
+/// is the whole genesis committee: at the timed boundary it signs its report,
+/// derives the epoch value from it, proposes the value as the leader of the
+/// close's round 0, and its own first vote finalizes the close, which
+/// installs the decided state.
+#[cfg(feature = "rai_protocol")]
+#[test]
+fn an_epoch_closes_on_the_report_of_its_committee() {
+    use rsnano_node::consensus::{ActiveElectionsConfig, election::AccountFrontier};
+
+    let mut system = System::new();
+    let config = NodeConfig {
+        active_elections: ActiveElectionsConfig {
+            epoch_duration: Duration::from_secs(1),
+            ..Default::default()
+        },
+        ..System::default_config_without_backlog_scan()
+    };
+    let node = system.build_node().config(config).finish();
+    node.wallets
+        .insert_adhoc2(
+            &node.wallets.wallet_ids()[0],
+            &DEV_GENESIS_KEY.raw_key(),
+            true,
+        )
+        .unwrap();
+    // What the epoch_start RPC does: the ledger as it stands is the
+    // genesis committee, and the epochs start now
+    let frontiers: Vec<AccountFrontier> = node
+        .ledger
+        .any()
+        .iter_accounts()
+        .map(|(account, info)| AccountFrontier {
+            account,
+            height: info.block_count,
+            hash: info.head,
+            representative: info.representative,
+            balance: info.balance,
+        })
+        .collect();
+    node.aec.set_genesis_committee(frontiers);
+    node.aec.start_epochs();
+
+    let mut lattice = UnsavedBlockLatticeBuilder::new();
+    let send1 = lattice
+        .genesis()
+        .send(&PrivateKey::from(42), Amount::raw(1));
+    node.process_active(send1.clone());
+    assert_timely2(|| node.block_confirmed(&send1.hash()));
+
+    assert_timely(Duration::from_secs(10), || {
+        node.aec
+            .epoch_closes()
+            .first()
+            .is_some_and(|close| close.value.is_some())
+    });
+    let close = node.aec.epoch_closes().remove(0);
+    assert_eq!(close.epoch, ConsensusEpoch::ZERO);
+    assert!(close.ready);
+    assert!(close.started);
+    assert_eq!(close.round, 0);
+    assert_eq!(close.closed.map(|(round, _)| round), Some(0));
+    assert!(node.aec.current_epoch() >= ConsensusEpoch::new(1));
+}

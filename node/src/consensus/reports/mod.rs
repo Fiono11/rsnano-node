@@ -4,7 +4,7 @@ mod report_service;
 use crate::consensus::election::{
     CertifiedBlock, CertifiedState, ReportCommitment, ResidualKind, ResidualVotes,
 };
-pub use epoch_decision::{CheckpointDecision, CheckpointElection, EpochDecisionService};
+pub use epoch_decision::EpochDecisionService;
 pub(crate) use report_plugin::{ReportPlugin, ReportTicker};
 pub use report_service::ReportService;
 use rsnano_messages::Report;

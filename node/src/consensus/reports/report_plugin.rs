@@ -33,8 +33,8 @@ impl EventHandlerMut<AecFact> for ReportPlugin {
     }
 }
 
-/// Refreshes report usability and drives the optional checkpoint election
-/// on the AEC's tick.
+/// RAI: refreshes report usability and drives the value half of the joint
+/// epoch election on the AEC's tick
 pub(crate) struct ReportTicker {
     reports: Arc<ReportService>,
     epoch_decision: Arc<EpochDecisionService>,

@@ -129,7 +129,7 @@ impl VoteApplier {
         // A final vote is an exit statement, it does not open an instance: the
         // representatives answer a crawler with final votes for cemented blocks.
         // A close vote is for no block at all.
-        if vote.epoch > current || vote.is_final() {
+        if vote.epoch > current || vote.is_final() || vote.epoch.is_close_round() {
             return false;
         }
         let mut started = false;

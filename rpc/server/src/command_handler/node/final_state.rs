@@ -5,8 +5,8 @@ use rsnano_node::consensus::election::{
     Certificates, ElectionState, EpochState, FinalStateHash, SlotOutcome, slot_outcome,
 };
 use rsnano_rpc_messages::{
-    CommitteeMember, ConflictingRoot, EpochCommittee, EpochFinalState, FinalStateArgs,
-    FinalStateEntry, FinalStateResponse,
+    CommitteeMember, ConflictingRoot, EpochCloseState, EpochCommittee, EpochFinalState,
+    FinalStateArgs, FinalStateEntry, FinalStateResponse,
 };
 use rsnano_types::{Account, BlockHash, ConsensusEpoch, QualifiedRoot};
 
@@ -91,6 +91,14 @@ impl RpcCommandHandler {
                         .collect(),
                 }
             })
+            .collect();
+
+        let closes: BTreeMap<_, _> = self
+            .node
+            .aec
+            .epoch_closes()
+            .into_iter()
+            .map(|close| (close.epoch, close))
             .collect();
 
         // The AEC lock is held while the elections are copied out and released
@@ -184,6 +192,14 @@ impl RpcCommandHandler {
                         cemented_undecided: cemented_undecided.into(),
                         empty: state.empty.into(),
                         conflicting: state.conflicting.into(),
+                        close: closes.get(&epoch).map(|close| EpochCloseState {
+                            ready: close.ready.into(),
+                            value: close.value,
+                            started: close.started.into(),
+                            round: (close.round as u64).into(),
+                            closed_value: close.closed.map(|(_, value)| value),
+                            closed_round: close.closed.map(|(round, _)| (round as u64).into()),
+                        }),
                     }
                 })
                 .collect(),

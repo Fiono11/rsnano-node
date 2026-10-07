@@ -40,6 +40,10 @@ pub enum MessageType {
     /// RAI: the signed root of a replica's report for one epoch (Section 6.1)
     #[cfg(feature = "rai_protocol")]
     Report = 0x13,
+    /// RAI: a leader's proposal of an epoch value in one close round.
+    /// 0x14 and 0x15 stay free for report reconciliation.
+    #[cfg(feature = "rai_protocol")]
+    EpochProp = 0x16,
 }
 
 impl MessageType {
@@ -62,6 +66,8 @@ impl MessageType {
             MessageType::AscPullAck => "asc_pull_ack",
             #[cfg(feature = "rai_protocol")]
             MessageType::Report => "report",
+            #[cfg(feature = "rai_protocol")]
+            MessageType::EpochProp => "epoch_prop",
 
             #[cfg(feature = "ledger_snapshots")]
             MessageType::Preproposal => "preproposal",
@@ -77,7 +83,7 @@ impl MessageType {
     pub const fn max_id() -> usize {
         #[cfg(feature = "rai_protocol")]
         {
-            Self::Report as usize
+            Self::EpochProp as usize
         }
         #[cfg(all(not(feature = "rai_protocol"), feature = "ledger_snapshots"))]
         {
@@ -205,6 +211,8 @@ impl MessageHeader {
             MessageType::AscPullAck => AscPullAck::serialized_size(self.extensions),
             #[cfg(feature = "rai_protocol")]
             MessageType::Report => Report::serialized_size(self.extensions),
+            #[cfg(feature = "rai_protocol")]
+            MessageType::EpochProp => EpochProp::serialized_size(self.extensions),
 
             #[cfg(feature = "ledger_snapshots")]
             MessageType::Preproposal => Preproposal::serialized_size(self.extensions),
@@ -273,6 +281,8 @@ impl From<MessageType> for DetailType {
             MessageType::AscPullAck => DetailType::AscPullAck,
             #[cfg(feature = "rai_protocol")]
             MessageType::Report => DetailType::Report,
+            #[cfg(feature = "rai_protocol")]
+            MessageType::EpochProp => DetailType::EpochProp,
 
             #[cfg(feature = "ledger_snapshots")]
             MessageType::Preproposal => DetailType::Preproposal,

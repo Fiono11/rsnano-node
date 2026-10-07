@@ -102,6 +102,22 @@ impl EpochCommittees {
         self.committee(epoch).map(Committees::single)
     }
 
+    /// The committees the close election of an epoch is counted in
+    /// (Section 9.2): the old committee O_e = C(e−2), which issued the
+    /// epoch's ordinary votes, and the new committee N_e = C(e−1), which is
+    /// already running the epoch after. The two Kudzu instances of the paper
+    /// are one joint instance here: a close block is elected once both
+    /// committees certify it, and a round times out once either does.
+    pub fn for_close(&self, epoch: ConsensusEpoch) -> Option<Committees> {
+        let old = self.committee(epoch)?;
+        let new = self.committee(epoch.next())?;
+        if Arc::ptr_eq(&old, &new) {
+            Some(Committees::single(old))
+        } else {
+            Some(Committees::joint(old, new))
+        }
+    }
+
     /// The accounts counted so far
     pub fn counted(&self) -> usize {
         self.weights.len()
@@ -182,6 +198,101 @@ mod tests {
 
     use super::*;
     use rsnano_types::{Account, Amount, PrivateKey, PublicKey};
+
+    #[test]
+    fn first_two_epochs_use_the_genesis_committee() {
+        let mut committees = EpochCommittees::default();
+        assert!(!committees.started());
+        assert!(committees.committee(ConsensusEpoch::ZERO).is_none());
+        assert!(committees.for_epoch(ConsensusEpoch::ZERO).is_none());
+
+        let genesis = committees.start(vec![frontier(1, 1, 1, 100), frontier(2, 1, 2, 100)]);
+        assert!(committees.started());
+        assert_eq!(genesis.online(), Amount::raw(200));
+        assert_eq!(committees.counted(), 2);
+        let infos = committees.infos();
+        assert_eq!(infos.len(), 1);
+        assert_eq!(infos[0].derived_by, None);
+        assert_eq!(infos[0].digest, genesis.digest());
+        assert_eq!(infos[0].members, 2);
+        for epoch in [ConsensusEpoch::ZERO, ConsensusEpoch::new(1)] {
+            let single = committees.for_epoch(epoch).unwrap();
+            assert!(!single.is_joint());
+            assert_eq!(single.primary(), genesis.as_ref());
+        }
+        // Both committees of the close of epoch 0 are the genesis committee,
+        // and joint with itself is not joint
+        let close = committees.for_close(ConsensusEpoch::ZERO).unwrap();
+        assert!(!close.is_joint());
+        assert_eq!(close.primary(), genesis.as_ref());
+        assert!(committees.committee(ConsensusEpoch::new(2)).is_none());
+    }
+
+    #[test]
+    fn a_closed_epoch_derives_the_committee_of_the_epoch_two_after() {
+        let mut committees = EpochCommittees::default();
+        // Nothing to derive on before the genesis committee
+        assert!(
+            committees
+                .derive(ConsensusEpoch::ZERO, vec![frontier(1, 2, 2, 100)])
+                .is_empty()
+        );
+        let genesis = committees.start(vec![frontier(1, 1, 1, 100), frontier(2, 1, 2, 100)]);
+
+        // Epoch 0 finalized a change of account 1 to representative 2
+        let (_, derived) = committees
+            .derive(ConsensusEpoch::ZERO, vec![frontier(1, 2, 2, 100)])
+            .pop()
+            .unwrap();
+        assert_eq!(derived.weight(&rep(1)), Amount::ZERO);
+        assert_eq!(derived.weight(&rep(2)), Amount::raw(200));
+        // Derived once
+        assert!(
+            committees
+                .derive(ConsensusEpoch::ZERO, vec![frontier(1, 3, 1, 100)])
+                .is_empty()
+        );
+
+        // Epoch 2 counts in it alone: the lag makes it known before the
+        // epoch opens, whatever epoch 1's close is doing
+        let epoch2 = ConsensusEpoch::new(2);
+        let single = committees.for_epoch(epoch2).unwrap();
+        assert!(!single.is_joint());
+        assert_eq!(single.primary(), derived.as_ref());
+
+        // The close of epoch 0 counts in the old committee, which voted in
+        // epoch 0, and the new one, which runs epoch 1: both the genesis one
+        assert!(
+            !committees
+                .for_close(ConsensusEpoch::ZERO)
+                .unwrap()
+                .is_joint()
+        );
+        // The close of epoch 1: the genesis committee and C(0)
+        let close1 = committees.for_close(ConsensusEpoch::new(1)).unwrap();
+        assert!(close1.is_joint());
+        assert_eq!(close1.primary(), genesis.as_ref());
+        assert_eq!(close1.iter().nth(1).unwrap(), &derived);
+
+        // Epoch 3 and the close of epoch 2 need the committee of epoch 1
+        let epoch3 = ConsensusEpoch::new(3);
+        assert!(committees.for_epoch(epoch3).is_none());
+        assert!(committees.for_close(epoch2).is_none());
+        assert_eq!(
+            committees
+                .derive(ConsensusEpoch::new(1), vec![frontier(2, 2, 1, 50)])
+                .len(),
+            1
+        );
+        let single = committees.for_epoch(epoch3).unwrap();
+        assert!(!single.is_joint());
+        assert_eq!(single.primary().weight(&rep(1)), Amount::raw(50));
+        assert_eq!(single.primary().weight(&rep(2)), Amount::raw(100));
+        let close2 = committees.for_close(epoch2).unwrap();
+        assert!(close2.is_joint());
+        assert_eq!(close2.primary(), derived.as_ref());
+        assert_eq!(close2.iter().nth(1).unwrap().as_ref(), single.primary());
+    }
 
     /// The weights are cumulative: an epoch agreed on before the epoch
     /// before it waits, and both derive once the earlier one is in

@@ -101,6 +101,30 @@ pub struct EpochFinalState {
     pub cemented_undecided: RpcU64,
     pub empty: RpcU64,
     pub conflicting: RpcU64,
+    /// The close election of the epoch, once this node has left the epoch
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub close: Option<EpochCloseState>,
+}
+
+/// RAI: the close election of one epoch as seen by this node
+#[derive(PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub struct EpochCloseState {
+    /// This node holds the decided predecessor state and enough usable
+    /// reports to derive a value
+    pub ready: RpcBool,
+    /// The state hash of the value finalized, once this node derived it
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<BlockHash>,
+    /// This node entered round 0
+    pub started: RpcBool,
+    /// The round this node is in
+    pub round: RpcU64,
+    /// The value a certificate of the close election finalized
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub closed_value: Option<BlockHash>,
+    /// The round that finalized it
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub closed_round: Option<RpcU64>,
 }
 
 #[derive(PartialEq, Eq, Debug, Serialize, Deserialize)]

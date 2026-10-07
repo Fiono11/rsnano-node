@@ -846,11 +846,16 @@ impl Node {
         #[cfg(feature = "rai_protocol")]
         aec_event_handlers.add_mut(ReportPlugin::new(reports.clone()));
 
-        // RAI: checkpoint candidate derivation and the optional election interface.
+        // RAI, "The joint epoch election": the value half of the close - the
+        // report selection, the derivation and the proposal
         #[cfg(feature = "rai_protocol")]
         let epoch_decision = Arc::new(EpochDecisionService::new(
             reports.exchange(),
             active_elections.clone(),
+            wallet_reps.clone(),
+            message_flooder.clone(),
+            steady_clock.clone(),
+            stats.clone(),
         ));
 
         let mut aec_ticker = AecTicker::new(active_elections.clone(), steady_clock.clone());
@@ -976,6 +981,8 @@ impl Node {
             network_params.work.clone(),
             #[cfg(feature = "rai_protocol")]
             reports.clone(),
+            #[cfg(feature = "rai_protocol")]
+            epoch_decision.clone(),
             #[cfg(feature = "ledger_snapshots")]
             ledger_snapshots.clone(),
         ));
@@ -1120,6 +1127,10 @@ impl Node {
 
         let mut wallet_reps_checker = WalletRepsChecker::new(wallet_reps.clone());
         wallet_reps_checker.add_consumer(vote_rebroadcast_queue.clone());
+        // RAI: the AEC must know the node's representatives as soon as they
+        // are in the wallet: it leads close rounds with them
+        #[cfg(feature = "rai_protocol")]
+        wallet_reps_checker.add_consumer(active_elections.clone());
         ticker_pool.insert(
             wallet_reps_checker,
             if is_dev_network || cfg!(feature = "rai_protocol") {

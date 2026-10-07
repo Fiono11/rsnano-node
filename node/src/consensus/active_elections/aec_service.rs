@@ -17,15 +17,19 @@ use rsnano_utils::{
 
 use super::{
     ActiveElectionsConfig, ActiveElectionsContainer, ActiveElectionsInfo, AecCooldownReason,
-    AecFact, AecInsertError, AecInsertRequest, ApplyVoteArgs, CommitteeInfo,
+    AecFact, AecInsertError, AecInsertRequest, ApplyVoteArgs, CommitteeInfo, EpochCloseInfo,
 };
-use crate::consensus::{
-    ElectionCandidateSource,
-    election::{
-        AccountFrontier, CertificateEvidence, ConfirmedElection, Election, ElectionBehavior,
-        ElectionId, ElectionState, EpochSlot, EpochState, FinalStateHash, LocalSlotState,
+use crate::{
+    consensus::{
+        ElectionCandidateSource,
+        election::{
+            AccountFrontier, CertificateEvidence, ConfirmedElection, Election, ElectionBehavior,
+            ElectionId, ElectionState, EpochSlot, EpochState, FinalStateHash, LocalSlotState,
+        },
+        vote_generation::VoteTarget,
+        vote_rebroadcast::WalletRepsConsumer,
     },
-    vote_generation::VoteTarget,
+    wallets::WalletRepresentatives,
 };
 
 pub struct AecService {
@@ -34,18 +38,6 @@ pub struct AecService {
 }
 
 impl AecService {
-    #[cfg(feature = "rai_protocol")]
-    pub(crate) fn install_decided_checkpoint(
-        &self,
-        epoch: ConsensusEpoch,
-        state: std::sync::Arc<crate::consensus::election::EpochLedger>,
-    ) {
-        self.aec
-            .write()
-            .unwrap()
-            .install_decided_checkpoint(epoch, state, self.clock.now());
-    }
-
     pub fn new(config: ActiveElectionsConfig, base_latency: Duration) -> Self {
         Self {
             aec: RwLock::new(ActiveElectionsContainer::new(config, base_latency)),
@@ -58,14 +50,6 @@ impl AecService {
             aec: RwLock::new(ActiveElectionsContainer::default()),
             clock: SteadyClock::new_null(),
         }
-    }
-
-    #[cfg(feature = "rai_protocol")]
-    pub(crate) fn epoch_decided_state(
-        &self,
-        epoch: ConsensusEpoch,
-    ) -> Option<std::sync::Arc<crate::consensus::election::EpochLedger>> {
-        self.aec.read().unwrap().epoch_decided_state(epoch)
     }
 
     // --- Read forwarding ---
@@ -133,6 +117,17 @@ impl AecService {
     /// RAI: the blocks finalized explicitly in the given epoch
     pub fn finalized_in(&self, epoch: ConsensusEpoch) -> Vec<(Account, u64, BlockHash)> {
         self.aec.read().unwrap().finalized_in(epoch)
+    }
+
+    /// RAI: the close elections of the epochs this node has left
+    pub fn epoch_closes(&self) -> Vec<EpochCloseInfo> {
+        self.aec.read().unwrap().epoch_closes()
+    }
+
+    /// RAI: the close rounds to solicit evidence for now
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn close_solicitations(&self, now: Timestamp) -> Vec<(ElectionId, BlockHash)> {
+        self.aec.write().unwrap().close_solicitations(now)
     }
 
     /// RAI: the committees known here, the genesis one first
@@ -296,6 +291,50 @@ impl AecService {
         self.aec.read().unwrap().epoch_previous_state(epoch)
     }
 
+    /// RAI: this node holds what it takes to derive a value for an epoch's
+    /// close
+    #[cfg(feature = "rai_protocol")]
+    pub fn set_close_ready(&self, epoch: ConsensusEpoch, ready: bool) {
+        let now = self.clock.now();
+        self.aec.write().unwrap().set_close_ready(epoch, ready, now);
+    }
+
+    /// RAI: a value this node derived and checked for itself. Deciding it
+    /// decides the state derived.
+    #[cfg(feature = "rai_protocol")]
+    pub fn accept_epoch_value(
+        &self,
+        value: crate::consensus::election::EpochValue,
+        state: std::sync::Arc<crate::consensus::election::EpochLedger>,
+    ) -> Option<BlockHash> {
+        let now = self.clock.now();
+        self.aec
+            .write()
+            .unwrap()
+            .accept_epoch_value(value, state, now)
+    }
+
+    /// RAI: whether this node already derived and checked a value
+    #[cfg(feature = "rai_protocol")]
+    pub fn holds_epoch_value(&self, epoch: ConsensusEpoch, value: &BlockHash) -> bool {
+        self.aec.read().unwrap().holds_epoch_value(epoch, value)
+    }
+
+    /// RAI: this node proposed a value as the leader of a close round
+    #[cfg(feature = "rai_protocol")]
+    pub fn record_epoch_proposal(&self, epoch: ConsensusEpoch, round: u32, value: BlockHash) {
+        self.aec
+            .write()
+            .unwrap()
+            .record_epoch_proposal(epoch, round, value);
+    }
+
+    /// RAI: the close rounds this node leads and has not proposed into yet
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn epoch_proposals_due(&self) -> Vec<super::EpochProposalContext> {
+        self.aec.read().unwrap().epoch_proposals_due()
+    }
+
     /// RAI: `O_e = C_{e-2}`, the committee an epoch's reports are counted in
     #[cfg(feature = "rai_protocol")]
     pub fn epoch_committee(
@@ -415,6 +454,15 @@ impl AecService {
     pub fn snapshot(&self) -> AecSnapshot {
         let now = self.clock.now();
         self.aec.read().unwrap().snapshot(now)
+    }
+}
+
+impl WalletRepsConsumer for AecService {
+    fn update_wallet_reps(&self, reps: &WalletRepresentatives) {
+        self.aec
+            .write()
+            .unwrap()
+            .set_local_representatives(reps.rep_pub_keys().collect());
     }
 }
 

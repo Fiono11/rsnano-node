@@ -40,6 +40,11 @@ pub(crate) struct AecStats {
     pub started_for_vote: u64,
     /// RAI: epochs closed by a certificate of their close election
     pub epochs_closed: u64,
+    /// RAI: rounds of the close elections this node entered
+    pub close_rounds: u64,
+    /// RAI: close rounds abandoned because the two committees of the joint
+    /// election certified different values
+    pub close_conflicts: u64,
     /// RAI: instances decided on a count without a vote: their committees changed
     pub recounted: usize,
     /// RAI: instances of an agreed epoch not started for a vote: they could only be late
@@ -212,6 +217,8 @@ impl StatsSource for AecStats {
         result.insert(AEC_STAT_KEY, "stale_started", self.stale_started);
         result.insert(AEC_STAT_KEY, "started_for_vote", self.started_for_vote);
         result.insert(AEC_STAT_KEY, "epochs_closed", self.epochs_closed);
+        result.insert(AEC_STAT_KEY, "close_rounds", self.close_rounds);
+        result.insert(AEC_STAT_KEY, "close_conflicts", self.close_conflicts);
         result.insert(AEC_STAT_KEY, "recounted", self.recounted);
         result.insert(
             AEC_STAT_KEY,

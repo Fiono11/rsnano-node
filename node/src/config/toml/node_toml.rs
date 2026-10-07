@@ -385,6 +385,9 @@ impl NodeConfig {
             if let Some(ms) = i.epoch_duration_ms {
                 self.active_elections.epoch_duration = Duration::from_millis(ms);
             }
+            if let Some(ms) = i.close_round_timeout_ms {
+                self.active_elections.close_round_timeout = Duration::from_millis(ms);
+            }
 
             if let Some(model) = i.committee_model {
                 use super::active_elections_toml::CommitteeModelToml;

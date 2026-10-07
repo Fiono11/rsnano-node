@@ -83,6 +83,11 @@ impl AecTickerPlugin for ConfirmationSolicitorPlugin {
             self.confirm_req_sender
                 .send_confirm_req(&mut solicitor, election, urgency);
         }
+        // RAI: the rounds of the close elections collect their evidence too
+        #[cfg(feature = "rai_protocol")]
+        for (id, value) in aec.close_solicitations(now) {
+            solicitor.add_request(id.epoch, value, id.root.root);
+        }
 
         solicitor.flush();
     }
