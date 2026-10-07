@@ -1,6 +1,8 @@
 mod active_elections;
 mod aec_fork_inserter;
 mod aec_ticker;
+#[cfg_attr(not(feature = "rai_protocol"), allow(dead_code))]
+mod attachment;
 mod bootstrap_election_activator;
 mod bootstrap_stale_elections;
 mod bootstrap_weights;
@@ -37,6 +39,8 @@ mod winner_block_broadcaster;
 pub use active_elections::*;
 pub(crate) use aec_fork_inserter::*;
 pub(crate) use aec_ticker::*;
+#[allow(unused_imports)]
+pub(crate) use attachment::*;
 pub(crate) use bootstrap_election_activator::*;
 pub(crate) use bootstrap_stale_elections::*;
 pub(crate) use bootstrap_weights::*;

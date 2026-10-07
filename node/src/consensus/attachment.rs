@@ -1,0 +1,183 @@
+use rsnano_ledger::{AnySet, LedgerSet};
+use rsnano_types::{BlockHash, SavedBlock};
+
+use crate::consensus::election::{AccountSlot, EpochLedger};
+
+/// Which dependency keeps a block from being proposed here
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Unattached {
+    /// The block sits at a position the latest checkpoint retains: a
+    /// shorter retained branch can not reopen it
+    Retained,
+    /// The previous block is neither final nor a lock of the checkpoint.
+    /// Reported only when the source of a receive is final, so that a
+    /// complete current-epoch parent can stand in for it (RAI, "Subsequent
+    /// children require complete epoch-e parents").
+    Previous,
+    /// The source of a receive is not final
+    Link,
+    /// The block itself is not held in the ledger
+    Block,
+}
+
+/// Attachment subset for owner recovery: a parent must be confirmed or a
+/// maximum-depth tip retained by the latest checkpoint. Receive sources must
+/// be confirmed. Full overlap eligibility and signed-evidence validation are
+/// separate protocol requirements; this helper does not establish them.
+/// Returns which dependency is missing, if any.
+pub(crate) fn unattached_dependency(
+    any: &dyn AnySet,
+    block: &SavedBlock,
+    checkpoint: Option<&EpochLedger>,
+) -> Option<Unattached> {
+    if checkpoint.is_some_and(|state| {
+        state
+            .retained_depth(block.account())
+            .is_some_and(|depth| block.height() <= depth)
+    }) {
+        return Some(Unattached::Retained);
+    }
+    let dependencies = any.block_dependencies(block);
+    let confirmed = any.confirmed();
+    // A receive needs proof that its send is final, whatever its parent
+    if !dependencies
+        .link()
+        .is_none_or(|link| confirmed.block_exists(&link))
+    {
+        return Some(Unattached::Link);
+    }
+    let final_or_locked = |hash: BlockHash| {
+        confirmed.block_exists(&hash) || checkpoint.is_some_and(|state| is_locked(any, state, hash))
+    };
+    if !dependencies.previous().is_none_or(final_or_locked) {
+        return Some(Unattached::Previous);
+    }
+    None
+}
+
+fn is_locked(any: &dyn AnySet, state: &EpochLedger, hash: BlockHash) -> bool {
+    any.get_block(&hash).is_some_and(|block| {
+        state.retained_depth(block.account()) == Some(block.height())
+            && state.is_locked(&AccountSlot::new(block.account(), block.height()), &hash)
+    })
+}
+
+#[cfg(all(test, feature = "rai_protocol"))]
+mod tests {
+    use super::*;
+    use rsnano_ledger::{Ledger, test_helpers::UnsavedBlockLatticeBuilder};
+    use rsnano_types::PrivateKey;
+
+    #[test]
+    fn a_child_of_an_unfinalized_parent_is_not_attachable() {
+        let (ledger, _, child, _) = locked_parent_fixture();
+
+        assert!(!attachable(&ledger, &child, None));
+        assert!(!attachable(&ledger, &child, Some(&EpochLedger::new())));
+    }
+
+    #[test]
+    fn a_child_of_a_checkpoint_lock_is_attachable() {
+        let (ledger, parent, child, _) = locked_parent_fixture();
+
+        assert!(attachable(&ledger, &child, Some(&lock_of(&parent))));
+    }
+
+    #[test]
+    fn a_child_at_a_retained_depth_cannot_reopen_that_position() {
+        let (ledger, parent, child, _) = locked_parent_fixture();
+        let checkpoint = locks_of(&[&parent, &child]);
+        assert!(!attachable(&ledger, &child, Some(&checkpoint)));
+    }
+
+    #[test]
+    fn a_reopened_retained_position_is_named_as_such() {
+        let (ledger, parent, child, _) = locked_parent_fixture();
+        let checkpoint = locks_of(&[&parent, &child]);
+        assert_eq!(
+            unattached_dependency(&ledger.any(), &child, Some(&checkpoint)),
+            Some(Unattached::Retained)
+        );
+    }
+
+    /// A complete parent may stand in for a final one, a final send may
+    /// not be skipped: an unfinalized source is reported before the parent
+    #[test]
+    fn a_receive_with_an_unfinalized_send_names_the_send_before_its_parent() {
+        let ledger = Ledger::new_null();
+        let mut lattice = UnsavedBlockLatticeBuilder::with_stub_work();
+        let key = PrivateKey::from(1);
+        let first = lattice.genesis().send(&key, 1);
+        let second = lattice.genesis().send(&key, 1);
+        let open = lattice.account(&key).receive(&first);
+        let receive = lattice.account(&key).receive(&second);
+        for block in [&first, &second, &open] {
+            ledger.process_one(block).unwrap();
+        }
+        let receive = ledger.process_one(&receive).unwrap();
+
+        assert_eq!(
+            unattached_dependency(&ledger.any(), &receive, None),
+            Some(Unattached::Link)
+        );
+    }
+
+    #[test]
+    fn a_receive_of_a_locked_send_is_not_attachable() {
+        let (ledger, parent, _, receive) = locked_parent_fixture();
+
+        assert!(!attachable(&ledger, &receive, Some(&lock_of(&parent))));
+        assert_eq!(
+            unattached_dependency(&ledger.any(), &receive, Some(&lock_of(&parent))),
+            Some(Unattached::Link)
+        );
+    }
+
+    #[test]
+    fn an_unfinalized_parent_is_named_as_the_missing_dependency() {
+        let (ledger, _, child, _) = locked_parent_fixture();
+
+        assert_eq!(
+            unattached_dependency(&ledger.any(), &child, None),
+            Some(Unattached::Previous)
+        );
+    }
+
+    /* Test helpers */
+
+    /// Genesis sends to a new account (the parent, unconfirmed) and
+    /// sends again on top of it (the child); the new account receives the
+    /// parent
+    fn locked_parent_fixture() -> (Ledger, SavedBlock, SavedBlock, SavedBlock) {
+        let ledger = Ledger::new_null();
+        let mut lattice = UnsavedBlockLatticeBuilder::with_stub_work();
+        let key = PrivateKey::from(1);
+        let parent = lattice.genesis().send(&key, 1);
+        let child = lattice.genesis().send(&key, 1);
+        let receive = lattice.account(&key).receive(&parent);
+        let parent = ledger.process_one(&parent).unwrap();
+        let child = ledger.process_one(&child).unwrap();
+        let receive = ledger.process_one(&receive).unwrap();
+        (ledger, parent, child, receive)
+    }
+
+    fn lock_of(block: &SavedBlock) -> EpochLedger {
+        locks_of(&[block])
+    }
+
+    fn locks_of(blocks: &[&SavedBlock]) -> EpochLedger {
+        let mut state = EpochLedger::new();
+        for block in blocks {
+            state.retain_for_test(
+                AccountSlot::new(block.account(), block.height()),
+                block.hash(),
+                block.previous(),
+            );
+        }
+        state
+    }
+
+    fn attachable(ledger: &Ledger, block: &SavedBlock, checkpoint: Option<&EpochLedger>) -> bool {
+        unattached_dependency(&ledger.any(), block, checkpoint).is_none()
+    }
+}

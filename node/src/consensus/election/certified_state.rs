@@ -9,6 +9,10 @@ use super::{ITEM_SIZE, Item, Recovered};
 /// may later gain a finalization status, never the other way round.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CertifiedStatus {
+    /// Inherited unresolved protection: a position the predecessor
+    /// checkpoint retains without a notarization of its own; neither
+    /// notarization nor finality
+    Recovery,
     /// A vote-notarization certificate: the block is complete
     Notarized,
     /// A finalization certificate, normal or fast. The inventory does not
@@ -22,6 +26,7 @@ pub enum CertifiedStatus {
 impl CertifiedStatus {
     pub fn as_byte(self) -> u8 {
         match self {
+            CertifiedStatus::Recovery => 2,
             CertifiedStatus::Notarized => 0,
             CertifiedStatus::Finalized => 1,
         }
@@ -29,6 +34,7 @@ impl CertifiedStatus {
 
     pub fn from_byte(byte: u8) -> Option<Self> {
         match byte {
+            2 => Some(CertifiedStatus::Recovery),
             0 => Some(CertifiedStatus::Notarized),
             1 => Some(CertifiedStatus::Finalized),
             _ => None,
@@ -36,7 +42,7 @@ impl CertifiedStatus {
     }
 
     pub fn is_finalized(self) -> bool {
-        !matches!(self, CertifiedStatus::Notarized)
+        matches!(self, CertifiedStatus::Finalized)
     }
 }
 
@@ -85,6 +91,8 @@ pub struct Certification {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CertifiedState {
     entries: BTreeMap<CertifiedBlock, Certification>,
+    /// The block hashes the entries name: G excludes every vote for one
+    hashes: std::collections::BTreeSet<BlockHash>,
     /// The XOR of the entry digests, so that a status upgrade or an added
     /// block is a constant-time update of the root
     digest: [u8; 32],
@@ -101,6 +109,11 @@ impl CertifiedState {
 
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
+    }
+
+    /// Whether an entry names this block, under any tag
+    pub fn contains_hash(&self, hash: &BlockHash) -> bool {
+        self.hashes.contains(hash)
     }
 
     pub fn status(&self, block: &CertifiedBlock) -> Option<CertifiedStatus> {
@@ -138,6 +151,7 @@ impl CertifiedState {
                 }
                 self.toggle(&block, entry);
                 self.entries.insert(block, entry);
+                self.hashes.insert(block.hash);
                 true
             }
         }
@@ -160,11 +174,68 @@ impl CertifiedState {
             self.toggle(&block, held);
         }
         self.toggle(&block, entry);
+        self.hashes.insert(block.hash);
     }
 
     pub fn remove(&mut self, block: &CertifiedBlock) {
         if let Some(held) = self.entries.remove(block) {
             self.toggle(block, held);
+            self.hashes.remove(&block.hash);
+        }
+    }
+
+    /// RAI: F applies to the selected inherited prefix as well as to the
+    /// explicit certificate target: a finalized block's unfinalized
+    /// ancestors become finalized, and the competing unresolved branches
+    /// leave the live state
+    pub fn project_final_prefixes(&mut self) {
+        let targets: Vec<_> = self
+            .entries
+            .iter()
+            .filter(|(_, e)| e.status.is_finalized())
+            .map(|(b, e)| (*b, *e))
+            .collect();
+        for (mut block, mut entry) in targets {
+            while block.height > 1 && !entry.previous.is_zero() {
+                let parent = CertifiedBlock::new(block.account, block.height - 1, entry.previous);
+                let Some(held) = self.entries.get(&parent).copied() else {
+                    break;
+                };
+                if held.status.is_finalized() {
+                    break;
+                }
+                self.certify(parent, held.previous, CertifiedStatus::Finalized);
+                block = parent;
+                entry = held;
+            }
+        }
+        let finals: BTreeMap<_, _> = self
+            .entries
+            .iter()
+            .filter(|(_, e)| e.status.is_finalized())
+            .map(|(b, _)| ((b.account, b.height), b.hash))
+            .collect();
+        let excluded: Vec<_> = self
+            .entries
+            .iter()
+            .filter(|(_, e)| !e.status.is_finalized())
+            .filter_map(|(candidate, _)| {
+                let mut current = *candidate;
+                loop {
+                    if let Some(final_hash) = finals.get(&(current.account, current.height)) {
+                        return (*final_hash != current.hash).then_some(*candidate);
+                    }
+                    let entry = self.entries.get(&current)?;
+                    if current.height <= 1 || entry.previous.is_zero() {
+                        return None;
+                    }
+                    current =
+                        CertifiedBlock::new(current.account, current.height - 1, entry.previous);
+                }
+            })
+            .collect();
+        for block in excluded {
+            self.remove(&block);
         }
     }
 
@@ -259,14 +330,11 @@ impl ResidualVotes {
         certified: &CertifiedState,
         votes: impl IntoIterator<Item = (CertifiedBlock, ResidualKind, BlockHash)>,
     ) -> Self {
+        // Exact G = V \ keys(T): a vote for a hash under any R, N or F tag
+        // is summarized by T
         let mut residual = Self::new();
         for (block, kind, previous) in votes {
-            let summarized = match kind {
-                ResidualKind::First => certified.status(&block).is_some(),
-                ResidualKind::Final => certified
-                    .status(&block)
-                    .is_some_and(|status| status.is_finalized()),
-            };
+            let summarized = certified.contains_hash(&block.hash);
             if !summarized {
                 residual.record(block, previous, kind);
             }
@@ -638,19 +706,17 @@ mod tests {
         assert_eq!(both.first_votes().collect::<Vec<_>>(), vec![&block(1)]);
     }
 
-    /// The residual object is what the inventory does not summarize: a
-    /// first or notarization vote for a block with no certified status, a
-    /// final vote for a block not finalized. Derived from the same votes and
-    /// inventory on either side, it hashes the same.
+    /// The residual object is what the inventory does not summarize, exact
+    /// G = V \ keys(T): every vote for a block with no tag in T. Derived
+    /// from the same votes and inventory on either side, it hashes the same.
     #[test]
     fn the_residual_is_derived_from_the_votes_the_inventory_does_not_summarize() {
         let mut certified = CertifiedState::new();
         certified.certify(block(1), parent(block(1)), CertifiedStatus::Notarized);
         certified.certify(block(2), parent(block(2)), CertifiedStatus::Finalized);
         let votes = vec![
-            // Summarized by the notarization
+            // Summarized by the notarization, final vote included
             (block(1), ResidualKind::First, parent(block(1))),
-            // A final vote on a notarized, not finalized block remains
             (block(1), ResidualKind::Final, parent(block(1))),
             // Summarized by the finalization
             (block(2), ResidualKind::First, parent(block(2))),
@@ -660,8 +726,8 @@ mod tests {
             (block(3), ResidualKind::Final, parent(block(3))),
         ];
         let derived = ResidualVotes::derive(&certified, votes.clone());
-        assert_eq!(derived.len(), 3);
-        assert!(derived.contains(&block(1), ResidualKind::Final));
+        assert_eq!(derived.len(), 2);
+        assert!(!derived.contains(&block(1), ResidualKind::Final));
         assert!(derived.contains(&block(3), ResidualKind::First));
         assert!(derived.contains(&block(3), ResidualKind::Final));
         assert!(!derived.contains(&block(1), ResidualKind::First));
@@ -784,5 +850,50 @@ mod tests {
             local.with_difference(difference).unwrap().root(),
             remote.root()
         );
+    }
+
+    #[test]
+    fn descendant_finality_finalizes_its_prefix_and_removes_the_rival() {
+        let parent = CertifiedBlock::new(Account::from(1), 1, BlockHash::from(10));
+        let rival = CertifiedBlock::new(parent.account, 1, BlockHash::from(20));
+        let child = CertifiedBlock::new(parent.account, 2, BlockHash::from(30));
+        let rival_child = CertifiedBlock::new(parent.account, 2, BlockHash::from(40));
+        let mut live = CertifiedState::new();
+        live.certify(parent, BlockHash::ZERO, CertifiedStatus::Recovery);
+        live.certify(rival, BlockHash::ZERO, CertifiedStatus::Recovery);
+        live.certify(rival_child, rival.hash, CertifiedStatus::Recovery);
+        let frozen = live.clone();
+        live.certify(child, parent.hash, CertifiedStatus::Finalized);
+        live.project_final_prefixes();
+        assert_eq!(live.status(&parent), Some(CertifiedStatus::Finalized));
+        assert_eq!(live.status(&rival), None);
+        assert!(!live.contains_hash(&rival_child.hash));
+        assert_eq!(frozen.status(&parent), Some(CertifiedStatus::Recovery));
+        assert_eq!(frozen.len(), 3);
+    }
+
+    #[test]
+    fn every_tag_excludes_every_vote_kind_from_g() {
+        let block = CertifiedBlock::new(Account::from(1), 1, BlockHash::from(5));
+        for status in [
+            CertifiedStatus::Recovery,
+            CertifiedStatus::Notarized,
+            CertifiedStatus::Finalized,
+        ] {
+            let mut t = CertifiedState::new();
+            t.certify(block, BlockHash::ZERO, status);
+            let votes = [
+                (block, ResidualKind::First, BlockHash::ZERO),
+                (block, ResidualKind::Final, BlockHash::ZERO),
+            ];
+            assert!(ResidualVotes::derive(&t, votes).is_empty(), "{status:?}");
+        }
+        // A recovery upgrade grows the live state, never a frozen one
+        let mut live = CertifiedState::new();
+        live.certify(block, BlockHash::ZERO, CertifiedStatus::Recovery);
+        let frozen = live.clone();
+        assert!(live.certify(block, BlockHash::ZERO, CertifiedStatus::Notarized));
+        assert!(!live.certify(block, BlockHash::ZERO, CertifiedStatus::Recovery));
+        assert_ne!(live.root(), frozen.root());
     }
 }

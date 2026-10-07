@@ -166,6 +166,12 @@ pub(crate) struct ActiveElectionsContainer {
     genesis_state: Arc<EpochLedger>,
     /// RAI: the committees the instances of each epoch are counted in
     committees: EpochCommittees,
+    /// RAI, cumulative reports: the inherited part of each epoch's report,
+    /// the decided predecessor's finalized blocks (F) and retained positions
+    /// (N for a represented notarization lock, R for recovery protection).
+    /// An epoch's report is this base with the epoch's own certificates on
+    /// top, frozen at the boundary.
+    report_bases: BTreeMap<ConsensusEpoch, Arc<crate::consensus::election::CertifiedState>>,
     /// RAI: the representatives seen voting in each epoch. They lead the
     /// rounds of its close election while its committee is not known here
     epoch_voters: BTreeMap<ConsensusEpoch, BTreeSet<PublicKey>>,
@@ -219,6 +225,7 @@ impl ActiveElectionsContainer {
             committees: EpochCommittees::with_model(config.committee_model),
             #[cfg(not(feature = "rai_protocol"))]
             committees: EpochCommittees::default(),
+            report_bases: BTreeMap::new(),
             epoch_voters: BTreeMap::new(),
             closes: BTreeMap::new(),
             close_round_timeout: config.close_round_timeout,
@@ -235,6 +242,10 @@ impl ActiveElectionsContainer {
                 return;
             }
             self.epochs_started = true;
+            self.report_bases.insert(
+                ConsensusEpoch::ZERO,
+                Arc::new(self.genesis_state.report_ledger()),
+            );
             self.epoch_origin = Some(now);
             self.epoch_ends_at = self.next_boundary(now);
             self.decided_in_current_epoch = 0;
@@ -1005,6 +1016,10 @@ impl ActiveElectionsContainer {
             return;
         }
         self.decided.insert(epoch, state.clone());
+        self.report_bases
+            .insert(epoch.next(), Arc::new(state.report_ledger()));
+        self.report_bases
+            .retain(|held, _| held.as_u64() + Self::VOTE_RECORD_EPOCHS_KEPT > epoch.as_u64());
         self.stats.epochs_closed += 1;
         // Installed before the committee is derived: a block the checkpoint
         // finalized delegates like any other, and its instance goes with
@@ -1094,6 +1109,8 @@ impl ActiveElectionsContainer {
     /// of the votes already held: a fast certificate is applied, the final
     /// vote comes due.
     fn release_predecessor_gate(&mut self, epoch: ConsensusEpoch, now: Timestamp) {
+        #[cfg(feature = "rai_protocol")]
+        self.recheck_provisional(epoch);
         let ids: Vec<ElectionId> = self
             .roots
             .iter()
@@ -1278,12 +1295,24 @@ impl ActiveElectionsContainer {
         epoch: ConsensusEpoch,
     ) -> crate::consensus::election::CertifiedState {
         use crate::consensus::election::{CertifiedBlock, CertifiedState, CertifiedStatus};
-        let mut certified = CertifiedState::new();
+        // The inherited part: what the decided predecessor finalized and
+        // retains. An epoch whose predecessor is not decided here yet starts
+        // from nothing; its report is not signed before the predecessor is.
+        let mut certified = self
+            .report_bases
+            .get(&epoch)
+            .map(|base| (**base).clone())
+            .unwrap_or_else(CertifiedState::new);
         // What finalized in the epoch and left the AEC is certified by the
         // certificate that finalized it. The parent goes with it: an epoch
         // derivation places a candidate by the branch it continues, and two
-        // blocks at one slot are told apart by nothing else.
-        for instance in self.epoch_states.instances_of(epoch) {
+        // blocks at one slot are told apart by nothing else. Late finality of
+        // a position an older epoch left retained is carried too, but never
+        // another older block, and never successor work.
+        for instance in self.epoch_states.instances_through(epoch) {
+            if instance.epoch != epoch && !certified.contains_hash(&instance.winner) {
+                continue;
+            }
             certified.certify(
                 CertifiedBlock::new(instance.account, instance.height, instance.winner),
                 instance.root.previous,
@@ -1305,6 +1334,8 @@ impl ActiveElectionsContainer {
                 certified.certify(at(hash), previous, CertifiedStatus::Finalized);
             }
         }
+        // Finality of a block extends to the inherited prefix it selects
+        certified.project_final_prefixes();
         certified
     }
 
@@ -1391,7 +1422,10 @@ impl ActiveElectionsContainer {
     /// Kudzu: the votes to broadcast now for all elections, in round robin
     /// order. `proposal_valid` tells whether a block may be first voted
     /// (its dependencies are finalized).
-    pub fn kudzu_votes_due(&self, proposal_valid: impl Fn(&BlockHash) -> bool) -> Vec<VoteTarget> {
+    pub fn kudzu_votes_due(
+        &self,
+        proposal_valid: impl Fn(&BlockHash) -> Result<(), crate::consensus::Unattached>,
+    ) -> Vec<VoteTarget> {
         let mut targets: Vec<VoteTarget> = self
             .pending_kudzu_votes
             .iter()
@@ -1411,15 +1445,29 @@ impl ActiveElectionsContainer {
             // A settled instance has nothing left to say but its exit final
             // vote: the settled instances of the forks pile up over time and
             // this loop runs every tick under the AEC lock
+            // RAI, "Attachment and eligibility": a first vote may extend a
+            // finalized parent, a maximum-depth tip of the latest closed
+            // ledger (both checked against the ledger by the caller), or
+            // "a complete parent already built in the current epoch"
+            let attachable = |hash: &BlockHash| match proposal_valid(hash) {
+                Ok(()) => true,
+                Err(crate::consensus::Unattached::Previous) => {
+                    self.parent_complete_in_epoch(election)
+                }
+                Err(_) => false,
+            };
             let due = if election.state() == ElectionState::Settled {
                 election.kudzu_final_vote_due(slot).into_iter().collect()
             } else {
-                election.kudzu_votes_due(slot, &proposal_valid)
+                election.kudzu_votes_due(slot, &attachable)
             };
             for (hash, kind) in due {
                 if matches!(kind, VoteKind::First | VoteKind::Final)
                     && !one_shot.insert((election.epoch_slot(), kind))
                 {
+                    continue;
+                }
+                if kind == VoteKind::First && self.cross_epoch_locked(election, &hash) {
                     continue;
                 }
                 targets.push(VoteTarget {
@@ -1466,8 +1514,13 @@ impl ActiveElectionsContainer {
                 continue;
             }
             let previous = election.qualified_root().previous;
-            let slot = self.slots.get_or_default(&election.epoch_slot());
             let kind = VoteKind::from(target.vote_type);
+            // The decision is recorded here, before the signature escapes;
+            // the lock of the epoch before is checked on the record too
+            if kind == VoteKind::First && self.cross_epoch_locked(election, &target.winner) {
+                continue;
+            }
+            let slot = self.slots.get_or_default(&election.epoch_slot());
             // A first vote not cast before this node left the epoch is not cast
             // any more; one cast before is re-broadcast
             if kind == VoteKind::First && slot.stale && slot.first_voted.is_none() {
@@ -1484,6 +1537,281 @@ impl ActiveElectionsContainer {
             accepted.push(target);
         }
         accepted
+    }
+
+    /// RAI, §4.2: "A block is complete in epoch e when its data and
+    /// required ancestry are available and the validator has assembled its
+    /// epoch-e NC from q first votes". Its instance of the epoch holds the
+    /// block and that certificate.
+    pub fn complete_in_epoch(&self, hash: &BlockHash, epoch: ConsensusEpoch) -> bool {
+        self.roots
+            .election_for_block_in_epoch(hash, epoch)
+            .is_some_and(|election| election.certificates().is_notarized(hash))
+    }
+
+    /// RAI, "Attachment and eligibility": "Later children require complete
+    /// epoch-e parents": the parent holds a notarization certificate in an
+    /// instance of the child's epoch. A closing-epoch NC does not make the
+    /// parent complete in the current epoch.
+    fn parent_complete_in_epoch(&self, election: &Election) -> bool {
+        let previous = election.qualified_root().previous;
+        !previous.is_zero() && self.complete_in_epoch(&previous, election.epoch())
+    }
+
+    /// RAI, "Cross-epoch lock": "A validator that released a first vote for
+    /// block B at (a, v) in epoch e−1 releases no first vote for a different
+    /// block at (a, v) in epoch e while S_{e−1} is unknown. A first vote for
+    /// B itself is permitted. Once S_{e−1} is known, the ordinary recheck
+    /// governs the position and the lock expires." The lock rests on the
+    /// slot state of the epoch before, which outlives its election and is
+    /// dropped only once that epoch is decided here.
+    fn cross_epoch_locked(&self, election: &Election, hash: &BlockHash) -> bool {
+        let Some(before) = election
+            .epoch()
+            .as_u64()
+            .checked_sub(1)
+            .map(ConsensusEpoch::new)
+        else {
+            return false;
+        };
+        if self.decided.contains_key(&before) {
+            return false;
+        }
+        let slot = EpochSlot {
+            account: election.account(),
+            height: election.height(),
+            epoch: before,
+        };
+        self.slots
+            .get(&slot)
+            .and_then(|state| state.first_voted)
+            .is_some_and(|voted| voted != *hash)
+    }
+
+    /// RAI: the latest checkpoint decided here, the one blocks attach to
+    pub fn latest_checkpoint(&self) -> Option<Arc<EpochLedger>> {
+        self.decided.values().next_back().cloned()
+    }
+
+    /// RAI, "Attachment and eligibility", the two overlap exceptions. Before
+    /// S_{e-1} is known an instance of epoch e may finalize when its
+    /// notarized block (1) carries a verified closing-epoch NC and is
+    /// complete here, on a parent that is finalized, a maximum-depth tip of
+    /// the latest closed ledger, or itself eligible this way; or (2) holds a
+    /// predecessor-backed NC on a parent that is finalized or the sole lock
+    /// target at its position in S_{e-2}. Finality still comes only from an
+    /// explicit epoch-e certificate: this only lifts the gate.
+    #[cfg(feature = "rai_protocol")]
+    fn check_overlap_eligibility(&mut self, id: &ElectionId, now: Timestamp) {
+        let Some(election) = self.roots.election(id) else {
+            return;
+        };
+        let epoch = election.epoch();
+        if election.predecessor_decided()
+            || election.overlap_eligible()
+            || election.state().has_ended()
+            || epoch.is_close_round()
+        {
+            return;
+        }
+        let Some(before) = epoch.as_u64().checked_sub(1).map(ConsensusEpoch::new) else {
+            return;
+        };
+        let Some(&block) = election.certificates().notar.first() else {
+            return;
+        };
+        let account = election.account();
+        let height = election.height();
+        let previous = election.qualified_root().previous;
+        // S_{e-2}: the latest closed ledger while S_{e-1} is unknown
+        let closed = self.epoch_previous_state(before);
+        let parent_slot = AccountSlot::new(account, height.saturating_sub(1));
+        let opens = height <= 1 && previous.is_zero();
+        let parent_finalized = opens
+            || self.epoch_states.is_finalized(&previous)
+            || closed
+                .as_ref()
+                .is_some_and(|state| state.is_finalized(&parent_slot, &previous));
+        let parent_tip = closed.as_ref().is_some_and(|state| {
+            state.retained_depth(account) == Some(parent_slot.height)
+                && state.is_locked(&parent_slot, &previous)
+        });
+        let parent_sole_tip = parent_tip
+            && closed
+                .as_ref()
+                .is_some_and(|state| state.notarized(&parent_slot) == vec![previous]);
+        let parent_eligible = !opens
+            && self
+                .roots
+                .election_for_block_in_epoch(&previous, epoch)
+                .is_some_and(|parent| parent.overlap_eligible());
+        let carried = self
+            .certificate_kinds(before, &block)
+            .is_some_and(|kinds| kinds.notarization);
+        let eligible = (carried && (parent_finalized || parent_tip || parent_eligible))
+            || (self.predecessor_backed(epoch, &block) && (parent_finalized || parent_sole_tip));
+        if !eligible {
+            return;
+        }
+        let Some(committees) = self.committees_for(epoch) else {
+            return;
+        };
+        let Some(election) = self.roots.election_mut(id) else {
+            return;
+        };
+        election.set_overlap_eligible(true);
+        self.stats.overlap_eligible += 1;
+        let mut result = ApplyVoteResult::default();
+        count_kudzu_election(
+            election,
+            &committees,
+            now,
+            &mut self.stats,
+            &self.observer,
+            &mut self.recently_confirmed,
+            &self.decided,
+        );
+        settle_election(&mut self.roots, id, &self.observer, &mut result);
+        let finalized: Vec<(BlockHash, ConsensusEpoch)> = result
+            .confirmed
+            .iter()
+            .map(|entry| (entry.election.winner().hash(), entry.election.epoch()))
+            .collect();
+        for entry in result.confirmed {
+            self.cleanup_election(entry);
+        }
+        self.count_decided(&result.decided, now);
+        // A chain finalizes link by link without waiting for a tick
+        for (hash, epoch) in finalized {
+            self.recheck_children_of(&hash, epoch, now);
+        }
+    }
+
+    /// RAI: overlap eligibility depends on the parent being finalized, which
+    /// often happens after the child's notarization certificate formed; the
+    /// child then has all its votes and no further vote arrives to recheck
+    /// it. Every notarized instance still waiting for its predecessor
+    /// checkpoint is rechecked here, on the tick.
+    #[cfg(feature = "rai_protocol")]
+    fn recheck_overlap_eligibility(&mut self, now: Timestamp) {
+        let waiting: Vec<ElectionId> = self
+            .roots
+            .iter()
+            .map(|entry| &entry.election)
+            .filter(|election| {
+                !election.predecessor_decided()
+                    && !election.overlap_eligible()
+                    && !election.state().has_ended()
+                    && election.certificates().has_block()
+            })
+            .map(|election| election.id())
+            .collect();
+        for id in waiting {
+            self.check_overlap_eligibility(&id, now);
+        }
+    }
+
+    /// RAI: a block finalized; its children in the same epoch may have been
+    /// waiting on exactly that for overlap eligibility
+    #[cfg(feature = "rai_protocol")]
+    fn recheck_children_of(&mut self, hash: &BlockHash, epoch: ConsensusEpoch, now: Timestamp) {
+        let root = QualifiedRoot::new(rsnano_types::Root::from(*hash), *hash);
+        let children: Vec<ElectionId> = self
+            .roots
+            .elections_for_root(&root)
+            .filter(|election| election.epoch() == epoch)
+            .map(|election| election.id())
+            .collect();
+        for id in children {
+            self.check_overlap_eligibility(&id, now);
+        }
+    }
+
+    /// RAI, "Attachment and eligibility": "When S_{e-1} arrives, the
+    /// validator rechecks nonfinal early work against the decided frontier,
+    /// required consecutive current-epoch parents, finalized history, and
+    /// the checkpoint's carried locks." An instance that conflicts with the
+    /// decided finality, reopens a position at or below the retained
+    /// frontier without being a carried lock, or continues a branch the
+    /// checkpoint excluded at its parent position is discarded; its vote
+    /// record is not reset. Everything else runs on under the ordinary
+    /// eligibility rules.
+    #[cfg(feature = "rai_protocol")]
+    fn recheck_provisional(&mut self, epoch: ConsensusEpoch) {
+        let Some(state) = self.epoch_previous_state(epoch) else {
+            return;
+        };
+        let mut discard = Vec::new();
+        for election in self.roots.iter().map(|entry| &entry.election) {
+            if election.epoch() != epoch || election.is_confirmed() {
+                continue;
+            }
+            let account = election.account();
+            let height = election.height();
+            let slot = AccountSlot::new(account, height);
+            let previous = election.qualified_root().previous;
+            let candidates: Vec<BlockHash> = election.candidate_blocks().keys().copied().collect();
+            // RAI, §6.2: "an instance whose block holds [a valid closing-epoch
+            // NC or a predecessor-backed NC] continues at a position the
+            // checkpoint locked only for recovery"
+            let holds_nc = election.certificates().has_block()
+                && (election.overlap_eligible()
+                    || election
+                        .certificates()
+                        .notar
+                        .iter()
+                        .any(|hash| self.predecessor_backed(epoch, hash)));
+            let invalid = if let Some(finalized) = state.finalized(&slot) {
+                !candidates.contains(&finalized)
+            } else if state
+                .retained_depth(account)
+                .is_some_and(|depth| height <= depth)
+            {
+                !candidates
+                    .iter()
+                    .any(|candidate| state.is_locked(&slot, candidate))
+                    && !(holds_nc && Self::recovery_only(&state, &slot))
+            } else if height > 1 {
+                // The parent position is decided or locked for another
+                // branch: the instance continues a branch the checkpoint
+                // excluded. A parent the checkpoint does not mention is
+                // left to the ordinary eligibility rules.
+                let parent_slot = AccountSlot::new(account, height - 1);
+                match state.finalized(&parent_slot) {
+                    Some(finalized) => finalized != previous,
+                    None => {
+                        state.retains(&parent_slot)
+                            && !state.is_locked(&parent_slot, &previous)
+                            // A parent that superseded a recovery-only lock
+                            // and finalized live is a valid anchor
+                            && !(Self::recovery_only(&state, &parent_slot)
+                                && self.epoch_states.is_finalized(&previous))
+                    }
+                }
+            } else {
+                false
+            };
+            if invalid {
+                discard.push(election.id());
+            }
+        }
+        for id in &discard {
+            self.erase_election(id);
+        }
+        if !discard.is_empty() {
+            self.stats.rechecked_discarded += discard.len() as u64;
+            diagnostic!("EPOCH_RECHECK epoch={} discarded={}", epoch, discard.len());
+        }
+    }
+
+    /// Whether every lock a checkpoint carries at a position is recovery-only
+    #[cfg(feature = "rai_protocol")]
+    fn recovery_only(state: &EpochLedger, slot: &AccountSlot) -> bool {
+        let locked = state.notarized(slot);
+        !locked.is_empty()
+            && locked.iter().all(|hash| {
+                state.retained_kind(hash) != crate::consensus::election::RetainedKind::Notarized
+            })
     }
 
     /// Kudzu: an election is erased as soon as it is finalized. Its exit final
@@ -1845,6 +2173,8 @@ impl ActiveElectionsContainer {
         for entry in self.roots.iter_mut() {
             entry.election.transition_time(now);
         }
+        #[cfg(feature = "rai_protocol")]
+        self.recheck_overlap_eligibility(now);
         self.erase_ended_elections();
         self.end_epoch_by_time(now);
         self.try_advance_epoch(now);
@@ -2259,10 +2589,39 @@ impl ActiveElectionsContainer {
             decided: &self.decided,
         };
         let result = apply_helper.apply_vote();
+        #[cfg(feature = "rai_protocol")]
+        let finalized: Vec<(BlockHash, ConsensusEpoch)> = result
+            .confirmed
+            .iter()
+            .map(|entry| (entry.election.winner().hash(), entry.election.epoch()))
+            .collect();
         for entry in result.confirmed {
             self.cleanup_election(entry);
         }
         self.count_decided(&result.decided, args.now);
+        #[cfg(feature = "rai_protocol")]
+        for (hash, epoch) in finalized {
+            self.recheck_children_of(&hash, epoch, args.now);
+        }
+        // RAI: a vote may complete a block of the open epoch, or supply the
+        // closing-epoch certificate that carries it across the boundary
+        #[cfg(feature = "rai_protocol")]
+        {
+            let ids: Vec<ElectionId> = args
+                .vote
+                .filtered_blocks()
+                .flat_map(|hash| {
+                    [args.vote.epoch, args.vote.epoch.next()]
+                        .into_iter()
+                        .filter_map(|epoch| self.roots.election_for_block_in_epoch(hash, epoch))
+                        .map(|election| election.id())
+                        .collect::<Vec<_>>()
+                })
+                .collect();
+            for id in ids {
+                self.check_overlap_eligibility(&id, args.now);
+            }
+        }
 
         let mut per_block = result.per_block;
         // RAI: a vote of an epoch this node has not reached yet is not late, it
@@ -2334,6 +2693,55 @@ impl ActiveElectionsContainer {
                 previous,
             );
         }
+    }
+
+    /// RAI: a report taken at the boundary, completed with the inherited
+    /// base of its epoch once the predecessor is decided: the base's entries
+    /// under the strongest tag, finality projected onto the prefixes, and G
+    /// stripped of every hash T now names. A report is signed only then.
+    pub fn complete_report(
+        &self,
+        epoch: ConsensusEpoch,
+        certified: &crate::consensus::election::CertifiedState,
+        residual: &crate::consensus::election::ResidualVotes,
+    ) -> (
+        crate::consensus::election::CertifiedState,
+        crate::consensus::election::ResidualVotes,
+    ) {
+        use crate::consensus::election::ResidualVotes;
+        let mut complete = self
+            .report_bases
+            .get(&epoch)
+            .map(|base| (**base).clone())
+            .unwrap_or_default();
+        for (block, entry) in certified.entries() {
+            complete.certify(*block, entry.previous, entry.status);
+        }
+        complete.project_final_prefixes();
+        let residual = ResidualVotes::derive(&complete, residual.entries());
+        (complete, residual)
+    }
+
+    /// RAI, Rule 3: whether an epoch's represented notarization of a block
+    /// is predecessor-backed: at least a certificate's weight of the
+    /// committee before the epoch's among its first voters in the epoch
+    pub fn predecessor_backed(&self, epoch: ConsensusEpoch, hash: &BlockHash) -> bool {
+        let Some(before) = epoch.as_u64().checked_sub(1) else {
+            return false;
+        };
+        let Some(committee) = self.committees.committee(ConsensusEpoch::new(before)) else {
+            return false;
+        };
+        let Some(support) = self.vote_records.support(epoch, hash) else {
+            return false;
+        };
+        let weight = support.first.iter().fold(Amount::ZERO, |sum, voter| {
+            sum.number()
+                .checked_add(committee.weight(voter).number())
+                .map(Amount::raw)
+                .unwrap_or(Amount::MAX)
+        });
+        weight >= committee.thresholds().certificate
     }
 
     /// RAI: the certificates the signed votes held here assemble for a block
@@ -2655,7 +3063,7 @@ mod tests {
         assert!(!closes[0].started);
         let close_votes = |container: &ActiveElectionsContainer| -> Vec<VoteTarget> {
             container
-                .kudzu_votes_due(|_| true)
+                .kudzu_votes_due(|_| Ok(()))
                 .into_iter()
                 .filter(|target| target.election.epoch.is_close_round())
                 .collect()
@@ -2760,7 +3168,7 @@ mod tests {
         let round0 = ConsensusEpoch::close_round(ConsensusEpoch::new(1), 0);
         assert!(
             container
-                .kudzu_votes_due(|_| true)
+                .kudzu_votes_due(|_| Ok(()))
                 .iter()
                 .any(|target| target.election.epoch == round0
                     && target.vote_type == VoteType::NonFinal)
@@ -2804,7 +3212,7 @@ mod tests {
         // Nothing is voted or solicited in a closed epoch
         assert!(
             !container
-                .kudzu_votes_due(|_| true)
+                .kudzu_votes_due(|_| Ok(()))
                 .iter()
                 .any(|target| target.election.epoch.is_close_round())
         );
@@ -2866,7 +3274,7 @@ mod tests {
         container.set_current_epoch(ConsensusEpoch::new(1));
         container.release_undecided_instances(ConsensusEpoch::ZERO);
         assert!(container.election_for_block(&block.hash()).is_some());
-        assert!(container.kudzu_votes_due(|_| true).is_empty());
+        assert!(container.kudzu_votes_due(|_| Ok(())).is_empty());
 
         // The final vote another node received before the freeze arrives late
         container.apply_vote(ApplyVoteArgs {
@@ -3248,7 +3656,7 @@ mod tests {
             ElectionState::Active
         );
         assert_eq!(container.len(), 2);
-        let due = container.kudzu_votes_due(|_| true);
+        let due = container.kudzu_votes_due(|_| Ok(()));
         assert!(!due.iter().any(|target| target.election == stale));
         assert!(due.contains(&VoteTarget {
             election: current,
@@ -3312,7 +3720,7 @@ mod tests {
             .insert(request, Timestamp::new_test_instance())
             .unwrap();
 
-        let due = container.kudzu_votes_due(|_| true);
+        let due = container.kudzu_votes_due(|_| Ok(()));
         assert_eq!(
             due,
             vec![VoteTarget {
@@ -3334,7 +3742,7 @@ mod tests {
         assert_eq!(container.slot_count(), 1);
 
         // Nothing new is decided, the first vote is only re-broadcast
-        assert_eq!(container.kudzu_votes_due(|_| true), due);
+        assert_eq!(container.kudzu_votes_due(|_| Ok(())), due);
     }
 
     #[test]
@@ -3345,7 +3753,7 @@ mod tests {
             AecInsertRequest::new_priority(block.clone(), BlockPriority::new_test_instance());
         let now = Timestamp::new_test_instance();
         container.insert(request, now).unwrap();
-        let due = container.kudzu_votes_due(|_| true);
+        let due = container.kudzu_votes_due(|_| Ok(()));
         container.mark_kudzu_voted(due.clone());
         assert_eq!(container.slot_count(), 1);
 
@@ -3373,7 +3781,7 @@ mod tests {
         let request = AecInsertRequest::new_priority(block, BlockPriority::new_test_instance());
         let now = Timestamp::new_test_instance();
         container.insert(request, now).unwrap();
-        let first = container.kudzu_votes_due(|_| true);
+        let first = container.kudzu_votes_due(|_| Ok(()));
         container.mark_kudzu_voted(first.clone());
 
         // A single first vote with all the weight fast finalizes and erases the election
@@ -3400,9 +3808,12 @@ mod tests {
             winner: block_hash,
             vote_type: VoteType::Final,
         };
-        assert_eq!(container.kudzu_votes_due(|_| true), vec![expected.clone()]);
+        assert_eq!(
+            container.kudzu_votes_due(|_| Ok(())),
+            vec![expected.clone()]
+        );
         container.mark_kudzu_voted(vec![expected]);
-        assert!(container.kudzu_votes_due(|_| true).is_empty());
+        assert!(container.kudzu_votes_due(|_| Ok(())).is_empty());
     }
 
     #[cfg(feature = "rai_protocol")]
@@ -3544,6 +3955,467 @@ mod tests {
         assert!(!container.is_priority_active_hash(&BlockHash::from(3)));
     }
 
+    /// RAI, "Cross-epoch lock": a first vote released in the closing epoch
+    /// keeps this node from first-voting a different block at the same
+    /// position in the next epoch until the closing epoch's checkpoint is
+    /// known here. The same block may be first-voted again, and the record
+    /// is checked where the vote is recorded, not only where it is listed.
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn a_closing_epoch_first_vote_locks_the_position_until_its_checkpoint_is_known() {
+        let mut container = ActiveElectionsContainer::new(
+            ActiveElectionsConfig {
+                epoch_duration: Duration::from_secs(1),
+                ..Default::default()
+            },
+            Duration::from_millis(10),
+        );
+        let start = Timestamp::new_test_instance();
+        container.set_genesis_committee(Vec::new());
+        container.start_epochs(start);
+        let now = start;
+        let locked = SavedBlock::new_test_instance_with_key(2);
+        let rival = sibling_of(&locked);
+        let again = SavedBlock::new_test_instance_with_key(3);
+        for block in [&locked, &again] {
+            container
+                .insert(
+                    AecInsertRequest::new_priority(
+                        block.clone(),
+                        BlockPriority::new_test_instance(),
+                    ),
+                    now,
+                )
+                .unwrap();
+        }
+        let first_votes: Vec<VoteTarget> = container
+            .kudzu_votes_due(|_| Ok(()))
+            .into_iter()
+            .filter(|target| {
+                target.vote_type == VoteType::NonFinal
+                    && [locked.hash(), again.hash()].contains(&target.winner)
+            })
+            .collect();
+        assert_eq!(first_votes.len(), 2);
+        assert_eq!(container.mark_kudzu_voted(first_votes).len(), 2);
+
+        // Epoch 0 ends and is left; its checkpoint is not decided here
+        let now = start + Duration::from_secs(1);
+        container.transition_time(now);
+        let epoch1 = ConsensusEpoch::new(1);
+        assert_eq!(container.current_epoch(), epoch1);
+
+        // The owner's other signature at the locked position reaches this
+        // node and is proposed in epoch 1; the same block is proposed again
+        container
+            .insert(
+                AecInsertRequest::new_priority(rival.clone(), BlockPriority::new_test_instance()),
+                now,
+            )
+            .unwrap();
+        container.insert_for_vote(again.clone(), epoch1, now);
+        let first_in = |container: &ActiveElectionsContainer, hash: BlockHash| {
+            container
+                .kudzu_votes_due(|_| Ok(()))
+                .into_iter()
+                .find(|target| {
+                    target.vote_type == VoteType::NonFinal
+                        && target.election.epoch == epoch1
+                        && target.winner == hash
+                })
+        };
+        assert!(first_in(&container, rival.hash()).is_none(), "locked");
+        assert!(
+            first_in(&container, again.hash()).is_some(),
+            "the same block"
+        );
+        // Not even when handed in directly
+        let smuggled = VoteTarget {
+            election: ElectionId::new(rival.qualified_root(), epoch1),
+            winner: rival.hash(),
+            vote_type: VoteType::NonFinal,
+        };
+        assert!(container.mark_kudzu_voted(vec![smuggled]).is_empty());
+        assert!(
+            container
+                .slot_state(&EpochSlot {
+                    account: rival.account(),
+                    height: rival.height(),
+                    epoch: epoch1,
+                })
+                .is_none_or(|state| state.first_voted.is_none())
+        );
+
+        // Once S_0 is known the lock expires and the ordinary recheck governs
+        container
+            .decided
+            .insert(ConsensusEpoch::ZERO, Arc::new(EpochLedger::new()));
+        assert!(first_in(&container, rival.hash()).is_some());
+    }
+
+    /// RAI, "Attachment and eligibility": "Later children require complete
+    /// epoch-e parents". A child whose parent the ledger holds unfinalized
+    /// is first-voted once the parent is notarized in the child's epoch.
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn a_child_of_a_parent_complete_in_the_current_epoch_is_proposable() {
+        use crate::consensus::Unattached;
+        let mut container = ActiveElectionsContainer::default();
+        let now = Timestamp::new_test_instance();
+        let parent = SavedBlock::new_test_instance_with_key(5);
+        let child = block_at(5, parent.hash(), parent.height() + 1);
+        for block in [&parent, &child] {
+            container
+                .insert(
+                    AecInsertRequest::new_priority(
+                        block.clone(),
+                        BlockPriority::new_test_instance(),
+                    ),
+                    now,
+                )
+                .unwrap();
+        }
+        let child_hash = child.hash();
+        let ledger_says = move |hash: &BlockHash| {
+            if *hash == child_hash {
+                Err(Unattached::Previous)
+            } else {
+                Ok(())
+            }
+        };
+        let first_for = |container: &ActiveElectionsContainer, hash: BlockHash| {
+            container
+                .kudzu_votes_due(ledger_says)
+                .into_iter()
+                .any(|target| target.vote_type == VoteType::NonFinal && target.winner == hash)
+        };
+        assert!(first_for(&container, parent.hash()));
+        assert!(!first_for(&container, child.hash()));
+        assert!(!container.complete_in_epoch(&parent.hash(), ConsensusEpoch::ZERO));
+
+        // The test quorum is 100M: one representative of 70M notarizes
+        let rep_key = PrivateKey::from(1);
+        let mut rep_weights = RepWeights::default();
+        rep_weights.put(rep_key.public_key(), Amount::nano(70_000_000));
+        let vote = Vote::new_in_epoch(
+            &rep_key,
+            VoteKind::First,
+            ConsensusEpoch::ZERO,
+            vec![parent.hash()],
+        );
+        container.apply_vote(ApplyVoteArgs {
+            vote: &ReceivedVote::new(Arc::new(vote), VoteDelivery::Direct, None).into(),
+            rep_weights: &rep_weights,
+            quorum_snapshot: &QuorumSnapshot::new_test_instance(),
+            now,
+        });
+        assert!(
+            container
+                .election_for_block(&parent.hash())
+                .unwrap()
+                .certificates()
+                .is_notarized(&parent.hash())
+        );
+        assert!(first_for(&container, child.hash()));
+        assert!(container.complete_in_epoch(&parent.hash(), ConsensusEpoch::ZERO));
+        // A receive whose source is not final stays unattachable
+        assert!(
+            !container
+                .kudzu_votes_due(|_| Err(Unattached::Link))
+                .into_iter()
+                .any(|target| target.vote_type == VoteType::NonFinal)
+        );
+
+        // "An eligible block finalizes on q final votes": the child's own
+        // certificate, while its parent is notarized only
+        for kind in [VoteKind::First, VoteKind::Final] {
+            let vote = Vote::new_in_epoch(&rep_key, kind, ConsensusEpoch::ZERO, vec![child_hash]);
+            container.apply_vote(ApplyVoteArgs {
+                vote: &ReceivedVote::new(Arc::new(vote), VoteDelivery::Direct, None).into(),
+                rep_weights: &rep_weights,
+                quorum_snapshot: &QuorumSnapshot::new_test_instance(),
+                now,
+            });
+        }
+        assert!(container.is_finalized(&child_hash));
+        assert!(!container.is_finalized(&parent.hash()));
+    }
+
+    /// RAI, the second overlap exception: before S_{e-1} is known, a block
+    /// with a predecessor-backed NC on a finalized parent finalizes by an
+    /// ordinary epoch-e certificate; one on an unknown parent waits for the
+    /// predecessor checkpoint, its votes notwithstanding
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn a_predecessor_backed_notarization_on_a_finalized_parent_finalizes_before_the_predecessor() {
+        let (mut container, reps, rep_weights, now) = overlap_fixture(|history| {
+            let backed = SavedBlock::new_test_instance_with_key(2);
+            history.finalize_genesis(AccountSlot::new(backed.account(), 1), backed.previous());
+        });
+        let epoch1 = ConsensusEpoch::new(1);
+        assert_eq!(container.current_epoch(), epoch1);
+        let backed = SavedBlock::new_test_instance_with_key(2);
+        let unknown = SavedBlock::new_test_instance_with_key(3);
+        for block in [&backed, &unknown] {
+            container
+                .insert(
+                    AecInsertRequest::new_priority(
+                        block.clone(),
+                        BlockPriority::new_test_instance(),
+                    ),
+                    now,
+                )
+                .unwrap();
+            assert!(
+                !container
+                    .election_for_block(&block.hash())
+                    .unwrap()
+                    .predecessor_decided()
+            );
+            for kind in [VoteKind::First, VoteKind::Final] {
+                for rep in &reps[..3] {
+                    vote_in(
+                        &mut container,
+                        rep,
+                        kind,
+                        epoch1,
+                        block.hash(),
+                        &rep_weights,
+                        now,
+                    );
+                }
+            }
+        }
+        assert!(container.finalized_in_epoch(&backed.hash(), epoch1));
+        assert!(container.election_for_block(&backed.hash()).is_none());
+        assert_eq!(container.stats.overlap_eligible, 1);
+        let waiting = container.election_for_block(&unknown.hash()).unwrap();
+        assert!(waiting.certificates().is_notarized(&unknown.hash()));
+        assert!(!waiting.overlap_eligible());
+        assert!(!container.finalized_in_epoch(&unknown.hash(), epoch1));
+
+        // The predecessor arrives: the ordinary gate is released
+        container
+            .decided
+            .insert(ConsensusEpoch::ZERO, Arc::new(EpochLedger::new()));
+        container.release_predecessor_gate(epoch1, now);
+        assert!(container.finalized_in_epoch(&unknown.hash(), epoch1));
+    }
+
+    /// RAI: a child whose fast certificate formed before its parent was
+    /// finalized becomes eligible the moment the parent finalizes, without
+    /// waiting for another vote or for the predecessor checkpoint
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn a_child_becomes_eligible_when_its_parent_finalizes() {
+        let parent = block_at(5, BlockHash::from(501), 2);
+        let child = block_at(5, parent.hash(), 3);
+        let (mut container, reps, rep_weights, now) = overlap_fixture(|history| {
+            history.finalize_genesis(
+                AccountSlot::new(PrivateKey::from(5).account(), 1),
+                BlockHash::from(501),
+            );
+        });
+        let epoch1 = ConsensusEpoch::new(1);
+        for block in [&parent, &child] {
+            container
+                .insert(
+                    AecInsertRequest::new_priority(
+                        block.clone(),
+                        BlockPriority::new_test_instance(),
+                    ),
+                    now,
+                )
+                .unwrap();
+        }
+        // Every first vote for the child arrives first: a fast tally, but the
+        // parent is not final yet, so the child is not eligible
+        for rep in &reps {
+            vote_in(
+                &mut container,
+                rep,
+                VoteKind::First,
+                epoch1,
+                child.hash(),
+                &rep_weights,
+                now,
+            );
+        }
+        assert!(!container.finalized_in_epoch(&child.hash(), epoch1));
+        assert!(
+            !container
+                .election_for_block(&child.hash())
+                .unwrap()
+                .overlap_eligible()
+        );
+        // The parent finalizes; nothing more arrives for the child
+        for rep in &reps {
+            vote_in(
+                &mut container,
+                rep,
+                VoteKind::First,
+                epoch1,
+                parent.hash(),
+                &rep_weights,
+                now,
+            );
+        }
+        assert!(container.finalized_in_epoch(&parent.hash(), epoch1));
+        assert!(container.finalized_in_epoch(&child.hash(), epoch1));
+    }
+
+    /// RAI, the first overlap exception: a closing-epoch notarized block
+    /// that becomes complete in the successor epoch is eligible there on a
+    /// maximum-depth tip of the latest closed ledger, even one of two
+    /// retained tips, which the second exception does not accept
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn a_closing_epoch_notarized_block_carries_across_the_boundary() {
+        let tip_a = BlockHash::from(701);
+        let tip_b = BlockHash::from(702);
+        let carried = block_at(3, tip_a, 2);
+        let fresh = block_at(3, tip_b, 2);
+        let (mut container, reps, rep_weights, now) = overlap_fixture(|history| {
+            let account = PrivateKey::from(3).account();
+            let mut retained = EpochLedger::new();
+            retained.retain_for_test(AccountSlot::new(account, 1), tip_a, BlockHash::ZERO);
+            retained.retain_for_test(AccountSlot::new(account, 1), tip_b, BlockHash::ZERO);
+            *history = retained;
+        });
+        // Notarized in epoch 0 before the boundary: an instance of the
+        // closing epoch collected the first votes
+        container.insert_for_vote(carried.clone(), ConsensusEpoch::ZERO, now);
+        for rep in &reps[..3] {
+            vote_in(
+                &mut container,
+                rep,
+                VoteKind::First,
+                ConsensusEpoch::ZERO,
+                carried.hash(),
+                &rep_weights,
+                now,
+            );
+        }
+        let epoch1 = ConsensusEpoch::new(1);
+        for block in [&carried, &fresh] {
+            container.insert_for_vote(block.clone(), epoch1, now);
+            for kind in [VoteKind::First, VoteKind::Final] {
+                for rep in &reps[..3] {
+                    vote_in(
+                        &mut container,
+                        rep,
+                        kind,
+                        epoch1,
+                        block.hash(),
+                        &rep_weights,
+                        now,
+                    );
+                }
+            }
+        }
+        assert!(container.finalized_in_epoch(&carried.hash(), epoch1));
+        assert!(!container.finalized_in_epoch(&fresh.hash(), epoch1));
+        assert!(
+            !container
+                .election_for_block(&fresh.hash())
+                .unwrap()
+                .overlap_eligible()
+        );
+    }
+
+    /// RAI, "Attachment and eligibility": when the predecessor checkpoint
+    /// arrives, provisional work that conflicts with its finality, reopens a
+    /// retained position, or continues a branch it excluded at the parent
+    /// position is discarded; work on a finalized parent runs on
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn provisional_work_is_rechecked_against_the_decided_predecessor() {
+        let mut container = ActiveElectionsContainer::default();
+        let now = Timestamp::new_test_instance();
+        container.start_epochs(now);
+        let epoch1 = ConsensusEpoch::new(1);
+        container.set_current_epoch(epoch1);
+        let conflicting = block_at(6, BlockHash::from(601), 2);
+        let attached = block_at(7, BlockHash::from(701), 2);
+        let reopening = block_at(8, BlockHash::from(801), 2);
+        let excluded = block_at(9, BlockHash::from(901), 2);
+        for block in [&conflicting, &attached, &reopening, &excluded] {
+            container
+                .insert(
+                    AecInsertRequest::new_priority(
+                        block.clone(),
+                        BlockPriority::new_test_instance(),
+                    ),
+                    now,
+                )
+                .unwrap();
+        }
+        let slot =
+            |key: u64, height: u64| AccountSlot::new(PrivateKey::from(key).account(), height);
+        let placed = crate::consensus::election::PlacedBlock::new;
+        let mut predecessor = EpochLedger::new();
+        // (6, 2) finalized another block
+        predecessor
+            .finalize_genesis_block(slot(6, 1), placed(BlockHash::from(601), BlockHash::ZERO));
+        predecessor.finalize_genesis_block(
+            slot(6, 2),
+            placed(BlockHash::from(602), BlockHash::from(601)),
+        );
+        // (7, 1), the parent of `attached`, finalized
+        predecessor
+            .finalize_genesis_block(slot(7, 1), placed(BlockHash::from(701), BlockHash::ZERO));
+        // (8, 2) retained for another block
+        predecessor
+            .finalize_genesis_block(slot(8, 1), placed(BlockHash::from(801), BlockHash::ZERO));
+        predecessor.retain_for_test(slot(8, 2), BlockHash::from(802), BlockHash::from(801));
+        // (9, 1) locked for a block other than the parent of `excluded`
+        predecessor.retain_for_test(slot(9, 1), BlockHash::from(902), BlockHash::ZERO);
+        container
+            .decided
+            .insert(ConsensusEpoch::ZERO, Arc::new(predecessor));
+        container.release_predecessor_gate(epoch1, now);
+        assert!(container.election_for_block(&attached.hash()).is_some());
+        for block in [&conflicting, &reopening, &excluded] {
+            assert!(container.election_for_block(&block.hash()).is_none());
+        }
+        assert_eq!(container.stats.rechecked_discarded, 3);
+    }
+
+    /// RAI, item 15: a report is cumulative. The entries inherited from the
+    /// predecessor checkpoint join the fresh ones under the strongest tag,
+    /// and a vote for a hash the completed T names leaves G.
+    #[test]
+    fn a_boundary_report_is_completed_with_the_inherited_base() {
+        use crate::consensus::election::{
+            CertifiedBlock, CertifiedState, CertifiedStatus, ResidualKind, ResidualVotes,
+        };
+        let block = |i: u64| CertifiedBlock::new(Account::from(i), 1, BlockHash::from(i));
+        let epoch = ConsensusEpoch::new(1);
+        let mut container = ActiveElectionsContainer::default();
+        let mut base = CertifiedState::new();
+        base.certify(block(1), BlockHash::ZERO, CertifiedStatus::Recovery);
+        base.certify(block(2), BlockHash::ZERO, CertifiedStatus::Recovery);
+        container.report_bases.insert(epoch, Arc::new(base));
+        let mut fresh = CertifiedState::new();
+        fresh.certify(block(2), BlockHash::ZERO, CertifiedStatus::Notarized);
+        let mut residual = ResidualVotes::new();
+        residual.record(block(1), BlockHash::ZERO, ResidualKind::First);
+        residual.record(block(3), BlockHash::ZERO, ResidualKind::First);
+
+        let (certified, residual) = container.complete_report(epoch, &fresh, &residual);
+
+        assert_eq!(certified.status(&block(1)), Some(CertifiedStatus::Recovery));
+        assert_eq!(
+            certified.status(&block(2)),
+            Some(CertifiedStatus::Notarized)
+        );
+        assert!(!residual.contains(&block(1), ResidualKind::First));
+        assert!(residual.contains(&block(3), ResidualKind::First));
+        // An epoch without a base keeps its report as taken
+        let (alone, _) = container.complete_report(ConsensusEpoch::new(2), &fresh, &residual);
+        assert_eq!(alone, fresh);
+    }
+
     /// A candidate source which always has a block to schedule
     struct AlwaysAvailable;
 
@@ -3647,5 +4519,130 @@ mod tests {
             .collect();
         let expected: Vec<_> = expected.iter().map(|i| i.hash()).collect();
         assert_eq!(result, expected);
+    }
+
+    /// An owner-signed state block of the test key at a position: the
+    /// parent it names and the height its sideband records
+    #[cfg(feature = "rai_protocol")]
+    fn block_at(key: u64, previous: BlockHash, height: u64) -> SavedBlock {
+        use rsnano_types::{BlockDetails, BlockSideband, Epoch, StateBlockArgs};
+        let key = PrivateKey::from(key);
+        let block: Block = StateBlockArgs {
+            key: &key,
+            previous,
+            representative: 789.into(),
+            balance: 420.into(),
+            link: 111.into(),
+            work: 69420.into(),
+        }
+        .into();
+        SavedBlock::new(
+            block,
+            BlockSideband {
+                height,
+                timestamp: 222222.into(),
+                account: key.account(),
+                balance: 420.into(),
+                details: BlockDetails::new(Epoch::Epoch2, true, false, false),
+                source_epoch: Epoch::Epoch0,
+            },
+        )
+    }
+
+    /// A container in epoch 1 with epoch 0 ended at its timed boundary but
+    /// not decided: four equal representatives of a genesis committee
+    /// (three notarize, four finalize fast) and a genesis history the
+    /// caller shapes
+    #[cfg(feature = "rai_protocol")]
+    fn overlap_fixture(
+        shape_history: impl FnOnce(&mut EpochLedger),
+    ) -> (
+        ActiveElectionsContainer,
+        Vec<PrivateKey>,
+        RepWeights,
+        Timestamp,
+    ) {
+        let mut container = ActiveElectionsContainer::new(
+            ActiveElectionsConfig {
+                epoch_duration: Duration::from_secs(1),
+                ..Default::default()
+            },
+            Duration::from_millis(10),
+        );
+        let start = Timestamp::new_test_instance();
+        let reps: Vec<PrivateKey> = (11..15).map(PrivateKey::from).collect();
+        let mut rep_weights = RepWeights::default();
+        let frontiers = reps
+            .iter()
+            .enumerate()
+            .map(|(i, rep)| {
+                rep_weights.put(rep.public_key(), Amount::raw(25));
+                AccountFrontier {
+                    account: Account::from(100 + i as u64),
+                    height: 1,
+                    hash: BlockHash::from(100 + i as u64),
+                    representative: rep.public_key(),
+                    balance: Amount::raw(25),
+                }
+            })
+            .collect();
+        container.set_genesis_committee(frontiers);
+        let mut history = (*container.genesis_state).clone();
+        shape_history(&mut history);
+        container.genesis_state = Arc::new(history);
+        container.start_epochs(start);
+        let now = start + Duration::from_secs(1);
+        container.transition_time(now);
+        assert_eq!(container.current_epoch(), ConsensusEpoch::new(1));
+        (container, reps, rep_weights, now)
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    fn vote_in(
+        container: &mut ActiveElectionsContainer,
+        rep: &PrivateKey,
+        kind: VoteKind,
+        epoch: ConsensusEpoch,
+        hash: BlockHash,
+        rep_weights: &RepWeights,
+        now: Timestamp,
+    ) {
+        let vote = Arc::new(Vote::new_in_epoch(rep, kind, epoch, vec![hash]));
+        container.apply_vote(ApplyVoteArgs {
+            vote: &ReceivedVote::new(vote, VoteDelivery::Direct, None).into(),
+            rep_weights,
+            quorum_snapshot: &QuorumSnapshot::new_test_instance(),
+            now,
+        });
+    }
+
+    /// A conflicting owner-signed block at the same position: the same
+    /// account and parent, another representative
+    #[cfg(feature = "rai_protocol")]
+    fn sibling_of(block: &SavedBlock) -> SavedBlock {
+        use rsnano_types::{BlockDetails, BlockSideband, Epoch, StateBlockArgs};
+        let key = PrivateKey::from(2);
+        assert_eq!(block.account(), key.account());
+        let sibling: Block = StateBlockArgs {
+            key: &key,
+            previous: block.previous(),
+            representative: 790.into(),
+            balance: block.balance(),
+            link: 111.into(),
+            work: 69420.into(),
+        }
+        .into();
+        assert_ne!(sibling.hash(), block.hash());
+        SavedBlock::new(
+            sibling,
+            BlockSideband {
+                height: block.height(),
+                timestamp: 222222.into(),
+                account: block.account(),
+                balance: block.balance(),
+                details: BlockDetails::new(Epoch::Epoch2, true, false, false),
+                source_epoch: Epoch::Epoch0,
+            },
+        )
     }
 }

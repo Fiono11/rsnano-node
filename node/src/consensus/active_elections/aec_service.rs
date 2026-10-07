@@ -119,6 +119,14 @@ impl AecService {
         self.aec.read().unwrap().finalized_in(epoch)
     }
 
+    /// RAI: the latest checkpoint decided here
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn latest_checkpoint(
+        &self,
+    ) -> Option<std::sync::Arc<crate::consensus::election::EpochLedger>> {
+        self.aec.read().unwrap().latest_checkpoint()
+    }
+
     /// RAI: the close elections of the epochs this node has left
     pub fn epoch_closes(&self) -> Vec<EpochCloseInfo> {
         self.aec.read().unwrap().epoch_closes()
@@ -257,7 +265,7 @@ impl AecService {
     /// tells whether a block may be first voted
     pub(crate) fn kudzu_votes_due(
         &self,
-        proposal_valid: impl Fn(&BlockHash) -> bool,
+        proposal_valid: impl Fn(&BlockHash) -> Result<(), crate::consensus::Unattached>,
     ) -> Vec<VoteTarget> {
         self.aec.read().unwrap().kudzu_votes_due(proposal_valid)
     }
@@ -360,6 +368,30 @@ impl AecService {
             .iter()
             .map(|hash| aec.certificate_kinds(epoch, hash))
             .collect()
+    }
+
+    /// RAI: a boundary report completed with its epoch's inherited base
+    #[cfg(feature = "rai_protocol")]
+    pub fn complete_report(
+        &self,
+        epoch: ConsensusEpoch,
+        certified: &crate::consensus::election::CertifiedState,
+        residual: &crate::consensus::election::ResidualVotes,
+    ) -> (
+        crate::consensus::election::CertifiedState,
+        crate::consensus::election::ResidualVotes,
+    ) {
+        self.aec
+            .read()
+            .unwrap()
+            .complete_report(epoch, certified, residual)
+    }
+
+    /// RAI, Rule 3: whether an epoch's notarization of a block is
+    /// predecessor-backed
+    #[cfg(feature = "rai_protocol")]
+    pub fn predecessor_backed(&self, epoch: ConsensusEpoch, hash: &BlockHash) -> bool {
+        self.aec.read().unwrap().predecessor_backed(epoch, hash)
     }
 
     /// RAI: how many first and final voters this node holds for a block

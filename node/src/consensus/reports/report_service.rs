@@ -99,15 +99,19 @@ impl ReportService {
         if keys.is_empty() {
             return;
         }
-        let certified = report.certified.len();
-        let residual = report.residual.len();
-        let root = report.certified.root();
+        // The inherited base is known only once the predecessor is decided
+        let (certified_state, residual_votes) =
+            self.active_elections
+                .complete_report(epoch, &report.certified, &report.residual);
+        let certified = certified_state.len();
+        let residual = residual_votes.len();
+        let root = certified_state.root();
         let messages = {
             let mut exchange = self.exchange.lock().unwrap();
             exchange.report_epoch(
                 epoch,
-                report.certified.clone(),
-                report.residual.clone(),
+                certified_state,
+                residual_votes,
                 report.committee,
                 predecessor,
                 &keys,
@@ -292,16 +296,10 @@ impl ReportService {
                         residual,
                         only,
                         &|hashes| aec.certificate_kinds(epoch, hashes),
-                        &|block| {
-                            previous.as_ref().is_some_and(|previous| {
-                                previous.is_finalized(
-                                    &crate::consensus::election::AccountSlot::new(
-                                        block.account,
-                                        block.height,
-                                    ),
-                                    &block.hash,
-                                )
-                            })
+                        &|block, entry| {
+                            previous
+                                .as_ref()
+                                .is_some_and(|previous| inherited_from(previous, block, entry))
                         },
                         &|votes| aec.has_votes(epoch, reporter, votes),
                     )
@@ -408,6 +406,28 @@ impl ReportService {
                     );
                 }
             }
+        }
+    }
+}
+
+/// RAI: whether a report entry is the predecessor checkpoint's own: a
+/// finalized block it finalized, a notarization lock it retains, or the
+/// recovery protection it carries. Such an entry needs no fresh evidence.
+fn inherited_from(
+    previous: &crate::consensus::election::EpochLedger,
+    block: &crate::consensus::election::CertifiedBlock,
+    entry: crate::consensus::election::Certification,
+) -> bool {
+    use crate::consensus::election::{AccountSlot, CertifiedStatus, RetainedKind};
+    let slot = AccountSlot::new(block.account, block.height);
+    match entry.status {
+        CertifiedStatus::Finalized => previous.is_finalized(&slot, &block.hash),
+        CertifiedStatus::Notarized => {
+            previous.is_locked(&slot, &block.hash)
+                && previous.retained_kind(&block.hash) == RetainedKind::Notarized
+        }
+        CertifiedStatus::Recovery => {
+            previous.valid_recovery_entry(&slot, block.hash, entry.previous)
         }
     }
 }

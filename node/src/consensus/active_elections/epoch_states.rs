@@ -184,6 +184,21 @@ impl EpochStates {
         })
     }
 
+    /// RAI: finality already known from this epoch or an older one, never
+    /// from successor work. The caller decides which old blocks belong to its
+    /// report.
+    pub fn instances_through(
+        &self,
+        epoch: ConsensusEpoch,
+    ) -> impl Iterator<Item = &FinalizedInstance> {
+        self.instances.iter().filter_map(move |(hash, instances)| {
+            instances
+                .iter()
+                .find(|i| i.epoch <= epoch && i.winner == *hash)
+                .map(|i| i.as_ref())
+        })
+    }
+
     pub fn len(&self) -> usize {
         self.len
     }

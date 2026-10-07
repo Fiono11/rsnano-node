@@ -2,8 +2,8 @@ mod epoch_decision;
 mod report_plugin;
 mod report_service;
 use crate::consensus::election::{
-    CertificateKinds, CertifiedBlock, CertifiedState, CertifiedStatus, CodedSymbol, Decoder,
-    Encoder, ReportCommitment, ResidualKind, ResidualVotes,
+    CertificateKinds, Certification, CertifiedBlock, CertifiedState, CertifiedStatus, CodedSymbol,
+    Decoder, Encoder, ReportCommitment, ResidualKind, ResidualVotes,
 };
 pub use epoch_decision::EpochDecisionService;
 pub(crate) use report_plugin::{ReportPlugin, ReportTicker};
@@ -149,25 +149,27 @@ pub(crate) fn unjustified(
     residual: &ResidualVotes,
     only: Option<&[BlockHash]>,
     certificate_kinds: &dyn Fn(&[BlockHash]) -> Option<Vec<CertificateKinds>>,
-    previously_finalized: &dyn Fn(&CertifiedBlock) -> bool,
+    inherited: &dyn Fn(&CertifiedBlock, Certification) -> bool,
     reporter_votes: &dyn Fn(&[(BlockHash, ResidualKind)]) -> Vec<bool>,
 ) -> Option<Vec<BlockHash>> {
     let wanted = |hash: &BlockHash| only.is_none_or(|only| only.contains(hash));
-    let entries: Vec<(&CertifiedBlock, CertifiedStatus)> = certified
+    let entries: Vec<(&CertifiedBlock, Certification)> = certified
         .entries()
         .filter(|(block, _)| wanted(&block.hash))
-        .map(|(block, entry)| (block, entry.status))
+        .map(|(block, entry)| (block, *entry))
         .collect();
     let hashes: Vec<BlockHash> = entries.iter().map(|(block, _)| block.hash).collect();
     let kinds = certificate_kinds(&hashes)?;
     let mut missing = Vec::new();
-    for ((block, status), kinds) in entries.iter().zip(kinds) {
-        let justified = match status {
-            CertifiedStatus::Notarized => kinds.notarization,
-            CertifiedStatus::Finalized => {
-                kinds.finalization || kinds.fast || previously_finalized(block)
-            }
-        };
+    for ((block, entry), kinds) in entries.iter().zip(kinds) {
+        // What the predecessor checkpoint itself holds is justified by it;
+        // R, inherited protection, is justified by nothing else
+        let justified = inherited(block, *entry)
+            || match entry.status {
+                CertifiedStatus::Recovery => false,
+                CertifiedStatus::Notarized => kinds.notarization,
+                CertifiedStatus::Finalized => kinds.finalization || kinds.fast,
+            };
         if !justified {
             missing.push(block.hash);
         }
@@ -1025,6 +1027,42 @@ mod tests {
         assert_eq!(second.usable(report.epoch).len(), 1);
     }
 
+    /// RAI: an R entry is inherited protection. Only the predecessor
+    /// checkpoint justifies it; certificates held here do not.
+    #[test]
+    fn a_recovery_entry_is_justified_only_by_the_predecessor() {
+        let carried = CertifiedBlock::new(Account::from(1), 1, BlockHash::from(11));
+        let invented = CertifiedBlock::new(Account::from(2), 1, BlockHash::from(12));
+        let mut certified = CertifiedState::new();
+        certified.certify(carried, BlockHash::ZERO, CertifiedStatus::Recovery);
+        certified.certify(invented, BlockHash::ZERO, CertifiedStatus::Recovery);
+        let everything = |hashes: &[BlockHash]| {
+            Some(
+                hashes
+                    .iter()
+                    .map(|_| CertificateKinds {
+                        notarization: true,
+                        finalization: true,
+                        fast: true,
+                    })
+                    .collect(),
+            )
+        };
+        let previously = |block: &CertifiedBlock, entry: Certification| {
+            *block == carried && entry.status == CertifiedStatus::Recovery
+        };
+        let no_votes = |votes: &[(BlockHash, ResidualKind)]| vec![false; votes.len()];
+        let missing = unjustified(
+            &certified,
+            &ResidualVotes::new(),
+            None,
+            &everything,
+            &previously,
+            &no_votes,
+        );
+        assert_eq!(missing, Some(vec![invented.hash]));
+    }
+
     /// RAI: a root authenticates a report's tags, not the quorums behind
     /// them. A notarized entry needs a notarization certificate held here,
     /// a finalized one a finalization or fast certificate or the
@@ -1053,7 +1091,7 @@ mod tests {
                     .collect(),
             )
         };
-        let previously = |block: &CertifiedBlock| *block == inherited;
+        let previously = |block: &CertifiedBlock, _: Certification| *block == inherited;
         let no_votes = |votes: &[(BlockHash, ResidualKind)]| vec![false; votes.len()];
         let missing = unjustified(&certified, &residual, None, &kinds, &previously, &no_votes);
         let mut missing = missing.unwrap();

@@ -79,12 +79,23 @@ impl AecVoter {
         {
             #[cfg(feature = "rai_protocol")]
             {
-                // RAI: a block is a valid proposal once its dependencies are
-                // finalized here (the previous block, the source of a receive)
+                // RAI, "Attachment and eligibility": a block is a valid
+                // proposal on a finalized parent or a maximum-depth tip of
+                // the latest checkpoint, with a finalized receive source;
+                // the container lets a complete current-epoch parent stand
+                // in for the previous block
                 let any = self.ledger.any();
-                let proposal_valid = |hash: &BlockHash| {
-                    any.get_block(hash)
-                        .is_some_and(|block| any.dependencies_confirmed(&block))
+                let checkpoint = self.aec.latest_checkpoint();
+                let proposal_valid = |hash: &BlockHash| match any.get_block(hash) {
+                    Some(block) => match crate::consensus::unattached_dependency(
+                        &any,
+                        &block,
+                        checkpoint.as_deref(),
+                    ) {
+                        None => Ok(()),
+                        Some(why) => Err(why),
+                    },
+                    None => Err(crate::consensus::Unattached::Block),
                 };
                 self.aec
                     .kudzu_votes_due(proposal_valid)

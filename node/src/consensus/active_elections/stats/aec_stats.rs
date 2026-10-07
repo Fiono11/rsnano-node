@@ -42,6 +42,10 @@ pub(crate) struct AecStats {
     pub epochs_closed: u64,
     /// RAI: rounds of the close elections this node entered
     pub close_rounds: u64,
+    /// RAI: instances made eligible for finality by an overlap exception
+    pub overlap_eligible: u64,
+    /// RAI: early instances discarded by the recheck against S_{e-1}
+    pub rechecked_discarded: u64,
     /// RAI: close rounds abandoned because the two committees of the joint
     /// election certified different values
     pub close_conflicts: u64,
@@ -218,6 +222,12 @@ impl StatsSource for AecStats {
         result.insert(AEC_STAT_KEY, "started_for_vote", self.started_for_vote);
         result.insert(AEC_STAT_KEY, "epochs_closed", self.epochs_closed);
         result.insert(AEC_STAT_KEY, "close_rounds", self.close_rounds);
+        result.insert(AEC_STAT_KEY, "overlap_eligible", self.overlap_eligible);
+        result.insert(
+            AEC_STAT_KEY,
+            "rechecked_discarded",
+            self.rechecked_discarded,
+        );
         result.insert(AEC_STAT_KEY, "close_conflicts", self.close_conflicts);
         result.insert(AEC_STAT_KEY, "recounted", self.recounted);
         result.insert(
