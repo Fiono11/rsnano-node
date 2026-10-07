@@ -410,6 +410,20 @@ impl AecService {
 
     /// RAI: whether this node holds a voter's signed vote for a block
     #[cfg(feature = "rai_protocol")]
+    /// RAI, durable signing records: the slot states changed since the last call
+    pub(crate) fn take_signing_records(&self) -> Vec<crate::consensus::SlotRecord> {
+        self.aec.write().unwrap().take_signing_records()
+    }
+
+    /// RAI, durable signing records: what this node signed before a restart
+    pub fn restore_signing(
+        &self,
+        records: Vec<crate::consensus::SlotRecord>,
+        frozen: Vec<ConsensusEpoch>,
+    ) {
+        self.aec.write().unwrap().restore_signing(records, frozen)
+    }
+
     /// RAI: a successor member installed an epoch's checkpoint; true when
     /// `N - f` of the successor committee's weight has, for the first time
     pub fn acknowledge_install(

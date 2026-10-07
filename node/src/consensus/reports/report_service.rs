@@ -16,6 +16,7 @@ use super::{
 };
 use crate::{
     consensus::{AecService, EpochReport},
+    consensus::{SigningRecords, active_elections::ActiveElectionsContainer},
     transport::MessageFlooder,
     wallets::WalletRepresentatives,
 };
@@ -37,6 +38,8 @@ pub struct ReportService {
     /// Reports taken at a boundary whose predecessor checkpoint was not
     /// decided here yet: signed once it is
     pending: Mutex<HashMap<ConsensusEpoch, Arc<EpochReport>>>,
+    /// RAI: left epochs and frozen reports persisted before signatures leave
+    signing: Arc<SigningRecords>,
 }
 
 impl ReportService {
@@ -46,6 +49,7 @@ impl ReportService {
         flooder: MessageFlooder,
         clock: Arc<SteadyClock>,
         stats: Arc<Stats>,
+        signing: Arc<SigningRecords>,
     ) -> Self {
         Self {
             exchange: Arc::new(Mutex::new(ReportExchange::new())),
@@ -55,6 +59,7 @@ impl ReportService {
             clock,
             stats,
             pending: Mutex::new(HashMap::new()),
+            signing,
         }
     }
 
@@ -65,7 +70,22 @@ impl ReportService {
             MessageFlooder::new_null(),
             Arc::new(SteadyClock::new_null()),
             Arc::new(Stats::default()),
+            Arc::new(SigningRecords::new_null()),
         )
+    }
+
+    /// RAI, durable signing records: the frozen reports persisted before a
+    /// restart are held again, and not signed anew
+    pub fn restore_reports(&self, records: Vec<crate::consensus::ReportRecord>) {
+        let mut exchange = self.exchange.lock().unwrap();
+        for record in records {
+            exchange.restore_signed(
+                record.epoch,
+                record.signed,
+                record.certified,
+                record.residual,
+            );
+        }
     }
 
     /// Algorithm 1 line 8: the node stopped signing in the epoch at its
@@ -74,6 +94,13 @@ impl ReportService {
     /// reached before that checkpoint was decided here signs as soon as it
     /// is (see `tick`).
     pub fn epoch_left(&self, epoch: ConsensusEpoch, report: Arc<EpochReport>) {
+        // Persisted first: a restart signs nothing new in the epoch left
+        self.signing.write_frozen(epoch);
+        self.signing.forget_before(ConsensusEpoch::new(
+            epoch
+                .as_u64()
+                .saturating_sub(ActiveElectionsContainer::VOTE_RECORD_EPOCHS_KEPT),
+        ));
         let Some(predecessor) = self.predecessor_of(epoch) else {
             crate::utils::diagnostic!("EPOCH_REPORT_DEFERRED epoch={}", epoch);
             self.pending.lock().unwrap().insert(epoch, report);
@@ -112,8 +139,8 @@ impl ReportService {
             let mut exchange = self.exchange.lock().unwrap();
             exchange.report_epoch(
                 epoch,
-                certified_state,
-                residual_votes,
+                certified_state.clone(),
+                residual_votes.clone(),
                 report.committee,
                 predecessor,
                 &keys,
@@ -122,6 +149,20 @@ impl ReportService {
         if messages.is_empty() {
             return;
         }
+        // Persisted before the headers leave: a restart holds the same
+        // frozen report and signs no other for the epoch
+        self.signing.write_report(&crate::consensus::ReportRecord {
+            epoch,
+            signed: messages
+                .iter()
+                .filter_map(|message| match message {
+                    ReportMessage::Broadcast(report) => Some(report.clone()),
+                    _ => None,
+                })
+                .collect(),
+            certified: certified_state,
+            residual: residual_votes,
+        });
         crate::utils::diagnostic!(
             "EPOCH_REPORT epoch={} certified={} residual={} root={} reports={}",
             epoch,

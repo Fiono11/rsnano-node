@@ -846,6 +846,9 @@ impl Node {
         ));
 
         // RAI, Section 6: the report phase of the epoch closes
+        // RAI: durable signing records, persisted before any signature
+        // leaves and reloaded here so that a restart signs nothing it forbids
+        let signing = Arc::new(crate::consensus::SigningRecords::new(ledger.clone()));
         #[cfg(feature = "rai_protocol")]
         let reports = Arc::new(ReportService::new(
             active_elections.clone(),
@@ -853,7 +856,21 @@ impl Node {
             message_flooder.clone(),
             steady_clock.clone(),
             stats.clone(),
+            signing.clone(),
         ));
+        #[cfg(feature = "rai_protocol")]
+        {
+            let recovered = signing.load();
+            if !recovered.slots.is_empty() || !recovered.frozen.is_empty() {
+                info!(
+                    "RAI: restored {} signing records and {} left epochs",
+                    recovered.slots.len(),
+                    recovered.frozen.len()
+                );
+            }
+            active_elections.restore_signing(recovered.slots, recovered.frozen);
+            reports.restore_reports(recovered.reports);
+        }
         #[cfg(feature = "rai_protocol")]
         aec_event_handlers.add_mut(ReportPlugin::new(reports.clone()));
 
@@ -1234,6 +1251,7 @@ impl Node {
             current_network,
             cps_limiter,
             ledger.clone(),
+            signing.clone(),
         )));
 
         // With ledger_snapshots we never vote for forked blocks!

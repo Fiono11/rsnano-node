@@ -108,7 +108,7 @@ impl Report {
 
 impl MessageVariant for Report {}
 
-#[cfg(test)]
+#[cfg(all(test, feature = "rai_protocol"))]
 mod tests {
     use super::*;
     #[test]

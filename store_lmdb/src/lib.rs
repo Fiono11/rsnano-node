@@ -17,6 +17,7 @@ mod online_weight_store;
 mod peer_store;
 mod pending_store;
 mod rep_weight_store;
+mod signing_store;
 mod store;
 mod successor_store;
 mod upgrades;
@@ -41,6 +42,7 @@ pub use pending_store::{ConfiguredPendingDatabaseBuilder, LmdbPendingStore, read
 pub use rep_weight_store::*;
 pub use rsnano_nullable_lmdb::EnvironmentFlags;
 pub use rsnano_nullable_lmdb::EnvironmentOptions;
+pub use signing_store::LmdbSigningStore;
 pub use store::{LedgerCache, LmdbStore, MemoryStats};
 pub use upgrades::create_and_update_lmdb_env;
 pub use vacuum::vacuum;

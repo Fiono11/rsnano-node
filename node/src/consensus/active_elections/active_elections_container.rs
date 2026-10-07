@@ -142,6 +142,9 @@ pub(crate) struct ActiveElectionsContainer {
     /// RAI: the successor-committee members that acknowledged installing
     /// each epoch's checkpoint
     install_acks: BTreeMap<ConsensusEpoch, BTreeSet<PublicKey>>,
+    /// RAI, durable signing records: the slots whose state changed since the
+    /// voter last persisted them; persisted before the votes are released
+    dirty_signing: Vec<EpochSlot>,
     /// RAI: elections of the current epoch which got a certificate so far
     decided_in_current_epoch: usize,
     /// RAI: how long an epoch lasts from its first election; zero: no time limit
@@ -193,7 +196,7 @@ impl ActiveElectionsContainer {
     const FROZEN_EPOCHS_KEPT: u64 = 8;
     /// RAI: how many left epochs keep their received votes, for the
     /// residual objects of their reports; as many as the reports are kept
-    const VOTE_RECORD_EPOCHS_KEPT: u64 = 4;
+    pub(crate) const VOTE_RECORD_EPOCHS_KEPT: u64 = 4;
 
     pub fn new(config: ActiveElectionsConfig, base_latency: Duration) -> Self {
         Self {
@@ -216,6 +219,7 @@ impl ActiveElectionsContainer {
             vote_records: VoteRecords::default(),
             checkpoint_delegations: BTreeMap::new(),
             install_acks: BTreeMap::new(),
+            dirty_signing: Vec::new(),
             decided_in_current_epoch: 0,
             epoch_duration: config.epoch_duration,
             epochs_started: false,
@@ -1809,9 +1813,54 @@ impl ActiveElectionsContainer {
             }
             slot.mark_voted(target.winner, kind);
             self.slots.record_parent(target.winner, previous);
+            self.dirty_signing.push(election.epoch_slot());
             accepted.push(target);
         }
         accepted
+    }
+
+    /// RAI, durable signing records: the slot states changed since the last
+    /// call, with the parents of the blocks they voted for. The voter
+    /// persists them before the votes leave the process.
+    pub fn take_signing_records(&mut self) -> Vec<crate::consensus::SlotRecord> {
+        let mut dirty = std::mem::take(&mut self.dirty_signing);
+        dirty.sort_by_key(|slot| (slot.account, slot.height, slot.epoch));
+        dirty.dedup();
+        dirty
+            .into_iter()
+            .filter_map(|slot| {
+                let state = self.slots.get(&slot)?.clone();
+                let parents = state
+                    .voted()
+                    .into_iter()
+                    .map(|hash| (hash, self.slots.parent(&hash)))
+                    .filter(|(_, parent)| !parent.is_zero())
+                    .collect();
+                Some(crate::consensus::SlotRecord {
+                    slot,
+                    state,
+                    parents,
+                })
+            })
+            .collect()
+    }
+
+    /// RAI, durable signing records: what a restarted node signed before.
+    /// The slot states forbid any first or final vote they do not match, and
+    /// the epochs left forbid any new signing; nothing is reset.
+    pub fn restore_signing(
+        &mut self,
+        records: Vec<crate::consensus::SlotRecord>,
+        frozen: Vec<ConsensusEpoch>,
+    ) {
+        for record in records {
+            *self.slots.get_or_default(&record.slot) = record.state;
+            for (hash, parent) in record.parents {
+                self.slots.record_parent(hash, parent);
+            }
+        }
+        self.frozen.extend(frozen);
+        self.stats.signing_restored += 1;
     }
 
     /// RAI, §4.2: "A block is complete in epoch e when its data and
@@ -2100,6 +2149,7 @@ impl ActiveElectionsContainer {
             if let Some((hash, kind)) = election.kudzu_final_vote_due(slot) {
                 slot.mark_voted(hash, kind);
                 self.slots.record_parent(hash, previous);
+                self.dirty_signing.push(election.epoch_slot());
                 self.pending_kudzu_votes.push(VoteTarget {
                     election: election.id(),
                     winner: hash,
@@ -4939,6 +4989,83 @@ mod tests {
             vote_type: VoteType::Final,
         };
         assert!(container.mark_kudzu_voted(vec![stale]).is_empty());
+    }
+
+    /// RAI, durable signing records: a vote released is a record to persist,
+    /// and a record restored after a restart forbids a conflicting first
+    /// vote at its slot; a restored left epoch forbids new signing in it
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn restored_signing_records_forbid_what_this_node_signed_against() {
+        use crate::consensus::SlotRecord;
+        let (mut container, _, _, start) = committee_fixture(|_| {});
+        let block = SavedBlock::new_test_instance_with_key(2);
+        let rival = sibling_of(&block);
+        container
+            .insert(
+                AecInsertRequest::new_priority(block.clone(), BlockPriority::new_test_instance()),
+                start,
+            )
+            .unwrap();
+        let target = |winner: BlockHash, vote_type| VoteTarget {
+            election: ElectionId::new(block.qualified_root(), ConsensusEpoch::ZERO),
+            winner,
+            vote_type,
+        };
+        // A vote released leaves a record with the block's parent
+        assert_eq!(
+            container
+                .mark_kudzu_voted(vec![target(block.hash(), VoteType::NonFinal)])
+                .len(),
+            1
+        );
+        let records = container.take_signing_records();
+        assert_eq!(records.len(), 1);
+        assert_eq!(
+            records[0].slot,
+            EpochSlot {
+                account: block.account(),
+                height: block.height(),
+                epoch: ConsensusEpoch::ZERO,
+            }
+        );
+        assert_eq!(records[0].state.first_voted, Some(block.hash()));
+        assert_eq!(records[0].parents, vec![(block.hash(), block.previous())]);
+        assert!(container.take_signing_records().is_empty());
+
+        // A restart that recovered a first vote for the rival instead
+        let (mut restarted, _, _, start) = committee_fixture(|_| {});
+        restarted.restore_signing(
+            vec![SlotRecord {
+                slot: EpochSlot {
+                    account: block.account(),
+                    height: block.height(),
+                    epoch: ConsensusEpoch::ZERO,
+                },
+                state: LocalSlotState {
+                    first_voted: Some(rival.hash()),
+                    ..Default::default()
+                },
+                parents: vec![(rival.hash(), rival.previous())],
+            }],
+            Vec::new(),
+        );
+        restarted
+            .insert(
+                AecInsertRequest::new_priority(block.clone(), BlockPriority::new_test_instance()),
+                start,
+            )
+            .unwrap();
+        assert!(
+            restarted
+                .mark_kudzu_voted(vec![target(block.hash(), VoteType::NonFinal)])
+                .is_empty()
+        );
+        assert_eq!(restarted.slots.parent(&rival.hash()), rival.previous());
+
+        // A left epoch recovered: nothing new is signed in it
+        restarted.restore_signing(Vec::new(), vec![ConsensusEpoch::ZERO]);
+        assert!(!restarted.signs_account_votes_in(ConsensusEpoch::ZERO));
     }
 
     /// A candidate source which always has a block to schedule

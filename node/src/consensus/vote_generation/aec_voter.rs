@@ -14,7 +14,7 @@ use super::{
     voting_scheduler::{VoteTarget, VotingScheduler},
 };
 use crate::consensus::{
-    AecService, election::VoteType, vote_generation::voting_scheduler::vote_target,
+    AecService, SigningRecords, election::VoteType, vote_generation::voting_scheduler::vote_target,
 };
 
 /// Creates votes for blocks within the AEC
@@ -25,6 +25,8 @@ pub(crate) struct AecVoter {
     cps_limiter: CpsLimiter,
     scheduler: VotingScheduler,
     ledger: Arc<Ledger>,
+    /// RAI: the signing records persisted before votes are released
+    signing: Arc<SigningRecords>,
 }
 
 impl AecVoter {
@@ -35,6 +37,7 @@ impl AecVoter {
         network: NetworkType,
         cps_limiter: CpsLimiter,
         ledger: Arc<Ledger>,
+        signing: Arc<SigningRecords>,
     ) -> Self {
         let vote_broadcast_interval = match network {
             NetworkType::NanoDevNetwork => Duration::from_millis(500),
@@ -47,6 +50,7 @@ impl AecVoter {
             cps_limiter,
             scheduler: VotingScheduler::new(vote_broadcast_interval),
             ledger,
+            signing,
         }
     }
 
@@ -151,8 +155,10 @@ impl Tickable for AecVoter {
         self.scheduler.cleanup(now);
         #[cfg(feature = "rai_protocol")]
         {
-            // Record the decisions before the generators pick them up
+            // Record the decisions before the generators pick them up, and
+            // persist them before the signatures leave: one write per batch
             vote_queue = self.aec.mark_kudzu_voted(vote_queue);
+            self.signing.write_slots(&self.aec.take_signing_records());
         }
         self.flush(&mut vote_queue);
     }

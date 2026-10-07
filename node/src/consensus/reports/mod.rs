@@ -861,6 +861,30 @@ impl ReportExchange {
         }
     }
 
+    /// RAI, durable signing records: this node's frozen report of an epoch,
+    /// as persisted before a restart. It is not signed again.
+    pub fn restore_signed(
+        &mut self,
+        epoch: ConsensusEpoch,
+        signed: Vec<Report>,
+        certified: CertifiedState,
+        residual: ResidualVotes,
+    ) {
+        let held = self.epochs.entry(epoch).or_default();
+        if !held.signed.is_empty() || signed.is_empty() {
+            return;
+        }
+        let certified_root = certified.root();
+        let residual_root = residual.root();
+        for (block, entry) in certified.entries() {
+            held.live.certify(*block, entry.previous, entry.status);
+        }
+        held.snapshots.insert(certified_root, certified);
+        held.residuals.insert(residual_root, residual);
+        held.signed = signed;
+        self.trim();
+    }
+
     /// RAI, "Retained evidence": the handoff evidence of an epoch, its
     /// frozen reports, reconstructions and symbol encoders, is released once
     /// the successors hold the checkpoint it produced

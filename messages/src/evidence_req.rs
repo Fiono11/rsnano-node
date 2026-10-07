@@ -59,7 +59,7 @@ impl MessageVariant for EvidenceReq {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "rai_protocol"))]
 mod tests {
     use super::*;
     use crate::{Message, assert_deserializable};

@@ -44,6 +44,8 @@ pub(crate) struct AecStats {
     pub close_rounds: u64,
     /// RAI: instances made eligible for finality by an overlap exception
     pub overlap_eligible: u64,
+    /// RAI: durable signing records restored at start
+    pub signing_restored: u64,
     /// RAI: early instances discarded by the recheck against S_{e-1}
     pub rechecked_discarded: u64,
     /// RAI: notarized instances given an open-epoch instance when their
@@ -226,6 +228,7 @@ impl StatsSource for AecStats {
         result.insert(AEC_STAT_KEY, "epochs_closed", self.epochs_closed);
         result.insert(AEC_STAT_KEY, "close_rounds", self.close_rounds);
         result.insert(AEC_STAT_KEY, "overlap_eligible", self.overlap_eligible);
+        result.insert(AEC_STAT_KEY, "signing_restored", self.signing_restored);
         result.insert(
             AEC_STAT_KEY,
             "rechecked_discarded",
