@@ -2,6 +2,8 @@ use std::collections::BTreeMap;
 
 use rsnano_types::{Account, Blake2HashBuilder, BlockHash, ConsensusEpoch, PublicKey};
 
+use super::{ITEM_SIZE, Item, Recovered};
+
 /// RAI: what a validator has locally constructed for a block of one epoch.
 /// The statuses are ordered: a block enters the certified tree notarized and
 /// may later gain a finalization status, never the other way round.
@@ -376,6 +378,121 @@ impl ResidualVotes {
     }
 }
 
+/// RAI: the 105-byte encodings of a report's entries that the rateless
+/// reconciliation streams: block (account, height, hash), then the parent,
+/// then one byte, the certified status or the residual vote kind
+fn encode_item(block: &CertifiedBlock, previous: &BlockHash, tag: u8) -> Item {
+    let mut item = [0; ITEM_SIZE];
+    item[..32].copy_from_slice(block.account.as_bytes());
+    item[32..40].copy_from_slice(&block.height.to_le_bytes());
+    item[40..72].copy_from_slice(block.hash.as_bytes());
+    item[72..104].copy_from_slice(previous.as_bytes());
+    item[104] = tag;
+    item
+}
+
+fn decode_item(item: &Item) -> (CertifiedBlock, BlockHash, u8) {
+    let mut account = [0; 32];
+    account.copy_from_slice(&item[..32]);
+    let mut height = [0; 8];
+    height.copy_from_slice(&item[32..40]);
+    let mut hash = [0; 32];
+    hash.copy_from_slice(&item[40..72]);
+    let mut previous = [0; 32];
+    previous.copy_from_slice(&item[72..104]);
+    (
+        CertifiedBlock::new(
+            Account::from_bytes(account),
+            u64::from_le_bytes(height),
+            BlockHash::from_bytes(hash),
+        ),
+        BlockHash::from_bytes(previous),
+        item[104],
+    )
+}
+
+impl CertifiedState {
+    /// Every entry as a reconciliation item
+    pub fn items(&self) -> impl Iterator<Item = Item> + '_ {
+        self.entries
+            .iter()
+            .map(|(block, entry)| encode_item(block, &entry.previous, entry.status.as_byte()))
+    }
+
+    /// The entry an item encodes; None for an item no entry encodes to
+    pub fn entry_of(item: &Item) -> Option<(CertifiedBlock, Certification)> {
+        let (block, previous, tag) = decode_item(item);
+        let status = CertifiedStatus::from_byte(tag)?;
+        Some((block, Certification { status, previous }))
+    }
+
+    /// This state with a reconciled difference applied: the items only the
+    /// local base held go, those only the remote set held come in. None if
+    /// an item encodes no entry, or a removed one is not held as encoded.
+    pub fn with_difference(&self, difference: impl IntoIterator<Item = Recovered>) -> Option<Self> {
+        let mut state = self.clone();
+        let mut inserts = Vec::new();
+        for recovered in difference {
+            match recovered {
+                Recovered::Local(item) => {
+                    let (block, entry) = Self::entry_of(&item)?;
+                    if state.certification(&block) != Some(entry) {
+                        return None;
+                    }
+                    state.remove(&block);
+                }
+                Recovered::Remote(item) => inserts.push(Self::entry_of(&item)?),
+            }
+        }
+        for (block, entry) in inserts {
+            if state.certification(&block).is_some() {
+                return None;
+            }
+            state.set(block, entry);
+        }
+        Some(state)
+    }
+}
+
+impl ResidualVotes {
+    /// Every record as a reconciliation item
+    pub fn items(&self) -> impl Iterator<Item = Item> + '_ {
+        self.entries()
+            .map(|(block, kind, previous)| encode_item(&block, &previous, kind.as_byte()))
+    }
+
+    /// The record an item encodes; None for an item no record encodes to
+    pub fn record_of(item: &Item) -> Option<(CertifiedBlock, ResidualKind, BlockHash)> {
+        let (block, previous, tag) = decode_item(item);
+        Some((block, ResidualKind::from_byte(tag)?, previous))
+    }
+
+    /// These records with a reconciled difference applied; None if an item
+    /// encodes no record or a removed one is not held
+    pub fn with_difference(&self, difference: impl IntoIterator<Item = Recovered>) -> Option<Self> {
+        let mut records = self.clone();
+        let mut inserts = Vec::new();
+        for recovered in difference {
+            match recovered {
+                Recovered::Local(item) => {
+                    let (block, kind, previous) = Self::record_of(&item)?;
+                    if records.entries.get(&(block, kind)) != Some(&previous) {
+                        return None;
+                    }
+                    records.remove(&block, kind);
+                }
+                Recovered::Remote(item) => inserts.push(Self::record_of(&item)?),
+            }
+        }
+        for (block, kind, previous) in inserts {
+            if !records.record(block, previous, kind) {
+                return None;
+            }
+        }
+        Some(records)
+    }
+}
+
 /// RAI: what a report commits to. The signed message binds the epoch, the
 /// old committee, the reporter and the two roots; the contents behind them
 /// are reconstructed separately and checked against the roots.
@@ -602,5 +719,58 @@ mod tests {
     /// The parent a test block names, distinct per block
     fn parent(block: CertifiedBlock) -> BlockHash {
         BlockHash::from(block.height * 100_000 + block.account.as_bytes()[31] as u64 + 3)
+    }
+
+    /// The reconciliation items encode the entries exactly, and a decoded
+    /// difference applied to the base rebuilds the reporter's state
+    #[test]
+    fn a_reconciled_difference_rebuilds_the_remote_state() {
+        use crate::consensus::election::{Decoder, Encoder};
+        let block = |i: u64| CertifiedBlock::new(Account::from(i), i, BlockHash::from(i + 100));
+        let mut remote = CertifiedState::new();
+        let mut local = CertifiedState::new();
+        for i in 1..50 {
+            remote.certify(block(i), BlockHash::from(i), CertifiedStatus::Notarized);
+            local.certify(block(i), BlockHash::from(i), CertifiedStatus::Notarized);
+        }
+        // Only the reporter finalized one, only it holds two, only we hold one
+        remote.certify(block(3), BlockHash::from(3), CertifiedStatus::Finalized);
+        remote.certify(block(60), BlockHash::from(60), CertifiedStatus::Notarized);
+        remote.certify(block(61), BlockHash::from(61), CertifiedStatus::Finalized);
+        local.certify(block(70), BlockHash::from(70), CertifiedStatus::Notarized);
+        let mut encoder = Encoder::new(remote.items());
+        let mut decoder = Decoder::new(local.items());
+        while !decoder.is_done() {
+            let from = decoder.received();
+            let symbols = encoder.symbols(from, 8).to_vec();
+            decoder.add_symbols(&symbols);
+        }
+        // The upgraded entry counts twice: its old and its new encoding
+        assert_eq!(decoder.recovered().count(), 5);
+        let rebuilt = local.with_difference(decoder.recovered()).unwrap();
+        assert_eq!(rebuilt.root(), remote.root());
+        for (block, entry) in remote.entries() {
+            let item = encode_item(block, &entry.previous, entry.status.as_byte());
+            assert_eq!(CertifiedState::entry_of(&item), Some((*block, *entry)));
+        }
+    }
+
+    #[test]
+    fn residual_records_round_trip_through_items() {
+        let block = CertifiedBlock::new(Account::from(1), 2, BlockHash::from(3));
+        let mut local = ResidualVotes::new();
+        local.record(block, BlockHash::from(4), ResidualKind::First);
+        let mut remote = local.clone();
+        remote.record(block, BlockHash::from(4), ResidualKind::Final);
+        let items: Vec<Item> = remote.items().collect();
+        assert_eq!(items.len(), 2);
+        let difference = remote
+            .items()
+            .filter(|item| !local.items().any(|held| held == *item))
+            .map(Recovered::Remote);
+        assert_eq!(
+            local.with_difference(difference).unwrap().root(),
+            remote.root()
+        );
     }
 }

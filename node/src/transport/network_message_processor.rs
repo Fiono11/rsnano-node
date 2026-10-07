@@ -225,6 +225,12 @@ impl NetworkMessageProcessor {
             Message::Report(report) => self.reports.handle_report(report, channel),
             #[cfg(feature = "rai_protocol")]
             Message::EpochProp(prop) => self.epoch_decision.handle_proposal(prop, channel),
+            #[cfg(feature = "rai_protocol")]
+            Message::ReportSymbolsReq(request) => {
+                self.reports.handle_symbols_request(request, channel)
+            }
+            #[cfg(feature = "rai_protocol")]
+            Message::ReportSymbolsReply(reply) => self.reports.handle_symbols_reply(reply, channel),
 
             #[cfg(feature = "ledger_snapshots")]
             Message::SnapshotPreproposal(preproposal) => {

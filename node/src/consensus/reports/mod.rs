@@ -2,17 +2,22 @@ mod epoch_decision;
 mod report_plugin;
 mod report_service;
 use crate::consensus::election::{
-    CertifiedBlock, CertifiedState, ReportCommitment, ResidualKind, ResidualVotes,
+    CertifiedBlock, CertifiedState, CodedSymbol, Decoder, Encoder, ReportCommitment, ResidualKind,
+    ResidualVotes,
 };
 pub use epoch_decision::EpochDecisionService;
 pub(crate) use report_plugin::{ReportPlugin, ReportTicker};
 pub use report_service::ReportService;
-use rsnano_messages::Report;
+use rsnano_messages::{Report, ReportSet, ReportSymbolsReply, ReportSymbolsReq};
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{BlockHash, ConsensusEpoch, PrivateKey, PublicKey};
 use std::collections::{BTreeMap, HashMap};
 
-/// Frozen reports and local reconstructions. Phase 0 only accepts identical roots.
+/// RAI: frozen reports and their local reconstructions. A report whose
+/// roots match a state held here is usable at once; any other is rebuilt by
+/// rateless reconciliation: this node streams the coded symbols of the
+/// reporter's inventory from whoever holds it, subtracts its own view and
+/// peels the difference, then checks the result against the signed root.
 pub(crate) struct ReportExchange {
     epochs: BTreeMap<ConsensusEpoch, EpochReports>,
     max_epochs: usize,
@@ -25,12 +30,91 @@ struct EpochReports {
     signed: Vec<Report>,
     theirs: HashMap<PublicKey, TheirReport>,
     repeated: Option<Timestamp>,
+    /// The symbol streams this node serves, by inventory and root
+    encoders: HashMap<(ReportSet, BlockHash), Encoder>,
 }
 struct TheirReport {
     report: Report,
     reconstructed: Option<CertifiedState>,
     residual: Option<ResidualVotes>,
     derived: Option<Timestamp>,
+    certified_stream: Option<Stream<CertifiedState>>,
+    residual_stream: Option<Stream<ResidualVotes>>,
+}
+
+/// RAI: one running reconciliation of an inventory against a fixed base,
+/// the local view as it stood when the stream started
+struct Stream<B> {
+    base: B,
+    decoder: Decoder,
+    /// When symbols were last asked for; None before the first request
+    requested_at: Option<Timestamp>,
+    /// Symbols asked for in the last request
+    batch: u16,
+}
+
+impl<B> Stream<B> {
+    const FIRST_BATCH: u16 = 64;
+
+    fn new(base: B, decoder: Decoder) -> Self {
+        Self {
+            base,
+            decoder,
+            requested_at: None,
+            batch: Self::FIRST_BATCH,
+        }
+    }
+
+    /// The request to send now, if one is due: the first one, or a repeat
+    /// of one unanswered for `ReportExchange::RETRY_INTERVAL`
+    fn due(
+        &mut self,
+        epoch: ConsensusEpoch,
+        set: ReportSet,
+        target: BlockHash,
+        now: Timestamp,
+    ) -> Option<ReportSymbolsReq> {
+        if self
+            .requested_at
+            .is_some_and(|at| at.elapsed(now) < ReportExchange::RETRY_INTERVAL)
+        {
+            return None;
+        }
+        self.requested_at = Some(now);
+        Some(self.request(epoch, set, target))
+    }
+
+    fn request(
+        &self,
+        epoch: ConsensusEpoch,
+        set: ReportSet,
+        target: BlockHash,
+    ) -> ReportSymbolsReq {
+        ReportSymbolsReq {
+            epoch,
+            set,
+            target,
+            from: self.decoder.received() as u32,
+            count: self.batch,
+        }
+    }
+
+    /// Feeds a reply that continues the stream; replies for another offset
+    /// (a duplicate from a second holder, a late answer) are ignored
+    fn accept(&mut self, reply: &ReportSymbolsReply, now: Timestamp) -> bool {
+        if reply.from as usize != self.decoder.received() || reply.symbol_count() == 0 {
+            return false;
+        }
+        let symbols: Vec<CodedSymbol> = reply
+            .symbols()
+            .filter_map(CodedSymbol::deserialize)
+            .collect();
+        self.decoder.add_symbols(&symbols);
+        // The next request goes out with this reply's handling
+        self.requested_at = Some(now);
+        self.batch = (self.batch.saturating_mul(2)).min(ReportSymbolsReply::MAX_SYMBOLS as u16);
+        true
+    }
 }
 impl TheirReport {
     fn is_complete(&self) -> bool {
@@ -40,6 +124,8 @@ impl TheirReport {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ReportMessage {
     Broadcast(Report),
+    /// Coded symbols asked of every node that may hold the inventory
+    Request(ReportSymbolsReq),
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ReconcileResult {
@@ -235,6 +321,8 @@ impl ReportExchange {
                 reconstructed: None,
                 residual,
                 derived: None,
+                certified_stream: None,
+                residual_stream: None,
             },
         );
         true
@@ -274,7 +362,13 @@ impl ReportExchange {
         let total = derived.len();
         let complete = derived.root() == their.report.residual;
         if complete {
+            // Votes that arrived since make a running stream unnecessary
             their.residual = Some(derived);
+            their.residual_stream = None;
+        } else if their.residual_stream.is_none() {
+            // A running stream keeps its base: it must not move under it
+            let decoder = Decoder::new(derived.items());
+            their.residual_stream = Some(Stream::new(derived, decoder));
         }
         Some(ReconcileResult {
             epoch,
@@ -283,6 +377,166 @@ impl ReportExchange {
             entries: total,
             total,
         })
+    }
+
+    /// RAI: the symbol requests due now: the first of every stream started
+    /// and a repeat of every one unanswered for `RETRY_INTERVAL`
+    pub fn stream_requests(&mut self, now: Timestamp) -> Vec<ReportMessage> {
+        let mut messages = Vec::new();
+        for (epoch, held) in &mut self.epochs {
+            for their in held.theirs.values_mut() {
+                let report = &their.report;
+                if let Some(stream) = &mut their.certified_stream {
+                    messages.extend(
+                        stream
+                            .due(*epoch, ReportSet::Certified, report.certified, now)
+                            .map(ReportMessage::Request),
+                    );
+                }
+                if let Some(stream) = &mut their.residual_stream {
+                    messages.extend(
+                        stream
+                            .due(*epoch, ReportSet::Residual, report.residual, now)
+                            .map(ReportMessage::Request),
+                    );
+                }
+            }
+        }
+        messages
+    }
+
+    /// RAI: symbols of an inventory this node holds, for a node rebuilding
+    /// it. Any holder answers: a reporter's frozen snapshot, the live state
+    /// while its root matches, and every report reconstructed here.
+    pub fn symbols_for(&mut self, request: &ReportSymbolsReq) -> Option<ReportSymbolsReply> {
+        let held = self.epochs.get_mut(&request.epoch)?;
+        let key = (request.set, request.target);
+        if !held.encoders.contains_key(&key) {
+            let encoder = match request.set {
+                ReportSet::Certified => Encoder::new(held.state(request.target)?.items()),
+                ReportSet::Residual => Encoder::new(held.residual(request.target)?.items()),
+            };
+            while held.encoders.len() >= EpochReports::MAX_ENCODERS {
+                let Some(evicted) = held.encoders.keys().next().copied() else {
+                    break;
+                };
+                held.encoders.remove(&evicted);
+            }
+            held.encoders.insert(key, encoder);
+        }
+        let encoder = held.encoders.get_mut(&key)?;
+        let count = (request.count as usize).min(ReportSymbolsReply::MAX_SYMBOLS);
+        let mut symbols = Vec::with_capacity(count * ReportSymbolsReply::SYMBOL_SIZE);
+        for symbol in encoder.symbols(request.from as usize, count) {
+            symbol.serialize(&mut symbols);
+        }
+        if symbols.is_empty() {
+            return None;
+        }
+        Some(ReportSymbolsReply {
+            epoch: request.epoch,
+            set: request.set,
+            target: request.target,
+            from: request.from,
+            symbols,
+        })
+    }
+
+    /// RAI: symbols of an inventory this node is rebuilding. Once the
+    /// difference decodes, the base with the difference applied must hash to
+    /// the signed root; anything else drops the stream, and the next tick
+    /// starts another from the live view as it stands then.
+    pub fn handle_symbols(
+        &mut self,
+        reply: &ReportSymbolsReply,
+        now: Timestamp,
+    ) -> (Vec<ReportMessage>, Vec<ReconcileResult>) {
+        let mut messages = Vec::new();
+        let mut results = Vec::new();
+        let Some(held) = self.epochs.get_mut(&reply.epoch) else {
+            return (messages, results);
+        };
+        for (reporter, their) in &mut held.theirs {
+            match reply.set {
+                ReportSet::Certified => {
+                    if their.report.certified != reply.target {
+                        continue;
+                    }
+                    let Some(stream) = &mut their.certified_stream else {
+                        continue;
+                    };
+                    if !stream.accept(reply, now) {
+                        continue;
+                    }
+                    if stream.decoder.failed() {
+                        their.certified_stream = None;
+                        continue;
+                    }
+                    if !stream.decoder.is_done() {
+                        messages.push(ReportMessage::Request(stream.request(
+                            reply.epoch,
+                            ReportSet::Certified,
+                            reply.target,
+                        )));
+                        continue;
+                    }
+                    let entries = stream.decoder.recovered().count();
+                    let rebuilt = stream.base.with_difference(stream.decoder.recovered());
+                    their.certified_stream = None;
+                    let Some(rebuilt) = rebuilt.filter(|state| state.root() == reply.target) else {
+                        continue;
+                    };
+                    let total = rebuilt.len();
+                    their.reconstructed = Some(rebuilt);
+                    results.push(ReconcileResult {
+                        epoch: reply.epoch,
+                        reporter: *reporter,
+                        complete: their.is_complete(),
+                        entries,
+                        total,
+                    });
+                }
+                ReportSet::Residual => {
+                    if their.report.residual != reply.target {
+                        continue;
+                    }
+                    let Some(stream) = &mut their.residual_stream else {
+                        continue;
+                    };
+                    if !stream.accept(reply, now) {
+                        continue;
+                    }
+                    if stream.decoder.failed() {
+                        their.residual_stream = None;
+                        continue;
+                    }
+                    if !stream.decoder.is_done() {
+                        messages.push(ReportMessage::Request(stream.request(
+                            reply.epoch,
+                            ReportSet::Residual,
+                            reply.target,
+                        )));
+                        continue;
+                    }
+                    let entries = stream.decoder.recovered().count();
+                    let rebuilt = stream.base.with_difference(stream.decoder.recovered());
+                    their.residual_stream = None;
+                    let Some(rebuilt) = rebuilt.filter(|votes| votes.root() == reply.target) else {
+                        continue;
+                    };
+                    let total = rebuilt.len();
+                    their.residual = Some(rebuilt);
+                    results.push(ReconcileResult {
+                        epoch: reply.epoch,
+                        reporter: *reporter,
+                        complete: their.is_complete(),
+                        entries,
+                        total,
+                    });
+                }
+            }
+        }
+        (messages, results)
     }
     fn trim(&mut self) {
         while self.epochs.len() > self.max_epochs {
@@ -306,18 +560,20 @@ impl ReportExchange {
         &mut self,
         epoch: ConsensusEpoch,
         reporter: PublicKey,
-        _now: Timestamp,
+        now: Timestamp,
     ) -> Option<(Vec<ReportMessage>, Option<ReconcileResult>)> {
         let held = self.epochs.get_mut(&epoch)?;
         let their = held.theirs.get(&reporter)?;
-        if their.is_complete() {
+        if their.is_complete() || their.reconstructed.is_some() {
             return None;
         }
         let state = held.state(their.report.certified).cloned();
+        let held_live = &held.live;
         let their = held.theirs.get_mut(&reporter)?;
         if let Some(state) = state {
             let total = state.len();
             their.reconstructed = Some(state);
+            their.certified_stream = None;
             return Some((
                 Vec::new(),
                 Some(ReconcileResult {
@@ -329,10 +585,29 @@ impl ReportExchange {
                 }),
             ));
         }
+        if their.certified_stream.is_none() {
+            let base = held_live.clone();
+            let decoder = Decoder::new(base.items());
+            their.certified_stream = Some(Stream::new(base, decoder));
+        }
         Some((Vec::new(), None))
     }
 }
 impl EpochReports {
+    /// Symbol streams served per epoch; a request for another root rebuilds
+    /// its encoder
+    const MAX_ENCODERS: usize = 16;
+
+    fn residual(&self, root: BlockHash) -> Option<&ResidualVotes> {
+        if let Some(residual) = self.residuals.get(&root) {
+            return Some(residual);
+        }
+        self.theirs
+            .values()
+            .filter_map(|their| their.residual.as_ref())
+            .find(|residual| residual.root() == root)
+    }
+
     fn state(&self, root: BlockHash) -> Option<&CertifiedState> {
         if self.live.root() == root {
             return Some(&self.live);
@@ -468,5 +743,202 @@ mod tests {
         assert_ne!(exchange.live_root(epoch), Some(own.certified));
         assert_eq!(exchange.usable(epoch).len(), 1);
         assert_eq!(exchange.usable(epoch)[0].1.root(), own.certified);
+    }
+
+    /// RAI: a report whose root no local state shares is rebuilt from the
+    /// reporter's coded symbols: no shared root, no retry on a failed decode
+    #[test]
+    fn a_report_without_a_shared_root_is_rebuilt_from_symbols() {
+        let (reporter, report, mut requester, now) = diverged(3, 40);
+        let mut reporter = reporter;
+        assert!(requester.usable(report.epoch).is_empty());
+        let (messages, result) = requester
+            .reconcile(report.epoch, report.reporter, now)
+            .unwrap();
+        assert!(messages.is_empty() && result.is_none());
+        let rounds = pull(&mut requester, &mut reporter, now);
+        assert!(rounds >= 1);
+        let usable = requester.usable(report.epoch);
+        assert_eq!(usable.len(), 1);
+        assert_eq!(usable[0].1.root(), report.certified);
+    }
+
+    /// A node thousands of entries behind finishes in one pull loop
+    #[test]
+    fn a_node_thousands_of_entries_short_catches_up() {
+        let (mut reporter, report, mut requester, now) = diverged(3000, 3010);
+        requester.reconcile(report.epoch, report.reporter, now);
+        pull(&mut requester, &mut reporter, now);
+        assert_eq!(requester.usable(report.epoch).len(), 1);
+    }
+
+    /// Symbols for another root, or for an offset the stream is not at,
+    /// change nothing
+    #[test]
+    fn a_reply_for_another_target_or_offset_is_ignored() {
+        let (mut reporter, report, mut requester, now) = diverged(3, 40);
+        requester.reconcile(report.epoch, report.reporter, now);
+        let request = match requester.stream_requests(now).remove(0) {
+            ReportMessage::Request(request) => request,
+            other => panic!("{other:?}"),
+        };
+        let mut reply = reporter.symbols_for(&request).unwrap();
+        reply.target = BlockHash::from(12345);
+        let (messages, results) = requester.handle_symbols(&reply, now);
+        assert!(messages.is_empty() && results.is_empty());
+        let mut reply = reporter.symbols_for(&request).unwrap();
+        reply.from = 7;
+        let (messages, results) = requester.handle_symbols(&reply, now);
+        assert!(messages.is_empty() && results.is_empty());
+        // The right reply continues the stream
+        let reply = reporter.symbols_for(&request).unwrap();
+        let (messages, results) = requester.handle_symbols(&reply, now);
+        assert!(!messages.is_empty() || !results.is_empty());
+    }
+
+    /// A lost reply is asked for again after the retry interval, from the
+    /// same offset
+    #[test]
+    fn a_stream_resumes_after_a_lost_reply() {
+        let (mut reporter, report, mut requester, now) = diverged(3, 40);
+        requester.reconcile(report.epoch, report.reporter, now);
+        let first = requester.stream_requests(now);
+        assert_eq!(first.len(), 1);
+        // Lost. Nothing is repeated before the retry interval...
+        assert!(requester.stream_requests(now).is_empty());
+        // ...and the same request goes out after it
+        let later = now + ReportExchange::RETRY_INTERVAL;
+        let again = requester.stream_requests(later);
+        assert_eq!(again, first);
+        carry(&mut requester, &mut reporter, again, later);
+        requester.derive_residual(report.epoch, report.reporter, [], later);
+        assert_eq!(requester.usable(report.epoch).len(), 1);
+    }
+
+    /// The residual object of a reporter whose vote this node never
+    /// received is rebuilt the same way, against the derived records
+    #[test]
+    fn a_lost_vote_is_recovered_from_the_residual_stream() {
+        let mut votes = ResidualVotes::new();
+        votes.record(block(), BlockHash::ZERO, ResidualKind::First);
+        let mut reporter = ReportExchange::new();
+        reporter.report_epoch(
+            ConsensusEpoch::ZERO,
+            CertifiedState::new(),
+            votes,
+            BlockHash::from(3),
+            BlockHash::from(4),
+            &[PrivateKey::from(1)],
+        );
+        let report = reporter.own_reports(ConsensusEpoch::ZERO)[0].clone();
+        let mut requester = ReportExchange::new();
+        let now = Timestamp::new_test_instance();
+        requester.handle_report(report.clone());
+        requester.reconcile(report.epoch, report.reporter, now);
+        // This node holds none of the reporter's votes
+        requester.derive_residual(report.epoch, report.reporter, [], now);
+        assert!(requester.usable(report.epoch).is_empty());
+        pull(&mut requester, &mut reporter, now);
+        let usable = requester.usable(report.epoch);
+        assert_eq!(usable.len(), 1);
+        assert!(usable[0].2.contains(&block(), ResidualKind::First));
+    }
+
+    /// A node that rebuilt a report serves it like the reporter would
+    #[test]
+    fn a_rebuilt_report_is_served_by_its_holder() {
+        let (mut reporter, report, mut first, now) = diverged(3, 40);
+        first.reconcile(report.epoch, report.reporter, now);
+        pull(&mut first, &mut reporter, now);
+        let (_, _, mut second, _) = diverged(3, 25);
+        second.handle_report(report.clone());
+        second.reconcile(report.epoch, report.reporter, now);
+        pull(&mut second, &mut first, now);
+        assert_eq!(second.usable(report.epoch).len(), 1);
+    }
+
+    /*
+     * Test helpers
+     */
+
+    fn entry(i: u64) -> CertifiedBlock {
+        CertifiedBlock::new(Account::from(i), 1, BlockHash::from(i + 1000))
+    }
+
+    /// A reporter holding entries 1..=reported, the report it signed, and a
+    /// requester that received it and holds entries `shared..=held` live
+    fn diverged(
+        shared_from: u64,
+        held: u64,
+    ) -> (ReportExchange, Report, ReportExchange, Timestamp) {
+        let reported = 30;
+        let mut state = CertifiedState::new();
+        for i in 1..=reported {
+            state.certify(entry(i), BlockHash::ZERO, CertifiedStatus::Notarized);
+        }
+        let mut reporter = ReportExchange::new();
+        reporter.report_epoch(
+            ConsensusEpoch::ZERO,
+            state,
+            ResidualVotes::new(),
+            BlockHash::from(3),
+            BlockHash::from(4),
+            &[PrivateKey::from(1)],
+        );
+        let report = reporter.own_reports(ConsensusEpoch::ZERO)[0].clone();
+        let mut live = CertifiedState::new();
+        for i in shared_from..=held {
+            live.certify(entry(i), BlockHash::ZERO, CertifiedStatus::Finalized);
+        }
+        let mut requester = ReportExchange::new();
+        requester.refresh_live(report.epoch, live);
+        requester.handle_report(report.clone());
+        (reporter, report, requester, Timestamp::new_test_instance())
+    }
+
+    /// Carries requests to the holder and its replies back, and the
+    /// requests those replies lead to, until none is left; returns the
+    /// replies carried
+    fn carry(
+        requester: &mut ReportExchange,
+        holder: &mut ReportExchange,
+        messages: Vec<ReportMessage>,
+        now: Timestamp,
+    ) -> usize {
+        let mut pending = messages;
+        let mut replies = 0;
+        while let Some(message) = pending.pop() {
+            let ReportMessage::Request(request) = message else {
+                continue;
+            };
+            let Some(reply) = holder.symbols_for(&request) else {
+                continue;
+            };
+            replies += 1;
+            assert!(replies < 1000, "the stream does not end");
+            let (more, _) = requester.handle_symbols(&reply, now);
+            pending.extend(more);
+        }
+        replies
+    }
+
+    /// One reconciliation round: the certified streams due, the residual
+    /// derivation they enable, then the residual streams due
+    fn pull(requester: &mut ReportExchange, holder: &mut ReportExchange, now: Timestamp) -> usize {
+        let requests = requester.stream_requests(now);
+        let mut replies = carry(requester, holder, requests, now);
+        for epoch in requester.pending_epochs() {
+            let reporters: Vec<PublicKey> = requester
+                .reports(epoch)
+                .iter()
+                .map(|r| r.reporter)
+                .collect();
+            for reporter in reporters {
+                requester.derive_residual(epoch, reporter, [], now);
+            }
+        }
+        let requests = requester.stream_requests(now);
+        replies += carry(requester, holder, requests, now);
+        replies
     }
 }

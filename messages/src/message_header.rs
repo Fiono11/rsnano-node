@@ -40,8 +40,13 @@ pub enum MessageType {
     /// RAI: the signed root of a replica's report for one epoch (Section 6.1)
     #[cfg(feature = "rai_protocol")]
     Report = 0x13,
-    /// RAI: a leader's proposal of an epoch value in one close round.
-    /// 0x14 and 0x15 stay free for report reconciliation.
+    /// RAI: a request for, and a reply of, coded symbols of a report
+    /// inventory (rateless reconciliation)
+    #[cfg(feature = "rai_protocol")]
+    ReportSymbolsReq = 0x14,
+    #[cfg(feature = "rai_protocol")]
+    ReportSymbolsReply = 0x15,
+    /// RAI: a leader's proposal of an epoch value in one close round
     #[cfg(feature = "rai_protocol")]
     EpochProp = 0x16,
 }
@@ -68,6 +73,10 @@ impl MessageType {
             MessageType::Report => "report",
             #[cfg(feature = "rai_protocol")]
             MessageType::EpochProp => "epoch_prop",
+            #[cfg(feature = "rai_protocol")]
+            MessageType::ReportSymbolsReq => "report_symbols_req",
+            #[cfg(feature = "rai_protocol")]
+            MessageType::ReportSymbolsReply => "report_symbols_reply",
 
             #[cfg(feature = "ledger_snapshots")]
             MessageType::Preproposal => "preproposal",
@@ -213,6 +222,10 @@ impl MessageHeader {
             MessageType::Report => Report::serialized_size(self.extensions),
             #[cfg(feature = "rai_protocol")]
             MessageType::EpochProp => EpochProp::serialized_size(self.extensions),
+            #[cfg(feature = "rai_protocol")]
+            MessageType::ReportSymbolsReq => ReportSymbolsReq::serialized_size(self.extensions),
+            #[cfg(feature = "rai_protocol")]
+            MessageType::ReportSymbolsReply => ReportSymbolsReply::serialized_size(self.extensions),
 
             #[cfg(feature = "ledger_snapshots")]
             MessageType::Preproposal => Preproposal::serialized_size(self.extensions),
@@ -283,6 +296,10 @@ impl From<MessageType> for DetailType {
             MessageType::Report => DetailType::Report,
             #[cfg(feature = "rai_protocol")]
             MessageType::EpochProp => DetailType::EpochProp,
+            #[cfg(feature = "rai_protocol")]
+            MessageType::ReportSymbolsReq => DetailType::ReportSymbolsReq,
+            #[cfg(feature = "rai_protocol")]
+            MessageType::ReportSymbolsReply => DetailType::ReportSymbolsReply,
 
             #[cfg(feature = "ledger_snapshots")]
             MessageType::Preproposal => DetailType::Preproposal,

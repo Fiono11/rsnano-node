@@ -3,7 +3,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use rsnano_messages::{Message, Report};
+use rsnano_messages::{Message, Report, ReportSymbolsReply, ReportSymbolsReq};
 use rsnano_network::{Channel, TrafficType};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{ConsensusEpoch, PublicKey};
@@ -132,8 +132,47 @@ impl ReportService {
         self.exchange.lock().unwrap().handle_report(report);
     }
 
-    /// Accept a certified inventory only when a locally held state has
-    /// exactly the signed root. Phase 0 sends no reconciliation requests.
+    /// RAI: a node rebuilding an inventory this node holds asks for its
+    /// coded symbols; they go back on the channel the request came in on
+    pub fn handle_symbols_request(&self, request: ReportSymbolsReq, channel: &Arc<Channel>) {
+        self.stats.inc_dir(
+            StatType::Message,
+            DetailType::ReportSymbolsReq,
+            Direction::In,
+        );
+        let Some(reply) = self.exchange.lock().unwrap().symbols_for(&request) else {
+            return;
+        };
+        if self.flooder.lock().unwrap().try_send(
+            channel,
+            &Message::ReportSymbolsReply(reply),
+            TrafficType::Generic,
+        ) {
+            self.stats.inc_dir(
+                StatType::Message,
+                DetailType::ReportSymbolsReply,
+                Direction::Out,
+            );
+        }
+    }
+
+    /// RAI: coded symbols of an inventory this node is rebuilding
+    pub fn handle_symbols_reply(&self, reply: ReportSymbolsReply, _channel: &Arc<Channel>) {
+        self.stats.inc_dir(
+            StatType::Message,
+            DetailType::ReportSymbolsReply,
+            Direction::In,
+        );
+        let now = self.clock.now();
+        let (messages, results) = self.exchange.lock().unwrap().handle_symbols(&reply, now);
+        for result in results {
+            log_reconciled(Some(result));
+        }
+        self.send(messages, None);
+    }
+
+    /// Accept a certified inventory at once when a locally held state has
+    /// exactly the signed root; otherwise start rebuilding it from symbols
     pub fn reconcile(&self, epoch: ConsensusEpoch, reporter: PublicKey) {
         let now = self.clock.now();
         let Some((messages, result)) = self
@@ -225,6 +264,12 @@ impl ReportService {
                 self.derive_residual(epoch, reporter);
             }
         }
+        let requests = self
+            .exchange
+            .lock()
+            .unwrap()
+            .stream_requests(self.clock.now());
+        self.send(requests, None);
     }
 
     /// How many reports of the epoch are usable here: what an epoch proposal
@@ -251,6 +296,18 @@ impl ReportService {
                     );
                     self.stats
                         .inc_dir(StatType::Message, DetailType::Report, Direction::Out);
+                }
+                ReportMessage::Request(request) => {
+                    self.flooder.lock().unwrap().flood_prs_and_some_non_prs(
+                        &Message::ReportSymbolsReq(request),
+                        TrafficType::Generic,
+                        1.0,
+                    );
+                    self.stats.inc_dir(
+                        StatType::Message,
+                        DetailType::ReportSymbolsReq,
+                        Direction::Out,
+                    );
                 }
             }
         }

@@ -24,6 +24,11 @@ pub enum Message {
     /// RAI: a leader's proposal of an epoch value in one close round
     #[cfg(feature = "rai_protocol")]
     EpochProp(EpochProp),
+    /// RAI: a request for coded symbols of a report inventory
+    #[cfg(feature = "rai_protocol")]
+    ReportSymbolsReq(ReportSymbolsReq),
+    #[cfg(feature = "rai_protocol")]
+    ReportSymbolsReply(ReportSymbolsReply),
 
     #[cfg(feature = "ledger_snapshots")]
     SnapshotPreproposal(Preproposal),
@@ -104,6 +109,14 @@ impl From<&ParseMessageError> for DetailType {
             ParseMessageError::InvalidMessage(MessageType::Report) => Self::Report,
             #[cfg(feature = "rai_protocol")]
             ParseMessageError::InvalidMessage(MessageType::EpochProp) => Self::EpochProp,
+            #[cfg(feature = "rai_protocol")]
+            ParseMessageError::InvalidMessage(MessageType::ReportSymbolsReq) => {
+                Self::ReportSymbolsReq
+            }
+            #[cfg(feature = "rai_protocol")]
+            ParseMessageError::InvalidMessage(MessageType::ReportSymbolsReply) => {
+                Self::ReportSymbolsReply
+            }
 
             #[cfg(feature = "ledger_snapshots")]
             ParseMessageError::InvalidMessage(MessageType::Preproposal) => todo!(),
@@ -158,6 +171,10 @@ impl Message {
             Message::Report(_) => MessageType::Report,
             #[cfg(feature = "rai_protocol")]
             Message::EpochProp(_) => MessageType::EpochProp,
+            #[cfg(feature = "rai_protocol")]
+            Message::ReportSymbolsReq(_) => MessageType::ReportSymbolsReq,
+            #[cfg(feature = "rai_protocol")]
+            Message::ReportSymbolsReply(_) => MessageType::ReportSymbolsReply,
 
             #[cfg(feature = "ledger_snapshots")]
             Message::SnapshotPreproposal(_) => MessageType::Preproposal,
@@ -191,6 +208,10 @@ impl Message {
             Message::Report(x) => Some(x),
             #[cfg(feature = "rai_protocol")]
             Message::EpochProp(x) => Some(x),
+            #[cfg(feature = "rai_protocol")]
+            Message::ReportSymbolsReq(x) => Some(x),
+            #[cfg(feature = "rai_protocol")]
+            Message::ReportSymbolsReply(x) => Some(x),
 
             _ => None,
         }
@@ -224,6 +245,10 @@ impl Message {
             Message::Report(m) => m.serialize(writer),
             #[cfg(feature = "rai_protocol")]
             Message::EpochProp(m) => m.serialize(writer),
+            #[cfg(feature = "rai_protocol")]
+            Message::ReportSymbolsReq(m) => m.serialize(writer),
+            #[cfg(feature = "rai_protocol")]
+            Message::ReportSymbolsReply(m) => m.serialize(writer),
 
             #[cfg(feature = "ledger_snapshots")]
             Message::SnapshotPreproposal(m) => m.serialize(writer),
@@ -273,6 +298,14 @@ impl Message {
             MessageType::Report => Message::Report(Report::deserialize(payload)?),
             #[cfg(feature = "rai_protocol")]
             MessageType::EpochProp => Message::EpochProp(EpochProp::deserialize(payload)?),
+            #[cfg(feature = "rai_protocol")]
+            MessageType::ReportSymbolsReq => {
+                Message::ReportSymbolsReq(ReportSymbolsReq::deserialize(payload)?)
+            }
+            #[cfg(feature = "rai_protocol")]
+            MessageType::ReportSymbolsReply => {
+                Message::ReportSymbolsReply(ReportSymbolsReply::deserialize(payload)?)
+            }
 
             #[cfg(feature = "ledger_snapshots")]
             MessageType::Preproposal => {

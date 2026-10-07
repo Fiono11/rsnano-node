@@ -144,6 +144,9 @@ pub enum DetailType {
     Report,
     /// RAI: a leader's proposal in a round of an epoch's close election
     EpochProp,
+    /// RAI: rateless report reconciliation
+    ReportSymbolsReq,
+    ReportSymbolsReply,
     CloseProofReq,
     CloseProofReply,
     CheckpointReq,
