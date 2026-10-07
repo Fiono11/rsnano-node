@@ -11,7 +11,9 @@ use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{ConsensusEpoch, PublicKey};
 use rsnano_utils::stats::{DetailType, Direction, StatType, Stats};
 
-use super::{ReconcileResult, ReportExchange, ReportMessage, unjustified};
+use super::{
+    ReconcileResult, ReportExchange, ReportMessage, Verification, unjustified, well_formed,
+};
 use crate::{
     consensus::{AecService, EpochReport},
     transport::MessageFlooder,
@@ -291,6 +293,14 @@ impl ReportService {
                 epoch,
                 now,
                 |reporter, certified, residual, only| {
+                    if !well_formed(certified, residual, previous.as_deref()) {
+                        crate::utils::diagnostic!(
+                            "EPOCH_REPORT_MALFORMED epoch={} reporter={}",
+                            epoch,
+                            reporter
+                        );
+                        return Some(Verification::Malformed);
+                    }
                     unjustified(
                         epoch,
                         certified,
@@ -304,6 +314,7 @@ impl ReportService {
                         },
                         &|votes| aec.has_votes(epoch, reporter, votes),
                     )
+                    .map(Verification::Missing)
                 },
             );
             for (reporter, missing) in requests {

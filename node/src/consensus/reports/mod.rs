@@ -2,8 +2,8 @@ mod epoch_decision;
 mod report_plugin;
 mod report_service;
 use crate::consensus::election::{
-    CertificateKinds, Certification, CertifiedBlock, CertifiedState, CertifiedStatus, CodedSymbol,
-    Decoder, Encoder, ReportCommitment, ResidualKind, ResidualVotes,
+    AccountSlot, CertificateKinds, Certification, CertifiedBlock, CertifiedState, CertifiedStatus,
+    CodedSymbol, Decoder, Encoder, EpochLedger, ReportCommitment, ResidualKind, ResidualVotes,
 };
 pub use epoch_decision::EpochDecisionService;
 pub(crate) use report_plugin::{ReportPlugin, ReportTicker};
@@ -46,6 +46,9 @@ struct TheirReport {
     /// The hashes still lacking evidence, rechecked alone
     missing: Vec<BlockHash>,
     verified_at: Option<Timestamp>,
+    /// The report names a block by a placement no derivation can use; no
+    /// evidence makes it usable, and it is not asked for
+    malformed: bool,
 }
 
 /// RAI: one running reconciliation of an inventory against a fixed base,
@@ -134,6 +137,42 @@ impl TheirReport {
     fn is_usable(&self) -> bool {
         self.is_complete() && self.verified
     }
+}
+
+/// What checking a reconstructed report against the evidence held here found
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Verification {
+    /// The hashes whose evidence is still lacking; none means justified
+    Missing(Vec<BlockHash>),
+    /// The report is not well formed (see `well_formed`); it never becomes usable
+    Malformed,
+}
+
+/// RAI: whether every block a report names is placed by a parent a
+/// derivation can follow. A certified entry or residual record above the
+/// first height names its parent; a zero parent there is accepted only for
+/// a block the predecessor checkpoint finalized at that very position, whose
+/// path a derivation never walks. A report violating this would make
+/// `BuildState` fail for every validator that selects it, so it is left out
+/// of every selection instead of stalling the close.
+pub(crate) fn well_formed(
+    certified: &CertifiedState,
+    residual: &ResidualVotes,
+    previous: Option<&EpochLedger>,
+) -> bool {
+    let placed = |block: &CertifiedBlock, parent: &BlockHash| {
+        block.height <= 1
+            || !parent.is_zero()
+            || previous.is_some_and(|previous| {
+                previous.is_finalized(&AccountSlot::new(block.account, block.height), &block.hash)
+            })
+    };
+    certified
+        .entries()
+        .all(|(block, entry)| placed(block, &entry.previous))
+        && residual
+            .entries()
+            .all(|(block, _, parent)| placed(&block, &parent))
 }
 
 /// RAI, "Reports that remain reconstructible": the hashes of a
@@ -488,6 +527,7 @@ impl ReportExchange {
                 verified: false,
                 missing: Vec::new(),
                 verified_at: None,
+                malformed: false,
             },
         );
         true
@@ -559,7 +599,7 @@ impl ReportExchange {
             &CertifiedState,
             &ResidualVotes,
             Option<&[BlockHash]>,
-        ) -> Option<Vec<BlockHash>>,
+        ) -> Option<Verification>,
     ) -> Vec<(PublicKey, Vec<BlockHash>)> {
         let mut requests = Vec::new();
         let Some(held) = self.epochs.get_mut(&epoch) else {
@@ -567,6 +607,7 @@ impl ReportExchange {
         };
         for (reporter, their) in &mut held.theirs {
             if their.verified
+                || their.malformed
                 || their
                     .verified_at
                     .is_some_and(|at| at.elapsed(now) < Self::RETRY_INTERVAL)
@@ -580,8 +621,13 @@ impl ReportExchange {
                 .verified_at
                 .is_some()
                 .then_some(their.missing.as_slice());
-            let Some(missing) = check(reporter, certified, residual, only) else {
-                continue;
+            let missing = match check(reporter, certified, residual, only) {
+                None => continue,
+                Some(Verification::Malformed) => {
+                    their.malformed = true;
+                    continue;
+                }
+                Some(Verification::Missing(missing)) => missing,
             };
             their.verified_at = Some(now);
             their.verified = missing.is_empty();
@@ -1287,7 +1333,7 @@ mod tests {
         let lacking = BlockHash::from(1001);
         let requests = requester.verify(report.epoch, now, |_, _, _, only| {
             assert!(only.is_none());
-            Some(vec![lacking])
+            Some(Verification::Missing(vec![lacking]))
         });
         assert_eq!(requests, vec![(report.reporter, vec![lacking])]);
         assert!(requester.usable(report.epoch).is_empty());
@@ -1301,9 +1347,64 @@ mod tests {
         let later = now + ReportExchange::RETRY_INTERVAL;
         requester.verify(report.epoch, later, |_, _, _, only| {
             assert_eq!(only, Some(&[lacking][..]));
-            Some(Vec::new())
+            Some(Verification::Missing(Vec::new()))
         });
         assert_eq!(requester.usable(report.epoch).len(), 1);
+    }
+
+    /// RAI: a report no derivation can use is never usable, and no evidence
+    /// is asked for it again
+    #[test]
+    fn a_malformed_report_is_never_usable_nor_rechecked() {
+        let (mut reporter, report, mut requester, now) = diverged(3, 40);
+        requester.reconcile(report.epoch, report.reporter, now);
+        pull(&mut requester, &mut reporter, now);
+        let requests = requester.verify(report.epoch, now, |_, _, _, _| {
+            Some(Verification::Malformed)
+        });
+        assert!(requests.is_empty());
+        assert!(requester.usable(report.epoch).is_empty());
+        let later = now + ReportExchange::RETRY_INTERVAL;
+        requester.verify(report.epoch, later, |_, _, _, _| unreachable!());
+        assert!(requester.usable(report.epoch).is_empty());
+    }
+
+    /// RAI: a block above the first height names its parent, unless the
+    /// predecessor finalized it there (genesis seeds such entries)
+    #[test]
+    fn a_report_naming_a_block_without_its_parent_is_malformed() {
+        let account = Account::from(1);
+        let parentless = CertifiedBlock::new(account, 2, BlockHash::from(2));
+        let mut certified = CertifiedState::new();
+        certified.certify(parentless, BlockHash::ZERO, CertifiedStatus::Notarized);
+        assert!(!well_formed(&certified, &ResidualVotes::new(), None));
+
+        let mut previous = EpochLedger::new();
+        previous.finalize_genesis(AccountSlot::new(account, 2), BlockHash::from(2));
+        assert!(well_formed(
+            &certified,
+            &ResidualVotes::new(),
+            Some(&previous)
+        ));
+
+        let mut placed = CertifiedState::new();
+        placed.certify(parentless, BlockHash::from(1), CertifiedStatus::Notarized);
+        assert!(well_formed(&placed, &ResidualVotes::new(), None));
+
+        let mut residual = ResidualVotes::new();
+        residual.record(
+            CertifiedBlock::new(account, 3, BlockHash::from(3)),
+            BlockHash::ZERO,
+            ResidualKind::First,
+        );
+        assert!(!well_formed(&placed, &residual, None));
+        let mut opened = ResidualVotes::new();
+        opened.record(
+            CertifiedBlock::new(account, 1, BlockHash::from(9)),
+            BlockHash::ZERO,
+            ResidualKind::First,
+        );
+        assert!(well_formed(&placed, &opened, None));
     }
 
     /*
@@ -1394,7 +1495,7 @@ mod tests {
     /// Every entry counts as justified: the evidence check is tested apart
     fn trust_all(exchange: &mut ReportExchange, epoch: ConsensusEpoch) {
         exchange.verify(epoch, Timestamp::new_test_instance(), |_, _, _, _| {
-            Some(Vec::new())
+            Some(Verification::Missing(Vec::new()))
         });
     }
 

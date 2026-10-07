@@ -742,6 +742,16 @@ pub struct LocalSlotState {
 }
 
 impl LocalSlotState {
+    /// Every block this state voted for, whatever the vote
+    pub fn voted(&self) -> Vec<BlockHash> {
+        self.first_voted
+            .into_iter()
+            .chain(self.final_voted)
+            .chain(self.timeout_voted)
+            .chain(self.notar_voted.iter().copied())
+            .collect()
+    }
+
     pub fn stale() -> Self {
         Self {
             stale: true,
