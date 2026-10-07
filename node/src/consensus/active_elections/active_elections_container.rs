@@ -623,16 +623,18 @@ impl ActiveElectionsContainer {
         }
     }
 
-    /// RAI, the first overlap exception: "a closing-epoch notarized block
-    /// that becomes complete in the successor epoch" is eligible there
-    /// before the closing checkpoint is known. A block notarized but not
-    /// finalized when its epoch is left gets its open-epoch instance at
-    /// once, while it is still attachable: once the checkpoint retains its
-    /// position, no new voting starts there. Without it the position stays
-    /// a lock until the owner extends it. So does a block this node never
-    /// first-voted in the epoch left: "a replica that learns of a block only
-    /// after switching proposes it in the new epoch", and it holds the
-    /// left epoch's instance already.
+    /// RAI, "Cross-epoch voting record": "Re-voting the same block is
+    /// allowed", and "an omitted block can be retried". Every instance of the
+    /// epoch left that did not finalize gets its open-epoch instance at
+    /// once, while its position is still attachable: once the checkpoint
+    /// retains the position, no new voting starts there. A block notarized
+    /// in the epoch left is re-voted (the core overlap exception may then
+    /// finalize it early); a block this node first-voted without a
+    /// certificate is re-voted too, so that first votes split across the
+    /// boundary meet again in the new epoch instead of leaving a recovery
+    /// lock only the owner can resolve; a block this node never voted is
+    /// proposed in the new epoch, "a replica that learns of a block only
+    /// after switching proposes it in the new epoch".
     #[cfg(feature = "rai_protocol")]
     fn carry_notarized_instances(&mut self, left: ConsensusEpoch, now: Timestamp) {
         let carried: Vec<SavedBlock> = self
@@ -645,14 +647,20 @@ impl ActiveElectionsContainer {
                     && !election.state().has_ended()
             })
             .filter_map(|election| {
-                let unvoted = self
+                let first_voted = self
                     .slots
                     .get(&election.epoch_slot())
-                    .is_none_or(|slot| slot.first_voted.is_none());
+                    .and_then(|slot| slot.first_voted);
                 let hash = match election.certificates().notar.first() {
                     Some(hash) => *hash,
-                    None if unvoted => election.winner().hash(),
-                    None => return None,
+                    // The same block again, never another at the position
+                    None => match first_voted {
+                        Some(voted) if voted == crate::consensus::election::TIMEOUT_BLOCK => {
+                            return None;
+                        }
+                        Some(voted) => voted,
+                        None => election.winner().hash(),
+                    },
                 };
                 match election.candidate_blocks().get(&hash)? {
                     rsnano_types::MaybeSavedBlock::Saved(block) => Some(block.clone()),
@@ -4418,14 +4426,10 @@ mod tests {
         let epoch1 = ConsensusEpoch::new(1);
         assert_eq!(container.current_epoch(), epoch1);
 
-        // The owner's other signature at the locked position reaches this
-        // node and is proposed in epoch 1; the same block is proposed again
-        container
-            .insert(
-                AecInsertRequest::new_priority(rival.clone(), BlockPriority::new_test_instance()),
-                now,
-            )
-            .unwrap();
+        // Both first-voted blocks were carried into epoch 1 at the boundary,
+        // to be re-voted there; the owner's other signature at the locked
+        // position reaches this node and shares the carried instance's root
+        assert!(container.try_add_fork(&rival, Amount::raw(1)));
         container.insert_for_vote(again.clone(), epoch1, now);
         let first_in = |container: &ActiveElectionsContainer, hash: BlockHash| {
             container
@@ -4441,6 +4445,10 @@ mod tests {
         assert!(
             first_in(&container, again.hash()).is_some(),
             "the same block"
+        );
+        assert!(
+            first_in(&container, locked.hash()).is_some(),
+            "the first-voted block is re-voted in the new epoch"
         );
         // Not even when handed in directly
         let smuggled = VoteTarget {
@@ -4459,11 +4467,19 @@ mod tests {
                 .is_none_or(|state| state.first_voted.is_none())
         );
 
-        // Once S_0 is known the lock expires and the ordinary recheck governs
+        // Once S_0 is known the lock expires and the ordinary recheck governs:
+        // the instance still proposes the same block, but a first vote for
+        // the rival is no longer refused by the record of the epoch before
         container
             .decided
             .insert(ConsensusEpoch::ZERO, Arc::new(EpochLedger::new()));
-        assert!(first_in(&container, rival.hash()).is_some());
+        assert!(first_in(&container, locked.hash()).is_some());
+        let smuggled = VoteTarget {
+            election: ElectionId::new(rival.qualified_root(), epoch1),
+            winner: rival.hash(),
+            vote_type: VoteType::NonFinal,
+        };
+        assert_eq!(container.mark_kudzu_voted(vec![smuggled]).len(), 1);
     }
 
     /// RAI, "Attachment and eligibility": "Later children require complete
