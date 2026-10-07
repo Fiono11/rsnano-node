@@ -151,6 +151,9 @@ pub enum DetailType {
     BlocksReq,
     /// RAI: the signed votes behind report certificates
     EvidenceReq,
+    /// RAI: a candidate's evidence manifest, fetched by digest
+    ManifestReq,
+    ManifestReply,
     ReportUnverified,
     CheckpointBlockCemented,
     CheckpointBlockRequested,

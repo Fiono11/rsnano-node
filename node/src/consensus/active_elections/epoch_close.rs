@@ -977,6 +977,7 @@ mod tests {
                 certified: BlockHash::from(selection * 10),
                 residual: BlockHash::from(selection * 10 + 1),
             }],
+            BlockHash::ZERO,
             BlockHash::from(selection * 100),
         )
     }

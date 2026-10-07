@@ -3,20 +3,22 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use rsnano_messages::{EpochProp, Message, ReportSelection};
+use rsnano_messages::{
+    EpochProp, EvidenceReq, ManifestReply, ManifestReq, Message, ReportSelection,
+};
 use rsnano_network::{Channel, TrafficType};
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_types::{Amount, BlockHash, ConsensusEpoch, PublicKey};
 use rsnano_utils::stats::{DetailType, Direction, StatType, Stats};
 
-use super::ReportExchange;
+use super::{ReportExchange, manifest_claims, report_service::inherited_from, unjustified};
 use crate::{
     consensus::{
         AecService,
         active_elections::EpochProposalContext,
         election::{
-            BuildRules, Committee, EpochLedger, EpochValue, ReportIndex, ReportRef, ReportSource,
-            SelectedReport,
+            BuildRules, Committee, EpochLedger, EpochValue, Manifest, ManifestAssembly,
+            MemberOrder, ReportIndex, ReportRef, ReportSource, SelectedReport,
         },
     },
     transport::MessageFlooder,
@@ -50,6 +52,12 @@ pub struct EpochDecisionService {
     repeated: Mutex<Option<Timestamp>>,
     /// When this node last said why it could not derive a value
     unready_logged: Mutex<HashMap<ConsensusEpoch, Timestamp>>,
+    /// RAI, "Immutable candidate inputs": the evidence manifests this node
+    /// built or fetched, by digest, served to validators that commit to a
+    /// proposal's evidence rather than to their own
+    manifests: Mutex<HashMap<BlockHash, (ConsensusEpoch, Arc<Manifest>)>>,
+    /// Manifests being fetched by digest, with when their last chunk was asked for
+    assemblies: Mutex<HashMap<BlockHash, (ManifestAssembly, Timestamp)>>,
 }
 
 impl EpochDecisionService {
@@ -80,8 +88,13 @@ impl EpochDecisionService {
             proposals: Mutex::new(HashMap::new()),
             repeated: Mutex::new(None),
             unready_logged: Mutex::new(HashMap::new()),
+            manifests: Mutex::new(HashMap::new()),
+            assemblies: Mutex::new(HashMap::new()),
         }
     }
+
+    /// How often a manifest chunk is asked for again
+    const MANIFEST_RETRY: std::time::Duration = std::time::Duration::from_millis(300);
 
     /// RAI: drive the joint election of every epoch still closing. A replica
     /// takes part once it holds the decided predecessor state and enough
@@ -124,6 +137,7 @@ impl EpochDecisionService {
             prop.slot,
             prop.parent,
             prop.reports.iter().map(report_ref).collect(),
+            prop.manifest,
             prop.state,
         );
         let hash = value.hash();
@@ -269,6 +283,7 @@ impl EpochDecisionService {
             epoch,
             round,
             value.parent,
+            value.manifest,
             value.state,
             value.reports().iter().map(selection_of).collect(),
             hash,
@@ -350,12 +365,20 @@ impl EpochDecisionService {
         let rules = BuildRules {
             many: committee.thresholds().many,
         };
+        // The evidence this leader used, committed to by digest
+        let claims = manifest_claims(epoch, &states, &|block, entry| {
+            inherited_from(&previous, block, entry)
+        });
+        let manifest = Arc::new(self.active_elections.evidence_manifest(&claims));
+        let digest = manifest.digest();
+        self.remember_manifest(epoch, manifest);
         match EpochValue::propose(
             epoch,
             round,
             BlockHash::ZERO,
             &previous,
             &resolved,
+            digest,
             &index,
             rules,
         ) {
@@ -392,6 +415,9 @@ impl EpochDecisionService {
         if states.len() != value.reports().len() {
             return None;
         }
+        if !self.evidence_committed(value, &states, &previous) {
+            return None;
+        }
         let index = ReportIndex::new(&previous, &states);
         let rules = BuildRules {
             many: committee.thresholds().many,
@@ -420,6 +446,242 @@ impl EpochDecisionService {
     /// Repeats the proposals of the rounds this node leads: a replica that
     /// missed the message holds no value to vote for, and the round would
     /// time out for want of a message rather than of agreement.
+    /// RAI, "Immutable candidate inputs": whether this node holds and has
+    /// checked the evidence the value's manifest names. A manifest equal to
+    /// the one this node builds from its own votes is checked already, since
+    /// those votes made the reports usable. Another manifest is fetched by
+    /// digest, its votes fetched where lacking, and every claim of the
+    /// selected reports is then checked against those votes alone: "A
+    /// verifier must possess and validate the material addressed by M."
+    fn evidence_committed(
+        &self,
+        value: &EpochValue,
+        states: &[SelectedReport],
+        previous: &EpochLedger,
+    ) -> bool {
+        let epoch = value.epoch;
+        let claims = manifest_claims(epoch, states, &|block, entry| {
+            inherited_from(previous, block, entry)
+        });
+        let own = self.active_elections.evidence_manifest(&claims);
+        if own.digest() == value.manifest {
+            self.remember_manifest(epoch, Arc::new(own));
+            return true;
+        }
+        let held = self
+            .manifests
+            .lock()
+            .unwrap()
+            .get(&value.manifest)
+            .map(|(_, manifest)| manifest.clone());
+        let Some(manifest) = held else {
+            self.request_manifest(epoch, value.manifest);
+            return false;
+        };
+        let missing = self.active_elections.missing_manifest_votes(&manifest);
+        if !missing.is_empty() {
+            let mut by_epoch: HashMap<ConsensusEpoch, Vec<BlockHash>> = HashMap::new();
+            for (epoch, hash) in &missing {
+                by_epoch.entry(*epoch).or_default().push(*hash);
+            }
+            diagnostic!(
+                "EPOCH_MANIFEST_VOTES_MISSING epoch={} manifest={} hashes={}",
+                epoch,
+                value.manifest,
+                missing.len()
+            );
+            for (epoch, hashes) in by_epoch {
+                for chunk in hashes.chunks(EvidenceReq::MAX_HASHES) {
+                    self.stats
+                        .inc_dir(StatType::Message, DetailType::EvidenceReq, Direction::Out);
+                    self.flooder.lock().unwrap().flood_prs_and_some_non_prs(
+                        &Message::EvidenceReq(EvidenceReq {
+                            epoch,
+                            hashes: chunk.to_vec(),
+                        }),
+                        TrafficType::Generic,
+                        1.0,
+                    );
+                }
+            }
+            return false;
+        }
+        // Every claim, justified by the manifest's votes alone
+        let orders: HashMap<ConsensusEpoch, Option<MemberOrder>> = manifest
+            .epochs()
+            .into_iter()
+            .chain([epoch])
+            .map(|epoch| {
+                (
+                    epoch,
+                    self.active_elections
+                        .epoch_committee(epoch)
+                        .and_then(|committee| MemberOrder::of(&committee)),
+                )
+            })
+            .collect();
+        for report in states {
+            let kinds = |kinds_epoch: ConsensusEpoch, hashes: &[BlockHash]| {
+                let committee = self.active_elections.epoch_committee(kinds_epoch)?;
+                let order = orders.get(&kinds_epoch)?.as_ref()?;
+                Some(
+                    hashes
+                        .iter()
+                        .map(|hash| manifest.kinds(kinds_epoch, hash, &committee, order))
+                        .collect(),
+                )
+            };
+            let reporter_votes =
+                |votes: &[(BlockHash, crate::consensus::election::ResidualKind)]| {
+                    let order = orders.get(&epoch).and_then(|order| order.as_ref());
+                    votes
+                        .iter()
+                        .map(|(hash, kind)| {
+                            order.is_some_and(|order| {
+                                manifest.names_vote(epoch, &report.reporter, hash, *kind, order)
+                            })
+                        })
+                        .collect()
+                };
+            let justified = unjustified(
+                epoch,
+                report.certified,
+                report.residual,
+                None,
+                &kinds,
+                &|block, entry| inherited_from(previous, block, entry),
+                &reporter_votes,
+            );
+            match justified {
+                Some(missing) if missing.is_empty() => {}
+                _ => {
+                    diagnostic!(
+                        "EPOCH_MANIFEST_UNJUSTIFIED epoch={} manifest={} reporter={}",
+                        epoch,
+                        value.manifest,
+                        report.reporter
+                    );
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    /// Keeps a manifest for serving, dropping those of old epochs
+    fn remember_manifest(&self, epoch: ConsensusEpoch, manifest: Arc<Manifest>) {
+        let mut manifests = self.manifests.lock().unwrap();
+        manifests.insert(manifest.digest(), (epoch, manifest));
+        if let Some(latest) = manifests.values().map(|(epoch, _)| *epoch).max() {
+            manifests.retain(|_, (held, _)| {
+                held.as_u64() + Self::REPEATED_EPOCHS as u64 > latest.as_u64()
+            });
+        }
+    }
+
+    /// Asks for the next chunk of a manifest this node lacks, at most once
+    /// per retry interval
+    fn request_manifest(&self, epoch: ConsensusEpoch, digest: BlockHash) {
+        let now = self.clock.now();
+        let from = {
+            let mut assemblies = self.assemblies.lock().unwrap();
+            let (assembly, asked) = assemblies
+                .entry(digest)
+                .or_insert_with(|| (ManifestAssembly::new(digest), now - Self::MANIFEST_RETRY));
+            if asked.elapsed(now) < Self::MANIFEST_RETRY && *asked != now - Self::MANIFEST_RETRY {
+                return;
+            }
+            *asked = now;
+            assembly.next_from()
+        };
+        self.stats
+            .inc_dir(StatType::Message, DetailType::ManifestReq, Direction::Out);
+        self.flooder.lock().unwrap().flood_prs_and_some_non_prs(
+            &Message::ManifestReq(ManifestReq {
+                epoch,
+                manifest: digest,
+                from,
+            }),
+            TrafficType::Generic,
+            1.0,
+        );
+    }
+
+    /// RAI: a validator asks for a manifest this node holds; one chunk goes back
+    pub fn handle_manifest_request(&self, request: ManifestReq, channel: &Arc<Channel>) {
+        self.stats
+            .inc_dir(StatType::Message, DetailType::ManifestReq, Direction::In);
+        let held = self
+            .manifests
+            .lock()
+            .unwrap()
+            .get(&request.manifest)
+            .map(|(_, manifest)| manifest.clone());
+        let Some(manifest) = held else {
+            return;
+        };
+        let reply = ManifestReply {
+            epoch: request.epoch,
+            manifest: request.manifest,
+            total: manifest.len() as u32,
+            from: request.from,
+            entries: manifest.chunk(request.from as usize, ManifestReply::MAX_ENTRIES),
+        };
+        self.stats
+            .inc_dir(StatType::Message, DetailType::ManifestReply, Direction::Out);
+        self.flooder.lock().unwrap().try_send(
+            channel,
+            &Message::ManifestReply(reply),
+            TrafficType::Generic,
+        );
+    }
+
+    /// RAI: a chunk of a manifest this node asked for. The complete manifest
+    /// is checked against its digest and kept; the proposal that named it is
+    /// checked again when its leader repeats it.
+    pub fn handle_manifest_reply(&self, reply: ManifestReply, _channel: &Arc<Channel>) {
+        self.stats
+            .inc_dir(StatType::Message, DetailType::ManifestReply, Direction::In);
+        let next = {
+            let mut assemblies = self.assemblies.lock().unwrap();
+            let Some((assembly, asked)) = assemblies.get_mut(&reply.manifest) else {
+                return;
+            };
+            match assembly.take(reply.total, reply.from, &reply.entries) {
+                Ok(Some(manifest)) => {
+                    assemblies.remove(&reply.manifest);
+                    diagnostic!(
+                        "EPOCH_MANIFEST_FETCHED epoch={} manifest={} entries={}",
+                        reply.epoch,
+                        reply.manifest,
+                        manifest.len()
+                    );
+                    self.remember_manifest(reply.epoch, Arc::new(manifest));
+                    return;
+                }
+                Ok(None) => {
+                    *asked = self.clock.now();
+                    assembly.next_from()
+                }
+                Err(()) => {
+                    assemblies.remove(&reply.manifest);
+                    return;
+                }
+            }
+        };
+        self.stats
+            .inc_dir(StatType::Message, DetailType::ManifestReq, Direction::Out);
+        self.flooder.lock().unwrap().flood_prs_and_some_non_prs(
+            &Message::ManifestReq(ManifestReq {
+                epoch: reply.epoch,
+                manifest: reply.manifest,
+                from: next,
+            }),
+            TrafficType::Generic,
+            1.0,
+        );
+    }
+
     fn repeat_proposals(&self) {
         let now = self.clock.now();
         {

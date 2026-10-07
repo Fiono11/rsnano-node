@@ -9,6 +9,7 @@ mod epoch_ledger;
 mod epoch_value;
 mod final_state;
 mod kudzu;
+mod manifest;
 mod rateless;
 
 pub use certified_state::*;
@@ -21,4 +22,5 @@ pub use epoch_ledger::*;
 pub use epoch_value::*;
 pub use final_state::*;
 pub use kudzu::*;
+pub use manifest::*;
 pub use rateless::*;

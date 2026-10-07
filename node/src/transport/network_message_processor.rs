@@ -254,6 +254,14 @@ impl NetworkMessageProcessor {
             }
             #[cfg(feature = "rai_protocol")]
             Message::EvidenceReq(request) => self.reports.handle_evidence_request(request, channel),
+            #[cfg(feature = "rai_protocol")]
+            Message::ManifestReq(request) => self
+                .epoch_decision
+                .handle_manifest_request(request, channel),
+            #[cfg(feature = "rai_protocol")]
+            Message::ManifestReply(reply) => {
+                self.epoch_decision.handle_manifest_reply(reply, channel)
+            }
 
             #[cfg(feature = "ledger_snapshots")]
             Message::SnapshotPreproposal(preproposal) => {

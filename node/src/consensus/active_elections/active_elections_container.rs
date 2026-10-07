@@ -3020,6 +3020,70 @@ impl ActiveElectionsContainer {
         })
     }
 
+    /// RAI, "Immutable candidate inputs": the evidence manifest this node
+    /// would commit to for the given claims: for every block, the members
+    /// whose signed first and final votes it holds in the claim's epoch.
+    /// Claims without any held vote, or in an epoch whose committee is not
+    /// known here, have no entry.
+    pub fn evidence_manifest(
+        &self,
+        claims: &[(ConsensusEpoch, BlockHash)],
+    ) -> crate::consensus::election::Manifest {
+        use crate::consensus::election::{Manifest, MemberOrder};
+        let mut orders: BTreeMap<ConsensusEpoch, Option<MemberOrder>> = BTreeMap::new();
+        let mut manifest = Manifest::new();
+        for (epoch, hash) in claims {
+            let order = orders.entry(*epoch).or_insert_with(|| {
+                self.committees
+                    .committee(*epoch)
+                    .and_then(|committee| MemberOrder::of(&committee))
+            });
+            let (Some(order), Some(support)) = (order, self.vote_records.support(*epoch, hash))
+            else {
+                continue;
+            };
+            manifest.insert(rsnano_messages::ManifestEntry {
+                epoch: *epoch,
+                hash: *hash,
+                first: order.mask(support.first.iter().copied()),
+                final_: order.mask(support.final_.iter().copied()),
+            });
+        }
+        manifest
+    }
+
+    /// RAI: the blocks, by epoch, for which a manifest names a signed vote
+    /// this node does not hold
+    pub fn missing_manifest_votes(
+        &self,
+        manifest: &crate::consensus::election::Manifest,
+    ) -> Vec<(ConsensusEpoch, BlockHash)> {
+        use crate::consensus::election::{MemberOrder, ResidualKind};
+        let mut orders: BTreeMap<ConsensusEpoch, Option<MemberOrder>> = BTreeMap::new();
+        let mut missing = Vec::new();
+        for entry in manifest.entries() {
+            let order = orders.entry(entry.epoch).or_insert_with(|| {
+                self.committees
+                    .committee(entry.epoch)
+                    .and_then(|committee| MemberOrder::of(&committee))
+            });
+            let Some(order) = order else {
+                missing.push((entry.epoch, entry.hash));
+                continue;
+            };
+            let held = order
+                .members(entry.first)
+                .all(|voter| self.has_vote(entry.epoch, voter, &entry.hash, ResidualKind::First))
+                && order.members(entry.final_).all(|voter| {
+                    self.has_vote(entry.epoch, voter, &entry.hash, ResidualKind::Final)
+                });
+            if !held {
+                missing.push((entry.epoch, entry.hash));
+            }
+        }
+        missing
+    }
+
     /// RAI: the signed votes held for the given blocks of an epoch, for a
     /// node that lacks the evidence of a report's certificates
     pub fn evidence_votes(&self, epoch: ConsensusEpoch, hashes: &[BlockHash]) -> Vec<Arc<Vote>> {
@@ -4890,6 +4954,7 @@ mod tests {
                 certified: BlockHash::from(10),
                 residual: BlockHash::from(11),
             }],
+            BlockHash::ZERO,
             BlockHash::from(100),
         );
         let hash = value.hash();

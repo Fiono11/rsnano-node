@@ -55,6 +55,11 @@ pub enum MessageType {
     /// RAI: the signed votes behind a report's certificates
     #[cfg(feature = "rai_protocol")]
     EvidenceReq = 0x1e,
+    /// RAI: a request for, and a chunk of, a candidate's evidence manifest
+    #[cfg(feature = "rai_protocol")]
+    ManifestReq = 0x17,
+    #[cfg(feature = "rai_protocol")]
+    ManifestReply = 0x18,
 }
 
 impl MessageType {
@@ -83,6 +88,10 @@ impl MessageType {
             MessageType::BlocksReq => "blocks_req",
             #[cfg(feature = "rai_protocol")]
             MessageType::EvidenceReq => "evidence_req",
+            #[cfg(feature = "rai_protocol")]
+            MessageType::ManifestReq => "manifest_req",
+            #[cfg(feature = "rai_protocol")]
+            MessageType::ManifestReply => "manifest_reply",
             #[cfg(feature = "rai_protocol")]
             MessageType::ReportSymbolsReq => "report_symbols_req",
             #[cfg(feature = "rai_protocol")]
@@ -237,6 +246,10 @@ impl MessageHeader {
             #[cfg(feature = "rai_protocol")]
             MessageType::EvidenceReq => EvidenceReq::serialized_size(self.extensions),
             #[cfg(feature = "rai_protocol")]
+            MessageType::ManifestReq => ManifestReq::serialized_size(self.extensions),
+            #[cfg(feature = "rai_protocol")]
+            MessageType::ManifestReply => ManifestReply::serialized_size(self.extensions),
+            #[cfg(feature = "rai_protocol")]
             MessageType::ReportSymbolsReq => ReportSymbolsReq::serialized_size(self.extensions),
             #[cfg(feature = "rai_protocol")]
             MessageType::ReportSymbolsReply => ReportSymbolsReply::serialized_size(self.extensions),
@@ -314,6 +327,10 @@ impl From<MessageType> for DetailType {
             MessageType::BlocksReq => DetailType::BlocksReq,
             #[cfg(feature = "rai_protocol")]
             MessageType::EvidenceReq => DetailType::EvidenceReq,
+            #[cfg(feature = "rai_protocol")]
+            MessageType::ManifestReq => DetailType::ManifestReq,
+            #[cfg(feature = "rai_protocol")]
+            MessageType::ManifestReply => DetailType::ManifestReply,
             #[cfg(feature = "rai_protocol")]
             MessageType::ReportSymbolsReq => DetailType::ReportSymbolsReq,
             #[cfg(feature = "rai_protocol")]

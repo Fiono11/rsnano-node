@@ -35,6 +35,11 @@ pub enum Message {
     /// RAI: a request for the signed votes behind report certificates
     #[cfg(feature = "rai_protocol")]
     EvidenceReq(EvidenceReq),
+    /// RAI: a request for, and a chunk of, a candidate's evidence manifest
+    #[cfg(feature = "rai_protocol")]
+    ManifestReq(ManifestReq),
+    #[cfg(feature = "rai_protocol")]
+    ManifestReply(ManifestReply),
 
     #[cfg(feature = "ledger_snapshots")]
     SnapshotPreproposal(Preproposal),
@@ -127,6 +132,10 @@ impl From<&ParseMessageError> for DetailType {
             ParseMessageError::InvalidMessage(MessageType::BlocksReq) => Self::BlocksReq,
             #[cfg(feature = "rai_protocol")]
             ParseMessageError::InvalidMessage(MessageType::EvidenceReq) => Self::EvidenceReq,
+            #[cfg(feature = "rai_protocol")]
+            ParseMessageError::InvalidMessage(MessageType::ManifestReq) => Self::ManifestReq,
+            #[cfg(feature = "rai_protocol")]
+            ParseMessageError::InvalidMessage(MessageType::ManifestReply) => Self::ManifestReply,
 
             #[cfg(feature = "ledger_snapshots")]
             ParseMessageError::InvalidMessage(MessageType::Preproposal) => todo!(),
@@ -189,6 +198,10 @@ impl Message {
             Message::BlocksReq(_) => MessageType::BlocksReq,
             #[cfg(feature = "rai_protocol")]
             Message::EvidenceReq(_) => MessageType::EvidenceReq,
+            #[cfg(feature = "rai_protocol")]
+            Message::ManifestReq(_) => MessageType::ManifestReq,
+            #[cfg(feature = "rai_protocol")]
+            Message::ManifestReply(_) => MessageType::ManifestReply,
 
             #[cfg(feature = "ledger_snapshots")]
             Message::SnapshotPreproposal(_) => MessageType::Preproposal,
@@ -230,6 +243,10 @@ impl Message {
             Message::BlocksReq(x) => Some(x),
             #[cfg(feature = "rai_protocol")]
             Message::EvidenceReq(x) => Some(x),
+            #[cfg(feature = "rai_protocol")]
+            Message::ManifestReq(x) => Some(x),
+            #[cfg(feature = "rai_protocol")]
+            Message::ManifestReply(x) => Some(x),
 
             _ => None,
         }
@@ -271,6 +288,10 @@ impl Message {
             Message::BlocksReq(m) => m.serialize(writer),
             #[cfg(feature = "rai_protocol")]
             Message::EvidenceReq(m) => m.serialize(writer),
+            #[cfg(feature = "rai_protocol")]
+            Message::ManifestReq(m) => m.serialize(writer),
+            #[cfg(feature = "rai_protocol")]
+            Message::ManifestReply(m) => m.serialize(writer),
 
             #[cfg(feature = "ledger_snapshots")]
             Message::SnapshotPreproposal(m) => m.serialize(writer),
@@ -332,6 +353,12 @@ impl Message {
             MessageType::BlocksReq => Message::BlocksReq(BlocksReq::deserialize(payload)?),
             #[cfg(feature = "rai_protocol")]
             MessageType::EvidenceReq => Message::EvidenceReq(EvidenceReq::deserialize(payload)?),
+            #[cfg(feature = "rai_protocol")]
+            MessageType::ManifestReq => Message::ManifestReq(ManifestReq::deserialize(payload)?),
+            #[cfg(feature = "rai_protocol")]
+            MessageType::ManifestReply => {
+                Message::ManifestReply(ManifestReply::deserialize(payload)?)
+            }
 
             #[cfg(feature = "ledger_snapshots")]
             MessageType::Preproposal => {

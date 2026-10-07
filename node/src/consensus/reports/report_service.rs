@@ -425,7 +425,7 @@ impl ReportService {
 /// RAI: whether a report entry is the predecessor checkpoint's own: a
 /// finalized block it finalized, a notarization lock it retains, or the
 /// recovery protection it carries. Such an entry needs no fresh evidence.
-fn inherited_from(
+pub(super) fn inherited_from(
     previous: &crate::consensus::election::EpochLedger,
     block: &crate::consensus::election::CertifiedBlock,
     entry: crate::consensus::election::Certification,

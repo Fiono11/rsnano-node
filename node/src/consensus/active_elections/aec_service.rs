@@ -410,6 +410,22 @@ impl AecService {
 
     /// RAI: whether this node holds a voter's signed vote for a block
     #[cfg(feature = "rai_protocol")]
+    /// RAI: the evidence manifest this node would commit to for the claims
+    pub fn evidence_manifest(
+        &self,
+        claims: &[(ConsensusEpoch, BlockHash)],
+    ) -> crate::consensus::election::Manifest {
+        self.aec.read().unwrap().evidence_manifest(claims)
+    }
+
+    /// RAI: the blocks whose votes a manifest names and this node lacks
+    pub fn missing_manifest_votes(
+        &self,
+        manifest: &crate::consensus::election::Manifest,
+    ) -> Vec<(ConsensusEpoch, BlockHash)> {
+        self.aec.read().unwrap().missing_manifest_votes(manifest)
+    }
+
     pub fn has_votes(
         &self,
         epoch: ConsensusEpoch,

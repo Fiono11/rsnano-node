@@ -35,6 +35,8 @@ pub struct EpochValue {
     /// `Q_e`, in a canonical order so that two leaders naming the same
     /// reports name them the same way
     reports: Vec<ReportRef>,
+    /// `mu_e`: the digest of the evidence manifest the candidate commits to
+    pub manifest: BlockHash,
     /// `d_e`
     pub state: BlockHash,
 }
@@ -48,6 +50,7 @@ impl EpochValue {
         slot: u32,
         parent: BlockHash,
         reports: Vec<ReportRef>,
+        manifest: BlockHash,
         state: BlockHash,
     ) -> Self {
         Self {
@@ -55,6 +58,7 @@ impl EpochValue {
             slot,
             parent,
             reports,
+            manifest,
             state,
         }
     }
@@ -71,7 +75,9 @@ impl EpochValue {
     /// state, and the election decides which slot's placement it finalizes
     /// rather than which state.
     pub fn copies(&self, parent: &EpochValue) -> bool {
-        self.reports == parent.reports && self.state == parent.state
+        self.reports == parent.reports
+            && self.manifest == parent.manifest
+            && self.state == parent.state
     }
 
     /// A child of the notional genesis placement, which starts the election
@@ -88,6 +94,7 @@ impl EpochValue {
             slot,
             parent: self.hash(),
             reports: self.reports.clone(),
+            manifest: self.manifest,
             state: self.state,
         }
     }
@@ -101,6 +108,7 @@ impl EpochValue {
         parent: BlockHash,
         previous: &EpochLedger,
         selection: &[(ReportRef, SelectedReport)],
+        manifest: BlockHash,
         index: &dyn BlockIndex,
         rules: BuildRules,
     ) -> Result<(Self, EpochLedger), BuildStateError> {
@@ -113,6 +121,7 @@ impl EpochValue {
             slot,
             parent,
             reports,
+            manifest,
             state: ledger.state_hash(),
         };
         Ok((value, ledger))
@@ -131,7 +140,10 @@ impl EpochValue {
                 .update(report.certified.as_bytes())
                 .update(report.residual.as_bytes());
         }
-        builder.update(self.state.as_bytes()).build()
+        builder
+            .update(self.manifest.as_bytes())
+            .update(self.state.as_bytes())
+            .build()
     }
 
     /// RAI: what a validator checks before voting for a value. It selects the
@@ -355,6 +367,7 @@ mod tests {
             BlockHash::ZERO,
             &EpochLedger::new(),
             &fewer,
+            BlockHash::ZERO,
             &world.index,
             rules(),
         )
@@ -377,6 +390,7 @@ mod tests {
             BlockHash::ZERO,
             &EpochLedger::new(),
             &world.selection(),
+            BlockHash::ZERO,
             &world.index,
             rules(),
         )
@@ -490,6 +504,7 @@ mod tests {
                 BlockHash::ZERO,
                 &EpochLedger::new(),
                 &self.selection(),
+                BlockHash::ZERO,
                 &self.index,
                 rules(),
             )

@@ -70,8 +70,10 @@ pub use epoch_prop::*;
 
 #[cfg(feature = "rai_protocol")]
 mod evidence_req;
+mod manifest;
 #[cfg(feature = "rai_protocol")]
 pub use evidence_req::*;
+pub use manifest::*;
 
 #[cfg(feature = "rai_protocol")]
 mod blocks_req;

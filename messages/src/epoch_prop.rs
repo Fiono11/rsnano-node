@@ -51,6 +51,8 @@ pub struct EpochProp {
     pub slot: u32,
     /// h_p: the parent epoch placement, zero for a child of election genesis
     pub parent: BlockHash,
+    /// mu_e: the digest of the evidence manifest the candidate commits to
+    pub manifest: BlockHash,
     /// d_e: the hash of the state the selected reports determine
     pub state: BlockHash,
     /// Q_e, in canonical order
@@ -70,6 +72,7 @@ impl EpochProp {
         epoch: ConsensusEpoch,
         slot: u32,
         parent: BlockHash,
+        manifest: BlockHash,
         state: BlockHash,
         reports: Vec<ReportSelection>,
         payload: BlockHash,
@@ -78,6 +81,7 @@ impl EpochProp {
             epoch,
             slot,
             parent,
+            manifest,
             state,
             reports,
             leader: key.public_key(),
@@ -90,6 +94,7 @@ impl EpochProp {
             epoch: ConsensusEpoch::new(1),
             slot: 2,
             parent: BlockHash::from(3),
+            manifest: BlockHash::from(10),
             state: BlockHash::from(4),
             reports: vec![ReportSelection {
                 reporter: PublicKey::from(5),
@@ -116,6 +121,7 @@ impl EpochProp {
         self.epoch.serialize(writer)?;
         writer.write_all(&self.slot.to_le_bytes())?;
         self.parent.serialize(writer)?;
+        self.manifest.serialize(writer)?;
         self.state.serialize(writer)?;
         self.leader.serialize(writer)?;
         self.signature.serialize(writer)?;
@@ -135,6 +141,7 @@ impl EpochProp {
         let mut slot = [0u8; 4];
         read_exact(bytes, &mut slot)?;
         let parent = BlockHash::deserialize(bytes)?;
+        let manifest = BlockHash::deserialize(bytes)?;
         let state = BlockHash::deserialize(bytes)?;
         let leader = PublicKey::deserialize(bytes)?;
         let signature = Signature::deserialize(bytes)?;
@@ -149,6 +156,7 @@ impl EpochProp {
             epoch,
             slot: u32::from_le_bytes(slot),
             parent,
+            manifest,
             state,
             reports,
             leader,
@@ -205,6 +213,7 @@ mod tests {
             ConsensusEpoch::new(2),
             1,
             BlockHash::from(1),
+            BlockHash::from(11),
             BlockHash::from(2),
             Vec::new(),
             payload,

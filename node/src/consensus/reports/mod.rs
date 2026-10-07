@@ -4,6 +4,7 @@ mod report_service;
 use crate::consensus::election::{
     AccountSlot, CertificateKinds, Certification, CertifiedBlock, CertifiedState, CertifiedStatus,
     CodedSymbol, Decoder, Encoder, EpochLedger, ReportCommitment, ResidualKind, ResidualVotes,
+    SelectedReport,
 };
 pub use epoch_decision::EpochDecisionService;
 pub(crate) use report_plugin::{ReportPlugin, ReportTicker};
@@ -137,6 +138,39 @@ impl TheirReport {
     fn is_usable(&self) -> bool {
         self.is_complete() && self.verified
     }
+}
+
+/// RAI, "Immutable candidate inputs": the blocks, by epoch, whose signed
+/// votes a candidate's evidence manifest must name for the selected reports:
+/// every certified entry the predecessor checkpoint does not justify, in the
+/// report epoch and, for a finalized entry, in the earlier epochs whose
+/// finality may justify it; and every residual record, in the report epoch.
+pub(crate) fn manifest_claims(
+    epoch: ConsensusEpoch,
+    selection: &[SelectedReport],
+    inherited: &dyn Fn(&CertifiedBlock, Certification) -> bool,
+) -> Vec<(ConsensusEpoch, BlockHash)> {
+    let earlier: Vec<ConsensusEpoch> = (1..=EARLIER_FINALITY_EPOCHS)
+        .filter_map(|back| epoch.as_u64().checked_sub(back).map(ConsensusEpoch::new))
+        .collect();
+    let mut claims = std::collections::BTreeSet::new();
+    for report in selection {
+        for (block, entry) in report.certified.entries() {
+            if inherited(block, *entry) {
+                continue;
+            }
+            claims.insert((epoch, block.hash));
+            if entry.status == CertifiedStatus::Finalized {
+                for before in &earlier {
+                    claims.insert((*before, block.hash));
+                }
+            }
+        }
+        for (block, _, _) in report.residual.entries() {
+            claims.insert((epoch, block.hash));
+        }
+    }
+    claims.into_iter().collect()
 }
 
 /// What checking a reconstructed report against the evidence held here found
