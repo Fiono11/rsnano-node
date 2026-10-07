@@ -56,7 +56,11 @@ def closes_of(state):
 
 def settlement(counts, states, min_closed):
     cemented = {int(c['cemented']) for c in counts}
-    all_cemented = all(c['count'] == c['cemented'] for c in counts) and len(cemented) == 1
+    held = {int(c['count']) for c in counts}
+    # "The same cemented state on every validator": a forked position a
+    # split vote left retained may stay uncemented, as long as it does so
+    # everywhere
+    all_cemented = len(cemented) == 1 and len(held) == 1
     closes = [closes_of(s) for s in states]
     decided = [{e for e, c in node.items() if c.get('value')} for node in closes]
     every = set.intersection(*decided) if decided else set()
@@ -64,7 +68,8 @@ def settlement(counts, states, min_closed):
     values = {e: {node[e].get('closed_value') for node in closes if e in node and node[e].get('value')}
               for e in any_}
     agree = all(len(v) == 1 for v in values.values())
-    return dict(all_cemented=all_cemented, cemented=sorted(cemented),
+    return dict(all_cemented=all_cemented, cemented=sorted(cemented), held=sorted(held),
+                uncemented=sorted({int(c['count']) - int(c['cemented']) for c in counts}),
                 decided_everywhere=sorted(every), decided_somewhere=sorted(any_),
                 values_agree=agree,
                 settled=all_cemented and agree and every == any_ and len(every) >= min_closed)
@@ -112,6 +117,7 @@ def main():
     parser.add_argument('--byzantine', type=int, default=0, help='representatives played by the client with random votes, no node')
     parser.add_argument('--allow-busy', action='store_true', help='Correctness run only; does not satisfy the performance gate')
     parser.add_argument('--wait-quiet', type=int, default=0, help='seconds to wait for a quiet host before giving up')
+    parser.add_argument('--keep', action='store_true', help='leave the nodes running and their data for a post-mortem; print the process group')
     parser.add_argument('--settle-timeout', type=int, default=90, help='seconds to wait for settlement after the client finished or timed out')
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=False)
@@ -143,7 +149,7 @@ def main():
             continue
         raise RuntimeError(f'Benchmark RPC port for PR{i} is already in use')
     with tempfile.TemporaryDirectory(prefix='rai-gate-b-') as temporary:
-        data = Path(temporary)
+        data = Path(tempfile.mkdtemp(prefix='rai-gate-b-kept-')) if args.keep else Path(temporary)
         command = [str(binary_dir / 'nanospam'), '--data-dir', str(data), '--prs', str(PRS), '--no-prio',
                    '--blocks', str(args.blocks), '--accounts', str(args.accounts), '--rate', str(args.rate),
                    '--fork-percentage', str(args.fork_percentage), '--epoch-duration-ms', str(args.epoch_ms),
@@ -222,7 +228,10 @@ def main():
             result['error'] = str(error)
         finally:
             # Only this run's process group; never signal unrelated node processes.
-            if process is not None:
+            if process is not None and args.keep:
+                result['kept'] = dict(pgid=process.pid, data=str(data))
+                print(f'KEPT pgid={process.pid} data={data}', flush=True)
+            elif process is not None:
                 try:
                     os.killpg(process.pid, signal.SIGTERM)
                     process.wait(timeout=5)

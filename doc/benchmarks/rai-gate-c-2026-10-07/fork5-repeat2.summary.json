@@ -1,0 +1,132 @@
+{
+  "gate": "B",
+  "source_revision": "7493aa08e95106399853e043ef18a609e12f4e1a",
+  "node_sha256": "929e77b2a379cf2c8127de4fe1b9136cae8a4dc07e8a45b666537900a3bb9969",
+  "client_sha256": "14f5145c29e7de7eeaf09a91e45d875a6f429992e33fcbecf023301e087fa08f",
+  "busy_processes": [],
+  "performance_eligible": true,
+  "nodes": 6,
+  "command": [
+    "/Users/ruimorais/rsnano-node/.claude/worktrees/rai-kudzu-close/target/release/nanospam",
+    "--data-dir",
+    "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-ex8ga4at",
+    "--prs",
+    "6",
+    "--no-prio",
+    "--blocks",
+    "45000",
+    "--accounts",
+    "45000",
+    "--rate",
+    "2000",
+    "--fork-percentage",
+    "5",
+    "--epoch-duration-ms",
+    "8000",
+    "--byzantine",
+    "0",
+    "--no-kill",
+    "--committee-model",
+    "equal_weight",
+    "--committee-f",
+    "1",
+    "--committee-p",
+    "1"
+  ],
+  "status": "settled",
+  "client_finished": false,
+  "client_finished_s": 150.7,
+  "settled_after_s": 60.1,
+  "settlement": {
+    "all_cemented": true,
+    "cemented": [
+      45063
+    ],
+    "held": [
+      45065
+    ],
+    "uncemented": [
+      2
+    ],
+    "decided_everywhere": [
+      0,
+      1,
+      2
+    ],
+    "decided_somewhere": [
+      0,
+      1,
+      2
+    ],
+    "values_agree": true,
+    "settled": true
+  },
+  "finalization_p50_ms": [
+    89,
+    89,
+    88,
+    90,
+    90,
+    90
+  ],
+  "close_rounds": [
+    [
+      0,
+      "0"
+    ],
+    [
+      1,
+      "0"
+    ],
+    [
+      2,
+      "0"
+    ]
+  ],
+  "close_timings": {
+    "0": {
+      "nodes_left": 6,
+      "nodes_closed": 6,
+      "first_close_ms": 1406,
+      "last_close_ms": 1984,
+      "left_spread_ms": 30,
+      "rounds": [
+        0
+      ]
+    },
+    "1": {
+      "nodes_left": 6,
+      "nodes_closed": 6,
+      "first_close_ms": 1035,
+      "last_close_ms": 1859,
+      "left_spread_ms": 18,
+      "rounds": [
+        0
+      ]
+    },
+    "2": {
+      "nodes_left": 6,
+      "nodes_closed": 6,
+      "first_close_ms": 1283,
+      "last_close_ms": 1314,
+      "left_spread_ms": 109,
+      "rounds": [
+        0
+      ]
+    }
+  },
+  "close_duration_ms": {
+    "max": 1984,
+    "median": 1859
+  },
+  "streams": {
+    "count": 56,
+    "dropped": 0,
+    "symbols": 1782,
+    "recovered": 779,
+    "symbols_per_item": 2.29
+  },
+  "confirmation_rate_cps": null,
+  "confirmed_primary": 44915,
+  "correctness_passed": true
+}

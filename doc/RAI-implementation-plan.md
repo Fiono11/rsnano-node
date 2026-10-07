@@ -24,7 +24,9 @@ Branches: `develop` (target), `rai_kudzu` (source of the import and of the close
 
 Phase 0 (commits 1–5) is on `rai_leaderless` and `rai_kudzu_close` through `c6f3852ea`. **Gate A passed:** the strict quiet-host run cemented 45,065 blocks on all six validators with identical final states in epoch zero, at 1,973 blocks/s and 88–89 ms p50 versus the historical baseline's 1,941 blocks/s and 88–90 ms. See the [benchmark record](benchmarks/rai-phase0-2026-10-02/README.md).
 
-Phase 1 on `rai_kudzu_close`: commit 6 (equal-weight committees, `313068c9c`), commit 7 (Kudzu close vote kinds and slot rules, `918905fef`) and commit 8 (the close election, `2464504bf`) are implemented. Commit 8 is validated by unit tests, container tests of the close and an end-to-end single-node integration test. **Gate B is blocked on report reconciliation:** on six nodes the close decided epochs 0 to 2 in round 0 within 0.8 s at low load, but frozen reports with different roots leave fewer than N−f usable, and the close never becomes ready (at 2,000 blocks/s already in epoch 0). See the [Gate B record](benchmarks/rai-gate-b-2026-10-07/README.md) and [the Phase 1 record](RAI-phase1.md). Proposed next step: Phase 2 before Gate B.
+Phase 1 on `rai_kudzu_close`: commit 6 (equal-weight committees, `313068c9c`), commit 7 (Kudzu close vote kinds and slot rules, `918905fef`) and commit 8 (the close election, `2464504bf`) are implemented. Commit 8 is validated by unit tests, container tests of the close and an end-to-end single-node integration test. Without reconciliation Gate B failed: frozen reports with different roots left fewer than N−f usable. At the user's request Phase 2 then came before Gate B.
+
+Phase 2 on `rai_kudzu_close`: the rateless coder (`d9313079f`), reconciliation of both report inventories (`172460c73`, the plan's commits 11 to 13 in one), stream logging (`3e1fa4422`) and proportional batches (`7493aa08e`). **Gate B passed** on `172460c73`: 1,931 blocks/s, p50 87–89 ms, three epochs decided in round 0 on all six nodes ([record](benchmarks/rai-gate-b-2026-10-07/README.md)). **Gate C passed on the final binary** with one caveat: fork0, byz1 and three fork5 runs settled with zero dropped streams, but an earlier fork5 run diverged in cemented state, and symbols per item were 1.7 to 2.3 instead of about 1.35 ([record](benchmarks/rai-gate-c-2026-10-07/README.md)). Phase 3 is next; its fork-convergence and installation ports address the divergence.
 
 ## Sources: keep, drop, port
 
@@ -82,7 +84,7 @@ Phase 2: rateless IBLT             (commits 10 to 14)  -> Gate C: four variants
 Phase 3: v43 conformance ports     (commits 15 to 21)  -> Gate D: nine variants
 ```
 
-Phases 0 to 3 run in sequence and each ends in a gate. Phase 0 and Gate A are complete. Commits 6 to 8 are implemented; Gate B waits for Phase 2, because without reconciliation a close only becomes ready when the frozen reports happen to share roots.
+Phases 0 to 3 run in sequence and each ends in a gate. Phases 0 to 2 and Gates A to C are complete; Gate B ran after Phase 2, because without reconciliation a close only becomes ready when the frozen reports happen to share roots.
 
 ## Phase 0: import rai_kudzu, trimmed, without the Kudzu close (commits 1 to 5)
 
@@ -107,7 +109,7 @@ Phase 1 puts back the close Phase 0 cut, from rai_kudzu `8aaf98c2c`, onto the tr
 | 6 | Equal-weight committees | Exact membership N = 3f + 2p + 1, integer thresholds, configuration and nanospam controls (from 79ece3fbc, e1f271c49). The Archipelago-only `CheckpointThresholds` were removed again in commit 8 | Done, `313068c9c` |
 | 7 | Kudzu vote kinds and slot rules | VoteKind Notar, Timeout and Abstain in the duration bits, read only with the feature on; timeout and conflict certificates, second looks, the line-32 timeout rule and the epoch-slot settled predicate in kudzu.rs; account elections still take first and final votes only; three extra vote generators | Done, `918905fef` |
 | 8 | The close election | epoch_close.rs (rounds, leaders, placement chain, copy-parent payload, proposal validity); close rounds in the vote's epoch field; EpochProp 0x16; propose, handle_proposal and repeat_proposals in the epoch decision service; close arms in the container, solicitor, vote cache and aggregator; EpochCommittees::for_close; `close_round_timeout_ms` (2 s); the final_state RPC's close info. A certificate installs the decided state through `install_decided_checkpoint`; the epochs close in sequence | Done, `2464504bf` |
-| 9 | Gate B | All-online fork0 with 8 s epochs and equal weights (`tools/rai/run_gate_b.py`): settlement, close rounds, close duration, goodput and p50 against Gate A | Blocked: needs Phase 2 reconciliation ([record](benchmarks/rai-gate-b-2026-10-07/README.md)) |
+| 9 | Gate B | All-online fork0 with 8 s epochs and equal weights (`tools/rai/run_gate_b.py`): settlement, close rounds, close duration, goodput and p50 against Gate A | Passed after Phase 2 ([record](benchmarks/rai-gate-b-2026-10-07/README.md)) |
 
 **How a close runs.** Leaving epoch e at its boundary creates the close election of e. It takes part once this node holds `S_{e-1}` and N−f usable reports of e, and the close of e−1 has a certificate. The round leader proposes at once; a follower that derived the same state first-votes it, and every replica abstains after Δ_E without a valid proposal. A certificate decides the value, and the state it names is installed: blocks it finalized are cemented, the committee of e+2 is derived, and epoch e+1's finality, held by the predecessor gate, is released. An ended epoch is left only once the close of the epoch before it has a certificate.
 
@@ -128,6 +130,14 @@ Five commits put T and G reconstruction on a rateless coder and end in Gate C. T
 | 12 | T over the stream | ReportExchange: per report a Decoder seeded from a clone of the local view taken when the stream starts (the base must not move under the decoder), a cursor and a 300 ms retry; on finish apply deletes then inserts to the base clone and require root() equal to the signed root; an Encoder cached per own frozen snapshot and per reconstructed report so any holder answers; requests go to the reporter first, then to any PR that announced the same root. Keep the zero-message shortcut for an identical local root. Tests: reconstruct with no shared root; N to F counts as two symbols; 3,000 entries short finishes in one loop; a reply for another target is ignored; a stream resumes after a lost reply | 900 |
 | 13 | G over the stream | Port 0d933ad5c (retain original signed vote batches in VoteRecords). Items are the reporter's signed epoch-e statements (hash 32, kind 1, epoch 8, signature 64 = 105 bytes). The requester subtracts the statements it holds from i, verifies each recovered signature, derives Ĝ = hashes \\ keys(T̂) and checks the G root, which stays a root over hashes so the signed header is unchanged. Tests: a lost first vote is recovered and counts as support; a relayed third-party vote is not; a Byzantine reporter's stream that never matches stays unusable | 600 |
 | 14 | Benchmark record | **Gate C** | docs |
+
+**As built (7 October 2026).** Commit 10 is `d9313079f`; commits 11 to 13 landed as one, `172460c73`, with three differences from the table:
+
+- The residual inventory streams the reporter's residual records (block, kind, parent: 105 bytes), whose root the report signs, as rai_kudzu's sketch fallback did. Verifying each record against a signed vote stays with the evidence ports of commit 16.
+- Requests go to every principal representative; any node holding an inventory with the requested root answers, and the decoder ignores replies for another offset. Encoders are cached per root, at most 16 per epoch.
+- A stream asks for 16 symbols first, then half of what it received so far, at most 500 (`7493aa08e`).
+
+Gate C measured 1.7 to 2.3 symbols per recovered item; most differences were ten to forty items, where the first batch dominates.
 
 What this deletes from the paper's text: §4.2's pinned common projection and "retry after gossip if no root is shared", and the k_i·h root-negotiation term in Equation 9. §8.5 then describes the mechanism that is actually measured.
 
@@ -151,7 +161,8 @@ The minimal branch's lock-contention work (report tick on its own thread, eviden
 
 - **The close was cut out at import and put back by hand.** On rai_kudzu the close runs as elections inside the AEC, so commits 7 and 8 restore its arms in the container, solicitor, request aggregator, vote generators and kudzu.rs from the diff against Phase 0, not by checking files out whole. Unit, container and single-node integration tests cover the result; Gate B is the first multi-node check.
 - **Phase 3 ports are manual.** The v43 commits were written on top of the sketch machinery, the Kudzu close and the old report semantics; each port drops the sketch hunks, keeps the close hunks and adapts the rest. Budget a Gate-C-style four-variant run after commits 17 and 19 if either touches more than its listed files.
-- **Close liveness needs every usable report it counts.** With N = 6 and f = 1, N−f = 5 usable reports are required; one unreconstructible honest report stalls the close when a node is silent or Byzantine. Until commit 12 the only way to obtain a report is the identical-root shortcut. Gate B showed that this fails even without forks: in-flight blocks at a timed boundary differ per node.
+- **Close liveness needs every usable report it counts.** With N = 6 and f = 1, N−f = 5 usable reports are required. Before Phase 2 this failed even without forks, because in-flight blocks at a timed boundary differ per node; rateless reconciliation now rebuilds every honest report. A Byzantine reporter's report may stay unusable, and five honest ones suffice.
+- **Local finality the checkpoint does not carry.** One fork5 run in five left a block finalized on one node and not in the decided checkpoint, and cemented states diverged. Phase 3's commits 15, 17 and 19 (cumulative T with the R tag, BuildState per Figure 3, installation that fetches and cements checkpoint-finalized blocks) address it.
 - **Leader rounds.** A faulty or slow leader costs Δ_E per round, and the predecessor gate holds the next epoch's finality meanwhile. Close duration must stay well within one epoch; record it at every gate.
 - **Restarts and evidence retention.** Disk persistence is deferred: slot states, close rounds and decided states live in memory only. The close history is bounded to 256 epochs.
 - **Admissibility is local.** A proposal naming reports this node has not reconstructed is not voted for; the leader repeats it every 200 ms while its epoch is among the last four, and the round times out if it stays unusable.
