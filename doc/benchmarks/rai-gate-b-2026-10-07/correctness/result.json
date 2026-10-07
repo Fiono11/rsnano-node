@@ -1,0 +1,37 @@
+{
+  "gate": "B",
+  "source_revision": "2464504bff9e0031eb5c8d7d855edd1378e5986a",
+  "node_sha256": "30fce3499954c8c90e43c52e69bdd695022cc0ba5a06d68c82af7ff828a74fe7",
+  "client_sha256": "5fa01c3d8bf49322acd2e0ec0e096fe51ae369ef053f84d177862183edd2c638",
+  "busy_processes": [
+    "386    28.1 WindowServer"
+  ],
+  "performance_eligible": false,
+  "command": [
+    "/Users/ruimorais/rsnano-node/.claude/worktrees/rai-kudzu-close/target/release/nanospam",
+    "--data-dir",
+    "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-yoh3dkaf",
+    "--prs",
+    "6",
+    "--no-prio",
+    "--blocks",
+    "45000",
+    "--accounts",
+    "45000",
+    "--rate",
+    "2000",
+    "--fork-percentage",
+    "0",
+    "--epoch-duration-ms",
+    "8000",
+    "--no-kill",
+    "--committee-model",
+    "equal_weight",
+    "--committee-f",
+    "1",
+    "--committee-p",
+    "1"
+  ],
+  "status": "failed",
+  "error": "nanospam exceeded the run deadline"
+}
