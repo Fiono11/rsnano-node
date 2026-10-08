@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File [35m"/Users/ruimorais/rsnano-node/.claude/worktrees/rai-kudzu-close/tools/rai/run_gate_b.py"[0m, line [35m294[0m, in [35m<module>[0m
+    raise SystemExit([31mmain[0m[1;31m()[0m)
+                     [31m~~~~[0m[1;31m^^[0m
+  File [35m"/Users/ruimorais/rsnano-node/.claude/worktrees/rai-kudzu-close/tools/rai/run_gate_b.py"[0m, line [35m284[0m, in [35mmain[0m
+    [31mos.killpg[0m[1;31m(process.pid, signal.SIGKILL)[0m
+    [31m~~~~~~~~~[0m[1;31m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+[1;35mPermissionError[0m: [35m[Errno 1] Operation not permitted[0m

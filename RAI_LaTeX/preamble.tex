@@ -1,7 +1,8 @@
-% EuroSys 2027 encourages ACM SIGPLAN format.  The conference CFP requires
-% two columns, a 7 x 9 inch text block, >= 10 pt text on >= 12 pt leading,
-% and numbered pages.  No font files are included in this source bundle.
-\usepackage{amsmath,mathtools,amsthm}
+% DSN 2027 research track: IEEE Computer Society two-column format, US Letter,
+% 10 pt text on 12 pt leading, 11 pages including appendices, references
+% excluded.  Built with the IEEEtran class (conference mode).
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,mathtools,amssymb}
 \usepackage{array,tabularx,booktabs}
 \usepackage{algorithm}
 \usepackage{algpseudocode}
@@ -10,32 +11,22 @@
 \usetikzlibrary{arrows.meta,positioning,calc}
 \usepackage{xurl}
 \usepackage{balance}
-\geometry{reset,paperwidth=8.5in,paperheight=11in,twoside,inner=0.75in,outer=0.75in,top=1in,bottom=1in,columnsep=0.34in,headheight=13pt,headsep=12pt,footskip=24pt,includeheadfoot=false}
-\settopmatter{printacmref=false,printccs=false,printfolios=true}
-\setcopyright{none}
-\citestyle{acmnumeric}
-\hypersetup{hidelinks,pdfauthor={Anonymous Author(s)},pdfsubject={Anonymous research manuscript}}
-\makeatletter
-% ACM's smaller ancillary sizes are raised to the EuroSys minimum.
-\renewcommand\small{\@setfontsize\small{10}{12}}
-\renewcommand\footnotesize{\@setfontsize\footnotesize{10}{12}}
-\renewcommand\bibfont{\normalfont\fontsize{10}{12}\selectfont}
-\makeatother
-\captionsetup{font=normalsize,labelfont=bf,textfont=normalfont}
-\algrenewcommand\alglinenumber[1]{\normalfont\fontsize{10}{12}\selectfont #1:}
-\setlist[enumerate]{leftmargin=*,topsep=3pt,itemsep=2pt,parsep=0pt}
-\setlist[itemize]{leftmargin=*,topsep=3pt,itemsep=2pt,parsep=0pt}
+\usepackage[hidelinks]{hyperref}
+\hypersetup{pdfauthor={Anonymous Author(s)},pdftitle={RAI: Safe Pipelined Epoch Transitions for Account-Local Payments}}
+\setlist[enumerate]{leftmargin=*,topsep=2pt,itemsep=1pt,parsep=0pt}
+\setlist[itemize]{leftmargin=*,topsep=2pt,itemsep=1pt,parsep=0pt}
+\setlist[description]{leftmargin=1.2em,topsep=2pt,itemsep=1pt,parsep=0pt}
 \setlength{\emergencystretch}{1em}
-\newtheorem{theorem}{Theorem}[section]
-\newtheorem{lemma}[theorem]{Lemma}
-\newtheorem{proposition}[theorem]{Proposition}
-\theoremstyle{definition}
-\newtheorem{definition}[theorem]{Definition}
-\newcommand{\rai}{\textsc{Rai}}
+% IEEEtran supplies \newtheorem and the proof environment.
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{definition}{Definition}
+\newcommand{\rai}{RAI}
 \newcommand{\NC}{\mathsf{NC}}
+\newcommand{\XW}{\mathsf{XW}}
+\newcommand{\OC}{\mathsf{OC}}
 \newcommand{\FC}{\mathsf{FC}}
 \newcommand{\FF}{\mathsf{FF}}
-\newcommand{\TC}{\mathsf{TC}}
 \newcommand{\Build}{\mathsf{BuildState}}
 \newcommand{\Agree}{\mathsf{Decide}}
 \newcommand{\Conv}{\mathsf{Reconstruct}}
@@ -43,7 +34,6 @@
 \newcommand{\Elig}{\mathsf{Eligible}}
 \newcommand{\Root}{\mathsf{Root}}
 \newcommand{\Replay}{\mathsf{Replay}}
-\newcommand{\Final}{\mathsf{Final}}
 \newcommand{\Anc}{\mathsf{Anc}}
 \newcommand{\keys}{\mathsf{keys}}
 \newcommand{\Sign}{\mathsf{Sign}}
@@ -54,6 +44,7 @@
 \newcommand{\tagN}{\mathsf{N}}
 \newcommand{\tagF}{\mathsf{F}}
 \newcommand{\Byz}{\mathsf{Byz}}
-\newcommand{\Compat}{\mathsf{Compatible}}
-\newcommand{\para}[1]{\paragraph{#1}}
+\newcommand{\para}[1]{\smallskip\noindent\textit{#1}\hspace{0.5em}}
 \newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+% IEEEtran names its proof environment IEEEproof.
+\newenvironment{proof}{\begin{IEEEproof}}{\end{IEEEproof}}

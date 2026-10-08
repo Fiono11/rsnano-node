@@ -1,0 +1,33 @@
+TLC2 Version 2026.10.06.014338 (rev: 94d0c50)
+Running breadth-first search Model-Checking with fp 47 and seed 5341957055588605837 with 2 workers on 2 cores with 5461MB heap and 64MB offheap memory [pid: 2299] (Linux 6.18.44-fc-v80 amd64, Ubuntu 21.0.12.1 64bit, MSBDiskFPSet, DiskStateQueue).
+Parsing file /home/claude/rai/tla/RaiOverlap.tla
+Parsing file /tmp/tlc-13494236995995538740/Naturals.tla (jar:file:/home/claude/rai/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
+Parsing file /tmp/tlc-13494236995995538740/FiniteSets.tla (jar:file:/home/claude/rai/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
+Parsing file /tmp/tlc-13494236995995538740/TLC.tla (jar:file:/home/claude/rai/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
+Parsing file /tmp/tlc-13494236995995538740/_TLCTrace.tla (jar:file:/home/claude/rai/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
+Parsing file /tmp/tlc-13494236995995538740/Sequences.tla (jar:file:/home/claude/rai/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
+Parsing file /tmp/tlc-13494236995995538740/TLCExt.tla (jar:file:/home/claude/rai/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
+Parsing file /tmp/tlc-13494236995995538740/Integers.tla (jar:file:/home/claude/rai/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module Integers
+Semantic processing of module TLCExt
+Semantic processing of module _TLCTrace
+Semantic processing of module RaiOverlap
+Linting of module TLCExt
+Linting of module _TLCTrace
+Linting of module RaiOverlap
+Starting... (2026-10-08 09:28:29)
+Computing initial states...
+Finished computing initial states: 1 distinct state generated at 2026-10-08 09:28:30.
+Model checking completed. No error has been found.
+  Estimates of the probability that TLC did not check all reachable states
+  because two distinct states had the same fingerprint:
+  calculated (optimistic):  val = 1.1E-5
+  based on the actual fingerprints:  val = 2.0E-6
+40995024 states generated, 5485444 distinct states found, 0 states left on queue.
+The depth of the complete state graph search is 34.
+The average outdegree of the complete state graph is 1 (minimum is 0, the maximum 8 and the 95th percentile is 3).
+Finished in 13min 25s at (2026-10-08 09:41:55)

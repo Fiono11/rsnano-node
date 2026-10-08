@@ -1,0 +1,285 @@
+TLC2 Version 2026.10.06.014338 (rev: 94d0c50)
+Running breadth-first search Model-Checking with fp 100 and seed -6233314218944778789 with 2 workers on 2 cores with 5461MB heap and 64MB offheap memory [pid: 2187] (Linux 6.18.44-fc-v80 amd64, Ubuntu 21.0.12.1 64bit, MSBDiskFPSet, DiskStateQueue).
+Parsing file /home/claude/rai/tla/RaiOverlap.tla
+Parsing file /tmp/tlc-13056226614265671382/Naturals.tla (jar:file:/home/claude/rai/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
+Parsing file /tmp/tlc-13056226614265671382/FiniteSets.tla (jar:file:/home/claude/rai/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
+Parsing file /tmp/tlc-13056226614265671382/TLC.tla (jar:file:/home/claude/rai/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
+Parsing file /tmp/tlc-13056226614265671382/_TLCTrace.tla (jar:file:/home/claude/rai/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
+Parsing file /tmp/tlc-13056226614265671382/Sequences.tla (jar:file:/home/claude/rai/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
+Parsing file /tmp/tlc-13056226614265671382/TLCExt.tla (jar:file:/home/claude/rai/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
+Parsing file /tmp/tlc-13056226614265671382/Integers.tla (jar:file:/home/claude/rai/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module Integers
+Semantic processing of module TLCExt
+Semantic processing of module _TLCTrace
+Semantic processing of module RaiOverlap
+Linting of module TLCExt
+Linting of module _TLCTrace
+Linting of module RaiOverlap
+Starting... (2026-10-08 09:27:19)
+Computing initial states...
+Finished computing initial states: 1 distinct state generated at 2026-10-08 09:27:20.
+Error: Invariant ProbeLockVsFinal is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ S = [fin |-> {}, locks |-> {}, done |-> FALSE]
+/\ pof = {}
+/\ ovf = {}
+/\ rep = ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+  c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+  c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+  c4 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+  c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] )
+/\ left = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fv1 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv2 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ late = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ inst = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn2 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+
+State 2: <Vote1(c1,"X") line 83, col 3 to line 85, col 68 of module RaiOverlap>
+/\ S = [fin |-> {}, locks |-> {}, done |-> FALSE]
+/\ pof = {}
+/\ ovf = {}
+/\ rep = ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+  c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+  c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+  c4 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+  c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] )
+/\ left = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fv1 = (c1 :> "X" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv2 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ late = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ inst = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn2 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+
+State 3: <Vote1(c2,"X") line 83, col 3 to line 85, col 68 of module RaiOverlap>
+/\ S = [fin |-> {}, locks |-> {}, done |-> FALSE]
+/\ pof = {}
+/\ ovf = {}
+/\ rep = ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+  c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+  c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+  c4 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+  c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] )
+/\ left = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv2 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ late = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ inst = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn2 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+
+State 4: <Leave(c1) line 94, col 3 to line 102, col 62 of module RaiOverlap>
+/\ S = [fin |-> {}, locks |-> {}, done |-> FALSE]
+/\ pof = {}
+/\ ovf = {}
+/\ rep = ( c1 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {"X"}] @@
+  c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+  c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+  c4 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+  c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] )
+/\ left = (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv2 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ late = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ inst = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn2 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+
+State 5: <Leave(c2) line 94, col 3 to line 102, col 62 of module RaiOverlap>
+/\ S = [fin |-> {}, locks |-> {}, done |-> FALSE]
+/\ pof = {}
+/\ ovf = {}
+/\ rep = ( c1 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {"X"}] @@
+  c2 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {"X"}] @@
+  c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+  c4 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+  c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] )
+/\ left = (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv2 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ late = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ inst = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn2 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+
+State 6: <Leave(c3) line 94, col 3 to line 102, col 62 of module RaiOverlap>
+/\ S = [fin |-> {}, locks |-> {}, done |-> FALSE]
+/\ pof = {}
+/\ ovf = {}
+/\ rep = ( c1 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {"X"}] @@
+  c2 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {"X"}] @@
+  c3 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {}] @@
+  c4 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+  c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] )
+/\ left = (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv2 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ late = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ inst = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn2 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+
+State 7: <Vote2(c3,"Y") line 108, col 3 to line 115, col 62 of module RaiOverlap>
+/\ S = [fin |-> {}, locks |-> {}, done |-> FALSE]
+/\ pof = {}
+/\ ovf = {}
+/\ rep = ( c1 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {"X"}] @@
+  c2 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {"X"}] @@
+  c3 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {}] @@
+  c4 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+  c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] )
+/\ left = (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv2 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "-" @@ c5 :> "-")
+/\ late = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "-" @@ c5 :> "-")
+/\ inst = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn2 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+
+State 8: <Leave(c4) line 94, col 3 to line 102, col 62 of module RaiOverlap>
+/\ S = [fin |-> {}, locks |-> {}, done |-> FALSE]
+/\ pof = {}
+/\ ovf = {}
+/\ rep = ( c1 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {"X"}] @@
+  c2 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {"X"}] @@
+  c3 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {}] @@
+  c4 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {}] @@
+  c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] )
+/\ left = (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE @@ c4 :> TRUE @@ c5 :> FALSE)
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv2 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "-" @@ c5 :> "-")
+/\ late = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "-" @@ c5 :> "-")
+/\ inst = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn2 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+
+State 9: <Vote2(c4,"Y") line 108, col 3 to line 115, col 62 of module RaiOverlap>
+/\ S = [fin |-> {}, locks |-> {}, done |-> FALSE]
+/\ pof = {}
+/\ ovf = {}
+/\ rep = ( c1 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {"X"}] @@
+  c2 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {"X"}] @@
+  c3 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {}] @@
+  c4 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {}] @@
+  c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] )
+/\ left = (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE @@ c4 :> TRUE @@ c5 :> FALSE)
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv2 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "-")
+/\ late = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "-")
+/\ inst = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn2 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+
+State 10: <Leave(c5) line 94, col 3 to line 102, col 62 of module RaiOverlap>
+/\ S = [fin |-> {}, locks |-> {}, done |-> FALSE]
+/\ pof = {}
+/\ ovf = {}
+/\ rep = ( c1 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {"X"}] @@
+  c2 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {"X"}] @@
+  c3 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {}] @@
+  c4 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {}] @@
+  c5 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {}] )
+/\ left = (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE @@ c4 :> TRUE @@ c5 :> TRUE)
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv2 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "-")
+/\ late = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "-")
+/\ inst = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn2 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+
+State 11: <Vote2(c5,"Y") line 108, col 3 to line 115, col 62 of module RaiOverlap>
+/\ S = [fin |-> {}, locks |-> {}, done |-> FALSE]
+/\ pof = {}
+/\ ovf = {}
+/\ rep = ( c1 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {"X"}] @@
+  c2 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {"X"}] @@
+  c3 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {}] @@
+  c4 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {}] @@
+  c5 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {}] )
+/\ left = (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE @@ c4 :> TRUE @@ c5 :> TRUE)
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv2 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ late = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ inst = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn2 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+
+State 12: <Close line 166, col 3 to line 172, col 70 of module RaiOverlap>
+/\ S = [fin |-> {}, locks |-> {[b |-> "X", o |-> 1]}, done |-> TRUE]
+/\ pof = {}
+/\ ovf = {}
+/\ rep = ( c1 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {"X"}] @@
+  c2 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {"X"}] @@
+  c3 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {}] @@
+  c4 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {}] @@
+  c5 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {}] )
+/\ left = (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE @@ c4 :> TRUE @@ c5 :> TRUE)
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv2 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ late = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ inst = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn2 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+
+State 13: <Install(c1) line 138, col 3 to line 141, col 61 of module RaiOverlap>
+/\ S = [fin |-> {}, locks |-> {[b |-> "X", o |-> 1]}, done |-> TRUE]
+/\ pof = {}
+/\ ovf = {}
+/\ rep = ( c1 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {"X"}] @@
+  c2 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {"X"}] @@
+  c3 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {}] @@
+  c4 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {}] @@
+  c5 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {}] )
+/\ left = (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE @@ c4 :> TRUE @@ c5 :> TRUE)
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv2 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ late = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ inst = (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn2 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+
+State 14: <Vote2(c1,"Y") line 108, col 3 to line 115, col 62 of module RaiOverlap>
+/\ S = [fin |-> {}, locks |-> {[b |-> "X", o |-> 1]}, done |-> TRUE]
+/\ pof = {}
+/\ ovf = {}
+/\ rep = ( c1 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {"X"}] @@
+  c2 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {"X"}] @@
+  c3 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {}] @@
+  c4 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {}] @@
+  c5 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {}] )
+/\ left = (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE @@ c4 :> TRUE @@ c5 :> TRUE)
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv2 = (c1 :> "Y" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ late = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ inst = (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn2 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+
+State 15: <FinalizeOverlap("Y") line 125, col 3 to line 128, col 68 of module RaiOverlap>
+/\ S = [fin |-> {}, locks |-> {[b |-> "X", o |-> 1]}, done |-> TRUE]
+/\ pof = {}
+/\ ovf = {"Y"}
+/\ rep = ( c1 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {"X"}] @@
+  c2 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {"X"}] @@
+  c3 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {}] @@
+  c4 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {}] @@
+  c5 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {}] )
+/\ left = (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE @@ c4 :> TRUE @@ c5 :> TRUE)
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv2 = (c1 :> "Y" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ late = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ inst = (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn2 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+
+690331 states generated, 142900 distinct states found, 71298 states left on queue.
+The depth of the complete state graph search is 15.
+Finished in 17s at (2026-10-08 09:27:37)
+Trace exploration spec path: ./RaiOverlap_TTrace_1791448039.tla

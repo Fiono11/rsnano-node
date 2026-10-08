@@ -1,0 +1,514 @@
+TLC2 Version 2026.10.06.014338 (rev: 94d0c50)
+Running breadth-first search Model-Checking with fp 17 and seed 2310445887691095957 with 2 workers on 2 cores with 5461MB heap and 64MB offheap memory [pid: 621] (Linux 6.18.44-fc-v80 amd64, Ubuntu 21.0.12.1 64bit, MSBDiskFPSet, DiskStateQueue).
+Parsing file /home/claude/rai/tla/RaiClose.tla
+Parsing file /tmp/tlc-7020471283893926903/Naturals.tla (jar:file:/home/claude/rai/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
+Parsing file /tmp/tlc-7020471283893926903/FiniteSets.tla (jar:file:/home/claude/rai/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
+Parsing file /tmp/tlc-7020471283893926903/TLC.tla (jar:file:/home/claude/rai/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
+Parsing file /tmp/tlc-7020471283893926903/_TLCTrace.tla (jar:file:/home/claude/rai/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
+Parsing file /tmp/tlc-7020471283893926903/Sequences.tla (jar:file:/home/claude/rai/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
+Parsing file /tmp/tlc-7020471283893926903/TLCExt.tla (jar:file:/home/claude/rai/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
+Parsing file /tmp/tlc-7020471283893926903/Integers.tla (jar:file:/home/claude/rai/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module Integers
+Semantic processing of module TLCExt
+Semantic processing of module _TLCTrace
+Semantic processing of module RaiClose
+Linting of module TLCExt
+Linting of module _TLCTrace
+Linting of module RaiClose
+Starting... (2026-10-08 08:49:44)
+Computing initial states...
+Finished computing initial states: 1 distinct state generated at 2026-10-08 08:49:44.
+Error: Invariant Thm64 is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ frozen = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE) >>
+/\ rep = << ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c4 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ),
+   ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c4 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ) >>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE) >>
+/\ fv = << (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-") >>
+
+State 2: <Vote(c1,1,"X") line 95, col 3 to line 98, col 37 of module RaiClose>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ frozen = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE) >>
+/\ rep = << ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c4 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ),
+   ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c4 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ) >>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE) >>
+/\ fv = << (c1 :> "X" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-") >>
+
+State 3: <Vote(c2,1,"X") line 95, col 3 to line 98, col 37 of module RaiClose>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ frozen = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE) >>
+/\ rep = << ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c4 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ),
+   ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c4 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ) >>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE) >>
+/\ fv = << (c1 :> "X" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-") >>
+
+State 4: <Vote(c3,1,"X") line 95, col 3 to line 98, col 37 of module RaiClose>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ frozen = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE) >>
+/\ rep = << ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c4 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ),
+   ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c4 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ) >>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE) >>
+/\ fv = << (c1 :> "X" @@ c2 :> "X" @@ c3 :> "X" @@ c4 :> "-" @@ c5 :> "-"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-") >>
+
+State 5: <Vote(c4,1,"Y") line 95, col 3 to line 98, col 37 of module RaiClose>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ frozen = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE) >>
+/\ rep = << ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c4 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ),
+   ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c4 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ) >>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE) >>
+/\ fv = << (c1 :> "X" @@ c2 :> "X" @@ c3 :> "X" @@ c4 :> "Y" @@ c5 :> "-"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-") >>
+
+State 6: <Vote(c5,1,"Y") line 95, col 3 to line 98, col 37 of module RaiClose>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ frozen = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE) >>
+/\ rep = << ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c4 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ),
+   ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c4 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ) >>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE) >>
+/\ fv = << (c1 :> "X" @@ c2 :> "X" @@ c3 :> "X" @@ c4 :> "Y" @@ c5 :> "Y"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-") >>
+
+State 7: <Freeze(c1,1) line 109, col 3 to line 121, col 28 of module RaiClose>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ frozen = << (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE) >>
+/\ rep = << ( c1 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {"X"}] @@
+     c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c4 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ),
+   ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c4 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ) >>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE) >>
+/\ fv = << (c1 :> "X" @@ c2 :> "X" @@ c3 :> "X" @@ c4 :> "Y" @@ c5 :> "Y"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-") >>
+
+State 8: <Freeze(c2,1) line 109, col 3 to line 121, col 28 of module RaiClose>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ frozen = << (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE) >>
+/\ rep = << ( c1 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {"X"}] @@
+     c2 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {"X"}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c4 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ),
+   ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c4 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ) >>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE) >>
+/\ fv = << (c1 :> "X" @@ c2 :> "X" @@ c3 :> "X" @@ c4 :> "Y" @@ c5 :> "Y"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-") >>
+
+State 9: <Freeze(c4,1) line 109, col 3 to line 121, col 28 of module RaiClose>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ frozen = << (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE @@ c4 :> TRUE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE) >>
+/\ rep = << ( c1 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {"X"}] @@
+     c2 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {"X"}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c4 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {"Y"}] @@
+     c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ),
+   ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c4 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ) >>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE) >>
+/\ fv = << (c1 :> "X" @@ c2 :> "X" @@ c3 :> "X" @@ c4 :> "Y" @@ c5 :> "Y"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-") >>
+
+State 10: <Freeze(c5,1) line 109, col 3 to line 121, col 28 of module RaiClose>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ frozen = << (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE @@ c4 :> TRUE @@ c5 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE) >>
+/\ rep = << ( c1 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {"X"}] @@
+     c2 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {"X"}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c4 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {"Y"}] @@
+     c5 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {"Y"}] ),
+   ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c4 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ) >>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE) >>
+/\ fv = << (c1 :> "X" @@ c2 :> "X" @@ c3 :> "X" @@ c4 :> "Y" @@ c5 :> "Y"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-") >>
+
+State 11: <Close(1) line 159, col 3 to line 173, col 33 of module RaiClose>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ frozen = << (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE @@ c4 :> TRUE @@ c5 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE) >>
+/\ rep = << ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c4 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ),
+   ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c4 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ) >>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE) >>
+/\ fv = << (c1 :> "X" @@ c2 :> "X" @@ c3 :> "X" @@ c4 :> "Y" @@ c5 :> "Y"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-") >>
+
+State 12: <Vote(c1,2,"Y") line 95, col 3 to line 98, col 37 of module RaiClose>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ frozen = << (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE @@ c4 :> TRUE @@ c5 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE) >>
+/\ rep = << ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c4 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ),
+   ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c4 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ) >>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE) >>
+/\ fv = << (c1 :> "X" @@ c2 :> "X" @@ c3 :> "X" @@ c4 :> "Y" @@ c5 :> "Y"),
+   (c1 :> "Y" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-") >>
+
+State 13: <Vote(c2,2,"Y") line 95, col 3 to line 98, col 37 of module RaiClose>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ frozen = << (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE @@ c4 :> TRUE @@ c5 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE) >>
+/\ rep = << ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c4 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ),
+   ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c4 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ) >>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE) >>
+/\ fv = << (c1 :> "X" @@ c2 :> "X" @@ c3 :> "X" @@ c4 :> "Y" @@ c5 :> "Y"),
+   (c1 :> "Y" @@ c2 :> "Y" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-") >>
+
+State 14: <Vote(c3,2,"Y") line 95, col 3 to line 98, col 37 of module RaiClose>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ frozen = << (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE @@ c4 :> TRUE @@ c5 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE) >>
+/\ rep = << ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c4 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ),
+   ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c4 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ) >>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE) >>
+/\ fv = << (c1 :> "X" @@ c2 :> "X" @@ c3 :> "X" @@ c4 :> "Y" @@ c5 :> "Y"),
+   (c1 :> "Y" @@ c2 :> "Y" @@ c3 :> "Y" @@ c4 :> "-" @@ c5 :> "-"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-") >>
+
+State 15: <Vote(c4,2,"Y") line 95, col 3 to line 98, col 37 of module RaiClose>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ frozen = << (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE @@ c4 :> TRUE @@ c5 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE) >>
+/\ rep = << ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c4 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ),
+   ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c4 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ) >>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE) >>
+/\ fv = << (c1 :> "X" @@ c2 :> "X" @@ c3 :> "X" @@ c4 :> "Y" @@ c5 :> "Y"),
+   (c1 :> "Y" @@ c2 :> "Y" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "-"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-") >>
+
+State 16: <Freeze(c1,2) line 109, col 3 to line 121, col 28 of module RaiClose>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ frozen = << (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE @@ c4 :> TRUE @@ c5 :> TRUE),
+   (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE) >>
+/\ rep = << ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c4 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ),
+   ( c1 :> [T |-> [X |-> "-", Y |-> "R"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c4 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ) >>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE) >>
+/\ fv = << (c1 :> "X" @@ c2 :> "X" @@ c3 :> "X" @@ c4 :> "Y" @@ c5 :> "Y"),
+   (c1 :> "Y" @@ c2 :> "Y" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "-"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-") >>
+
+State 17: <Freeze(c2,2) line 109, col 3 to line 121, col 28 of module RaiClose>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ frozen = << (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE @@ c4 :> TRUE @@ c5 :> TRUE),
+   (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE) >>
+/\ rep = << ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c4 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ),
+   ( c1 :> [T |-> [X |-> "-", Y |-> "R"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "-", Y |-> "R"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c4 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ) >>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE) >>
+/\ fv = << (c1 :> "X" @@ c2 :> "X" @@ c3 :> "X" @@ c4 :> "Y" @@ c5 :> "Y"),
+   (c1 :> "Y" @@ c2 :> "Y" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "-"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-") >>
+
+State 18: <Freeze(c3,2) line 109, col 3 to line 121, col 28 of module RaiClose>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ frozen = << (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE @@ c4 :> TRUE @@ c5 :> TRUE),
+   (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE) >>
+/\ rep = << ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c4 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ),
+   ( c1 :> [T |-> [X |-> "-", Y |-> "R"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "-", Y |-> "R"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "-", Y |-> "R"], G |-> {}] @@
+     c4 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ) >>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE) >>
+/\ fv = << (c1 :> "X" @@ c2 :> "X" @@ c3 :> "X" @@ c4 :> "Y" @@ c5 :> "Y"),
+   (c1 :> "Y" @@ c2 :> "Y" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "-"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-") >>
+
+State 19: <Freeze(c4,2) line 109, col 3 to line 121, col 28 of module RaiClose>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ frozen = << (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE @@ c4 :> TRUE @@ c5 :> TRUE),
+   (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE @@ c4 :> TRUE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE) >>
+/\ rep = << ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c4 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ),
+   ( c1 :> [T |-> [X |-> "-", Y |-> "R"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "-", Y |-> "R"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "-", Y |-> "R"], G |-> {}] @@
+     c4 :> [T |-> [X |-> "-", Y |-> "R"], G |-> {}] @@
+     c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ) >>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE) >>
+/\ fv = << (c1 :> "X" @@ c2 :> "X" @@ c3 :> "X" @@ c4 :> "Y" @@ c5 :> "Y"),
+   (c1 :> "Y" @@ c2 :> "Y" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "-"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-") >>
+
+State 20: <Close(2) line 159, col 3 to line 173, col 33 of module RaiClose>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}] @@
+  2 :> [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}] )
+/\ frozen = << (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE @@ c4 :> TRUE @@ c5 :> TRUE),
+   (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE @@ c4 :> TRUE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE) >>
+/\ rep = << ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c4 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ),
+   ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c4 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c5 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ) >>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE) >>
+/\ fv = << (c1 :> "X" @@ c2 :> "X" @@ c3 :> "X" @@ c4 :> "Y" @@ c5 :> "Y"),
+   (c1 :> "Y" @@ c2 :> "Y" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "-"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-") >>
+
+964708 states generated, 141575 distinct states found, 47935 states left on queue.
+The depth of the complete state graph search is 20.
+Finished in 33s at (2026-10-08 08:50:17)
+Trace exploration spec path: ./RaiClose_TTrace_1791445784.tla
+
+real	0m33.725s
+user	1m4.699s
+sys	0m1.637s
