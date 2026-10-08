@@ -30,18 +30,6 @@ pub(crate) fn unattached_dependency(
     block: &SavedBlock,
     checkpoint: Option<&EpochLedger>,
 ) -> Option<Unattached> {
-    // The block a lock names may be continued, not reopened; whether a
-    // recovery-only lock may be continued yet depends on the votes the
-    // container holds (see `ActiveElectionsContainer::lock_continuable`)
-    if checkpoint.is_some_and(|state| {
-        let slot = AccountSlot::new(block.account(), block.height());
-        state
-            .retained_depth(block.account())
-            .is_some_and(|depth| block.height() <= depth)
-            && !state.is_locked(&slot, &block.hash())
-    }) {
-        return Some(Unattached::Retained);
-    }
     let dependencies = any.block_dependencies(block);
     let confirmed = any.confirmed();
     // A receive needs proof that its send is final, whatever its parent
@@ -56,6 +44,19 @@ pub(crate) fn unattached_dependency(
     };
     if !dependencies.previous().is_none_or(final_or_locked) {
         return Some(Unattached::Previous);
+    }
+    // The block a lock names is continued, not reopened. A rival at a
+    // retained depth is named as such, last: whether the records it bypasses
+    // are discharged depends on the exclusion witnesses the container holds
+    // (see `EpochLedger::admits`)
+    if checkpoint.is_some_and(|state| {
+        let slot = AccountSlot::new(block.account(), block.height());
+        state
+            .retained_depth(block.account())
+            .is_some_and(|depth| block.height() <= depth)
+            && !state.is_locked(&slot, &block.hash())
+    }) {
+        return Some(Unattached::Retained);
     }
     None
 }
@@ -109,12 +110,26 @@ mod tests {
         assert!(attachable(&ledger, &parent, Some(&checkpoint)));
     }
 
+    /// A rival at a retained depth is named as such once its other
+    /// dependencies hold: whether the records it bypasses are discharged is
+    /// for the container to tell
     #[test]
     fn a_reopened_retained_position_is_named_as_such() {
         let (ledger, parent, child, _) = locked_parent_fixture();
         let checkpoint = rival_lock_at(&parent, &child);
         assert_eq!(
             unattached_dependency(&ledger.any(), &child, Some(&checkpoint)),
+            Some(Unattached::Previous)
+        );
+        ledger.confirm(parent.hash());
+        let mut rival_only = EpochLedger::new();
+        rival_only.retain_for_test(
+            AccountSlot::new(child.account(), child.height()),
+            BlockHash::from(999),
+            child.previous(),
+        );
+        assert_eq!(
+            unattached_dependency(&ledger.any(), &child, Some(&rival_only)),
             Some(Unattached::Retained)
         );
     }

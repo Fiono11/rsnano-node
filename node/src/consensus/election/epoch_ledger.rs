@@ -116,6 +116,37 @@ impl LockRecord {
     }
 }
 
+/// RAI: a lock record a block bypasses, and the block whose exclusion
+/// witness of the record's origin would discharge it: the bypassing branch's
+/// block at the first position where it diverges from the record's block
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct BypassedRecord {
+    /// The retained block carrying the record
+    pub holder: BlockHash,
+    pub record: LockRecord,
+    /// The bypassing branch's block at the first divergent position
+    pub target: BlockHash,
+}
+
+/// RAI, "matching-origin discharge": a recovery record of origin `o` on a
+/// block `B'` is discharged by an exclusion witness `XW_o(B)` for a block `B`
+/// that conflicts with `B'`. Account exclusion then proves that no epoch-`o`
+/// final certificate for `B'` can exist. Evidence of any other epoch does not
+/// discharge the record, and a notarization lock is never bypassed. The one
+/// rule for voting, for rechecking early work at installation, and for
+/// BuildState; `witness` tells whether the evidence the caller may use holds
+/// an exclusion witness for a block in an epoch.
+pub fn discharged(
+    bypassed: &BypassedRecord,
+    witness: &dyn Fn(ConsensusEpoch, &BlockHash) -> bool,
+) -> bool {
+    bypassed.record.strength == LockStrength::Recovery
+        && witness(bypassed.record.origin, &bypassed.target)
+}
+
+/// The blocks of a branch by height, from a block down to finalized history
+pub type Branch = BTreeMap<u64, BlockHash>;
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct EpochLedger {
     /// The finalized block at a slot, by account finalization or by the
@@ -224,6 +255,133 @@ impl EpochLedger {
         } else {
             RetainedKind::Recovery
         }
+    }
+
+    /// The branch a retained block continues: the block and its retained
+    /// ancestors, down to the finalized history the branches share
+    fn retained_branch(&self, slot: AccountSlot, hash: BlockHash) -> Branch {
+        let mut branch = Branch::new();
+        let (mut at, mut hash) = (slot, hash);
+        loop {
+            branch.insert(at.height, hash);
+            let Some(block) = self
+                .notarized
+                .get(&at)
+                .and_then(|blocks| blocks.iter().find(|block| block.hash == hash))
+            else {
+                break;
+            };
+            if at.height <= 1 || block.previous.is_zero() {
+                break;
+            }
+            at = AccountSlot::new(at.account, at.height - 1);
+            if self.finalized(&at).is_some() {
+                break;
+            }
+            hash = block.previous;
+        }
+        branch
+    }
+
+    /// The branch a block placed at a position continues, as far as this
+    /// state can tell: the block, its parent, and below a retained parent
+    /// the parent's retained branch
+    pub fn branch_of(&self, slot: AccountSlot, hash: BlockHash, previous: BlockHash) -> Branch {
+        let mut branch = Branch::new();
+        branch.insert(slot.height, hash);
+        if slot.height > 1 && !previous.is_zero() {
+            let parent = AccountSlot::new(slot.account, slot.height - 1);
+            if self.finalized(&parent).is_none() {
+                if self.is_locked(&parent, &previous) {
+                    branch.extend(self.retained_branch(parent, previous));
+                } else {
+                    branch.insert(parent.height, previous);
+                }
+            }
+        }
+        branch
+    }
+
+    /// RAI: the lock records a branch of an account bypasses: those on every
+    /// retained block whose own branch diverges from it, each with the
+    /// branch's block at the first divergent position. A branch that runs
+    /// through a retained block, or that a retained block continues, is
+    /// compatible with its records.
+    pub fn bypassed_records(&self, account: Account, branch: &Branch) -> Vec<BypassedRecord> {
+        let mut bypassed = Vec::new();
+        if branch.is_empty() {
+            return bypassed;
+        }
+        let range = AccountSlot::new(account, 0)..=AccountSlot::new(account, u64::MAX);
+        for (slot, blocks) in self.notarized.range(range) {
+            for block in blocks {
+                let Some(records) = self.locks.get(&block.hash).filter(|r| !r.is_empty()) else {
+                    continue;
+                };
+                let held = self.retained_branch(*slot, block.hash);
+                let divergent = held
+                    .iter()
+                    .find_map(|(height, hash)| branch.get(height).filter(|mine| *mine != hash));
+                if let Some(target) = divergent {
+                    bypassed.extend(records.iter().map(|record| BypassedRecord {
+                        holder: block.hash,
+                        record: *record,
+                        target: *target,
+                    }));
+                }
+            }
+        }
+        bypassed
+    }
+
+    /// RAI, "a rival at a retained position is refused while any record on
+    /// the retained block survives": whether a block placed at a position may
+    /// be voted on, given the exclusion witnesses the caller holds
+    pub fn admits(
+        &self,
+        slot: AccountSlot,
+        hash: BlockHash,
+        previous: BlockHash,
+        witness: &dyn Fn(ConsensusEpoch, &BlockHash) -> bool,
+    ) -> bool {
+        if self.retained_depth(slot.account).is_none() {
+            return true;
+        }
+        self.bypassed_records(slot.account, &self.branch_of(slot, hash, previous))
+            .iter()
+            .all(|bypassed| discharged(bypassed, witness))
+    }
+
+    /// Drops one lock record of a block; true if it was the block's last
+    fn discharge(&mut self, holder: &BlockHash, record: &LockRecord) -> bool {
+        let Some(records) = self.locks.get_mut(holder) else {
+            return false;
+        };
+        if !records.remove(record) || !records.is_empty() {
+            return false;
+        }
+        self.locks.remove(holder);
+        true
+    }
+
+    /// "A block leaves R_Q only when none of its records survives and it is
+    /// not an ancestor of a block with a surviving record": the retained
+    /// blocks of an account that carry no record and continue no branch a
+    /// record holder runs through go
+    fn release_unlocked(&mut self, account: Account) {
+        let range = AccountSlot::new(account, 0)..=AccountSlot::new(account, u64::MAX);
+        let mut kept: BTreeSet<BlockHash> = BTreeSet::new();
+        for (slot, blocks) in self.notarized.range(range.clone()) {
+            for block in blocks {
+                if self.locks.contains_key(&block.hash) {
+                    kept.extend(self.retained_branch(*slot, block.hash).values().copied());
+                }
+            }
+        }
+        for blocks in self.notarized.range_mut(range).map(|(_, blocks)| blocks) {
+            blocks.retain(|block| kept.contains(&block.hash));
+        }
+        self.notarized.retain(|_, blocks| !blocks.is_empty());
     }
 
     /// Whether a block retained at a position carries a recovery record of
@@ -512,11 +670,20 @@ pub struct BuildRules {
 /// finalization without an NC is performed: the unique-branch variant of
 /// rai-cross-epoch-minimal is not ported, it is unsafe with the overlap
 /// exceptions.
+///
+/// Algorithm 1 line 6, matching-origin discharge: every inherited recovery
+/// record that a selected claim bypasses is discharged if `witness` (the
+/// candidate's manifest) holds an exclusion witness of the record's origin
+/// for the claim's block at the divergent position; that record only. A
+/// selected claim - an F or N entry, or a first vote in G - that still
+/// bypasses a surviving record is not eligible. A block whose records are all
+/// discharged leaves R_Q unless it is an ancestor of a record holder.
 pub fn build_state(
     previous: &EpochLedger,
     selection: &[SelectedReport],
     index: &dyn BlockIndex,
     rules: BuildRules,
+    witness: &dyn Fn(ConsensusEpoch, &BlockHash) -> bool,
 ) -> Result<EpochLedger, BuildStateError> {
     let many = rules.many;
     #[derive(Default)]
@@ -525,12 +692,38 @@ pub fn build_state(
         finalized: BTreeSet<BlockHash>,
         first: BTreeMap<BlockHash, Amount>,
     }
-    let mut evidence: BTreeMap<AccountSlot, Evidence> = BTreeMap::new();
     let mut reporters = BTreeSet::new();
     for report in selection {
         if !reporters.insert(report.reporter) {
             return Err(BuildStateError::RepeatedReporter);
         }
+    }
+    let mut ledger = previous.clone();
+    let mut released = BTreeSet::new();
+    for (slot, hash) in named_blocks(selection) {
+        if previous.retained_depth(slot.account).is_none() {
+            continue;
+        }
+        let branch = index_branch(previous, index, slot, hash);
+        for bypassed in previous.bypassed_records(slot.account, &branch) {
+            if discharged(&bypassed, witness) {
+                ledger.discharge(&bypassed.holder, &bypassed.record);
+                released.insert(slot.account);
+            }
+        }
+    }
+    for account in released {
+        ledger.release_unlocked(account);
+    }
+    // A claim is eligible unless it still bypasses a surviving record
+    let eligible = |slot: AccountSlot, hash: BlockHash| {
+        ledger.retained_depth(slot.account).is_none()
+            || ledger
+                .bypassed_records(slot.account, &index_branch(&ledger, index, slot, hash))
+                .is_empty()
+    };
+    let mut evidence: BTreeMap<AccountSlot, Evidence> = BTreeMap::new();
+    for report in selection {
         for (block, entry) in report.certified.entries() {
             let slot = AccountSlot::new(block.account, block.height);
             if index.placement(&block.hash)
@@ -544,10 +737,14 @@ pub fn build_state(
             let at = evidence.entry(slot).or_default();
             match entry.status {
                 super::CertifiedStatus::Finalized => {
-                    at.finalized.insert(block.hash);
+                    if eligible(slot, block.hash) {
+                        at.finalized.insert(block.hash);
+                    }
                 }
                 super::CertifiedStatus::Notarized => {
-                    at.notarized.insert(block.hash);
+                    if eligible(slot, block.hash) {
+                        at.notarized.insert(block.hash);
+                    }
                 }
                 super::CertifiedStatus::Recovery => {
                     if !previous.valid_recovery_entry(&slot, block.hash, entry.previous) {
@@ -564,17 +761,15 @@ pub fn build_state(
         // for an R-tagged block counts. The residual set is canonical, and
         // the identity is counted once.
         for block in report.residual.first_votes() {
-            if report.certified.summarizes(&block.hash) {
+            let slot = AccountSlot::new(block.account, block.height);
+            if report.certified.summarizes(&block.hash) || !eligible(slot, block.hash) {
                 continue;
             }
-            let at = evidence
-                .entry(AccountSlot::new(block.account, block.height))
-                .or_default();
+            let at = evidence.entry(slot).or_default();
             let weight = at.first.entry(block.hash).or_insert(Amount::ZERO);
             *weight = weight.checked_add(report.weight).unwrap_or(Amount::MAX);
         }
     }
-    let mut ledger = previous.clone();
     for (slot, at) in &evidence {
         for hash in &at.finalized {
             let path = selected_path(&ledger, index, *slot, *hash)?;
@@ -604,23 +799,10 @@ pub fn build_state(
             }
             _ => return Err(BuildStateError::ConflictingNotarizations),
         };
+        // "Inherited state and discharge": a represented NC for a block that
+        // bypasses a surviving record is ineligible early work and was left
+        // out above; the inherited lock is retained
         if let Some((hash, strength)) = target {
-            // "Inherited state and discharge": a represented NC for a
-            // different block at a position S_{e-1} locks only for recovery
-            // is ineligible early work; the inherited lock is retained and
-            // is discharged by explicit compatible finality alone. The
-            // predecessor-backed supersession of an earlier revision is not
-            // part of the core protocol.
-            let inherited = previous.notarized(slot);
-            if strength == LockStrength::Notarization
-                && !inherited.is_empty()
-                && !inherited.contains(&hash)
-                && inherited
-                    .iter()
-                    .all(|held| previous.retained_kind(held) != RetainedKind::Notarized)
-            {
-                continue;
-            }
             match selected_path(&ledger, index, *slot, hash) {
                 Ok(path) => {
                     for (slot, block) in path.into_iter().rev() {
@@ -675,6 +857,71 @@ pub fn build_state(
         .collect();
     promote_unique_notarized_prefixes(&mut ledger, previous, &represented);
     Ok(ledger)
+}
+
+/// Every block a selected report names, certified or in G, at its position
+fn named_blocks(selection: &[SelectedReport]) -> BTreeSet<(AccountSlot, BlockHash)> {
+    let mut named = BTreeSet::new();
+    for report in selection {
+        for (block, _) in report.certified.entries() {
+            named.insert((AccountSlot::new(block.account, block.height), block.hash));
+        }
+        for (block, _, _) in report.residual.entries() {
+            named.insert((AccountSlot::new(block.account, block.height), block.hash));
+        }
+    }
+    named
+}
+
+/// The branch a named block continues, by the placements of the derivation,
+/// down to the finalized history of a state
+fn index_branch(
+    state: &EpochLedger,
+    index: &dyn BlockIndex,
+    slot: AccountSlot,
+    hash: BlockHash,
+) -> Branch {
+    let mut branch = Branch::new();
+    let (mut at, mut hash) = (slot, hash);
+    loop {
+        branch.insert(at.height, hash);
+        let Some(placement) = index.placement(&hash) else {
+            break;
+        };
+        if at.height <= 1 || placement.previous.is_zero() {
+            break;
+        }
+        at = AccountSlot::new(at.account, at.height - 1);
+        if state.finalized(&at).is_some() {
+            break;
+        }
+        hash = placement.previous;
+    }
+    branch
+}
+
+/// RAI: the exclusion witnesses a candidate's manifest must carry for the
+/// selected reports: for every inherited recovery record a named block
+/// bypasses, the record's origin and the named branch's block at the
+/// divergent position. They are what BuildState discharges records by.
+pub fn witness_claims(
+    previous: &EpochLedger,
+    selection: &[SelectedReport],
+    index: &dyn BlockIndex,
+) -> Vec<(ConsensusEpoch, BlockHash)> {
+    let mut claims = BTreeSet::new();
+    for (slot, hash) in named_blocks(selection) {
+        if previous.retained_depth(slot.account).is_none() {
+            continue;
+        }
+        let branch = index_branch(previous, index, slot, hash);
+        for bypassed in previous.bypassed_records(slot.account, &branch) {
+            if bypassed.record.strength == LockStrength::Recovery {
+                claims.insert((bypassed.record.origin, bypassed.target));
+            }
+        }
+    }
+    claims.into_iter().collect()
 }
 
 /// RAI, Rule 3 (checkpoint promotion): "For each account, starting at the tip
@@ -872,7 +1119,7 @@ mod tests {
         certify(&mut certified, &index, one, CertifiedStatus::Notarized);
         certify(&mut certified, &index, other, CertifiedStatus::Notarized);
         assert_eq!(
-            build_state(
+            build(
                 &EpochLedger::new(),
                 &[report(&certified, &ResidualVotes::new())],
                 &index,
@@ -1140,7 +1387,7 @@ mod tests {
             CertifiedStatus::Notarized,
         );
         assert_eq!(
-            build_state(
+            build(
                 &EpochLedger::new(),
                 &[report(&certified, &ResidualVotes::new())],
                 &index,
@@ -1171,16 +1418,16 @@ mod tests {
                 residual: &g,
             })
             .collect();
-        let next = build_state(&previous, &reports, &index, certificate_rules()).unwrap();
+        let next = build(&previous, &reports, &index, certificate_rules()).unwrap();
         assert_eq!(next, previous);
         assert_eq!(next.retained_kind(&hash), RetainedKind::Recovery);
         assert_eq!(
-            build_state(&EpochLedger::new(), &reports, &index, certificate_rules()),
+            build(&EpochLedger::new(), &reports, &index, certificate_rules()),
             Err(BuildStateError::InvalidRecoveryEntry)
         );
         let t2 = next.report_ledger();
         assert_eq!(
-            build_state(&next, &[report(&t2, &g)], &index, certificate_rules()).unwrap(),
+            build(&next, &[report(&t2, &g)], &index, certificate_rules()).unwrap(),
             previous
         );
     }
@@ -1237,7 +1484,7 @@ mod tests {
         let mut votes = ResidualVotes::new();
         record(&mut votes, &index, block, ResidualKind::First);
         let selected: Vec<_> = (1..=3).map(|i| reported_by(i, &empty, &votes)).collect();
-        let first = build_state(&EpochLedger::new(), &selected, &index, rules_of(1)).unwrap();
+        let first = build(&EpochLedger::new(), &selected, &index, rules_of(1)).unwrap();
         assert_eq!(
             first.lock_records(&block).collect::<Vec<_>>(),
             vec![LockRecord::recovery(ConsensusEpoch::new(1))]
@@ -1252,7 +1499,7 @@ mod tests {
         let g = ResidualVotes::derive(&t, votes.entries());
         assert!(g.contains(&certified_at(&index, block), ResidualKind::First));
         let selected: Vec<_> = (1..=3).map(|i| reported_by(i, &t, &g)).collect();
-        let second = build_state(&first, &selected, &index, rules_of(2)).unwrap();
+        let second = build(&first, &selected, &index, rules_of(2)).unwrap();
         assert_eq!(
             second.lock_records(&block).collect::<Vec<_>>(),
             vec![
@@ -1266,7 +1513,7 @@ mod tests {
         // Without the re-vote the inherited record is carried alone
         let no_votes = ResidualVotes::new();
         let silent: Vec<_> = (1..=3).map(|i| reported_by(i, &t, &no_votes)).collect();
-        let carried = build_state(&first, &silent, &index, rules_of(2)).unwrap();
+        let carried = build(&first, &silent, &index, rules_of(2)).unwrap();
         assert_eq!(carried, first);
     }
 
@@ -1281,7 +1528,7 @@ mod tests {
         let mut certified = CertifiedState::new();
         certify(&mut certified, &index, block, CertifiedStatus::Notarized);
         let no_votes = ResidualVotes::new();
-        let first = build_state(
+        let first = build(
             &EpochLedger::new(),
             &[report(&certified, &no_votes)],
             &index,
@@ -1289,7 +1536,7 @@ mod tests {
         )
         .unwrap();
         let t = first.report_ledger();
-        let second = build_state(&first, &[report(&t, &no_votes)], &index, rules_of(2)).unwrap();
+        let second = build(&first, &[report(&t, &no_votes)], &index, rules_of(2)).unwrap();
         assert_eq!(
             second.lock_records(&block).collect::<Vec<_>>(),
             vec![LockRecord::notarization(ConsensusEpoch::new(1))]
@@ -1323,10 +1570,11 @@ mod tests {
     }
 
     /// "Inherited state and discharge": a represented NC for a different
-    /// block never supersedes an inherited recovery-only lock, whatever its
-    /// votes; the lock and its retained descendants stay, and the new block
-    /// is ineligible early work. A represented notarization lock is kept
-    /// alongside a new NC at its position.
+    /// block does not supersede an inherited recovery-only lock without an
+    /// exclusion witness of the lock's origin; the lock and its retained
+    /// descendants stay, and the new block is ineligible early work. A
+    /// notarization lock is never bypassed: a new NC at its position is
+    /// ineligible as well.
     #[test]
     fn a_represented_notarization_never_supersedes_an_inherited_recovery_lock() {
         let mut index = StubIndex::default();
@@ -1345,20 +1593,102 @@ mod tests {
         let no_votes = ResidualVotes::new();
         let reports = [report(&certified, &no_votes)];
 
-        let kept = build_state(&previous, &reports, &index, certificate_rules()).unwrap();
+        let kept = build(&previous, &reports, &index, certificate_rules()).unwrap();
         assert_eq!(kept.notarized(&slot(1, 2)), vec![carried]);
         assert_eq!(kept.notarized(&slot(1, 3)), vec![child]);
         assert_eq!(kept.retained_kind(&carried), RetainedKind::Recovery);
         assert!(kept.finalized(&slot(1, 2)).is_none());
 
         previous.set_lock_for_test(carried, RetainedKind::Notarized);
-        let both = build_state(&previous, &reports, &index, certificate_rules()).unwrap();
+        let every_witness = |_: ConsensusEpoch, _: &BlockHash| true;
+        let notarized = build_state(
+            &previous,
+            &reports,
+            &index,
+            certificate_rules(),
+            &every_witness,
+        )
+        .unwrap();
+        assert_eq!(notarized.notarized(&slot(1, 2)), vec![carried]);
+        assert_eq!(notarized.retained_kind(&fresh), RetainedKind::Ancestor);
+        assert_eq!(notarized.retained_kind(&carried), RetainedKind::Notarized);
+    }
+
+    /// Matching-origin discharge: a recovery record of origin 1 is
+    /// discharged by an exclusion witness of epoch 1 for the rival at its
+    /// position, and by nothing of another epoch. Every record the rival
+    /// bypasses, on the retained block and on its retained child, is
+    /// discharged by the witness for the rival; the discharged branch leaves
+    /// the state, and the rival's closing-epoch NC is eligible: the unique
+    /// notarized child of the finalized tip, Rule 3 promotes it.
+    #[test]
+    fn a_recovery_record_is_discharged_by_a_witness_of_its_own_origin_only() {
+        let mut index = StubIndex::default();
+        let base = index.add(1, 1, BlockHash::ZERO);
+        let carried = index.add(1, 2, base);
+        let child = index.add(1, 3, carried);
+        let rival = index.add(1, 2, base);
+        let mut previous = EpochLedger::new();
+        previous.finalize_genesis_block(slot(1, 1), PlacedBlock::new(base, BlockHash::ZERO));
+        previous.keep(slot(1, 2), PlacedBlock::new(carried, base));
+        previous.keep(slot(1, 3), PlacedBlock::new(child, carried));
+        previous.add_lock(carried, LockRecord::recovery(ConsensusEpoch::new(1)));
+        previous.add_lock(child, LockRecord::recovery(ConsensusEpoch::new(1)));
+        let mut certified = CertifiedState::new();
+        certify(&mut certified, &index, rival, CertifiedStatus::Notarized);
+        let no_votes = ResidualVotes::new();
+        let reports = [report(&certified, &no_votes)];
+        let witness_in = |epoch: u64| {
+            move |origin: ConsensusEpoch, hash: &BlockHash| {
+                origin == ConsensusEpoch::new(epoch) && *hash == rival
+            }
+        };
+
         assert_eq!(
-            vec_sorted(&both.notarized(&slot(1, 2))),
-            vec_sorted(&[carried, fresh])
+            witness_claims(&previous, &reports, &index),
+            vec![(ConsensusEpoch::new(1), rival)]
         );
-        assert_eq!(both.retained_kind(&fresh), RetainedKind::Notarized);
-        assert_eq!(both.retained_kind(&carried), RetainedKind::Notarized);
+        let other_epoch =
+            build_state(&previous, &reports, &index, rules_of(2), &witness_in(2)).unwrap();
+        assert_eq!(other_epoch.notarized(&slot(1, 2)), vec![carried]);
+        assert_eq!(other_epoch.retained_kind(&child), RetainedKind::Recovery);
+
+        let discharged =
+            build_state(&previous, &reports, &index, rules_of(2), &witness_in(1)).unwrap();
+        assert_eq!(discharged.finalized(&slot(1, 2)), Some(rival));
+        assert_eq!(discharged.notarized_count(), 0);
+        assert!(discharged.locks.is_empty());
+    }
+
+    /// A block with records of two origins is released only when each is
+    /// discharged by a witness of its own origin
+    #[test]
+    fn a_block_with_two_records_needs_a_witness_for_each() {
+        let mut index = StubIndex::default();
+        let carried = index.add(1, 1, BlockHash::ZERO);
+        let rival = index.add(1, 1, BlockHash::ZERO);
+        let mut previous = EpochLedger::new();
+        previous.keep(slot(1, 1), placed(&index, carried));
+        previous.add_lock(carried, LockRecord::recovery(ConsensusEpoch::new(1)));
+        previous.add_lock(carried, LockRecord::recovery(ConsensusEpoch::new(2)));
+        let mut certified = CertifiedState::new();
+        certify(&mut certified, &index, rival, CertifiedStatus::Finalized);
+        let no_votes = ResidualVotes::new();
+        let reports = [report(&certified, &no_votes)];
+
+        let one = |origin: ConsensusEpoch, _: &BlockHash| origin == ConsensusEpoch::new(1);
+        let partly = build_state(&previous, &reports, &index, rules_of(3), &one).unwrap();
+        assert_eq!(partly.finalized(&slot(1, 1)), None);
+        assert_eq!(
+            partly.lock_records(&carried).collect::<Vec<_>>(),
+            vec![LockRecord::recovery(ConsensusEpoch::new(2))]
+        );
+
+        let both = |origin: ConsensusEpoch, _: &BlockHash| origin.as_u64() <= 2;
+        let released = build_state(&previous, &reports, &index, rules_of(3), &both).unwrap();
+        assert_eq!(released.finalized(&slot(1, 1)), Some(rival));
+        assert!(released.locks.is_empty());
+        assert_eq!(released.notarized_count(), 0);
     }
 
     /// The unique-branch variant: a sole preserved block is finalized with
@@ -1375,7 +1705,7 @@ mod tests {
         let mut votes = ResidualVotes::new();
         record(&mut votes, &index, block, ResidualKind::First);
         assert_eq!(
-            build_state(
+            build(
                 &EpochLedger::new(),
                 &[report(&certified, &votes); 3],
                 &index,
@@ -1394,7 +1724,7 @@ mod tests {
         certify(&mut certified, &index, child, CertifiedStatus::Finalized);
         let residual = ResidualVotes::new();
         assert_eq!(
-            build_state(
+            build(
                 &EpochLedger::new(),
                 &[report(&certified, &residual)],
                 &index,
@@ -1404,7 +1734,7 @@ mod tests {
         );
         index.blocks.remove(&parent);
         assert!(matches!(
-            build_state(
+            build(
                 &EpochLedger::new(),
                 &[report(&certified, &residual)],
                 &index,
@@ -1424,7 +1754,7 @@ mod tests {
             certify(&mut certified, &index, hash, CertifiedStatus::Finalized);
         }
         assert_eq!(
-            build_state(
+            build(
                 &EpochLedger::new(),
                 &[report(&certified, &ResidualVotes::new())],
                 &index,
@@ -1448,11 +1778,13 @@ mod tests {
         }
         let mut certified = CertifiedState::new();
         certify(&mut certified, &index, winner, CertifiedStatus::Finalized);
-        let ledger = derive(
-            &previous,
-            &[report(&certified, &ResidualVotes::new())],
-            &index,
-        );
+        let no_votes = ResidualVotes::new();
+        let reports = [report(&certified, &no_votes)];
+        // Without the matching-origin witness the claim is not eligible
+        assert_eq!(derive(&previous, &reports, &index), previous);
+        let witness = |_: ConsensusEpoch, hash: &BlockHash| *hash == winner;
+        let ledger =
+            build_state(&previous, &reports, &index, certificate_rules(), &witness).unwrap();
         assert_eq!(ledger.finalized(&slot(1, 1)), Some(winner));
         assert_eq!(ledger.notarized_count(), 0);
         assert!(ledger.locks.is_empty());
@@ -1496,7 +1828,7 @@ mod tests {
         let mut sparse = EpochLedger::new();
         sparse.finalize_genesis(slot(1, 3), frontier);
         assert!(
-            build_state(
+            build(
                 &sparse,
                 &selection,
                 &ReportIndex::new(&sparse, &selection),
@@ -1532,7 +1864,17 @@ mod tests {
         selection: &[SelectedReport],
         index: &dyn BlockIndex,
     ) -> EpochLedger {
-        build_state(previous, selection, index, certificate_rules()).unwrap()
+        build(previous, selection, index, certificate_rules()).unwrap()
+    }
+
+    /// BuildState with a manifest holding no exclusion witness
+    fn build(
+        previous: &EpochLedger,
+        selection: &[SelectedReport],
+        index: &dyn BlockIndex,
+        rules: BuildRules,
+    ) -> Result<EpochLedger, BuildStateError> {
+        build_state(previous, selection, index, rules, &|_, _| false)
     }
 
     /// The paper's rules, with no represented NC predecessor-backed

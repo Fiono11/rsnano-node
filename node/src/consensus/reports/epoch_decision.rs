@@ -17,14 +17,33 @@ use crate::{
         AecService,
         active_elections::EpochProposalContext,
         election::{
-            BuildRules, Committee, EpochLedger, EpochValue, Manifest, ManifestAssembly,
-            MemberOrder, ReportIndex, ReportRef, ReportSource, SelectedReport,
+            BlockIndex, BuildRules, Committee, EpochLedger, EpochValue, Manifest, ManifestAssembly,
+            MemberOrder, ReportIndex, ReportRef, ReportSource, SelectedReport, witness_claims,
         },
     },
     transport::MessageFlooder,
     utils::diagnostic,
     wallets::WalletRepresentatives,
 };
+
+/// RAI, "Immutable candidate inputs": what a candidate's manifest must name
+/// for a selection: the votes behind the selected reports' claims, and the
+/// exclusion witnesses that discharge the inherited recovery records those
+/// claims bypass
+fn candidate_claims(
+    epoch: ConsensusEpoch,
+    states: &[SelectedReport],
+    previous: &EpochLedger,
+    index: &dyn BlockIndex,
+) -> Vec<(ConsensusEpoch, BlockHash)> {
+    let mut claims = manifest_claims(epoch, states, &|block, entry| {
+        inherited_from(previous, block, entry)
+    });
+    claims.extend(witness_claims(previous, states, index));
+    claims.sort();
+    claims.dedup();
+    claims
+}
 
 /// RAI, "The joint epoch election": the part of the close that reads and
 /// writes. The election itself is in the active elections - it is Kudzu over
@@ -367,12 +386,13 @@ impl EpochDecisionService {
             epoch,
         };
         // The evidence this leader used, committed to by digest
-        let claims = manifest_claims(epoch, &states, &|block, entry| {
-            inherited_from(&previous, block, entry)
-        });
+        let claims = candidate_claims(epoch, &states, &previous, &index);
         let manifest = Arc::new(self.active_elections.evidence_manifest(&claims));
         let digest = manifest.digest();
-        self.remember_manifest(epoch, manifest);
+        self.remember_manifest(epoch, manifest.clone());
+        let witness = |origin: ConsensusEpoch, hash: &BlockHash| {
+            self.manifest_witness(&manifest, origin, hash)
+        };
         match EpochValue::propose(
             epoch,
             round,
@@ -382,6 +402,7 @@ impl EpochDecisionService {
             digest,
             &index,
             rules,
+            &witness,
         ) {
             Ok((value, ledger)) => Some((value, Arc::new(ledger))),
             Err(error) => {
@@ -423,6 +444,16 @@ impl EpochDecisionService {
         if !self.evidence_committed(value, &states, &previous, channel) {
             return None;
         }
+        // Held once the evidence is committed: built here or fetched
+        let manifest = self
+            .manifests
+            .lock()
+            .unwrap()
+            .get(&value.manifest)
+            .map(|(_, manifest)| manifest.clone())?;
+        let witness = |origin: ConsensusEpoch, hash: &BlockHash| {
+            self.manifest_witness(&manifest, origin, hash)
+        };
         let index = ReportIndex::new(&previous, &states);
         let rules = BuildRules {
             many: committee.thresholds().many,
@@ -434,6 +465,7 @@ impl EpochDecisionService {
             &index,
             committee.thresholds().report,
             rules,
+            &witness,
         ) {
             Ok(ledger) => Some((value.hash(), Arc::new(ledger))),
             Err(error) => {
@@ -467,9 +499,7 @@ impl EpochDecisionService {
         channel: Option<&Arc<Channel>>,
     ) -> bool {
         let epoch = value.epoch;
-        let claims = manifest_claims(epoch, states, &|block, entry| {
-            inherited_from(previous, block, entry)
-        });
+        let claims = candidate_claims(epoch, states, previous, &ReportIndex::new(previous, states));
         let own = self.active_elections.evidence_manifest(&claims);
         if own.digest() == value.manifest {
             self.remember_manifest(epoch, Arc::new(own));
@@ -573,6 +603,23 @@ impl EpochDecisionService {
             }
         }
         true
+    }
+
+    /// RAI: whether a manifest holds an exclusion witness for a block in an
+    /// epoch, counted in the committee that issued that epoch's votes
+    fn manifest_witness(
+        &self,
+        manifest: &Manifest,
+        origin: ConsensusEpoch,
+        hash: &BlockHash,
+    ) -> bool {
+        let Some(committee) = self.active_elections.epoch_committee(origin) else {
+            return false;
+        };
+        let Some(order) = MemberOrder::of(&committee) else {
+            return false;
+        };
+        manifest.exclusion_witness(origin, hash, &committee, &order)
     }
 
     /// Keeps a manifest for serving, dropping those of old epochs

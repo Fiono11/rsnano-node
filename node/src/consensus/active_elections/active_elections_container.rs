@@ -1187,7 +1187,7 @@ impl ActiveElectionsContainer {
         }
         let notarized = blocks
             .iter()
-            .filter(|hash| self.closing_notarized(epoch, hash))
+            .filter(|hash| self.holds_exclusion_witness(epoch, hash))
             .count();
         diagnostic!(
             "EPOCH_LATE_NOTAR epoch={} blocks={} notarized={} cast={}",
@@ -1294,62 +1294,51 @@ impl ActiveElectionsContainer {
         }
     }
 
-    /// RAI: whether the latest decided checkpoint holds this position as a
-    /// retained fork, unresolved: no instance is started there again
-    ///
-    /// RAI, §6.2: the block a notarization lock names is not reopened but
-    /// continued: "an instance whose block holds [a closing-epoch NC]
-    /// continues at a position the checkpoint locked". Only a rival is
-    /// refused.
+    /// RAI, §5.6: whether the latest decided checkpoint refuses a block. A
+    /// block it retains is continued, not reopened; "a rival at that
+    /// position is refused while any record on the retained block
+    /// survives", and so is a block continuing a rival branch. A record is
+    /// discharged here only by an exclusion witness of its own origin this
+    /// node holds (`EpochLedger::admits`).
     fn position_retained(&self, block: &SavedBlock) -> bool {
         let Some(state) = self.decided.values().next_back() else {
             return false;
         };
         let slot = AccountSlot::new(block.account(), block.height());
         state.finalized(&slot).is_none()
-            && !state.notarized(&slot).is_empty()
-            && !self.lock_continuable(&slot, &block.hash())
-    }
-
-    /// RAI, §6.2: whether an instance may continue at a position the latest
-    /// checkpoint locked for this block. A notarization lock is continued;
-    /// a recovery-only lock once the block holds a valid NC assembled here
-    /// from signed votes: of the closing epoch, or of the open epoch, where
-    /// the block was re-voted at the boundary and first votes split across
-    /// it met again. Only the locked block itself can be notarized at a
-    /// retained position, since correct validators refuse every rival there.
-    fn lock_continuable(&self, slot: &AccountSlot, hash: &BlockHash) -> bool {
-        let Some((&decided, state)) = self.decided.iter().next_back() else {
-            return false;
-        };
-        if !state.is_locked(slot, hash) {
-            return false;
-        }
-        if state.retained_kind(hash) == crate::consensus::election::RetainedKind::Notarized {
-            return true;
-        }
-        // The lock may be inherited: its NC is of the epoch that took it
-        (0..=EARLIER_LOCK_EPOCHS)
-            .filter_map(|back| decided.as_u64().checked_sub(back))
-            .chain([decided.next().as_u64()])
-            .any(|epoch| {
-                self.certificate_kinds(ConsensusEpoch::new(epoch), hash)
-                    .is_some_and(|kinds| kinds.notarization)
+            && !state.admits(slot, block.hash(), block.previous(), &|origin, hash| {
+                self.holds_exclusion_witness(origin, hash)
             })
     }
 
-    /// RAI: whether a block sits at a lock of the latest checkpoint it may
-    /// not continue (yet)
+    /// RAI, §5.6: whether an instance may continue at a position the latest
+    /// checkpoint locked for this block. "Every retained block, under a
+    /// notarization lock or under recovery records only, gets an instance
+    /// in the open epoch at its own position": a first vote there is an
+    /// ordinary first vote of the open epoch, and if the block does not
+    /// finalize, Rule 2 gives it a record of that epoch at the next closure.
+    fn lock_continuable(&self, slot: &AccountSlot, hash: &BlockHash) -> bool {
+        self.decided
+            .values()
+            .next_back()
+            .is_some_and(|state| state.is_locked(slot, hash))
+    }
+
+    /// RAI: whether a block of an election may not be first voted under the
+    /// latest checkpoint: it bypasses a record this node holds no
+    /// discharging witness for
     fn at_closed_lock(&self, election: &Election, hash: &BlockHash) -> bool {
         let Some(state) = self.decided.values().next_back() else {
             return false;
         };
         let slot = AccountSlot::new(election.account(), election.height());
-        state
-            .retained_depth(slot.account)
-            .is_some_and(|depth| slot.height <= depth)
-            && state.finalized(&slot).is_none()
-            && !self.lock_continuable(&slot, hash)
+        state.finalized(&slot).is_none()
+            && !state.admits(
+                slot,
+                *hash,
+                election.qualified_root().previous,
+                &|origin, hash| self.holds_exclusion_witness(origin, hash),
+            )
     }
 
     /// RAI: the locks of the latest checkpoint that became continuable since
@@ -1536,13 +1525,21 @@ impl ActiveElectionsContainer {
     /// work the paper keeps (§4.3, §6.2).
     #[cfg(feature = "rai_protocol")]
     fn follow_retained(&mut self, epoch: ConsensusEpoch, state: &EpochLedger) {
-        let mut notarized_live: HashMap<(Account, u64), Vec<BlockHash>> = HashMap::new();
+        let mut notarized_live: HashMap<(Account, u64), Vec<(BlockHash, BlockHash)>> =
+            HashMap::new();
         for election in self.roots.iter().map(|entry| &entry.election) {
             if election.certificates().has_block() {
+                let previous = election.qualified_root().previous;
                 notarized_live
                     .entry((election.account(), election.height()))
                     .or_default()
-                    .extend(election.certificates().notar.iter().copied());
+                    .extend(
+                        election
+                            .certificates()
+                            .notar
+                            .iter()
+                            .map(|hash| (*hash, previous)),
+                    );
             }
         }
         let retained_blocks = state.retained_blocks();
@@ -1572,20 +1569,22 @@ impl ActiveElectionsContainer {
         }
     }
 
-    /// RAI: whether a retained position's recovery-only lock is superseded
-    /// here by a conflicting block that finalized live or holds a
-    /// notarization certificate in a successor instance
+    /// RAI: whether a retained position's lock is superseded here: by a
+    /// conflicting block that finalized live, or by one that holds a
+    /// notarization certificate in a successor instance and for which this
+    /// node holds the exclusion witnesses discharging every record it
+    /// bypasses (the matching-origin rule)
     #[cfg(feature = "rai_protocol")]
     fn lock_superseded_here(
         &self,
         state: &EpochLedger,
         slot: &AccountSlot,
-        notarized_live: &HashMap<(Account, u64), Vec<BlockHash>>,
+        notarized_live: &HashMap<(Account, u64), Vec<(BlockHash, BlockHash)>>,
     ) -> bool {
-        if !Self::recovery_only(state, slot) {
+        let locked = state.notarized(slot);
+        if locked.is_empty() {
             return false;
         }
-        let locked = state.notarized(slot);
         if self
             .epoch_states
             .finalized_at(&slot.account, slot.height)
@@ -1595,7 +1594,14 @@ impl ActiveElectionsContainer {
         }
         notarized_live
             .get(&(slot.account, slot.height))
-            .is_some_and(|hashes| hashes.iter().any(|hash| !locked.contains(hash)))
+            .is_some_and(|hashes| {
+                hashes.iter().any(|(hash, previous)| {
+                    !locked.contains(hash)
+                        && state.admits(*slot, *hash, *previous, &|origin, hash| {
+                            self.holds_exclusion_witness(origin, hash)
+                        })
+                })
+            })
     }
 
     /// RAI: whether a decided checkpoint finalized this block of the
@@ -1831,10 +1837,14 @@ impl ActiveElectionsContainer {
             // finalized parent, a maximum-depth tip of the latest closed
             // ledger (both checked against the ledger by the caller), or
             // "a complete parent already built in the current epoch"
+            // A retained position is decided here, with the exclusion
+            // witnesses this node holds: the ledger check names it only
             let attachable = |hash: &BlockHash| match proposal_valid(hash) {
-                Ok(()) => !self.at_closed_lock(election, hash),
+                Ok(()) | Err(crate::consensus::Unattached::Retained) => {
+                    !self.at_closed_lock(election, hash)
+                }
                 Err(crate::consensus::Unattached::Previous) => {
-                    self.parent_complete_in_epoch(election)
+                    self.parent_complete_in_epoch(election) && !self.at_closed_lock(election, hash)
                 }
                 Err(_) => false,
             };
@@ -2134,7 +2144,7 @@ impl ActiveElectionsContainer {
                 .roots
                 .election_for_block_in_epoch(&previous, epoch)
                 .is_some_and(|parent| parent.overlap_eligible());
-        let carried = self.closing_notarized(before, &block);
+        let carried = self.holds_exclusion_witness(before, &block);
         let eligible = carried && (parent_finalized || parent_eligible);
         if !eligible {
             return;
@@ -2237,48 +2247,28 @@ impl ActiveElectionsContainer {
             let slot = AccountSlot::new(account, height);
             let previous = election.qualified_root().previous;
             let candidates: Vec<BlockHash> = election.candidate_blocks().keys().copied().collect();
-            // RAI, §6.2: "an instance whose block holds a valid closing-epoch
-            // NC continues at a position the checkpoint locked only for
-            // recovery"
-            let before = epoch.as_u64().checked_sub(1).map(ConsensusEpoch::new);
-            let holds_nc = election.certificates().notar.iter().any(|hash| {
-                before.is_some_and(|before| {
-                    self.certificate_kinds(before, hash)
-                        .is_some_and(|kinds| kinds.notarization)
-                })
-            });
+            let parent_slot = AccountSlot::new(account, height.saturating_sub(1));
             let invalid = if let Some(finalized) = state.finalized(&slot) {
                 !candidates.contains(&finalized)
-            } else if state
-                .retained_depth(account)
-                .is_some_and(|depth| height <= depth)
+            } else if height > 1
+                && state
+                    .finalized(&parent_slot)
+                    .is_some_and(|finalized| finalized != previous)
             {
-                // A carried instance of a locked block that may not continue
-                // (a recovery lock without an NC) only occupies the container
-                // until the owner extends the block: it goes, and is started
-                // again once the lock becomes continuable
-                !candidates.iter().any(|candidate| {
-                    state.is_locked(&slot, candidate) && self.lock_continuable(&slot, candidate)
-                }) && !(holds_nc && Self::recovery_only(&state, &slot))
-            } else if height > 1 {
-                // The parent position is decided or locked for another
-                // branch: the instance continues a branch the checkpoint
-                // excluded. A parent the checkpoint does not mention is
-                // left to the ordinary eligibility rules.
-                let parent_slot = AccountSlot::new(account, height - 1);
-                match state.finalized(&parent_slot) {
-                    Some(finalized) => finalized != previous,
-                    None => {
-                        state.retains(&parent_slot)
-                            && !state.is_locked(&parent_slot, &previous)
-                            // A parent that superseded a recovery-only lock
-                            // and finalized live is a valid anchor
-                            && !(Self::recovery_only(&state, &parent_slot)
-                                && self.epoch_states.is_finalized(&previous))
-                    }
-                }
+                // The parent position is decided for another branch
+                true
             } else {
-                false
+                // §5.6 and the matching-origin rule, as for voting: a
+                // retained block continues; a rival, or a block continuing
+                // a rival branch, only if every record it bypasses is
+                // discharged by an exclusion witness of its origin held
+                // here. A position the checkpoint does not mention is left
+                // to the ordinary eligibility rules.
+                !candidates.iter().any(|candidate| {
+                    state.admits(slot, *candidate, previous, &|origin, hash| {
+                        self.holds_exclusion_witness(origin, hash)
+                    })
+                })
             };
             if invalid {
                 discard.push(election.id());
@@ -2291,16 +2281,6 @@ impl ActiveElectionsContainer {
             self.stats.rechecked_discarded += discard.len() as u64;
             diagnostic!("EPOCH_RECHECK epoch={} discarded={}", epoch, discard.len());
         }
-    }
-
-    /// Whether every lock a checkpoint carries at a position is recovery-only
-    #[cfg(feature = "rai_protocol")]
-    fn recovery_only(state: &EpochLedger, slot: &AccountSlot) -> bool {
-        let locked = state.notarized(slot);
-        !locked.is_empty()
-            && locked.iter().all(|hash| {
-                state.retained_kind(hash) != crate::consensus::election::RetainedKind::Notarized
-            })
     }
 
     /// Kudzu: an election is erased as soon as it is finalized. Its exit final
@@ -3262,8 +3242,7 @@ impl ActiveElectionsContainer {
     /// across them. It is no NC: `certificate_kinds`, which completeness,
     /// N entries and the checkpoint construction read, does not count late
     /// notarizations.
-    #[cfg(feature = "rai_protocol")]
-    fn closing_notarized(&self, epoch: ConsensusEpoch, hash: &BlockHash) -> bool {
+    fn holds_exclusion_witness(&self, epoch: ConsensusEpoch, hash: &BlockHash) -> bool {
         let Some(committee) = self.committees.committee(epoch) else {
             return false;
         };
@@ -3557,10 +3536,6 @@ pub struct ApplyVoteArgs<'a> {
     pub quorum_snapshot: &'a QuorumSnapshot,
     pub now: Timestamp,
 }
-
-/// RAI: how many epochs back a lock's closing-epoch NC is looked for: the
-/// vote records kept here
-const EARLIER_LOCK_EPOCHS: u64 = 3;
 
 /// RAI: what one candidate of an election delegates, if it is a state block
 fn delegation_of(election: &Election, hash: &BlockHash) -> Option<Delegation> {
@@ -4970,7 +4945,7 @@ mod tests {
         assert!(!election.certificates().is_notarized(&block.hash()));
         let kinds = container.certificate_kinds(epoch, &block.hash()).unwrap();
         assert!(!kinds.notarization && !kinds.finalization && !kinds.fast);
-        assert!(container.closing_notarized(epoch, &block.hash()));
+        assert!(container.holds_exclusion_witness(epoch, &block.hash()));
         let report = container.epoch_report(epoch).unwrap();
         assert!(!report.certified.contains_hash(&block.hash()));
 
@@ -5394,12 +5369,13 @@ mod tests {
         }
     }
 
-    /// RAI, §6.2: an instance continues at a recovery-only lock once its
-    /// block holds a closing-epoch NC here; without one the position stays
-    /// closed to new voting
+    /// RAI, §5.6 as repaired: "every retained block, under a notarization
+    /// lock or under recovery records only, gets an instance in the open
+    /// epoch at its own position", whether or not its block holds a
+    /// closing-epoch NC here
     #[cfg(feature = "rai_protocol")]
     #[test]
-    fn a_recovery_lock_is_continued_once_its_block_holds_a_closing_epoch_nc() {
+    fn a_recovery_lock_is_continued_with_or_without_a_closing_epoch_nc() {
         for notarized in [false, true] {
             let (mut container, reps, rep_weights, start) = committee_fixture(|_| {});
             let block = SavedBlock::new_test_instance_with_key(2);
@@ -5437,15 +5413,62 @@ mod tests {
                 .decided
                 .insert(ConsensusEpoch::ZERO, Arc::new(state));
             container.release_undecided_instances(ConsensusEpoch::ZERO, start);
-            assert_eq!(
+            assert!(
                 container
                     .roots
                     .election_for_block_in_epoch(&block.hash(), epoch1)
                     .is_some(),
-                notarized,
                 "notarized={notarized}"
             );
         }
+    }
+
+    /// RAI, matching-origin discharge on the voting side: a rival at a
+    /// position the checkpoint retains under a recovery record of origin 0
+    /// is refused while this node holds no epoch-0 exclusion witness for it,
+    /// and admitted once it does: first votes and late notarizations of
+    /// that epoch, of a certificate's weight
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn a_rival_of_a_recovery_lock_is_admitted_once_its_witness_is_held() {
+        let (mut container, reps, rep_weights, start) = committee_fixture(|_| {});
+        let locked = SavedBlock::new_test_instance_with_key(2);
+        let rival = sibling_of(&locked);
+        let mut state = EpochLedger::new();
+        state.retain_recovery_for_test(
+            AccountSlot::new(locked.account(), locked.height()),
+            locked.hash(),
+            locked.previous(),
+        );
+        container
+            .decided
+            .insert(ConsensusEpoch::ZERO, Arc::new(state));
+        let insert = |container: &mut ActiveElectionsContainer, block: &SavedBlock| {
+            container.insert(
+                AecInsertRequest::new_priority(block.clone(), BlockPriority::new_test_instance()),
+                start,
+            )
+        };
+        assert_eq!(
+            insert(&mut container, &rival),
+            Err(AecInsertError::Retained)
+        );
+        for (rep, kind) in reps[..3]
+            .iter()
+            .zip([VoteKind::First, VoteKind::First, VoteKind::Notar])
+        {
+            vote_in(
+                &mut container,
+                rep,
+                kind,
+                ConsensusEpoch::ZERO,
+                rival.hash(),
+                &rep_weights,
+                start,
+            );
+        }
+        assert!(container.holds_exclusion_witness(ConsensusEpoch::ZERO, &rival.hash()));
+        assert_eq!(insert(&mut container, &rival), Ok(()));
     }
 
     /// RAI: once this node left an epoch it signs no new account vote in it,

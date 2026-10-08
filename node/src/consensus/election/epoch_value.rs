@@ -101,7 +101,9 @@ impl EpochValue {
 
     /// Builds the value a leader proposes: the state the selected reports
     /// determine, and its hash. The caller has reconstructed every report it
-    /// selects, which is what makes them usable.
+    /// selects, which is what makes them usable. `witness` reads the
+    /// exclusion witnesses of the manifest the value commits to.
+    #[allow(clippy::too_many_arguments)]
     pub fn propose(
         epoch: ConsensusEpoch,
         slot: u32,
@@ -111,11 +113,12 @@ impl EpochValue {
         manifest: BlockHash,
         index: &dyn BlockIndex,
         rules: BuildRules,
+        witness: &dyn Fn(ConsensusEpoch, &BlockHash) -> bool,
     ) -> Result<(Self, EpochLedger), BuildStateError> {
         let mut reports: Vec<ReportRef> = selection.iter().map(|(report, _)| *report).collect();
         reports.sort();
         let states: Vec<SelectedReport> = selection.iter().map(|(_, state)| *state).collect();
-        let ledger = build_state(previous, &states, index, rules)?;
+        let ledger = build_state(previous, &states, index, rules, witness)?;
         let value = Self {
             epoch,
             slot,
@@ -160,6 +163,7 @@ impl EpochValue {
         index: &dyn BlockIndex,
         quorum: Amount,
         rules: BuildRules,
+        witness: &dyn Fn(ConsensusEpoch, &BlockHash) -> bool,
     ) -> Result<EpochLedger, EpochValueError> {
         // Distinct reporters: a value that names one reporter twice would
         // count one report as several
@@ -195,8 +199,8 @@ impl EpochValue {
                 required: quorum,
             });
         }
-        let ledger =
-            build_state(previous, &states, index, rules).map_err(EpochValueError::InvalidState)?;
+        let ledger = build_state(previous, &states, index, rules, witness)
+            .map_err(EpochValueError::InvalidState)?;
         if ledger.state_hash() != self.state {
             return Err(EpochValueError::StateMismatch {
                 derived: ledger.state_hash(),
@@ -260,7 +264,14 @@ mod tests {
         assert_eq!(value.reports().len(), 3);
 
         let derived = value
-            .validate(&EpochLedger::new(), &world, &world.index, QUORUM, rules())
+            .validate(
+                &EpochLedger::new(),
+                &world,
+                &world.index,
+                QUORUM,
+                rules(),
+                &|_, _| false,
+            )
             .expect("the reports determine this state");
         assert_eq!(derived.state_hash(), value.state);
         assert_eq!(derived.finalized_count(), ledger.finalized_count());
@@ -279,7 +290,14 @@ mod tests {
         let mut shuffled = value.clone();
         shuffled.reports.reverse();
         assert_eq!(
-            shuffled.validate(&EpochLedger::new(), &world, &world.index, QUORUM, rules()),
+            shuffled.validate(
+                &EpochLedger::new(),
+                &world,
+                &world.index,
+                QUORUM,
+                rules(),
+                &|_, _| false
+            ),
             Err(EpochValueError::NotCanonical)
         );
         // And the hash follows the order, so a shuffled value is a different one
@@ -294,7 +312,14 @@ mod tests {
         let proposed = BlockHash::from(999);
         value.state = proposed;
         let error = value
-            .validate(&EpochLedger::new(), &world, &world.index, QUORUM, rules())
+            .validate(
+                &EpochLedger::new(),
+                &world,
+                &world.index,
+                QUORUM,
+                rules(),
+                &|_, _| false,
+            )
             .unwrap_err();
         let EpochValueError::StateMismatch { derived, .. } = error else {
             panic!("expected a state mismatch, got {error:?}");
@@ -324,7 +349,8 @@ mod tests {
                 &partial,
                 &partial.index,
                 QUORUM,
-                rules()
+                rules(),
+                &|_, _| false
             ),
             Err(EpochValueError::NotReconstructed { reporter: missing })
         );
@@ -337,7 +363,14 @@ mod tests {
         let world = World::new(3);
         let (value, _) = world.propose();
         assert_eq!(
-            value.validate(&EpochLedger::new(), &world, &world.index, TOO_MUCH, rules()),
+            value.validate(
+                &EpochLedger::new(),
+                &world,
+                &world.index,
+                TOO_MUCH,
+                rules(),
+                &|_, _| false
+            ),
             Err(EpochValueError::WrongSelectionSize {
                 selected: QUORUM,
                 required: TOO_MUCH
@@ -347,7 +380,14 @@ mod tests {
         let mut repeated = value.clone();
         repeated.reports[1] = repeated.reports[0];
         assert_eq!(
-            repeated.validate(&EpochLedger::new(), &world, &world.index, QUORUM, rules()),
+            repeated.validate(
+                &EpochLedger::new(),
+                &world,
+                &world.index,
+                QUORUM,
+                rules(),
+                &|_, _| false
+            ),
             Err(EpochValueError::RepeatedReporter)
         );
     }
@@ -370,6 +410,7 @@ mod tests {
             BlockHash::ZERO,
             &world.index,
             rules(),
+            &|_, _| false,
         )
         .unwrap();
         // Below-threshold residuals need not be retained, but Q is still bound.
@@ -393,6 +434,7 @@ mod tests {
             BlockHash::ZERO,
             &world.index,
             rules(),
+            &|_, _| false,
         )
         .unwrap();
 
@@ -510,6 +552,7 @@ mod tests {
                 BlockHash::ZERO,
                 &self.index,
                 rules(),
+                &|_, _| false,
             )
             .unwrap()
         }
