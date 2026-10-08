@@ -12,7 +12,7 @@ pub use report_service::ReportService;
 use rsnano_messages::{Report, ReportSet, ReportSymbolsReply, ReportSymbolsReq};
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{BlockHash, ConsensusEpoch, PrivateKey, PublicKey};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 /// RAI: frozen reports and their local reconstructions. A report whose
 /// roots match a state held here is usable at once; any other is rebuilt by
@@ -22,6 +22,10 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 pub(crate) struct ReportExchange {
     epochs: BTreeMap<ConsensusEpoch, EpochReports>,
     max_epochs: usize,
+    /// The epochs whose evidence was released: their reports keep arriving
+    /// from replicas that still repeat theirs, and must not bring the epoch
+    /// back, with the reconciliation and verification that would follow
+    released: BTreeSet<ConsensusEpoch>,
 }
 #[derive(Default)]
 struct EpochReports {
@@ -369,10 +373,13 @@ impl ReportExchange {
     pub const MAX_EPOCHS: usize = 4;
     pub const RETRY_INTERVAL: std::time::Duration = std::time::Duration::from_millis(300);
     pub const REPEAT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
+    /// Released epochs remembered; older ones are long past any repeat
+    const MAX_RELEASED: usize = 64;
     pub fn new() -> Self {
         Self {
             epochs: BTreeMap::new(),
             max_epochs: Self::MAX_EPOCHS,
+            released: BTreeSet::new(),
         }
     }
     pub fn live_root(&self, epoch: ConsensusEpoch) -> Option<BlockHash> {
@@ -533,7 +540,7 @@ impl ReportExchange {
             reporter: report.reporter,
         }
         .payload();
-        if !report.verify(payload) {
+        if !report.verify(payload) || self.released.contains(&report.epoch) {
             return false;
         }
         let held = self.epochs.entry(report.epoch).or_default();
@@ -889,13 +896,23 @@ impl ReportExchange {
     /// frozen reports, reconstructions and symbol encoders, is released once
     /// the successors hold the checkpoint it produced
     pub fn release_epoch(&mut self, epoch: ConsensusEpoch) -> bool {
-        self.epochs.remove(&epoch).is_some()
+        if self.epochs.remove(&epoch).is_none() {
+            return false;
+        }
+        self.released.insert(epoch);
+        while self.released.len() > Self::MAX_RELEASED {
+            self.released.pop_first();
+        }
+        true
     }
 
     pub fn pending_epochs(&self) -> Vec<ConsensusEpoch> {
         self.epochs.keys().copied().collect()
     }
     pub fn refresh_live(&mut self, epoch: ConsensusEpoch, live: CertifiedState) {
+        if self.released.contains(&epoch) {
+            return;
+        }
         let held = self.epochs.entry(epoch).or_default();
         for (block, entry) in live.entries() {
             held.live.certify(*block, entry.previous, entry.status);
@@ -1430,6 +1447,25 @@ mod tests {
         assert!(requester.usable(report.epoch).is_empty());
         assert!(requester.reports(report.epoch).is_empty());
         assert!(!requester.release_epoch(report.epoch));
+    }
+
+    /// Replicas that have not released the epoch yet keep repeating their
+    /// reports; one arriving after the release does not bring the epoch
+    /// back, nor does a refresh of its live state
+    #[test]
+    fn a_released_epoch_is_not_brought_back() {
+        let (mut reporter, report, mut requester, now) = diverged(3, 40);
+        requester.reconcile(report.epoch, report.reporter, now);
+        pull(&mut requester, &mut reporter, now);
+        assert!(requester.release_epoch(report.epoch));
+        let repeated = reporter.repeat_reports(now + ReportExchange::REPEAT_INTERVAL);
+        let ReportMessage::Broadcast(repeated) = repeated[0].clone() else {
+            panic!("a repeated report");
+        };
+        assert!(!requester.handle_report(repeated));
+        requester.refresh_live(report.epoch, CertifiedState::new());
+        assert!(requester.pending_epochs().is_empty());
+        assert!(requester.reports(report.epoch).is_empty());
     }
 
     /// RAI: a report no derivation can use is never usable, and no evidence
