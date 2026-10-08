@@ -54,9 +54,6 @@ pub(crate) struct AecStats {
     /// RAI: notarization-only votes cast in the closing epoch for blocks
     /// first-voted in the open one
     pub late_notarized: u64,
-    /// RAI: early first votes of this node cast again as settled once the
-    /// predecessor checkpoint was installed and admits their block
-    pub early_votes_settled: u64,
     /// RAI: close rounds abandoned because the two committees of the joint
     /// election certified different values
     pub close_conflicts: u64,
@@ -242,11 +239,6 @@ impl StatsSource for AecStats {
         );
         result.insert(AEC_STAT_KEY, "carried", self.carried);
         result.insert(AEC_STAT_KEY, "late_notarized", self.late_notarized);
-        result.insert(
-            AEC_STAT_KEY,
-            "early_votes_settled",
-            self.early_votes_settled,
-        );
         result.insert(AEC_STAT_KEY, "close_conflicts", self.close_conflicts);
         result.insert(AEC_STAT_KEY, "recounted", self.recounted);
         result.insert(

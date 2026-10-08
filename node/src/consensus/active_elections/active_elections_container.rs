@@ -1404,10 +1404,7 @@ impl ActiveElectionsContainer {
     /// vote comes due.
     fn release_predecessor_gate(&mut self, epoch: ConsensusEpoch, now: Timestamp) {
         #[cfg(feature = "rai_protocol")]
-        {
-            self.recheck_provisional(epoch);
-            self.settle_early_first_votes(epoch);
-        }
+        self.recheck_provisional(epoch);
         let ids: Vec<ElectionId> = self
             .roots
             .iter()
@@ -2369,44 +2366,6 @@ impl ActiveElectionsContainer {
             self.stats.rechecked_discarded += discard.len() as u64;
             diagnostic!("EPOCH_RECHECK epoch={} discarded={}", epoch, discard.len());
         }
-    }
-
-    /// RAI, "no fast path on early votes": once this node installed the
-    /// predecessor checkpoint of an epoch, an early first vote of its own
-    /// for a block the checkpoint admits - every record the block bypasses
-    /// discharged by a witness held here, the same check a settled first
-    /// vote passes when it is cast - is cast again as a settled first vote
-    /// for the same block. It is the same statement on the installed base,
-    /// which is what a fast certificate counts; a block the checkpoint does
-    /// not admit keeps its early vote only, and can finalize only through
-    /// final votes cast with the witnesses (Case 3).
-    #[cfg(feature = "rai_protocol")]
-    fn settle_early_first_votes(&mut self, epoch: ConsensusEpoch) {
-        let Some(state) = self.epoch_previous_state(epoch) else {
-            return;
-        };
-        let settled: Vec<EpochSlot> = self
-            .roots
-            .iter()
-            .map(|entry| &entry.election)
-            .filter(|election| election.epoch() == epoch && !election.is_confirmed())
-            .filter_map(|election| {
-                let slot = self.slots.get(&election.epoch_slot())?;
-                let hash = slot.first_voted.filter(|_| slot.first_early)?;
-                let admitted = state.admits(
-                    AccountSlot::new(election.account(), election.height()),
-                    hash,
-                    election.qualified_root().previous,
-                    &|origin, hash| self.holds_exclusion_witness(origin, hash),
-                );
-                admitted.then(|| election.epoch_slot())
-            })
-            .collect();
-        for slot in &settled {
-            self.slots.get_or_default(slot).first_early = false;
-            self.dirty_signing.push(*slot);
-        }
-        self.stats.early_votes_settled += settled.len() as u64;
     }
 
     /// Kudzu: an election is erased as soon as it is finalized. Its exit final
@@ -5752,63 +5711,6 @@ mod tests {
                 }
                 assert!(container.finalized_in_epoch(&fresh.hash(), epoch1));
             }
-        }
-    }
-
-    /// RAI: an early first vote of this node is cast again as a settled
-    /// one once the predecessor checkpoint is installed and admits its
-    /// block; with the block's rival retained under a record this node holds
-    /// no witness against, it stays early
-    #[cfg(feature = "rai_protocol")]
-    #[test]
-    fn an_admitted_early_first_vote_is_cast_again_settled() {
-        for admitted in [true, false] {
-            let fresh = SavedBlock::new_test_instance_with_key(2);
-            let (mut container, _, _, now) = overlap_fixture(|history| {
-                history.finalize_genesis(AccountSlot::new(fresh.account(), 1), fresh.previous());
-            });
-            let epoch1 = ConsensusEpoch::new(1);
-            let rival = sibling_of(&fresh);
-            container
-                .insert(
-                    AecInsertRequest::new_priority(
-                        fresh.clone(),
-                        BlockPriority::new_test_instance(),
-                    ),
-                    now,
-                )
-                .unwrap();
-            assert!(container.try_add_fork(&rival, Amount::raw(1)));
-            let first_of = |container: &ActiveElectionsContainer| {
-                container
-                    .kudzu_votes_due(|_| Ok(()))
-                    .into_iter()
-                    .find(|target| target.vote_type.is_first() && target.winner == fresh.hash())
-            };
-            let early = first_of(&container).unwrap();
-            assert_eq!(early.vote_type, VoteType::EarlyFirst);
-            container.mark_kudzu_voted(vec![early]);
-
-            let mut closed = (*container.genesis_state).clone();
-            if !admitted {
-                closed.retain_recovery_for_test(
-                    AccountSlot::new(rival.account(), rival.height()),
-                    rival.hash(),
-                    rival.previous(),
-                );
-            }
-            container
-                .decided
-                .insert(ConsensusEpoch::ZERO, Arc::new(closed));
-            container.release_predecessor_gate(epoch1, now);
-            let again = first_of(&container).unwrap();
-            let expected = if admitted {
-                VoteType::NonFinal
-            } else {
-                VoteType::EarlyFirst
-            };
-            assert_eq!(again.vote_type, expected, "admitted={admitted}");
-            assert_eq!(container.stats.early_votes_settled, admitted as u64);
         }
     }
 
