@@ -113,7 +113,9 @@ pub struct ManifestReply {
 }
 
 impl ManifestReply {
-    pub const MAX_ENTRIES: usize = 1000;
+    /// A full chunk's payload length must fit the 16-bit header extension
+    /// and the message size limit: 800 entries of 72 bytes are 57.6 KB
+    pub const MAX_ENTRIES: usize = 800;
     const HEAD: usize = ConsensusEpoch::SERIALIZED_SIZE + BlockHash::SERIALIZED_SIZE + 8;
 
     pub fn new_test_instance() -> Self {
@@ -218,5 +220,20 @@ mod tests {
     #[test]
     fn serialize_a_manifest_reply() {
         assert_deserializable(&Message::ManifestReply(ManifestReply::new_test_instance()));
+    }
+
+    /// A full chunk's length fits the header extension it is carried in
+    #[test]
+    fn a_full_manifest_reply_fits_its_header() {
+        let entry = ManifestReply::new_test_instance().entries[0];
+        let reply = ManifestReply {
+            entries: vec![entry; ManifestReply::MAX_ENTRIES],
+            ..ManifestReply::new_test_instance()
+        };
+        let length =
+            ManifestReply::HEAD + ManifestReply::MAX_ENTRIES * ManifestEntry::SERIALIZED_SIZE;
+        assert!(length <= u16::MAX as usize);
+        assert!(length <= crate::Message::MAX_MESSAGE_SIZE);
+        assert_deserializable(&Message::ManifestReply(reply));
     }
 }

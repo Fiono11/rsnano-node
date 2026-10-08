@@ -755,6 +755,13 @@ impl EpochDecisionService {
                 }
                 Err(()) => {
                     assemblies.remove(&reply.manifest);
+                    diagnostic!(
+                        "EPOCH_MANIFEST_REJECTED epoch={} manifest={} total={} from={}",
+                        reply.epoch,
+                        reply.manifest,
+                        reply.total,
+                        reply.from
+                    );
                     return;
                 }
             }
