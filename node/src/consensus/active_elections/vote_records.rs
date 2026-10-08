@@ -160,6 +160,17 @@ impl VoteRecords {
         self.support.get(&epoch)?.get(hash)
     }
 
+    /// RAI: the support held for a block in an epoch and every earlier one
+    pub fn support_until<'a>(
+        &'a self,
+        epoch: ConsensusEpoch,
+        hash: &'a BlockHash,
+    ) -> impl Iterator<Item = &'a HashSupport> + 'a {
+        self.support
+            .range(..=epoch)
+            .filter_map(move |(_, support)| support.get(hash))
+    }
+
     /// RAI: whether this node holds a voter's signed vote of a kind for a
     /// block in an epoch
     pub fn has_vote(

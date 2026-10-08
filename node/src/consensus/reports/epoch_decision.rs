@@ -17,8 +17,9 @@ use crate::{
         AecService,
         active_elections::EpochProposalContext,
         election::{
-            BlockIndex, BuildRules, Committee, EpochLedger, EpochValue, Manifest, ManifestAssembly,
-            MemberOrder, ReportIndex, ReportRef, ReportSource, SelectedReport, witness_claims,
+            AccountSlot, BlockIndex, BuildRules, Committee, EpochLedger, EpochValue, Manifest,
+            ManifestAssembly, MemberOrder, ReportIndex, ReportRef, ReportSource, SelectedReport,
+            witness_claims,
         },
     },
     transport::MessageFlooder,
@@ -588,6 +589,14 @@ impl EpochDecisionService {
                 &kinds,
                 &|block, entry| inherited_from(previous, block, entry),
                 &reporter_votes,
+                &|block, entry| {
+                    previous.admits(
+                        AccountSlot::new(block.account, block.height),
+                        block.hash,
+                        entry.previous,
+                        &|origin, hash| self.manifest_witness(&manifest, origin, hash),
+                    )
+                },
             );
             match justified {
                 Some(missing) if missing.is_empty() => {}

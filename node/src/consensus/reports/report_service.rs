@@ -17,7 +17,7 @@ use super::{
 use crate::{
     consensus::{
         AecService, EpochReport,
-        election::{CertifiedState, ResidualVotes},
+        election::{AccountSlot, CertifiedState, ResidualVotes},
     },
     consensus::{SigningRecords, active_elections::ActiveElectionsContainer},
     transport::MessageFlooder,
@@ -415,6 +415,16 @@ impl ReportService {
                             .is_some_and(|previous| inherited_from(previous, block, entry))
                     },
                     &|votes| aec.has_votes(epoch, reporter, votes),
+                    &|block, entry| {
+                        previous.as_ref().is_none_or(|previous| {
+                            previous.admits(
+                                AccountSlot::new(block.account, block.height),
+                                block.hash,
+                                entry.previous,
+                                &|origin, hash| aec.holds_exclusion_witness(origin, hash),
+                            )
+                        })
+                    },
                 )
                 .map(Verification::Missing)
             };

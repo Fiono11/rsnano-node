@@ -411,6 +411,15 @@ impl AecService {
 
     /// RAI: the signed votes held for blocks of an epoch, to relay
     #[cfg(feature = "rai_protocol")]
+    /// RAI: whether this node holds an exclusion witness for a block in an
+    /// epoch: first votes and late notarizations of a certificate's weight
+    pub fn holds_exclusion_witness(&self, epoch: ConsensusEpoch, hash: &BlockHash) -> bool {
+        self.aec
+            .read()
+            .unwrap()
+            .holds_exclusion_witness(epoch, hash)
+    }
+
     pub fn evidence_votes(
         &self,
         epoch: ConsensusEpoch,

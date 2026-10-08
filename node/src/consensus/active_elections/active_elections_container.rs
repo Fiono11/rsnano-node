@@ -2145,7 +2145,18 @@ impl ActiveElectionsContainer {
                 .election_for_block_in_epoch(&previous, epoch)
                 .is_some_and(|parent| parent.overlap_eligible());
         let carried = self.holds_exclusion_witness(before, &block);
-        let eligible = carried && (parent_finalized || parent_eligible);
+        // The overlap certificate's last part: a witness of the matching
+        // origin for every record of the installed checkpoint the block
+        // bypasses
+        let discharged = closed.as_ref().is_none_or(|state| {
+            state.admits(
+                AccountSlot::new(account, height),
+                block,
+                previous,
+                &|origin, hash| self.holds_exclusion_witness(origin, hash),
+            )
+        });
+        let eligible = carried && discharged && (parent_finalized || parent_eligible);
         if !eligible {
             return;
         }
@@ -3242,7 +3253,7 @@ impl ActiveElectionsContainer {
     /// across them. It is no NC: `certificate_kinds`, which completeness,
     /// N entries and the checkpoint construction read, does not count late
     /// notarizations.
-    fn holds_exclusion_witness(&self, epoch: ConsensusEpoch, hash: &BlockHash) -> bool {
+    pub fn holds_exclusion_witness(&self, epoch: ConsensusEpoch, hash: &BlockHash) -> bool {
         let Some(committee) = self.committees.committee(epoch) else {
             return false;
         };
@@ -3367,11 +3378,14 @@ impl ActiveElectionsContainer {
     }
 
     /// RAI: the signed votes held for the given blocks of an epoch, for a
-    /// node that lacks the evidence of a report's certificates
+    /// node that lacks the evidence of a report's certificates. The support
+    /// of earlier epochs comes along: an F entry that rests on the overlap
+    /// exception is justified with the exclusion witnesses of the records it
+    /// bypasses, which are of those epochs.
     pub fn evidence_votes(&self, epoch: ConsensusEpoch, hashes: &[BlockHash]) -> Vec<Arc<Vote>> {
         let mut votes: Vec<Arc<Vote>> = Vec::new();
         for hash in hashes {
-            if let Some(support) = self.vote_records.support(epoch, hash) {
+            for support in self.vote_records.support_until(epoch, hash) {
                 for vote in support.votes() {
                     if !votes.iter().any(|held| Arc::ptr_eq(held, vote)) {
                         votes.push(vote.clone());
@@ -5469,6 +5483,65 @@ mod tests {
         }
         assert!(container.holds_exclusion_witness(ConsensusEpoch::ZERO, &rival.hash()));
         assert_eq!(insert(&mut container, &rival), Ok(()));
+    }
+
+    /// RAI, Case 2 of the repairs, installation side: B was voted in the
+    /// open epoch before the closing checkpoint was known, and late
+    /// notarized in the closing epoch. The checkpoint retains B's rival
+    /// under a recovery record of the closing epoch. A node holding the late
+    /// notarizations holds `XW_0(B)`, which discharges that record: B's
+    /// instance survives the recheck. Without them it is discarded.
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn early_work_survives_installation_with_the_matching_origin_witness() {
+        for witnessed in [false, true] {
+            let fresh = SavedBlock::new_test_instance_with_key(2);
+            let (mut container, reps, rep_weights, now) = overlap_fixture(|history| {
+                history.finalize_genesis(AccountSlot::new(fresh.account(), 1), fresh.previous());
+            });
+            let epoch1 = ConsensusEpoch::new(1);
+            let rival = sibling_of(&fresh);
+            container
+                .insert(
+                    AecInsertRequest::new_priority(
+                        fresh.clone(),
+                        BlockPriority::new_test_instance(),
+                    ),
+                    now,
+                )
+                .unwrap();
+            if witnessed {
+                for rep in &reps[..3] {
+                    vote_in(
+                        &mut container,
+                        rep,
+                        VoteKind::Notar,
+                        ConsensusEpoch::ZERO,
+                        fresh.hash(),
+                        &rep_weights,
+                        now,
+                    );
+                }
+            }
+            let mut closed = (*container.genesis_state).clone();
+            closed.retain_recovery_for_test(
+                AccountSlot::new(rival.account(), rival.height()),
+                rival.hash(),
+                rival.previous(),
+            );
+            container
+                .decided
+                .insert(ConsensusEpoch::ZERO, Arc::new(closed));
+            container.release_predecessor_gate(epoch1, now);
+            assert_eq!(
+                container
+                    .roots
+                    .election_for_block_in_epoch(&fresh.hash(), epoch1)
+                    .is_some(),
+                witnessed,
+                "witnessed={witnessed}"
+            );
+        }
     }
 
     /// RAI: once this node left an epoch it signs no new account vote in it,
