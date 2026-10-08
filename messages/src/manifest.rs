@@ -6,25 +6,28 @@ use crate::MessageVariant;
 
 /// RAI, "Immutable candidate inputs": one entry of a candidate's evidence
 /// manifest. For one block in one epoch, which members of that epoch's
-/// committee the leader's manifest names as first and as final voters, as
-/// bit sets over the committee's members in canonical key order.
+/// committee the leader's manifest names as first voters, as final voters
+/// and as late notarizers, as bit sets over the committee's members in
+/// canonical key order. Late notarizations enter only exclusion witnesses.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ManifestEntry {
     pub epoch: ConsensusEpoch,
     pub hash: BlockHash,
     pub first: u64,
     pub final_: u64,
+    pub late: u64,
 }
 
 impl ManifestEntry {
     pub const SERIALIZED_SIZE: usize =
-        ConsensusEpoch::SERIALIZED_SIZE + BlockHash::SERIALIZED_SIZE + 16;
+        ConsensusEpoch::SERIALIZED_SIZE + BlockHash::SERIALIZED_SIZE + 24;
 
     pub fn serialize<T: std::io::Write>(&self, writer: &mut T) -> std::io::Result<()> {
         self.epoch.serialize(writer)?;
         self.hash.serialize(writer)?;
         writer.write_all(&self.first.to_le_bytes())?;
-        writer.write_all(&self.final_.to_le_bytes())
+        writer.write_all(&self.final_.to_le_bytes())?;
+        writer.write_all(&self.late.to_le_bytes())
     }
 
     pub fn deserialize(bytes: &mut &[u8]) -> Result<Self, DeserializationError> {
@@ -33,6 +36,7 @@ impl ManifestEntry {
             hash: BlockHash::deserialize(bytes)?,
             first: u64::from_le_bytes(take::<8>(bytes)?),
             final_: u64::from_le_bytes(take::<8>(bytes)?),
+            late: u64::from_le_bytes(take::<8>(bytes)?),
         })
     }
 }
@@ -118,12 +122,14 @@ impl ManifestReply {
                     hash: BlockHash::from(8),
                     first: 0b101,
                     final_: 0b1,
+                    late: 0b10,
                 },
                 ManifestEntry {
                     epoch: ConsensusEpoch::new(3),
                     hash: BlockHash::from(9),
                     first: 0b111,
                     final_: 0,
+                    late: 0,
                 },
             ],
         }

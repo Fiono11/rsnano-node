@@ -590,8 +590,16 @@ impl ActiveElectionsContainer {
         self.frozen
             .retain(|epoch| epoch.as_u64() + Self::FROZEN_EPOCHS_KEPT > left.as_u64());
         if let Some(kept_from) = left.as_u64().checked_sub(Self::VOTE_RECORD_EPOCHS_KEPT) {
+            // An exclusion witness of an older epoch is kept while the
+            // latest checkpoint carries a recovery record of that origin at
+            // the block's position, which the witness may discharge
+            let latest = self.decided.values().next_back().cloned();
             self.vote_records
-                .trim_before(ConsensusEpoch::new(kept_from));
+                .trim_before(ConsensusEpoch::new(kept_from), |origin, slot| {
+                    latest
+                        .as_ref()
+                        .is_some_and(|state| state.carries_recovery_record(slot, origin))
+                });
             self.checkpoint_delegations
                 .retain(|epoch, _| epoch.as_u64() >= kept_from);
         }
@@ -3141,15 +3149,11 @@ impl ActiveElectionsContainer {
     fn record_votes(&mut self, args: &ApplyVoteArgs) {
         let vote = &args.vote;
         let kind = match vote.kind() {
-            VoteKind::First => ResidualKind::First,
-            VoteKind::Final => ResidualKind::Final,
-            // Late notarization: support for a closing-epoch NC, outside
-            // the residual records and every certificate but the NC
-            VoteKind::Notar => {
-                self.vote_records
-                    .late_notar_vote(&vote.vote.vote, vote.filtered_blocks().copied());
-                return;
-            }
+            VoteKind::First => Some(ResidualKind::First),
+            VoteKind::Final => Some(ResidualKind::Final),
+            // Late notarization: support for a closing-epoch exclusion
+            // witness, outside the residual records and every certificate
+            VoteKind::Notar => None,
             // Close-election kinds; an account domain ignores them
             VoteKind::Timeout | VoteKind::Abstain => return,
         };
@@ -3175,6 +3179,11 @@ impl ActiveElectionsContainer {
                         .map(|instance| (instance.account, instance.height, instance.root.previous))
                 });
             let Some((account, height, previous)) = placed else {
+                continue;
+            };
+            self.vote_records
+                .place(vote.epoch, hash, AccountSlot::new(account, height));
+            let Some(kind) = kind else {
                 continue;
             };
             self.vote_records.record(
@@ -3247,24 +3256,21 @@ impl ActiveElectionsContainer {
     }
 
     /// RAI, the core overlap exception: whether a block holds a closing-epoch
-    /// NC here. Late notarization-only votes count with the first and final
-    /// votes, as notarization support only: the same member supports one
-    /// block per position in the epoch whatever the kind, so account
-    /// exclusion holds across them. `certificate_kinds`, which reports and
-    /// the checkpoint construction read, does not count them.
+    /// exclusion witness `XW_e(B)` here: `q` supporters, first votes and
+    /// late notarizations in any mix. The same member supports one block per
+    /// position in the epoch whatever the kind, so account exclusion holds
+    /// across them. It is no NC: `certificate_kinds`, which completeness,
+    /// N entries and the checkpoint construction read, does not count late
+    /// notarizations.
     #[cfg(feature = "rai_protocol")]
     fn closing_notarized(&self, epoch: ConsensusEpoch, hash: &BlockHash) -> bool {
         let Some(committee) = self.committees.committee(epoch) else {
             return false;
         };
-        let mut voters: BTreeSet<&PublicKey> = BTreeSet::new();
-        if let Some(support) = self.vote_records.support(epoch, hash) {
-            voters.extend(support.first.iter().chain(support.final_.iter()));
-        }
-        if let Some(late) = self.vote_records.late_notarizers(epoch, hash) {
-            voters.extend(late.iter());
-        }
-        let weight = voters.into_iter().fold(0u128, |sum, voter| {
+        let Some(support) = self.vote_records.support(epoch, hash) else {
+            return false;
+        };
+        let weight = support.supporters().into_iter().fold(0u128, |sum, voter| {
             sum.saturating_add(committee.weight(voter).number())
         });
         Amount::raw(weight) >= committee.thresholds().certificate
@@ -3314,7 +3320,8 @@ impl ActiveElectionsContainer {
 
     /// RAI, "Immutable candidate inputs": the evidence manifest this node
     /// would commit to for the given claims: for every block, the members
-    /// whose signed first and final votes it holds in the claim's epoch.
+    /// whose signed first and final votes and late notarizations it holds in
+    /// the claim's epoch.
     /// Claims without any held vote, or in an epoch whose committee is not
     /// known here, have no entry.
     pub fn evidence_manifest(
@@ -3339,6 +3346,7 @@ impl ActiveElectionsContainer {
                 hash: *hash,
                 first: order.mask(support.first.iter().copied()),
                 final_: order.mask(support.final_.iter().copied()),
+                late: order.mask(support.late.iter().copied()),
             });
         }
         manifest
@@ -3363,11 +3371,14 @@ impl ActiveElectionsContainer {
                 missing.push((entry.epoch, entry.hash));
                 continue;
             };
-            let held = order
-                .members(entry.first)
-                .all(|voter| self.has_vote(entry.epoch, voter, &entry.hash, ResidualKind::First))
-                && order.members(entry.final_).all(|voter| {
+            let held =
+                order.members(entry.first).all(|voter| {
+                    self.has_vote(entry.epoch, voter, &entry.hash, ResidualKind::First)
+                }) && order.members(entry.final_).all(|voter| {
                     self.has_vote(entry.epoch, voter, &entry.hash, ResidualKind::Final)
+                }) && order.members(entry.late).all(|voter| {
+                    self.vote_records
+                        .has_late_vote(entry.epoch, voter, &entry.hash)
                 });
             if !held {
                 missing.push((entry.epoch, entry.hash));
@@ -4909,6 +4920,70 @@ mod tests {
         }
         assert!(container.finalized_in_epoch(&fresh.hash(), epoch1));
         assert_eq!(container.stats.overlap_eligible, 1);
+    }
+
+    /// Mixed NC: a validator still inside the closing epoch holds first votes
+    /// and a late notarization for a block, together of a certificate's
+    /// weight. It is an exclusion witness and nothing more: the election
+    /// does not notarize, the epoch's certificates do not count it, so this
+    /// node records no N entry and its report stays usable. The late vote
+    /// is retained evidence: the manifest names it and it is served by hash.
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn first_votes_and_a_late_notarization_are_a_witness_and_not_an_nc() {
+        use crate::consensus::election::MemberOrder;
+        let (mut container, reps, rep_weights, now) = committee_fixture(|history| {
+            let block = SavedBlock::new_test_instance_with_key(2);
+            history.finalize_genesis(AccountSlot::new(block.account(), 1), block.previous());
+        });
+        let epoch = ConsensusEpoch::ZERO;
+        assert_eq!(container.current_epoch(), epoch);
+        let block = SavedBlock::new_test_instance_with_key(2);
+        container
+            .insert(
+                AecInsertRequest::new_priority(block.clone(), BlockPriority::new_test_instance()),
+                now,
+            )
+            .unwrap();
+        for rep in &reps[..2] {
+            vote_in(
+                &mut container,
+                rep,
+                VoteKind::First,
+                epoch,
+                block.hash(),
+                &rep_weights,
+                now,
+            );
+        }
+        vote_in(
+            &mut container,
+            &reps[2],
+            VoteKind::Notar,
+            epoch,
+            block.hash(),
+            &rep_weights,
+            now,
+        );
+
+        let election = container.election_for_block(&block.hash()).unwrap();
+        assert!(!election.certificates().is_notarized(&block.hash()));
+        let kinds = container.certificate_kinds(epoch, &block.hash()).unwrap();
+        assert!(!kinds.notarization && !kinds.finalization && !kinds.fast);
+        assert!(container.closing_notarized(epoch, &block.hash()));
+        let report = container.epoch_report(epoch).unwrap();
+        assert!(!report.certified.contains_hash(&block.hash()));
+
+        let manifest = container.evidence_manifest(&[(epoch, block.hash())]);
+        let committee = container.committees.committee(epoch).unwrap();
+        let order = MemberOrder::of(&committee).unwrap();
+        let entry = manifest.entry(epoch, &block.hash()).unwrap();
+        assert_eq!(entry.late, order.mask([reps[2].public_key()]));
+        assert!(manifest.exclusion_witness(epoch, &block.hash(), &committee, &order));
+        assert!(container.missing_manifest_votes(&manifest).is_empty());
+        let served = container.evidence_votes(epoch, &[block.hash()]);
+        assert_eq!(served.len(), 3);
+        assert!(served.iter().any(|vote| vote.kind() == VoteKind::Notar));
     }
 
     /// RAI, late notarization: while the closing epoch's checkpoint is not

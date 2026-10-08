@@ -5,7 +5,7 @@ use std::{
 
 use rsnano_types::{BlockHash, ConsensusEpoch, PublicKey, Vote, VoteKind};
 
-use crate::consensus::election::{CertifiedBlock, ResidualKind};
+use crate::consensus::election::{AccountSlot, CertifiedBlock, ResidualKind};
 
 /// RAI, "Reports that remain reconstructible": the votes this node received,
 /// by epoch and voter. A reporter's residual object is its own votes that
@@ -25,11 +25,6 @@ pub(crate) struct VoteRecords {
     /// the certificates these assemble, and a node lacking them is sent the
     /// original signed votes.
     support: BTreeMap<ConsensusEpoch, HashMap<BlockHash, HashSupport>>,
-    /// RAI, late notarization: who cast a notarization-only vote for each
-    /// block in each epoch after leaving it. Kept apart from `support`:
-    /// these votes are in no report, manifest or evidence reply, and they
-    /// count towards a closing-epoch NC only, never towards finality.
-    late_notar: BTreeMap<ConsensusEpoch, HashMap<BlockHash, BTreeSet<PublicKey>>>,
 }
 
 /// RAI: the identities whose signed votes of one kind this node holds for
@@ -38,6 +33,15 @@ pub(crate) struct VoteRecords {
 pub(crate) struct HashSupport {
     pub first: BTreeSet<PublicKey>,
     pub final_: BTreeSet<PublicKey>,
+    /// RAI, late notarization: notarization-only votes cast for the block
+    /// after their signers left the epoch. They count towards an exclusion
+    /// witness of the epoch and towards nothing else: no NC, FF or FC. They
+    /// are retained evidence, served by hash like the other votes, and a
+    /// manifest may carry them inside exclusion witnesses.
+    pub late: BTreeSet<PublicKey>,
+    /// Where the block sits, once a vote for it was placed here: what tells
+    /// whether the support can still discharge a lock record at a position
+    slot: Option<AccountSlot>,
     votes: Vec<Arc<Vote>>,
 }
 
@@ -45,6 +49,16 @@ impl HashSupport {
     /// The signed votes for the block, one per voter and kind
     pub fn votes(&self) -> &[Arc<Vote>] {
         &self.votes
+    }
+
+    /// Every member supporting the block in the epoch: first votes, late
+    /// notarizations, and final votes, whose correct signers first voted it
+    pub fn supporters(&self) -> BTreeSet<&PublicKey> {
+        self.first
+            .iter()
+            .chain(self.final_.iter())
+            .chain(self.late.iter())
+            .collect()
     }
 }
 
@@ -71,19 +85,20 @@ impl VoteRecords {
     }
 
     /// RAI: a signed account vote received, indexed by every block it names,
-    /// whether or not the block is placed here yet
+    /// whether or not the block is placed here yet. A notarization-only
+    /// account vote is a late notarization.
     pub fn support_vote(&mut self, vote: &Arc<Vote>, hashes: impl IntoIterator<Item = BlockHash>) {
         let kind = vote.kind();
-        if !matches!(kind, VoteKind::First | VoteKind::Final) {
+        if !matches!(kind, VoteKind::First | VoteKind::Final | VoteKind::Notar) {
             return;
         }
         let epoch = self.support.entry(vote.epoch).or_default();
         for hash in hashes {
             let support = epoch.entry(hash).or_default();
-            let voters = if kind == VoteKind::First {
-                &mut support.first
-            } else {
-                &mut support.final_
+            let voters = match kind {
+                VoteKind::First => &mut support.first,
+                VoteKind::Final => &mut support.final_,
+                _ => &mut support.late,
             };
             if voters.insert(vote.voter) {
                 support.votes.push(vote.clone());
@@ -91,14 +106,14 @@ impl VoteRecords {
         }
     }
 
-    /// RAI, late notarization: a notarization-only account vote received
-    pub fn late_notar_vote(&mut self, vote: &Vote, hashes: impl IntoIterator<Item = BlockHash>) {
-        if vote.kind() != VoteKind::Notar {
-            return;
-        }
-        let epoch = self.late_notar.entry(vote.epoch).or_default();
-        for hash in hashes {
-            epoch.entry(hash).or_default().insert(vote.voter);
+    /// RAI: where a block with support in an epoch sits
+    pub fn place(&mut self, epoch: ConsensusEpoch, hash: &BlockHash, slot: AccountSlot) {
+        if let Some(support) = self
+            .support
+            .get_mut(&epoch)
+            .and_then(|support| support.get_mut(hash))
+        {
+            support.slot.get_or_insert(slot);
         }
     }
 
@@ -109,7 +124,9 @@ impl VoteRecords {
         epoch: ConsensusEpoch,
         hash: &BlockHash,
     ) -> Option<&BTreeSet<PublicKey>> {
-        self.late_notar.get(&epoch)?.get(hash)
+        self.support(epoch, hash)
+            .map(|support| &support.late)
+            .filter(|late| !late.is_empty())
     }
 
     /// RAI, late notarization: the blocks with notarization-only votes in an
@@ -118,7 +135,24 @@ impl VoteRecords {
         &self,
         epoch: ConsensusEpoch,
     ) -> impl Iterator<Item = (&BlockHash, &BTreeSet<PublicKey>)> {
-        self.late_notar.get(&epoch).into_iter().flatten()
+        self.support
+            .get(&epoch)
+            .into_iter()
+            .flatten()
+            .filter(|(_, support)| !support.late.is_empty())
+            .map(|(hash, support)| (hash, &support.late))
+    }
+
+    /// RAI: whether this node holds a voter's late notarization for a block
+    /// in an epoch
+    pub fn has_late_vote(
+        &self,
+        epoch: ConsensusEpoch,
+        voter: &PublicKey,
+        hash: &BlockHash,
+    ) -> bool {
+        self.support(epoch, hash)
+            .is_some_and(|support| support.late.contains(voter))
     }
 
     /// RAI: who voted for a block in an epoch
@@ -159,8 +193,15 @@ impl VoteRecords {
             .unwrap_or_default()
     }
 
-    /// Drops the epochs before the given one
-    pub fn trim_before(&mut self, epoch: ConsensusEpoch) {
+    /// Drops the epochs before the given one. The support of an older epoch
+    /// survives where `discharges` says it may still discharge a lock record
+    /// of that origin at the block's position: an exclusion witness is kept
+    /// as long as the records it can discharge.
+    pub fn trim_before(
+        &mut self,
+        epoch: ConsensusEpoch,
+        discharges: impl Fn(ConsensusEpoch, &AccountSlot) -> bool,
+    ) {
         while let Some(oldest) = self.by_epoch.keys().next().copied() {
             if oldest >= epoch {
                 break;
@@ -169,8 +210,13 @@ impl VoteRecords {
                 self.len -= voters.values().map(BTreeMap::len).sum::<usize>();
             }
         }
-        self.support.retain(|held, _| *held >= epoch);
-        self.late_notar.retain(|held, _| *held >= epoch);
+        for (held, support) in self.support.iter_mut() {
+            if *held < epoch {
+                support
+                    .retain(|_, support| support.slot.is_some_and(|slot| discharges(*held, &slot)));
+            }
+        }
+        self.support.retain(|_, support| !support.is_empty());
     }
 
     pub fn len(&self) -> usize {
@@ -230,7 +276,7 @@ mod tests {
                 .is_empty()
         );
 
-        records.trim_before(ConsensusEpoch::new(1));
+        records.trim_before(ConsensusEpoch::new(1), |_, _| false);
         assert_eq!(records.len(), 1);
         assert!(records.votes_of(ConsensusEpoch::ZERO, &voter).is_empty());
         assert_eq!(records.votes_of(ConsensusEpoch::new(1), &voter).len(), 1);
@@ -279,7 +325,51 @@ mod tests {
             &b,
             ResidualKind::Final
         ));
-        records.trim_before(ConsensusEpoch::new(1));
+        records.trim_before(ConsensusEpoch::new(1), |_, _| false);
+        assert!(records.support(ConsensusEpoch::ZERO, &a).is_none());
+    }
+
+    /// Late notarizations are support of their own kind, served with the
+    /// other votes, and an older epoch's support outlives the trim where it
+    /// may still discharge a lock record at its block's position. A
+    /// notarization-only kind exists under `rai_protocol` only.
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn late_notarizations_are_kept_while_they_may_discharge_a_record() {
+        use rsnano_types::PrivateKey;
+        let mut records = VoteRecords::default();
+        let key = PrivateKey::from(1);
+        let (a, b) = (BlockHash::from(1), BlockHash::from(2));
+        let late = Arc::new(Vote::new_in_epoch(
+            &key,
+            VoteKind::Notar,
+            ConsensusEpoch::ZERO,
+            vec![a, b],
+        ));
+        records.support_vote(&late, [a, b]);
+        let support = records.support(ConsensusEpoch::ZERO, &a).unwrap();
+        assert!(support.first.is_empty() && support.final_.is_empty());
+        assert_eq!(support.supporters().len(), 1);
+        assert_eq!(support.votes().len(), 1);
+        assert!(records.has_late_vote(ConsensusEpoch::ZERO, &key.public_key(), &a));
+        assert_eq!(
+            records.late_notarized_blocks(ConsensusEpoch::ZERO).count(),
+            2
+        );
+
+        let locked = AccountSlot::new(rsnano_types::Account::from(5), 3);
+        records.place(ConsensusEpoch::ZERO, &a, locked);
+        records.place(
+            ConsensusEpoch::ZERO,
+            &b,
+            AccountSlot::new(rsnano_types::Account::from(6), 3),
+        );
+        records.trim_before(ConsensusEpoch::new(5), |origin, slot| {
+            origin == ConsensusEpoch::ZERO && *slot == locked
+        });
+        assert!(records.has_late_vote(ConsensusEpoch::ZERO, &key.public_key(), &a));
+        assert!(records.support(ConsensusEpoch::ZERO, &b).is_none());
+        records.trim_before(ConsensusEpoch::new(5), |_, _| false);
         assert!(records.support(ConsensusEpoch::ZERO, &a).is_none());
     }
 }

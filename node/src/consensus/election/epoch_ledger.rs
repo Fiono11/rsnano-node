@@ -226,6 +226,19 @@ impl EpochLedger {
         }
     }
 
+    /// Whether a block retained at a position carries a recovery record of
+    /// the given origin: evidence of that epoch for a rival at the position
+    /// may discharge it
+    pub fn carries_recovery_record(&self, slot: &AccountSlot, origin: ConsensusEpoch) -> bool {
+        self.notarized.get(slot).is_some_and(|blocks| {
+            blocks.iter().any(|block| {
+                self.lock_records(&block.hash).any(|record| {
+                    record.strength == LockStrength::Recovery && record.origin == origin
+                })
+            })
+        })
+    }
+
     /// The lock records a block carries, in canonical order
     pub fn lock_records(&self, hash: &BlockHash) -> impl Iterator<Item = LockRecord> + '_ {
         self.locks.get(hash).into_iter().flatten().copied()

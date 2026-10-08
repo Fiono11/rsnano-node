@@ -57,14 +57,23 @@ impl MemberOrder {
 /// RAI, "Immutable candidate inputs": the evidence manifest `M` a candidate
 /// commits to by its digest `mu_e`. For every block a selected report's
 /// claims rest on, in every epoch whose votes justify it, it names the
-/// voters whose signed first and final votes the leader used. A validator
+/// voters whose signed first and final votes the leader used, and the late
+/// notarizers, which count only inside exclusion witnesses. A validator
 /// checks a candidate against the manifest's votes, which it must hold, not
 /// against whatever votes it happens to have; so the state digest is a
 /// function of fixed inputs, and two validators that accept a value used
 /// the same evidence.
+/// The voter bit sets of one manifest entry
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct Voters {
+    first: u64,
+    final_: u64,
+    late: u64,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Manifest {
-    entries: BTreeMap<(ConsensusEpoch, BlockHash), (u64, u64)>,
+    entries: BTreeMap<(ConsensusEpoch, BlockHash), Voters>,
 }
 
 impl Manifest {
@@ -73,11 +82,27 @@ impl Manifest {
     }
 
     pub fn insert(&mut self, entry: ManifestEntry) {
-        if entry.first == 0 && entry.final_ == 0 {
+        if entry.first == 0 && entry.final_ == 0 && entry.late == 0 {
             return;
         }
-        self.entries
-            .insert((entry.epoch, entry.hash), (entry.first, entry.final_));
+        self.entries.insert(
+            (entry.epoch, entry.hash),
+            Voters {
+                first: entry.first,
+                final_: entry.final_,
+                late: entry.late,
+            },
+        );
+    }
+
+    fn entry_of(epoch: ConsensusEpoch, hash: BlockHash, voters: &Voters) -> ManifestEntry {
+        ManifestEntry {
+            epoch,
+            hash,
+            first: voters.first,
+            final_: voters.final_,
+            late: voters.late,
+        }
     }
 
     pub fn len(&self) -> usize {
@@ -91,12 +116,7 @@ impl Manifest {
     pub fn entries(&self) -> impl Iterator<Item = ManifestEntry> + '_ {
         self.entries
             .iter()
-            .map(|((epoch, hash), (first, final_))| ManifestEntry {
-                epoch: *epoch,
-                hash: *hash,
-                first: *first,
-                final_: *final_,
-            })
+            .map(|((epoch, hash), voters)| Self::entry_of(*epoch, *hash, voters))
     }
 
     /// The entries `from ..`, at most `max`, in canonical order
@@ -114,7 +134,8 @@ impl Manifest {
                 .update(entry.epoch.as_u64().to_le_bytes())
                 .update(entry.hash.as_bytes())
                 .update(entry.first.to_le_bytes())
-                .update(entry.final_.to_le_bytes());
+                .update(entry.final_.to_le_bytes())
+                .update(entry.late.to_le_bytes());
         }
         builder.build()
     }
@@ -122,12 +143,7 @@ impl Manifest {
     pub fn entry(&self, epoch: ConsensusEpoch, hash: &BlockHash) -> Option<ManifestEntry> {
         self.entries
             .get(&(epoch, *hash))
-            .map(|(first, final_)| ManifestEntry {
-                epoch,
-                hash: *hash,
-                first: *first,
-                final_: *final_,
-            })
+            .map(|voters| Self::entry_of(epoch, *hash, voters))
     }
 
     /// The certificates the manifest's votes for a block form in the
@@ -140,15 +156,34 @@ impl Manifest {
         committee: &Committee,
         order: &MemberOrder,
     ) -> CertificateKinds {
-        let Some((first, final_)) = self.entries.get(&(epoch, *hash)) else {
+        let Some(voters) = self.entries.get(&(epoch, *hash)) else {
             return CertificateKinds::default();
         };
         let thresholds = committee.thresholds();
         CertificateKinds {
-            notarization: order.weight(committee, first | final_) >= thresholds.certificate,
-            finalization: order.weight(committee, *final_) >= thresholds.certificate,
-            fast: order.weight(committee, *first) >= thresholds.fast,
+            notarization: order.weight(committee, voters.first | voters.final_)
+                >= thresholds.certificate,
+            finalization: order.weight(committee, voters.final_) >= thresholds.certificate,
+            fast: order.weight(committee, voters.first) >= thresholds.fast,
         }
+    }
+
+    /// RAI, "exclusion witness" `XW_e(B)`: whether the manifest names `q`
+    /// supporters of a block in an epoch, first votes and late
+    /// notarizations in any mix (final voters first voted the block). It
+    /// discharges a recovery record of that origin on a conflicting block,
+    /// and is the closing-epoch evidence of the core overlap exception.
+    pub fn exclusion_witness(
+        &self,
+        epoch: ConsensusEpoch,
+        hash: &BlockHash,
+        committee: &Committee,
+        order: &MemberOrder,
+    ) -> bool {
+        self.entries.get(&(epoch, *hash)).is_some_and(|voters| {
+            order.weight(committee, voters.first | voters.final_ | voters.late)
+                >= committee.thresholds().certificate
+        })
     }
 
     /// Whether the manifest names a voter's vote of a kind for a block
@@ -160,15 +195,15 @@ impl Manifest {
         kind: ResidualKind,
         order: &MemberOrder,
     ) -> bool {
-        let Some((first, final_)) = self.entries.get(&(epoch, *hash)) else {
+        let Some(voters) = self.entries.get(&(epoch, *hash)) else {
             return false;
         };
         let Some(bit) = order.bit(voter) else {
             return false;
         };
         match kind {
-            ResidualKind::First => first & bit != 0,
-            ResidualKind::Final => final_ & bit != 0,
+            ResidualKind::First => voters.first & bit != 0,
+            ResidualKind::Final => voters.final_ & bit != 0,
         }
     }
 
@@ -270,12 +305,14 @@ mod tests {
             hash,
             first: order.mask(keys[..4].iter().copied()),
             final_: order.mask(keys[..2].iter().copied()),
+            late: 0,
         };
         let other = ManifestEntry {
             epoch,
             hash: BlockHash::from(10),
             first: order.mask(keys[..5].iter().copied()),
             final_: 0,
+            late: 0,
         };
         a.insert(entry);
         a.insert(other);
@@ -312,6 +349,7 @@ mod tests {
                 hash: BlockHash::from(i),
                 first: order.mask(keys[..4].iter().copied()),
                 final_: 0,
+                late: 0,
             });
         }
         let digest = manifest.digest();
@@ -327,6 +365,42 @@ mod tests {
 
         let mut wrong = ManifestAssembly::new(BlockHash::from(99));
         assert_eq!(wrong.take(total, 0, &manifest.chunk(0, 5)), Err(()));
+    }
+
+    /// Mixed NC: three first votes and one late notarization are an
+    /// exclusion witness and no certificate; the late bit is in mu_e
+    #[test]
+    fn late_notarizers_count_toward_an_exclusion_witness_only() {
+        let (committee, keys) = committee(6);
+        let order = MemberOrder::of(&committee).unwrap();
+        let epoch = ConsensusEpoch::new(1);
+        let hash = BlockHash::from(9);
+        let first = ManifestEntry {
+            epoch,
+            hash,
+            first: order.mask(keys[..3].iter().copied()),
+            final_: 0,
+            late: 0,
+        };
+        let mixed = ManifestEntry {
+            late: order.mask([keys[3]]),
+            ..first
+        };
+        let mut without = Manifest::new();
+        without.insert(first);
+        let mut with = Manifest::new();
+        with.insert(mixed);
+        assert_ne!(with.digest(), without.digest());
+        assert!(!without.exclusion_witness(epoch, &hash, &committee, &order));
+        assert!(with.exclusion_witness(epoch, &hash, &committee, &order));
+        assert_eq!(
+            with.kinds(epoch, &hash, &committee, &order),
+            CertificateKinds::default()
+        );
+        // A late-only entry is kept
+        let mut late_only = Manifest::new();
+        late_only.insert(ManifestEntry { first: 0, ..mixed });
+        assert_eq!(late_only.len(), 1);
     }
 
     #[test]
