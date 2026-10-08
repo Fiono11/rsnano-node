@@ -1,6 +1,7 @@
 use std::{
+    cell::RefCell,
     collections::HashMap,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, TryLockError},
 };
 
 use rsnano_messages::{
@@ -17,9 +18,9 @@ use crate::{
         AecService,
         active_elections::EpochProposalContext,
         election::{
-            AccountSlot, BlockIndex, BuildRules, Committee, EpochLedger, EpochValue, Manifest,
-            ManifestAssembly, MemberOrder, ReportIndex, ReportRef, ReportSource, SelectedReport,
-            witness_claims,
+            AccountSlot, BlockIndex, BuildRules, CertifiedState, Committee, EpochLedger,
+            EpochValue, Manifest, ManifestAssembly, MemberOrder, ReportIndex, ReportRef,
+            ReportSource, ResidualVotes, SelectedReport, witness_claims,
         },
     },
     transport::MessageFlooder,
@@ -78,6 +79,13 @@ pub struct EpochDecisionService {
     manifests: Mutex<HashMap<BlockHash, (ConsensusEpoch, Arc<Manifest>)>>,
     /// Manifests being fetched by digest, with when their last chunk was asked for
     assemblies: Mutex<HashMap<BlockHash, (ManifestAssembly, Timestamp)>>,
+    /// Held while a proposal is validated. A check takes a second or more,
+    /// leaders repeat their proposals every `REPEAT_INTERVAL` and copies
+    /// arrive from several peers: a proposal that arrives while a check runs
+    /// is dropped, and its next repeat is checked once this one is done.
+    /// Checks running side by side (one per round's value with a Byzantine
+    /// member) each took several times longer and missed their rounds.
+    validating: Mutex<()>,
 }
 
 impl EpochDecisionService {
@@ -110,6 +118,7 @@ impl EpochDecisionService {
             unready_logged: Mutex::new(HashMap::new()),
             manifests: Mutex::new(HashMap::new()),
             assemblies: Mutex::new(HashMap::new()),
+            validating: Mutex::new(()),
         }
     }
 
@@ -169,6 +178,17 @@ impl EpochDecisionService {
         // round's proposal of an epoch decided here is repeated to replicas
         // that hold the certificate but not the value; checking them here
         // changes nothing and costs a derivation each.
+        if self.active_elections.holds_epoch_value(prop.epoch, &hash)
+            || self.active_elections.epoch_decided(prop.epoch)
+        {
+            return;
+        }
+        let _validating = match self.validating.try_lock() {
+            Ok(guard) => guard,
+            Err(TryLockError::WouldBlock) => return,
+            Err(TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+        };
+        // A copy may have passed the check above while another finished
         if self.active_elections.holds_epoch_value(prop.epoch, &hash)
             || self.active_elections.epoch_decided(prop.epoch)
         {
@@ -399,8 +419,9 @@ impl EpochDecisionService {
         let digest = manifest.digest();
         let manifested = started.elapsed();
         self.remember_manifest(epoch, manifest.clone());
+        let members = EpochMembers::new(&self.active_elections);
         let witness = |origin: ConsensusEpoch, hash: &BlockHash| {
-            self.manifest_witness(&manifest, origin, hash)
+            manifest_witness(&manifest, &members, origin, hash)
         };
         match EpochValue::propose(
             epoch,
@@ -445,21 +466,23 @@ impl EpochDecisionService {
     ) -> Option<(BlockHash, Arc<EpochLedger>)> {
         let previous = self.active_elections.epoch_previous_state(value.epoch)?;
         let committee = self.active_elections.epoch_committee(value.epoch)?;
-        let exchange = self.exchange.lock().unwrap();
-        let source = UsableReports {
-            exchange: &exchange,
-            epoch: value.epoch,
-            committee: &committee,
-            predecessor: previous.state_hash(),
+        // The selected reports are copied out: the checks below take a
+        // second or more, and every report message waits on the exchange
+        let source = {
+            let exchange = self.exchange.lock().unwrap();
+            let usable = UsableReports {
+                exchange: &exchange,
+                epoch: value.epoch,
+                committee: &committee,
+                predecessor: previous.state_hash(),
+            };
+            OwnedReports::copy(&usable, value.reports())?
         };
         let states: Vec<SelectedReport> = value
             .reports()
             .iter()
             .filter_map(|report| source.report(report))
             .collect();
-        if states.len() != value.reports().len() {
-            return None;
-        }
         let started = std::time::Instant::now();
         if !self.evidence_committed(value, &states, &previous, channel) {
             return None;
@@ -472,8 +495,9 @@ impl EpochDecisionService {
             .unwrap()
             .get(&value.manifest)
             .map(|(_, manifest)| manifest.clone())?;
+        let members = EpochMembers::new(&self.active_elections);
         let witness = |origin: ConsensusEpoch, hash: &BlockHash| {
-            self.manifest_witness(&manifest, origin, hash)
+            manifest_witness(&manifest, &members, origin, hash)
         };
         let index = ReportIndex::new(&previous, &states);
         let rules = BuildRules {
@@ -573,37 +597,24 @@ impl EpochDecisionService {
             return false;
         }
         // Every claim, justified by the manifest's votes alone
-        let orders: HashMap<ConsensusEpoch, Option<MemberOrder>> = manifest
-            .epochs()
-            .into_iter()
-            .chain([epoch])
-            .map(|epoch| {
-                (
-                    epoch,
-                    self.active_elections
-                        .epoch_committee(epoch)
-                        .and_then(|committee| MemberOrder::of(&committee)),
-                )
-            })
-            .collect();
+        let members = EpochMembers::new(&self.active_elections);
         for report in states {
             let kinds = |kinds_epoch: ConsensusEpoch, hashes: &[BlockHash]| {
-                let committee = self.active_elections.epoch_committee(kinds_epoch)?;
-                let order = orders.get(&kinds_epoch)?.as_ref()?;
+                let (committee, order) = members.get(kinds_epoch)?;
                 Some(
                     hashes
                         .iter()
-                        .map(|hash| manifest.kinds(kinds_epoch, hash, &committee, order))
+                        .map(|hash| manifest.kinds(kinds_epoch, hash, &committee, &order))
                         .collect(),
                 )
             };
             let reporter_votes =
                 |votes: &[(BlockHash, crate::consensus::election::ResidualKind)]| {
-                    let order = orders.get(&epoch).and_then(|order| order.as_ref());
+                    let order = members.get(epoch).map(|(_, order)| order);
                     votes
                         .iter()
                         .map(|(hash, kind)| {
-                            order.is_some_and(|order| {
+                            order.as_ref().is_some_and(|order| {
                                 manifest.names_vote(epoch, &report.reporter, hash, *kind, order)
                             })
                         })
@@ -622,7 +633,7 @@ impl EpochDecisionService {
                         AccountSlot::new(block.account, block.height),
                         block.hash,
                         entry.previous,
-                        &|origin, hash| self.manifest_witness(&manifest, origin, hash),
+                        &|origin, hash| manifest_witness(&manifest, &members, origin, hash),
                     )
                 },
             );
@@ -640,23 +651,6 @@ impl EpochDecisionService {
             }
         }
         true
-    }
-
-    /// RAI: whether a manifest holds an exclusion witness for a block in an
-    /// epoch, counted in the committee that issued that epoch's votes
-    fn manifest_witness(
-        &self,
-        manifest: &Manifest,
-        origin: ConsensusEpoch,
-        hash: &BlockHash,
-    ) -> bool {
-        let Some(committee) = self.active_elections.epoch_committee(origin) else {
-            return false;
-        };
-        let Some(order) = MemberOrder::of(&committee) else {
-            return false;
-        };
-        manifest.exclusion_witness(origin, hash, &committee, &order)
     }
 
     /// Keeps a manifest for serving, dropping those of old epochs
@@ -871,6 +865,86 @@ impl ReportSource for UsableReports<'_> {
         Some(SelectedReport {
             reporter: report.reporter,
             weight: self.committee.weight(&report.reporter),
+            certified,
+            residual,
+        })
+    }
+}
+
+/// RAI: whether a manifest holds an exclusion witness for a block in an
+/// epoch, counted in the committee that issued that epoch's votes
+fn manifest_witness(
+    manifest: &Manifest,
+    members: &EpochMembers,
+    origin: ConsensusEpoch,
+    hash: &BlockHash,
+) -> bool {
+    let Some((committee, order)) = members.get(origin) else {
+        return false;
+    };
+    manifest.exclusion_witness(origin, hash, &committee, &order)
+}
+
+/// RAI: the committees of the epochs a check asks about, with their member
+/// orders, each read once. The checks ask per claim, and every read takes
+/// the AEC lock that vote processing writes under.
+struct EpochMembers<'a> {
+    active_elections: &'a AecService,
+    known: RefCell<HashMap<ConsensusEpoch, Option<(Arc<Committee>, Arc<MemberOrder>)>>>,
+}
+
+impl<'a> EpochMembers<'a> {
+    fn new(active_elections: &'a AecService) -> Self {
+        Self {
+            active_elections,
+            known: RefCell::new(HashMap::new()),
+        }
+    }
+
+    fn get(&self, epoch: ConsensusEpoch) -> Option<(Arc<Committee>, Arc<MemberOrder>)> {
+        self.known
+            .borrow_mut()
+            .entry(epoch)
+            .or_insert_with(|| {
+                let committee = self.active_elections.epoch_committee(epoch)?;
+                let order = MemberOrder::of(&committee)?;
+                Some((committee, Arc::new(order)))
+            })
+            .clone()
+    }
+}
+
+/// RAI: the selected reports of a value, copied out of the exchange
+struct OwnedReports {
+    reports: Vec<(ReportRef, Amount, CertifiedState, ResidualVotes)>,
+}
+
+impl OwnedReports {
+    /// None unless every report is usable
+    fn copy(source: &dyn ReportSource, selected: &[ReportRef]) -> Option<Self> {
+        let reports = selected
+            .iter()
+            .map(|report| {
+                let state = source.report(report)?;
+                Some((
+                    *report,
+                    state.weight,
+                    state.certified.clone(),
+                    state.residual.clone(),
+                ))
+            })
+            .collect::<Option<Vec<_>>>()?;
+        Some(Self { reports })
+    }
+}
+
+impl ReportSource for OwnedReports {
+    fn report(&self, report: &ReportRef) -> Option<SelectedReport<'_>> {
+        let (_, weight, certified, residual) =
+            self.reports.iter().find(|(held, ..)| held == report)?;
+        Some(SelectedReport {
+            reporter: report.reporter,
+            weight: *weight,
             certified,
             residual,
         })
