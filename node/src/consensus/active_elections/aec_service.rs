@@ -365,18 +365,25 @@ impl AecService {
     }
 
     /// RAI: the certificates the signed votes held here assemble for each
-    /// block, one lock for the whole list
+    /// block. A report check asks for every entry of an epoch, tens of
+    /// thousands, so the lock is taken per chunk and vote application gets
+    /// its turn in between. A later chunk can only see more: a committee
+    /// once known stays known and certificates are never withdrawn.
     #[cfg(feature = "rai_protocol")]
     pub fn certificate_kinds(
         &self,
         epoch: ConsensusEpoch,
         hashes: &[BlockHash],
     ) -> Option<Vec<crate::consensus::election::CertificateKinds>> {
-        let aec = self.aec.read().unwrap();
-        hashes
-            .iter()
-            .map(|hash| aec.certificate_kinds(epoch, hash))
-            .collect()
+        const CHUNK: usize = 1024;
+        let mut kinds = Vec::with_capacity(hashes.len());
+        for chunk in hashes.chunks(CHUNK) {
+            let aec = self.aec.read().unwrap();
+            for hash in chunk {
+                kinds.push(aec.certificate_kinds(epoch, hash)?);
+            }
+        }
+        Some(kinds)
     }
 
     /// RAI: a boundary report completed with its epoch's inherited base
