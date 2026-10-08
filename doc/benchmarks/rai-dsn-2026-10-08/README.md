@@ -18,7 +18,7 @@ Compared with the 7 October matrix on the build before the repairs (`rai-paper-2
 
 ## rerun/
 
-Three variants run again the same evening for run-to-run variance: `nofork` 1,939 blocks/s, 125 / 846 / 1295 ms; `fork10` 1,698 blocks/s, 497 / 1638 / 2062 ms, 0 open positions, 4 checkpoints; `fork10-byz1` did not settle: epoch 2's close never became ready on the leaders (`EPOCH_CLOSE_UNREADY short_of=reports`, two reports never usable) and the harness timed out at 150 s (its `summary.json` is empty; `run.log` has the trace). The same stall was seen in 2 of 8 runs of that variant during the 8 October A/B work and is not diagnosed.
+Three variants run again the same evening for run-to-run variance: `nofork` 1,939 blocks/s, 125 / 846 / 1295 ms; `fork10` 1,698 blocks/s, 497 / 1638 / 2062 ms, 0 open positions, 4 checkpoints; `fork10-byz1` has no summary: the client finished normally (45,000 blocks in 37.8 s) and the nodes had closed epochs 0-2 and proposed epoch 3's close when the harness's settle poll failed (a 5 s RPC timeout against a node busy validating) and its cleanup crashed before writing `result.json` (`os.killpg` EPERM; see the `.err`). That was a harness defect, not a protocol stall; `run_gate_b.py` now retries failed polls, tolerates the kill error and writes the record first. Four further `fork10-byz1` runs on the same binary with the repaired harness are in `stallhunt/`: all settled, longest closes 17.3-18.1 s, p95 3.8-4.6 s. See `../rai-close-grace-2026-10-08` for why those closes are slow and the fix.
 
 Reproduce one variant:
 

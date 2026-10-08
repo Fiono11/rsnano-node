@@ -18,12 +18,15 @@ import statistics
 import subprocess
 import tempfile
 import time
+import traceback
 
 PRS = 6
 
 
 def rpc(index, action, **fields):
-    connection = http.client.HTTPConnection('::1', 17076 + index * 10, timeout=5)
+    # A node in the middle of a close or an install can hold its locks for
+    # seconds; the poll waits rather than failing the run.
+    connection = http.client.HTTPConnection('::1', 17076 + index * 10, timeout=60)
     try:
         connection.request('POST', '/', json.dumps(dict(action=action, **fields)))
         result = json.loads(connection.getresponse().read())
@@ -32,6 +35,18 @@ def rpc(index, action, **fields):
         return result
     finally:
         connection.close()
+
+
+def poll(nodes, action, log, **fields):
+    """One settle-loop poll of every node; a failed call is reported and the
+    poll repeated instead of ending the run, since the nodes outlive the
+    client and a slow answer is not a stall."""
+    while True:
+        try:
+            return [rpc(i, action, **fields) for i in range(nodes)]
+        except Exception as error:
+            print(f'poll {action} failed: {error!r}; retrying', file=log, flush=True)
+            time.sleep(1)
 
 
 def sha256(path):
@@ -216,8 +231,8 @@ def main():
                 result['client_finished_s'] = round(args.timeout - (deadline - time.monotonic()), 1)
                 deadline = time.monotonic() + args.settle_timeout
                 while True:
-                    counts = [rpc(i, 'block_count') for i in range(nodes)]
-                    states = [rpc(i, 'final_state') for i in range(nodes)]
+                    counts = poll(nodes, 'block_count', log)
+                    states = poll(nodes, 'final_state', log)
                     settled = settlement(counts, states, args.min_closed)
                     if settled['settled'] or time.monotonic() >= deadline:
                         break
@@ -267,8 +282,11 @@ def main():
                         shutil.copy2(config, saved / config.name)
         except Exception as error:
             result['status'] = 'failed'
-            result['error'] = str(error)
+            result['error'] = repr(error)
+            result['traceback'] = traceback.format_exc()
         finally:
+            # The record first: cleanup must not lose the reason a run ended.
+            (args.output / 'result.json').write_text(json.dumps(result, indent=2, default=list) + '\n')
             # Only this run's process group; never signal unrelated node processes.
             if process is not None and args.keep:
                 result['kept'] = dict(pgid=process.pid, data=str(data))
@@ -278,13 +296,12 @@ def main():
                     os.killpg(process.pid, signal.SIGTERM)
                     process.wait(timeout=5)
                     time.sleep(1)
-                except (ProcessLookupError, subprocess.TimeoutExpired):
+                except (ProcessLookupError, PermissionError, subprocess.TimeoutExpired):
                     pass
                 try:
                     os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
+                except (ProcessLookupError, PermissionError):
                     pass
-            (args.output / 'result.json').write_text(json.dumps(result, indent=2, default=list) + '\n')
     summary = {k: v for k, v in result.items() if k not in ('stats', 'counters', 'final_states', 'block_counts')}
     print(json.dumps(summary, indent=2, default=list))
     return 0 if result.get('correctness_passed') else 1

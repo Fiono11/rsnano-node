@@ -272,6 +272,21 @@ impl ManifestAssembly {
             .find(|i| !self.received.contains_key(i))
             .unwrap_or(self.total)
     }
+
+    /// The starts of the chunks of `chunk` entries not received in full,
+    /// in order; the first chunk alone while the total is unknown
+    pub fn missing_chunks(&self, chunk: usize) -> Vec<u32> {
+        if self.total == 0 {
+            return vec![0];
+        }
+        (0..self.total)
+            .step_by(chunk.max(1))
+            .filter(|start| {
+                (*start..(*start + chunk as u32).min(self.total))
+                    .any(|i| !self.received.contains_key(&i))
+            })
+            .collect()
+    }
 }
 
 #[cfg(test)]
@@ -440,5 +455,27 @@ mod tests {
     fn a_committee_too_large_for_the_bit_sets_has_no_order() {
         let (committee, _) = committee(65);
         assert!(MemberOrder::of(&committee).is_none());
+    }
+
+    /// The chunks still to fetch: only the first until the total is known,
+    /// then every chunk with an entry missing
+    #[test]
+    fn missing_chunks_follow_what_was_received() {
+        let mut assembly = ManifestAssembly::new(BlockHash::ZERO);
+        assert_eq!(assembly.missing_chunks(2), vec![0]);
+        let entry = |i: u64| ManifestEntry {
+            epoch: ConsensusEpoch::ZERO,
+            hash: BlockHash::from(i),
+            first: 0,
+            final_: 0,
+            late: 0,
+            settled: 0,
+        };
+        assert_eq!(assembly.take(5, 2, &[entry(2), entry(3)]), Ok(None));
+        assert_eq!(assembly.missing_chunks(2), vec![0, 4]);
+        assert_eq!(assembly.take(5, 0, &[entry(0)]), Ok(None));
+        assert_eq!(assembly.missing_chunks(2), vec![0, 4]);
+        assert_eq!(assembly.take(5, 1, &[entry(1)]), Ok(None));
+        assert_eq!(assembly.missing_chunks(2), vec![4]);
     }
 }

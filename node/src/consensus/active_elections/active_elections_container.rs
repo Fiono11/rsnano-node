@@ -993,6 +993,14 @@ impl ActiveElectionsContainer {
         self.log_close_events(epoch, events, now);
     }
 
+    /// RAI: the members whose usable reports of the epoch this node holds
+    #[allow(dead_code)] // the RAI epoch decision uses these
+    pub fn set_close_reporters(&mut self, epoch: ConsensusEpoch, reporters: Vec<PublicKey>) {
+        if let Some(close) = self.closes.get_mut(&epoch) {
+            close.set_reporters(reporters);
+        }
+    }
+
     /// RAI: a value this node derived `BuildState(S_{e-1}, Q_e)` for and
     /// whose hash came out as the one proposed. It may be voted for from
     /// now on, and deciding it decides the state derived.
@@ -1027,6 +1035,56 @@ impl ActiveElectionsContainer {
         if let Some(close) = self.closes.get_mut(&epoch) {
             close.record_proposal(round, value);
         }
+    }
+
+    /// RAI: a leader's proposal for a close round is being checked here;
+    /// the round's timeout waits for the check
+    #[allow(dead_code)] // the RAI epoch decision uses these
+    pub fn mark_epoch_proposal_checking(
+        &mut self,
+        epoch: ConsensusEpoch,
+        round: u32,
+        value: BlockHash,
+    ) {
+        if let Some(close) = self.closes.get_mut(&epoch) {
+            close.mark_checking(round, value);
+        }
+    }
+
+    /// RAI: the check of a proposal ended without a value to vote for
+    #[allow(dead_code)] // the RAI epoch decision uses these
+    pub fn clear_epoch_proposal_checking(
+        &mut self,
+        epoch: ConsensusEpoch,
+        round: u32,
+        value: &BlockHash,
+    ) {
+        if let Some(close) = self.closes.get_mut(&epoch) {
+            close.clear_checking(round, value);
+        }
+    }
+
+    /// RAI: the state decided by a value with the same payload as the given
+    /// one, checked here in another slot of the same epoch
+    #[allow(dead_code)] // the RAI epoch decision uses these
+    pub fn epoch_state_for_payload(&self, value: &EpochValue) -> Option<Arc<EpochLedger>> {
+        self.closes
+            .get(&value.epoch)
+            .and_then(|close| close.state_for_payload(value).cloned())
+    }
+
+    /// RAI: a validated child of election genesis of the epoch's close, for
+    /// a leader to propose again
+    #[allow(dead_code)] // the RAI epoch decision uses these
+    pub fn validated_epoch_genesis_child(
+        &self,
+        epoch: ConsensusEpoch,
+    ) -> Option<(EpochValue, Arc<EpochLedger>)> {
+        self.closes.get(&epoch).and_then(|close| {
+            close
+                .validated_genesis_child()
+                .map(|(value, state)| (value.clone(), state.clone()))
+        })
     }
 
     /// RAI: the close rounds this node leads and has not proposed into yet,

@@ -28,6 +28,74 @@ use crate::{
     wallets::WalletRepresentatives,
 };
 
+/// What checking a proposal came to
+enum Validation {
+    /// The value derives the state proposed: this node can vote for it
+    Accepted(BlockHash, Arc<EpochLedger>),
+    /// Its reports, manifest or evidence are still being fetched; the
+    /// leader's repeat brings it back here
+    Pending,
+    /// It can not be voted for: its evidence does not justify its claims or
+    /// its state is not the one derived
+    Refused,
+    /// Checked already, or its epoch is decided
+    Skipped,
+}
+
+/// Whether the evidence a value's manifest names is held and checked here
+enum Evidence {
+    Committed,
+    Pending,
+    Refused,
+}
+
+/// Chunks of a manifest asked for at once
+const MANIFEST_WINDOW: usize = 8;
+
+/// A manifest being fetched by digest: the chunks received and when each
+/// outstanding chunk was last asked for
+struct ManifestFetch {
+    assembly: ManifestAssembly,
+    asked: HashMap<u32, Timestamp>,
+}
+
+impl ManifestFetch {
+    fn new(digest: BlockHash) -> Self {
+        Self {
+            assembly: ManifestAssembly::new(digest),
+            asked: HashMap::new(),
+        }
+    }
+
+    /// The chunk starts to ask for now: the missing ones not asked for
+    /// within the retry interval, up to the window
+    fn due(&mut self, now: Timestamp, retry: std::time::Duration) -> Vec<u32> {
+        let missing = self.assembly.missing_chunks(ManifestReply::MAX_ENTRIES);
+        self.asked.retain(|start, _| missing.contains(start));
+        let outstanding = self
+            .asked
+            .values()
+            .filter(|asked| asked.elapsed(now) < retry)
+            .count();
+        let mut due = Vec::new();
+        for start in missing {
+            if due.len() + outstanding >= MANIFEST_WINDOW {
+                break;
+            }
+            if self
+                .asked
+                .get(&start)
+                .is_some_and(|asked| asked.elapsed(now) < retry)
+            {
+                continue;
+            }
+            self.asked.insert(start, now);
+            due.push(start);
+        }
+        due
+    }
+}
+
 /// RAI, "Immutable candidate inputs": what a candidate's manifest must name
 /// for a selection: the votes behind the selected reports' claims, and the
 /// exclusion witnesses that discharge the inherited recovery records those
@@ -77,8 +145,8 @@ pub struct EpochDecisionService {
     /// built or fetched, by digest, served to validators that commit to a
     /// proposal's evidence rather than to their own
     manifests: Mutex<HashMap<BlockHash, (ConsensusEpoch, Arc<Manifest>)>>,
-    /// Manifests being fetched by digest, with when their last chunk was asked for
-    assemblies: Mutex<HashMap<BlockHash, (ManifestAssembly, Timestamp)>>,
+    /// Manifests being fetched by digest
+    assemblies: Mutex<HashMap<BlockHash, ManifestFetch>>,
 }
 
 impl EpochDecisionService {
@@ -175,10 +243,22 @@ impl EpochDecisionService {
         {
             return;
         }
-        let Some((_, state)) = self.validate(&value, Some(_channel)) else {
-            return;
-        };
-        self.active_elections.accept_epoch_value(value, state);
+        let (epoch, slot) = (prop.epoch, prop.slot);
+        match self.validate(&value, Some(_channel)) {
+            Validation::Accepted(_, state) => {
+                self.active_elections.accept_epoch_value(value, state);
+            }
+            // Still fetching or deriving: the round waits for the check
+            Validation::Pending => {
+                self.active_elections
+                    .mark_epoch_proposal_checking(epoch, slot, hash);
+            }
+            Validation::Refused => {
+                self.active_elections
+                    .clear_epoch_proposal_checking(epoch, slot, &hash);
+            }
+            Validation::Skipped => {}
+        }
     }
 
     /// Whether this node can derive a value for an epoch's close: it holds
@@ -200,13 +280,19 @@ impl EpochDecisionService {
             return false;
         };
         let predecessor = previous.state_hash();
-        let (usable, weight) = {
+        let (reporters, weight) = {
             let exchange = self.exchange.lock().unwrap();
             (
-                exchange.usable(epoch).len(),
+                exchange
+                    .usable(epoch)
+                    .iter()
+                    .map(|(report, _, _)| report.reporter)
+                    .collect::<Vec<_>>(),
                 selected_weight(&exchange, epoch, &committee, predecessor),
             )
         };
+        let usable = reporters.len();
+        self.active_elections.set_close_reporters(epoch, reporters);
         if weight >= committee.thresholds().report {
             return true;
         }
@@ -281,7 +367,9 @@ impl EpochDecisionService {
         let round = context.round;
         let built = match (context.parent.clone(), context.parent_state.clone()) {
             (Some(parent), Some(state)) => Some((parent.extend(round), state)),
-            _ => self.derive_fresh(epoch, round),
+            _ => self
+                .reproposal(epoch, round)
+                .or_else(|| self.derive_fresh(epoch, round)),
         };
         let Some((value, state)) = built else {
             return;
@@ -322,6 +410,41 @@ impl EpochDecisionService {
             .unwrap()
             .insert((epoch, round), prop.clone());
         self.broadcast(prop);
+    }
+
+    /// RAI, leader behaviour: a child of election genesis this node checked
+    /// in an earlier round is proposed again, in place of a selection with a
+    /// manifest of this leader's own. The replicas that checked it, in its
+    /// round or after that round timed out, vote for it at once; a fresh
+    /// manifest would send every validator fetching and deriving again, and
+    /// a check slower than the round is what fails the rounds of a close.
+    /// The payload is the same, only the slot differs; this node holds the
+    /// manifest it names, so it can serve it.
+    fn reproposal(
+        &self,
+        epoch: ConsensusEpoch,
+        round: u32,
+    ) -> Option<(EpochValue, Arc<EpochLedger>)> {
+        let (held, state) = self.active_elections.validated_epoch_genesis_child(epoch)?;
+        if held.slot == round {
+            return None;
+        }
+        let value = EpochValue::from_parts(
+            epoch,
+            round,
+            BlockHash::ZERO,
+            held.reports().to_vec(),
+            held.manifest,
+            held.state,
+        );
+        diagnostic!(
+            "EPOCH_REPROPOSED epoch={} round={} from_round={} manifest={}",
+            epoch,
+            round,
+            held.slot,
+            held.manifest
+        );
+        Some((value, state))
     }
 
     /// RAI: select the usable reports and derive the state they determine.
@@ -440,13 +563,13 @@ impl EpochDecisionService {
 
     /// RAI: derive the state a value's reports determine and check that it
     /// hashes to the `d_e` the value carries
-    fn validate(
-        &self,
-        value: &EpochValue,
-        channel: Option<&Arc<Channel>>,
-    ) -> Option<(BlockHash, Arc<EpochLedger>)> {
-        let previous = self.active_elections.epoch_previous_state(value.epoch)?;
-        let committee = self.active_elections.epoch_committee(value.epoch)?;
+    fn validate(&self, value: &EpochValue, channel: Option<&Arc<Channel>>) -> Validation {
+        let Some(previous) = self.active_elections.epoch_previous_state(value.epoch) else {
+            return Validation::Pending;
+        };
+        let Some(committee) = self.active_elections.epoch_committee(value.epoch) else {
+            return Validation::Pending;
+        };
         let exchange = self.exchange.lock().unwrap();
         // Copies of a proposal arrive from several peers and its leader
         // repeats it every `REPEAT_INTERVAL`, so several wait here while one
@@ -459,7 +582,17 @@ impl EpochDecisionService {
             .holds_epoch_value(value.epoch, &value.hash())
             || self.active_elections.epoch_decided(value.epoch)
         {
-            return None;
+            return Validation::Skipped;
+        }
+        // The same payload checked in another slot decides the same state
+        if let Some(state) = self.active_elections.epoch_state_for_payload(value) {
+            diagnostic!(
+                "EPOCH_VALUE_REUSED epoch={} slot={} value={}",
+                value.epoch,
+                value.slot,
+                value.hash()
+            );
+            return Validation::Accepted(value.hash(), state);
         }
         let source = UsableReports {
             exchange: &exchange,
@@ -473,20 +606,25 @@ impl EpochDecisionService {
             .filter_map(|report| source.report(report))
             .collect();
         if states.len() != value.reports().len() {
-            return None;
+            return Validation::Pending;
         }
         let started = std::time::Instant::now();
-        if !self.evidence_committed(value, &states, &previous, channel) {
-            return None;
+        match self.evidence_committed(value, &states, &previous, channel) {
+            Evidence::Committed => {}
+            Evidence::Pending => return Validation::Pending,
+            Evidence::Refused => return Validation::Refused,
         }
         let committed = started.elapsed();
         // Held once the evidence is committed: built here or fetched
-        let manifest = self
+        let held = self
             .manifests
             .lock()
             .unwrap()
             .get(&value.manifest)
-            .map(|(_, manifest)| manifest.clone())?;
+            .map(|(_, manifest)| manifest.clone());
+        let Some(manifest) = held else {
+            return Validation::Pending;
+        };
         let members = EpochMembers::new(&self.active_elections);
         let witness = |origin: ConsensusEpoch, hash: &BlockHash| {
             manifest_witness(&manifest, &members, origin, hash)
@@ -511,7 +649,7 @@ impl EpochDecisionService {
                     committed.as_millis(),
                     (started.elapsed() - committed).as_millis()
                 );
-                Some((value.hash(), Arc::new(ledger)))
+                Validation::Accepted(value.hash(), Arc::new(ledger))
             }
             Err(error) => {
                 diagnostic!(
@@ -521,7 +659,7 @@ impl EpochDecisionService {
                     value.hash(),
                     error
                 );
-                None
+                Validation::Refused
             }
         }
     }
@@ -542,13 +680,13 @@ impl EpochDecisionService {
         states: &[SelectedReport],
         previous: &EpochLedger,
         channel: Option<&Arc<Channel>>,
-    ) -> bool {
+    ) -> Evidence {
         let epoch = value.epoch;
         let claims = candidate_claims(epoch, states, previous, &ReportIndex::new(previous, states));
         let own = self.active_elections.evidence_manifest(&claims);
         if own.digest() == value.manifest {
             self.remember_manifest(epoch, Arc::new(own));
-            return true;
+            return Evidence::Committed;
         }
         let held = self
             .manifests
@@ -558,7 +696,7 @@ impl EpochDecisionService {
             .map(|(_, manifest)| manifest.clone());
         let Some(manifest) = held else {
             self.request_manifest(epoch, value.manifest, channel);
-            return false;
+            return Evidence::Pending;
         };
         let missing = self.active_elections.missing_manifest_votes(&manifest);
         if !missing.is_empty() {
@@ -586,7 +724,7 @@ impl EpochDecisionService {
                     );
                 }
             }
-            return false;
+            return Evidence::Pending;
         }
         // Every claim, justified by the manifest's votes alone
         let members = EpochMembers::new(&self.active_elections);
@@ -638,11 +776,11 @@ impl EpochDecisionService {
                         value.manifest,
                         report.reporter
                     );
-                    return false;
+                    return Evidence::Refused;
                 }
             }
         }
-        true
+        Evidence::Committed
     }
 
     /// Keeps a manifest for serving, dropping those of old epochs
@@ -656,11 +794,13 @@ impl EpochDecisionService {
         }
     }
 
-    /// Asks for the next chunk of a manifest this node lacks, at most once
-    /// per retry interval: from the node the proposal came from, which holds
-    /// it, or from every representative when that is unknown. Flooding every
-    /// chunk request would bring back a reply per holder and swamp the
-    /// inbound queues.
+    /// Asks for the chunks of a manifest this node lacks, several at once
+    /// and each at most once per retry interval: from the node the proposal
+    /// came from, which holds it, or from every representative when that is
+    /// unknown. Flooding every chunk request would bring back a reply per
+    /// holder and swamp the inbound queues; asking for one chunk at a time
+    /// made a manifest of tens of thousands of entries a long series of
+    /// round trips, longer than a close round.
     fn request_manifest(
         &self,
         epoch: ConsensusEpoch,
@@ -668,25 +808,23 @@ impl EpochDecisionService {
         channel: Option<&Arc<Channel>>,
     ) {
         let now = self.clock.now();
-        let from = {
-            let mut assemblies = self.assemblies.lock().unwrap();
-            let (assembly, asked) = assemblies
-                .entry(digest)
-                .or_insert_with(|| (ManifestAssembly::new(digest), now - Self::MANIFEST_RETRY));
-            if asked.elapsed(now) < Self::MANIFEST_RETRY && *asked != now - Self::MANIFEST_RETRY {
-                return;
-            }
-            *asked = now;
-            assembly.next_from()
-        };
-        self.send_manifest_request(
-            ManifestReq {
-                epoch,
-                manifest: digest,
-                from,
-            },
-            channel,
-        );
+        let due = self
+            .assemblies
+            .lock()
+            .unwrap()
+            .entry(digest)
+            .or_insert_with(|| ManifestFetch::new(digest))
+            .due(now, Self::MANIFEST_RETRY);
+        for from in due {
+            self.send_manifest_request(
+                ManifestReq {
+                    epoch,
+                    manifest: digest,
+                    from,
+                },
+                channel,
+            );
+        }
     }
 
     fn send_manifest_request(&self, request: ManifestReq, channel: Option<&Arc<Channel>>) {
@@ -746,12 +884,12 @@ impl EpochDecisionService {
     pub fn handle_manifest_reply(&self, reply: ManifestReply, channel: &Arc<Channel>) {
         self.stats
             .inc_dir(StatType::Message, DetailType::ManifestReply, Direction::In);
-        let next = {
+        let due = {
             let mut assemblies = self.assemblies.lock().unwrap();
-            let Some((assembly, asked)) = assemblies.get_mut(&reply.manifest) else {
+            let Some(fetch) = assemblies.get_mut(&reply.manifest) else {
                 return;
             };
-            match assembly.take(reply.total, reply.from, &reply.entries) {
+            match fetch.assembly.take(reply.total, reply.from, &reply.entries) {
                 Ok(Some(manifest)) => {
                     assemblies.remove(&reply.manifest);
                     diagnostic!(
@@ -764,8 +902,8 @@ impl EpochDecisionService {
                     return;
                 }
                 Ok(None) => {
-                    *asked = self.clock.now();
-                    assembly.next_from()
+                    fetch.asked.remove(&reply.from);
+                    fetch.due(self.clock.now(), Self::MANIFEST_RETRY)
                 }
                 Err(()) => {
                     assemblies.remove(&reply.manifest);
@@ -780,15 +918,17 @@ impl EpochDecisionService {
                 }
             }
         };
-        // The next chunk from the node that served this one
-        self.send_manifest_request(
-            ManifestReq {
-                epoch: reply.epoch,
-                manifest: reply.manifest,
-                from: next,
-            },
-            Some(channel),
-        );
+        // The next chunks from the node that served this one
+        for from in due {
+            self.send_manifest_request(
+                ManifestReq {
+                    epoch: reply.epoch,
+                    manifest: reply.manifest,
+                    from,
+                },
+                Some(channel),
+            );
+        }
     }
 
     fn repeat_proposals(&self) {

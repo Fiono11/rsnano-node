@@ -367,6 +367,70 @@ impl AecService {
             .record_epoch_proposal(epoch, round, value);
     }
 
+    /// RAI: the members whose usable reports of the epoch this node holds
+    #[cfg(feature = "rai_protocol")]
+    pub fn set_close_reporters(&self, epoch: ConsensusEpoch, reporters: Vec<PublicKey>) {
+        self.aec
+            .write()
+            .unwrap()
+            .set_close_reporters(epoch, reporters);
+    }
+
+    /// RAI: a leader's proposal is being checked here; its round's timeout
+    /// waits for the check
+    #[cfg(feature = "rai_protocol")]
+    pub fn mark_epoch_proposal_checking(
+        &self,
+        epoch: ConsensusEpoch,
+        round: u32,
+        value: BlockHash,
+    ) {
+        self.aec
+            .write()
+            .unwrap()
+            .mark_epoch_proposal_checking(epoch, round, value);
+    }
+
+    /// RAI: the check of a proposal ended without a value to vote for
+    #[cfg(feature = "rai_protocol")]
+    pub fn clear_epoch_proposal_checking(
+        &self,
+        epoch: ConsensusEpoch,
+        round: u32,
+        value: &BlockHash,
+    ) {
+        self.aec
+            .write()
+            .unwrap()
+            .clear_epoch_proposal_checking(epoch, round, value);
+    }
+
+    /// RAI: the state a value with the same payload, checked here in another
+    /// slot, decides
+    #[cfg(feature = "rai_protocol")]
+    pub fn epoch_state_for_payload(
+        &self,
+        value: &crate::consensus::election::EpochValue,
+    ) -> Option<std::sync::Arc<crate::consensus::election::EpochLedger>> {
+        self.aec.read().unwrap().epoch_state_for_payload(value)
+    }
+
+    /// RAI: a validated child of election genesis of an epoch's close, for
+    /// its leader to propose again
+    #[cfg(feature = "rai_protocol")]
+    pub fn validated_epoch_genesis_child(
+        &self,
+        epoch: ConsensusEpoch,
+    ) -> Option<(
+        crate::consensus::election::EpochValue,
+        std::sync::Arc<crate::consensus::election::EpochLedger>,
+    )> {
+        self.aec
+            .read()
+            .unwrap()
+            .validated_epoch_genesis_child(epoch)
+    }
+
     /// RAI: the close rounds this node leads and has not proposed into yet
     #[cfg(feature = "rai_protocol")]
     pub(crate) fn epoch_proposals_due(&self) -> Vec<super::EpochProposalContext> {

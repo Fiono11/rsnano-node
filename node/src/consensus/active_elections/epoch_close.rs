@@ -49,6 +49,11 @@ pub(crate) struct EpochClose {
     /// usable reports to derive a value. Without both it can neither propose
     /// nor check a proposal, so it takes no part in the election yet.
     ready: bool,
+    /// RAI: the members whose usable reports this replica holds. A leader
+    /// among them froze and served a report, so it is alive and will
+    /// propose once it is ready itself; its round waits for that proposal
+    /// (see `tick`).
+    reporters: Vec<PublicKey>,
     /// The values this replica validated: it derived `BuildState` from their
     /// selected reports and the hash came out as the one proposed. Only a
     /// validated value is first voted, supported on a second look, or taken
@@ -83,6 +88,11 @@ pub(crate) struct CloseRound {
     entered: Option<Timestamp>,
     /// Δ_timeout passed since entering (line 22)
     timed_out: bool,
+    /// The leader's proposal for the round whose check is under way here:
+    /// its manifest or evidence still being fetched, or its state derived
+    checking: Option<BlockHash>,
+    /// A proposal of the round's leader reached this replica
+    proposal_seen: bool,
     last_solicited: Option<Timestamp>,
 }
 
@@ -97,6 +107,8 @@ impl Default for CloseRound {
             candidates: Vec::new(),
             entered: None,
             timed_out: false,
+            checking: None,
+            proposal_seen: false,
             last_solicited: None,
         }
     }
@@ -145,6 +157,14 @@ pub struct EpochCloseInfo {
 impl EpochClose {
     /// A vote for a round this far ahead of the current one is dropped
     const MAX_ROUNDS_AHEAD: usize = 64;
+    /// How many times Δ_timeout a round waits while the leader's proposal is
+    /// being checked here. A replica that abstains while it checks spends
+    /// its first vote on the timeout block and can not vote for the value
+    /// once checked, so a check slower than Δ_timeout fails the round for
+    /// nothing; the timeout is local, and waiting for a proposal in hand is
+    /// the liveness condition Δ_timeout > κ + τ + δ applied to the check
+    /// actually running rather than to a bound guessed in advance.
+    const CHECK_GRACE: u32 = 3;
     /// Distinct values one round accepts votes for: a value per
     /// representative at most, from correct ones
     const MAX_CANDIDATES: usize = 64;
@@ -159,6 +179,7 @@ impl EpochClose {
             rounds: vec![CloseRound::default()],
             current: 0,
             ready: false,
+            reporters: Vec::new(),
             values: HashMap::new(),
             states: HashMap::new(),
             proposed: BTreeMap::new(),
@@ -268,6 +289,54 @@ impl EpochClose {
         self.values.contains_key(value)
     }
 
+    /// RAI: the leader's proposal for a round is being checked here. The
+    /// round's timeout waits for the check, up to `CHECK_GRACE` times
+    /// Δ_timeout (see `tick`).
+    #[allow(dead_code)] // the RAI epoch decision uses these
+    pub fn mark_checking(&mut self, round: u32, value: BlockHash) {
+        self.ensure_round(round as usize);
+        self.rounds[round as usize].checking = Some(value);
+        self.rounds[round as usize].proposal_seen = true;
+    }
+
+    /// The check of the proposal ended without a value this replica can
+    /// vote for: the round times out as usual
+    #[allow(dead_code)] // the RAI epoch decision uses these
+    pub fn clear_checking(&mut self, round: u32, value: &BlockHash) {
+        if let Some(slot) = self.rounds.get_mut(round as usize) {
+            slot.proposal_seen = true;
+            if slot.checking.as_ref() == Some(value) {
+                slot.checking = None;
+            }
+        }
+    }
+
+    /// RAI: the state a value decides when this replica already checked a
+    /// value with the same placement payload, parent included, in another
+    /// slot. The check depends on the payload alone: the same reports, the
+    /// same manifest and the same predecessor derive the same state, so a
+    /// leader proposing that payload again in a later slot is answered
+    /// without deriving it again.
+    #[allow(dead_code)] // the RAI epoch decision uses these
+    pub fn state_for_payload(&self, value: &EpochValue) -> Option<&Arc<EpochLedger>> {
+        self.values
+            .values()
+            .find(|held| held.parent == value.parent && held.copies(value))
+            .and_then(|held| self.states.get(&held.hash()))
+    }
+
+    /// RAI: a child of election genesis this replica validated, the one of
+    /// the earliest slot, with its state: what the leader of a later round
+    /// proposes again rather than a selection of its own
+    #[allow(dead_code)] // the RAI epoch decision uses these
+    pub fn validated_genesis_child(&self) -> Option<(&EpochValue, &Arc<EpochLedger>)> {
+        self.values
+            .values()
+            .filter(|value| value.extends_genesis())
+            .min_by_key(|value| value.slot)
+            .and_then(|value| self.states.get(&value.hash()).map(|state| (value, state)))
+    }
+
     /// RAI: the value this replica proposed as the leader of a round
     #[allow(dead_code)] // the RAI epoch decision uses these
     pub fn record_proposal(&mut self, round: u32, value: BlockHash) {
@@ -354,9 +423,43 @@ impl EpochClose {
                 continue;
             }
             let entered = self.rounds[round].entered.unwrap();
-            self.rounds[round].timed_out = entered.elapsed(now) >= self.round_timeout;
+            let checking = self.rounds[round]
+                .checking
+                .is_some_and(|value| !self.values.contains_key(&value));
+            // A leader that reported is alive and proposes once it is ready
+            // itself, which can be seconds after this replica entered the
+            // round: replicas become ready as their reconciliations finish,
+            // and the leader derives its value first. Abstaining before its
+            // proposal arrives spends this replica's first vote for nothing.
+            let awaiting_leader = self.leader(round as u32).is_some_and(|leader| {
+                self.reporters.contains(&leader) && !self.proposal_seen(round, &leader)
+            });
+            let timeout = if checking || awaiting_leader {
+                self.round_timeout * Self::CHECK_GRACE
+            } else {
+                self.round_timeout
+            };
+            self.rounds[round].timed_out = entered.elapsed(now) >= timeout;
             return;
         }
+    }
+
+    /// Whether a proposal of the leader reached this replica: it was handed
+    /// over for checking, or the leader's first vote names it
+    fn proposal_seen(&self, round: usize, leader: &PublicKey) -> bool {
+        let slot = &self.rounds[round];
+        slot.proposal_seen
+            || self.proposed.contains_key(&(round as u32))
+            || slot
+                .votes
+                .rep(leader)
+                .is_some_and(|votes| votes.first.is_some())
+    }
+
+    /// RAI: the members whose usable reports this replica holds
+    #[allow(dead_code)] // the RAI epoch decision uses these
+    pub fn set_reporters(&mut self, reporters: Vec<PublicKey>) {
+        self.reporters = reporters;
     }
 
     fn ensure_round(&mut self, round: usize) {
@@ -888,6 +991,118 @@ mod tests {
         close.tick(t(6));
         assert_eq!(close.info().round, 1);
         assert_eq!(close.leader(1), Some(key(1)));
+    }
+
+    /// RAI: a proposal still being checked holds the timeout back, up to
+    /// `CHECK_GRACE` times Δ_timeout; once checked it is voted for
+    #[test]
+    fn a_round_waits_for_a_proposal_being_checked() {
+        let mut close = close_election();
+        close.set_ready(true);
+        close.tick(t(0));
+        close.take_events();
+        let value = genesis_value(0, 1);
+        // The leader's first vote carries the proposal; its check is under way
+        vote(&mut close, 0, value.hash(), VoteKind::First, 0).unwrap();
+        close.mark_checking(0, value.hash());
+        close.tick(t(6));
+        assert_eq!(
+            close.votes_due(&[FOLLOWER]),
+            vec![],
+            "Δ_timeout waits for the check"
+        );
+
+        close.accept_value(value.clone(), ledger());
+        close.tick(t(7));
+        assert_eq!(
+            close.votes_due(&[FOLLOWER]),
+            vec![(0, value.hash(), VoteKind::First)]
+        );
+    }
+
+    /// RAI: the grace is bounded, and a check that ends without a value
+    /// ends the grace at once
+    #[test]
+    fn a_check_that_fails_or_outlasts_the_grace_times_the_round_out() {
+        let mut close = close_election();
+        close.set_ready(true);
+        close.tick(t(0));
+        close.take_events();
+        let value = genesis_value(0, 1);
+        vote(&mut close, 0, value.hash(), VoteKind::First, 0).unwrap();
+        close.mark_checking(0, value.hash());
+        close.tick(t(14));
+        assert_eq!(close.votes_due(&[FOLLOWER]), vec![]);
+        close.tick(t(15));
+        assert_eq!(
+            close.votes_due(&[FOLLOWER]),
+            vec![(0, TIMEOUT_BLOCK, VoteKind::Abstain)],
+            "three times Δ_timeout is the most a check is waited for"
+        );
+
+        let mut refused = close_election();
+        refused.set_ready(true);
+        refused.tick(t(0));
+        refused.take_events();
+        vote(&mut refused, 0, value.hash(), VoteKind::First, 0).unwrap();
+        refused.mark_checking(0, value.hash());
+        refused.clear_checking(0, &value.hash());
+        refused.tick(t(6));
+        assert_eq!(
+            refused.votes_due(&[FOLLOWER]),
+            vec![(0, TIMEOUT_BLOCK, VoteKind::Abstain)]
+        );
+    }
+
+    /// RAI: a leader that reported is alive and proposes once ready; its
+    /// round waits for the proposal as long as for a check, and no longer
+    #[test]
+    fn a_round_waits_for_the_proposal_of_a_leader_that_reported() {
+        let mut close = close_election();
+        close.set_ready(true);
+        close.set_reporters(vec![key(0), key(1)]);
+        close.tick(t(0));
+        close.take_events();
+        close.tick(t(6));
+        assert_eq!(close.votes_due(&[FOLLOWER]), vec![], "leader 0 reported");
+        close.tick(t(15));
+        assert_eq!(
+            close.votes_due(&[FOLLOWER]),
+            vec![(0, TIMEOUT_BLOCK, VoteKind::Abstain)]
+        );
+
+        let mut silent = close_election();
+        silent.set_ready(true);
+        silent.set_reporters(vec![key(1), key(2)]);
+        silent.tick(t(0));
+        silent.take_events();
+        silent.tick(t(6));
+        assert_eq!(
+            silent.votes_due(&[FOLLOWER]),
+            vec![(0, TIMEOUT_BLOCK, VoteKind::Abstain)],
+            "a leader that never reported is not waited for"
+        );
+    }
+
+    /// RAI: a payload checked in one slot is known in every slot, so a
+    /// leader proposing it again is answered without deriving it again
+    #[test]
+    fn a_payload_checked_in_one_slot_is_held_for_another() {
+        let mut close = close_election();
+        close.set_ready(true);
+        close.tick(t(0));
+        let value = genesis_value(0, 1);
+        let state = ledger();
+        close.accept_value(value.clone(), state.clone());
+        let again = genesis_value(1, 1);
+        assert!(!close.holds_value(&again.hash()));
+        assert!(Arc::ptr_eq(
+            close.state_for_payload(&again).unwrap(),
+            &state
+        ));
+        assert!(close.state_for_payload(&genesis_value(1, 2)).is_none());
+        let (held, _) = close.validated_genesis_child().unwrap();
+        assert_eq!(held.hash(), value.hash());
     }
 
     /// RAI: the cross-committee conflict clause of ET. Two committees
