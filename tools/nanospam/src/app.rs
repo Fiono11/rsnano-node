@@ -41,6 +41,7 @@ use crate::{
         start_nodes,
     },
     wallets_factory::create_wallets,
+    weight_shift::{WeightShifts, run_weight_shifts},
 };
 
 const MAX_BUFFERED_BLOCKS: usize = 1024;
@@ -225,6 +226,15 @@ impl NanoSpamApp {
                         recent_blocks.clone(),
                         cancel_nanospam.clone(),
                         &self.tcp_stream_factory,
+                    ));
+                }
+
+                if self.args.weight_shift_percent > 0 {
+                    scope.spawn(run_weight_shifts(
+                        genesis_rpc,
+                        WeightShifts::new(self.args.prs, self.args.weight_shift_percent),
+                        self.args.weight_shift_period(),
+                        cancel_nanospam.clone(),
                     ));
                 }
 

@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use anyhow::anyhow;
 use clap::Parser;
 
@@ -90,6 +92,16 @@ pub(crate) struct CliArgs {
     #[arg(long, default_value_t = 0)]
     pub epoch_duration_ms: u64,
 
+    /// RAI: move this percentage of one principal representative's balance
+    /// to the next one every shift period, the first at the start of the
+    /// spam (0: never), so that the epochs derive different committees
+    #[arg(long, default_value_t = 0)]
+    pub weight_shift_percent: u32,
+
+    /// RAI: the time between two weight shifts (0: the epoch duration)
+    #[arg(long, default_value_t = 0)]
+    pub weight_shift_interval_ms: u64,
+
     /// RAI: f, the Byzantine weight. This many principal representatives do
     /// not run a node; nanospam votes with their key at random instead, so
     /// they hold their share of the weight and do not follow the protocol
@@ -172,6 +184,17 @@ impl CliArgs {
                 self.prs
             ));
         }
+        if self.weight_shift_percent > 50 {
+            return Err(anyhow!(
+                "a weight shift moves at most 50% of a representative's balance, not {}",
+                self.weight_shift_percent
+            ));
+        }
+        if self.weight_shift_percent > 0 && self.weight_shift_period().is_zero() {
+            return Err(anyhow!(
+                "weight shifts need --weight-shift-interval-ms or --epoch-duration-ms"
+            ));
+        }
         if self.silent >= self.honest_prs() {
             return Err(anyhow!(
                 "{} of {} running representatives would cast no account vote; at least one must",
@@ -180,6 +203,14 @@ impl CliArgs {
             ));
         }
         Ok(())
+    }
+
+    /// RAI: the time between two weight shifts
+    pub(crate) fn weight_shift_period(&self) -> Duration {
+        match self.weight_shift_interval_ms {
+            0 => Duration::from_millis(self.epoch_duration_ms),
+            ms => Duration::from_millis(ms),
+        }
     }
 
     pub(crate) fn high_prio_check(&self) -> bool {
@@ -250,6 +281,22 @@ mod tests {
         .unwrap();
         assert!(bounded.validate().is_err());
         assert!(CliArgs::try_parse_from(["nanospam", "--committee-model", "typo"]).is_err());
+        let shifts = |args: &[&str]| {
+            CliArgs::try_parse_from(
+                ["nanospam", "--weight-shift-percent", "5"]
+                    .iter()
+                    .chain(args),
+            )
+            .unwrap()
+        };
+        assert!(shifts(&[]).validate().is_err());
+        let per_epoch = shifts(&["--epoch-duration-ms", "8000"]);
+        assert!(per_epoch.validate().is_ok());
+        assert_eq!(per_epoch.weight_shift_period(), Duration::from_secs(8));
+        assert_eq!(
+            shifts(&["--weight-shift-interval-ms", "3000"]).weight_shift_period(),
+            Duration::from_secs(3)
+        );
         assert!(
             CliArgs::try_parse_from(["nanospam"])
                 .unwrap()

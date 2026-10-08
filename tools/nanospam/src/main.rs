@@ -9,6 +9,7 @@ mod high_prio_check;
 pub(crate) mod node_lifetime;
 mod setup;
 pub(crate) mod wallets_factory;
+mod weight_shift;
 
 use crate::cli_args::CliArgs;
 use app::NanoSpamApp;

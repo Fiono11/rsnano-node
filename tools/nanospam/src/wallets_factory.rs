@@ -275,7 +275,7 @@ async fn seed_representatives(
     account_map.set_account_state(initial_account, balance, frontier);
 }
 
-async fn wait_until_confirmed(rpc_client: &NanoRpcClient, hash: BlockHash) {
+pub(crate) async fn wait_until_confirmed(rpc_client: &NanoRpcClient, hash: BlockHash) {
     info!("Waiting for confirmation for {hash}");
     loop {
         match rpc_client.block_info(hash).await {
