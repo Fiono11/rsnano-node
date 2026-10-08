@@ -412,7 +412,10 @@ mod tests {
     const REPORTER_WEIGHT: Amount = Amount::raw(10);
 
     fn rules() -> BuildRules {
-        BuildRules { many: MANY }
+        BuildRules {
+            many: MANY,
+            epoch: ConsensusEpoch::new(1),
+        }
     }
     /// q_report for three reporters of `REPORTER_WEIGHT` each
     const QUORUM: Amount = Amount::raw(30);

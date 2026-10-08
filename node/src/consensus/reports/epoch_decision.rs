@@ -364,6 +364,7 @@ impl EpochDecisionService {
         let index = ReportIndex::new(&previous, &states);
         let rules = BuildRules {
             many: committee.thresholds().many,
+            epoch,
         };
         // The evidence this leader used, committed to by digest
         let claims = manifest_claims(epoch, &states, &|block, entry| {
@@ -425,6 +426,7 @@ impl EpochDecisionService {
         let index = ReportIndex::new(&previous, &states);
         let rules = BuildRules {
             many: committee.thresholds().many,
+            epoch: value.epoch,
         };
         match value.validate(
             &previous,

@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use rsnano_types::{Account, Amount, Blake2HashBuilder, BlockHash, PublicKey};
+use rsnano_types::{Account, Amount, Blake2HashBuilder, BlockHash, ConsensusEpoch, PublicKey};
 
 use super::{CertifiedState, ResidualVotes};
 
@@ -80,6 +80,42 @@ pub enum RetainedKind {
     Recovery = 3,
 }
 
+/// The strength of a lock record: a notarization lock (Rule 1, a
+/// represented NC) or a recovery record (Rule 2, reporter first votes)
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u8)]
+pub enum LockStrength {
+    Notarization = 2,
+    Recovery = 3,
+}
+
+/// RAI, Section 3.3: a lock record names its block, its strength, and its
+/// origin, the epoch whose potential finality it protects. A block may carry
+/// several recovery records, at most one per origin; each is discharged
+/// separately, and only by evidence of its own origin epoch. The block stays
+/// retained while any of its records survives.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct LockRecord {
+    pub strength: LockStrength,
+    pub origin: ConsensusEpoch,
+}
+
+impl LockRecord {
+    pub fn notarization(origin: ConsensusEpoch) -> Self {
+        Self {
+            strength: LockStrength::Notarization,
+            origin,
+        }
+    }
+
+    pub fn recovery(origin: ConsensusEpoch) -> Self {
+        Self {
+            strength: LockStrength::Recovery,
+            origin,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct EpochLedger {
     /// The finalized block at a slot, by account finalization or by the
@@ -88,7 +124,9 @@ pub struct EpochLedger {
     /// The conflicting blocks a slot kept: checkpoint-notarized, provisional,
     /// with no application effect
     notarized: BTreeMap<AccountSlot, BTreeSet<PlacedBlock>>,
-    locks: BTreeMap<BlockHash, RetainedKind>,
+    /// The lock records of each lock target. A retained block without an
+    /// entry is held as an ancestor of one.
+    locks: BTreeMap<BlockHash, BTreeSet<LockRecord>>,
 }
 
 impl EpochLedger {
@@ -170,11 +208,33 @@ impl EpochLedger {
         Self::default()
     }
 
+    /// The strongest lock a block carries: a notarization lock if any record
+    /// is one, a recovery lock if it carries recovery records only
     pub fn retained_kind(&self, hash: &BlockHash) -> RetainedKind {
-        self.locks
-            .get(hash)
-            .copied()
-            .unwrap_or(RetainedKind::Ancestor)
+        let Some(records) = self.locks.get(hash) else {
+            return RetainedKind::Ancestor;
+        };
+        if records
+            .iter()
+            .any(|record| record.strength == LockStrength::Notarization)
+        {
+            RetainedKind::Notarized
+        } else if records.is_empty() {
+            RetainedKind::Ancestor
+        } else {
+            RetainedKind::Recovery
+        }
+    }
+
+    /// The lock records a block carries, in canonical order
+    pub fn lock_records(&self, hash: &BlockHash) -> impl Iterator<Item = LockRecord> + '_ {
+        self.locks.get(hash).into_iter().flatten().copied()
+    }
+
+    /// Adds a lock record to a block. A record of a given strength and
+    /// origin is held once.
+    fn add_lock(&mut self, hash: BlockHash, record: LockRecord) {
+        self.locks.entry(hash).or_default().insert(record);
     }
 
     pub fn finalized(&self, slot: &AccountSlot) -> Option<BlockHash> {
@@ -272,7 +332,7 @@ impl EpochLedger {
     /// `d_e`: the hash an epoch proposal carries. Two validators that derived
     /// the same state from the same reports obtain the same hash.
     pub fn state_hash(&self) -> BlockHash {
-        let mut builder = Blake2HashBuilder::new().update(b"RAI epoch state v2 locks");
+        let mut builder = Blake2HashBuilder::new().update(b"RAI epoch state v3 lock records");
         for (slot, block) in &self.finalized {
             builder = builder
                 .update(b"f")
@@ -289,6 +349,13 @@ impl EpochLedger {
                     .update(slot.height.to_le_bytes())
                     .update(block.hash.as_bytes())
                     .update(block.previous.as_bytes());
+                // The lock records are part of S_e: two states that retain
+                // the same block under records of different origins differ
+                for record in self.lock_records(&block.hash) {
+                    builder = builder
+                        .update([record.strength as u8])
+                        .update(record.origin.as_u64().to_le_bytes());
+                }
             }
         }
         builder.build()
@@ -298,7 +365,7 @@ impl EpochLedger {
     #[cfg(test)]
     pub fn retain_for_test(&mut self, slot: AccountSlot, hash: BlockHash, previous: BlockHash) {
         self.keep(slot, PlacedBlock::new(hash, previous));
-        self.locks.insert(hash, RetainedKind::Notarized);
+        self.set_lock_for_test(hash, RetainedKind::Notarized);
     }
 
     /// A slot the checkpoint kept as a recovery-only lock, for tests
@@ -310,7 +377,22 @@ impl EpochLedger {
         previous: BlockHash,
     ) {
         self.keep(slot, PlacedBlock::new(hash, previous));
-        self.locks.insert(hash, RetainedKind::Recovery);
+        self.set_lock_for_test(hash, RetainedKind::Recovery);
+    }
+
+    /// Replaces a block's lock records with one of the given kind, of origin
+    /// epoch zero, for tests
+    #[cfg(test)]
+    pub fn set_lock_for_test(&mut self, hash: BlockHash, kind: RetainedKind) {
+        let record = match kind {
+            RetainedKind::Ancestor => {
+                self.locks.remove(&hash);
+                return;
+            }
+            RetainedKind::Notarized => LockRecord::notarization(ConsensusEpoch::ZERO),
+            RetainedKind::Recovery => LockRecord::recovery(ConsensusEpoch::ZERO),
+        };
+        self.locks.insert(hash, BTreeSet::from([record]));
     }
 
     /// RAI: seeds the closed genesis state `S_G`: every account at the
@@ -405,6 +487,8 @@ pub enum BuildStateError {
 pub struct BuildRules {
     /// r = f + p + 1 as weight: the reporter first votes a recovery lock needs
     pub many: Amount,
+    /// The closing epoch: the origin of every lock record Rules 1 and 2 add
+    pub epoch: ConsensusEpoch,
 }
 
 /// Revised BuildState: explicit F entries extend finality, and so does Rule 3
@@ -492,7 +576,7 @@ pub fn build_state(
         }
         let represented: Vec<_> = at.notarized.iter().copied().collect();
         let target = match represented.as_slice() {
-            [hash] => Some((*hash, RetainedKind::Notarized)),
+            [hash] => Some((*hash, LockStrength::Notarization)),
             [] => {
                 let recovered: Vec<_> = at
                     .first
@@ -501,13 +585,13 @@ pub fn build_state(
                     .map(|(hash, _)| *hash)
                     .collect();
                 match recovered.as_slice() {
-                    [hash] => Some((*hash, RetainedKind::Recovery)),
+                    [hash] => Some((*hash, LockStrength::Recovery)),
                     _ => None,
                 }
             }
             _ => return Err(BuildStateError::ConflictingNotarizations),
         };
-        if let Some((hash, kind)) = target {
+        if let Some((hash, strength)) = target {
             // "Inherited state and discharge": a represented NC for a
             // different block at a position S_{e-1} locks only for recovery
             // is ineligible early work; the inherited lock is retained and
@@ -515,7 +599,7 @@ pub fn build_state(
             // predecessor-backed supersession of an earlier revision is not
             // part of the core protocol.
             let inherited = previous.notarized(slot);
-            if kind == RetainedKind::Notarized
+            if strength == LockStrength::Notarization
                 && !inherited.is_empty()
                 && !inherited.contains(&hash)
                 && inherited
@@ -529,10 +613,23 @@ pub fn build_state(
                     for (slot, block) in path.into_iter().rev() {
                         ledger.keep(slot, block);
                     }
-                    // Do not weaken inherited represented notarization.
-                    if ledger.retained_kind(&hash) != RetainedKind::Notarized {
-                        ledger.locks.insert(hash, kind);
+                    // Rules 1 and 2 stamp the closing epoch. A recovery
+                    // record is added whether or not the block already
+                    // carries records of earlier origins, which are kept as
+                    // they are. An inherited notarization lock is re-tagged N
+                    // by every report and keeps its own record.
+                    let inherited_notarization = strength == LockStrength::Notarization
+                        && previous.retained_kind(&hash) == RetainedKind::Notarized;
+                    if inherited_notarization {
+                        continue;
                     }
+                    ledger.add_lock(
+                        hash,
+                        LockRecord {
+                            strength,
+                            origin: rules.epoch,
+                        },
+                    );
                 }
                 // Explicit finality excludes an incompatible nonfinal branch.
                 Err(BuildStateError::ConflictingFinality) => {}
@@ -722,7 +819,7 @@ mod tests {
         let mut previous = EpochLedger::new();
         for hash in [other, rival] {
             previous.keep(slot(2, 1), placed(&index, hash));
-            previous.locks.insert(hash, RetainedKind::Recovery);
+            previous.set_lock_for_test(hash, RetainedKind::Recovery);
         }
         let forked = derive(&previous, &[], &index);
         assert_eq!(forked.finalized(&slot(2, 1)), None);
@@ -738,7 +835,7 @@ mod tests {
         let block = index.add(1, 1, BlockHash::ZERO);
         let mut previous = EpochLedger::new();
         previous.keep(slot(1, 1), placed(&index, block));
-        previous.locks.insert(block, RetainedKind::Notarized);
+        previous.set_lock_for_test(block, RetainedKind::Notarized);
         let base = previous.report_ledger();
         assert_eq!(
             base.certification(&certified_at(&index, block))
@@ -1050,7 +1147,7 @@ mod tests {
         let hash = index.add(1, 1, BlockHash::ZERO);
         let mut previous = EpochLedger::new();
         previous.keep(slot(1, 1), PlacedBlock::new(hash, BlockHash::ZERO));
-        previous.locks.insert(hash, RetainedKind::Recovery);
+        previous.set_lock_for_test(hash, RetainedKind::Recovery);
         let t = previous.report_ledger();
         let g = ResidualVotes::new();
         let reports: Vec<_> = (1..=6)
@@ -1115,6 +1212,78 @@ mod tests {
         assert_eq!(ledger.finalized(&slot(1, 1)), None);
     }
 
+    /// Lock records with an origin, and Fix B: a block recovery-locked by
+    /// closure 1 and re-voted, but not finalized, in epoch 2 is reported R
+    /// in T and first-voted in G. Closure 2 counts those first votes and
+    /// adds a record of origin 2 next to the inherited one of origin 1.
+    #[test]
+    fn two_closures_over_a_re_voted_block_carry_two_records() {
+        let mut index = StubIndex::default();
+        let block = index.add(1, 1, BlockHash::ZERO);
+        let empty = CertifiedState::new();
+        let mut votes = ResidualVotes::new();
+        record(&mut votes, &index, block, ResidualKind::First);
+        let selected: Vec<_> = (1..=3).map(|i| reported_by(i, &empty, &votes)).collect();
+        let first = build_state(&EpochLedger::new(), &selected, &index, rules_of(1)).unwrap();
+        assert_eq!(
+            first.lock_records(&block).collect::<Vec<_>>(),
+            vec![LockRecord::recovery(ConsensusEpoch::new(1))]
+        );
+
+        // Epoch 2: the frozen reports tag the block R and hold the re-vote
+        let t = first.report_ledger();
+        assert_eq!(
+            t.status(&certified_at(&index, block)),
+            Some(CertifiedStatus::Recovery)
+        );
+        let g = ResidualVotes::derive(&t, votes.entries());
+        assert!(g.contains(&certified_at(&index, block), ResidualKind::First));
+        let selected: Vec<_> = (1..=3).map(|i| reported_by(i, &t, &g)).collect();
+        let second = build_state(&first, &selected, &index, rules_of(2)).unwrap();
+        assert_eq!(
+            second.lock_records(&block).collect::<Vec<_>>(),
+            vec![
+                LockRecord::recovery(ConsensusEpoch::new(1)),
+                LockRecord::recovery(ConsensusEpoch::new(2)),
+            ]
+        );
+        assert_eq!(second.retained_kind(&block), RetainedKind::Recovery);
+        assert_ne!(second.state_hash(), first.state_hash());
+
+        // Without the re-vote the inherited record is carried alone
+        let no_votes = ResidualVotes::new();
+        let silent: Vec<_> = (1..=3).map(|i| reported_by(i, &t, &no_votes)).collect();
+        let carried = build_state(&first, &silent, &index, rules_of(2)).unwrap();
+        assert_eq!(carried, first);
+    }
+
+    /// An inherited notarization lock, re-tagged N by every report, keeps the
+    /// origin of the closure that created it. The block sits above an
+    /// unfinalized parent, so Rule 3 does not promote it.
+    #[test]
+    fn an_inherited_notarization_keeps_its_origin() {
+        let mut index = StubIndex::default();
+        let parent = index.add(1, 1, BlockHash::ZERO);
+        let block = index.add(1, 2, parent);
+        let mut certified = CertifiedState::new();
+        certify(&mut certified, &index, block, CertifiedStatus::Notarized);
+        let no_votes = ResidualVotes::new();
+        let first = build_state(
+            &EpochLedger::new(),
+            &[report(&certified, &no_votes)],
+            &index,
+            rules_of(1),
+        )
+        .unwrap();
+        let t = first.report_ledger();
+        let second = build_state(&first, &[report(&t, &no_votes)], &index, rules_of(2)).unwrap();
+        assert_eq!(
+            second.lock_records(&block).collect::<Vec<_>>(),
+            vec![LockRecord::notarization(ConsensusEpoch::new(1))]
+        );
+        assert_eq!(second, first);
+    }
+
     #[test]
     fn recovery_lock_survives_omission_and_later_explicit_finality_promotes_it() {
         let mut index = StubIndex::default();
@@ -1156,8 +1325,8 @@ mod tests {
         previous.finalize_genesis_block(slot(1, 1), PlacedBlock::new(base, BlockHash::ZERO));
         previous.keep(slot(1, 2), PlacedBlock::new(carried, base));
         previous.keep(slot(1, 3), PlacedBlock::new(child, carried));
-        previous.locks.insert(carried, RetainedKind::Recovery);
-        previous.locks.insert(child, RetainedKind::Recovery);
+        previous.set_lock_for_test(carried, RetainedKind::Recovery);
+        previous.set_lock_for_test(child, RetainedKind::Recovery);
         let mut certified = CertifiedState::new();
         certify(&mut certified, &index, fresh, CertifiedStatus::Notarized);
         let no_votes = ResidualVotes::new();
@@ -1169,7 +1338,7 @@ mod tests {
         assert_eq!(kept.retained_kind(&carried), RetainedKind::Recovery);
         assert!(kept.finalized(&slot(1, 2)).is_none());
 
-        previous.locks.insert(carried, RetainedKind::Notarized);
+        previous.set_lock_for_test(carried, RetainedKind::Notarized);
         let both = build_state(&previous, &reports, &index, certificate_rules()).unwrap();
         assert_eq!(
             vec_sorted(&both.notarized(&slot(1, 2))),
@@ -1262,7 +1431,7 @@ mod tests {
         let mut previous = EpochLedger::new();
         for hash in [loser, child, grandchild] {
             previous.keep(index.placement(&hash).unwrap().slot, placed(&index, hash));
-            previous.locks.insert(hash, RetainedKind::Recovery);
+            previous.set_lock_for_test(hash, RetainedKind::Recovery);
         }
         let mut certified = CertifiedState::new();
         certify(&mut certified, &index, winner, CertifiedStatus::Finalized);
@@ -1355,7 +1524,15 @@ mod tests {
 
     /// The paper's rules, with no represented NC predecessor-backed
     fn certificate_rules() -> BuildRules {
-        BuildRules { many: MANY }
+        rules_of(1)
+    }
+
+    /// The rules of the closure of an epoch
+    fn rules_of(epoch: u64) -> BuildRules {
+        BuildRules {
+            many: MANY,
+            epoch: ConsensusEpoch::new(epoch),
+        }
     }
 
     fn report<'a>(
