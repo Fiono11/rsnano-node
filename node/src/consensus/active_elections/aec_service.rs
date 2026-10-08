@@ -290,7 +290,11 @@ impl AecService {
         &self,
         epoch: ConsensusEpoch,
     ) -> crate::consensus::election::CertifiedState {
-        self.aec.read().unwrap().epoch_certified(epoch)
+        // Collected under the lock, built after it: building hashes every
+        // entry of the cumulative state, which vote application must not
+        // wait for
+        let parts = self.aec.read().unwrap().epoch_certified_parts(epoch);
+        parts.build()
     }
 
     /// RAI: `S_{e-1}` for the close of an epoch, the state its derivation

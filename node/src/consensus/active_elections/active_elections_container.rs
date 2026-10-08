@@ -1656,32 +1656,32 @@ impl ActiveElectionsContainer {
         &self,
         epoch: ConsensusEpoch,
     ) -> crate::consensus::election::CertifiedState {
-        use crate::consensus::election::{CertifiedBlock, CertifiedState, CertifiedStatus};
-        // The inherited part: what the decided predecessor finalized and
-        // retains. An epoch whose predecessor is not decided here yet starts
-        // from nothing; its report is not signed before the predecessor is.
-        let mut certified = self
-            .report_bases
-            .get(&epoch)
-            .map(|base| (**base).clone())
-            .unwrap_or_else(CertifiedState::new);
+        self.epoch_certified_parts(epoch).build()
+    }
+
+    /// RAI: what `epoch_certified` is built from, collected in the order it
+    /// is applied. Building it hashes and inserts every entry of the
+    /// cumulative state, which a caller sharing the container does after
+    /// releasing it.
+    pub fn epoch_certified_parts(&self, epoch: ConsensusEpoch) -> EpochCertifiedParts {
+        use crate::consensus::election::{CertifiedBlock, CertifiedStatus};
         // What finalized in the epoch and left the AEC is certified by the
         // certificate that finalized it. The parent goes with it: an epoch
         // derivation places a candidate by the branch it continues, and two
-        // blocks at one slot are told apart by nothing else. Late finality of
-        // a position an older epoch left retained is carried too, but never
-        // another older block, and never successor work.
-        for instance in self.epoch_states.instances_through(epoch) {
-            if instance.epoch != epoch && !certified.contains_hash(&instance.winner) {
-                continue;
-            }
-            certified.certify(
-                CertifiedBlock::new(instance.account, instance.height, instance.winner),
-                instance.root.previous,
-                CertifiedStatus::Finalized,
-            );
-        }
+        // blocks at one slot are told apart by nothing else.
+        let finalized = self
+            .epoch_states
+            .instances_through(epoch)
+            .map(|instance| {
+                (
+                    CertifiedBlock::new(instance.account, instance.height, instance.winner),
+                    instance.root.previous,
+                    instance.epoch == epoch,
+                )
+            })
+            .collect();
         // What the instances still in the AEC have certified
+        let mut live = Vec::new();
         for election in self.roots.iter().map(|entry| &entry.election) {
             if election.epoch() != epoch {
                 continue;
@@ -1690,15 +1690,17 @@ impl ActiveElectionsContainer {
             let at = |hash| CertifiedBlock::new(election.account(), election.height(), hash);
             let certificates = election.certificates();
             for hash in &certificates.notar {
-                certified.certify(at(*hash), previous, CertifiedStatus::Notarized);
+                live.push((at(*hash), previous, CertifiedStatus::Notarized));
             }
             if let Some(hash) = certificates.finalized() {
-                certified.certify(at(hash), previous, CertifiedStatus::Finalized);
+                live.push((at(hash), previous, CertifiedStatus::Finalized));
             }
         }
-        // Finality of a block extends to the inherited prefix it selects
-        certified.project_final_prefixes();
-        certified
+        EpochCertifiedParts {
+            base: self.report_bases.get(&epoch).cloned(),
+            finalized,
+            live,
+        }
     }
 
     /// RAI, "Certified-state reports and reconciliation": what this node
@@ -3572,6 +3574,50 @@ fn delegations(election: &Election) -> Vec<Delegation> {
             })
         })
         .collect()
+}
+
+/// RAI: the inputs of an epoch's live certified state, see
+/// `ActiveElectionsContainer::epoch_certified_parts`
+pub struct EpochCertifiedParts {
+    /// The inherited part: what the decided predecessor finalized and
+    /// retains. An epoch whose predecessor is not decided here yet starts
+    /// from nothing; its report is not signed before the predecessor is.
+    base: Option<Arc<crate::consensus::election::CertifiedState>>,
+    /// Finalized instances that left the AEC, and whether each is of the
+    /// epoch itself
+    finalized: Vec<(crate::consensus::election::CertifiedBlock, BlockHash, bool)>,
+    /// The certificates of the epoch's instances still in the AEC
+    live: Vec<(
+        crate::consensus::election::CertifiedBlock,
+        BlockHash,
+        crate::consensus::election::CertifiedStatus,
+    )>,
+}
+
+impl EpochCertifiedParts {
+    pub fn build(self) -> crate::consensus::election::CertifiedState {
+        use crate::consensus::election::{CertifiedState, CertifiedStatus};
+        let mut certified = self
+            .base
+            .map(|base| (*base).clone())
+            .unwrap_or_else(CertifiedState::new);
+        // Late finality of a position an older epoch left retained is
+        // carried too, but never another older block, and never successor
+        // work. One instance per hash: an older one is kept exactly when the
+        // inherited base holds its block.
+        for (block, previous, own_epoch) in self.finalized {
+            if !own_epoch && !certified.contains_hash(&block.hash) {
+                continue;
+            }
+            certified.certify(block, previous, CertifiedStatus::Finalized);
+        }
+        for (block, previous, status) in self.live {
+            certified.certify(block, previous, status);
+        }
+        // Finality of a block extends to the inherited prefix it selects
+        certified.project_final_prefixes();
+        certified
+    }
 }
 
 #[cfg(test)]
