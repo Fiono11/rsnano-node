@@ -21,6 +21,9 @@ pub(crate) struct EpochCommittees {
     /// The committee of the setup, used by the first two epochs
     genesis: Option<Arc<Committee>>,
     model: CommitteeModel,
+    /// The members of the genesis committee: under a bounded-weight model
+    /// every later committee re-weights these, it never re-selects
+    members: Vec<PublicKey>,
     /// The committee each closed epoch derived
     derived: BTreeMap<ConsensusEpoch, Arc<Committee>>,
     /// The weights as of the frontiers counted so far
@@ -43,6 +46,8 @@ impl EpochCommittees {
     pub fn start(&mut self, frontiers: Vec<AccountFrontier>) -> Arc<Committee> {
         self.weights.count_all(frontiers);
         let genesis = Arc::new(self.weights.committee_under(self.model));
+        self.members = genesis.weights().keys().copied().collect();
+        self.members.sort();
         self.genesis = Some(genesis.clone());
         genesis
     }
@@ -77,11 +82,21 @@ impl EpochCommittees {
                 break;
             };
             self.weights.count_all(frontiers);
-            let committee = Arc::new(self.weights.committee_under(self.model));
+            let committee = Arc::new(self.current_committee());
             self.derived.insert(next, committee.clone());
             derived.push((next, committee));
         }
         derived
+    }
+
+    /// The committee of the weights counted so far
+    fn current_committee(&self) -> Committee {
+        match self.model {
+            CommitteeModel::BoundedWeight { f, p, drift } => {
+                self.weights.bounded_committee(&self.members, f, p, drift)
+            }
+            _ => self.weights.committee_under(self.model),
+        }
     }
 
     /// The committee the instances of an epoch are counted in: the one
@@ -197,6 +212,7 @@ mod tests {
     }
 
     use super::*;
+    use crate::consensus::election::NOMINAL_WEIGHT;
     use rsnano_types::{Account, Amount, PrivateKey, PublicKey};
 
     #[test]
@@ -320,6 +336,53 @@ mod tests {
         // C(1) counts epoch 0's move too: what a replica deriving in order holds
         assert_eq!(c1.weight(&rep(1)), Amount::raw(100));
         assert_eq!(c1.weight(&rep(2)), Amount::raw(100));
+    }
+
+    /// Under a bounded-weight model the genesis members stay: a holder
+    /// outgrowing one of them does not take its seat, and their weights move
+    /// with what is delegated to them, within the drift
+    #[test]
+    fn bounded_weight_reweights_the_genesis_members_with_two_epoch_lag() {
+        let mut committees = EpochCommittees::with_model(CommitteeModel::BoundedWeight {
+            f: 1,
+            p: 1,
+            drift: 100,
+        });
+        let mut setup: Vec<_> = (1..=6).map(|i| frontier(i, 1, i, 100)).collect();
+        setup.push(frontier(7, 1, 7, 10));
+        let genesis = committees.start(setup);
+        assert_eq!(genesis.len(), 6);
+        assert!(
+            (1..=6).all(|i| genesis.weight(&rep(i)) == Amount::raw(NOMINAL_WEIGHT)),
+            "equal balances, equal weights"
+        );
+        assert_eq!(genesis.weight(&rep(7)), Amount::ZERO);
+
+        // Epoch 0: account 7 grows past every member, account 1 moves half
+        // its balance to representative 2
+        committees.derive(
+            ConsensusEpoch::ZERO,
+            vec![frontier(7, 2, 7, 1000), frontier(1, 2, 2, 50)],
+        );
+        assert_eq!(
+            committees.committee(ConsensusEpoch::new(1)).unwrap(),
+            genesis
+        );
+        let derived = committees.committee(ConsensusEpoch::new(2)).unwrap();
+        assert_eq!(derived.len(), 6);
+        assert_eq!(derived.weight(&rep(7)), Amount::ZERO);
+        // Account 1 now delegates 50 to representative 2: 150 of 550 and
+        // nothing of 550 for representative 1, both held at the drift
+        assert_eq!(derived.weight(&rep(2)), Amount::raw(1100));
+        assert_eq!(derived.weight(&rep(1)), Amount::raw(900));
+        assert_eq!(derived.weight(&rep(3)), Amount::raw(1091));
+        assert_ne!(derived.digest(), genesis.digest());
+        assert!(
+            committees
+                .for_close(ConsensusEpoch::new(1))
+                .unwrap()
+                .is_joint()
+        );
     }
 
     #[test]

@@ -398,6 +398,11 @@ impl NodeConfig {
                         f: i.committee_f.unwrap_or(1),
                         p: i.committee_p.unwrap_or(1),
                     },
+                    CommitteeModelToml::BoundedWeight => CommitteeModel::BoundedWeight {
+                        f: i.committee_f.unwrap_or(1),
+                        p: i.committee_p.unwrap_or(1),
+                        drift: i.committee_drift.unwrap_or(CommitteeModel::DEFAULT_DRIFT),
+                    },
                 };
             }
             if let Some(voting) = i.account_voting {

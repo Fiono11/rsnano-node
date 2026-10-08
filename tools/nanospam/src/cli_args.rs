@@ -109,12 +109,16 @@ pub(crate) struct CliArgs {
     pub silent: usize,
 
     /// RAI epoch membership policy (setup remains stake weighted)
-    #[arg(long, default_value = "weighted", value_parser = ["weighted", "equal_weight"])]
+    #[arg(long, default_value = "weighted", value_parser = ["weighted", "equal_weight", "bounded_weight"])]
     pub committee_model: String,
     #[arg(long, default_value_t = 1)]
     pub committee_f: u32,
     #[arg(long, default_value_t = 1)]
     pub committee_p: u32,
+    /// RAI bounded_weight: how far a member's weight may move from the equal
+    /// share, in permille of it
+    #[arg(long, default_value_t = 100)]
+    pub committee_drift: u32,
 }
 
 impl CliArgs {
@@ -151,11 +155,12 @@ impl CliArgs {
     }
 
     pub(crate) fn validate(&self) -> anyhow::Result<()> {
-        if self.committee_model == "equal_weight" {
+        if self.committee_model != "weighted" {
             let n = 3 * u64::from(self.committee_f) + 2 * u64::from(self.committee_p) + 1;
             if self.prs as u64 != n {
                 return Err(anyhow!(
-                    "equal_weight requires {n} representatives (3f + 2p + 1), got {}",
+                    "{} requires {n} representatives (3f + 2p + 1), got {}",
+                    self.committee_model,
                     self.prs
                 ));
             }
@@ -235,6 +240,15 @@ mod tests {
         ])
         .unwrap();
         assert!(bad.validate().is_err());
+        let bounded = CliArgs::try_parse_from([
+            "nanospam",
+            "--prs",
+            "5",
+            "--committee-model",
+            "bounded_weight",
+        ])
+        .unwrap();
+        assert!(bounded.validate().is_err());
         assert!(CliArgs::try_parse_from(["nanospam", "--committee-model", "typo"]).is_err());
         assert!(
             CliArgs::try_parse_from(["nanospam"])

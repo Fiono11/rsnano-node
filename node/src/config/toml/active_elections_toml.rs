@@ -1,5 +1,6 @@
-use crate::config::NodeConfig;
 use serde::{Deserialize, Serialize};
+
+use crate::{config::NodeConfig, consensus::election::CommitteeModel};
 
 /// Reject misspelled models during config parsing instead of silently changing quorum rules.
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -7,6 +8,7 @@ use serde::{Deserialize, Serialize};
 pub enum CommitteeModelToml {
     Weighted,
     EqualWeight,
+    BoundedWeight,
 }
 
 #[derive(Deserialize, Serialize, Default)]
@@ -28,10 +30,14 @@ pub struct ActiveElectionsToml {
     pub committee_model: Option<CommitteeModelToml>,
     pub committee_f: Option<u32>,
     pub committee_p: Option<u32>,
+    /// RAI bounded_weight: how far a member's weight may move from the equal
+    /// share, in permille of it
+    pub committee_drift: Option<u32>,
 }
 
 impl From<&NodeConfig> for ActiveElectionsToml {
     fn from(config: &NodeConfig) -> Self {
+        let model = config.active_elections.committee_model;
         Self {
             size: Some(config.active_elections.max_elections),
             hinted_limit_percentage: Some(config.hinted_scheduler.hinted_limit_percentage),
@@ -46,18 +52,25 @@ impl From<&NodeConfig> for ActiveElectionsToml {
                 config.active_elections.close_round_timeout.as_millis() as u64
             ),
             account_voting: Some(config.active_elections.account_voting),
-            committee_model: Some(match config.active_elections.committee_model {
-                crate::consensus::election::CommitteeModel::Weighted => {
-                    CommitteeModelToml::Weighted
-                }
-                _ => CommitteeModelToml::EqualWeight,
+            committee_model: Some(match model {
+                CommitteeModel::Weighted => CommitteeModelToml::Weighted,
+                CommitteeModel::EqualWeight { .. } => CommitteeModelToml::EqualWeight,
+                CommitteeModel::BoundedWeight { .. } => CommitteeModelToml::BoundedWeight,
             }),
-            committee_f: match config.active_elections.committee_model {
-                crate::consensus::election::CommitteeModel::EqualWeight { f, .. } => Some(f),
-                _ => None,
+            committee_f: match model {
+                CommitteeModel::EqualWeight { f, .. } | CommitteeModel::BoundedWeight { f, .. } => {
+                    Some(f)
+                }
+                CommitteeModel::Weighted => None,
             },
-            committee_p: match config.active_elections.committee_model {
-                crate::consensus::election::CommitteeModel::EqualWeight { p, .. } => Some(p),
+            committee_p: match model {
+                CommitteeModel::EqualWeight { p, .. } | CommitteeModel::BoundedWeight { p, .. } => {
+                    Some(p)
+                }
+                CommitteeModel::Weighted => None,
+            },
+            committee_drift: match model {
+                CommitteeModel::BoundedWeight { drift, .. } => Some(drift),
                 _ => None,
             },
         }
@@ -71,7 +84,6 @@ mod tests {
 
     #[test]
     fn equal_weight_config_round_trip_and_unknown_model_rejection() {
-        use crate::consensus::election::CommitteeModel;
         let mut config = NodeConfig::new_test_instance();
         config.active_elections.committee_model = CommitteeModel::EqualWeight { f: 2, p: 1 };
         let encoded = toml::to_string(&ActiveElectionsToml::from(&config)).unwrap();
@@ -89,6 +101,30 @@ mod tests {
     }
 
     #[test]
+    fn bounded_weight_config_round_trip_and_default_drift() {
+        let mut config = NodeConfig::new_test_instance();
+        config.active_elections.committee_model = CommitteeModel::BoundedWeight {
+            f: 1,
+            p: 1,
+            drift: 120,
+        };
+        let encoded = toml::to_string(&ActiveElectionsToml::from(&config)).unwrap();
+        let decoded: ActiveElectionsToml = toml::from_str(&encoded).unwrap();
+        assert_eq!(merged(decoded), config.active_elections.committee_model);
+
+        let decoded: ActiveElectionsToml =
+            toml::from_str("committee_model = 'bounded_weight'").unwrap();
+        assert_eq!(
+            merged(decoded),
+            CommitteeModel::BoundedWeight {
+                f: 1,
+                p: 1,
+                drift: CommitteeModel::DEFAULT_DRIFT
+            }
+        );
+    }
+
+    #[test]
     fn convert_from_node_config() {
         let config = NodeConfig {
             bootstrap_stale_threshold: Duration::from_secs(42),
@@ -102,5 +138,18 @@ mod tests {
         assert_eq!(toml.bootstrap_stale_threshold, Some(42));
         assert_eq!(toml.epoch_duration_ms, Some(0));
         assert_eq!(toml.close_round_timeout_ms, Some(2000));
+    }
+
+    /*
+     * Test helpers
+     */
+
+    fn merged(toml: ActiveElectionsToml) -> CommitteeModel {
+        let mut config = NodeConfig::new_test_instance();
+        config.merge_toml(&crate::config::toml::NodeToml {
+            active_elections: Some(toml),
+            ..Default::default()
+        });
+        config.active_elections.committee_model
     }
 }

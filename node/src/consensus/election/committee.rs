@@ -14,13 +14,28 @@ pub enum CommitteeModel {
         f: u32,
         p: u32,
     },
+    /// The N = 3f + 2p + 1 members of the genesis committee throughout,
+    /// each weighted by the balance delegated to it, but never further than
+    /// `drift` permille from the equal share
+    BoundedWeight {
+        f: u32,
+        p: u32,
+        drift: u32,
+    },
 }
 
 impl CommitteeModel {
+    /// The drift a bounded-weight committee allows when none is configured.
+    /// Below 1/7 (143 permille) with f = p = 1, the members that certify,
+    /// finalize fast and select reports are the same as with equal weights.
+    pub const DEFAULT_DRIFT: u32 = 100;
+
     pub fn expected_members(self) -> Option<u64> {
         match self {
             Self::Weighted => None,
-            Self::EqualWeight { f, p } => Some(3 * u64::from(f) + 2 * u64::from(p) + 1),
+            Self::EqualWeight { f, p } | Self::BoundedWeight { f, p, .. } => {
+                Some(3 * u64::from(f) + 2 * u64::from(p) + 1)
+            }
         }
     }
 }
@@ -80,6 +95,45 @@ impl Committee {
         })
     }
 
+    /// RAI: N = 3f + 2p + 1 members of unequal weight, see
+    /// `KudzuThresholds::bounded`. None for the wrong number of members, or
+    /// for weights the voting rules do not survive.
+    pub fn bounded_weight(
+        weights: FxHashMap<PublicKey, Amount>,
+        f: u32,
+        p: u32,
+        drift: u32,
+    ) -> Option<Self> {
+        let model = CommitteeModel::BoundedWeight { f, p, drift };
+        if Some(weights.len() as u64) != model.expected_members() {
+            return None;
+        }
+        let thresholds = KudzuThresholds::bounded(weights.values().copied(), f, p)?;
+        Some(Self {
+            weights,
+            thresholds,
+            model,
+        })
+    }
+
+    /// A committee nobody votes in: the thresholds of the model, no members,
+    /// so neither account nor report certificates can form
+    fn inert(model: CommitteeModel) -> Self {
+        let thresholds = match model {
+            CommitteeModel::Weighted => KudzuThresholds::new(Amount::ZERO),
+            CommitteeModel::EqualWeight { f, p } => KudzuThresholds::equal_weight(f, p),
+            CommitteeModel::BoundedWeight { f, p, .. } => {
+                let nominal = (0..3 * f + 2 * p + 1).map(|_| Amount::raw(NOMINAL_WEIGHT));
+                KudzuThresholds::bounded(nominal, f, p).expect("equal weights are bounded")
+            }
+        };
+        Self {
+            weights: FxHashMap::default(),
+            thresholds,
+            model,
+        }
+    }
+
     pub fn weight(&self, rep: &PublicKey) -> Amount {
         self.weights.get(rep).copied().unwrap_or_default()
     }
@@ -111,13 +165,23 @@ impl Committee {
         let mut entries: Vec<_> = self.weights.iter().collect();
         entries.sort();
         let mut builder = Blake2HashBuilder::new().update(b"RAI committee");
-        // Bind equal membership and fault budgets as well as identities. Keep
-        // the existing weighted digest unchanged for the baseline.
-        if let CommitteeModel::EqualWeight { f, p } = self.model {
-            builder = builder
-                .update(b"equal_weight")
-                .update(f.to_le_bytes())
-                .update(p.to_le_bytes());
+        // Bind the membership model and fault budgets as well as identities.
+        // Keep the existing weighted digest unchanged for the baseline.
+        match self.model {
+            CommitteeModel::Weighted => {}
+            CommitteeModel::EqualWeight { f, p } => {
+                builder = builder
+                    .update(b"equal_weight")
+                    .update(f.to_le_bytes())
+                    .update(p.to_le_bytes());
+            }
+            CommitteeModel::BoundedWeight { f, p, drift } => {
+                builder = builder
+                    .update(b"bounded_weight")
+                    .update(f.to_le_bytes())
+                    .update(p.to_le_bytes())
+                    .update(drift.to_le_bytes());
+            }
         }
         for (rep, weight) in entries {
             builder = builder
@@ -126,6 +190,18 @@ impl Committee {
         }
         builder.build()
     }
+}
+
+/// RAI: the weight of one member's equal share in a bounded-weight committee
+pub const NOMINAL_WEIGHT: u128 = 1000;
+
+/// `balance · scale / total`, rounded to nearest. Both amounts are shifted
+/// right until the total fits in 100 bits, so the product cannot overflow
+/// for a scale below 2^28; every replica rounds the same way.
+fn scaled_share(balance: u128, total: u128, scale: u128) -> u128 {
+    let shift = (u128::BITS - total.leading_zeros()).saturating_sub(100);
+    let (balance, total) = (balance >> shift, total >> shift);
+    (balance * scale + total / 2) / total
 }
 
 /// RAI: the committees an instance is counted in. One as a rule: the
@@ -229,33 +305,84 @@ impl CommitteeWeights {
     /// An undersized committee is inert: retain configured thresholds but no
     /// voting members, so neither account nor report certificates can form.
     pub fn committee_under(&self, model: CommitteeModel) -> Committee {
+        let Some(n) = model.expected_members() else {
+            return self.committee();
+        };
+        let Some(members) = self.largest_holders(n as usize) else {
+            tracing::error!(
+                expected = n,
+                actual = self.weights.values().filter(|w| !w.is_zero()).count(),
+                "RAI committee has too few holders; voting disabled"
+            );
+            return Committee::inert(model);
+        };
         match model {
-            CommitteeModel::Weighted => self.committee(),
+            CommitteeModel::Weighted => unreachable!("a weighted committee has no fixed size"),
             CommitteeModel::EqualWeight { f, p } => {
-                let mut holders: Vec<_> =
-                    self.weights.iter().filter(|(_, w)| !w.is_zero()).collect();
-                holders.sort_by(|(a_key, a), (b_key, b)| b.cmp(a).then(a_key.cmp(b_key)));
-                let n = model.expected_members().unwrap();
-                if (holders.len() as u64) < n {
-                    tracing::error!(
-                        expected = n,
-                        actual = holders.len(),
-                        "RAI equal-weight committee has too few holders; voting disabled"
-                    );
-                    return Committee {
-                        weights: FxHashMap::default(),
-                        thresholds: KudzuThresholds::equal_weight(f, p),
-                        model,
-                    };
-                }
-                Committee::equal_weight(
-                    holders.into_iter().take(n as usize).map(|(key, _)| *key),
-                    f,
-                    p,
-                )
-                .expect("selected exactly N distinct holders")
+                Committee::equal_weight(members, f, p).expect("selected exactly N distinct holders")
+            }
+            CommitteeModel::BoundedWeight { f, p, drift } => {
+                self.bounded_committee(&members, f, p, drift)
             }
         }
+    }
+
+    /// RAI: the given members, each weighted by its share of what is
+    /// delegated to them together, in units of `NOMINAL_WEIGHT` for the
+    /// equal share and held within `drift` permille of it. The shares are
+    /// of the members' total, not of the supply, so funds in flight between
+    /// accounts move no member's weight. Inert for the wrong number of
+    /// members, for members holding nothing, or for weights the voting rules
+    /// do not survive.
+    pub fn bounded_committee(
+        &self,
+        members: &[PublicKey],
+        f: u32,
+        p: u32,
+        drift: u32,
+    ) -> Committee {
+        let model = CommitteeModel::BoundedWeight { f, p, drift };
+        let balances: Vec<u128> = members.iter().map(|m| self.weight(m).number()).collect();
+        let total = balances
+            .iter()
+            .fold(0u128, |sum, balance| sum.saturating_add(*balance));
+        if total == 0 {
+            tracing::error!("RAI bounded-weight committee members hold nothing; voting disabled");
+            return Committee::inert(model);
+        }
+        let scale = NOMINAL_WEIGHT * members.len() as u128;
+        let low = NOMINAL_WEIGHT.saturating_sub(u128::from(drift)).max(1);
+        let high = NOMINAL_WEIGHT + u128::from(drift);
+        let weights = members
+            .iter()
+            .zip(balances)
+            .map(|(member, balance)| {
+                let weight = scaled_share(balance, total, scale).clamp(low, high);
+                (*member, Amount::raw(weight))
+            })
+            .collect();
+        Committee::bounded_weight(weights, f, p, drift).unwrap_or_else(|| {
+            tracing::error!(
+                drift,
+                "RAI bounded-weight committee outweighed by its heaviest members; voting disabled"
+            );
+            Committee::inert(model)
+        })
+    }
+
+    /// The `n` largest positive holders, identity order breaking equal
+    /// balances; None if there are fewer
+    fn largest_holders(&self, n: usize) -> Option<Vec<PublicKey>> {
+        let mut holders: Vec<_> = self.weights.iter().filter(|(_, w)| !w.is_zero()).collect();
+        if holders.len() < n {
+            return None;
+        }
+        holders.sort_by(|(a_key, a), (b_key, b)| b.cmp(a).then(a_key.cmp(b_key)));
+        Some(holders.into_iter().take(n).map(|(key, _)| *key).collect())
+    }
+
+    fn weight(&self, rep: &PublicKey) -> Amount {
+        self.weights.get(rep).copied().unwrap_or_default()
     }
 
     /// The height counted for an account, if any
@@ -389,6 +516,110 @@ mod tests {
         let weighted = Committee::new(a.weights().clone());
         assert_ne!(a.digest(), b.digest());
         assert_ne!(a.digest(), weighted.digest());
+    }
+
+    #[test]
+    fn bounded_committee_weights_follow_shares_within_the_drift() {
+        let mut weights = CommitteeWeights::default();
+        for (i, balance) in [130, 100, 100, 100, 104, 66].into_iter().enumerate() {
+            let i = i as u64 + 1;
+            weights.count(frontier(Account::from(i), 1, i, balance));
+        }
+        let members: Vec<_> = (1..=6).map(rep).collect();
+        let committee = weights.bounded_committee(&members, 1, 1, 100);
+        // Shares of 600 in units of 1000 for an equal share: 1300 and 660
+        // are held at the drift, 1040 is not
+        assert_eq!(committee.weight(&rep(1)), Amount::raw(1100));
+        assert_eq!(committee.weight(&rep(2)), Amount::raw(1000));
+        assert_eq!(committee.weight(&rep(5)), Amount::raw(1040));
+        assert_eq!(committee.weight(&rep(6)), Amount::raw(900));
+        assert_eq!(committee.online(), Amount::raw(6040));
+        // The thresholds discount the heaviest members: 1100 and 1040
+        let t = committee.thresholds();
+        assert_eq!(t.certificate, Amount::raw(6040 - 2140));
+        assert_eq!(t.report, Amount::raw(6040 - 1100));
+        assert_eq!(
+            weights.committee_under(CommitteeModel::BoundedWeight {
+                f: 1,
+                p: 1,
+                drift: 100
+            }),
+            committee
+        );
+    }
+
+    #[test]
+    fn bounded_committee_counts_only_its_members() {
+        let mut weights = CommitteeWeights::default();
+        weights.count_all((1..=5).map(|i| frontier(Account::from(i), 1, i, 100)));
+        weights.count(frontier(Account::from(7), 1, 7, 1000));
+        // Member 6 holds nothing, outsider 7 holds the most
+        let members: Vec<_> = (1..=6).map(rep).collect();
+        let committee = weights.bounded_committee(&members, 1, 1, 100);
+        assert_eq!(committee.len(), 6);
+        assert_eq!(committee.weight(&rep(6)), Amount::raw(900));
+        assert_eq!(committee.weight(&rep(7)), Amount::ZERO);
+        assert_eq!(committee.weight(&rep(1)), Amount::raw(1100));
+    }
+
+    #[test]
+    fn bounded_committee_is_inert_when_its_heaviest_members_outweigh_the_rest() {
+        let mut weights = CommitteeWeights::default();
+        for (i, balance) in [200, 200, 50, 50, 50, 50].into_iter().enumerate() {
+            let i = i as u64 + 1;
+            weights.count(frontier(Account::from(i), 1, i, balance));
+        }
+        let members: Vec<_> = (1..=6).map(rep).collect();
+        let committee = weights.bounded_committee(&members, 1, 1, 500);
+        assert!(committee.is_empty());
+        assert_eq!(committee.thresholds().certificate, Amount::raw(4000));
+        // Members holding nothing and the wrong number of members are inert too
+        assert!(
+            CommitteeWeights::default()
+                .bounded_committee(&members, 1, 1, 100)
+                .is_empty()
+        );
+        assert!(
+            weights
+                .bounded_committee(&members[..5], 1, 1, 100)
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn bounded_committee_shares_do_not_overflow_for_the_whole_supply() {
+        let mut weights = CommitteeWeights::default();
+        let sixth = Amount::raw(u128::MAX / 6);
+        for i in 1..=6 {
+            weights.count(AccountFrontier {
+                hash: BlockHash::from(i),
+                account: Account::from(i),
+                height: 1,
+                representative: rep(i),
+                balance: sixth,
+            });
+        }
+        let members: Vec<_> = (1..=6).map(rep).collect();
+        let committee = weights.bounded_committee(&members, 1, 1, 100);
+        assert!(
+            committee
+                .weights()
+                .values()
+                .all(|w| *w == Amount::raw(NOMINAL_WEIGHT))
+        );
+    }
+
+    #[test]
+    fn bounded_digest_binds_the_drift_and_the_weights() {
+        let members = |w: u128| (1..=6).map(|i| (rep(i), Amount::raw(w))).collect();
+        let a = Committee::bounded_weight(members(1000), 1, 1, 100).unwrap();
+        let b = Committee::bounded_weight(members(1000), 1, 1, 50).unwrap();
+        let mut moved: FxHashMap<_, _> = members(1000);
+        moved.insert(rep(1), Amount::raw(1050));
+        let c = Committee::bounded_weight(moved, 1, 1, 100).unwrap();
+        assert_ne!(a.digest(), b.digest());
+        assert_ne!(a.digest(), c.digest());
+        assert!(Committee::bounded_weight(members(1000), 2, 1, 100).is_none());
     }
 
     /// The members of a committee hold the whole supply between them, so an

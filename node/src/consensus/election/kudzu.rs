@@ -61,6 +61,33 @@ impl KudzuThresholds {
         }
     }
 
+    /// RAI: thresholds for N = 3f + 2p + 1 members of unequal weight. f and
+    /// p stand for the weight of the f and the p heaviest members, so each
+    /// threshold holds whichever members are faulty or paused: any N − f − p
+    /// members still certify, any N − p still finalize fast and any N − f
+    /// still carry a report selection, as with `equal_weight`. None when the
+    /// heaviest members outweigh the rest (n ≤ 3f + 2p by weight), which the
+    /// voting rules do not survive. The weights are small units, see
+    /// `CommitteeWeights::bounded_committee`.
+    pub fn bounded(weights: impl IntoIterator<Item = Amount>, f: u32, p: u32) -> Option<Self> {
+        let mut weights: Vec<u128> = weights.into_iter().map(|w| w.number()).collect();
+        weights.sort_unstable_by(|a, b| b.cmp(a));
+        let heaviest = |count: u32| -> u128 { weights.iter().take(count as usize).sum() };
+        let (top_f, top_p, top_fp) = (heaviest(f), heaviest(p), heaviest(f + p));
+        let online: u128 = weights.iter().sum();
+        if online <= 3 * top_f + 2 * top_p {
+            return None;
+        }
+        Some(Self {
+            online: Amount::raw(online),
+            f: Amount::raw(top_f),
+            certificate: Amount::raw(online - top_fp),
+            fast: Amount::raw(online - top_p),
+            many: Amount::raw(top_fp + 1),
+            report: Amount::raw(online - top_f),
+        })
+    }
+
     pub fn from_quorum(quorum: &QuorumSnapshot) -> Self {
         Self::new(max(quorum.online_weight, quorum.trended_or_min_weight))
     }
@@ -894,6 +921,30 @@ mod tests {
         quorum.trended_or_min_weight = Amount::nano(100_000_000);
         let t = KudzuThresholds::from_quorum(&quorum);
         assert_eq!(t, KudzuThresholds::new(Amount::nano(100_000_000)));
+    }
+
+    #[test]
+    fn bounded_thresholds_discount_the_heaviest_members() {
+        let weights = [1100, 1100, 1000, 950, 950, 900].map(Amount::raw);
+        let t = KudzuThresholds::bounded(weights, 1, 1).unwrap();
+        assert_eq!(t.online, Amount::raw(6000));
+        assert_eq!(t.f, Amount::raw(1100));
+        // The four lightest certify, the five lightest finalize fast and
+        // carry a report selection, the three lightest are many
+        assert_eq!(t.certificate, Amount::raw(3800));
+        assert_eq!(t.fast, Amount::raw(4900));
+        assert_eq!(t.report, Amount::raw(4900));
+        assert_eq!(t.many, Amount::raw(2201));
+        // Equal weights give the equal-weight thresholds, scaled
+        let equal = KudzuThresholds::bounded([Amount::raw(1); 6], 1, 1).unwrap();
+        assert_eq!(equal, KudzuThresholds::equal_weight(1, 1));
+    }
+
+    #[test]
+    fn bounded_thresholds_refuse_members_outweighing_the_rest() {
+        // 3 * 1500 + 2 * 1500 = 7500 > 1500 * 2 + 900 * 4 = 6600
+        let weights = [1500, 1500, 900, 900, 900, 900].map(Amount::raw);
+        assert!(KudzuThresholds::bounded(weights, 1, 1).is_none());
     }
 
     #[test]

@@ -144,6 +144,7 @@ def main():
     parser.add_argument('--epoch-ms', type=int, default=8000)
     parser.add_argument('--min-closed', type=int, default=3)
     parser.add_argument('--weighted', action='store_true', help='stake-weighted committees instead of equal weight f = p = 1')
+    parser.add_argument('--bounded-drift', type=int, default=None, help='bounded-weight committees f = p = 1: the six genesis members re-weighted per epoch within this many permille of the equal share')
     parser.add_argument('--byzantine', type=int, default=0, help='representatives played by the client with random votes, no node')
     parser.add_argument('--offline', type=int, default=0, help='representatives funded but never started')
     parser.add_argument('--allow-busy', action='store_true', help='Correctness run only; does not satisfy the performance gate')
@@ -185,7 +186,10 @@ def main():
                    '--blocks', str(args.blocks), '--accounts', str(args.accounts), '--rate', str(args.rate),
                    '--fork-percentage', str(args.fork_percentage), '--epoch-duration-ms', str(args.epoch_ms),
                    '--byzantine', str(args.byzantine), '--offline', str(args.offline), '--no-kill']
-        if not args.weighted:
+        if args.bounded_drift is not None:
+            command += ['--committee-model', 'bounded_weight', '--committee-f', '1', '--committee-p', '1',
+                        '--committee-drift', str(args.bounded_drift)]
+        elif not args.weighted:
             command += ['--committee-model', 'equal_weight', '--committee-f', '1', '--committee-p', '1']
         result['command'] = command
         result['status'] = 'running'
