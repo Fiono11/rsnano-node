@@ -391,7 +391,7 @@ impl EpochClose {
             }
             slot.candidates.push(value);
         }
-        slot.votes.add(voter, value, kind)?;
+        slot.votes.add(voter, value, kind, true)?;
         self.count_round(round, committees, now);
         Ok(())
     }

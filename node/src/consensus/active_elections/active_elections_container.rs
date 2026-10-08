@@ -1788,6 +1788,16 @@ impl ActiveElectionsContainer {
         })
     }
 
+    /// RAI: whether a first vote of an epoch is early here: its signer has
+    /// not installed the epoch's predecessor checkpoint. Epoch zero follows
+    /// the genesis state, which every validator holds.
+    pub fn votes_early_in(&self, epoch: ConsensusEpoch) -> bool {
+        epoch
+            .as_u64()
+            .checked_sub(1)
+            .is_some_and(|before| !self.decided.contains_key(&ConsensusEpoch::new(before)))
+    }
+
     /// RAI: the epoch new elections are started in
     pub fn current_epoch(&self) -> ConsensusEpoch {
         self.current_epoch
@@ -1862,10 +1872,20 @@ impl ActiveElectionsContainer {
                 if kind == VoteKind::First && self.cross_epoch_locked(election, &hash) {
                     continue;
                 }
+                // RAI, "no fast path on early votes": a first vote keeps the
+                // base it was cast with; a new one is early while this node
+                // has not installed the epoch's predecessor checkpoint
+                let vote_type = match kind {
+                    VoteKind::First if slot.first_voted.is_some() => slot.first_vote_type(),
+                    VoteKind::First if self.votes_early_in(election.epoch()) => {
+                        VoteType::EarlyFirst
+                    }
+                    _ => VoteType::from(kind),
+                };
                 targets.push(VoteTarget {
                     election: election.id(),
                     winner: hash,
-                    vote_type: VoteType::from(kind),
+                    vote_type,
                 });
             }
         }
@@ -1926,6 +1946,9 @@ impl ActiveElectionsContainer {
                 || (kind == VoteKind::Final && slot.final_voted.is_some_and(|h| h != target.winner))
             {
                 continue;
+            }
+            if kind == VoteKind::First && slot.first_voted.is_none() {
+                slot.first_early = target.vote_type == VoteType::EarlyFirst;
             }
             slot.mark_voted(target.winner, kind);
             self.slots.record_parent(target.winner, previous);
@@ -3242,7 +3265,8 @@ impl ActiveElectionsContainer {
         Some(crate::consensus::election::CertificateKinds {
             notarization: weight(&mut notarizing.into_iter()) >= thresholds.certificate,
             finalization: weight(&mut support.final_.iter()) >= thresholds.certificate,
-            fast: weight(&mut support.first.iter()) >= thresholds.fast,
+            // "An FF_e(B) is a set of N − p settled first votes"
+            fast: weight(&mut support.settled.iter()) >= thresholds.fast,
         })
     }
 
@@ -3337,6 +3361,7 @@ impl ActiveElectionsContainer {
                 first: order.mask(support.first.iter().copied()),
                 final_: order.mask(support.final_.iter().copied()),
                 late: order.mask(support.late.iter().copied()),
+                settled: order.mask(support.settled.iter().copied()),
             });
         }
         manifest
@@ -3369,6 +3394,9 @@ impl ActiveElectionsContainer {
                 }) && order.members(entry.late).all(|voter| {
                     self.vote_records
                         .has_late_vote(entry.epoch, voter, &entry.hash)
+                }) && order.members(entry.settled).all(|voter| {
+                    self.vote_records
+                        .has_settled_vote(entry.epoch, voter, &entry.hash)
                 });
             if !held {
                 missing.push((entry.epoch, entry.hash));
@@ -3735,7 +3763,7 @@ mod tests {
         );
         let (id, evidence) = container.certificate_evidence(&value, round0).unwrap();
         assert_eq!(id, close_id);
-        assert_eq!(evidence.statements, vec![(VoteKind::First, vec![value])]);
+        assert_eq!(evidence.statements, vec![(VoteType::NonFinal, vec![value])]);
 
         // The committee's first vote for the value finalizes the close
         let result = container.apply_vote(ApplyVoteArgs {
@@ -4287,7 +4315,8 @@ mod tests {
 
     /// RAI: a vote for a block without an instance in the vote's epoch starts
     /// that instance. In an epoch this node has left it casts no vote there,
-    /// in the current epoch it proposes the block
+    /// in the current epoch it proposes the block, with an early first vote
+    /// while the epoch's predecessor checkpoint is not installed here
     #[cfg(feature = "rai_protocol")]
     #[test]
     fn instances_are_started_for_votes() {
@@ -4314,7 +4343,7 @@ mod tests {
         assert!(due.contains(&VoteTarget {
             election: current,
             winner: block.hash(),
-            vote_type: VoteType::NonFinal,
+            vote_type: VoteType::EarlyFirst,
         }));
         assert_eq!(due.len(), 1);
     }
@@ -4541,7 +4570,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             evidence.statements,
-            vec![(VoteKind::First, vec![block_hash])]
+            vec![(VoteType::NonFinal, vec![block_hash])]
         );
 
         // Erasing it keeps the accounting consistent
@@ -4668,7 +4697,7 @@ mod tests {
                 .kudzu_votes_due(|_| Ok(()))
                 .into_iter()
                 .find(|target| {
-                    target.vote_type == VoteType::NonFinal
+                    target.vote_type.is_first()
                         && target.election.epoch == epoch1
                         && target.winner == hash
                 })
@@ -5544,6 +5573,90 @@ mod tests {
         }
     }
 
+    /// RAI, Case 3 of the repairs, "no fast path on early votes": every
+    /// member first-votes B in the open epoch before the closing checkpoint
+    /// is known, and B holds a closing-epoch exclusion witness. Early first
+    /// votes are no fast certificate: B finalizes in a second round, on
+    /// final votes. The same votes cast settled finalize it fast.
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn early_first_votes_give_no_fast_certificate() {
+        for early in [true, false] {
+            let fresh = SavedBlock::new_test_instance_with_key(2);
+            let (mut container, reps, rep_weights, now) = overlap_fixture(|history| {
+                history.finalize_genesis(AccountSlot::new(fresh.account(), 1), fresh.previous());
+            });
+            let epoch1 = ConsensusEpoch::new(1);
+            container
+                .insert(
+                    AecInsertRequest::new_priority(
+                        fresh.clone(),
+                        BlockPriority::new_test_instance(),
+                    ),
+                    now,
+                )
+                .unwrap();
+            for rep in &reps[..3] {
+                vote_in(
+                    &mut container,
+                    rep,
+                    VoteKind::Notar,
+                    ConsensusEpoch::ZERO,
+                    fresh.hash(),
+                    &rep_weights,
+                    now,
+                );
+            }
+            for rep in &reps {
+                if early {
+                    early_first_vote_in(
+                        &mut container,
+                        rep,
+                        epoch1,
+                        fresh.hash(),
+                        &rep_weights,
+                        now,
+                    );
+                } else {
+                    vote_in(
+                        &mut container,
+                        rep,
+                        VoteKind::First,
+                        epoch1,
+                        fresh.hash(),
+                        &rep_weights,
+                        now,
+                    );
+                }
+            }
+            assert_eq!(
+                container.finalized_in_epoch(&fresh.hash(), epoch1),
+                !early,
+                "early={early}"
+            );
+            let kinds = container.certificate_kinds(epoch1, &fresh.hash()).unwrap();
+            assert!(kinds.notarization);
+            assert_eq!(kinds.fast, !early);
+            if early {
+                let election = container.election_for_block(&fresh.hash()).unwrap();
+                assert!(election.certificates().is_notarized(&fresh.hash()));
+                assert!(election.overlap_eligible());
+                for rep in &reps[..3] {
+                    vote_in(
+                        &mut container,
+                        rep,
+                        VoteKind::Final,
+                        epoch1,
+                        fresh.hash(),
+                        &rep_weights,
+                        now,
+                    );
+                }
+                assert!(container.finalized_in_epoch(&fresh.hash(), epoch1));
+            }
+        }
+    }
+
     /// RAI: once this node left an epoch it signs no new account vote in it,
     /// whatever asks: the vote set its frozen report committed to is final
     #[cfg(feature = "rai_protocol")]
@@ -5897,6 +6010,31 @@ mod tests {
         now: Timestamp,
     ) {
         let vote = Arc::new(Vote::new_in_epoch(rep, kind, epoch, vec![hash]));
+        apply(container, vote, rep_weights, now);
+    }
+
+    /// An early first vote: its signer had not installed the predecessor
+    /// checkpoint of the vote's epoch
+    #[cfg(feature = "rai_protocol")]
+    fn early_first_vote_in(
+        container: &mut ActiveElectionsContainer,
+        rep: &PrivateKey,
+        epoch: ConsensusEpoch,
+        hash: BlockHash,
+        rep_weights: &RepWeights,
+        now: Timestamp,
+    ) {
+        let vote = Arc::new(VoteType::EarlyFirst.sign(rep, epoch, vec![hash]));
+        apply(container, vote, rep_weights, now);
+    }
+
+    #[cfg(feature = "rai_protocol")]
+    fn apply(
+        container: &mut ActiveElectionsContainer,
+        vote: Arc<Vote>,
+        rep_weights: &RepWeights,
+        now: Timestamp,
+    ) {
         container.apply_vote(ApplyVoteArgs {
             vote: &ReceivedVote::new(vote, VoteDelivery::Direct, None).into(),
             rep_weights,

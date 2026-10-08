@@ -499,7 +499,7 @@ impl RequestAggregatorLoop {
     fn reply_with_certificates(&self, request: &AggregatorRequest) -> HashSet<BlockHash> {
         let mut served = HashSet::new();
         let mut served_hashes = HashSet::new();
-        let mut batches: HashMap<VoteKind, Vec<BlockHash>> = HashMap::new();
+        let mut batches: HashMap<VoteType, Vec<BlockHash>> = HashMap::new();
         let now = Instant::now();
         let channel_id = request.channel.channel_id();
         for (hash, _) in &request.roots_hashes {
@@ -525,16 +525,16 @@ impl RequestAggregatorLoop {
                     now,
                 );
             }
-            for (kind, hashes) in evidence.statements {
+            for (vote_type, hashes) in evidence.statements {
                 if !replies.should_send(
-                    (channel_id, EvidenceId::Statement(kind, hashes.clone())),
+                    (channel_id, EvidenceId::Statement(vote_type, hashes.clone())),
                     now,
                 ) {
                     continue;
                 }
                 self.stats.inc(
                     StatType::RequestAggregatorReplies,
-                    match kind {
+                    match VoteKind::from(vote_type) {
                         VoteKind::First => DetailType::EvidenceFirst,
                         VoteKind::Notar => DetailType::EvidenceNotar,
                         VoteKind::Timeout => DetailType::EvidenceTimeout,
@@ -542,7 +542,7 @@ impl RequestAggregatorLoop {
                         VoteKind::Final => DetailType::EvidenceFinal,
                     },
                 );
-                let batch = batches.entry(kind).or_default();
+                let batch = batches.entry(vote_type).or_default();
                 for hash in hashes {
                     if !batch.contains(&hash) {
                         batch.push(hash);
@@ -558,10 +558,10 @@ impl RequestAggregatorLoop {
         if !batches.is_empty() {
             let keys = self.vote_generators.rep_priv_keys();
             let mut sender = self.message_sender.lock().unwrap();
-            for (kind, hashes) in batches {
+            for (vote_type, hashes) in batches {
                 for chunk in hashes.chunks(Vote::MAX_HASHES) {
                     for key in &keys {
-                        let vote = Vote::new_in_epoch(key, kind, request.epoch, chunk.to_vec());
+                        let vote = vote_type.sign(key, request.epoch, chunk.to_vec());
                         let ack =
                             Message::ConfirmAck(ConfirmAck::new_with_certificate_evidence(vote));
                         sender.try_send(&request.channel, &ack, TrafficType::Vote);
@@ -584,7 +584,7 @@ impl RequestAggregatorLoop {
 #[derive(Clone, PartialEq, Eq, Hash)]
 enum EvidenceId {
     Block(BlockHash),
-    Statement(VoteKind, Vec<BlockHash>),
+    Statement(VoteType, Vec<BlockHash>),
 }
 
 /// Kudzu: bounds how often the same certificate evidence is sent to a peer.

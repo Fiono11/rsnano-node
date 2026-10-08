@@ -69,6 +69,7 @@ struct Voters {
     first: u64,
     final_: u64,
     late: u64,
+    settled: u64,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -91,6 +92,7 @@ impl Manifest {
                 first: entry.first,
                 final_: entry.final_,
                 late: entry.late,
+                settled: entry.settled,
             },
         );
     }
@@ -102,6 +104,7 @@ impl Manifest {
             first: voters.first,
             final_: voters.final_,
             late: voters.late,
+            settled: voters.settled,
         }
     }
 
@@ -135,7 +138,8 @@ impl Manifest {
                 .update(entry.hash.as_bytes())
                 .update(entry.first.to_le_bytes())
                 .update(entry.final_.to_le_bytes())
-                .update(entry.late.to_le_bytes());
+                .update(entry.late.to_le_bytes())
+                .update(entry.settled.to_le_bytes());
         }
         builder.build()
     }
@@ -164,7 +168,7 @@ impl Manifest {
             notarization: order.weight(committee, voters.first | voters.final_)
                 >= thresholds.certificate,
             finalization: order.weight(committee, voters.final_) >= thresholds.certificate,
-            fast: order.weight(committee, voters.first) >= thresholds.fast,
+            fast: order.weight(committee, voters.settled) >= thresholds.fast,
         }
     }
 
@@ -306,6 +310,7 @@ mod tests {
             first: order.mask(keys[..4].iter().copied()),
             final_: order.mask(keys[..2].iter().copied()),
             late: 0,
+            settled: order.mask(keys[..4].iter().copied()),
         };
         let other = ManifestEntry {
             epoch,
@@ -313,6 +318,7 @@ mod tests {
             first: order.mask(keys[..5].iter().copied()),
             final_: 0,
             late: 0,
+            settled: order.mask(keys[..5].iter().copied()),
         };
         a.insert(entry);
         a.insert(other);
@@ -350,6 +356,7 @@ mod tests {
                 first: order.mask(keys[..4].iter().copied()),
                 final_: 0,
                 late: 0,
+                settled: 0,
             });
         }
         let digest = manifest.digest();
@@ -381,6 +388,7 @@ mod tests {
             first: order.mask(keys[..3].iter().copied()),
             final_: 0,
             late: 0,
+            settled: 0,
         };
         let mixed = ManifestEntry {
             late: order.mask([keys[3]]),
@@ -401,6 +409,31 @@ mod tests {
         let mut late_only = Manifest::new();
         late_only.insert(ManifestEntry { first: 0, ..mixed });
         assert_eq!(late_only.len(), 1);
+    }
+
+    /// "No fast path on early votes": five first votes are a fast
+    /// certificate only if five of them are settled
+    #[test]
+    fn a_fast_certificate_counts_settled_first_votes_only() {
+        let (committee, keys) = committee(6);
+        let order = MemberOrder::of(&committee).unwrap();
+        let epoch = ConsensusEpoch::new(1);
+        let hash = BlockHash::from(9);
+        let entry = |settled: usize| ManifestEntry {
+            epoch,
+            hash,
+            first: order.mask(keys[..5].iter().copied()),
+            final_: 0,
+            late: 0,
+            settled: order.mask(keys[..settled].iter().copied()),
+        };
+        for (settled, fast) in [(0, false), (4, false), (5, true)] {
+            let mut manifest = Manifest::new();
+            manifest.insert(entry(settled));
+            let kinds = manifest.kinds(epoch, &hash, &committee, &order);
+            assert!(kinds.notarization);
+            assert_eq!(kinds.fast, fast, "settled={settled}");
+        }
     }
 
     #[test]

@@ -21,7 +21,9 @@ use rsnano_utils::{
 
 use super::{LocalVoteHistory, VoteSpacing};
 use crate::{
-    consensus::VoteBroadcaster, transport::MessageSender, utils::ProcessingQueue,
+    consensus::{VoteBroadcaster, election::VoteType},
+    transport::MessageSender,
+    utils::ProcessingQueue,
     wallets::WalletRepresentatives,
 };
 
@@ -57,7 +59,7 @@ impl VoteGenerator {
         ledger: Arc<Ledger>,
         wallet_reps: Arc<Mutex<WalletRepresentatives>>,
         history: Arc<LocalVoteHistory>,
-        kind: VoteKind,
+        vote_type: VoteType,
         stats: Arc<Stats>,
         message_sender: MessageSender,
         voting_delay: Duration,
@@ -65,6 +67,8 @@ impl VoteGenerator {
         vote_broadcaster: Arc<VoteBroadcaster>,
         clock: Arc<SteadyClock>,
     ) -> Self {
+        let kind = VoteKind::from(vote_type);
+        let early = vote_type == VoteType::EarlyFirst;
         let shared_state = Arc::new(SharedState {
             ledger: Arc::clone(&ledger),
             message_sender: Mutex::new(message_sender),
@@ -77,6 +81,7 @@ impl VoteGenerator {
                 next_broadcast: Instant::now(),
             }),
             kind,
+            early,
             stopped: AtomicBool::new(false),
             stats: Arc::clone(&stats),
             vote_broadcaster,
@@ -93,7 +98,7 @@ impl VoteGenerator {
             vote_generation_queue: ProcessingQueue::new(
                 Arc::clone(&stats),
                 shared_state_clone.stat_type(),
-                Self::thread_name(kind),
+                Self::thread_name(kind, early),
                 1,         // single threaded
                 1024 * 32, // max queue size
                 256,       // max batch size,
@@ -105,8 +110,9 @@ impl VoteGenerator {
         }
     }
 
-    fn thread_name(kind: VoteKind) -> String {
+    fn thread_name(kind: VoteKind, early: bool) -> String {
         match kind {
+            VoteKind::First if early => "Voting early".to_owned(),
             VoteKind::First => "Voting".to_owned(),
             VoteKind::Notar => "Voting notar".to_owned(),
             VoteKind::Timeout => "Voting timeout".to_owned(),
@@ -119,7 +125,10 @@ impl VoteGenerator {
         let shared_state_clone = Arc::clone(&self.shared_state);
         *self.thread.lock().unwrap() = Some(
             thread::Builder::new()
-                .name(Self::thread_name(self.shared_state.kind))
+                .name(Self::thread_name(
+                    self.shared_state.kind,
+                    self.shared_state.early,
+                ))
                 .spawn(move || shared_state_clone.run())
                 .unwrap(),
         );
@@ -242,6 +251,8 @@ struct SharedState {
     history: Arc<LocalVoteHistory>,
     message_sender: Mutex<MessageSender>,
     kind: VoteKind,
+    /// RAI: first votes signed as early
+    early: bool,
     condition: Condvar,
     stopped: AtomicBool,
     queues: Mutex<Queues>,
@@ -358,9 +369,10 @@ impl SharedState {
 
         let mut votes = Vec::new();
         for rep_key in rep_keys.drain(..) {
-            votes.push(Arc::new(Vote::new_in_epoch(
+            votes.push(Arc::new(Vote::new_in_epoch_as(
                 &rep_key,
                 self.kind,
+                self.early,
                 epoch,
                 hashes.to_vec(),
             )));

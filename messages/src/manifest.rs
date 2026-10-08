@@ -9,6 +9,9 @@ use crate::MessageVariant;
 /// committee the leader's manifest names as first voters, as final voters
 /// and as late notarizers, as bit sets over the committee's members in
 /// canonical key order. Late notarizations enter only exclusion witnesses.
+/// `settled` names the first voters whose first vote was settled, cast after
+/// installing the epoch's predecessor checkpoint: only these form a fast
+/// certificate.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ManifestEntry {
     pub epoch: ConsensusEpoch,
@@ -16,18 +19,20 @@ pub struct ManifestEntry {
     pub first: u64,
     pub final_: u64,
     pub late: u64,
+    pub settled: u64,
 }
 
 impl ManifestEntry {
     pub const SERIALIZED_SIZE: usize =
-        ConsensusEpoch::SERIALIZED_SIZE + BlockHash::SERIALIZED_SIZE + 24;
+        ConsensusEpoch::SERIALIZED_SIZE + BlockHash::SERIALIZED_SIZE + 32;
 
     pub fn serialize<T: std::io::Write>(&self, writer: &mut T) -> std::io::Result<()> {
         self.epoch.serialize(writer)?;
         self.hash.serialize(writer)?;
         writer.write_all(&self.first.to_le_bytes())?;
         writer.write_all(&self.final_.to_le_bytes())?;
-        writer.write_all(&self.late.to_le_bytes())
+        writer.write_all(&self.late.to_le_bytes())?;
+        writer.write_all(&self.settled.to_le_bytes())
     }
 
     pub fn deserialize(bytes: &mut &[u8]) -> Result<Self, DeserializationError> {
@@ -37,6 +42,7 @@ impl ManifestEntry {
             first: u64::from_le_bytes(take::<8>(bytes)?),
             final_: u64::from_le_bytes(take::<8>(bytes)?),
             late: u64::from_le_bytes(take::<8>(bytes)?),
+            settled: u64::from_le_bytes(take::<8>(bytes)?),
         })
     }
 }
@@ -123,6 +129,7 @@ impl ManifestReply {
                     first: 0b101,
                     final_: 0b1,
                     late: 0b10,
+                    settled: 0b100,
                 },
                 ManifestEntry {
                     epoch: ConsensusEpoch::new(3),
@@ -130,6 +137,7 @@ impl ManifestReply {
                     first: 0b111,
                     final_: 0,
                     late: 0,
+                    settled: 0b11,
                 },
             ],
         }

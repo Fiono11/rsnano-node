@@ -46,7 +46,7 @@ impl FinalizedInstance {
     /// vote notarizes as well, but only the first vote counts in
     /// allVotes(firstVote), which the settled predicate of a replica that
     /// missed it depends on.
-    pub fn statements(&self) -> Vec<(VoteKind, Vec<BlockHash>)> {
+    pub fn statements(&self) -> Vec<(crate::consensus::election::VoteType, Vec<BlockHash>)> {
         self.slot.statements_for(&self.candidates, self.winner)
     }
 }
@@ -217,6 +217,7 @@ impl EpochStates {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::consensus::election::VoteType;
 
     #[test]
     fn records_each_instance_once_per_epoch() {
@@ -280,14 +281,14 @@ mod tests {
         assert_eq!(
             by_fork.statements(),
             vec![
-                (VoteKind::First, vec![block]),
-                (VoteKind::Final, vec![block])
+                (VoteType::NonFinal, vec![block]),
+                (VoteType::Final, vec![block])
             ]
         );
         let mut fork_voter = LocalSlotState::default();
         fork_voter.mark_voted(fork, VoteKind::First);
         let lost = instance(&account, epoch1, block, &[block, fork], fork_voter);
-        assert_eq!(lost.statements(), vec![(VoteKind::First, vec![fork])]);
+        assert_eq!(lost.statements(), vec![(VoteType::NonFinal, vec![fork])]);
 
         let mut expected = FinalStateHash::default();
         expected.add(&account, 1, &block);

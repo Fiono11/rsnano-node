@@ -10,8 +10,8 @@ use strum_macros::{EnumCount, EnumIter};
 
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{
-    Account, Amount, Block, BlockHash, ConsensusEpoch, MaybeSavedBlock, PublicKey, QualifiedRoot,
-    SavedBlock, UnixMillisTimestamp, Vote, VoteError, VoteKind,
+    Account, Amount, Block, BlockHash, ConsensusEpoch, MaybeSavedBlock, PrivateKey, PublicKey,
+    QualifiedRoot, SavedBlock, UnixMillisTimestamp, Vote, VoteError, VoteKind,
 };
 use rsnano_utils::stats::DetailType;
 
@@ -38,6 +38,28 @@ pub enum VoteType {
     /// closing epoch. Signed as a NotarVote, but generated apart from the
     /// close rounds' votes, which must not wait behind it.
     LateNotar,
+    /// RAI, "no fast path on early votes": a FirstVote cast before this node
+    /// installed the predecessor checkpoint of the vote's epoch, marked as
+    /// such in its signed payload
+    EarlyFirst,
+}
+
+impl VoteType {
+    /// A first vote, settled or early
+    pub fn is_first(self) -> bool {
+        matches!(self, VoteType::NonFinal | VoteType::EarlyFirst)
+    }
+
+    /// The vote this type of statement is signed as
+    pub fn sign(self, key: &PrivateKey, epoch: ConsensusEpoch, hashes: Vec<BlockHash>) -> Vote {
+        Vote::new_in_epoch_as(
+            key,
+            VoteKind::from(self),
+            self == VoteType::EarlyFirst,
+            epoch,
+            hashes,
+        )
+    }
 }
 
 impl From<VoteKind> for VoteType {
@@ -61,6 +83,7 @@ impl From<VoteType> for VoteKind {
             VoteType::Timeout => VoteKind::Timeout,
             VoteType::Abstain => VoteKind::Abstain,
             VoteType::LateNotar => VoteKind::Notar,
+            VoteType::EarlyFirst => VoteKind::First,
         }
     }
 }
@@ -307,7 +330,8 @@ impl Election {
         if !matches!(vote.kind(), VoteKind::First | VoteKind::Final) {
             return Err(VoteError::Ignored);
         }
-        self.kudzu.add(vote.voter, hash, vote.kind())?;
+        self.kudzu
+            .add(vote.voter, hash, vote.kind(), !vote.is_early())?;
         self.votes.insert(
             vote.voter,
             VoteSummary::new(vote.voter, hash, vote.timestamp(), vote_received),
@@ -820,8 +844,9 @@ impl Election {
 /// Kudzu: what a replica hands out for a terminated election
 #[derive(Clone, Debug)]
 pub struct CertificateEvidence {
-    /// The node's own statements, by kind, to be signed by each of its representatives
-    pub statements: Vec<(VoteKind, Vec<BlockHash>)>,
+    /// The node's own statements, by type, to be signed by each of its
+    /// representatives: a first vote keeps the early mark it was cast with
+    pub statements: Vec<(VoteType, Vec<BlockHash>)>,
     pub blocks: Vec<Block>,
 }
 

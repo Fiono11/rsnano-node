@@ -28,6 +28,10 @@ pub enum VoteKind {
 }
 
 impl VoteKind {
+    /// RAI, "no fast path on early votes": a first vote whose signer had not
+    /// installed the predecessor checkpoint of the vote's epoch. It reads as
+    /// a First vote; `Vote::is_early` tells it apart.
+    const EARLY_FIRST_BITS: u8 = 0xA;
     const ABSTAIN_BITS: u8 = 0xC;
     const NOTAR_BITS: u8 = 0xD;
     const TIMEOUT_BITS: u8 = 0xE;
@@ -178,6 +182,30 @@ impl Vote {
         Self::new_in_epoch_at(key, kind, ConsensusEpoch::ZERO, timestamp, hashes)
     }
 
+    /// RAI: a vote of the given kind for one consensus epoch, a first vote
+    /// marked early if its signer had not installed the epoch's predecessor
+    /// checkpoint. The mark is signed: the vote's base is fixed when it is
+    /// cast, and a re-signed statement keeps it.
+    pub fn new_in_epoch_as(
+        key: &PrivateKey,
+        kind: VoteKind,
+        early: bool,
+        epoch: ConsensusEpoch,
+        hashes: Vec<BlockHash>,
+    ) -> Self {
+        if early && kind == VoteKind::First {
+            Self::sign(
+                key,
+                UnixMillisTimestamp::now(),
+                VoteKind::EARLY_FIRST_BITS,
+                epoch,
+                hashes,
+            )
+        } else {
+            Self::new_in_epoch(key, kind, epoch, hashes)
+        }
+    }
+
     /// RAI: a vote of the given kind for one consensus epoch
     pub fn new_in_epoch(
         key: &PrivateKey,
@@ -253,6 +281,15 @@ impl Vote {
 
     pub fn kind(&self) -> VoteKind {
         VoteKind::from_timestamp(self.timestamp)
+    }
+
+    /// RAI: a first vote whose signer had not installed the predecessor
+    /// checkpoint of its epoch. It counts towards a notarization certificate
+    /// and towards nothing else: no fast finalization certificate.
+    pub fn is_early(&self) -> bool {
+        cfg!(feature = "rai_protocol")
+            && !self.timestamp.is_final()
+            && self.timestamp.duration_bits() == VoteKind::EARLY_FIRST_BITS
     }
 
     pub fn duration_bits(&self) -> u8 {
@@ -422,6 +459,29 @@ mod tests {
 
         let final_vote = Vote::build_test_instance().final_vote().finish();
         assert_eq!(final_vote.kind(), VoteKind::Final);
+    }
+
+    /// RAI: an early first vote is a first vote, marked as such in its
+    /// signed payload; the mark survives the wire and changes the signature
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn an_early_first_vote_is_a_signed_first_vote() {
+        let key = PrivateKey::from(1);
+        let epoch = ConsensusEpoch::new(2);
+        let early = Vote::new_in_epoch_as(&key, VoteKind::First, true, epoch, vec![1.into()]);
+        let settled = Vote::new_in_epoch_as(&key, VoteKind::First, false, epoch, vec![1.into()]);
+        assert_eq!(early.kind(), VoteKind::First);
+        assert!(early.is_early());
+        assert!(!settled.is_early());
+        assert!(early.validate().is_ok());
+        let mut bytes = Vec::new();
+        early.serialize(&mut bytes).unwrap();
+        let back = Vote::deserialize(&bytes).unwrap();
+        assert!(back.is_early());
+        assert!(back.validate().is_ok());
+        // Only a first vote is marked
+        let final_ = Vote::new_in_epoch_as(&key, VoteKind::Final, true, epoch, vec![1.into()]);
+        assert!(!final_.is_early());
     }
 
     #[test]

@@ -39,6 +39,10 @@ pub(crate) struct HashSupport {
     /// are retained evidence, served by hash like the other votes, and a
     /// manifest may carry them inside exclusion witnesses.
     pub late: BTreeSet<PublicKey>,
+    /// RAI, "no fast path on early votes": the first voters whose first vote
+    /// was settled, cast after installing the epoch's predecessor
+    /// checkpoint; only these count towards a fast certificate
+    pub settled: BTreeSet<PublicKey>,
     /// Where the block sits, once a vote for it was placed here: what tells
     /// whether the support can still discharge a lock record at a position
     slot: Option<AccountSlot>,
@@ -100,7 +104,12 @@ impl VoteRecords {
                 VoteKind::Final => &mut support.final_,
                 _ => &mut support.late,
             };
-            if voters.insert(vote.voter) {
+            let new = voters.insert(vote.voter);
+            // A settled signature of a first vote held as early is evidence
+            // of its own: it is what a fast certificate is assembled from
+            let settled =
+                kind == VoteKind::First && !vote.is_early() && support.settled.insert(vote.voter);
+            if new || settled {
                 support.votes.push(vote.clone());
             }
         }
@@ -141,6 +150,18 @@ impl VoteRecords {
             .flatten()
             .filter(|(_, support)| !support.late.is_empty())
             .map(|(hash, support)| (hash, &support.late))
+    }
+
+    /// RAI: whether this node holds a voter's settled first vote for a block
+    /// in an epoch
+    pub fn has_settled_vote(
+        &self,
+        epoch: ConsensusEpoch,
+        voter: &PublicKey,
+        hash: &BlockHash,
+    ) -> bool {
+        self.support(epoch, hash)
+            .is_some_and(|support| support.settled.contains(voter))
     }
 
     /// RAI: whether this node holds a voter's late notarization for a block

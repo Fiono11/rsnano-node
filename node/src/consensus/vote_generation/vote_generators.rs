@@ -71,6 +71,7 @@ impl VoteGenerators {
             VoteType::Timeout,
             VoteType::Abstain,
             VoteType::LateNotar,
+            VoteType::EarlyFirst,
         ];
         #[cfg(not(feature = "rai_protocol"))]
         let vote_types = vec![VoteType::NonFinal, VoteType::Final];
@@ -82,7 +83,7 @@ impl VoteGenerators {
                     ledger.clone(),
                     wallet_reps.clone(),
                     history.clone(),
-                    VoteKind::from(vote_type),
+                    vote_type,
                     stats.clone(),
                     message_sender.clone(),
                     voting_delay,
@@ -168,6 +169,7 @@ impl VoteGenerators {
             VoteType::Timeout => DetailType::GenerateVoteTimeout,
             VoteType::Abstain => DetailType::GenerateVoteAbstain,
             VoteType::LateNotar => DetailType::GenerateVoteNotar,
+            VoteType::EarlyFirst => DetailType::GenerateVoteNormal,
         };
         self.stats.inc(StatType::Election, detail);
         self.generator(vote_type).add(root, hash, epoch);
@@ -215,6 +217,7 @@ impl ContainerInfoProvider for VoteGenerators {
                 VoteType::Timeout => "timeout",
                 VoteType::Abstain => "abstain",
                 VoteType::LateNotar => "late_notar",
+                VoteType::EarlyFirst => "early_first",
             };
             builder = builder.node(name, generator.container_info());
         }

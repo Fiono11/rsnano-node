@@ -264,8 +264,9 @@ fn decode_epoch_key(key: &[u8]) -> Option<ConsensusEpoch> {
     )))
 }
 
+/// The flags byte: bit 0 stale, bit 1 an early first vote
 fn encode_slot(state: &LocalSlotState) -> Vec<u8> {
-    let mut bytes = vec![state.stale as u8];
+    let mut bytes = vec![state.stale as u8 | (state.first_early as u8) << 1];
     for hash in [state.first_voted, state.timeout_voted, state.final_voted] {
         match hash {
             Some(hash) => {
@@ -289,7 +290,9 @@ fn decode_slot(bytes: &[u8]) -> Option<LocalSlotState> {
         *at += n;
         Some(slice)
     };
-    let stale = take(&mut at, 1)?[0] != 0;
+    let flags = take(&mut at, 1)?[0];
+    let stale = flags & 1 != 0;
+    let first_early = flags & 2 != 0;
     let mut optional = |at: &mut usize| -> Option<Option<BlockHash>> {
         match take(at, 1)?[0] {
             0 => Some(None),
@@ -310,6 +313,7 @@ fn decode_slot(bytes: &[u8]) -> Option<LocalSlotState> {
         timeout_voted,
         final_voted,
         stale,
+        first_early,
     })
 }
 
@@ -397,6 +401,8 @@ mod tests {
         let mut state = LocalSlotState::default();
         state.mark_voted(BlockHash::from(7), VoteKind::First);
         state.mark_voted(BlockHash::from(7), VoteKind::Final);
+        // An early first vote stays early when re-signed after a restart
+        state.first_early = true;
         let slot = EpochSlot {
             account: Account::from(1),
             height: 2,

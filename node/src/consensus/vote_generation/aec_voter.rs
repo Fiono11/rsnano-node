@@ -133,7 +133,7 @@ impl Tickable for AecVoter {
         let mut vote_queue = Vec::new();
         let mut skip_non_final = false;
         for target in targets {
-            if target.vote_type == VoteType::NonFinal {
+            if target.vote_type.is_first() {
                 if skip_non_final {
                     continue;
                 }
