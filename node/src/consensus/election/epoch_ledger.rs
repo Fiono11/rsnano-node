@@ -1544,6 +1544,81 @@ mod tests {
         assert_eq!(second, first);
     }
 
+    /// Case 1 of the repairs (`RaiClose.tla`, FIXB = FALSE), scripted. N = 6,
+    /// validator 6 Byzantine, conflicting B and B'. Epoch 1: 1, 2, 3 vote
+    /// B'; 4, 5 vote B; 6 reports B only; 3's report is not selected, so
+    /// Rule 2 retains B with a record of origin 1. Epoch 2: 1 to 4 first-
+    /// vote the retained B and nobody assembles the NC; with Fix B their
+    /// re-votes reach U_Q and closure 2 adds a record of origin 2. The
+    /// epoch-1 NC for B' (1, 2, 3 and 6) is released after the second
+    /// close: it discharges the origin-1 record only, so a claim for B' is
+    /// still not eligible, and B' never finalizes; B does.
+    #[test]
+    fn case_1_a_released_old_nc_cannot_finalize_the_rival_of_a_re_voted_block() {
+        let mut index = StubIndex::default();
+        let b = index.add(1, 1, BlockHash::ZERO);
+        let b_rival = index.add(1, 1, BlockHash::ZERO);
+        let empty = CertifiedState::new();
+        let first_vote = |hash: BlockHash| {
+            let mut votes = ResidualVotes::new();
+            record(&mut votes, &index, hash, ResidualKind::First);
+            votes
+        };
+        let (votes_rival, votes_b) = (first_vote(b_rival), first_vote(b));
+        // Closure 1: reports of 1, 2 (B'), 4, 5 (B) and the Byzantine 6 (B)
+        let mut epoch1: Vec<_> = (1..=2)
+            .map(|i| reported_by(i, &empty, &votes_rival))
+            .collect();
+        epoch1.extend([4, 5, 6].map(|i| reported_by(i, &empty, &votes_b)));
+        let s1 = build(&EpochLedger::new(), &epoch1, &index, rules_of(1)).unwrap();
+        assert_eq!(
+            s1.lock_records(&b).collect::<Vec<_>>(),
+            vec![LockRecord::recovery(ConsensusEpoch::new(1))]
+        );
+        assert!(s1.notarized(&slot(1, 1)) == vec![b]);
+
+        // Closure 2: 1 to 4 re-voted B, reported R in T and in G
+        let t = s1.report_ledger();
+        let g = ResidualVotes::derive(&t, votes_b.entries());
+        let no_votes = ResidualVotes::new();
+        let mut epoch2: Vec<_> = (1..=4).map(|i| reported_by(i, &t, &g)).collect();
+        epoch2.push(reported_by(5, &t, &no_votes));
+        let s2 = build(&s1, &epoch2, &index, rules_of(2)).unwrap();
+        assert_eq!(
+            s2.lock_records(&b).collect::<Vec<_>>(),
+            vec![
+                LockRecord::recovery(ConsensusEpoch::new(1)),
+                LockRecord::recovery(ConsensusEpoch::new(2)),
+            ]
+        );
+
+        // Closure 3: the released epoch-1 NC for B' is in the manifest; a
+        // report claims B' final
+        let mut claim = CertifiedState::new();
+        certify(&mut claim, &index, b_rival, CertifiedStatus::Finalized);
+        let epoch3: Vec<_> = (1..=5).map(|i| reported_by(i, &claim, &no_votes)).collect();
+        let released = |origin: ConsensusEpoch, hash: &BlockHash| {
+            origin == ConsensusEpoch::new(1) && *hash == b_rival
+        };
+        let s3 = build_state(&s2, &epoch3, &index, rules_of(3), &released).unwrap();
+        assert_eq!(s3.finalized(&slot(1, 1)), None);
+        assert_eq!(
+            s3.lock_records(&b).collect::<Vec<_>>(),
+            vec![LockRecord::recovery(ConsensusEpoch::new(2))]
+        );
+        // B finalizes on its own certificate
+        let mut final_b = CertifiedState::new();
+        certify(&mut final_b, &index, b, CertifiedStatus::Finalized);
+        let s4 = build(
+            &s3,
+            &[reported_by(1, &final_b, &no_votes)],
+            &index,
+            rules_of(4),
+        )
+        .unwrap();
+        assert_eq!(s4.finalized(&slot(1, 1)), Some(b));
+    }
+
     #[test]
     fn recovery_lock_survives_omission_and_later_explicit_finality_promotes_it() {
         let mut index = StubIndex::default();
