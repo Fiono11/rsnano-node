@@ -1,7 +1,7 @@
 use std::{
     cell::RefCell,
     collections::HashMap,
-    sync::{Arc, Mutex, TryLockError},
+    sync::{Arc, Mutex},
 };
 
 use rsnano_messages::{
@@ -18,9 +18,9 @@ use crate::{
         AecService,
         active_elections::EpochProposalContext,
         election::{
-            AccountSlot, BlockIndex, BuildRules, CertifiedState, Committee, EpochLedger,
-            EpochValue, Manifest, ManifestAssembly, MemberOrder, ReportIndex, ReportRef,
-            ReportSource, ResidualVotes, SelectedReport, witness_claims,
+            AccountSlot, BlockIndex, BuildRules, Committee, EpochLedger, EpochValue, Manifest,
+            ManifestAssembly, MemberOrder, ReportIndex, ReportRef, ReportSource, SelectedReport,
+            witness_claims,
         },
     },
     transport::MessageFlooder,
@@ -79,13 +79,6 @@ pub struct EpochDecisionService {
     manifests: Mutex<HashMap<BlockHash, (ConsensusEpoch, Arc<Manifest>)>>,
     /// Manifests being fetched by digest, with when their last chunk was asked for
     assemblies: Mutex<HashMap<BlockHash, (ManifestAssembly, Timestamp)>>,
-    /// Held while a proposal is validated. A check takes a second or more,
-    /// leaders repeat their proposals every `REPEAT_INTERVAL` and copies
-    /// arrive from several peers: a proposal that arrives while a check runs
-    /// is dropped, and its next repeat is checked once this one is done.
-    /// Checks running side by side (one per round's value with a Byzantine
-    /// member) each took several times longer and missed their rounds.
-    validating: Mutex<()>,
 }
 
 impl EpochDecisionService {
@@ -118,7 +111,6 @@ impl EpochDecisionService {
             unready_logged: Mutex::new(HashMap::new()),
             manifests: Mutex::new(HashMap::new()),
             assemblies: Mutex::new(HashMap::new()),
-            validating: Mutex::new(()),
         }
     }
 
@@ -178,17 +170,6 @@ impl EpochDecisionService {
         // round's proposal of an epoch decided here is repeated to replicas
         // that hold the certificate but not the value; checking them here
         // changes nothing and costs a derivation each.
-        if self.active_elections.holds_epoch_value(prop.epoch, &hash)
-            || self.active_elections.epoch_decided(prop.epoch)
-        {
-            return;
-        }
-        let _validating = match self.validating.try_lock() {
-            Ok(guard) => guard,
-            Err(TryLockError::WouldBlock) => return,
-            Err(TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
-        };
-        // A copy may have passed the check above while another finished
         if self.active_elections.holds_epoch_value(prop.epoch, &hash)
             || self.active_elections.epoch_decided(prop.epoch)
         {
@@ -466,23 +447,34 @@ impl EpochDecisionService {
     ) -> Option<(BlockHash, Arc<EpochLedger>)> {
         let previous = self.active_elections.epoch_previous_state(value.epoch)?;
         let committee = self.active_elections.epoch_committee(value.epoch)?;
-        // The selected reports are copied out: the checks below take a
-        // second or more, and every report message waits on the exchange
-        let source = {
-            let exchange = self.exchange.lock().unwrap();
-            let usable = UsableReports {
-                exchange: &exchange,
-                epoch: value.epoch,
-                committee: &committee,
-                predecessor: previous.state_hash(),
-            };
-            OwnedReports::copy(&usable, value.reports())?
+        let exchange = self.exchange.lock().unwrap();
+        // Copies of a proposal arrive from several peers and its leader
+        // repeats it every `REPEAT_INTERVAL`, so several wait here while one
+        // is checked, a second or more with a fetched manifest. Once that
+        // check has accepted the value, or the epoch is decided, the waiting
+        // copies return instead of checking it again while every report
+        // message waits on the exchange.
+        if self
+            .active_elections
+            .holds_epoch_value(value.epoch, &value.hash())
+            || self.active_elections.epoch_decided(value.epoch)
+        {
+            return None;
+        }
+        let source = UsableReports {
+            exchange: &exchange,
+            epoch: value.epoch,
+            committee: &committee,
+            predecessor: previous.state_hash(),
         };
         let states: Vec<SelectedReport> = value
             .reports()
             .iter()
             .filter_map(|report| source.report(report))
             .collect();
+        if states.len() != value.reports().len() {
+            return None;
+        }
         let started = std::time::Instant::now();
         if !self.evidence_committed(value, &states, &previous, channel) {
             return None;
@@ -911,43 +903,6 @@ impl<'a> EpochMembers<'a> {
                 Some((committee, Arc::new(order)))
             })
             .clone()
-    }
-}
-
-/// RAI: the selected reports of a value, copied out of the exchange
-struct OwnedReports {
-    reports: Vec<(ReportRef, Amount, CertifiedState, ResidualVotes)>,
-}
-
-impl OwnedReports {
-    /// None unless every report is usable
-    fn copy(source: &dyn ReportSource, selected: &[ReportRef]) -> Option<Self> {
-        let reports = selected
-            .iter()
-            .map(|report| {
-                let state = source.report(report)?;
-                Some((
-                    *report,
-                    state.weight,
-                    state.certified.clone(),
-                    state.residual.clone(),
-                ))
-            })
-            .collect::<Option<Vec<_>>>()?;
-        Some(Self { reports })
-    }
-}
-
-impl ReportSource for OwnedReports {
-    fn report(&self, report: &ReportRef) -> Option<SelectedReport<'_>> {
-        let (_, weight, certified, residual) =
-            self.reports.iter().find(|(held, ..)| held == report)?;
-        Some(SelectedReport {
-            reporter: report.reporter,
-            weight: *weight,
-            certified,
-            residual,
-        })
     }
 }
 
