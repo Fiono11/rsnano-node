@@ -889,6 +889,13 @@ impl Node {
                 );
             }
             active_elections.restore_signing(recovered.slots, recovered.frozen);
+            if !recovered.evidence.is_empty() {
+                info!(
+                    "RAI: restored {} retained evidence records",
+                    recovered.evidence.len()
+                );
+            }
+            active_elections.restore_evidence(recovered.evidence);
             reports.restore_reports(recovered.reports);
         }
         #[cfg(feature = "rai_protocol")]

@@ -420,6 +420,16 @@ impl AecService {
             .holds_exclusion_witness(epoch, hash)
     }
 
+    /// RAI: the overlap-certificate evidence to persist now
+    pub fn take_evidence_records(&self) -> Vec<crate::consensus::EvidenceRecord> {
+        self.aec.write().unwrap().take_evidence_records()
+    }
+
+    /// RAI: retained evidence of a restarted node
+    pub fn restore_evidence(&self, records: Vec<crate::consensus::EvidenceRecord>) {
+        self.aec.write().unwrap().restore_evidence(records)
+    }
+
     pub fn evidence_votes(
         &self,
         epoch: ConsensusEpoch,

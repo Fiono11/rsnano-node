@@ -99,11 +99,21 @@ impl ReportService {
     pub fn epoch_left(&self, epoch: ConsensusEpoch, report: Arc<EpochReport>) {
         // Persisted first: a restart signs nothing new in the epoch left
         self.signing.write_frozen(epoch);
-        self.signing.forget_before(ConsensusEpoch::new(
+        let kept_from = ConsensusEpoch::new(
             epoch
                 .as_u64()
                 .saturating_sub(ActiveElectionsContainer::VOTE_RECORD_EPOCHS_KEPT),
-        ));
+        );
+        self.signing.forget_before(kept_from);
+        // Retained evidence stays as long as the records it may discharge,
+        // as the vote records keep it in memory
+        let latest = self.active_elections.latest_checkpoint();
+        self.signing
+            .forget_evidence_before(kept_from, |origin, slot| {
+                latest
+                    .as_ref()
+                    .is_some_and(|state| state.carries_recovery_record(slot, origin))
+            });
         let Some(predecessor) = self.predecessor_of(epoch) else {
             crate::utils::diagnostic!("EPOCH_REPORT_DEFERRED epoch={}", epoch);
             self.pending.lock().unwrap().insert(epoch, report);

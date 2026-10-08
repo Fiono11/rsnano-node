@@ -55,6 +55,11 @@ impl HashSupport {
         &self.votes
     }
 
+    /// Where the block sits, if a vote for it was placed here
+    pub fn slot(&self) -> Option<AccountSlot> {
+        self.slot
+    }
+
     /// Every member supporting the block in the epoch: first votes, late
     /// notarizations, and final votes, whose correct signers first voted it
     pub fn supporters(&self) -> BTreeSet<&PublicKey> {

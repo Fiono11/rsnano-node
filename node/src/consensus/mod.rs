@@ -28,7 +28,7 @@ mod signing_records;
 pub use checkpoint_follower::CheckpointFollower;
 #[cfg(feature = "rai_protocol")]
 pub(crate) use checkpoint_follower::CheckpointFollowerTicker;
-pub use signing_records::{Recovered, ReportRecord, SigningRecords, SlotRecord};
+pub use signing_records::{EvidenceRecord, Recovered, ReportRecord, SigningRecords, SlotRecord};
 mod vote_applier;
 mod vote_broadcaster;
 pub mod vote_cache;

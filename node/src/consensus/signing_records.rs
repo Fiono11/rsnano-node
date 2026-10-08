@@ -1,9 +1,13 @@
+use std::sync::Arc;
+
 use rsnano_messages::Report;
 use rsnano_nullable_lmdb::LmdbEnvironment;
 use rsnano_store_lmdb::LmdbSigningStore;
-use rsnano_types::{Account, BlockHash, ConsensusEpoch, PublicKey, Signature};
+use rsnano_types::{Account, BlockHash, ConsensusEpoch, PublicKey, Signature, Vote};
 
-use crate::consensus::election::{CertifiedState, EpochSlot, Item, LocalSlotState, ResidualVotes};
+use crate::consensus::election::{
+    AccountSlot, CertifiedState, EpochSlot, Item, LocalSlotState, ResidualVotes,
+};
 
 /// RAI: one slot's signing record: what this node voted in the slot and
 /// epoch, with the parent of every block it voted for
@@ -24,12 +28,27 @@ pub struct ReportRecord {
     pub residual: ResidualVotes,
 }
 
+/// RAI, overlap certificates as retained evidence: the signed votes for
+/// one block in one epoch that this node relied on - a closing-epoch
+/// exclusion witness and current-epoch NC before an early final vote, the
+/// final certificate of a block finalized under the overlap exception, a
+/// witness discharging a record the block bypasses - with the block's
+/// position, which decides how long the record is kept
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EvidenceRecord {
+    pub epoch: ConsensusEpoch,
+    pub hash: BlockHash,
+    pub slot: AccountSlot,
+    pub votes: Vec<Arc<Vote>>,
+}
+
 /// What a restarted node recovers
 #[derive(Default)]
 pub struct Recovered {
     pub slots: Vec<SlotRecord>,
     pub frozen: Vec<ConsensusEpoch>,
     pub reports: Vec<ReportRecord>,
+    pub evidence: Vec<EvidenceRecord>,
 }
 
 /// RAI, "Participants, faults, and retained evidence": "Correct validators
@@ -53,6 +72,7 @@ const FROZEN: u8 = b'F';
 const REPORT: u8 = b'R';
 const CERTIFIED: u8 = b'T';
 const RESIDUAL: u8 = b'G';
+const EVIDENCE: u8 = b'E';
 
 impl SigningRecords {
     pub fn new(env: LmdbEnvironment) -> anyhow::Result<Self> {
@@ -110,6 +130,53 @@ impl SigningRecords {
             &epoch_key(RESIDUAL, record.epoch),
             &encode_items(record.residual.items()),
         );
+        txn.commit();
+    }
+
+    /// Persists retained evidence before the votes that rest on it leave:
+    /// a record replaces the one held for its block and epoch, as it holds
+    /// every vote the earlier one did
+    pub fn write_evidence(&self, records: &[EvidenceRecord]) {
+        if records.is_empty() {
+            return;
+        }
+        let mut txn = self.env.begin_write();
+        for record in records {
+            self.store.put(
+                &mut txn,
+                &evidence_key(record.epoch, &record.hash),
+                &encode_evidence(record),
+            );
+        }
+        txn.commit();
+    }
+
+    /// Drops the evidence of epochs before the given one, except where
+    /// `keep` says it may still discharge a lock record of its epoch at its
+    /// block's position
+    pub fn forget_evidence_before(
+        &self,
+        epoch: ConsensusEpoch,
+        keep: impl Fn(ConsensusEpoch, &AccountSlot) -> bool,
+    ) {
+        let mut txn = self.env.begin_write();
+        let old: Vec<Vec<u8>> = self
+            .store
+            .with_prefix(&txn, &[EVIDENCE])
+            .into_iter()
+            .filter(|(key, value)| {
+                let Some((held, hash)) = decode_evidence_key(key) else {
+                    return true;
+                };
+                held < epoch
+                    && decode_evidence(held, hash, value)
+                        .is_none_or(|record| !keep(held, &record.slot))
+            })
+            .map(|(key, _)| key)
+            .collect();
+        for key in old {
+            self.store.delete(&mut txn, &key);
+        }
         txn.commit();
     }
 
@@ -215,6 +282,13 @@ impl SigningRecords {
                 residual,
             });
         }
+        for (key, value) in store.with_prefix(&txn, &[EVIDENCE]) {
+            if let Some(record) = decode_evidence_key(&key)
+                .and_then(|(epoch, hash)| decode_evidence(epoch, hash, &value))
+            {
+                recovered.evidence.push(record);
+            }
+        }
         recovered
     }
 }
@@ -238,6 +312,59 @@ fn decode_slot_key(key: &[u8]) -> Option<EpochSlot> {
         account: Account::from_slice(&key[1..33])?,
         height: u64::from_be_bytes(key[33..41].try_into().ok()?),
         epoch: ConsensusEpoch::new(u64::from_be_bytes(key[41..49].try_into().ok()?)),
+    })
+}
+
+fn evidence_key(epoch: ConsensusEpoch, hash: &BlockHash) -> Vec<u8> {
+    let mut key = Vec::with_capacity(41);
+    key.push(EVIDENCE);
+    key.extend_from_slice(&epoch.as_u64().to_be_bytes());
+    key.extend_from_slice(hash.as_bytes());
+    key
+}
+
+fn decode_evidence_key(key: &[u8]) -> Option<(ConsensusEpoch, BlockHash)> {
+    if key.len() != 41 {
+        return None;
+    }
+    Some((
+        ConsensusEpoch::new(u64::from_be_bytes(key[1..9].try_into().ok()?)),
+        BlockHash::from_slice(&key[9..])?,
+    ))
+}
+
+/// The position, then each vote as its 2-byte length and its wire bytes
+fn encode_evidence(record: &EvidenceRecord) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(record.slot.account.as_bytes());
+    bytes.extend_from_slice(&record.slot.height.to_be_bytes());
+    for vote in &record.votes {
+        let mut serialized = Vec::new();
+        vote.serialize(&mut serialized)
+            .expect("a vote serializes to memory");
+        bytes.extend_from_slice(&(serialized.len() as u16).to_be_bytes());
+        bytes.extend_from_slice(&serialized);
+    }
+    bytes
+}
+
+fn decode_evidence(epoch: ConsensusEpoch, hash: BlockHash, bytes: &[u8]) -> Option<EvidenceRecord> {
+    let account = Account::from_slice(bytes.get(..32)?)?;
+    let height = u64::from_be_bytes(bytes.get(32..40)?.try_into().ok()?);
+    let mut at = 40;
+    let mut votes = Vec::new();
+    while at < bytes.len() {
+        let len = u16::from_be_bytes(bytes.get(at..at + 2)?.try_into().ok()?) as usize;
+        at += 2;
+        let vote = Vote::deserialize(bytes.get(at..at + len)?).ok()?;
+        votes.push(Arc::new(vote));
+        at += len;
+    }
+    Some(EvidenceRecord {
+        epoch,
+        hash,
+        slot: AccountSlot::new(account, height),
+        votes,
     })
 }
 
@@ -420,6 +547,49 @@ mod tests {
         assert_eq!(recovered.slots, vec![record]);
         assert_eq!(recovered.frozen, vec![ConsensusEpoch::new(3)]);
         assert!(recovered.reports.is_empty());
+    }
+
+    /// Overlap-certificate evidence survives a reload, and old evidence is
+    /// forgotten unless it may still discharge a record at its position.
+    /// A vote's epoch is on the wire under `rai_protocol` only.
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn retained_evidence_survives_a_reload_while_it_may_discharge_a_record() {
+        let records = SigningRecords::new_null();
+        let hash = BlockHash::from(7);
+        let vote = |key: u64, kind: VoteKind| {
+            Arc::new(Vote::new_in_epoch(
+                &PrivateKey::from(key),
+                kind,
+                ConsensusEpoch::new(1),
+                vec![hash, BlockHash::from(8)],
+            ))
+        };
+        let locked = AccountSlot::new(Account::from(1), 2);
+        let witness = EvidenceRecord {
+            epoch: ConsensusEpoch::new(1),
+            hash,
+            slot: locked,
+            votes: vec![vote(1, VoteKind::First), vote(2, VoteKind::Final)],
+        };
+        let other = EvidenceRecord {
+            epoch: ConsensusEpoch::new(1),
+            hash: BlockHash::from(9),
+            slot: AccountSlot::new(Account::from(2), 2),
+            votes: vec![vote(3, VoteKind::First)],
+        };
+        records.write_evidence(&[witness.clone(), other.clone()]);
+        let recovered = records.load();
+        assert_eq!(recovered.evidence.len(), 2);
+        assert!(recovered.evidence.contains(&witness));
+        assert!(recovered.evidence.contains(&other));
+
+        records.forget_evidence_before(ConsensusEpoch::new(5), |origin, slot| {
+            origin == ConsensusEpoch::new(1) && *slot == locked
+        });
+        assert_eq!(records.load().evidence, vec![witness]);
+        records.forget_evidence_before(ConsensusEpoch::new(5), |_, _| false);
+        assert!(records.load().evidence.is_empty());
     }
 
     #[test]

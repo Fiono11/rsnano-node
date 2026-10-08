@@ -145,6 +145,10 @@ pub(crate) struct ActiveElectionsContainer {
     /// RAI, durable signing records: the slots whose state changed since the
     /// voter last persisted them; persisted before the votes are released
     dirty_signing: Vec<EpochSlot>,
+    /// RAI, overlap certificates: the blocks, by epoch, whose signed votes
+    /// this node relied on for overlap finality or an early final vote, to
+    /// be persisted before the votes that rest on them are released
+    dirty_evidence: Vec<(ConsensusEpoch, BlockHash)>,
     /// RAI: elections of the current epoch which got a certificate so far
     decided_in_current_epoch: usize,
     /// RAI: how long an epoch lasts from its first election; zero: no time limit
@@ -220,6 +224,7 @@ impl ActiveElectionsContainer {
             checkpoint_delegations: BTreeMap::new(),
             install_acks: BTreeMap::new(),
             dirty_signing: Vec::new(),
+            dirty_evidence: Vec::new(),
             decided_in_current_epoch: 0,
             epoch_duration: config.epoch_duration,
             epochs_started: false,
@@ -2052,6 +2057,39 @@ impl ActiveElectionsContainer {
             .collect()
     }
 
+    /// RAI, overlap certificates: the evidence to persist now, each block's
+    /// signed votes of the epoch as held here, with its position
+    pub fn take_evidence_records(&mut self) -> Vec<crate::consensus::EvidenceRecord> {
+        let mut dirty = std::mem::take(&mut self.dirty_evidence);
+        dirty.sort();
+        dirty.dedup();
+        dirty
+            .into_iter()
+            .filter_map(|(epoch, hash)| {
+                let support = self.vote_records.support(epoch, &hash)?;
+                Some(crate::consensus::EvidenceRecord {
+                    epoch,
+                    hash,
+                    slot: support.slot()?,
+                    votes: support.votes().to_vec(),
+                })
+            })
+            .collect()
+    }
+
+    /// RAI: the retained evidence a restarted node persisted, back in the
+    /// vote records, where it is served and checked as before
+    pub fn restore_evidence(&mut self, records: Vec<crate::consensus::EvidenceRecord>) {
+        for record in records {
+            for vote in &record.votes {
+                self.vote_records
+                    .support_vote(vote, vote.hashes.iter().copied());
+            }
+            self.vote_records
+                .place(record.epoch, &record.hash, record.slot);
+        }
+    }
+
     /// RAI, durable signing records: what a restarted node signed before.
     /// The slot states forbid any first or final vote they do not match, and
     /// the epochs left forbid any new signing; nothing is reset.
@@ -2185,6 +2223,19 @@ impl ActiveElectionsContainer {
         let eligible = carried && discharged && (parent_finalized || parent_eligible);
         if !eligible {
             return;
+        }
+        // What the overlap finality and an early final vote rest on: the
+        // closing-epoch exclusion witness, the current-epoch NC, and the
+        // witnesses discharging the installed checkpoint's records the
+        // block bypasses. Persisted before the final vote is released.
+        self.dirty_evidence.push((before, block));
+        self.dirty_evidence.push((epoch, block));
+        if let Some(state) = closed.as_ref() {
+            let branch = state.branch_of(AccountSlot::new(account, height), block, previous);
+            for bypassed in state.bypassed_records(account, &branch) {
+                self.dirty_evidence
+                    .push((bypassed.record.origin, bypassed.target));
+            }
         }
         let Some(committees) = self.committees_for(epoch) else {
             return;
@@ -2895,6 +2946,12 @@ impl ActiveElectionsContainer {
     fn cleanup_election(&mut self, entry: Entry) {
         let election = &entry.election;
         self.keep_exit_final_vote(election);
+        // Finalized under the overlap exception: its final certificate is
+        // part of the overlap certificate the next closure checks
+        if election.overlap_eligible() && !election.predecessor_decided() {
+            self.dirty_evidence
+                .push((election.epoch(), election.winner().hash()));
+        }
         // A late instance's blocks are discarded - never one finalized in
         // another epoch: what an epoch finalized stays finalized
         let discarded: Vec<BlockHash> = if is_late(&self.decided, election) {
@@ -5753,6 +5810,65 @@ mod tests {
             assert_eq!(again.vote_type, expected, "admitted={admitted}");
             assert_eq!(container.stats.early_votes_settled, admitted as u64);
         }
+    }
+
+    /// RAI, overlap certificates survive a restart: a block that becomes
+    /// overlap eligible queues its closing-epoch witness and current-epoch
+    /// NC for persistence, and a restarted node restoring them holds the
+    /// witness again
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn overlap_evidence_is_persisted_and_restored() {
+        let fresh = SavedBlock::new_test_instance_with_key(2);
+        let shape = |history: &mut EpochLedger| {
+            history.finalize_genesis(AccountSlot::new(fresh.account(), 1), fresh.previous());
+        };
+        let (mut container, reps, rep_weights, now) = overlap_fixture(shape);
+        let epoch1 = ConsensusEpoch::new(1);
+        container
+            .insert(
+                AecInsertRequest::new_priority(fresh.clone(), BlockPriority::new_test_instance()),
+                now,
+            )
+            .unwrap();
+        for rep in &reps[..3] {
+            vote_in(
+                &mut container,
+                rep,
+                VoteKind::Notar,
+                ConsensusEpoch::ZERO,
+                fresh.hash(),
+                &rep_weights,
+                now,
+            );
+        }
+        for rep in &reps[..3] {
+            vote_in(
+                &mut container,
+                rep,
+                VoteKind::First,
+                epoch1,
+                fresh.hash(),
+                &rep_weights,
+                now,
+            );
+        }
+        assert!(container.stats.overlap_eligible > 0);
+        let evidence = container.take_evidence_records();
+        let epochs: Vec<ConsensusEpoch> = evidence.iter().map(|record| record.epoch).collect();
+        assert!(epochs.contains(&ConsensusEpoch::ZERO));
+        assert!(epochs.contains(&epoch1));
+        assert!(container.take_evidence_records().is_empty());
+
+        let (mut restarted, _, _, _) = overlap_fixture(shape);
+        assert!(!restarted.holds_exclusion_witness(ConsensusEpoch::ZERO, &fresh.hash()));
+        restarted.restore_evidence(evidence);
+        assert!(restarted.holds_exclusion_witness(ConsensusEpoch::ZERO, &fresh.hash()));
+        assert!(
+            !restarted
+                .evidence_votes(ConsensusEpoch::ZERO, &[fresh.hash()])
+                .is_empty()
+        );
     }
 
     /// RAI: once this node left an epoch it signs no new account vote in it,
