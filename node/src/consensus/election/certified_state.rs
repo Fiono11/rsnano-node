@@ -91,8 +91,9 @@ pub struct Certification {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CertifiedState {
     entries: BTreeMap<CertifiedBlock, Certification>,
-    /// The block hashes the entries name: G excludes every vote for one
-    hashes: std::collections::BTreeSet<BlockHash>,
+    /// The block hashes the entries name, with the tag of each: G excludes
+    /// a vote for one tagged N or F
+    hashes: BTreeMap<BlockHash, CertifiedStatus>,
     /// The XOR of the entry digests, so that a status upgrade or an added
     /// block is a constant-time update of the root
     digest: [u8; 32],
@@ -113,7 +114,17 @@ impl CertifiedState {
 
     /// Whether an entry names this block, under any tag
     pub fn contains_hash(&self, hash: &BlockHash) -> bool {
-        self.hashes.contains(hash)
+        self.hashes.contains_key(hash)
+    }
+
+    /// RAI, Fix B: whether an entry tags this block N or F. Such an entry
+    /// exposes every vote the reporter cast for the block; an R entry does
+    /// not, since it records what the predecessor checkpoint carried, not
+    /// what the reporter signed in the epoch.
+    pub fn summarizes(&self, hash: &BlockHash) -> bool {
+        self.hashes
+            .get(hash)
+            .is_some_and(|status| *status != CertifiedStatus::Recovery)
     }
 
     pub fn status(&self, block: &CertifiedBlock) -> Option<CertifiedStatus> {
@@ -151,7 +162,7 @@ impl CertifiedState {
                 }
                 self.toggle(&block, entry);
                 self.entries.insert(block, entry);
-                self.hashes.insert(block.hash);
+                self.hashes.insert(block.hash, status);
                 true
             }
         }
@@ -174,7 +185,7 @@ impl CertifiedState {
             self.toggle(&block, held);
         }
         self.toggle(&block, entry);
-        self.hashes.insert(block.hash);
+        self.hashes.insert(block.hash, entry.status);
     }
 
     pub fn remove(&mut self, block: &CertifiedBlock) {
@@ -330,12 +341,12 @@ impl ResidualVotes {
         certified: &CertifiedState,
         votes: impl IntoIterator<Item = (CertifiedBlock, ResidualKind, BlockHash)>,
     ) -> Self {
-        // Exact G = V \ keys(T): a vote for a hash under any R, N or F tag
-        // is summarized by T
+        // Fix B: G = V \ {h : (h, N) or (h, F) in T}. An R tag summarizes
+        // nothing the reporter signed in the epoch, so a vote for an
+        // R-tagged block stays in G.
         let mut residual = Self::new();
         for (block, kind, previous) in votes {
-            let summarized = certified.contains_hash(&block.hash);
-            if !summarized {
+            if !certified.summarizes(&block.hash) {
                 residual.record(block, previous, kind);
             }
         }
@@ -706,8 +717,9 @@ mod tests {
         assert_eq!(both.first_votes().collect::<Vec<_>>(), vec![&block(1)]);
     }
 
-    /// The residual object is what the inventory does not summarize, exact
-    /// G = V \ keys(T): every vote for a block with no tag in T. Derived
+    /// The residual object is what the inventory does not summarize,
+    /// G = V \ {N, F tags of T}: every vote for a block T does not tag N or
+    /// F. Derived
     /// from the same votes and inventory on either side, it hashes the same.
     #[test]
     fn the_residual_is_derived_from_the_votes_the_inventory_does_not_summarize() {
@@ -872,27 +884,36 @@ mod tests {
         assert_eq!(frozen.len(), 3);
     }
 
+    /// Fix B: an N or F tag summarizes every vote for its block; an R tag
+    /// summarizes none, so a first vote for an R-tagged block stays in G
     #[test]
-    fn every_tag_excludes_every_vote_kind_from_g() {
+    fn only_n_and_f_tags_exclude_votes_from_g() {
         let block = CertifiedBlock::new(Account::from(1), 1, BlockHash::from(5));
-        for status in [
-            CertifiedStatus::Recovery,
-            CertifiedStatus::Notarized,
-            CertifiedStatus::Finalized,
-        ] {
+        let votes = [
+            (block, ResidualKind::First, BlockHash::ZERO),
+            (block, ResidualKind::Final, BlockHash::ZERO),
+        ];
+        for status in [CertifiedStatus::Notarized, CertifiedStatus::Finalized] {
             let mut t = CertifiedState::new();
             t.certify(block, BlockHash::ZERO, status);
-            let votes = [
-                (block, ResidualKind::First, BlockHash::ZERO),
-                (block, ResidualKind::Final, BlockHash::ZERO),
-            ];
+            assert!(t.summarizes(&block.hash), "{status:?}");
             assert!(ResidualVotes::derive(&t, votes).is_empty(), "{status:?}");
         }
+        let mut t = CertifiedState::new();
+        t.certify(block, BlockHash::ZERO, CertifiedStatus::Recovery);
+        assert!(t.contains_hash(&block.hash));
+        assert!(!t.summarizes(&block.hash));
+        let g = ResidualVotes::derive(&t, votes);
+        assert!(g.contains(&block, ResidualKind::First));
+        assert_eq!(g.first_votes().collect::<Vec<_>>(), vec![&block]);
+
         // A recovery upgrade grows the live state, never a frozen one
         let mut live = CertifiedState::new();
         live.certify(block, BlockHash::ZERO, CertifiedStatus::Recovery);
         let frozen = live.clone();
         assert!(live.certify(block, BlockHash::ZERO, CertifiedStatus::Notarized));
+        assert!(live.summarizes(&block.hash));
+        assert!(!frozen.summarizes(&block.hash));
         assert!(!live.certify(block, BlockHash::ZERO, CertifiedStatus::Recovery));
         assert_ne!(live.root(), frozen.root());
     }

@@ -242,6 +242,11 @@ pub(crate) enum Verification {
 /// path a derivation never walks. A report violating this would make
 /// `BuildState` fail for every validator that selects it, so it is left out
 /// of every selection instead of stalling the close.
+///
+/// Fix B, "Usable reports": a G_i record names no hash that T_i tags N or F,
+/// since such an entry already exposes the vote. It may name one T_i tags R:
+/// a reporter that first voted an R-tagged block in the epoch lists that
+/// block in both.
 pub(crate) fn well_formed(
     certified: &CertifiedState,
     residual: &ResidualVotes,
@@ -259,7 +264,7 @@ pub(crate) fn well_formed(
         .all(|(block, entry)| placed(block, &entry.previous))
         && residual
             .entries()
-            .all(|(block, _, parent)| placed(&block, &parent))
+            .all(|(block, _, parent)| placed(&block, &parent) && !certified.summarizes(&block.hash))
 }
 
 /// RAI, "Reports that remain reconstructible": the hashes of a
@@ -1712,6 +1717,29 @@ mod tests {
             ResidualKind::First,
         );
         assert!(well_formed(&placed, &opened, None));
+    }
+
+    /// Fix B: a G record for a hash T tags N or F is malformed; one for a
+    /// hash T tags R is the re-vote of an inherited recovery lock, and the
+    /// report stays usable
+    #[test]
+    fn a_g_record_may_name_an_r_tag_but_not_an_n_or_f_tag() {
+        let block = CertifiedBlock::new(Account::from(1), 1, BlockHash::from(5));
+        let mut residual = ResidualVotes::new();
+        residual.record(block, BlockHash::ZERO, ResidualKind::First);
+        for (status, usable) in [
+            (CertifiedStatus::Recovery, true),
+            (CertifiedStatus::Notarized, false),
+            (CertifiedStatus::Finalized, false),
+        ] {
+            let mut certified = CertifiedState::new();
+            certified.certify(block, BlockHash::ZERO, status);
+            assert_eq!(
+                well_formed(&certified, &residual, None),
+                usable,
+                "{status:?}"
+            );
+        }
     }
 
     /*

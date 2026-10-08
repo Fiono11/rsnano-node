@@ -456,14 +456,18 @@ pub fn build_state(
                     if !previous.valid_recovery_entry(&slot, block.hash, entry.previous) {
                         return Err(BuildStateError::InvalidRecoveryEntry);
                     }
-                    // Already carried by `previous`; R supplies no new support.
+                    // Already carried by `previous`: an inherited R entry is
+                    // not itself support. An epoch-e first vote for the block
+                    // is, and reaches U_Q through G_i below.
                 }
             }
         }
-        // A reporter is counted only for its own first vote outside T_i.
-        // The residual set is canonical, and the identity is counted once.
+        // A reporter is counted only for its own first vote that T_i does
+        // not tag N or F (Fix B): an R tag exposes no vote, so a first vote
+        // for an R-tagged block counts. The residual set is canonical, and
+        // the identity is counted once.
         for block in report.residual.first_votes() {
-            if report.certified.contains_hash(&block.hash) {
+            if report.certified.summarizes(&block.hash) {
                 continue;
             }
             let at = evidence

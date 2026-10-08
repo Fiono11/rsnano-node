@@ -3190,7 +3190,8 @@ impl ActiveElectionsContainer {
     /// RAI: a report taken at the boundary, completed with the inherited
     /// base of its epoch once the predecessor is decided: the base's entries
     /// under the strongest tag, finality projected onto the prefixes, and G
-    /// stripped of every hash T now names. A report is signed only then.
+    /// stripped of every hash T now tags N or F (Fix B: an inherited R tag
+    /// leaves a re-vote of its block in G). A report is signed only then.
     pub fn complete_report(
         &self,
         epoch: ConsensusEpoch,
@@ -5169,7 +5170,9 @@ mod tests {
 
     /// RAI, item 15: a report is cumulative. The entries inherited from the
     /// predecessor checkpoint join the fresh ones under the strongest tag,
-    /// and a vote for a hash the completed T names leaves G.
+    /// and a vote for a hash the completed T tags N or F leaves G. Fix B: a
+    /// re-vote of a block T tags R stays in G, so the frozen report has the
+    /// block once in T and once in G.
     #[test]
     fn a_boundary_report_is_completed_with_the_inherited_base() {
         use crate::consensus::election::{
@@ -5186,6 +5189,7 @@ mod tests {
         fresh.certify(block(2), BlockHash::ZERO, CertifiedStatus::Notarized);
         let mut residual = ResidualVotes::new();
         residual.record(block(1), BlockHash::ZERO, ResidualKind::First);
+        residual.record(block(2), BlockHash::ZERO, ResidualKind::First);
         residual.record(block(3), BlockHash::ZERO, ResidualKind::First);
 
         let (certified, residual) = container.complete_report(epoch, &fresh, &residual);
@@ -5195,7 +5199,8 @@ mod tests {
             certified.status(&block(2)),
             Some(CertifiedStatus::Notarized)
         );
-        assert!(!residual.contains(&block(1), ResidualKind::First));
+        assert!(residual.contains(&block(1), ResidualKind::First));
+        assert!(!residual.contains(&block(2), ResidualKind::First));
         assert!(residual.contains(&block(3), ResidualKind::First));
         // An epoch without a base keeps its report as taken
         let (alone, _) = container.complete_report(ConsensusEpoch::new(2), &fresh, &residual);
