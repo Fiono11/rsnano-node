@@ -30,6 +30,7 @@ pub(crate) const NODE_CONFIG: &str = r#"
     preconfigured_representatives = ["nano_3e3j5tkog48pnny9dmfzj1r16pg8t1e76dz5tmac6iq689wyjfpiij4txtdo"]
     database_backend = "DB_BACKEND"
     cps_limit = CPS_LIMIT
+    vote_generator_delay = VOTE_GENERATOR_DELAY_MS
 
 [node.active_elections]
     # RAI keeps every unresolved fork instance as evidence until its owner
@@ -119,6 +120,10 @@ pub(crate) fn configure_nodes(args: &CliArgs, data_dir: &Path) {
                 .replace("PRECONF_PEERS", &preconfigured_peers(args.honest_prs(), i))
                 .replace("DB_BACKEND", if args.rocksdb { "rocksdb" } else { "lmdb" })
                 .replace("CPS_LIMIT", &args.cps_limit.to_string())
+                .replace(
+                    "VOTE_GENERATOR_DELAY_MS",
+                    &args.vote_generator_delay_ms.to_string(),
+                )
                 .replace("EPOCH_DURATION_MS", &args.epoch_duration_ms.to_string())
                 .replace("ACCOUNT_VOTING", &args.votes_in_accounts(i).to_string())
                 .replace("COMMITTEE_MODEL", &args.committee_model)

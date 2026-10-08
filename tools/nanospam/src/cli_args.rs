@@ -92,6 +92,11 @@ pub(crate) struct CliArgs {
     #[arg(long, default_value_t = 0)]
     pub epoch_duration_ms: u64,
 
+    /// How long a node's vote generators collect hashes before sending a
+    /// vote that is not full (the node's default is 100 ms)
+    #[arg(long, default_value_t = 100)]
+    pub vote_generator_delay_ms: u64,
+
     /// RAI: move this percentage of one principal representative's balance
     /// to the next one every shift period, the first at the start of the
     /// spam (0: never), so that the epochs derive different committees

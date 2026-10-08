@@ -146,6 +146,7 @@ def main():
     parser.add_argument('--weighted', action='store_true', help='stake-weighted committees instead of equal weight f = p = 1')
     parser.add_argument('--bounded-drift', type=int, default=None, help='bounded-weight committees f = p = 1: the six genesis members re-weighted per epoch within this many permille of the equal share')
     parser.add_argument('--weight-shift', type=int, default=0, help='percent of one representative balance moved to the next one every epoch (nanospam --weight-shift-percent)')
+    parser.add_argument('--vote-delay-ms', type=int, default=None, help='vote generator batching delay of every node (nanospam --vote-generator-delay-ms; node default 100)')
     parser.add_argument('--byzantine', type=int, default=0, help='representatives played by the client with random votes, no node')
     parser.add_argument('--offline', type=int, default=0, help='representatives funded but never started')
     parser.add_argument('--allow-busy', action='store_true', help='Correctness run only; does not satisfy the performance gate')
@@ -187,6 +188,8 @@ def main():
                    '--blocks', str(args.blocks), '--accounts', str(args.accounts), '--rate', str(args.rate),
                    '--fork-percentage', str(args.fork_percentage), '--epoch-duration-ms', str(args.epoch_ms),
                    '--byzantine', str(args.byzantine), '--offline', str(args.offline), '--no-kill']
+        if args.vote_delay_ms is not None:
+            command += ['--vote-generator-delay-ms', str(args.vote_delay_ms)]
         if args.weight_shift:
             command += ['--weight-shift-percent', str(args.weight_shift)]
         if args.bounded_drift is not None:
