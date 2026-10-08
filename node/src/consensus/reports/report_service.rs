@@ -8,14 +8,17 @@ use rsnano_messages::{
 };
 use rsnano_network::{Channel, TrafficType};
 use rsnano_nullable_clock::SteadyClock;
-use rsnano_types::{ConsensusEpoch, PublicKey};
+use rsnano_types::{BlockHash, ConsensusEpoch, PublicKey};
 use rsnano_utils::stats::{DetailType, Direction, StatType, Stats};
 
 use super::{
     ReconcileResult, ReportExchange, ReportMessage, Verification, unjustified, well_formed,
 };
 use crate::{
-    consensus::{AecService, EpochReport},
+    consensus::{
+        AecService, EpochReport,
+        election::{CertifiedState, ResidualVotes},
+    },
     consensus::{SigningRecords, active_elections::ActiveElectionsContainer},
     transport::MessageFlooder,
     wallets::WalletRepresentatives,
@@ -379,36 +382,54 @@ impl ReportService {
         let now = self.clock.now();
         let epochs = self.exchange.lock().unwrap().pending_epochs();
         for epoch in epochs {
+            // The checks read the active elections for every entry of every
+            // report: they run without holding the exchange, which the
+            // network threads need for every report message they handle
+            let jobs = self.exchange.lock().unwrap().verification_jobs(epoch, now);
+            if jobs.is_empty() {
+                continue;
+            }
             let previous = self.active_elections.epoch_previous_state(epoch);
             let aec = &self.active_elections;
-            let requests = self.exchange.lock().unwrap().verify(
-                epoch,
-                now,
-                |reporter, certified, residual, only| {
-                    if !well_formed(certified, residual, previous.as_deref()) {
-                        crate::utils::diagnostic!(
-                            "EPOCH_REPORT_MALFORMED epoch={} reporter={}",
-                            epoch,
-                            reporter
-                        );
-                        return Some(Verification::Malformed);
-                    }
-                    unjustified(
+            let mut check = |reporter: &PublicKey,
+                             certified: &CertifiedState,
+                             residual: &ResidualVotes,
+                             only: Option<&[BlockHash]>| {
+                if !well_formed(certified, residual, previous.as_deref()) {
+                    crate::utils::diagnostic!(
+                        "EPOCH_REPORT_MALFORMED epoch={} reporter={}",
                         epoch,
-                        certified,
-                        residual,
-                        only,
-                        &|epoch, hashes| aec.certificate_kinds(epoch, hashes),
-                        &|block, entry| {
-                            previous
-                                .as_ref()
-                                .is_some_and(|previous| inherited_from(previous, block, entry))
-                        },
-                        &|votes| aec.has_votes(epoch, reporter, votes),
-                    )
-                    .map(Verification::Missing)
-                },
-            );
+                        reporter
+                    );
+                    return Some(Verification::Malformed);
+                }
+                unjustified(
+                    epoch,
+                    certified,
+                    residual,
+                    only,
+                    &|epoch, hashes| aec.certificate_kinds(epoch, hashes),
+                    &|block, entry| {
+                        previous
+                            .as_ref()
+                            .is_some_and(|previous| inherited_from(previous, block, entry))
+                    },
+                    &|votes| aec.has_votes(epoch, reporter, votes),
+                )
+                .map(Verification::Missing)
+            };
+            let checked = jobs
+                .into_iter()
+                .map(|job| {
+                    let found = job.check(&mut check);
+                    (job, found)
+                })
+                .collect();
+            let requests = self
+                .exchange
+                .lock()
+                .unwrap()
+                .apply_verifications(epoch, now, checked);
             for (reporter, missing) in requests {
                 self.stats.add(
                     StatType::Message,

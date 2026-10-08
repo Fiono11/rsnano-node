@@ -12,7 +12,10 @@ pub use report_service::ReportService;
 use rsnano_messages::{Report, ReportSet, ReportSymbolsReply, ReportSymbolsReq};
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{BlockHash, ConsensusEpoch, PrivateKey, PublicKey};
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::{
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    sync::Arc,
+};
 
 /// RAI: frozen reports and their local reconstructions. A report whose
 /// roots match a state held here is usable at once; any other is rebuilt by
@@ -40,8 +43,8 @@ struct EpochReports {
 }
 struct TheirReport {
     report: Report,
-    reconstructed: Option<CertifiedState>,
-    residual: Option<ResidualVotes>,
+    reconstructed: Option<Arc<CertifiedState>>,
+    residual: Option<Arc<ResidualVotes>>,
     derived: Option<Timestamp>,
     certified_stream: Option<Stream<CertifiedState>>,
     residual_stream: Option<Stream<ResidualVotes>>,
@@ -177,6 +180,52 @@ pub(crate) fn manifest_claims(
     claims.into_iter().collect()
 }
 
+/// RAI: a reconstructed report due a check against the evidence held here,
+/// taken out of the exchange so that the check runs without holding it
+pub(crate) struct VerifyJob {
+    reporter: PublicKey,
+    certified: Arc<CertifiedState>,
+    residual: Arc<ResidualVotes>,
+    /// The hashes found missing before; None for the first check
+    only: Option<Vec<BlockHash>>,
+    /// When the report was last checked, to tell a job another overtook
+    verified_at: Option<Timestamp>,
+}
+
+impl VerifyJob {
+    pub fn check(
+        &self,
+        check: &mut impl FnMut(
+            &PublicKey,
+            &CertifiedState,
+            &ResidualVotes,
+            Option<&[BlockHash]>,
+        ) -> Option<Verification>,
+    ) -> Option<Verification> {
+        check(
+            &self.reporter,
+            &self.certified,
+            &self.residual,
+            self.only.as_deref(),
+        )
+    }
+
+    /// The report is still the one checked, and still unchecked since
+    fn still_due(&self, their: &TheirReport) -> bool {
+        !their.verified
+            && !their.malformed
+            && their.verified_at == self.verified_at
+            && their
+                .reconstructed
+                .as_ref()
+                .is_some_and(|state| Arc::ptr_eq(state, &self.certified))
+            && their
+                .residual
+                .as_ref()
+                .is_some_and(|residual| Arc::ptr_eq(residual, &self.residual))
+    }
+}
+
 /// What checking a reconstructed report against the evidence held here found
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Verification {
@@ -230,14 +279,28 @@ pub(crate) fn unjustified(
     inherited: &dyn Fn(&CertifiedBlock, Certification) -> bool,
     reporter_votes: &dyn Fn(&[(BlockHash, ResidualKind)]) -> Vec<bool>,
 ) -> Option<Vec<BlockHash>> {
-    let wanted = |hash: &BlockHash| only.is_none_or(|only| only.contains(hash));
-    let entries: Vec<(&CertifiedBlock, Certification)> = certified
+    let only: Option<HashSet<&BlockHash>> = only.map(|only| only.iter().collect());
+    let wanted = |hash: &BlockHash| only.as_ref().is_none_or(|only| only.contains(hash));
+    // What the predecessor checkpoint itself holds is justified by it,
+    // whatever its certificates here: they are looked up for the rest only
+    let entries: Vec<(&CertifiedBlock, Certification, bool)> = certified
         .entries()
         .filter(|(block, _)| wanted(&block.hash))
-        .map(|(block, entry)| (block, *entry))
+        .map(|(block, entry)| (block, *entry, inherited(block, *entry)))
         .collect();
-    let hashes: Vec<BlockHash> = entries.iter().map(|(block, _)| block.hash).collect();
-    let kinds = certificate_kinds(epoch, &hashes)?;
+    let hashes: Vec<BlockHash> = entries
+        .iter()
+        .filter(|(_, _, inherited)| !inherited)
+        .map(|(block, _, _)| block.hash)
+        .collect();
+    let mut kinds = certificate_kinds(epoch, &hashes)?.into_iter();
+    // The epoch's committee must be known here even when every entry is
+    // inherited: one lookup tells, as the lookup of them all did
+    if hashes.is_empty()
+        && let Some((block, _, _)) = entries.first()
+    {
+        certificate_kinds(epoch, &[block.hash])?;
+    }
     let mut justified: HashSet<CertifiedBlock> = HashSet::new();
     let mut anchors: Vec<CertifiedBlock> = Vec::new();
     // F entries without a proof of this epoch: finality assembled in a
@@ -245,10 +308,16 @@ pub(crate) fn unjustified(
     // epoch's checkpoint was decided
     let mut unproven: Vec<CertifiedBlock> = Vec::new();
     let mut missing = Vec::new();
-    for ((block, entry), kinds) in entries.iter().zip(kinds) {
-        // What the predecessor checkpoint itself holds is justified by it;
+    for (block, entry, inherited) in &entries {
         // R, inherited protection, is justified by nothing else
-        let inherited = inherited(block, *entry);
+        let inherited = *inherited;
+        let kinds = if inherited {
+            CertificateKinds::default()
+        } else {
+            kinds
+                .next()
+                .expect("certificate kinds for every entry not inherited")
+        };
         match entry.status {
             CertifiedStatus::Recovery | CertifiedStatus::Notarized => {
                 let fresh = entry.status == CertifiedStatus::Notarized && kinds.notarization;
@@ -340,8 +409,9 @@ pub(crate) fn unjustified(
         .filter(|(block, _, _)| wanted(&block.hash))
         .map(|(block, kind, _)| (block.hash, kind))
         .collect();
+    let mut listed: HashSet<BlockHash> = missing.iter().copied().collect();
     for ((hash, _), held) in records.iter().zip(reporter_votes(&records)) {
-        if !held && !missing.contains(hash) {
+        if !held && listed.insert(*hash) {
             missing.push(*hash);
         }
     }
@@ -504,7 +574,7 @@ impl ReportExchange {
         {
             return None;
         }
-        Some((their.reconstructed.as_ref()?, their.residual.as_ref()?))
+        Some((their.reconstructed.as_deref()?, their.residual.as_deref()?))
     }
     pub fn usable(&self, epoch: ConsensusEpoch) -> Vec<(&Report, &CertifiedState, &ResidualVotes)> {
         let Some(held) = self.epochs.get(&epoch) else {
@@ -524,8 +594,8 @@ impl ReportExchange {
             .filter_map(|their| {
                 Some((
                     &their.report,
-                    their.reconstructed.as_ref()?,
-                    their.residual.as_ref()?,
+                    their.reconstructed.as_deref()?,
+                    their.residual.as_deref()?,
                 ))
             });
         own.chain(theirs).collect()
@@ -555,7 +625,8 @@ impl ReportExchange {
         }
         // An empty residual object is settled by its signed root alone:
         // every replica knows the root of the empty object
-        let residual = (report.residual == ResidualVotes::new().root()).then(ResidualVotes::new);
+        let residual = (report.residual == ResidualVotes::new().root())
+            .then(|| Arc::new(ResidualVotes::new()));
         held.theirs.insert(
             report.reporter,
             TheirReport {
@@ -609,7 +680,7 @@ impl ReportExchange {
         let complete = derived.root() == their.report.residual;
         if complete {
             // Votes that arrived since make a running stream unnecessary
-            their.residual = Some(derived);
+            their.residual = Some(Arc::new(derived));
             their.residual_stream = None;
         } else if their.residual_stream.is_none() {
             // A running stream keeps its base: it must not move under it
@@ -631,6 +702,7 @@ impl ReportExchange {
     /// per `RETRY_INTERVAL` each: the first time every entry, later only the
     /// hashes found missing. Returns, per reporter, the hashes still lacking
     /// evidence, which are asked for.
+    #[cfg(test)]
     pub fn verify(
         &mut self,
         epoch: ConsensusEpoch,
@@ -642,27 +714,67 @@ impl ReportExchange {
             Option<&[BlockHash]>,
         ) -> Option<Verification>,
     ) -> Vec<(PublicKey, Vec<BlockHash>)> {
+        let checked = self
+            .verification_jobs(epoch, now)
+            .into_iter()
+            .map(|job| {
+                let found = job.check(&mut check);
+                (job, found)
+            })
+            .collect();
+        self.apply_verifications(epoch, now, checked)
+    }
+
+    /// RAI: the reconstructed reports `verify` would check now. The checks
+    /// read the active elections and take long; a caller sharing this
+    /// exchange runs them without holding it and records what they found
+    /// with `apply_verifications`.
+    pub fn verification_jobs(&self, epoch: ConsensusEpoch, now: Timestamp) -> Vec<VerifyJob> {
+        let Some(held) = self.epochs.get(&epoch) else {
+            return Vec::new();
+        };
+        held.theirs
+            .iter()
+            .filter(|(_, their)| {
+                !their.verified
+                    && !their.malformed
+                    && their
+                        .verified_at
+                        .is_none_or(|at| at.elapsed(now) >= Self::RETRY_INTERVAL)
+            })
+            .filter_map(|(reporter, their)| {
+                Some(VerifyJob {
+                    reporter: *reporter,
+                    certified: their.reconstructed.clone()?,
+                    residual: their.residual.clone()?,
+                    only: their.verified_at.is_some().then(|| their.missing.clone()),
+                    verified_at: their.verified_at,
+                })
+            })
+            .collect()
+    }
+
+    /// RAI: records what the checks of `verification_jobs` found. A job
+    /// whose report changed meanwhile - reconstructed again, or checked by
+    /// another caller - is dropped; a later round checks it anew.
+    pub fn apply_verifications(
+        &mut self,
+        epoch: ConsensusEpoch,
+        now: Timestamp,
+        checked: Vec<(VerifyJob, Option<Verification>)>,
+    ) -> Vec<(PublicKey, Vec<BlockHash>)> {
         let mut requests = Vec::new();
         let Some(held) = self.epochs.get_mut(&epoch) else {
             return requests;
         };
-        for (reporter, their) in &mut held.theirs {
-            if their.verified
-                || their.malformed
-                || their
-                    .verified_at
-                    .is_some_and(|at| at.elapsed(now) < Self::RETRY_INTERVAL)
-            {
-                continue;
-            }
-            let (Some(certified), Some(residual)) = (&their.reconstructed, &their.residual) else {
+        for (job, found) in checked {
+            let Some(their) = held.theirs.get_mut(&job.reporter) else {
                 continue;
             };
-            let only = their
-                .verified_at
-                .is_some()
-                .then_some(their.missing.as_slice());
-            let missing = match check(reporter, certified, residual, only) {
+            if !job.still_due(their) {
+                continue;
+            }
+            let missing = match found {
                 None => continue,
                 Some(Verification::Malformed) => {
                     their.malformed = true;
@@ -673,7 +785,7 @@ impl ReportExchange {
             their.verified_at = Some(now);
             their.verified = missing.is_empty();
             if !missing.is_empty() {
-                requests.push((*reporter, missing.clone()));
+                requests.push((job.reporter, missing.clone()));
             }
             their.missing = missing;
         }
@@ -801,7 +913,7 @@ impl ReportExchange {
                         continue;
                     };
                     let total = rebuilt.len();
-                    their.reconstructed = Some(rebuilt);
+                    their.reconstructed = Some(Arc::new(rebuilt));
                     results.push(ReconcileResult {
                         epoch: reply.epoch,
                         reporter: *reporter,
@@ -844,7 +956,7 @@ impl ReportExchange {
                         continue;
                     };
                     let total = rebuilt.len();
-                    their.residual = Some(rebuilt);
+                    their.residual = Some(Arc::new(rebuilt));
                     results.push(ReconcileResult {
                         epoch: reply.epoch,
                         reporter: *reporter,
@@ -934,7 +1046,7 @@ impl ReportExchange {
         let their = held.theirs.get_mut(&reporter)?;
         if let Some(state) = state {
             let total = state.len();
-            their.reconstructed = Some(state);
+            their.reconstructed = Some(Arc::new(state));
             their.certified_stream = None;
             return Some((
                 Vec::new(),
@@ -981,7 +1093,7 @@ impl EpochReports {
         }
         self.theirs
             .values()
-            .filter_map(|their| their.residual.as_ref())
+            .filter_map(|their| their.residual.as_deref())
             .find(|residual| residual.root() == root)
     }
 
@@ -994,7 +1106,7 @@ impl EpochReports {
         }
         self.theirs
             .values()
-            .filter_map(|their| their.reconstructed.as_ref())
+            .filter_map(|their| their.reconstructed.as_deref())
             .find(|state| state.root() == root)
     }
 }
@@ -1401,6 +1513,85 @@ mod tests {
             ),
             Some(Vec::new())
         );
+    }
+
+    /// What the predecessor checkpoint holds needs no certificate here, so
+    /// none is looked up for it; the epoch's committee must still be known
+    #[test]
+    fn inherited_entries_are_not_looked_up() {
+        let carried = CertifiedBlock::new(Account::from(1), 1, BlockHash::from(11));
+        let fresh = CertifiedBlock::new(Account::from(2), 1, BlockHash::from(12));
+        let mut certified = CertifiedState::new();
+        certified.certify(carried, BlockHash::ZERO, CertifiedStatus::Finalized);
+        certified.certify(fresh, BlockHash::ZERO, CertifiedStatus::Notarized);
+        let looked_up = std::cell::RefCell::new(Vec::new());
+        let kinds = |_: ConsensusEpoch, hashes: &[BlockHash]| {
+            looked_up.borrow_mut().extend_from_slice(hashes);
+            Some(vec![CertificateKinds::default(); hashes.len()])
+        };
+        let previously = |block: &CertifiedBlock, _: Certification| *block == carried;
+        let no_votes = |votes: &[(BlockHash, ResidualKind)]| vec![false; votes.len()];
+        let missing = unjustified(
+            EPOCH,
+            &certified,
+            &ResidualVotes::new(),
+            None,
+            &kinds,
+            &previously,
+            &no_votes,
+        );
+        assert_eq!(missing, Some(vec![fresh.hash]));
+        assert_eq!(*looked_up.borrow(), vec![fresh.hash]);
+
+        // Every entry inherited and no committee here: not checkable yet
+        let mut carried_only = CertifiedState::new();
+        carried_only.certify(carried, BlockHash::ZERO, CertifiedStatus::Finalized);
+        let unknown = |_: ConsensusEpoch, hashes: &[BlockHash]| (hashes.is_empty()).then(Vec::new);
+        assert_eq!(
+            unjustified(
+                EPOCH,
+                &carried_only,
+                &ResidualVotes::new(),
+                None,
+                &unknown,
+                &previously,
+                &no_votes
+            ),
+            None
+        );
+    }
+
+    /// The checks run outside the exchange: a result for a report checked
+    /// or reconstructed again meanwhile is dropped, not recorded
+    #[test]
+    fn a_verification_overtaken_meanwhile_is_dropped() {
+        let (mut reporter, report, mut requester, now) = diverged(3, 40);
+        requester.reconcile(report.epoch, report.reporter, now);
+        pull(&mut requester, &mut reporter, now);
+        let first = requester.verification_jobs(report.epoch, now);
+        let second = requester.verification_jobs(report.epoch, now);
+        assert_eq!(first.len(), 1);
+        let missing = |job| {
+            (
+                job,
+                Some(Verification::Missing(vec![BlockHash::from(1001)])),
+            )
+        };
+        let justified = |job| (job, Some(Verification::Missing(Vec::new())));
+        let requests = requester.apply_verifications(
+            report.epoch,
+            now,
+            first.into_iter().map(missing).collect(),
+        );
+        assert_eq!(requests.len(), 1);
+        // The second job was taken before the first was recorded
+        requester.apply_verifications(
+            report.epoch,
+            now,
+            second.into_iter().map(justified).collect(),
+        );
+        assert!(requester.usable(report.epoch).is_empty());
+        assert_eq!(requester.unverified_count(report.epoch), 1);
     }
 
     /// A reconstructed report is usable only once verified, and a report

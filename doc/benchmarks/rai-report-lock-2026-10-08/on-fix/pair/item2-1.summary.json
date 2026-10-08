@@ -1,0 +1,81 @@
+{
+  "gate": "B",
+  "source_revision": "02f4a2c05d00261dc41349472e1e2af0bb7f6c60",
+  "node_sha256": "946643c6f31d4156b25b55020ff633f0c03899139055f73f5399516c39bff014",
+  "client_sha256": "a27ad477eadd8b913426c5e9a021e8a1714eba7675a728e2d56d3cd874556efa",
+  "busy_processes": [],
+  "performance_eligible": true,
+  "nodes": 6,
+  "command": [
+    "/private/tmp/claude-501/-Users-ruimorais-rsnano-node/4077f1e8-d95c-4fcd-b0b1-8c3a7c241e54/scratchpad/bin-item2/nanospam",
+    "--data-dir",
+    "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-bxa_2yit",
+    "--prs",
+    "6",
+    "--no-prio",
+    "--blocks",
+    "45000",
+    "--accounts",
+    "45000",
+    "--rate",
+    "2000",
+    "--fork-percentage",
+    "0",
+    "--epoch-duration-ms",
+    "8000",
+    "--byzantine",
+    "0",
+    "--offline",
+    "0",
+    "--no-kill",
+    "--committee-model",
+    "equal_weight",
+    "--committee-f",
+    "1",
+    "--committee-p",
+    "1"
+  ],
+  "status": "failed",
+  "client_finished": false,
+  "client_finished_s": 150.6,
+  "settled_after_s": 150.2,
+  "settlement": {
+    "all_cemented": false,
+    "cemented": [
+      64,
+      65
+    ],
+    "held": [
+      65
+    ],
+    "uncemented": [
+      0,
+      1
+    ],
+    "decided_everywhere": [],
+    "decided_somewhere": [],
+    "values_agree": true,
+    "settled": false
+  },
+  "finalization_p50_ms": [
+    103,
+    103,
+    103,
+    103,
+    103,
+    103
+  ],
+  "close_rounds": [],
+  "close_timings": {},
+  "close_duration_ms": null,
+  "streams": {
+    "count": 0,
+    "dropped": 0,
+    "symbols": 0,
+    "recovered": 0
+  },
+  "client": null,
+  "confirmation_rate_cps": null,
+  "confirmed_primary": 0,
+  "correctness_passed": false
+}
