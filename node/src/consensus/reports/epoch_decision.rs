@@ -165,8 +165,13 @@ impl EpochDecisionService {
             return;
         }
         // A leader repeats its proposal while its round stands, and
-        // deriving the state walks the whole predecessor: check once
-        if self.active_elections.holds_epoch_value(prop.epoch, &hash) {
+        // deriving the state walks the whole predecessor: check once. Every
+        // round's proposal of an epoch decided here is repeated to replicas
+        // that hold the certificate but not the value; checking them here
+        // changes nothing and costs a derivation each.
+        if self.active_elections.holds_epoch_value(prop.epoch, &hash)
+            || self.active_elections.epoch_decided(prop.epoch)
+        {
             return;
         }
         let Some((_, state)) = self.validate(&value, Some(_channel)) else {
@@ -387,9 +392,12 @@ impl EpochDecisionService {
             epoch,
         };
         // The evidence this leader used, committed to by digest
+        let started = std::time::Instant::now();
         let claims = candidate_claims(epoch, &states, &previous, &index);
+        let claimed = started.elapsed();
         let manifest = Arc::new(self.active_elections.evidence_manifest(&claims));
         let digest = manifest.digest();
+        let manifested = started.elapsed();
         self.remember_manifest(epoch, manifest.clone());
         let witness = |origin: ConsensusEpoch, hash: &BlockHash| {
             self.manifest_witness(&manifest, origin, hash)
@@ -405,7 +413,17 @@ impl EpochDecisionService {
             rules,
             &witness,
         ) {
-            Ok((value, ledger)) => Some((value, Arc::new(ledger))),
+            Ok((value, ledger)) => {
+                diagnostic!(
+                    "EPOCH_DERIVE_TIMING epoch={} claims={} claim_ms={} manifest_ms={} build_ms={}",
+                    epoch,
+                    claims.len(),
+                    claimed.as_millis(),
+                    (manifested - claimed).as_millis(),
+                    (started.elapsed() - manifested).as_millis()
+                );
+                Some((value, Arc::new(ledger)))
+            }
             Err(error) => {
                 diagnostic!(
                     "EPOCH_PROPOSAL_REFUSED epoch={} round={} reason={:?}",
@@ -442,9 +460,11 @@ impl EpochDecisionService {
         if states.len() != value.reports().len() {
             return None;
         }
+        let started = std::time::Instant::now();
         if !self.evidence_committed(value, &states, &previous, channel) {
             return None;
         }
+        let committed = started.elapsed();
         // Held once the evidence is committed: built here or fetched
         let manifest = self
             .manifests
@@ -468,7 +488,15 @@ impl EpochDecisionService {
             rules,
             &witness,
         ) {
-            Ok(ledger) => Some((value.hash(), Arc::new(ledger))),
+            Ok(ledger) => {
+                diagnostic!(
+                    "EPOCH_VALIDATE_TIMING epoch={} evidence_ms={} build_ms={}",
+                    value.epoch,
+                    committed.as_millis(),
+                    (started.elapsed() - committed).as_millis()
+                );
+                Some((value.hash(), Arc::new(ledger)))
+            }
             Err(error) => {
                 diagnostic!(
                     "EPOCH_VALUE_REFUSED epoch={} slot={} value={} reason={:?}",

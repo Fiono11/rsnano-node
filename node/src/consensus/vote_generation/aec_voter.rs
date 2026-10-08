@@ -14,7 +14,7 @@ use super::{
     voting_scheduler::{VoteTarget, VotingScheduler},
 };
 use crate::consensus::{
-    AecService, SigningRecords, election::VoteType, vote_generation::voting_scheduler::vote_target,
+    AecService, SigningRecords, vote_generation::voting_scheduler::vote_target,
 };
 
 /// Creates votes for blocks within the AEC
@@ -159,8 +159,6 @@ impl Tickable for AecVoter {
             // persist them before the signatures leave: one write per batch
             vote_queue = self.aec.mark_kudzu_voted(vote_queue);
             self.signing.write_slots(&self.aec.take_signing_records());
-            self.signing
-                .write_evidence(&self.aec.take_evidence_records());
         }
         self.flush(&mut vote_queue);
     }

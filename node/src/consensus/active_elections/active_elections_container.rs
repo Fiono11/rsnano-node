@@ -201,6 +201,8 @@ impl ActiveElectionsContainer {
     /// RAI: how many left epochs keep their received votes, for the
     /// residual objects of their reports; as many as the reports are kept
     pub(crate) const VOTE_RECORD_EPOCHS_KEPT: u64 = 4;
+    /// RAI: retained blocks given their open-epoch instance per tick
+    const CONTINUED_PER_TICK: u64 = 128;
 
     pub fn new(config: ActiveElectionsConfig, base_latency: Duration) -> Self {
         Self {
@@ -1379,8 +1381,14 @@ impl ActiveElectionsContainer {
                 }
             })
             .collect();
+        // Every retained block is continued (§5.6), hundreds of them at an
+        // install: spread over the ticks, they do not stall the open epoch's
+        // own instances
         let mut continued = 0;
         for block in candidates {
+            if continued >= Self::CONTINUED_PER_TICK {
+                break;
+            }
             let slot = AccountSlot::new(block.account(), block.height());
             if !self.lock_continuable(&slot, &block.hash()) {
                 continue;
@@ -2224,7 +2232,8 @@ impl ActiveElectionsContainer {
         // What the overlap finality and an early final vote rest on: the
         // closing-epoch exclusion witness, the current-epoch NC, and the
         // witnesses discharging the installed checkpoint's records the
-        // block bypasses. Persisted before the final vote is released.
+        // block bypasses. Other validators' signatures: persisted in a
+        // batch apart from the vote path, not before the final vote.
         self.dirty_evidence.push((before, block));
         self.dirty_evidence.push((epoch, block));
         if let Some(state) = closed.as_ref() {
@@ -2905,12 +2914,6 @@ impl ActiveElectionsContainer {
     fn cleanup_election(&mut self, entry: Entry) {
         let election = &entry.election;
         self.keep_exit_final_vote(election);
-        // Finalized under the overlap exception: its final certificate is
-        // part of the overlap certificate the next closure checks
-        if election.overlap_eligible() && !election.predecessor_decided() {
-            self.dirty_evidence
-                .push((election.epoch(), election.winner().hash()));
-        }
         // A late instance's blocks are discarded - never one finalized in
         // another epoch: what an epoch finalized stays finalized
         let discarded: Vec<BlockHash> = if is_late(&self.decided, election) {

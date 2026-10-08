@@ -345,6 +345,15 @@ impl AecService {
 
     /// RAI: whether this node already derived and checked a value
     #[cfg(feature = "rai_protocol")]
+    /// RAI: whether this node has decided an epoch's state
+    pub fn epoch_decided(&self, epoch: ConsensusEpoch) -> bool {
+        self.aec
+            .read()
+            .unwrap()
+            .epoch_decided_state(epoch)
+            .is_some()
+    }
+
     pub fn holds_epoch_value(&self, epoch: ConsensusEpoch, value: &BlockHash) -> bool {
         self.aec.read().unwrap().holds_epoch_value(epoch, value)
     }

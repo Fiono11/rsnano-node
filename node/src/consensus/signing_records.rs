@@ -29,11 +29,10 @@ pub struct ReportRecord {
 }
 
 /// RAI, overlap certificates as retained evidence: the signed votes for
-/// one block in one epoch that this node relied on - a closing-epoch
-/// exclusion witness and current-epoch NC before an early final vote, the
-/// final certificate of a block finalized under the overlap exception, a
-/// witness discharging a record the block bypasses - with the block's
-/// position, which decides how long the record is kept
+/// one block in one epoch that this node relied on for overlap finality
+/// and an early final vote - the closing-epoch exclusion witness, the
+/// current-epoch NC, a witness discharging a record the block bypasses -
+/// with the block's position, which decides how long the record is kept
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EvidenceRecord {
     pub epoch: ConsensusEpoch,
@@ -73,6 +72,7 @@ const REPORT: u8 = b'R';
 const CERTIFIED: u8 = b'T';
 const RESIDUAL: u8 = b'G';
 const EVIDENCE: u8 = b'E';
+const EVIDENCE_VOTE: u8 = b'V';
 
 impl SigningRecords {
     pub fn new(env: LmdbEnvironment) -> anyhow::Result<Self> {
@@ -133,15 +133,29 @@ impl SigningRecords {
         txn.commit();
     }
 
-    /// Persists retained evidence before the votes that rest on it leave:
-    /// a record replaces the one held for its block and epoch, as it holds
-    /// every vote the earlier one did
+    /// Persists retained evidence, in one batch: a record replaces the one
+    /// held for its block and epoch, as it holds every vote the earlier one
+    /// did
+    ///
+    /// A vote is stored once, by epoch and signature: a vote batch covers up
+    /// to 255 blocks, and the records of those blocks name it rather than
+    /// hold a copy each. The signature names it without hashing its blocks.
     pub fn write_evidence(&self, records: &[EvidenceRecord]) {
         if records.is_empty() {
             return;
         }
         let mut txn = self.env.begin_write();
+        let mut written = std::collections::HashSet::new();
         for record in records {
+            for vote in &record.votes {
+                let key = evidence_vote_key(record.epoch, vote);
+                if written.insert(key.clone()) && self.store.get(&txn, &key).is_none() {
+                    let mut bytes = Vec::new();
+                    vote.serialize(&mut bytes)
+                        .expect("a vote serializes to memory");
+                    self.store.put(&mut txn, &key, &bytes);
+                }
+            }
             self.store.put(
                 &mut txn,
                 &evidence_key(record.epoch, &record.hash),
@@ -160,20 +174,30 @@ impl SigningRecords {
         keep: impl Fn(ConsensusEpoch, &AccountSlot) -> bool,
     ) {
         let mut txn = self.env.begin_write();
-        let old: Vec<Vec<u8>> = self
-            .store
-            .with_prefix(&txn, &[EVIDENCE])
-            .into_iter()
-            .filter(|(key, value)| {
-                let Some((held, hash)) = decode_evidence_key(key) else {
-                    return true;
-                };
-                held < epoch
-                    && decode_evidence(held, hash, value)
-                        .is_none_or(|record| !keep(held, &record.slot))
-            })
-            .map(|(key, _)| key)
-            .collect();
+        let mut old = Vec::new();
+        let mut referenced = std::collections::HashSet::new();
+        for (key, value) in self.store.with_prefix(&txn, &[EVIDENCE]) {
+            let kept = decode_evidence_key(&key).and_then(|(held, _)| {
+                let (slot, votes) = decode_evidence(&value)?;
+                (held >= epoch || keep(held, &slot)).then_some((held, votes))
+            });
+            match kept {
+                Some((held, votes)) => referenced.extend(
+                    votes
+                        .iter()
+                        .map(|signature| evidence_vote_key_of(held, signature)),
+                ),
+                None => old.push(key),
+            }
+        }
+        // A stored vote no remaining record names goes too
+        old.extend(
+            self.store
+                .with_prefix(&txn, &[EVIDENCE_VOTE])
+                .into_iter()
+                .map(|(key, _)| key)
+                .filter(|key| !referenced.contains(key)),
+        );
         for key in old {
             self.store.delete(&mut txn, &key);
         }
@@ -282,12 +306,31 @@ impl SigningRecords {
                 residual,
             });
         }
-        for (key, value) in store.with_prefix(&txn, &[EVIDENCE]) {
-            if let Some(record) = decode_evidence_key(&key)
-                .and_then(|(epoch, hash)| decode_evidence(epoch, hash, &value))
-            {
-                recovered.evidence.push(record);
+        let mut votes: std::collections::HashMap<Vec<u8>, Arc<Vote>> =
+            std::collections::HashMap::new();
+        for (key, value) in store.with_prefix(&txn, &[EVIDENCE_VOTE]) {
+            if let Ok(vote) = Vote::deserialize(&value) {
+                votes.insert(key, Arc::new(vote));
             }
+        }
+        for (key, value) in store.with_prefix(&txn, &[EVIDENCE]) {
+            let Some((epoch, hash)) = decode_evidence_key(&key) else {
+                continue;
+            };
+            let Some((slot, named)) = decode_evidence(&value) else {
+                continue;
+            };
+            recovered.evidence.push(EvidenceRecord {
+                epoch,
+                hash,
+                slot,
+                votes: named
+                    .iter()
+                    .filter_map(|signature| {
+                        votes.get(&evidence_vote_key_of(epoch, signature)).cloned()
+                    })
+                    .collect(),
+            });
         }
         recovered
     }
@@ -333,39 +376,39 @@ fn decode_evidence_key(key: &[u8]) -> Option<(ConsensusEpoch, BlockHash)> {
     ))
 }
 
-/// The position, then each vote as its 2-byte length and its wire bytes
+/// A stored vote: epoch, then its signature
+fn evidence_vote_key(epoch: ConsensusEpoch, vote: &Vote) -> Vec<u8> {
+    evidence_vote_key_of(epoch, vote.signature.as_bytes())
+}
+
+fn evidence_vote_key_of(epoch: ConsensusEpoch, signature: &[u8; 64]) -> Vec<u8> {
+    let mut key = Vec::with_capacity(73);
+    key.push(EVIDENCE_VOTE);
+    key.extend_from_slice(&epoch.as_u64().to_be_bytes());
+    key.extend_from_slice(signature);
+    key
+}
+
+/// The position, then the signature of each vote
 fn encode_evidence(record: &EvidenceRecord) -> Vec<u8> {
-    let mut bytes = Vec::new();
+    let mut bytes = Vec::with_capacity(40 + 64 * record.votes.len());
     bytes.extend_from_slice(record.slot.account.as_bytes());
     bytes.extend_from_slice(&record.slot.height.to_be_bytes());
     for vote in &record.votes {
-        let mut serialized = Vec::new();
-        vote.serialize(&mut serialized)
-            .expect("a vote serializes to memory");
-        bytes.extend_from_slice(&(serialized.len() as u16).to_be_bytes());
-        bytes.extend_from_slice(&serialized);
+        bytes.extend_from_slice(vote.signature.as_bytes());
     }
     bytes
 }
 
-fn decode_evidence(epoch: ConsensusEpoch, hash: BlockHash, bytes: &[u8]) -> Option<EvidenceRecord> {
+fn decode_evidence(bytes: &[u8]) -> Option<(AccountSlot, Vec<[u8; 64]>)> {
     let account = Account::from_slice(bytes.get(..32)?)?;
     let height = u64::from_be_bytes(bytes.get(32..40)?.try_into().ok()?);
-    let mut at = 40;
-    let mut votes = Vec::new();
-    while at < bytes.len() {
-        let len = u16::from_be_bytes(bytes.get(at..at + 2)?.try_into().ok()?) as usize;
-        at += 2;
-        let vote = Vote::deserialize(bytes.get(at..at + len)?).ok()?;
-        votes.push(Arc::new(vote));
-        at += len;
-    }
-    Some(EvidenceRecord {
-        epoch,
-        hash,
-        slot: AccountSlot::new(account, height),
-        votes,
-    })
+    let named = bytes
+        .get(40..)?
+        .chunks(64)
+        .map(|chunk| chunk.try_into().ok())
+        .collect::<Option<Vec<[u8; 64]>>>()?;
+    Some((AccountSlot::new(account, height), named))
 }
 
 fn parent_key(hash: &BlockHash) -> Vec<u8> {
@@ -566,17 +609,19 @@ mod tests {
             ))
         };
         let locked = AccountSlot::new(Account::from(1), 2);
+        let shared = vote(1, VoteKind::First);
         let witness = EvidenceRecord {
             epoch: ConsensusEpoch::new(1),
             hash,
             slot: locked,
-            votes: vec![vote(1, VoteKind::First), vote(2, VoteKind::Final)],
+            votes: vec![shared.clone(), vote(2, VoteKind::Final)],
         };
         let other = EvidenceRecord {
             epoch: ConsensusEpoch::new(1),
             hash: BlockHash::from(9),
             slot: AccountSlot::new(Account::from(2), 2),
-            votes: vec![vote(3, VoteKind::First)],
+            // A batch vote shared with the other record is stored once
+            votes: vec![shared.clone(), vote(3, VoteKind::First)],
         };
         records.write_evidence(&[witness.clone(), other.clone()]);
         let recovered = records.load();

@@ -327,6 +327,10 @@ impl ReportService {
     /// keeps delivering the votes of a closed epoch, and it is that growth
     /// which eventually gives this node a state it shares with a reporter.
     pub fn tick(&self) {
+        // Retained evidence: other validators' signatures, so it is not on
+        // the path of this node's own votes; one batch per tick
+        self.signing
+            .write_evidence(&self.active_elections.take_evidence_records());
         // A report deferred for want of its predecessor checkpoint is signed
         // once that checkpoint is decided here
         let deferred: Vec<ConsensusEpoch> = self.pending.lock().unwrap().keys().copied().collect();

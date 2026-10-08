@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use rsnano_types::{Account, Amount, Blake2HashBuilder, BlockHash, ConsensusEpoch, PublicKey};
 
@@ -700,12 +700,10 @@ pub fn build_state(
     }
     let mut ledger = previous.clone();
     let mut released = BTreeSet::new();
-    for (slot, hash) in named_blocks(selection) {
-        if previous.retained_depth(slot.account).is_none() {
-            continue;
-        }
-        let branch = index_branch(previous, index, slot, hash);
-        for bypassed in previous.bypassed_records(slot.account, &branch) {
+    let named = named_blocks(selection);
+    let mut inherited = BypassCache::new(previous, index);
+    for (slot, hash) in &named {
+        for bypassed in inherited.bypassed(*slot, *hash) {
             if discharged(&bypassed, witness) {
                 ledger.discharge(&bypassed.holder, &bypassed.record);
                 released.insert(slot.account);
@@ -716,12 +714,13 @@ pub fn build_state(
         ledger.release_unlocked(account);
     }
     // A claim is eligible unless it still bypasses a surviving record
-    let eligible = |slot: AccountSlot, hash: BlockHash| {
-        ledger.retained_depth(slot.account).is_none()
-            || ledger
-                .bypassed_records(slot.account, &index_branch(&ledger, index, slot, hash))
-                .is_empty()
-    };
+    let mut surviving = BypassCache::new(&ledger, index);
+    let ineligible: BTreeSet<BlockHash> = named
+        .iter()
+        .filter(|(slot, hash)| !surviving.bypassed(*slot, *hash).is_empty())
+        .map(|(_, hash)| *hash)
+        .collect();
+    let eligible = |_: AccountSlot, hash: BlockHash| !ineligible.contains(&hash);
     let mut evidence: BTreeMap<AccountSlot, Evidence> = BTreeMap::new();
     for report in selection {
         for (block, entry) in report.certified.entries() {
@@ -873,31 +872,144 @@ fn named_blocks(selection: &[SelectedReport]) -> BTreeSet<(AccountSlot, BlockHas
     named
 }
 
-/// The branch a named block continues, by the placements of the derivation,
-/// down to the finalized history of a state
-fn index_branch(
-    state: &EpochLedger,
-    index: &dyn BlockIndex,
-    slot: AccountSlot,
-    hash: BlockHash,
-) -> Branch {
-    let mut branch = Branch::new();
-    let (mut at, mut hash) = (slot, hash);
-    loop {
-        branch.insert(at.height, hash);
-        let Some(placement) = index.placement(&hash) else {
-            break;
-        };
-        if at.height <= 1 || placement.previous.is_zero() {
-            break;
+/// RAI: the lock records the named blocks of a derivation bypass, each block
+/// computed once. A record holder's branch spans the retained positions of
+/// its account only, so a block above every one of them bypasses exactly
+/// what its parent does, and a branch is never walked below the lowest. A
+/// long unfinalized chain would otherwise be walked once per block in it.
+struct BypassCache<'a> {
+    state: &'a EpochLedger,
+    index: &'a dyn BlockIndex,
+    /// Per account: the lowest and highest retained heights, and every
+    /// record holder with its records and its branch
+    holders: HashMap<Account, Option<Holders>>,
+    memo: HashMap<BlockHash, Vec<BypassedRecord>>,
+}
+
+struct Holders {
+    lowest: u64,
+    highest: u64,
+    held: Vec<(BlockHash, Vec<LockRecord>, Branch)>,
+}
+
+impl<'a> BypassCache<'a> {
+    fn new(state: &'a EpochLedger, index: &'a dyn BlockIndex) -> Self {
+        Self {
+            state,
+            index,
+            holders: HashMap::new(),
+            memo: HashMap::new(),
         }
-        at = AccountSlot::new(at.account, at.height - 1);
-        if state.finalized(&at).is_some() {
-            break;
-        }
-        hash = placement.previous;
     }
-    branch
+
+    fn holders(&mut self, account: Account) -> Option<&Holders> {
+        let state = self.state;
+        self.holders
+            .entry(account)
+            .or_insert_with(|| {
+                let range = AccountSlot::new(account, 0)..=AccountSlot::new(account, u64::MAX);
+                let mut retained = state.notarized.range(range).peekable();
+                let lowest = retained.peek()?.0.height;
+                let mut highest = lowest;
+                let mut held = Vec::new();
+                for (slot, blocks) in retained {
+                    highest = slot.height;
+                    for block in blocks {
+                        let records: Vec<LockRecord> = state.lock_records(&block.hash).collect();
+                        if !records.is_empty() {
+                            held.push((
+                                block.hash,
+                                records,
+                                state.retained_branch(*slot, block.hash),
+                            ));
+                        }
+                    }
+                }
+                Some(Holders {
+                    lowest,
+                    highest,
+                    held,
+                })
+            })
+            .as_ref()
+    }
+
+    /// The records a named block bypasses (see `EpochLedger::bypassed_records`)
+    fn bypassed(&mut self, slot: AccountSlot, hash: BlockHash) -> Vec<BypassedRecord> {
+        let Some(holders) = self.holders(slot.account) else {
+            return Vec::new();
+        };
+        let (lowest, highest) = (holders.lowest, holders.highest);
+        // Up the chain: the blocks above the retained positions share the
+        // verdict of the first ancestor at or below them
+        let mut above = Vec::new();
+        let (mut at, mut current) = (slot, hash);
+        let verdict = loop {
+            if let Some(held) = self.memo.get(&current) {
+                break held.clone();
+            }
+            if at.height <= highest {
+                break self.compute(at, current, lowest);
+            }
+            above.push(current);
+            let Some(placement) = self.index.placement(&current) else {
+                break Vec::new();
+            };
+            if at.height <= 1 || placement.previous.is_zero() {
+                break Vec::new();
+            }
+            at = AccountSlot::new(at.account, at.height - 1);
+            if self.state.finalized(&at).is_some() {
+                break Vec::new();
+            }
+            current = placement.previous;
+        };
+        self.memo.insert(current, verdict.clone());
+        for block in above {
+            self.memo.insert(block, verdict.clone());
+        }
+        verdict
+    }
+
+    /// The branch from a block down to the lowest retained position,
+    /// compared with every record holder's
+    fn compute(&mut self, slot: AccountSlot, hash: BlockHash, lowest: u64) -> Vec<BypassedRecord> {
+        let mut branch = Branch::new();
+        let (mut at, mut current) = (slot, hash);
+        loop {
+            branch.insert(at.height, current);
+            let Some(placement) = self.index.placement(&current) else {
+                break;
+            };
+            if at.height <= lowest.max(1) || placement.previous.is_zero() {
+                break;
+            }
+            at = AccountSlot::new(at.account, at.height - 1);
+            if self.state.finalized(&at).is_some() {
+                break;
+            }
+            current = placement.previous;
+        }
+        let holders = self
+            .holders
+            .get(&slot.account)
+            .and_then(Option::as_ref)
+            .expect("holders computed");
+        let mut bypassed = Vec::new();
+        for (holder, records, held) in &holders.held {
+            let divergent = held
+                .iter()
+                .find_map(|(height, hash)| branch.get(height).filter(|mine| *mine != hash));
+            if let Some(target) = divergent {
+                bypassed.extend(records.iter().map(|record| BypassedRecord {
+                    holder: *holder,
+                    record: *record,
+                    target: *target,
+                }));
+            }
+        }
+        bypassed
+    }
 }
 
 /// RAI: the exclusion witnesses a candidate's manifest must carry for the
@@ -910,12 +1022,9 @@ pub fn witness_claims(
     index: &dyn BlockIndex,
 ) -> Vec<(ConsensusEpoch, BlockHash)> {
     let mut claims = BTreeSet::new();
+    let mut cache = BypassCache::new(previous, index);
     for (slot, hash) in named_blocks(selection) {
-        if previous.retained_depth(slot.account).is_none() {
-            continue;
-        }
-        let branch = index_branch(previous, index, slot, hash);
-        for bypassed in previous.bypassed_records(slot.account, &branch) {
+        for bypassed in cache.bypassed(slot, hash) {
             if bypassed.record.strength == LockStrength::Recovery {
                 claims.insert((bypassed.record.origin, bypassed.target));
             }

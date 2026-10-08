@@ -3,9 +3,7 @@ use std::{
     sync::Arc,
 };
 
-use rsnano_types::{
-    Account, Amount, BlockHash, ConsensusEpoch, PublicKey, QualifiedRoot, VoteKind,
-};
+use rsnano_types::{Account, Amount, BlockHash, ConsensusEpoch, PublicKey, QualifiedRoot};
 
 use crate::consensus::election::{FinalStateHash, LocalSlotState};
 
@@ -218,6 +216,7 @@ impl EpochStates {
 mod tests {
     use super::*;
     use crate::consensus::election::VoteType;
+    use rsnano_types::VoteKind;
 
     #[test]
     fn records_each_instance_once_per_epoch() {
