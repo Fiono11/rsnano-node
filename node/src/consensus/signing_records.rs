@@ -3,10 +3,11 @@ use std::sync::Arc;
 use rsnano_messages::Report;
 use rsnano_nullable_lmdb::LmdbEnvironment;
 use rsnano_store_lmdb::LmdbSigningStore;
-use rsnano_types::{Account, BlockHash, ConsensusEpoch, PublicKey, Signature, Vote};
+use rsnano_types::{Account, Amount, BlockHash, ConsensusEpoch, PublicKey, Signature, Vote};
 
 use crate::consensus::election::{
-    AccountSlot, CertifiedState, EpochSlot, Item, LocalSlotState, ResidualVotes,
+    AccountFrontier, AccountSlot, CertifiedState, EpochLedger, EpochSlot, Item, LocalSlotState,
+    ResidualVotes,
 };
 
 /// RAI: one slot's signing record: what this node voted in the slot and
@@ -41,6 +42,35 @@ pub struct EvidenceRecord {
     pub votes: Vec<Arc<Vote>>,
 }
 
+/// RAI: how the epochs started on this node, which a restart replays: the
+/// boundaries' origin and the genesis state and committee
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EpochsRecord {
+    /// T0, the origin of the epoch boundaries, in unix milliseconds: the
+    /// node's clock starts again from zero on a restart
+    pub origin_unix_ms: u64,
+    /// The setup's frontiers: the genesis committee and `S_{-1}`
+    pub frontiers: Vec<AccountFrontier>,
+    /// The setup's confirmed history, also in `S_{-1}`
+    pub history: Vec<(AccountSlot, BlockHash, BlockHash)>,
+}
+
+/// RAI: an epoch decided here. Its decided state is kept for the latest
+/// two epochs only; the frontiers it counted towards the committees are
+/// kept for every epoch, since the weights are cumulative and a restart
+/// derives the committees again from the genesis on.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DecidedRecord {
+    pub epoch: ConsensusEpoch,
+    /// The close round and value its certificate finalized
+    pub closed: Option<(u32, BlockHash)>,
+    /// `d_e`
+    pub state_hash: BlockHash,
+    /// `S_e`; on load None once dropped or if it does not hash to `d_e`
+    pub state: Option<Arc<EpochLedger>>,
+    pub frontiers: Vec<AccountFrontier>,
+}
+
 /// What a restarted node recovers
 #[derive(Default)]
 pub struct Recovered {
@@ -48,6 +78,9 @@ pub struct Recovered {
     pub frozen: Vec<ConsensusEpoch>,
     pub reports: Vec<ReportRecord>,
     pub evidence: Vec<EvidenceRecord>,
+    pub epochs: Option<EpochsRecord>,
+    /// In epoch order
+    pub decided: Vec<DecidedRecord>,
 }
 
 /// RAI, "Participants, faults, and retained evidence": "Correct validators
@@ -73,6 +106,13 @@ const CERTIFIED: u8 = b'T';
 const RESIDUAL: u8 = b'G';
 const EVIDENCE: u8 = b'E';
 const EVIDENCE_VOTE: u8 = b'V';
+const EPOCHS: u8 = b'Z';
+const DECIDED: u8 = b'W';
+const DECIDED_STATE: u8 = b'D';
+/// How many of the latest decided states are kept: the predecessor of the
+/// oldest epoch still closing, and the one before it, which the overlap
+/// gate checks against
+const DECIDED_STATES_KEPT: u64 = 2;
 
 impl SigningRecords {
     pub fn new(env: LmdbEnvironment) -> anyhow::Result<Self> {
@@ -200,6 +240,49 @@ impl SigningRecords {
         );
         for key in old {
             self.store.delete(&mut txn, &key);
+        }
+        txn.commit();
+    }
+
+    /// Persists how the epochs started
+    pub fn write_epochs(&self, record: &EpochsRecord) {
+        let mut txn = self.env.begin_write();
+        self.store.put(&mut txn, &[EPOCHS], &encode_epochs(record));
+        txn.commit();
+    }
+
+    /// Persists decided epochs and drops all but the latest decided states
+    pub fn write_decided(&self, records: &[DecidedRecord]) {
+        let Some(latest) = records.iter().map(|record| record.epoch).max() else {
+            return;
+        };
+        let store = &self.store;
+        let mut txn = self.env.begin_write();
+        for record in records {
+            store.put(
+                &mut txn,
+                &epoch_key(DECIDED, record.epoch),
+                &encode_decided(record),
+            );
+            if let Some(state) = &record.state {
+                store.put(
+                    &mut txn,
+                    &epoch_key(DECIDED_STATE, record.epoch),
+                    &state.to_bytes(),
+                );
+            }
+        }
+        let old: Vec<Vec<u8>> = store
+            .with_prefix(&txn, &[DECIDED_STATE])
+            .into_iter()
+            .map(|(key, _)| key)
+            .filter(|key| {
+                decode_epoch_key(key)
+                    .is_some_and(|held| held.as_u64() + DECIDED_STATES_KEPT <= latest.as_u64())
+            })
+            .collect();
+        for key in old {
+            store.delete(&mut txn, &key);
         }
         txn.commit();
     }
@@ -332,11 +415,143 @@ impl SigningRecords {
                     .collect(),
             });
         }
+        recovered.epochs = store
+            .get(&txn, &[EPOCHS])
+            .and_then(|bytes| decode_epochs(&bytes));
+        for (key, value) in store.with_prefix(&txn, &[DECIDED]) {
+            let Some(epoch) = decode_epoch_key(&key) else {
+                continue;
+            };
+            let Some(mut record) = decode_decided(epoch, &value) else {
+                continue;
+            };
+            record.state = store
+                .get(&txn, &epoch_key(DECIDED_STATE, epoch))
+                .and_then(|bytes| EpochLedger::from_bytes(&bytes))
+                .filter(|state| state.state_hash() == record.state_hash)
+                .map(Arc::new);
+            recovered.decided.push(record);
+        }
         recovered
     }
 }
 
 /* Encoding */
+
+const FRONTIER_SIZE: usize = 32 + 8 + 32 + 32 + 16;
+const HISTORY_SIZE: usize = 32 + 8 + 32 + 32;
+
+fn encode_frontiers(bytes: &mut Vec<u8>, frontiers: &[AccountFrontier]) {
+    bytes.extend_from_slice(&(frontiers.len() as u32).to_be_bytes());
+    for frontier in frontiers {
+        bytes.extend_from_slice(frontier.account.as_bytes());
+        bytes.extend_from_slice(&frontier.height.to_be_bytes());
+        bytes.extend_from_slice(frontier.hash.as_bytes());
+        bytes.extend_from_slice(frontier.representative.as_bytes());
+        bytes.extend_from_slice(&frontier.balance.to_be_bytes());
+    }
+}
+
+/// The frontiers at the start of `bytes`, and what follows them
+fn decode_frontiers(bytes: &[u8]) -> Option<(Vec<AccountFrontier>, &[u8])> {
+    let count = u32::from_be_bytes(bytes.get(..4)?.try_into().ok()?) as usize;
+    let end = 4 + count.checked_mul(FRONTIER_SIZE)?;
+    let frontiers = bytes
+        .get(4..end)?
+        .chunks(FRONTIER_SIZE)
+        .map(|chunk| {
+            Some(AccountFrontier {
+                account: Account::from_slice(&chunk[..32])?,
+                height: u64::from_be_bytes(chunk[32..40].try_into().ok()?),
+                hash: BlockHash::from_slice(&chunk[40..72])?,
+                representative: PublicKey::from_slice(&chunk[72..104])?,
+                balance: Amount::from_be_bytes(chunk[104..120].try_into().ok()?),
+            })
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some((frontiers, &bytes[end..]))
+}
+
+/// T0, the frontiers, then the history
+fn encode_epochs(record: &EpochsRecord) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(
+        8 + 8 + FRONTIER_SIZE * record.frontiers.len() + HISTORY_SIZE * record.history.len(),
+    );
+    bytes.extend_from_slice(&record.origin_unix_ms.to_be_bytes());
+    encode_frontiers(&mut bytes, &record.frontiers);
+    bytes.extend_from_slice(&(record.history.len() as u32).to_be_bytes());
+    for (slot, hash, previous) in &record.history {
+        bytes.extend_from_slice(slot.account.as_bytes());
+        bytes.extend_from_slice(&slot.height.to_be_bytes());
+        bytes.extend_from_slice(hash.as_bytes());
+        bytes.extend_from_slice(previous.as_bytes());
+    }
+    bytes
+}
+
+fn decode_epochs(bytes: &[u8]) -> Option<EpochsRecord> {
+    let origin_unix_ms = u64::from_be_bytes(bytes.get(..8)?.try_into().ok()?);
+    let (frontiers, rest) = decode_frontiers(&bytes[8..])?;
+    let count = u32::from_be_bytes(rest.get(..4)?.try_into().ok()?) as usize;
+    let history_bytes = rest.get(4..)?;
+    if history_bytes.len() != count.checked_mul(HISTORY_SIZE)? {
+        return None;
+    }
+    let history = history_bytes
+        .chunks(HISTORY_SIZE)
+        .map(|chunk| {
+            Some((
+                AccountSlot::new(
+                    Account::from_slice(&chunk[..32])?,
+                    u64::from_be_bytes(chunk[32..40].try_into().ok()?),
+                ),
+                BlockHash::from_slice(&chunk[40..72])?,
+                BlockHash::from_slice(&chunk[72..104])?,
+            ))
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some(EpochsRecord {
+        origin_unix_ms,
+        frontiers,
+        history,
+    })
+}
+
+/// A flag and the closed round and value, `d_e`, then the frontiers
+fn encode_decided(record: &DecidedRecord) -> Vec<u8> {
+    let mut bytes =
+        Vec::with_capacity(1 + 4 + 32 + 32 + 4 + FRONTIER_SIZE * record.frontiers.len());
+    let (round, value) = record.closed.unwrap_or((0, BlockHash::ZERO));
+    bytes.push(record.closed.is_some() as u8);
+    bytes.extend_from_slice(&round.to_be_bytes());
+    bytes.extend_from_slice(value.as_bytes());
+    bytes.extend_from_slice(record.state_hash.as_bytes());
+    encode_frontiers(&mut bytes, &record.frontiers);
+    bytes
+}
+
+fn decode_decided(epoch: ConsensusEpoch, bytes: &[u8]) -> Option<DecidedRecord> {
+    let closed = match *bytes.first()? {
+        0 => None,
+        1 => Some((
+            u32::from_be_bytes(bytes.get(1..5)?.try_into().ok()?),
+            BlockHash::from_slice(bytes.get(5..37)?)?,
+        )),
+        _ => return None,
+    };
+    let state_hash = BlockHash::from_slice(bytes.get(37..69)?)?;
+    let (frontiers, rest) = decode_frontiers(bytes.get(69..)?)?;
+    if !rest.is_empty() {
+        return None;
+    }
+    Some(DecidedRecord {
+        epoch,
+        closed,
+        state_hash,
+        state: None,
+        frontiers,
+    })
+}
 
 fn slot_key(slot: &EpochSlot) -> Vec<u8> {
     let mut key = Vec::with_capacity(1 + 32 + 8 + 8);
@@ -566,6 +781,54 @@ mod tests {
     use rsnano_types::{PrivateKey, VoteKind};
 
     #[test]
+    fn the_epochs_record_survives_a_reload() {
+        let records = SigningRecords::new_null();
+        let record = EpochsRecord {
+            origin_unix_ms: 1_791_550_000_000,
+            frontiers: vec![frontier(1, 3), frontier(2, 1)],
+            history: vec![(
+                AccountSlot::new(Account::from(1), 2),
+                BlockHash::from(12),
+                BlockHash::from(11),
+            )],
+        };
+
+        records.write_epochs(&record);
+
+        assert_eq!(records.load().epochs, Some(record));
+    }
+
+    #[test]
+    fn decided_epochs_keep_their_frontiers_and_the_latest_two_states() {
+        let records = SigningRecords::new_null();
+        let decided = |epoch: u64| {
+            let mut state = EpochLedger::new();
+            state.finalize_genesis(
+                AccountSlot::new(Account::from(epoch), 1),
+                BlockHash::from(epoch),
+            );
+            DecidedRecord {
+                epoch: ConsensusEpoch::new(epoch),
+                closed: Some((epoch as u32, BlockHash::from(100 + epoch))),
+                state_hash: state.state_hash(),
+                state: Some(Arc::new(state)),
+                frontiers: vec![frontier(epoch, 2)],
+            }
+        };
+
+        records.write_decided(&[decided(0)]);
+        records.write_decided(&[decided(1), decided(2)]);
+
+        let loaded = records.load().decided;
+        assert_eq!(loaded.len(), 3);
+        assert!(loaded[0].state.is_none());
+        assert_eq!(loaded[0].frontiers, decided(0).frontiers);
+        assert_eq!(loaded[0].closed, decided(0).closed);
+        assert_eq!(loaded[1], decided(1));
+        assert_eq!(loaded[2], decided(2));
+    }
+
+    #[test]
     fn slot_records_and_frozen_epochs_survive_a_reload() {
         let records = SigningRecords::new_null();
         let mut state = LocalSlotState::default();
@@ -693,5 +956,19 @@ mod tests {
         let recovered = records.load();
         assert_eq!(recovered.frozen, vec![ConsensusEpoch::new(3)]);
         assert_eq!(recovered.slots.len(), 1);
+    }
+
+    /*
+     * Test helpers
+     */
+
+    fn frontier(account: u64, height: u64) -> AccountFrontier {
+        AccountFrontier {
+            account: Account::from(account),
+            height,
+            hash: BlockHash::from(account * 10 + height),
+            representative: PublicKey::from(account + 50),
+            balance: Amount::raw(1000 * account as u128),
+        }
     }
 }

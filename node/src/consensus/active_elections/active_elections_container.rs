@@ -192,6 +192,17 @@ pub(crate) struct ActiveElectionsContainer {
     /// RAI: the representatives this node votes with, to know when it leads
     /// a close round
     local_reps: Vec<PublicKey>,
+    /// RAI, durable epochs: the setup's frontiers and history the genesis
+    /// state and committee were built from, persisted for a restart
+    genesis_frontiers: Vec<AccountFrontier>,
+    genesis_history: Vec<(AccountSlot, BlockHash, BlockHash)>,
+    /// RAI, durable epochs: the epochs started and that is not persisted yet
+    epochs_record_due: bool,
+    /// RAI, durable epochs: the epochs decided since the last persisting
+    dirty_decided: Vec<crate::consensus::DecidedRecord>,
+    /// RAI: the closes a restart recovered decided: what their certificate
+    /// finalized, as seen from outside; their elections are not run again
+    restored_closes: BTreeMap<ConsensusEpoch, EpochCloseInfo>,
 }
 
 impl ActiveElectionsContainer {
@@ -245,6 +256,11 @@ impl ActiveElectionsContainer {
             closes: BTreeMap::new(),
             close_round_timeout: config.close_round_timeout,
             local_reps: Vec::new(),
+            genesis_frontiers: Vec::new(),
+            genesis_history: Vec::new(),
+            epochs_record_due: false,
+            dirty_decided: Vec::new(),
+            restored_closes: BTreeMap::new(),
         }
     }
 
@@ -257,6 +273,7 @@ impl ActiveElectionsContainer {
                 return;
             }
             self.epochs_started = true;
+            self.epochs_record_due = true;
             self.report_bases.insert(
                 ConsensusEpoch::ZERO,
                 Arc::new(self.genesis_state.report_ledger()),
@@ -290,9 +307,16 @@ impl ActiveElectionsContainer {
         self.local_reps = reps;
     }
 
-    /// RAI: the close elections of the epochs this node has left
+    /// RAI: the close elections of the epochs this node has left, with the
+    /// decided ones a restart recovered, in epoch order
     pub fn epoch_closes(&self) -> Vec<EpochCloseInfo> {
-        self.closes.values().map(|close| close.info()).collect()
+        let mut closes: BTreeMap<ConsensusEpoch, EpochCloseInfo> = self.restored_closes.clone();
+        closes.extend(
+            self.closes
+                .values()
+                .map(|close| (close.epoch(), close.info())),
+        );
+        closes.into_values().collect()
     }
 
     /// RAI: the committees known here, the genesis one first
@@ -448,6 +472,7 @@ impl ActiveElectionsContainer {
             );
         }
         self.genesis_state = Arc::new(genesis);
+        self.genesis_frontiers = frontiers.clone();
         let committee = self.committees.start(frontiers);
         self.log_committee("genesis", &committee);
     }
@@ -462,6 +487,7 @@ impl ActiveElectionsContainer {
             return;
         }
         let mut genesis = (*self.genesis_state).clone();
+        self.genesis_history.extend(history.iter().copied());
         for (slot, hash, previous) in history {
             genesis.finalize_genesis_block(
                 slot,
@@ -1234,6 +1260,16 @@ impl ActiveElectionsContainer {
             .map(|election| (election.account(), election.height()))
             .collect();
         self.slots.remove_epoch_except(epoch, &live);
+        self.dirty_decided.push(crate::consensus::DecidedRecord {
+            epoch,
+            closed: self
+                .closes
+                .get(&epoch)
+                .and_then(|close| close.info().closed),
+            state_hash: state.state_hash(),
+            state: Some(state.clone()),
+            frontiers: frontiers.clone(),
+        });
         self.derive_committee(epoch, frontiers, now);
         self.release_undecided_instances(epoch, now);
     }
@@ -2138,6 +2174,123 @@ impl ActiveElectionsContainer {
                 })
             })
             .collect()
+    }
+
+    /// RAI, durable epochs: what to persist now - how the epochs started,
+    /// once, and the epochs decided since the last call. `unix_now_ms` is
+    /// the wall clock at `now`: the boundaries' origin is persisted in wall
+    /// time, since a restarted node's clock starts again.
+    pub fn take_epoch_records(
+        &mut self,
+        now: Timestamp,
+        unix_now_ms: u64,
+    ) -> (
+        Option<crate::consensus::EpochsRecord>,
+        Vec<crate::consensus::DecidedRecord>,
+    ) {
+        let started = match self.epoch_origin {
+            Some(origin) if self.epochs_record_due => {
+                self.epochs_record_due = false;
+                Some(crate::consensus::EpochsRecord {
+                    origin_unix_ms: unix_now_ms
+                        .saturating_sub(origin.elapsed(now).as_millis() as u64),
+                    frontiers: self.genesis_frontiers.clone(),
+                    history: self.genesis_history.clone(),
+                })
+            }
+            _ => None,
+        };
+        (started, std::mem::take(&mut self.dirty_decided))
+    }
+
+    /// RAI, durable epochs: a restarted node takes up the epochs where it
+    /// left them. The genesis state and committee are built again from the
+    /// setup's frontiers, the committees derived again from each decided
+    /// epoch's frontiers in order, the latest decided states put back, and
+    /// the boundaries aligned to the persisted origin. The node is in the
+    /// epoch after the last one it left (`restore_signing` restored those
+    /// first); every epoch it left and has not seen decided gets its close
+    /// election again, so that it takes part in the close or learns the
+    /// value. Nothing is installed again: the ledger holds what was cemented.
+    pub fn restore_epochs(
+        &mut self,
+        started: Option<crate::consensus::EpochsRecord>,
+        decided: Vec<crate::consensus::DecidedRecord>,
+        now: Timestamp,
+        unix_now_ms: u64,
+    ) {
+        let Some(started) = started else {
+            return;
+        };
+        if self.epochs_started {
+            return;
+        }
+        self.set_genesis_committee(started.frontiers);
+        self.set_genesis_history(started.history);
+        let since_origin =
+            Duration::from_millis(unix_now_ms.saturating_sub(started.origin_unix_ms));
+        self.epochs_started = true;
+        self.epoch_origin = now.checked_sub(since_origin);
+        self.report_bases.insert(
+            ConsensusEpoch::ZERO,
+            Arc::new(self.genesis_state.report_ledger()),
+        );
+        let mut decided = decided;
+        decided.sort_by_key(|record| record.epoch);
+        for record in decided {
+            for (epoch, committee) in self.committees.derive(record.epoch, record.frontiers) {
+                self.log_committee(&epoch.to_string(), &committee);
+            }
+            if let Some(state) = record.state {
+                self.report_bases
+                    .insert(record.epoch.next(), Arc::new(state.report_ledger()));
+                self.decided.insert(record.epoch, state);
+            }
+            self.restored_closes.insert(
+                record.epoch,
+                EpochCloseInfo {
+                    epoch: record.epoch,
+                    ready: true,
+                    value: Some(record.state_hash),
+                    started: true,
+                    round: record.closed.map_or(0, |(round, _)| round),
+                    closed: record.closed,
+                },
+            );
+        }
+        self.current_epoch = self
+            .frozen
+            .iter()
+            .next_back()
+            .map_or(ConsensusEpoch::ZERO, |left| left.next());
+        self.epoch_ends_at = None;
+        self.decided_in_current_epoch = 0;
+        let undecided: Vec<ConsensusEpoch> = self
+            .frozen
+            .iter()
+            .copied()
+            .filter(|epoch| !self.restored_closes.contains_key(epoch))
+            .filter(|epoch| self.epoch_previous_state(*epoch).is_some())
+            .collect();
+        for epoch in &undecided {
+            let leaders = self.close_leaders(*epoch);
+            self.closes.insert(
+                *epoch,
+                EpochClose::new(*epoch, leaders, self.close_round_timeout),
+            );
+        }
+        self.stats.epochs_restored += 1;
+        diagnostic!(
+            "EPOCH_RESTORED epoch={} decided={} states={} closing={} since_origin_ms={}",
+            self.current_epoch,
+            self.restored_closes
+                .keys()
+                .next_back()
+                .map_or("-".to_owned(), |epoch| epoch.to_string()),
+            self.decided.len(),
+            undecided.len(),
+            since_origin.as_millis()
+        );
     }
 
     /// RAI: the retained evidence a restarted node persisted, back in the
@@ -4241,6 +4394,91 @@ mod tests {
                 .epoch_decided_state(ConsensusEpoch::new(2))
                 .is_none()
         );
+    }
+
+    /// RAI, durable epochs: a restarted node takes up the epochs from what
+    /// it persisted: the boundaries' origin, the genesis committee, the
+    /// decided states and committees, and the close of an epoch it left but
+    /// has not seen decided
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn a_restart_takes_up_the_epochs_from_the_durable_records() {
+        let now = Timestamp::new_test_instance();
+        let config = ActiveElectionsConfig {
+            epoch_duration: Duration::from_secs(1),
+            ..Default::default()
+        };
+        let mut container =
+            ActiveElectionsContainer::new(config.clone(), Duration::from_millis(10));
+        let block = SavedBlock::new_test_instance_with_key(1);
+        container.set_genesis_committee(
+            (1..=4)
+                .map(|i| AccountFrontier {
+                    account: PrivateKey::from(10 + i).account(),
+                    height: 1,
+                    hash: BlockHash::from(70 + i),
+                    representative: PrivateKey::from(i).public_key(),
+                    balance: Amount::raw(100),
+                })
+                .collect(),
+        );
+        container
+            .insert(
+                AecInsertRequest::new_priority(block.clone(), BlockPriority::default()),
+                now,
+            )
+            .unwrap();
+        container.start_epochs(now);
+        container.transition_time(now + Duration::from_secs(1));
+        let mut state = EpochLedger::new();
+        state.finalize_genesis(
+            AccountSlot::new(block.account(), block.height()),
+            block.hash(),
+        );
+        let expected = state.state_hash();
+        container.install_decided_checkpoint(ConsensusEpoch::ZERO, Arc::new(state), now);
+
+        // Persisted 1.5 s after the epochs started, at unix time 10,000 ms
+        let (started, decided) =
+            container.take_epoch_records(now + Duration::from_millis(1500), 10_000);
+        let started = started.unwrap();
+        assert_eq!(started.origin_unix_ms, 8_500);
+        assert_eq!(decided.len(), 1);
+        assert!(container.take_epoch_records(now, 10_000).0.is_none());
+
+        // The node is killed after leaving epochs 0 and 1 and restarts with a
+        // fresh clock, 3.2 s after the epochs started
+        let restarted_at = Timestamp::new(5_000_000_000);
+        let mut restarted = ActiveElectionsContainer::new(config, Duration::from_millis(10));
+        restarted.restore_signing(
+            Vec::new(),
+            vec![ConsensusEpoch::ZERO, ConsensusEpoch::new(1)],
+        );
+        restarted.restore_epochs(Some(started), decided, restarted_at, 11_700);
+
+        assert!(restarted.epochs_started());
+        assert_eq!(restarted.current_epoch(), ConsensusEpoch::new(2));
+        assert_eq!(
+            restarted
+                .epoch_decided_state(ConsensusEpoch::ZERO)
+                .unwrap()
+                .state_hash(),
+            expected
+        );
+        assert_eq!(restarted.epoch_committees(), container.epoch_committees());
+        // The boundaries are the same instants as before the restart
+        assert_eq!(
+            restarted.next_boundary(restarted_at),
+            Some(restarted_at + Duration::from_millis(800))
+        );
+        let closes = restarted.epoch_closes();
+        assert_eq!(closes.len(), 2);
+        assert_eq!(closes[0].value, Some(expected));
+        assert_eq!(closes[1].epoch, ConsensusEpoch::new(1));
+        assert_eq!(closes[1].value, None);
+        // A second restore changes nothing
+        restarted.restore_epochs(None, Vec::new(), restarted_at, 11_700);
+        assert_eq!(restarted.current_epoch(), ConsensusEpoch::new(2));
     }
 
     #[test]

@@ -900,6 +900,18 @@ impl Node {
                 );
             }
             active_elections.restore_signing(recovered.slots, recovered.frozen);
+            if let Some(started) = &recovered.epochs {
+                info!(
+                    "RAI: restoring the epochs started at unix ms {} with {} decided epochs",
+                    started.origin_unix_ms,
+                    recovered.decided.len()
+                );
+            }
+            active_elections.restore_epochs(
+                recovered.epochs,
+                recovered.decided,
+                crate::utils::unix_ms() as u64,
+            );
             if !recovered.evidence.is_empty() {
                 info!(
                     "RAI: restored {} retained evidence records",

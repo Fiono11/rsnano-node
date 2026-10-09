@@ -503,6 +503,36 @@ impl AecService {
         self.aec.write().unwrap().restore_evidence(records)
     }
 
+    /// RAI, durable epochs: how the epochs started, once, and the epochs
+    /// decided since the last call
+    pub fn take_epoch_records(
+        &self,
+        unix_now_ms: u64,
+    ) -> (
+        Option<crate::consensus::EpochsRecord>,
+        Vec<crate::consensus::DecidedRecord>,
+    ) {
+        let now = self.clock.now();
+        self.aec
+            .write()
+            .unwrap()
+            .take_epoch_records(now, unix_now_ms)
+    }
+
+    /// RAI, durable epochs: a restarted node takes up the epochs
+    pub fn restore_epochs(
+        &self,
+        started: Option<crate::consensus::EpochsRecord>,
+        decided: Vec<crate::consensus::DecidedRecord>,
+        unix_now_ms: u64,
+    ) {
+        let now = self.clock.now();
+        self.aec
+            .write()
+            .unwrap()
+            .restore_epochs(started, decided, now, unix_now_ms)
+    }
+
     pub fn evidence_votes(
         &self,
         epoch: ConsensusEpoch,

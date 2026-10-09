@@ -532,6 +532,71 @@ impl EpochLedger {
         builder.build()
     }
 
+    /// The whole state as bytes, for the durable epoch records of a restart:
+    /// the finalized blocks, the retained ones and every lock record, each
+    /// section a count and its entries
+    pub fn to_bytes(&self) -> Vec<u8> {
+        const PLACED: usize = 32 + 8 + 32 + 32;
+        let retained: usize = self.notarized.values().map(|blocks| blocks.len()).sum();
+        let records: usize = self.locks.values().map(|records| records.len()).sum();
+        let mut bytes =
+            Vec::with_capacity(12 + PLACED * (self.finalized.len() + retained) + 41 * records);
+        let placed = |bytes: &mut Vec<u8>, slot: &AccountSlot, block: &PlacedBlock| {
+            bytes.extend_from_slice(slot.account.as_bytes());
+            bytes.extend_from_slice(&slot.height.to_be_bytes());
+            bytes.extend_from_slice(block.hash.as_bytes());
+            bytes.extend_from_slice(block.previous.as_bytes());
+        };
+        bytes.extend_from_slice(&(self.finalized.len() as u32).to_be_bytes());
+        for (slot, block) in &self.finalized {
+            placed(&mut bytes, slot, block);
+        }
+        bytes.extend_from_slice(&(retained as u32).to_be_bytes());
+        for (slot, blocks) in &self.notarized {
+            for block in blocks {
+                placed(&mut bytes, slot, block);
+            }
+        }
+        bytes.extend_from_slice(&(records as u32).to_be_bytes());
+        for (hash, records) in &self.locks {
+            for record in records {
+                bytes.extend_from_slice(hash.as_bytes());
+                bytes.push(record.strength as u8);
+                bytes.extend_from_slice(&record.origin.as_u64().to_be_bytes());
+            }
+        }
+        bytes
+    }
+
+    /// The state `to_bytes` wrote; None for bytes it did not write
+    pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        let mut reader = ByteReader(bytes);
+        let mut state = Self::new();
+        for _ in 0..reader.u32()? {
+            let (slot, block) = reader.placed()?;
+            state.finalized.insert(slot, block);
+        }
+        for _ in 0..reader.u32()? {
+            let (slot, block) = reader.placed()?;
+            state.notarized.entry(slot).or_default().insert(block);
+        }
+        for _ in 0..reader.u32()? {
+            let hash = reader.hash()?;
+            let strength = match reader.take(1)?[0] {
+                2 => LockStrength::Notarization,
+                3 => LockStrength::Recovery,
+                _ => return None,
+            };
+            let origin = ConsensusEpoch::new(reader.u64()?);
+            state
+                .locks
+                .entry(hash)
+                .or_default()
+                .insert(LockRecord { strength, origin });
+        }
+        reader.0.is_empty().then_some(state)
+    }
+
     /// A slot the checkpoint kept as a notarized fork, for tests
     #[cfg(test)]
     pub fn retain_for_test(&mut self, slot: AccountSlot, hash: BlockHash, previous: BlockHash) {
@@ -1119,6 +1184,43 @@ fn selected_path(
     }
 }
 
+/// Reads the fixed-size fields of `EpochLedger::to_bytes`
+struct ByteReader<'a>(&'a [u8]);
+
+impl<'a> ByteReader<'a> {
+    fn take(&mut self, len: usize) -> Option<&'a [u8]> {
+        if self.0.len() < len {
+            return None;
+        }
+        let (head, tail) = self.0.split_at(len);
+        self.0 = tail;
+        Some(head)
+    }
+
+    fn u32(&mut self) -> Option<u32> {
+        Some(u32::from_be_bytes(self.take(4)?.try_into().ok()?))
+    }
+
+    fn u64(&mut self) -> Option<u64> {
+        Some(u64::from_be_bytes(self.take(8)?.try_into().ok()?))
+    }
+
+    fn hash(&mut self) -> Option<BlockHash> {
+        BlockHash::from_slice(self.take(32)?)
+    }
+
+    fn placed(&mut self) -> Option<(AccountSlot, PlacedBlock)> {
+        let account = Account::from_slice(self.take(32)?)?;
+        let height = self.u64()?;
+        let hash = self.hash()?;
+        let previous = self.hash()?;
+        Some((
+            AccountSlot::new(account, height),
+            PlacedBlock::new(hash, previous),
+        ))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1128,6 +1230,26 @@ mod tests {
 
     /// RAI, Rule 3: a unique represented closing-epoch NC at the finalized
     /// tip is promoted by the checkpoint; the lock becomes finality
+    #[test]
+    fn a_state_survives_its_byte_encoding() {
+        let mut state = EpochLedger::new();
+        state.finalize_genesis(AccountSlot::new(Account::from(1), 1), BlockHash::from(10));
+        state.retain_for_test(
+            AccountSlot::new(Account::from(2), 3),
+            BlockHash::from(20),
+            BlockHash::from(19),
+        );
+        state.set_lock_for_test(BlockHash::from(30), RetainedKind::Recovery);
+
+        let bytes = state.to_bytes();
+        let decoded = EpochLedger::from_bytes(&bytes).unwrap();
+
+        assert_eq!(decoded, state);
+        assert_eq!(decoded.state_hash(), state.state_hash());
+        assert!(EpochLedger::from_bytes(&bytes[..bytes.len() - 1]).is_none());
+        assert!(EpochLedger::from_bytes(&[bytes.as_slice(), &[0]].concat()).is_none());
+    }
+
     #[test]
     fn a_unique_notarization_at_the_finalized_tip_is_promoted() {
         let mut index = StubIndex::default();

@@ -21,6 +21,7 @@ use crate::{
     },
     consensus::{SigningRecords, active_elections::ActiveElectionsContainer},
     transport::MessageFlooder,
+    utils::unix_ms,
     wallets::WalletRepresentatives,
 };
 
@@ -331,6 +332,13 @@ impl ReportService {
         // the path of this node's own votes; one batch per tick
         self.signing
             .write_evidence(&self.active_elections.take_evidence_records());
+        // Durable epochs: how the epochs started and what each decided, for
+        // a restart; the states are encoded outside the elections' lock
+        let (started, decided) = self.active_elections.take_epoch_records(unix_ms() as u64);
+        if let Some(started) = started {
+            self.signing.write_epochs(&started);
+        }
+        self.signing.write_decided(&decided);
         // A report deferred for want of its predecessor checkpoint is signed
         // once that checkpoint is decided here
         let deferred: Vec<ConsensusEpoch> = self.pending.lock().unwrap().keys().copied().collect();
