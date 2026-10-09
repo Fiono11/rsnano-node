@@ -203,9 +203,11 @@ pub struct RepSlotVotes {
     pub also: Vec<(VoteKind, BlockHash)>,
     /// RAI, "no fast path on early votes": the blocks this identity
     /// first-voted with a settled vote, whose signer had installed the
-    /// predecessor checkpoint of the epoch. Only these count towards a fast
-    /// finalization certificate; early first votes count towards the NC.
-    pub settled: Vec<BlockHash>,
+    /// predecessor checkpoint of the epoch, each with the base the vote
+    /// names. Only those naming the predecessor checkpoint installed here
+    /// count towards a fast finalization certificate (see `SettledBase`);
+    /// early first votes count towards the NC.
+    pub settled: Vec<(BlockHash, BlockHash)>,
 }
 
 impl RepSlotVotes {
@@ -215,16 +217,18 @@ impl RepSlotVotes {
         &mut self,
         hash: BlockHash,
         kind: VoteKind,
-        settled: bool,
+        settled: Option<BlockHash>,
         keep_equivocations: bool,
     ) -> Result<(), VoteError> {
         match kind {
             VoteKind::First => {
-                // The settled signature of a first vote held as early only
-                // adds its settledness
+                // The settled signature of a first vote held as early, or one
+                // naming another base, only adds its settledness
                 if self.voted(kind, &hash) {
-                    if settled && !self.settled.contains(&hash) {
-                        self.settled.push(hash);
+                    if let Some(base) = settled
+                        && !self.settled.contains(&(hash, base))
+                    {
+                        self.settled.push((hash, base));
                         return Ok(());
                     }
                     return Err(VoteError::Replay);
@@ -235,8 +239,8 @@ impl RepSlotVotes {
                     self.first = Some(hash);
                     self.ensure_notar(hash);
                 }
-                if settled {
-                    self.settled.push(hash);
+                if let Some(base) = settled {
+                    self.settled.push((hash, base));
                 }
             }
             VoteKind::Notar => {
@@ -355,7 +359,31 @@ impl RepSlotVotes {
         }
         self.notar.retain(|h| h != hash);
         self.also.retain(|(_, h)| h != hash);
-        self.settled.retain(|h| h != hash);
+        self.settled.retain(|(h, _)| h != hash);
+    }
+}
+
+/// RAI, "Every first vote names its base": which settled first votes an
+/// instance counts towards a fast certificate
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SettledBase {
+    /// Outside the epochs: every settled first vote, whatever it names
+    #[default]
+    Any,
+    /// The predecessor checkpoint is not installed here yet: none. The
+    /// votes are kept, and counted once it is
+    Unknown,
+    /// Those naming the installed predecessor checkpoint's state hash
+    Known(BlockHash),
+}
+
+impl SettledBase {
+    pub fn admits(self, base: &BlockHash) -> bool {
+        match self {
+            SettledBase::Any => true,
+            SettledBase::Unknown => false,
+            SettledBase::Known(state) => state == *base,
+        }
     }
 }
 
@@ -366,6 +394,8 @@ pub struct SlotVotes {
     reps: HashMap<PublicKey, RepSlotVotes>,
     /// One per committee, the instance's own committee first
     tallies: Vec<CommitteeTallies>,
+    /// Which settled first votes count here
+    settled_base: SettledBase,
     /// RAI: an account domain keeps an equivocator's every first and final
     /// vote (see `RepSlotVotes::also`); an epoch-election slot does not
     keep_equivocations: bool,
@@ -386,7 +416,11 @@ struct CommitteeTallies {
 }
 
 impl CommitteeTallies {
-    fn calculate(committee: Arc<Committee>, reps: &HashMap<PublicKey, RepSlotVotes>) -> Self {
+    fn calculate(
+        committee: Arc<Committee>,
+        reps: &HashMap<PublicKey, RepSlotVotes>,
+        settled_base: SettledBase,
+    ) -> Self {
         let weighted = || {
             reps.iter()
                 .map(|(voter, rep)| (rep, committee.weight(voter)))
@@ -395,8 +429,12 @@ impl CommitteeTallies {
         first_tallies
             .calculate_from(weighted().flat_map(|(r, w)| r.first_votes().map(move |h| (h, w))));
         let mut settled_first_tallies = BlockTallies::new();
-        settled_first_tallies
-            .calculate_from(weighted().flat_map(|(r, w)| r.settled.iter().map(move |h| (*h, w))));
+        settled_first_tallies.calculate_from(weighted().flat_map(|(r, w)| {
+            r.settled
+                .iter()
+                .filter(move |(_, base)| settled_base.admits(base))
+                .map(move |(h, _)| (*h, w))
+        }));
         let mut notar_tallies = BlockTallies::new();
         notar_tallies
             .calculate_from(weighted().flat_map(|(r, w)| r.notar.iter().map(move |h| (*h, w))));
@@ -584,11 +622,28 @@ impl SlotVotes {
         kind: VoteKind,
         settled: bool,
     ) -> Result<(), VoteError> {
+        self.add_on(voter, hash, kind, settled.then_some(BlockHash::ZERO))
+    }
+
+    /// Adds a vote; for a settled first vote, the base it names
+    pub fn add_on(
+        &mut self,
+        voter: PublicKey,
+        hash: BlockHash,
+        kind: VoteKind,
+        settled: Option<BlockHash>,
+    ) -> Result<(), VoteError> {
         let keep = self.keep_equivocations;
         self.reps
             .entry(voter)
             .or_default()
             .add(hash, kind, settled, keep)
+    }
+
+    /// RAI: which settled first votes count here; the tallies follow on
+    /// the next calculation
+    pub fn set_settled_base(&mut self, base: SettledBase) {
+        self.settled_base = base;
     }
 
     pub fn rep(&self, voter: &PublicKey) -> Option<&RepSlotVotes> {
@@ -656,7 +711,9 @@ impl SlotVotes {
     pub fn calculate(&mut self, committees: &Committees) {
         self.tallies = committees
             .iter()
-            .map(|committee| CommitteeTallies::calculate(committee.clone(), &self.reps))
+            .map(|committee| {
+                CommitteeTallies::calculate(committee.clone(), &self.reps, self.settled_base)
+            })
             .collect();
     }
 
@@ -1086,6 +1143,59 @@ mod tests {
         pool.calculate(&committee);
         pool.update_certificates(&mut certs);
         assert_eq!(certs.fast, Some(hash(1)));
+    }
+
+    /// RAI, "Every first vote names its base": settled first votes count
+    /// towards a fast certificate only when they name the predecessor
+    /// checkpoint installed here. While it is not, they are held, and
+    /// counted once it is; one naming another base never counts, and a
+    /// second signature naming the installed base adds its settledness.
+    #[test]
+    fn settled_first_votes_count_once_the_base_they_name_is_installed() {
+        let committee = Committees::single(Arc::new(
+            Committee::equal_weight((1..=6).map(rep), 1, 1).unwrap(),
+        ));
+        let installed = hash(100);
+        let mut pool = SlotVotes::account_domain();
+        let mut certs = Certificates::default();
+        pool.set_settled_base(SettledBase::Unknown);
+        for i in 1..=6 {
+            let base = if i == 6 { hash(101) } else { installed };
+            pool.add_on(rep(i), hash(1), VoteKind::First, Some(base))
+                .unwrap();
+        }
+        pool.calculate(&committee);
+        pool.update_certificates(&mut certs);
+        assert!(certs.is_notarized(&hash(1)));
+        assert_eq!(certs.fast, None);
+
+        // Installed: five of the six name it, N - p = 5 of them suffice
+        pool.set_settled_base(SettledBase::Known(installed));
+        pool.calculate(&committee);
+        pool.update_certificates(&mut certs);
+        assert_eq!(certs.fast, Some(hash(1)));
+
+        // Another base installed: none of these count
+        let mut other = SlotVotes::account_domain();
+        let mut other_certs = Certificates::default();
+        other.set_settled_base(SettledBase::Known(hash(102)));
+        for i in 1..=6 {
+            other
+                .add_on(rep(i), hash(1), VoteKind::First, Some(installed))
+                .unwrap();
+        }
+        other.calculate(&committee);
+        other.update_certificates(&mut other_certs);
+        assert_eq!(other_certs.fast, None);
+        // A second signature naming the installed base adds its settledness
+        assert_eq!(
+            other.add_on(rep(1), hash(1), VoteKind::First, Some(hash(102))),
+            Ok(())
+        );
+        assert_eq!(
+            other.add_on(rep(1), hash(1), VoteKind::First, Some(hash(102))),
+            Err(VoteError::Replay)
+        );
     }
 
     #[test]

@@ -189,6 +189,11 @@ impl AecService {
 
     /// RAI: the frontiers of every account at the end of the setup: the
     /// genesis committee, and the base the epochs' committees are counted on
+    /// RAI: the checkpoint bases this node's vote generators read
+    pub fn set_checkpoint_bases(&self, bases: std::sync::Arc<crate::consensus::CheckpointBases>) {
+        self.aec.write().unwrap().set_checkpoint_bases(bases)
+    }
+
     pub fn set_genesis_committee(&self, frontiers: Vec<AccountFrontier>) {
         self.aec.write().unwrap().set_genesis_committee(frontiers)
     }

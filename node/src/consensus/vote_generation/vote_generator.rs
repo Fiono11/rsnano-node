@@ -21,6 +21,7 @@ use rsnano_utils::{
 
 use super::{LocalVoteHistory, SignedVoteLog, VoteSpacing};
 use crate::{
+    consensus::CheckpointBases,
     consensus::{VoteBroadcaster, election::VoteType},
     transport::MessageSender,
     utils::ProcessingQueue,
@@ -67,6 +68,7 @@ impl VoteGenerator {
         vote_broadcaster: Arc<VoteBroadcaster>,
         clock: Arc<SteadyClock>,
         signed_log: Arc<SignedVoteLog>,
+        bases: Arc<CheckpointBases>,
     ) -> Self {
         let kind = VoteKind::from(vote_type);
         let early = vote_type == VoteType::EarlyFirst;
@@ -90,6 +92,7 @@ impl VoteGenerator {
             vote_generator_delay,
             clock,
             signed_log,
+            bases,
         });
 
         let shared_state_clone = Arc::clone(&shared_state);
@@ -264,6 +267,8 @@ struct SharedState {
     vote_generator_delay: Duration,
     clock: Arc<SteadyClock>,
     signed_log: Arc<SignedVoteLog>,
+    /// RAI: the checkpoints first votes name as their base
+    bases: Arc<CheckpointBases>,
 }
 
 impl SharedState {
@@ -370,6 +375,7 @@ impl SharedState {
             .unwrap()
             .rep_priv_keys(&mut rep_keys);
 
+        let base = self.bases.first_vote_base(epoch, self.early);
         let mut votes = Vec::new();
         for rep_key in rep_keys.drain(..) {
             votes.push(Arc::new(Vote::new_in_epoch_as(
@@ -377,6 +383,7 @@ impl SharedState {
                 self.kind,
                 self.early,
                 epoch,
+                base,
                 hashes.to_vec(),
             )));
         }

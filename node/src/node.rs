@@ -614,6 +614,9 @@ impl Node {
             Arc::new(SignedVoteLog::new_null())
         };
 
+        // RAI: the decided checkpoints first votes name as their base, which
+        // the active elections record and the vote generators read
+        let checkpoint_bases = Arc::new(crate::consensus::CheckpointBases::default());
         let vote_generators = Arc::new(VoteGenerators::new(
             ledger.clone(),
             wallet_reps.clone(),
@@ -625,6 +628,7 @@ impl Node {
             message_sender.clone(),
             steady_clock.clone(),
             signed_vote_log,
+            checkpoint_bases.clone(),
         ));
 
         let base_latency = match current_network {
@@ -641,6 +645,7 @@ impl Node {
             base_latency,
         ));
         active_elections.set_observer(aec_tx.clone());
+        active_elections.set_checkpoint_bases(checkpoint_bases);
 
         let block_rate_calculator = BlockRateCalculator::new(steady_clock.clone(), ledger.clone());
         let block_rates = block_rate_calculator.rates().clone();

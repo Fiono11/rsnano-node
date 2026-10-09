@@ -41,8 +41,9 @@ pub(crate) struct HashSupport {
     pub late: BTreeSet<PublicKey>,
     /// RAI, "no fast path on early votes": the first voters whose first vote
     /// was settled, cast after installing the epoch's predecessor
-    /// checkpoint; only these count towards a fast certificate
-    pub settled: BTreeSet<PublicKey>,
+    /// checkpoint, with the base each names; only those naming the
+    /// installed predecessor count towards a fast certificate
+    pub settled: BTreeSet<(PublicKey, BlockHash)>,
     /// Where the block sits, once a vote for it was placed here: what tells
     /// whether the support can still discharge a lock record at a position
     slot: Option<AccountSlot>,
@@ -58,6 +59,15 @@ impl HashSupport {
     /// Where the block sits, if a vote for it was placed here
     pub fn slot(&self) -> Option<AccountSlot> {
         self.slot
+    }
+
+    /// The settled first voters whose vote names the given base: none
+    /// while the predecessor checkpoint is not installed here
+    pub fn settled_on(&self, base: Option<BlockHash>) -> impl Iterator<Item = &PublicKey> {
+        self.settled
+            .iter()
+            .filter(move |(_, named)| Some(*named) == base)
+            .map(|(voter, _)| voter)
     }
 
     /// Every member supporting the block in the epoch: first votes, late
@@ -112,8 +122,9 @@ impl VoteRecords {
             let new = voters.insert(vote.voter);
             // A settled signature of a first vote held as early is evidence
             // of its own: it is what a fast certificate is assembled from
-            let settled =
-                kind == VoteKind::First && !vote.is_early() && support.settled.insert(vote.voter);
+            let settled = kind == VoteKind::First
+                && !vote.is_early()
+                && support.settled.insert((vote.voter, vote.base));
             if new || settled {
                 support.votes.push(vote.clone());
             }
@@ -164,9 +175,11 @@ impl VoteRecords {
         epoch: ConsensusEpoch,
         voter: &PublicKey,
         hash: &BlockHash,
+        base: Option<BlockHash>,
     ) -> bool {
-        self.support(epoch, hash)
-            .is_some_and(|support| support.settled.contains(voter))
+        self.support(epoch, hash).is_some_and(|support| {
+            base.is_some_and(|base| support.settled.contains(&(*voter, base)))
+        })
     }
 
     /// RAI: whether this node holds a voter's late notarization for a block

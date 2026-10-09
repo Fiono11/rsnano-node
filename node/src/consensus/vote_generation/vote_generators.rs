@@ -16,7 +16,7 @@ use rsnano_utils::{
 use super::{LocalVoteHistory, SignedVoteLog, vote_generator::VoteGenerator};
 use crate::{
     config::{NetworkParams, NodeConfig},
-    consensus::{VoteBroadcaster, election::VoteType},
+    consensus::{CheckpointBases, VoteBroadcaster, election::VoteType},
     transport::MessageSender,
     wallets::WalletRepresentatives,
 };
@@ -36,6 +36,8 @@ pub struct VoteGenerators {
     voting_delay: Duration,
     wallet_reps: Arc<Mutex<WalletRepresentatives>>,
     stats: Arc<Stats>,
+    /// RAI: the checkpoints first votes name as their base
+    bases: Arc<CheckpointBases>,
 }
 
 impl VoteGenerators {
@@ -57,6 +59,7 @@ impl VoteGenerators {
         message_sender: MessageSender,
         clock: Arc<SteadyClock>,
         signed_log: Arc<SignedVoteLog>,
+        bases: Arc<CheckpointBases>,
     ) -> Self {
         let voting_delay = Self::voting_delay_for(network_params.network.current_network);
 
@@ -90,6 +93,7 @@ impl VoteGenerators {
                     vote_broadcaster.clone(),
                     clock.clone(),
                     signed_log.clone(),
+                    bases.clone(),
                 );
                 (vote_type, generator)
             })
@@ -101,6 +105,7 @@ impl VoteGenerators {
             voting_delay,
             wallet_reps,
             stats,
+            bases,
         }
     }
 
@@ -125,6 +130,7 @@ impl VoteGenerators {
             message_sender,
             clock,
             Arc::new(SignedVoteLog::new_null()),
+            Arc::new(CheckpointBases::default()),
         )
     }
 
@@ -197,6 +203,17 @@ impl VoteGenerators {
 
     pub fn voting_enabled(&self) -> bool {
         self.wallet_reps.lock().unwrap().voting_enabled()
+    }
+
+    /// RAI: the base a vote of this type signed now names: the checkpoint
+    /// a first vote is cast on, zero for any other kind
+    pub fn vote_base(&self, vote_type: VoteType, epoch: ConsensusEpoch) -> BlockHash {
+        if vote_type.is_first() {
+            self.bases
+                .first_vote_base(epoch, vote_type == VoteType::EarlyFirst)
+        } else {
+            BlockHash::ZERO
+        }
     }
 
     /// The private keys of this node's voting representatives

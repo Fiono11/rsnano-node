@@ -138,7 +138,7 @@ pub struct Vote {
     // Account that's voting
     pub voter: PublicKey,
 
-    // Signature of timestamp + block hashes (+ epoch under the RAI protocol)
+    // Signature of timestamp + block hashes (+ epoch and base under the RAI protocol)
     pub signature: Signature,
 
     // The hashes for which this vote directly covers
@@ -148,6 +148,14 @@ pub struct Vote {
     /// payload and of the wire format under the `rai_protocol` feature only;
     /// the legacy protocol has the single implicit epoch zero.
     pub epoch: ConsensusEpoch,
+
+    /// RAI, "Every first vote names its base": for a first vote, the state
+    /// hash `d` of the checkpoint the signer cast it on - the predecessor
+    /// checkpoint of the vote's epoch for a settled vote, the last closed
+    /// one before it for an early vote - and zero for every other kind or
+    /// when the signer held no such checkpoint. Signed and on the wire under
+    /// the `rai_protocol` feature only.
+    pub base: BlockHash,
 }
 
 static HASH_PREFIX: &str = "vote ";
@@ -161,6 +169,7 @@ impl Vote {
             signature: Signature::new(),
             hashes: Vec::new(),
             epoch: ConsensusEpoch::ZERO,
+            base: BlockHash::ZERO,
         }
     }
 
@@ -191,19 +200,20 @@ impl Vote {
         kind: VoteKind,
         early: bool,
         epoch: ConsensusEpoch,
+        base: BlockHash,
         hashes: Vec<BlockHash>,
     ) -> Self {
-        if early && kind == VoteKind::First {
-            Self::sign(
-                key,
-                UnixMillisTimestamp::now(),
-                VoteKind::EARLY_FIRST_BITS,
-                epoch,
-                hashes,
-            )
+        let duration = if early && kind == VoteKind::First {
+            VoteKind::EARLY_FIRST_BITS
         } else {
-            Self::new_in_epoch(key, kind, epoch, hashes)
-        }
+            kind.duration_bits()
+        };
+        let (timestamp, base) = match kind {
+            VoteKind::Final => (Self::TIMESTAMP_MAX, BlockHash::ZERO),
+            VoteKind::First => (UnixMillisTimestamp::now(), base),
+            _ => (UnixMillisTimestamp::now(), BlockHash::ZERO),
+        };
+        Self::sign_on(key, timestamp, duration, epoch, base, hashes)
     }
 
     /// RAI: a vote of the given kind for one consensus epoch
@@ -247,6 +257,24 @@ impl Vote {
         epoch: ConsensusEpoch,
         hashes: Vec<BlockHash>,
     ) -> Self {
+        Self::sign_on(
+            priv_key,
+            timestamp,
+            duration,
+            epoch,
+            BlockHash::ZERO,
+            hashes,
+        )
+    }
+
+    fn sign_on(
+        priv_key: &PrivateKey,
+        timestamp: UnixMillisTimestamp,
+        duration: u8,
+        epoch: ConsensusEpoch,
+        base: BlockHash,
+        hashes: Vec<BlockHash>,
+    ) -> Self {
         assert!(hashes.len() <= Self::MAX_HASHES);
         let mut result = Self {
             voter: priv_key.public_key(),
@@ -254,6 +282,11 @@ impl Vote {
             signature: Signature::new(),
             hashes,
             epoch,
+            base: if Self::EPOCH_ON_WIRE {
+                base
+            } else {
+                BlockHash::ZERO
+            },
         };
         result.signature = priv_key.sign(result.hash().as_bytes());
         result
@@ -309,7 +342,9 @@ impl Vote {
 
         builder = builder.update(self.timestamp.to_ne_bytes());
         if Self::EPOCH_ON_WIRE {
-            builder = builder.update(self.epoch.as_u64().to_le_bytes());
+            builder = builder
+                .update(self.epoch.as_u64().to_le_bytes())
+                .update(self.base.as_bytes());
         }
         builder.build()
     }
@@ -324,10 +359,13 @@ impl Vote {
         let mut buffer = [0; 8];
         bytes.read_exact(&mut buffer)?;
         let timestamp = VoteTimestamp::from_le_bytes(buffer);
-        let epoch = if Self::EPOCH_ON_WIRE {
-            ConsensusEpoch::deserialize(&mut bytes)?
+        let (epoch, base) = if Self::EPOCH_ON_WIRE {
+            (
+                ConsensusEpoch::deserialize(&mut bytes)?,
+                BlockHash::deserialize(&mut bytes)?,
+            )
         } else {
-            ConsensusEpoch::ZERO
+            (ConsensusEpoch::ZERO, BlockHash::ZERO)
         };
         let mut hashes = Vec::new();
         while !bytes.is_empty() && hashes.len() < Self::MAX_HASHES {
@@ -339,6 +377,7 @@ impl Vote {
             signature,
             hashes,
             epoch,
+            base,
         })
     }
 
@@ -350,7 +389,7 @@ impl Vote {
         Account::SERIALIZED_SIZE
         + Signature::SERIALIZED_SIZE
         + std::mem::size_of::<u64>() // timestamp
-        + if Self::EPOCH_ON_WIRE { ConsensusEpoch::SERIALIZED_SIZE } else { 0 }
+        + if Self::EPOCH_ON_WIRE { ConsensusEpoch::SERIALIZED_SIZE + BlockHash::SERIALIZED_SIZE } else { 0 }
         + (BlockHash::SERIALIZED_SIZE * count)
     }
 
@@ -363,6 +402,7 @@ impl Vote {
         writer.write_all(&self.timestamp.to_le_bytes())?;
         if Self::EPOCH_ON_WIRE {
             self.epoch.serialize(writer)?;
+            self.base.serialize(writer)?;
         }
         for hash in &self.hashes {
             hash.serialize(writer)?;
@@ -378,6 +418,7 @@ impl PartialEq for Vote {
             && self.signature == other.signature
             && self.hashes == other.hashes
             && self.epoch == other.epoch
+            && self.base == other.base
     }
 }
 
@@ -468,8 +509,10 @@ mod tests {
     fn an_early_first_vote_is_a_signed_first_vote() {
         let key = PrivateKey::from(1);
         let epoch = ConsensusEpoch::new(2);
-        let early = Vote::new_in_epoch_as(&key, VoteKind::First, true, epoch, vec![1.into()]);
-        let settled = Vote::new_in_epoch_as(&key, VoteKind::First, false, epoch, vec![1.into()]);
+        let base = BlockHash::from(9);
+        let early = Vote::new_in_epoch_as(&key, VoteKind::First, true, epoch, base, vec![1.into()]);
+        let settled =
+            Vote::new_in_epoch_as(&key, VoteKind::First, false, epoch, base, vec![1.into()]);
         assert_eq!(early.kind(), VoteKind::First);
         assert!(early.is_early());
         assert!(!settled.is_early());
@@ -480,8 +523,35 @@ mod tests {
         assert!(back.is_early());
         assert!(back.validate().is_ok());
         // Only a first vote is marked
-        let final_ = Vote::new_in_epoch_as(&key, VoteKind::Final, true, epoch, vec![1.into()]);
+        let final_ =
+            Vote::new_in_epoch_as(&key, VoteKind::Final, true, epoch, base, vec![1.into()]);
         assert!(!final_.is_early());
+    }
+
+    /// RAI, "Every first vote names its base": the base is signed and
+    /// travels with the vote; only a first vote names one
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn a_first_vote_names_its_signed_base() {
+        let key = PrivateKey::from(1);
+        let epoch = ConsensusEpoch::new(2);
+        let base = BlockHash::from(9);
+        let vote = Vote::new_in_epoch_as(&key, VoteKind::First, false, epoch, base, vec![1.into()]);
+        let mut bytes = Vec::new();
+        vote.serialize(&mut bytes).unwrap();
+        assert_eq!(bytes.len(), Vote::serialized_size(1));
+        let back = Vote::deserialize(&bytes).unwrap();
+        assert_eq!(back.base, base);
+        assert!(back.validate().is_ok());
+
+        let mut other = back.clone();
+        other.base = BlockHash::from(10);
+        assert!(other.validate().is_err());
+
+        let final_ =
+            Vote::new_in_epoch_as(&key, VoteKind::Final, false, epoch, base, vec![1.into()]);
+        assert_eq!(final_.base, BlockHash::ZERO);
+        assert!(final_.is_final());
     }
 
     #[test]

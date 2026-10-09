@@ -19,7 +19,7 @@ use super::{
     ConfirmationType, ConfirmedElection, ElectionId, ElectionState,
     block_tallies::BlockTallies,
     committee::Committees,
-    kudzu::{Certificates, LocalSlotState, SlotVotes, kudzu_state},
+    kudzu::{Certificates, LocalSlotState, SettledBase, SlotVotes, kudzu_state},
 };
 use rustc_hash::FxHashMap;
 
@@ -50,13 +50,21 @@ impl VoteType {
         matches!(self, VoteType::NonFinal | VoteType::EarlyFirst)
     }
 
-    /// The vote this type of statement is signed as
-    pub fn sign(self, key: &PrivateKey, epoch: ConsensusEpoch, hashes: Vec<BlockHash>) -> Vote {
+    /// The vote this type of statement is signed as, a first vote naming
+    /// the base it was cast on
+    pub fn sign(
+        self,
+        key: &PrivateKey,
+        epoch: ConsensusEpoch,
+        base: BlockHash,
+        hashes: Vec<BlockHash>,
+    ) -> Vote {
         Vote::new_in_epoch_as(
             key,
             VoteKind::from(self),
             self == VoteType::EarlyFirst,
             epoch,
+            base,
             hashes,
         )
     }
@@ -330,8 +338,14 @@ impl Election {
         if !matches!(vote.kind(), VoteKind::First | VoteKind::Final) {
             return Err(VoteError::Ignored);
         }
-        self.kudzu
-            .add(vote.voter, hash, vote.kind(), !vote.is_early())?;
+        // A settled first vote counts towards a fast certificate once its
+        // base is the predecessor checkpoint installed here
+        self.kudzu.add_on(
+            vote.voter,
+            hash,
+            vote.kind(),
+            (!vote.is_early()).then_some(vote.base),
+        )?;
         self.votes.insert(
             vote.voter,
             VoteSummary::new(vote.voter, hash, vote.timestamp(), vote_received),
@@ -729,6 +743,13 @@ impl Election {
     /// RAI, "Where a block may be voted on": the predecessor checkpoint is
     /// decided (or not yet). Once it is, the certificates the tallies
     /// already support come out, and the final vote may be cast.
+    /// RAI, "Every first vote names its base": which settled first votes
+    /// count towards a fast certificate here; set before the tallies are
+    /// next calculated (see `set_predecessor_decided`)
+    pub fn set_settled_base(&mut self, base: SettledBase) {
+        self.kudzu.set_settled_base(base);
+    }
+
     pub fn set_predecessor_decided(&mut self, decided: bool) {
         self.predecessor_decided = decided;
         if decided && let Some(committees) = self.committees.clone() {

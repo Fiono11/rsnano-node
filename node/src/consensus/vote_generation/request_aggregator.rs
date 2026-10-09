@@ -564,9 +564,10 @@ impl RequestAggregatorLoop {
             let keys = self.vote_generators.rep_priv_keys();
             let mut sender = self.message_sender.lock().unwrap();
             for (vote_type, hashes) in batches {
+                let base = self.vote_generators.vote_base(vote_type, request.epoch);
                 for chunk in hashes.chunks(Vote::MAX_HASHES) {
                     for key in &keys {
-                        let vote = vote_type.sign(key, request.epoch, chunk.to_vec());
+                        let vote = vote_type.sign(key, request.epoch, base, chunk.to_vec());
                         let ack =
                             Message::ConfirmAck(ConfirmAck::new_with_certificate_evidence(vote));
                         sender.try_send(&request.channel, &ack, TrafficType::Vote);

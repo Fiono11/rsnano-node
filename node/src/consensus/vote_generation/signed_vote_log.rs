@@ -67,8 +67,9 @@ impl SignedVoteLog {
     }
 }
 
-/// `SIGNED voter=<hex> kind=<kind> epoch=<raw u64> ts=<ms> <root>:<hash> ...`
-/// The raw epoch keeps close rounds apart (top bit, round in the low bits)
+/// `SIGNED voter=<hex> kind=<kind> epoch=<raw u64> ts=<ms> [base=<hex>] <root>:<hash> ...`
+/// The raw epoch keeps close rounds apart (top bit, round in the low bits);
+/// a first vote names the checkpoint it was cast on
 fn signed_vote_line(vote: &Vote, roots: &[Root]) -> String {
     let kind = match vote.kind() {
         VoteKind::First if vote.is_early() => "early",
@@ -83,6 +84,9 @@ fn signed_vote_line(vote: &Vote, roots: &[Root]) -> String {
         vote.epoch.as_u64(),
         vote.timestamp().as_u64()
     );
+    if vote.kind() == VoteKind::First {
+        let _ = write!(line, " base={}", vote.base);
+    }
     for (root, hash) in roots.iter().zip(&vote.hashes) {
         let _ = write!(line, " {root}:{hash}");
     }
@@ -106,6 +110,7 @@ mod tests {
             VoteKind::Final,
             false,
             ConsensusEpoch::new(3),
+            BlockHash::ZERO,
             vec![BlockHash::from(7), BlockHash::from(8)],
         );
 
@@ -137,12 +142,14 @@ mod tests {
             VoteKind::First,
             true,
             ConsensusEpoch::new(1),
+            BlockHash::from(5),
             vec![BlockHash::from(7)],
         );
 
         log.record(&vote, &[Root::from(1)]);
 
         assert!(tracker.output()[0].contains(" kind=early "));
+        assert!(tracker.output()[0].contains(&format!(" base={} ", BlockHash::from(5))));
     }
 
     #[test]
@@ -157,6 +164,7 @@ mod tests {
             VoteKind::First,
             false,
             ConsensusEpoch::new(0),
+            BlockHash::ZERO,
             vec![BlockHash::from(7)],
         );
 

@@ -39,7 +39,7 @@ use crate::{
 };
 
 use crate::consensus::election::{
-    AccountSlot, CertifiedBlock, EpochLedger, EpochValue, ResidualKind,
+    AccountSlot, CertifiedBlock, EpochLedger, EpochValue, ResidualKind, SettledBase,
 };
 
 use super::{
@@ -191,6 +191,9 @@ pub(crate) struct ActiveElectionsContainer {
     /// RAI: when the current epoch, while it has no election, is next probed
     /// for a close the members already hold (see `idle_epoch_probe`)
     idle_probe_due: Option<Timestamp>,
+    /// RAI: the state hashes of the installed checkpoints, the bases first
+    /// votes name; shared with the vote generators
+    checkpoint_bases: Arc<crate::consensus::CheckpointBases>,
     /// RAI: the close elections of the epochs this node has left
     closes: BTreeMap<ConsensusEpoch, EpochClose>,
     /// RAI: Δ_E of a close round
@@ -268,6 +271,7 @@ impl ActiveElectionsContainer {
             report_bases: BTreeMap::new(),
             epoch_voters: BTreeMap::new(),
             close_voters: BTreeMap::new(),
+            checkpoint_bases: Default::default(),
             idle_probe_due: None,
             closes: BTreeMap::new(),
             close_round_timeout: config.close_round_timeout,
@@ -293,6 +297,8 @@ impl ActiveElectionsContainer {
             }
             self.epochs_started = true;
             self.epochs_record_due = true;
+            self.checkpoint_bases
+                .set_genesis(self.genesis_state.state_hash());
             self.report_bases.insert(
                 ConsensusEpoch::ZERO,
                 Arc::new(self.genesis_state.report_ledger()),
@@ -1385,6 +1391,7 @@ impl ActiveElectionsContainer {
             return;
         }
         self.decided.insert(epoch, state.clone());
+        self.checkpoint_bases.insert(epoch, state.state_hash());
         self.report_bases
             .insert(epoch.next(), Arc::new(state.report_ledger()));
         self.report_bases
@@ -1652,11 +1659,13 @@ impl ActiveElectionsContainer {
             .filter(|election| election.epoch() == epoch && !election.predecessor_decided())
             .map(|election| election.id())
             .collect();
+        let settled_base = self.settled_base_for(epoch);
         let mut result = ApplyVoteResult::default();
         for id in &ids {
             let Some(election) = self.roots.election_mut(id) else {
                 continue;
             };
+            election.set_settled_base(settled_base);
             election.set_predecessor_decided(true);
             if election.is_confirmed() {
                 election_got_confirmed(
@@ -1688,6 +1697,22 @@ impl ActiveElectionsContainer {
     /// RAI: whether the checkpoint before an epoch is decided here, which
     /// is what the epoch's instances need before any of them is final.
     /// Before the epochs of a run start there is nothing to wait for.
+    /// RAI, "Every first vote names its base": which settled first votes
+    /// count towards a fast certificate in an instance of an epoch: those
+    /// naming its predecessor checkpoint, once installed here; before the
+    /// epochs started, every one
+    fn settled_base_for(&self, epoch: ConsensusEpoch) -> SettledBase {
+        if !self.epochs_started {
+            return SettledBase::Any;
+        }
+        self.checkpoint_bases.settled_base(epoch)
+    }
+
+    /// RAI: the checkpoint bases this node's vote generators read
+    pub fn set_checkpoint_bases(&mut self, bases: Arc<crate::consensus::CheckpointBases>) {
+        self.checkpoint_bases = bases;
+    }
+
     fn predecessor_decided_for(&self, epoch: ConsensusEpoch) -> bool {
         if !self.epochs_started {
             return true;
@@ -2428,6 +2453,8 @@ impl ActiveElectionsContainer {
         let since_origin =
             Duration::from_millis(unix_now_ms.saturating_sub(started.origin_unix_ms));
         self.epochs_started = true;
+        self.checkpoint_bases
+            .set_genesis(self.genesis_state.state_hash());
         self.epoch_origin = now.checked_sub(since_origin);
         self.report_bases.insert(
             ConsensusEpoch::ZERO,
@@ -2442,6 +2469,8 @@ impl ActiveElectionsContainer {
             if let Some(state) = record.state {
                 self.report_bases
                     .insert(record.epoch.next(), Arc::new(state.report_ledger()));
+                self.checkpoint_bases
+                    .insert(record.epoch, state.state_hash());
                 self.decided.insert(record.epoch, state);
             }
             self.restored_closes.insert(
@@ -3031,6 +3060,7 @@ impl ActiveElectionsContainer {
             self.base_latency,
             now,
         );
+        election.set_settled_base(self.settled_base_for(epoch));
         election.set_predecessor_decided(self.predecessor_decided_for(epoch));
 
         self.roots.insert(Entry {
@@ -3860,8 +3890,10 @@ impl ActiveElectionsContainer {
         Some(crate::consensus::election::CertificateKinds {
             notarization: weight(&mut notarizing.into_iter()) >= thresholds.certificate,
             finalization: weight(&mut support.final_.iter()) >= thresholds.certificate,
-            // "An FF_e(B) is a set of N − p settled first votes"
-            fast: weight(&mut support.settled.iter()) >= thresholds.fast,
+            // "An FF_e(B) is a set of N − p settled first votes", naming the
+            // predecessor checkpoint as their base
+            fast: weight(&mut support.settled_on(self.checkpoint_bases.before(epoch, 1)))
+                >= thresholds.fast,
         })
     }
 
@@ -3956,7 +3988,11 @@ impl ActiveElectionsContainer {
                 first: order.mask(support.first.iter().copied()),
                 final_: order.mask(support.final_.iter().copied()),
                 late: order.mask(support.late.iter().copied()),
-                settled: order.mask(support.settled.iter().copied()),
+                settled: order.mask(
+                    support
+                        .settled_on(self.checkpoint_bases.before(*epoch, 1))
+                        .copied(),
+                ),
                 overlap: false,
             });
         }
@@ -3991,8 +4027,12 @@ impl ActiveElectionsContainer {
                     self.vote_records
                         .has_late_vote(entry.epoch, voter, &entry.hash)
                 }) && order.members(entry.settled).all(|voter| {
-                    self.vote_records
-                        .has_settled_vote(entry.epoch, voter, &entry.hash)
+                    self.vote_records.has_settled_vote(
+                        entry.epoch,
+                        voter,
+                        &entry.hash,
+                        self.checkpoint_bases.before(entry.epoch, 1),
+                    )
                 });
             if !held {
                 missing.push((entry.epoch, entry.hash));
@@ -6019,30 +6059,37 @@ mod tests {
             container.insert_for_vote(block.clone(), epoch1, now);
         }
         // Every first vote for the child arrives first: a fast tally, but no
-        // closing-epoch NC and an unfinalized parent
+        // closing-epoch NC and an unfinalized parent. The votes are settled,
+        // naming the predecessor checkpoint this node has not installed yet
+        let predecessor = EpochLedger::new().state_hash();
         for rep in &reps {
-            vote_in(
+            settled_vote_in(
                 &mut container,
                 rep,
                 VoteKind::First,
                 epoch1,
+                predecessor,
                 child.hash(),
                 &rep_weights,
                 now,
             );
         }
         assert!(!container.finalized_in_epoch(&child.hash(), epoch1));
-        // The parent finalizes early: carried NC on finalized history
-        for rep in &reps {
-            vote_in(
-                &mut container,
-                rep,
-                VoteKind::First,
-                epoch1,
-                parent.hash(),
-                &rep_weights,
-                now,
-            );
+        // The parent finalizes early: carried NC on finalized history, and
+        // a finalization certificate (settled first votes count towards a
+        // fast one only where their base is installed)
+        for kind in [VoteKind::First, VoteKind::Final] {
+            for rep in &reps {
+                vote_in(
+                    &mut container,
+                    rep,
+                    kind,
+                    epoch1,
+                    parent.hash(),
+                    &rep_weights,
+                    now,
+                );
+            }
         }
         assert!(container.finalized_in_epoch(&parent.hash(), epoch1));
         assert!(!container.finalized_in_epoch(&child.hash(), epoch1));
@@ -6053,9 +6100,10 @@ mod tests {
                 .overlap_eligible()
         );
 
-        container
-            .decided
-            .insert(ConsensusEpoch::ZERO, Arc::new(EpochLedger::new()));
+        assert_eq!(
+            install_empty_predecessor(&mut container, epoch1),
+            predecessor
+        );
         container.release_predecessor_gate(epoch1, now);
         assert!(container.finalized_in_epoch(&child.hash(), epoch1));
     }
@@ -6514,6 +6562,11 @@ mod tests {
                 history.finalize_genesis(AccountSlot::new(fresh.account(), 1), fresh.previous());
             });
             let epoch1 = ConsensusEpoch::new(1);
+            // A settled first vote names the predecessor checkpoint, and
+            // counts towards a fast certificate where that is installed
+            if !early {
+                install_empty_predecessor(&mut container, epoch1);
+            }
             container
                 .insert(
                     AecInsertRequest::new_priority(
@@ -6995,8 +7048,48 @@ mod tests {
         rep_weights: &RepWeights,
         now: Timestamp,
     ) {
-        let vote = Arc::new(Vote::new_in_epoch(rep, kind, epoch, vec![hash]));
+        // A settled first vote names the predecessor checkpoint this node
+        // installed, as its signer's would
+        let base = container.checkpoint_bases.first_vote_base(epoch, false);
+        settled_vote_in(container, rep, kind, epoch, base, hash, rep_weights, now);
+    }
+
+    /// A vote whose first vote names the given base
+    #[cfg(feature = "rai_protocol")]
+    fn settled_vote_in(
+        container: &mut ActiveElectionsContainer,
+        rep: &PrivateKey,
+        kind: VoteKind,
+        epoch: ConsensusEpoch,
+        base: BlockHash,
+        hash: BlockHash,
+        rep_weights: &RepWeights,
+        now: Timestamp,
+    ) {
+        let vote = Arc::new(Vote::new_in_epoch_as(
+            rep,
+            kind,
+            false,
+            epoch,
+            base,
+            vec![hash],
+        ));
         apply(container, vote, rep_weights, now);
+    }
+
+    /// RAI: installs an empty predecessor checkpoint of an epoch directly,
+    /// as the tests that insert one do; its state hash
+    #[cfg(feature = "rai_protocol")]
+    fn install_empty_predecessor(
+        container: &mut ActiveElectionsContainer,
+        epoch: ConsensusEpoch,
+    ) -> BlockHash {
+        let before = ConsensusEpoch::new(epoch.as_u64() - 1);
+        let state = EpochLedger::new();
+        let hash = state.state_hash();
+        container.decided.insert(before, Arc::new(state));
+        container.checkpoint_bases.insert(before, hash);
+        hash
     }
 
     /// An early first vote: its signer had not installed the predecessor
@@ -7010,7 +7103,7 @@ mod tests {
         rep_weights: &RepWeights,
         now: Timestamp,
     ) {
-        let vote = Arc::new(VoteType::EarlyFirst.sign(rep, epoch, vec![hash]));
+        let vote = Arc::new(VoteType::EarlyFirst.sign(rep, epoch, BlockHash::ZERO, vec![hash]));
         apply(container, vote, rep_weights, now);
     }
 

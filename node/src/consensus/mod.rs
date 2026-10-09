@@ -7,6 +7,7 @@ mod bootstrap_election_activator;
 mod bootstrap_stale_elections;
 mod bootstrap_weights;
 mod bounded_hash_map;
+mod checkpoint_bases;
 #[cfg(feature = "rai_protocol")]
 mod checkpoint_follower;
 mod committee_members;
@@ -25,6 +26,7 @@ mod rep_tiers;
 #[cfg(feature = "rai_protocol")]
 pub mod reports;
 mod signing_records;
+pub use checkpoint_bases::CheckpointBases;
 #[cfg(feature = "rai_protocol")]
 pub use checkpoint_follower::CheckpointFollower;
 #[cfg(feature = "rai_protocol")]
