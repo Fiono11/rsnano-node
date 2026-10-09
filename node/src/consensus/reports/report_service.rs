@@ -373,6 +373,17 @@ impl ReportService {
             self.signing.write_epochs(&started);
         }
         self.signing.write_decided(&decided);
+        // "Departing validators keep serving until successors hold durable
+        // copies": the acknowledgement of an installed checkpoint, which
+        // releases its handoff evidence, is sent once the decided state is
+        // on disk here, not when it is installed in memory. An epoch whose
+        // checkpoint finalized nothing new is acknowledged as well.
+        if !decided.is_empty() {
+            self.signing.sync_bulk();
+            for record in &decided {
+                self.epoch_installed(record.epoch);
+            }
+        }
         self.log_write_timings();
         // A report deferred for want of its predecessor checkpoint is signed
         // once that checkpoint is decided here

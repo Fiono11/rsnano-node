@@ -460,7 +460,11 @@ pub(crate) struct ReconcileResult {
     pub dropped: bool,
 }
 impl ReportExchange {
-    pub const MAX_EPOCHS: usize = 4;
+    /// Epochs held until released: an epoch's handoff evidence stays until
+    /// `N - f` of its successors acknowledged a durable copy of its
+    /// checkpoint; this bound only caps what a release that never comes
+    /// costs, and hitting it is logged
+    pub const MAX_EPOCHS: usize = 16;
     pub const RETRY_INTERVAL: std::time::Duration = std::time::Duration::from_millis(300);
     pub const REPEAT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
     /// Released epochs remembered; older ones are long past any repeat
@@ -997,6 +1001,10 @@ impl ReportExchange {
                 break;
             };
             self.epochs.remove(&oldest);
+            crate::utils::diagnostic!(
+                "EPOCH_RETENTION_FORCED epoch={} : dropped before its release",
+                oldest
+            );
         }
     }
 

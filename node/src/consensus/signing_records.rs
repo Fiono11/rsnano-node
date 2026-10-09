@@ -377,6 +377,14 @@ impl SigningRecords {
         })
     }
 
+    /// Syncs the bulk records to disk whatever the environment's flags: a
+    /// decided state written there is about to be acknowledged as held
+    pub fn sync_bulk(&self) {
+        self.timed("sync_bulk", || {
+            let _ = self.bulk_env.sync();
+        })
+    }
+
     /// Persists how the epochs started
     pub fn write_epochs(&self, record: &EpochsRecord) {
         self.timed("epochs", || {

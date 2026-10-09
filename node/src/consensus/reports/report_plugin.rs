@@ -31,9 +31,8 @@ impl EventHandlerMut<AecFact> for ReportPlugin {
                         .epoch_left(ConsensusEpoch::new(left), report.clone());
                 }
             }
-            // The checkpoint of the epoch is installed here: the successors
-            // are told, so that the epoch's handoff evidence can be released
-            AecFact::CheckpointFinalized { epoch, .. } => self.reports.epoch_installed(*epoch),
+            // The installation is acknowledged once the decided state is
+            // durable (see `ReportService::tick`), not here
             _ => {}
         }
     }
