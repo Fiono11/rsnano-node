@@ -266,6 +266,14 @@ impl NetworkMessageProcessor {
             Message::EpochInstalled(message) => {
                 self.reports.handle_epoch_installed(message, channel)
             }
+            #[cfg(feature = "rai_protocol")]
+            Message::CheckpointReq(request) => self
+                .epoch_decision
+                .handle_checkpoint_request(request, channel),
+            #[cfg(feature = "rai_protocol")]
+            Message::CheckpointReply(reply) => {
+                self.epoch_decision.handle_checkpoint_reply(reply, channel)
+            }
 
             #[cfg(feature = "ledger_snapshots")]
             Message::SnapshotPreproposal(preproposal) => {

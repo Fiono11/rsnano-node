@@ -66,10 +66,12 @@ mod epoch_prop;
 #[cfg(feature = "rai_protocol")]
 pub use epoch_prop::*;
 
+mod checkpoint;
 #[cfg(feature = "rai_protocol")]
 mod epoch_installed;
 mod evidence_req;
 mod manifest;
+pub use checkpoint::*;
 #[cfg(feature = "rai_protocol")]
 pub use epoch_installed::*;
 pub use evidence_req::*;

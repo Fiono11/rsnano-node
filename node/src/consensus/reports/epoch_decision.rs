@@ -5,14 +5,18 @@ use std::{
 };
 
 use rsnano_messages::{
-    EpochProp, EvidenceReq, ManifestReply, ManifestReq, Message, ReportSelection,
+    CheckpointReply, CheckpointReq, EpochProp, EvidenceReq, ManifestReply, ManifestReq, Message,
+    ReportSelection,
 };
 use rsnano_network::{Channel, TrafficType};
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_types::{Amount, BlockHash, ConsensusEpoch, PublicKey};
 use rsnano_utils::stats::{DetailType, Direction, StatType, Stats};
 
-use super::{ReportExchange, manifest_claims, report_service::inherited_from, unjustified};
+use super::{
+    ReportExchange, checkpoint_fetch::CheckpointFetch, chunk_window::ChunkWindow, manifest_claims,
+    report_service::inherited_from, unjustified,
+};
 use crate::{
     consensus::{
         AecService,
@@ -52,47 +56,25 @@ enum Evidence {
 /// Chunks of a manifest asked for at once
 const MANIFEST_WINDOW: usize = 8;
 
-/// A manifest being fetched by digest: the chunks received and when each
-/// outstanding chunk was last asked for
+/// A manifest being fetched by digest: the chunks received and the ones
+/// asked for
 struct ManifestFetch {
     assembly: ManifestAssembly,
-    asked: HashMap<u32, Timestamp>,
+    window: ChunkWindow,
 }
 
 impl ManifestFetch {
     fn new(digest: BlockHash) -> Self {
         Self {
             assembly: ManifestAssembly::new(digest),
-            asked: HashMap::new(),
+            window: ChunkWindow::new(MANIFEST_WINDOW),
         }
     }
 
-    /// The chunk starts to ask for now: the missing ones not asked for
-    /// within the retry interval, up to the window
+    /// The chunk starts to ask for now
     fn due(&mut self, now: Timestamp, retry: std::time::Duration) -> Vec<u32> {
         let missing = self.assembly.missing_chunks(ManifestReply::MAX_ENTRIES);
-        self.asked.retain(|start, _| missing.contains(start));
-        let outstanding = self
-            .asked
-            .values()
-            .filter(|asked| asked.elapsed(now) < retry)
-            .count();
-        let mut due = Vec::new();
-        for start in missing {
-            if due.len() + outstanding >= MANIFEST_WINDOW {
-                break;
-            }
-            if self
-                .asked
-                .get(&start)
-                .is_some_and(|asked| asked.elapsed(now) < retry)
-            {
-                continue;
-            }
-            self.asked.insert(start, now);
-            due.push(start);
-        }
-        due
+        self.window.due(missing, now, retry)
     }
 }
 
@@ -147,6 +129,17 @@ pub struct EpochDecisionService {
     manifests: Mutex<HashMap<BlockHash, (ConsensusEpoch, Arc<Manifest>)>>,
     /// Manifests being fetched by digest
     assemblies: Mutex<HashMap<BlockHash, ManifestFetch>>,
+    /// RAI, checkpoint catch-up: the proposals received, by epoch and value
+    /// hash, checked or not: once a close certificate names one, its `d_e`
+    /// is what a fetched state must hash to
+    proposed_values: Mutex<HashMap<(ConsensusEpoch, BlockHash), EpochValue>>,
+    /// Since when each epoch has been closed here without its value derived
+    closed_undecided: Mutex<HashMap<ConsensusEpoch, Timestamp>>,
+    /// Decided states being fetched
+    checkpoint_fetches: Mutex<HashMap<ConsensusEpoch, CheckpointFetch>>,
+    /// The encoding of the state this node served last: a fetch asks for
+    /// many chunks of the same state
+    served_checkpoint: Mutex<Option<(ConsensusEpoch, BlockHash, Arc<Vec<u8>>)>>,
 }
 
 impl EpochDecisionService {
@@ -179,6 +172,10 @@ impl EpochDecisionService {
             unready_logged: Mutex::new(HashMap::new()),
             manifests: Mutex::new(HashMap::new()),
             assemblies: Mutex::new(HashMap::new()),
+            proposed_values: Mutex::new(HashMap::new()),
+            closed_undecided: Mutex::new(HashMap::new()),
+            checkpoint_fetches: Mutex::new(HashMap::new()),
+            served_checkpoint: Mutex::new(None),
         }
     }
 
@@ -209,6 +206,7 @@ impl EpochDecisionService {
             self.propose(context);
         }
         self.repeat_proposals();
+        self.catch_up(&closes);
     }
 
     /// RAI: a leader's proposal. It is validated like any other: this node
@@ -233,6 +231,11 @@ impl EpochDecisionService {
         if !prop.verify(hash) {
             return;
         }
+        self.proposed_values
+            .lock()
+            .unwrap()
+            .entry((prop.epoch, hash))
+            .or_insert_with(|| value.clone());
         // A leader repeats its proposal while its round stands, and
         // deriving the state walks the whole predecessor: check once. Every
         // round's proposal of an epoch decided here is repeated to replicas
@@ -902,7 +905,7 @@ impl EpochDecisionService {
                     return;
                 }
                 Ok(None) => {
-                    fetch.asked.remove(&reply.from);
+                    fetch.window.received(reply.from);
                     fetch.due(self.clock.now(), Self::MANIFEST_RETRY)
                 }
                 Err(()) => {
@@ -924,6 +927,212 @@ impl EpochDecisionService {
                 ManifestReq {
                     epoch: reply.epoch,
                     manifest: reply.manifest,
+                    from,
+                },
+                Some(channel),
+            );
+        }
+    }
+
+    /// How long an epoch stays closed here without its value derived before
+    /// its decided state is fetched instead: a derivation in progress
+    /// usually finishes well within it
+    const CATCH_UP_AFTER: std::time::Duration = std::time::Duration::from_secs(1);
+    /// How often a chunk of a decided state is asked for again
+    const CHECKPOINT_RETRY: std::time::Duration = std::time::Duration::from_millis(500);
+
+    /// RAI, checkpoint catch-up: an epoch whose close certificate this node
+    /// holds, but whose value it could not derive - it lagged behind, and
+    /// the reports the derivation needs were released once `N - f` of the
+    /// successors had installed the checkpoint - takes the decided state
+    /// from a replica that holds it. The certificate binds the value, and
+    /// the value binds `d_e`, which the state fetched must hash to.
+    fn catch_up(&self, closes: &[crate::consensus::active_elections::EpochCloseInfo]) {
+        let now = self.clock.now();
+        let undecided: HashMap<ConsensusEpoch, BlockHash> = closes
+            .iter()
+            .filter(|close| close.value.is_none())
+            .filter_map(|close| close.closed.map(|(_, value)| (close.epoch, value)))
+            .collect();
+        let tracked: Vec<ConsensusEpoch> = closes.iter().map(|close| close.epoch).collect();
+        self.proposed_values
+            .lock()
+            .unwrap()
+            .retain(|(epoch, _), _| tracked.contains(epoch));
+        self.closed_undecided
+            .lock()
+            .unwrap()
+            .retain(|epoch, _| undecided.contains_key(epoch));
+        self.checkpoint_fetches
+            .lock()
+            .unwrap()
+            .retain(|epoch, _| undecided.contains_key(epoch));
+        for (epoch, closed) in undecided {
+            let since = *self
+                .closed_undecided
+                .lock()
+                .unwrap()
+                .entry(epoch)
+                .or_insert(now);
+            if since.elapsed(now) < Self::CATCH_UP_AFTER {
+                continue;
+            }
+            // The value comes with its leader's repeated proposal
+            let Some(value) = self
+                .proposed_values
+                .lock()
+                .unwrap()
+                .get(&(epoch, closed))
+                .cloned()
+            else {
+                continue;
+            };
+            let due = {
+                let mut fetches = self.checkpoint_fetches.lock().unwrap();
+                let fetch = fetches.entry(epoch).or_insert_with(|| {
+                    diagnostic!(
+                        "EPOCH_CATCH_UP epoch={} value={} state={}",
+                        epoch,
+                        closed,
+                        value.state
+                    );
+                    CheckpointFetch::new(value.clone(), now)
+                });
+                fetch.due(now, Self::CHECKPOINT_RETRY)
+            };
+            for from in due {
+                self.send_checkpoint_request(
+                    CheckpointReq {
+                        epoch,
+                        state: value.state,
+                        from,
+                    },
+                    None,
+                );
+            }
+        }
+    }
+
+    fn send_checkpoint_request(&self, request: CheckpointReq, channel: Option<&Arc<Channel>>) {
+        self.stats
+            .inc_dir(StatType::Message, DetailType::CheckpointReq, Direction::Out);
+        let mut flooder = self.flooder.lock().unwrap();
+        let message = Message::CheckpointReq(request);
+        match channel {
+            Some(channel) => {
+                let _ = flooder.try_send(channel, &message, TrafficType::Generic);
+            }
+            None => {
+                flooder.flood_prs_and_some_non_prs(&message, TrafficType::Generic, 1.0);
+            }
+        }
+    }
+
+    /// RAI, checkpoint catch-up: a lagging replica asks for a decided state
+    /// this node holds; one chunk of its encoding goes back
+    pub fn handle_checkpoint_request(&self, request: CheckpointReq, channel: &Arc<Channel>) {
+        self.stats
+            .inc_dir(StatType::Message, DetailType::CheckpointReq, Direction::In);
+        let Some(bytes) = self.checkpoint_bytes(request.epoch, request.state) else {
+            return;
+        };
+        let from = (request.from as usize).min(bytes.len());
+        let to = (from + CheckpointReply::MAX_DATA).min(bytes.len());
+        let reply = CheckpointReply {
+            epoch: request.epoch,
+            state: request.state,
+            total: bytes.len() as u32,
+            from: from as u32,
+            data: bytes[from..to].to_vec(),
+        };
+        self.stats.inc_dir(
+            StatType::Message,
+            DetailType::CheckpointReply,
+            Direction::Out,
+        );
+        self.flooder.lock().unwrap().try_send(
+            channel,
+            &Message::CheckpointReply(reply),
+            TrafficType::Generic,
+        );
+    }
+
+    /// The encoding of the state this node decided for an epoch, if it is
+    /// the one asked for
+    fn checkpoint_bytes(&self, epoch: ConsensusEpoch, state: BlockHash) -> Option<Arc<Vec<u8>>> {
+        let mut served = self.served_checkpoint.lock().unwrap();
+        if let Some((held, hash, bytes)) = served.as_ref()
+            && *held == epoch
+            && *hash == state
+        {
+            return Some(bytes.clone());
+        }
+        let decided = self.active_elections.epoch_previous_state(epoch.next())?;
+        if decided.state_hash() != state {
+            return None;
+        }
+        let bytes = Arc::new(decided.to_bytes());
+        *served = Some((epoch, state, bytes.clone()));
+        Some(bytes)
+    }
+
+    /// RAI, checkpoint catch-up: a chunk of a decided state this node asked
+    /// for. The complete state is checked against `d_e` and installed as
+    /// the value its close certificate finalized.
+    pub fn handle_checkpoint_reply(&self, reply: CheckpointReply, channel: &Arc<Channel>) {
+        self.stats.inc_dir(
+            StatType::Message,
+            DetailType::CheckpointReply,
+            Direction::In,
+        );
+        let now = self.clock.now();
+        let (due, done) = {
+            let mut fetches = self.checkpoint_fetches.lock().unwrap();
+            let Some(fetch) = fetches.get_mut(&reply.epoch) else {
+                return;
+            };
+            if fetch.value().state != reply.state {
+                return;
+            }
+            match fetch.take(reply.total, reply.from, &reply.data) {
+                Ok(None) => (fetch.due(now, Self::CHECKPOINT_RETRY), None),
+                Ok(Some(state)) => {
+                    let fetch = fetches.remove(&reply.epoch).expect("held above");
+                    (Vec::new(), Some((fetch, state)))
+                }
+                Err(()) => {
+                    fetches.remove(&reply.epoch);
+                    diagnostic!(
+                        "EPOCH_CATCH_UP_REJECTED epoch={} state={} total={} from={}",
+                        reply.epoch,
+                        reply.state,
+                        reply.total,
+                        reply.from
+                    );
+                    return;
+                }
+            }
+        };
+        if let Some((fetch, state)) = done {
+            let adopted = self
+                .active_elections
+                .adopt_certified_epoch_value(fetch.value().clone(), state);
+            diagnostic!(
+                "EPOCH_CAUGHT_UP epoch={} state={} bytes={} ms={} adopted={}",
+                reply.epoch,
+                reply.state,
+                reply.total,
+                fetch.started().elapsed(now).as_millis(),
+                adopted
+            );
+            return;
+        }
+        // The next chunks from the node that served this one
+        for from in due {
+            self.send_checkpoint_request(
+                CheckpointReq {
+                    epoch: reply.epoch,
+                    state: reply.state,
                     from,
                 },
                 Some(channel),

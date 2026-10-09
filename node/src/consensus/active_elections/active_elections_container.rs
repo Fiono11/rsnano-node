@@ -1045,6 +1045,27 @@ impl ActiveElectionsContainer {
         Some(hash)
     }
 
+    /// RAI, checkpoint catch-up: the value a close certificate finalized,
+    /// with the state another replica sent for it (see
+    /// `EpochClose::adopt_certified`); it is installed like a derived one
+    pub fn adopt_certified_epoch_value(
+        &mut self,
+        value: EpochValue,
+        state: Arc<EpochLedger>,
+        now: Timestamp,
+    ) -> bool {
+        let epoch = value.epoch;
+        let Some(close) = self.closes.get_mut(&epoch) else {
+            return false;
+        };
+        if !close.adopt_certified(value, state) {
+            return false;
+        }
+        let events = close.take_events();
+        self.log_close_events(epoch, events, now);
+        true
+    }
+
     /// RAI: this node proposed a value as the leader of a close round
     /// RAI: whether this node has already derived and checked a value of an
     /// epoch's close. A leader repeats its proposal while its round stands,

@@ -60,6 +60,11 @@ pub enum MessageType {
     ManifestReq = 0x17,
     #[cfg(feature = "rai_protocol")]
     ManifestReply = 0x18,
+    /// RAI: a request for, and a chunk of, a decided epoch state (catch-up)
+    #[cfg(feature = "rai_protocol")]
+    CheckpointReq = 0x1a,
+    #[cfg(feature = "rai_protocol")]
+    CheckpointReply = 0x1b,
     /// RAI: a member's signed acknowledgement that it installed a checkpoint
     #[cfg(feature = "rai_protocol")]
     EpochInstalled = 0x19,
@@ -95,6 +100,10 @@ impl MessageType {
             MessageType::ManifestReq => "manifest_req",
             #[cfg(feature = "rai_protocol")]
             MessageType::ManifestReply => "manifest_reply",
+            #[cfg(feature = "rai_protocol")]
+            MessageType::CheckpointReq => "checkpoint_req",
+            #[cfg(feature = "rai_protocol")]
+            MessageType::CheckpointReply => "checkpoint_reply",
             #[cfg(feature = "rai_protocol")]
             MessageType::EpochInstalled => "epoch_installed",
             #[cfg(feature = "rai_protocol")]
@@ -255,6 +264,10 @@ impl MessageHeader {
             #[cfg(feature = "rai_protocol")]
             MessageType::ManifestReply => ManifestReply::serialized_size(self.extensions),
             #[cfg(feature = "rai_protocol")]
+            MessageType::CheckpointReq => CheckpointReq::serialized_size(self.extensions),
+            #[cfg(feature = "rai_protocol")]
+            MessageType::CheckpointReply => CheckpointReply::serialized_size(self.extensions),
+            #[cfg(feature = "rai_protocol")]
             MessageType::EpochInstalled => EpochInstalled::serialized_size(self.extensions),
             #[cfg(feature = "rai_protocol")]
             MessageType::ReportSymbolsReq => ReportSymbolsReq::serialized_size(self.extensions),
@@ -338,6 +351,10 @@ impl From<MessageType> for DetailType {
             MessageType::ManifestReq => DetailType::ManifestReq,
             #[cfg(feature = "rai_protocol")]
             MessageType::ManifestReply => DetailType::ManifestReply,
+            #[cfg(feature = "rai_protocol")]
+            MessageType::CheckpointReq => DetailType::CheckpointReq,
+            #[cfg(feature = "rai_protocol")]
+            MessageType::CheckpointReply => DetailType::CheckpointReply,
             #[cfg(feature = "rai_protocol")]
             MessageType::EpochInstalled => DetailType::EpochInstalled,
             #[cfg(feature = "rai_protocol")]

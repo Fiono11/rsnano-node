@@ -40,6 +40,10 @@ pub enum Message {
     ManifestReq(ManifestReq),
     #[cfg(feature = "rai_protocol")]
     ManifestReply(ManifestReply),
+    #[cfg(feature = "rai_protocol")]
+    CheckpointReq(CheckpointReq),
+    #[cfg(feature = "rai_protocol")]
+    CheckpointReply(CheckpointReply),
     /// RAI: a member's signed acknowledgement that it installed a checkpoint
     #[cfg(feature = "rai_protocol")]
     EpochInstalled(EpochInstalled),
@@ -140,6 +144,12 @@ impl From<&ParseMessageError> for DetailType {
             #[cfg(feature = "rai_protocol")]
             ParseMessageError::InvalidMessage(MessageType::ManifestReply) => Self::ManifestReply,
             #[cfg(feature = "rai_protocol")]
+            ParseMessageError::InvalidMessage(MessageType::CheckpointReq) => Self::CheckpointReq,
+            #[cfg(feature = "rai_protocol")]
+            ParseMessageError::InvalidMessage(MessageType::CheckpointReply) => {
+                Self::CheckpointReply
+            }
+            #[cfg(feature = "rai_protocol")]
             ParseMessageError::InvalidMessage(MessageType::EpochInstalled) => Self::EpochInstalled,
 
             #[cfg(feature = "ledger_snapshots")]
@@ -208,6 +218,10 @@ impl Message {
             #[cfg(feature = "rai_protocol")]
             Message::ManifestReply(_) => MessageType::ManifestReply,
             #[cfg(feature = "rai_protocol")]
+            Message::CheckpointReq(_) => MessageType::CheckpointReq,
+            #[cfg(feature = "rai_protocol")]
+            Message::CheckpointReply(_) => MessageType::CheckpointReply,
+            #[cfg(feature = "rai_protocol")]
             Message::EpochInstalled(_) => MessageType::EpochInstalled,
 
             #[cfg(feature = "ledger_snapshots")]
@@ -255,6 +269,10 @@ impl Message {
             #[cfg(feature = "rai_protocol")]
             Message::ManifestReply(x) => Some(x),
             #[cfg(feature = "rai_protocol")]
+            Message::CheckpointReq(x) => Some(x),
+            #[cfg(feature = "rai_protocol")]
+            Message::CheckpointReply(x) => Some(x),
+            #[cfg(feature = "rai_protocol")]
             Message::EpochInstalled(x) => Some(x),
 
             _ => None,
@@ -301,6 +319,10 @@ impl Message {
             Message::ManifestReq(m) => m.serialize(writer),
             #[cfg(feature = "rai_protocol")]
             Message::ManifestReply(m) => m.serialize(writer),
+            #[cfg(feature = "rai_protocol")]
+            Message::CheckpointReq(m) => m.serialize(writer),
+            #[cfg(feature = "rai_protocol")]
+            Message::CheckpointReply(m) => m.serialize(writer),
             #[cfg(feature = "rai_protocol")]
             Message::EpochInstalled(m) => m.serialize(writer),
 
@@ -369,6 +391,14 @@ impl Message {
             #[cfg(feature = "rai_protocol")]
             MessageType::ManifestReply => {
                 Message::ManifestReply(ManifestReply::deserialize(payload)?)
+            }
+            #[cfg(feature = "rai_protocol")]
+            MessageType::CheckpointReq => {
+                Message::CheckpointReq(CheckpointReq::deserialize(payload)?)
+            }
+            #[cfg(feature = "rai_protocol")]
+            MessageType::CheckpointReply => {
+                Message::CheckpointReply(CheckpointReply::deserialize(payload)?)
             }
             #[cfg(feature = "rai_protocol")]
             MessageType::EpochInstalled => {

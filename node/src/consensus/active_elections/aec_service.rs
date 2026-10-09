@@ -346,6 +346,20 @@ impl AecService {
     /// RAI: whether this node already derived and checked a value
     #[cfg(feature = "rai_protocol")]
     /// RAI: whether this node has decided an epoch's state
+    /// RAI, checkpoint catch-up: adopt a certified value with the state
+    /// another replica sent for it
+    pub fn adopt_certified_epoch_value(
+        &self,
+        value: crate::consensus::election::EpochValue,
+        state: std::sync::Arc<crate::consensus::election::EpochLedger>,
+    ) -> bool {
+        let now = self.clock.now();
+        self.aec
+            .write()
+            .unwrap()
+            .adopt_certified_epoch_value(value, state, now)
+    }
+
     pub fn epoch_decided(&self, epoch: ConsensusEpoch) -> bool {
         self.aec
             .read()

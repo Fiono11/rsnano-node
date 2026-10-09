@@ -275,6 +275,27 @@ impl EpochClose {
         hash
     }
 
+    /// RAI, checkpoint catch-up: the value the close certificate finalized,
+    /// with its state obtained from another replica rather than derived
+    /// here - the reports the derivation needed were released while this
+    /// replica lagged behind. The certificate binds the value's hash and the
+    /// value binds `d_e`, so a state that hashes to `d_e` is the one decided.
+    /// Nothing is voted for: the close is over. False for any other value or
+    /// state.
+    pub fn adopt_certified(&mut self, value: EpochValue, state: Arc<EpochLedger>) -> bool {
+        let Some((_, closed)) = self.closed else {
+            return false;
+        };
+        let hash = value.hash();
+        if hash != closed || value.state != state.state_hash() || self.states.contains_key(&hash) {
+            return false;
+        }
+        self.values.insert(hash, value);
+        self.states.insert(hash, state);
+        self.report_closed();
+        true
+    }
+
     /// The state a validated value decides
     #[allow(dead_code)] // the RAI epoch decision uses these
     pub fn state_of(&self, value: &BlockHash) -> Option<&Arc<EpochLedger>> {
@@ -899,6 +920,58 @@ mod tests {
             event,
             CloseEvent::Closed { value, .. } if *value == hash
         )));
+    }
+
+    /// RAI, checkpoint catch-up: a replica that holds the certificate but
+    /// could not derive the value adopts the certified value with a state
+    /// obtained elsewhere, only if that state hashes to the value's `d_e`
+    #[test]
+    fn a_certified_value_is_adopted_with_the_state_it_names_only() {
+        let mut close = close_election();
+        let state = ledger();
+        let value = EpochValue::from_parts(
+            ConsensusEpoch::ZERO,
+            0,
+            BlockHash::ZERO,
+            genesis_value(0, 1).reports().to_vec(),
+            BlockHash::ZERO,
+            state.state_hash(),
+        );
+        let other = genesis_value(0, 2);
+        assert!(
+            !close.adopt_certified(value.clone(), state.clone()),
+            "not closed"
+        );
+
+        for rep in 0..4 {
+            vote(&mut close, rep, value.hash(), VoteKind::Final, 0).unwrap();
+        }
+        let _ = close.take_events();
+        assert!(
+            !close.adopt_certified(other, state.clone()),
+            "not the value certified"
+        );
+        assert!(
+            !close.adopt_certified(value.clone(), Arc::new(EpochLedger::new())),
+            "not the state the value names"
+        );
+        assert!(close.adopt_certified(value.clone(), state.clone()));
+
+        assert_eq!(
+            close.decided_state().map(|held| held.state_hash()),
+            Some(state.state_hash())
+        );
+        let events = close.take_events();
+        assert!(events.iter().any(|event| matches!(
+            event,
+            CloseEvent::Closed { value: closed, .. } if *closed == value.hash()
+        )));
+        assert!(
+            !events
+                .iter()
+                .any(|event| matches!(event, CloseEvent::Validated { .. })),
+            "an adopted value is not one this replica votes for"
+        );
     }
 
     /// RAI: "A child of a non-genesis placement must copy its parent's

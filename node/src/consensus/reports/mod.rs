@@ -1,3 +1,5 @@
+mod checkpoint_fetch;
+mod chunk_window;
 mod epoch_decision;
 mod report_plugin;
 mod report_service;
