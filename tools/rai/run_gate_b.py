@@ -147,6 +147,16 @@ def close_timings(text):
     return result
 
 
+def client_confirmed(path):
+    """The client's latest 'Confirmed N blocks' count, read from the log's tail"""
+    with open(path, 'rb') as f:
+        f.seek(0, os.SEEK_END)
+        f.seek(max(0, f.tell() - 65536))
+        tail = f.read().decode(errors='replace')
+    counts = re.findall(r'Confirmed ([\d,]+) blocks \|', tail)
+    return int(counts[-1].replace(',', '')) if counts else None
+
+
 def restart_events(text):
     """nanospam's RAI_RESTART_* lines: what each --restart did"""
     events = []
@@ -176,6 +186,7 @@ def main():
     parser.add_argument('--wait-quiet', type=int, default=0, help='seconds to wait for a quiet host before giving up')
     parser.add_argument('--keep', action='store_true', help='leave the nodes running and their data for a post-mortem; print the process group')
     parser.add_argument('--settle-timeout', type=int, default=90, help='seconds to wait for settlement after the client finished or timed out')
+    parser.add_argument('--stall-abort', type=int, default=45, help='end the client phase or the settle wait after this many seconds without progress (0: never)')
     parser.add_argument('--prs', type=int, default=6, help='representatives; more than the 3f + 2p + 1 seats leaves the lightest (ties by key) outside the committee')
     parser.add_argument('--restart', action='append', default=[], help='nanospam --restart PR:at:SECS or PR:close:EPOCH[:ROUND] (SIGKILL, then start again); repeatable')
     parser.add_argument('--restart-down-ms', type=int, default=0, help='how long a killed node stays down')
@@ -247,8 +258,19 @@ def main():
             with (args.output / 'run.log').open('w') as log:
                 process = subprocess.Popen(command, env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
                 deadline = time.monotonic() + args.timeout
+                # A stalled run is ended, not waited out: no confirmation for
+                # --stall-abort seconds once the spam has started
+                last_count, last_progress = None, time.monotonic()
                 while process.poll() is None and time.monotonic() < deadline:
                     time.sleep(1)
+                    count = client_confirmed(args.output / 'run.log')
+                    if count != last_count:
+                        last_count, last_progress = count, time.monotonic()
+                    elif (args.stall_abort and count is not None
+                          and time.monotonic() - last_progress > args.stall_abort):
+                        result['stalled'] = dict(phase='client', confirmed=count)
+                        print(f'stall: client at {count} confirmed for {args.stall_abort}s', file=log, flush=True)
+                        break
                 # A fork run settles without every conflicting position
                 # finalizing: the client may still be waiting for some of
                 # them. Settlement is judged on the nodes either way.
@@ -257,11 +279,20 @@ def main():
                     raise RuntimeError(f'nanospam exited with {process.returncode}')
                 result['client_finished_s'] = round(args.timeout - (deadline - time.monotonic()), 1)
                 deadline = time.monotonic() + args.settle_timeout
+                last_view, last_progress = None, time.monotonic()
                 while True:
                     counts = poll(nodes, 'block_count', log)
                     states = poll(nodes, 'final_state', log)
                     settled = settlement(counts, states, args.min_closed)
                     if settled['settled'] or time.monotonic() >= deadline:
+                        break
+                    # Nothing cemented and no epoch decided anywhere for a while
+                    view = (tuple(c['cemented'] for c in counts), tuple(settled['decided_somewhere']))
+                    if view != last_view:
+                        last_view, last_progress = view, time.monotonic()
+                    elif args.stall_abort and time.monotonic() - last_progress > args.stall_abort:
+                        result['stalled'] = dict(phase='settle', cemented=settled['cemented'],
+                                                 decided=settled['decided_somewhere'])
                         break
                     time.sleep(1)
                 result['settled_after_s'] = round(args.timeout - (deadline - time.monotonic()), 1)
