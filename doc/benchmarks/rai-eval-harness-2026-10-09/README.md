@@ -169,3 +169,31 @@ the missed certificate only through close-round solicitations (the same
 fragility as in the close-round grace work). The full replacement needs the
 4-member committee: 10 nodes at 200 blocks/s gave 54 cps on this host.
 No equivocation in any run.
+
+### The straggler, found (`step4/on-4582bf003/`)
+
+The two Byzantine failures above had one cause, visible in the per-node
+counters of `result.json`: the straggler is the node buried under vote
+traffic. A node that falls behind has more unsettled elections, solicits
+more, and the evidence replies overflow its inbound queue (64 messages per
+channel): pr6 received 636,794 `ConfirmAck`s and dropped 32,029 of them
+(`message/confirm_ack`, `message_processor_overfill/confirm_ack`) where the
+other six nodes received 32-113k; `full-byz`'s pr2 received 1.6 million.
+Among the drops were the few close-round votes it needed, and a round the
+others have left is not re-broadcast, so the straggler never assembled the
+certificate and, with the Byzantine member in the committee, every honest
+report was needed.
+
+`4582bf003`: close-round votes go to a lane of the inbound queue that is
+drained first and exempt from the per-channel cap (4,096 in all); committee
+members are peered principal representatives by membership, so the solicitor
+asks a member whose weight moved away. Results, same settings as above:
+
+| Scenario | Committees | Settled | Non-fork cps | p50 / p95 ms |
+|---|---|---|---|---|
+| `partial-byz-1`, `-2` (Byzantine member in both committees) | 6 -> 6, two replaced, back at epoch 4 | 2 / 2 | 578, 581 | 116/572 · 114/385 |
+| `full-byz` (f=1, p=0: 4 seats, PR0-2 -> PR3-5, Byzantine shared) | 4 -> 4, every correct member replaced | 1 / 1 | 728 | 208 / 337 |
+| `partial-1` (control, no Byzantine) | 6 -> 6, two replaced | 1 / 1 | 758 | 97 / 210 |
+
+`check_committees.py` confirms the identities (`*.committees.txt`); no
+equivocation in any run. Single runs each, quiet host.
