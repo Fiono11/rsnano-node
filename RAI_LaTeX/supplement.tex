@@ -165,7 +165,7 @@ Validators cross their local boundary one by one. After it, and before installin
 Epoch~1 is voted and closed by $K_1$, epoch~2 by $K_2$; the Byzantine validator sits in both. A member of $K_2$ may first-vote in epoch~2 before installing $S_1$ (an early vote); if it is also in $K_1$ and supported nothing else in epoch~1, that vote comes with a late notarization in epoch~1. Fix~B, the NC split, matching-origin discharge, and late votes as evidence are built in. \texttt{RULE = FALSE} is the earlier certificate definition: a fast certificate counts all first votes and a validator final-votes on its epoch-2 $\NC$ alone. \texttt{RULE = TRUE} is the early-vote rule: a fast certificate counts only first votes cast after the signer installed $S_1$, and an early final vote is released only by a validator that holds the epoch-1 exclusion witness. A block is final when its certificate can be formed from released signatures and it is valid against $S_1$, through the overlap bundle or by rechecking with discharge. The builder of $S_2$ holds a discharge witness only if a selected correct reporter relied on it; otherwise the adversary decides, which models a withheld signature. Further abstractions: correct reports carry no $\tagF$ tag for an observed certificate (covered by the other two models); a claim that conflicts with a surviving record is ignored rather than invalidating the selection, which only adds checkpoints; epoch~3 is not modelled, so safety after $S_2$ is checked as Theorem~1 for $S_2$.
 
 \begin{table}[t]
-\caption{TLC runs. Times are wall-clock on two cores.}
+\caption{TLC runs. Times are wall-clock on two cores; $^*$eight cores.}
 \label{tab:tlc}
 \centering
 \small
@@ -186,7 +186,7 @@ Configuration & Result & Time\\
 \texttt{Handoff\_disjoint\_paper} & \texttt{Thm64b} violated after 23 steps & 15\,min\\
 \texttt{Handoff\_same\_rule} & no error; 8,347,138 states & 15\,min\\
 \texttt{Handoff\_disjoint\_rule} & no error; 3,707,876 states & 17\,min\\
-\texttt{Handoff\_overlap3\_rule} & stopped at depth 18, $>9$M states, no violation & --\\
+\texttt{Handoff\_overlap3\_rule} & no error; 121,053,272 states & 2\,h\,18\,min$^*$\\
 \texttt{Handoff\_Probe*} & probes violated, as intended & $<5$\,min\\
 \bottomrule
 \end{tabularx}

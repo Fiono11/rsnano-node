@@ -4,10 +4,10 @@ Three rules of Sections~\ref{sec:account} and~\ref{sec:transitions} replaced ear
 
 \texttt{RaiClose} has three voting epochs and two closures, no early voting, and $\Build$ with Rules~1--3, inherited records, and discharge; its invariants are transfer safety at the position, Theorem~\ref{thm:closure} without any hypothesis about witnesses, and one final block per checkpoint. \texttt{RaiOverlap} has one closing and one open epoch: validators cross their boundary one by one, first-vote early under the cross-epoch guard, late-notarize, finalize under the overlap exception or by rechecking after installation, and one closure builds $S_1$; its invariants add the same verdict before and after installation (Lemma~\ref{lem:verdict}), usability of every correct report (Lemma~\ref{lem:reports-live}), and admissibility of the discharge witness at the next closure, and three switches turn the repairs off. \texttt{RaiHandoff} combines early voting, two closures, and a changing committee, with the Byzantine validator in both committees; a discharge witness reaches the builder of $S_2$ only if a selected correct reporter relied on it, which models a withheld signature.
 
-Table~\ref{tab:mc} gives the results. With the earlier $G_i=V_i^{(e)}\setminus\keys(T_i)$, a reporter that first-voted a block the predecessor carries under a recovery record tags it $\tagR$, the fresh vote appears nowhere, and two conflicting fast certificates are reached. Without discharge, two correct validators finalize different blocks depending on installation order; without late notarizations as evidence, the next closure cannot verify a correct $\tagF$ claim; with late notarizations counting toward an $\NC$, a correct report becomes unusable, which costs termination but not safety. With the fast path counting every first vote, Theorem~\ref{thm:closure} fails for the second closure with identical and with disjoint committees: four early votes for $B$ are eligible only through a witness that one unselected validator holds, so $S_2$ retains the rival, which a later epoch finalizes while $B$'s fast certificate can still be formed. With the repairs the invariants hold in every completed run, and probes confirm that a block can still finalize before $S_1$ is decided, that the second closure does discharge first-checkpoint records, and that a block can carry records of two origins.
+Table~\ref{tab:mc} gives the results. With the earlier $G_i=V_i^{(e)}\setminus\keys(T_i)$, a reporter that first-voted a block the predecessor carries under a recovery record tags it $\tagR$, the fresh vote appears nowhere, and two conflicting fast certificates are reached. Without discharge, two correct validators finalize different blocks depending on installation order; without late notarizations as evidence, the next closure cannot verify a correct $\tagF$ claim; with late notarizations counting toward an $\NC$, a correct report becomes unusable, which costs termination but not safety. With the fast path counting every first vote, Theorem~\ref{thm:closure} fails for the second closure with identical and with disjoint committees: four early votes for $B$ are eligible only through a witness that one unselected validator holds, so $S_2$ retains the rival, which a later epoch finalizes while $B$'s fast certificate can still be formed. With the repairs the invariants hold in every run, and probes confirm that a block can still finalize before $S_1$ is decided, that the second closure does discharge first-checkpoint records, and that a block can carry records of two origins.
 
 \begin{table}[t]
-\caption{TLC results (two cores). Distinct states for completed runs.}
+\caption{TLC results. Distinct states for completed runs.}
 \label{tab:mc}
 \centering
 \small
@@ -25,7 +25,7 @@ Handoff, same $K$, old $\FF$ & Thm.~\ref{thm:closure} fails for $S_2$ (22) & --\
 Handoff, disjoint $K$, old $\FF$ & Thm.~\ref{thm:closure} fails for $S_2$ (23) & --\\
 Handoff, same $K$, rule & no violation & 8{,}347{,}138\\
 Handoff, disjoint $K$, rule & no violation & 3{,}707{,}876\\
-Handoff, 3 shared, rule & none to depth 18 (incomplete) & $>9$M\\
+Handoff, 3 shared, rule & no violation & 121{,}053{,}272\\
 \bottomrule
 \end{tabularx}
 \end{table}

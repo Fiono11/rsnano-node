@@ -24,7 +24,7 @@ The `out_*.txt` files are the outputs of the runs reported below, including the 
 | `Handoff_disjoint_paper` | disjoint | paper | `Thm64b` violated after 23 steps | 15 min |
 | `Handoff_same_rule` | same five | early-vote rule | no error, 8,347,138 distinct states | 15 min |
 | `Handoff_disjoint_rule` | disjoint | early-vote rule | no error, 3,707,876 distinct states | 17 min |
-| `Handoff_overlap3_rule` | three shared | early-vote rule | stopped at depth 18 with 9 million states and a growing queue; no violation up to there | not completed |
+| `Handoff_overlap3_rule` | three shared | early-vote rule | no error, 121,053,272 distinct states, depth 38 | 2 h 18 min (8 cores) |
 | `Handoff_Probe*` | same five | early-vote rule | probes violated, as intended | < 5 min |
 
 `Handoff_overlap1_rule` and `Handoff_overlap4_rule` (one and four shared members) were still running when this archive was made.
