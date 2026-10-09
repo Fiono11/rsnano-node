@@ -179,6 +179,8 @@ def main():
     parser.add_argument('--prs', type=int, default=6, help='representatives; more than the 3f + 2p + 1 seats leaves the lightest (ties by key) outside the committee')
     parser.add_argument('--restart', action='append', default=[], help='nanospam --restart PR:at:SECS or PR:close:EPOCH[:ROUND] (SIGKILL, then start again); repeatable')
     parser.add_argument('--restart-down-ms', type=int, default=0, help='how long a killed node stays down')
+    parser.add_argument('--standby', type=int, default=0, help='running representatives that start outside the committee with an eighth of a share (nanospam --standby)')
+    parser.add_argument('--rotation', default=None, help='committee rotations EPOCH:FROM>TO,...;EPOCH:... (nanospam --rotation)')
     parser.add_argument('--signing-sync', choices=['none', 'fsync', 'full'], default='fsync', help='how the signing records reach the disk (nanospam --signing-sync)')
     parser.add_argument('--audit-votes', action='store_true', help='every node logs the votes it signs; the run fails on any equivocation (implied by --restart)')
     args = parser.parse_args()
@@ -224,6 +226,10 @@ def main():
         if args.audit_votes:
             command += ['--audit-votes']
         command += ['--signing-sync', args.signing_sync]
+        if args.standby:
+            command += ['--standby', str(args.standby)]
+        if args.rotation:
+            command += ['--rotation', args.rotation]
         if args.vote_delay_ms is not None:
             command += ['--vote-generator-delay-ms', str(args.vote_delay_ms)]
         if args.weight_shift:

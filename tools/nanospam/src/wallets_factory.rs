@@ -24,20 +24,20 @@ pub(crate) fn voting_weight() -> Amount {
     Amount::MAX - INITIAL_AMOUNT
 }
 
-/// `total_prs` counts every principal representative, the offline and
-/// Byzantine ones included: each holds an equal share of the voting weight in
-/// the ledger, whether or not it runs a node. `rpc_clients` are the nodes that
-/// do run, which get a wallet.
+/// `balances` has an entry per principal representative, the offline and
+/// Byzantine ones included: each holds its balance in the ledger, whether or
+/// not it runs a node (PR0's entry is ignored: genesis keeps the rest).
+/// `rpc_clients` are the nodes that do run, which get a wallet.
 pub(crate) async fn create_wallets(
     rpc_clients: &[NanoRpcClient],
     genesis_rpc: &NanoRpcClient,
     account_map: &mut AccountMap,
     representatives: &Representatives,
-    total_prs: usize,
+    balances: &[Amount],
 ) -> WalletId {
     let mut genesis_wallet = WalletId::ZERO;
     let genesis_key = genesis_key();
-    let pr_count = total_prs;
+    let total_prs = balances.len();
     for (i, rpc_client) in rpc_clients.iter().enumerate() {
         info!("Creating wallet...");
         let resp = rpc_client.wallet_create(None).await.unwrap();
@@ -66,7 +66,7 @@ pub(crate) async fn create_wallets(
 
         // the first rpc client is the genesis client
         if i > 0 {
-            let pr_balance = voting_weight() / pr_count as u128;
+            let pr_balance = balances[i];
             info!(
                 "Sending Ӿ{} to PR{i} wallet {} ...",
                 pr_balance.format_balance(0),
@@ -113,7 +113,7 @@ pub(crate) async fn create_wallets(
     // has to create their receive block, since no wallet will
     for i in rpc_clients.len()..total_prs {
         let pr_key = pr_key(i);
-        let pr_balance = voting_weight() / pr_count as u128;
+        let pr_balance = balances[i];
         info!(
             "Sending \u{04FE}{} to PR{i} (no node) {} ...",
             pr_balance.format_balance(0),

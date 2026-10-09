@@ -40,6 +40,7 @@ use crate::{
     high_prio_check::HighPrioCheck,
     node_lifetime::NodeLifetime,
     restart::Restarter,
+    rotation::run_rotations,
     setup::{
         configure_nodes, create_account_map, genesis_key, get_genesis_hash, peering_port, rpc_port,
         start_nodes,
@@ -113,7 +114,9 @@ impl NanoSpamApp {
                 genesis_rpc,
                 &mut account_map,
                 &representatives,
-                self.args.prs,
+                &(0..self.args.prs)
+                    .map(|i| self.args.pr_balance(i))
+                    .collect::<Vec<_>>(),
             )
             .await
         } else {
@@ -162,6 +165,7 @@ impl NanoSpamApp {
             }
             info!("Started the epochs on every PR");
         }
+        let epochs_started = Instant::now();
 
         let mut tcp_writers = Vec::new();
         let mut tcp_readers = Vec::new();
@@ -228,6 +232,15 @@ impl NanoSpamApp {
                         recent_blocks.clone(),
                         cancel_nanospam.clone(),
                         &self.tcp_stream_factory,
+                    ));
+                }
+
+                if let Some(schedule) = &self.args.rotation {
+                    scope.spawn(run_rotations(
+                        genesis_rpc,
+                        schedule.clone(),
+                        epochs_started,
+                        Duration::from_millis(self.args.epoch_duration_ms),
                     ));
                 }
 

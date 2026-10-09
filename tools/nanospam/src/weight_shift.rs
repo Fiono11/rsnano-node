@@ -94,11 +94,39 @@ async fn apply(
     shifts: &WeightShifts,
     shift: &WeightShift,
 ) -> anyhow::Result<()> {
-    let from = pr_key(shift.from);
-    let to = pr_key(shift.to);
-    let holder = holder_key(shift);
+    let amount = move_weight(
+        rpc_client,
+        shift.from,
+        shift.to,
+        &holder_key(shift),
+        |balance| shifts.amount(balance),
+    )
+    .await?;
+    info!(
+        "WEIGHT_SHIFT index={} from=PR{} to=PR{} amount=Ӿ{}",
+        shift.index,
+        shift.from,
+        shift.to,
+        amount.format_balance(0)
+    );
+    Ok(())
+}
+
+/// PR`from` sends part of its balance - `amount_of` its balance - to
+/// `holder`, a fresh account that opens delegating to PR`to` once the send
+/// is confirmed: that weight moves from one representative to the other.
+/// Returns the amount moved.
+pub(crate) async fn move_weight(
+    rpc_client: &NanoRpcClient,
+    from: usize,
+    to: usize,
+    holder: &PrivateKey,
+    amount_of: impl FnOnce(Amount) -> Amount,
+) -> anyhow::Result<Amount> {
+    let from = pr_key(from);
+    let to = pr_key(to);
     let info = rpc_client.account_info(from.account()).await?;
-    let amount = shifts.amount(info.balance);
+    let amount = amount_of(info.balance);
     let send: Block = StateBlockArgs {
         key: &from,
         previous: info.frontier,
@@ -114,7 +142,7 @@ async fn apply(
     wait_until_confirmed(rpc_client, send_hash).await;
 
     let open: Block = StateBlockArgs {
-        key: &holder,
+        key: holder,
         previous: BlockHash::ZERO,
         representative: to.public_key(),
         balance: amount,
@@ -123,14 +151,7 @@ async fn apply(
     }
     .into();
     rpc_client.process(JsonBlock::from(open)).await?;
-    info!(
-        "WEIGHT_SHIFT index={} from=PR{} to=PR{} amount=Ӿ{}",
-        shift.index,
-        shift.from,
-        shift.to,
-        amount.format_balance(0)
-    );
-    Ok(())
+    Ok(amount)
 }
 
 #[cfg(test)]

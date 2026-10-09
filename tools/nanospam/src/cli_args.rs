@@ -8,6 +8,7 @@ use rsnano_types::PublicKey;
 use crate::{
     domain::{RateSpec, Representatives, SpamStrategy, spam_logic::SpamSpec},
     restart::{RestartSpec, RestartTrigger},
+    rotation::RotationSchedule,
     setup::pr_key,
 };
 
@@ -160,6 +161,19 @@ pub(crate) struct CliArgs {
     /// "full" (also F_FULLFSYNC on macOS)
     #[arg(long, default_value = "fsync", value_parser = ["none", "fsync", "full"])]
     pub signing_sync: String,
+
+    /// RAI: this many running representatives start outside the committee:
+    /// funded with an eighth of a share, they run a node and vote without
+    /// weight until a rotation moves a member's weight to them. They are the
+    /// last running ones, before the offline and Byzantine representatives.
+    #[arg(long, default_value_t = 0)]
+    pub standby: usize,
+
+    /// RAI: committee rotations, "EPOCH:FROM>TO,FROM>TO;EPOCH:...": at the
+    /// start of EPOCH each FROM representative moves its whole balance to an
+    /// account delegating to TO; the committee two epochs on has TO instead
+    #[arg(long)]
+    pub rotation: Option<RotationSchedule>,
 }
 
 impl CliArgs {
@@ -187,6 +201,23 @@ impl CliArgs {
     /// `byzantine` are Byzantine, the `offline` before them are offline.
     pub(crate) fn honest_prs(&self) -> usize {
         self.prs - self.byzantine - self.offline
+    }
+
+    /// RAI: whether a running representative starts outside the committee
+    pub(crate) fn is_standby(&self, index: usize) -> bool {
+        index < self.honest_prs() && index + self.standby >= self.honest_prs()
+    }
+
+    /// The balance setup sends a principal representative: an equal share of
+    /// the voting weight, an eighth of one for a standby. PR0, the genesis
+    /// account, keeps what is left.
+    pub(crate) fn pr_balance(&self, index: usize) -> rsnano_types::Amount {
+        let share = crate::wallets_factory::voting_weight() / self.prs as u128;
+        if self.is_standby(index) {
+            share / 8
+        } else {
+            share
+        }
     }
 
     /// RAI: whether the running representative casts account votes; the
@@ -240,6 +271,24 @@ impl CliArgs {
             return Err(anyhow!(
                 "weight shifts need --weight-shift-interval-ms or --epoch-duration-ms"
             ));
+        }
+        if self.standby >= self.honest_prs() {
+            return Err(anyhow!(
+                "{} standby representatives leave none of {} running ones in the committee; PR0 must be a member",
+                self.standby,
+                self.honest_prs()
+            ));
+        }
+        if let Some(schedule) = &self.rotation {
+            if self.epoch_duration_ms == 0 {
+                return Err(anyhow!("rotations need --epoch-duration-ms"));
+            }
+            if let Some(pr) = schedule.representatives().find(|pr| *pr >= self.prs) {
+                return Err(anyhow!(
+                    "rotation names PR{pr} of {} representatives",
+                    self.prs
+                ));
+            }
         }
         if self.silent >= self.honest_prs() {
             return Err(anyhow!(
@@ -358,6 +407,46 @@ mod tests {
                 .validate()
                 .is_ok()
         );
+    }
+
+    #[test]
+    fn standby_representatives_are_the_last_running_ones_with_an_eighth() {
+        let args = CliArgs::try_parse_from([
+            "nanospam",
+            "--prs",
+            "8",
+            "--byzantine",
+            "1",
+            "--standby",
+            "2",
+            "--committee-model",
+            "equal_weight",
+        ])
+        .unwrap();
+        assert!(args.validate().is_ok());
+        let standby: Vec<usize> = (0..8).filter(|i| args.is_standby(*i)).collect();
+        assert_eq!(standby, vec![5, 6]);
+        assert_eq!(
+            args.pr_balance(5).number() * 8,
+            args.pr_balance(1).number() / 8 * 8
+        );
+        let all = CliArgs::try_parse_from(["nanospam", "--prs", "3", "--standby", "3"]).unwrap();
+        assert!(all.validate().is_err());
+        let rotating = |schedule: &str| {
+            CliArgs::try_parse_from([
+                "nanospam",
+                "--prs",
+                "8",
+                "--epoch-duration-ms",
+                "8000",
+                "--rotation",
+                schedule,
+            ])
+            .unwrap()
+            .validate()
+        };
+        assert!(rotating("1:3>5").is_ok());
+        assert!(rotating("1:3>8").is_err());
     }
 
     #[test]
