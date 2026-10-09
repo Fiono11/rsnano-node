@@ -230,6 +230,14 @@ impl EpochValue {
                     reporter: report.reporter,
                 });
             };
+            // Q_e is a set of reports of the old committee: a reporter
+            // outside it signed no vote the epoch counts, and its claims are
+            // evidence no manifest can name
+            if state.weight.is_zero() {
+                return Err(EpochValueError::NotAMember {
+                    reporter: report.reporter,
+                });
+            }
             selected = selected
                 .number()
                 .checked_add(state.weight.number())
@@ -280,6 +288,11 @@ pub enum EpochValueError {
     /// This validator has not reconstructed one of the reports, so it can not
     /// derive the state and has nothing to check the value against
     NotReconstructed {
+        reporter: PublicKey,
+    },
+    /// A selected reporter is not a member of the committee the reports
+    /// are counted in
+    NotAMember {
         reporter: PublicKey,
     },
     /// The state the reports determine is not the one the value carries
@@ -465,6 +478,27 @@ mod tests {
         );
     }
 
+    /// RAI, reconfiguration: a value whose selection names a reporter
+    /// outside the old committee is refused, whatever weight the rest carry
+    #[test]
+    fn a_value_selecting_a_non_member_is_refused() {
+        let mut world = World::new(3);
+        let (value, _) = world.propose();
+        let outsider = value.reports()[2].reporter;
+        world.outsiders.push(outsider);
+        assert_eq!(
+            value.validate(
+                &EpochLedger::new(),
+                &world,
+                &world.index,
+                Amount::ZERO,
+                rules(),
+                &|_, _| false
+            ),
+            Err(EpochValueError::NotAMember { reporter: outsider })
+        );
+    }
+
     /// Include_Q: a block one selected reporter supported is in the derived
     /// state, so a selection that leaves that reporter out gives another
     /// state and therefore another value
@@ -543,6 +577,8 @@ mod tests {
         reporters: Vec<PublicKey>,
         reports: HashMap<PublicKey, HeldReport>,
         index: StubIndex,
+        /// Reporters outside the committee: no weight
+        outsiders: Vec<PublicKey>,
     }
 
     #[derive(Clone)]
@@ -560,6 +596,7 @@ mod tests {
                 reporters: Vec::new(),
                 reports: HashMap::new(),
                 index: StubIndex::default(),
+                outsiders: Vec::new(),
             };
             for i in 0..reporters {
                 let reporter = PublicKey::from(i as u64 + 1);
@@ -636,7 +673,11 @@ mod tests {
             let held = self.reports.get(&report.reporter)?;
             (held.refs == *report).then_some(SelectedReport {
                 reporter: report.reporter,
-                weight: REPORTER_WEIGHT,
+                weight: if self.outsiders.contains(&report.reporter) {
+                    Amount::ZERO
+                } else {
+                    REPORTER_WEIGHT
+                },
                 certified: &held.certified,
                 residual: &held.residual,
             })

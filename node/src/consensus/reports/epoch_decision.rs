@@ -458,12 +458,15 @@ impl EpochDecisionService {
         let committee = self.active_elections.epoch_committee(epoch)?;
         let predecessor = previous.state_hash();
         let exchange = self.exchange.lock().unwrap();
-        // Only reports signed against the same predecessor checkpoint
+        // Only reports signed against the same predecessor checkpoint, by
+        // members of the committee they are counted in: a representative
+        // outside it reports too, and its report has no place in Q_e
         let mut usable: Vec<PublicKey> = exchange
             .usable(epoch)
             .iter()
             .filter(|(report, _, _)| report.predecessor == predecessor)
             .map(|(report, _, _)| report.reporter)
+            .filter(|reporter| !committee.weight(reporter).is_zero())
             .collect();
         usable.sort();
         let mut selected: Vec<ReportRef> = Vec::new();
