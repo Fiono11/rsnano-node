@@ -1038,6 +1038,31 @@ impl ReportExchange {
         true
     }
 
+    /// RAI: the given entries of a reporter's reconstructed certified
+    /// state, for a diagnostic
+    pub fn report_entries(
+        &self,
+        epoch: ConsensusEpoch,
+        reporter: &PublicKey,
+        hashes: &[BlockHash],
+    ) -> Vec<(CertifiedBlock, Certification)> {
+        let Some(their) = self
+            .epochs
+            .get(&epoch)
+            .and_then(|held| held.theirs.get(reporter))
+        else {
+            return Vec::new();
+        };
+        let Some(certified) = their.reconstructed.as_ref() else {
+            return Vec::new();
+        };
+        certified
+            .entries()
+            .filter(|(block, _)| hashes.contains(&block.hash))
+            .map(|(block, entry)| (*block, *entry))
+            .collect()
+    }
+
     pub fn pending_epochs(&self) -> Vec<ConsensusEpoch> {
         self.epochs.keys().copied().collect()
     }

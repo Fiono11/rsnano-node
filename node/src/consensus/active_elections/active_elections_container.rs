@@ -2717,13 +2717,45 @@ impl ActiveElectionsContainer {
             return;
         };
         let mut discard = Vec::new();
+        let mut logged = 0;
         for election in self.roots.iter().map(|entry| &entry.election) {
-            if election.epoch() != epoch || election.is_confirmed() {
+            if election.epoch() != epoch {
                 continue;
             }
             let account = election.account();
             let height = election.height();
             let slot = AccountSlot::new(account, height);
+            // A retained position: what the recheck makes of its instance
+            if state.retains(&slot) && logged < 40 {
+                logged += 1;
+                let verdicts: Vec<String> = election
+                    .candidate_blocks()
+                    .keys()
+                    .map(|candidate| {
+                        format!(
+                            "{}:{}",
+                            &candidate.to_string()[..8],
+                            state.admits(
+                                slot,
+                                *candidate,
+                                election.qualified_root().previous,
+                                &|origin, hash| { self.holds_exclusion_witness(origin, hash) }
+                            )
+                        )
+                    })
+                    .collect();
+                diagnostic!(
+                    "EPOCH_RECHECK_RETAINED epoch={} height={} confirmed={} state={:?} candidates=[{}]",
+                    epoch,
+                    height,
+                    election.is_confirmed(),
+                    election.state(),
+                    verdicts.join(",")
+                );
+            }
+            if election.is_confirmed() {
+                continue;
+            }
             let previous = election.qualified_root().previous;
             let candidates: Vec<BlockHash> = election.candidate_blocks().keys().copied().collect();
             let parent_slot = AccountSlot::new(account, height.saturating_sub(1));

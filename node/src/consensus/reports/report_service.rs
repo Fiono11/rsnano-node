@@ -503,6 +503,7 @@ impl ReportService {
                     DetailType::ReportUnverified,
                     missing.len() as u64,
                 );
+                self.explain_missing(epoch, &reporter, &missing);
                 let sample: Vec<String> = missing
                     .iter()
                     .take(4)
@@ -556,6 +557,55 @@ impl ReportService {
                 channel,
                 &Message::ConfirmAck(ConfirmAck::new_with_certificate_evidence((*vote).clone())),
                 TrafficType::VoteReply,
+            );
+        }
+    }
+
+    /// RAI: why the first entries a report claims are not justified here,
+    /// for a close that does not finish: the entry's status, and for a
+    /// finalized one every record of the predecessor checkpoint its block
+    /// bypasses, with the witness support held for the record's origin
+    fn explain_missing(&self, epoch: ConsensusEpoch, reporter: &PublicKey, missing: &[BlockHash]) {
+        let Some(previous) = self.active_elections.epoch_previous_state(epoch) else {
+            return;
+        };
+        let entries = {
+            let exchange = self.exchange.lock().unwrap();
+            exchange.report_entries(epoch, reporter, &missing[..missing.len().min(2)])
+        };
+        for (block, entry) in entries {
+            let slot = AccountSlot::new(block.account, block.height);
+            let branch = previous.branch_of(slot, block.hash, entry.previous);
+            let bypassed: Vec<String> = previous
+                .bypassed_records(block.account, &branch)
+                .iter()
+                .map(|b| {
+                    let (first, final_) = self
+                        .active_elections
+                        .support_counts(b.record.origin, &b.target);
+                    format!(
+                        "{:?}@{} holder={} target={} support={}/{} witness={}",
+                        b.record.strength,
+                        b.record.origin,
+                        &b.holder.to_string()[..8],
+                        &b.target.to_string()[..8],
+                        first,
+                        final_,
+                        self.active_elections
+                            .holds_exclusion_witness(b.record.origin, &b.target)
+                    )
+                })
+                .collect();
+            crate::utils::diagnostic!(
+                "EPOCH_UNJUSTIFIED_WHY epoch={} reporter={} block={} status={:?} height={} retained_here={} finalized_here={} bypassed=[{}]",
+                epoch,
+                &reporter.to_string()[..8],
+                &block.hash.to_string()[..8],
+                entry.status,
+                block.height,
+                previous.is_locked(&slot, &block.hash),
+                previous.is_finalized(&slot, &block.hash),
+                bypassed.join("; ")
             );
         }
     }
