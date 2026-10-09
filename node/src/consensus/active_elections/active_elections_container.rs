@@ -2093,7 +2093,23 @@ impl ActiveElectionsContainer {
                 .retain(|pending| *pending != target);
             if let Some((epoch, round)) = target.election.epoch.as_close_round() {
                 if let Some(close) = self.closes.get_mut(&epoch) {
-                    close.mark_voted(round, target.winner, VoteKind::from(target.vote_type));
+                    let kind = VoteKind::from(target.vote_type);
+                    #[cfg(feature = "rai_protocol")]
+                    {
+                        let before = close.voted_in(round).cloned().unwrap_or_default();
+                        close.mark_voted(round, target.winner, kind);
+                        if close.voted_in(round) != Some(&before) {
+                            diagnostic!(
+                                "EPOCH_CLOSE_MARK epoch={} round={} kind={:?} value={}",
+                                epoch,
+                                round,
+                                kind,
+                                &target.winner.to_string()[..8]
+                            );
+                        }
+                    }
+                    #[cfg(not(feature = "rai_protocol"))]
+                    close.mark_voted(round, target.winner, kind);
                     self.dirty_close_signing.push((epoch, round));
                     accepted.push(target);
                 }
@@ -3460,6 +3476,18 @@ impl ActiveElectionsContainer {
                 (None, _) if epoch >= self.current_epoch => Err(VoteError::Indeterminate),
                 (None, _) => Err(VoteError::Late),
             };
+            #[cfg(feature = "rai_protocol")]
+            if !matches!(result, Err(VoteError::Replay)) {
+                diagnostic!(
+                    "EPOCH_CLOSE_VOTE epoch={} round={} voter={} kind={:?} value={} result={:?}",
+                    epoch,
+                    round,
+                    &vote.voter.to_string()[..8],
+                    vote.kind(),
+                    &hash.to_string()[..8],
+                    result
+                );
+            }
             per_block.insert(*hash, result);
         }
         if let Some(close) = self.closes.get_mut(&epoch) {

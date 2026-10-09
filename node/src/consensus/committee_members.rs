@@ -23,6 +23,10 @@ impl CommitteeMembers {
         self.0.lock().unwrap().clone()
     }
 
+    pub fn contains(&self, key: &PublicKey) -> bool {
+        self.0.lock().unwrap().contains(key)
+    }
+
     /// True if the members changed
     pub fn set(&self, members: HashSet<PublicKey>) -> bool {
         let mut held = self.0.lock().unwrap();
@@ -64,9 +68,19 @@ impl Tickable for CommitteeMembersSync {
     fn tick(&mut self, _: &CancellationToken) {
         let members = self.aec.committee_members();
         if self.members.set(members.clone()) {
+            let count = members.len();
             let mut wallet_reps = self.wallet_reps.lock().unwrap();
             wallet_reps.set_committee_members(members);
             wallet_reps.compute_reps();
+            crate::utils::diagnostic!(
+                "COMMITTEE_MEMBERS members={} voting_keys={}",
+                count,
+                wallet_reps
+                    .rep_pub_keys()
+                    .map(|key| key.to_string()[..8].to_owned())
+                    .collect::<Vec<_>>()
+                    .join(",")
+            );
         }
     }
 }
@@ -82,5 +96,7 @@ mod tests {
         assert!(members.set(set.clone()));
         assert!(!members.set(set.clone()));
         assert_eq!(members.get(), set);
+        assert!(members.contains(&PublicKey::from(1)));
+        assert!(!members.contains(&PublicKey::from(2)));
     }
 }

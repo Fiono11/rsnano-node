@@ -20,6 +20,9 @@ pub(crate) struct VoteApplier {
     clock: Arc<SteadyClock>,
     rep_weights: Arc<RepWeightCache>,
     ledger: Arc<Ledger>,
+    /// RAI: the members of the committees around the current epoch, whose
+    /// votes count by membership whatever ledger weight they hold now
+    committee: Option<Arc<crate::consensus::CommitteeMembers>>,
 }
 
 impl VoteApplier {
@@ -37,7 +40,17 @@ impl VoteApplier {
             clock,
             rep_weights,
             ledger,
+            committee: None,
         }
+    }
+
+    /// RAI: votes of committee members are applied by their membership
+    pub(crate) fn with_committee(
+        mut self,
+        committee: Arc<crate::consensus::CommitteeMembers>,
+    ) -> Self {
+        self.committee = Some(committee);
+        self
     }
 
     pub fn add_event_sink(&self, sink: Sender<AecFact>) {
@@ -58,7 +71,14 @@ impl VoteApplier {
         let minimum_pr_weight = self.rep_tracker.quorum_snapshot().minimum_principal_weight;
         let voter_weight = self.rep_weights.weight(&vote.voter);
 
-        if voter_weight <= minimum_pr_weight {
+        // RAI: a member of a committee votes in its epochs by membership: a
+        // member that moved its weight away is still one for two epochs,
+        // and its votes there are what the certificates need
+        let member = self
+            .committee
+            .as_ref()
+            .is_some_and(|committee| committee.contains(&vote.voter));
+        if voter_weight <= minimum_pr_weight && !member {
             // Ignore votes from reps below min PR weight!
             return vote
                 .filtered_blocks()

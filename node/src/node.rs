@@ -656,13 +656,17 @@ impl Node {
             CpsLimiter::unlimited()
         };
 
+        // RAI: the members of the committees around the current epoch, who
+        // vote and are heard by their membership rather than their weight
+        let committee_members = Arc::new(crate::consensus::CommitteeMembers::default());
         let vote_applier = VoteApplier::new(
             active_elections.clone(),
             rep_tracker.clone(),
             steady_clock.clone(),
             rep_weights.clone(),
             ledger.clone(),
-        );
+        )
+        .with_committee(committee_members.clone());
 
         let vote_processor = Arc::new(VoteProcessor::new(
             vote_processor_queue.clone(),
@@ -1263,7 +1267,6 @@ impl Node {
             RepTiersCalculator::new(rep_weights.clone(), rep_tracker.clone(), stats.clone());
         #[cfg(feature = "rai_protocol")]
         {
-            let committee_members = Arc::new(crate::consensus::CommitteeMembers::default());
             rep_tiers_calculator = rep_tiers_calculator.with_committee(committee_members.clone());
             ticker_pool.insert(
                 crate::consensus::CommitteeMembersSync::new(
