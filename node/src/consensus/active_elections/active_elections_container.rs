@@ -2976,8 +2976,51 @@ impl ActiveElectionsContainer {
         }
         self.erase_ended_elections();
         self.end_epoch_by_time(now);
+        #[cfg(feature = "rai_protocol")]
+        self.follow_ahead(now);
         self.try_advance_epoch(now);
         self.tick_closes(now);
+    }
+
+    /// RAI: a replica that lagged behind - restarted, or held up by a close
+    /// it had to catch up on - would leave one epoch per boundary and never
+    /// close the gap. Once members of the current epoch's committee holding
+    /// more than `f` of its weight - one correct member at least - are seen
+    /// voting in later epochs, the current epoch is over at the correct
+    /// replicas, and it ends here too: its report is signed, its close
+    /// follows, and the checkpoint catch-up brings the decided states.
+    /// Ending an epoch early changes when this replica stops starting
+    /// instances in it, nothing it signs.
+    #[cfg(feature = "rai_protocol")]
+    fn follow_ahead(&mut self, now: Timestamp) {
+        if !self.epochs_started || self.draining {
+            return;
+        }
+        let Some(committee) = self.committees.committee(self.current_epoch) else {
+            return;
+        };
+        let ahead: BTreeSet<PublicKey> = self
+            .epoch_voters
+            .range(self.current_epoch.next()..)
+            .flat_map(|(_, voters)| voters.iter().copied())
+            .collect();
+        let weight = ahead.iter().fold(Amount::ZERO, |sum, voter| {
+            Amount::raw(
+                sum.number()
+                    .saturating_add(committee.weight(voter).number()),
+            )
+        });
+        if weight <= committee.thresholds().f {
+            return;
+        }
+        self.stats.epochs_followed += 1;
+        diagnostic!(
+            "EPOCH_FOLLOW_AHEAD epoch={} voters_ahead={} weight={}",
+            self.current_epoch,
+            ahead.len(),
+            weight.number()
+        );
+        self.end_epoch(now);
     }
 
     pub fn election(&self, id: &ElectionId) -> Option<&Election> {
@@ -4415,6 +4458,57 @@ mod tests {
                 .epoch_decided_state(ConsensusEpoch::new(2))
                 .is_none()
         );
+    }
+
+    /// RAI: a replica left behind ends its epoch once members holding more
+    /// than f of the committee's weight are seen voting in a later epoch,
+    /// and not for fewer
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn a_lagging_replica_follows_the_members_ahead() {
+        let now = Timestamp::new_test_instance();
+        let mut container = ActiveElectionsContainer::default();
+        let reps: Vec<PrivateKey> = (1..=6).map(PrivateKey::from).collect();
+        container.set_genesis_committee(
+            reps.iter()
+                .enumerate()
+                .map(|(i, rep)| AccountFrontier {
+                    account: PrivateKey::from(10 + i as u64).account(),
+                    height: 1,
+                    hash: BlockHash::from(70 + i as u64),
+                    representative: rep.public_key(),
+                    balance: Amount::raw(100),
+                })
+                .collect(),
+        );
+        container.start_epochs(now);
+        let vote_ahead = |container: &mut ActiveElectionsContainer, rep: &PrivateKey| {
+            let vote = Vote::new_in_epoch(
+                rep,
+                VoteKind::First,
+                ConsensusEpoch::new(1),
+                vec![BlockHash::from(5)],
+            );
+            container.apply_vote(ApplyVoteArgs {
+                vote: &ReceivedVote::new(Arc::new(vote), VoteDelivery::Direct, None).into(),
+                rep_weights: &RepWeights::default(),
+                quorum_snapshot: &QuorumSnapshot::new_test_instance(),
+                now,
+            });
+        };
+
+        // One member of six holds 16.7 % of the weight, not more than
+        // f = 19 %: it may be the faulty one
+        vote_ahead(&mut container, &reps[0]);
+        container.transition_time(now);
+        assert_eq!(container.current_epoch(), ConsensusEpoch::ZERO);
+        assert!(!container.is_draining());
+
+        // Two hold 33 %: one of them at least is correct
+        vote_ahead(&mut container, &reps[1]);
+        container.transition_time(now);
+        assert_eq!(container.current_epoch(), ConsensusEpoch::new(1));
+        assert_eq!(container.stats.epochs_followed, 1);
     }
 
     /// RAI, durable epochs: a restarted node takes up the epochs from what

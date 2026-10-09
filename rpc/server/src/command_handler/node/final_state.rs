@@ -100,6 +100,13 @@ impl RpcCommandHandler {
             .into_iter()
             .map(|close| (close.epoch, close))
             .collect();
+        // An epoch with a close but nothing finalized here: a restarted node
+        // holds the decided closes of the epochs before its restart
+        for epoch in closes.keys() {
+            if !epochs.contains_key(epoch) {
+                epochs.insert(*epoch, self.node.aec.epoch_state(*epoch));
+            }
+        }
 
         // The AEC lock is held while the elections are copied out and released
         // before anything else of the node is asked: a second read of the lock

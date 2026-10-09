@@ -48,6 +48,8 @@ pub(crate) struct AecStats {
     pub signing_restored: u64,
     /// RAI: restarts that took up the epochs from the durable epoch records
     pub epochs_restored: u64,
+    /// RAI: epochs ended early to follow the members already ahead
+    pub epochs_followed: u64,
     /// RAI: early instances discarded by the recheck against S_{e-1}
     pub rechecked_discarded: u64,
     /// RAI: notarized instances given an open-epoch instance when their
@@ -235,6 +237,7 @@ impl StatsSource for AecStats {
         result.insert(AEC_STAT_KEY, "overlap_eligible", self.overlap_eligible);
         result.insert(AEC_STAT_KEY, "signing_restored", self.signing_restored);
         result.insert(AEC_STAT_KEY, "epochs_restored", self.epochs_restored);
+        result.insert(AEC_STAT_KEY, "epochs_followed", self.epochs_followed);
         result.insert(
             AEC_STAT_KEY,
             "rechecked_discarded",

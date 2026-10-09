@@ -72,6 +72,10 @@ pub(crate) struct EpochClose {
     /// Δ_timeout of Protocol 1, line 22
     round_timeout: Duration,
     events: Vec<CloseEvent>,
+    /// RAI, checkpoint catch-up: since when this close is not ready, and
+    /// when its certificate was last solicited for that reason
+    unready_since: Option<Timestamp>,
+    catch_up_solicited: Option<Timestamp>,
 }
 
 /// One round of the close election: a Kudzu slot
@@ -170,6 +174,11 @@ impl EpochClose {
     const MAX_CANDIDATES: usize = 64;
     /// Rounds behind the current one which are still solicited
     const SOLICITED_ROUNDS: usize = 3;
+    /// RAI, checkpoint catch-up: how long a close stays unready before its
+    /// certificate is solicited, how often, and for how many rounds
+    const CATCH_UP_AFTER: Duration = Duration::from_secs(2);
+    const CATCH_UP_INTERVAL: Duration = Duration::from_secs(1);
+    const CATCH_UP_ROUNDS: usize = 4;
 
     pub fn new(epoch: ConsensusEpoch, leaders: Vec<PublicKey>, round_timeout: Duration) -> Self {
         Self {
@@ -187,6 +196,8 @@ impl EpochClose {
             reported: false,
             round_timeout,
             events: Vec::new(),
+            unready_since: None,
+            catch_up_solicited: None,
         }
     }
 
@@ -783,9 +794,13 @@ impl EpochClose {
     /// The rounds whose evidence is to be solicited now, at most once per
     /// interval each: the recent rounds of an epoch not closed yet
     pub fn solicitations(&mut self, now: Timestamp, interval: Duration) -> Vec<(u32, BlockHash)> {
-        if self.closed.is_some() || !self.ready {
+        if self.closed.is_some() {
             return Vec::new();
         }
+        if !self.ready {
+            return self.catch_up_solicitations(now);
+        }
+        self.unready_since = None;
         let first = self.current.saturating_sub(Self::SOLICITED_ROUNDS);
         let mut result = Vec::new();
         for round in first..=self.current.min(self.rounds.len() - 1) {
@@ -802,6 +817,29 @@ impl EpochClose {
             result.push((round as u32, routing));
         }
         result
+    }
+
+    /// RAI, checkpoint catch-up: a replica that can not derive a value -
+    /// it lagged behind, and the reports were released meanwhile - takes
+    /// part in no round, yet the certificate is what it needs: with it, it
+    /// fetches the decided state. Once the close has waited a while (a
+    /// replica merely short of a report for a moment derives soon), the
+    /// first rounds' statements are solicited from the replicas that made
+    /// them; they hand them out again, re-signed, for as long as they keep
+    /// the close.
+    fn catch_up_solicitations(&mut self, now: Timestamp) -> Vec<(u32, BlockHash)> {
+        let since = *self.unready_since.get_or_insert(now);
+        if since.elapsed(now) < Self::CATCH_UP_AFTER
+            || self
+                .catch_up_solicited
+                .is_some_and(|last| last.elapsed(now) < Self::CATCH_UP_INTERVAL)
+        {
+            return Vec::new();
+        }
+        self.catch_up_solicited = Some(now);
+        (0..Self::CATCH_UP_ROUNDS)
+            .map(|round| (round as u32, self.routing(round)))
+            .collect()
     }
 
     #[cfg(test)]
@@ -972,6 +1010,25 @@ mod tests {
                 .any(|event| matches!(event, CloseEvent::Validated { .. })),
             "an adopted value is not one this replica votes for"
         );
+    }
+
+    /// RAI, checkpoint catch-up: a close that stays unready solicits the
+    /// first rounds' certificates, once it has waited and then once a second
+    #[test]
+    fn an_unready_close_solicits_the_certificate_after_a_while() {
+        let mut close = close_election();
+        let interval = Duration::from_millis(100);
+
+        assert!(close.solicitations(t(0), interval).is_empty());
+        assert!(close.solicitations(t(1), interval).is_empty());
+        let rounds: Vec<u32> = close
+            .solicitations(t(2), interval)
+            .into_iter()
+            .map(|(round, _)| round)
+            .collect();
+        assert_eq!(rounds, vec![0, 1, 2, 3]);
+        assert!(close.solicitations(t(2), interval).is_empty());
+        assert_eq!(close.solicitations(t(3), interval).len(), 4);
     }
 
     /// RAI: "A child of a non-genesis placement must copy its parent's
