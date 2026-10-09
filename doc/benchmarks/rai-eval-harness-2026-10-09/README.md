@@ -246,3 +246,58 @@ restarted one for the epochs it adopted by catch-up (it never held their
 reports). No epoch was dropped before release, the committees are the same
 on every node (`*.committees.txt`), and the vote audit finds no
 equivocation. Single runs each, quiet host.
+
+## Step 6: overlap certificates committed in the manifest (`step6/`, `a53482ed0`)
+
+"Commit admission witnesses in the manifest." A block finalized under the
+core overlap exception, before the predecessor checkpoint `S_{e-1}` is
+known, is admitted on its overlap certificate: the closing-epoch exclusion
+witness `XW_{e-1}(B)`, the notarization `NC_e(B)`, a matching-origin witness
+for every record of the last closed state `S_{e-2}` it bypasses, and a
+finalized prefix. Before this step none of that was fixed by a signed value:
+`XW_{e-1}(B)` reached the manifest only incidentally (the earlier-finality
+claims), the witnesses discharging `S_{e-2}`'s records not at all, and
+nothing said which blocks the overlap admitted. The close checked a fresh
+F entry against `S_{e-1}` only.
+
+- `ManifestEntry` carries an `overlap` mark (one byte, 73 bytes per entry,
+  in the digest `mu_e`): entry `(e-1, B)` is the closing-epoch witness of
+  `B`'s overlap certificate.
+- The candidate claims add, for every fresh finalized block, the exclusion
+  witnesses that discharge the recovery records of `S_{e-2}` it bypasses.
+- `overlap_certified` (`election/overlap_certificate.rs`): the fresh
+  finalized blocks whose certificate the manifest proves. It is a function
+  of the evidence, the selection, `S_{e-1}` and `S_{e-2}`, so the leader
+  marks before proposing, and a follower that builds the same manifest from
+  its own votes gets the same digest and keeps the shortcut it had.
+- A fetched manifest whose marks are not exactly the certificates its
+  evidence proves is refused (`EPOCH_MANIFEST_OVERLAPS_REFUSED`).
+
+What is still not committed: which evidence each individual signer used
+when it cast its own early final vote. The marks say what the decided
+evidence proves, not what every voter held; that is the base reference of
+1c.
+
+The overlap route is the common one here: the nodes' own `overlap_eligible`
+counters are about 20,000 of 24,000-26,000 finalized blocks per run, and the
+closes mark 5,000-14,000 certificates per epoch (sum about 19,900 in
+`B-fork5-1`, matching).
+
+A/B against `7ac344163` (A), fork5, 6 equal-weight PRs, 45,000 blocks at
+2,000/s, alternating order, quiet host; `byz1` adds one Byzantine
+representative played by the client:
+
+| Run | cps | p50 / p95 ms | close median / max ms | follower evidence check median / max ms | manifest fetches |
+|---|---|---|---|---|---|
+| A fork5-1 | 1,756 | 310 / 2,084 | 4,039 / 9,143 | 145 / 428 | 7 |
+| B fork5-1 | 1,780 | 332 / 846 | 3,109 / 8,642 | 208 / 420 | 5 |
+| B fork5-2 | 1,779 | 256 / 1,087 | 2,818 / 8,981 | 176 / 245 | 5 |
+| A fork5-2 | 1,792 | 253 / 886 | 2,650 / 8,463 | 148 / 440 | 1 |
+| A byz1 | 1,593 | 182 / 1,389 | 2,585 / 8,816 | 203 / 1,189 | 8 |
+| B byz1 | 1,537 | 257 / 1,496 | 3,947 / 9,953 | 251 / 813 | 12 |
+
+Every run settled with every epoch decided everywhere; no manifest, value or
+claim was refused. Goodput, latency and close time are within the
+run-to-run spread; the measurable cost is the follower's evidence check,
+about 30-60 ms more at the median (marking walks the fresh finalized blocks
+and the anchor's retained positions). Single Byzantine run per arm.
