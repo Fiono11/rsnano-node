@@ -190,6 +190,7 @@ def main():
     parser.add_argument('--prs', type=int, default=6, help='representatives; more than the 3f + 2p + 1 seats leaves the lightest (ties by key) outside the committee')
     parser.add_argument('--restart', action='append', default=[], help='nanospam --restart PR:at:SECS or PR:close:EPOCH[:ROUND] (SIGKILL, then start again); repeatable')
     parser.add_argument('--restart-down-ms', type=int, default=0, help='how long a killed node stays down')
+    parser.add_argument('--committee-p', type=int, default=1, help='p of the equal-weight or bounded-weight committee (f stays 1): N = 3 + 2p + 1 seats')
     parser.add_argument('--standby', type=int, default=0, help='running representatives that start outside the committee with an eighth of a share (nanospam --standby)')
     parser.add_argument('--rotation', default=None, help='committee rotations EPOCH:FROM>TO,...;EPOCH:... (nanospam --rotation)')
     parser.add_argument('--signing-sync', choices=['none', 'fsync', 'full'], default='fsync', help='how the signing records reach the disk (nanospam --signing-sync)')
@@ -246,10 +247,10 @@ def main():
         if args.weight_shift:
             command += ['--weight-shift-percent', str(args.weight_shift)]
         if args.bounded_drift is not None:
-            command += ['--committee-model', 'bounded_weight', '--committee-f', '1', '--committee-p', '1',
+            command += ['--committee-model', 'bounded_weight', '--committee-f', '1', '--committee-p', str(args.committee_p),
                         '--committee-drift', str(args.bounded_drift)]
         elif not args.weighted:
-            command += ['--committee-model', 'equal_weight', '--committee-f', '1', '--committee-p', '1']
+            command += ['--committee-model', 'equal_weight', '--committee-f', '1', '--committee-p', str(args.committee_p)]
         result['command'] = command
         result['status'] = 'running'
         env = dict(os.environ, PATH=str(binary_dir) + os.pathsep + os.environ['PATH'], RUST_LOG='nanospam=info', NANO_LOG='noansi')

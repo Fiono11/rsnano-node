@@ -569,6 +569,12 @@ async fn wait_for_equal_ledgers(rpc_clients: &[NanoRpcClient]) -> anyhow::Result
             );
             return Ok(());
         }
+        // A setup block lost on one node: the genesis chain, whose sends
+        // fund every account of the setup, is handed to every node again
+        if started.elapsed() > Duration::from_secs(10) && started.elapsed().as_millis() % 5000 < 200
+        {
+            republish_genesis_chain(rpc_clients).await;
+        }
         if started.elapsed() > Duration::from_secs(120) {
             return Err(anyhow!("the PRs never held the same ledger: {counts:?}"));
         }

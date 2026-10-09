@@ -2107,6 +2107,20 @@ impl ActiveElectionsContainer {
                 if kind == VoteKind::First && self.cross_epoch_locked(election, &hash) {
                     continue;
                 }
+                // RAI, matching-origin discharge: no final vote for a block
+                // that bypasses a record of the latest checkpoint this node
+                // holds no discharging witness for. The first vote may have
+                // been cast early, before that checkpoint was known; the
+                // recheck at its installation governs the position from then
+                // on, the exit vote included. A certificate the new
+                // committee could form for the block would be one the
+                // report rule refuses, and the epoch's close with it.
+                if kind == VoteKind::Final
+                    && election.predecessor_decided()
+                    && self.at_closed_lock(election, &hash)
+                {
+                    continue;
+                }
                 // RAI, "no fast path on early votes": a first vote keeps the
                 // base it was cast with; a new one is early while this node
                 // has not installed the epoch's predecessor checkpoint
@@ -4501,6 +4515,88 @@ mod tests {
             now,
         });
         assert!(container.finalized_in_epoch(&block.hash(), ConsensusEpoch::ZERO));
+    }
+
+    /// RAI, matching-origin discharge: a block first-voted early whose rival
+    /// the installed checkpoint retains under a recovery record gets no final
+    /// vote here, however many first votes the open epoch's committee gives
+    /// it, unless an exclusion witness of the record's origin discharges it
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn no_final_vote_for_a_block_the_checkpoint_excludes() {
+        let now = Timestamp::new_test_instance();
+        let reps: Vec<PrivateKey> = (1..=6).map(PrivateKey::from).collect();
+        let block = SavedBlock::new_test_instance_with_key(2);
+        let slot = AccountSlot::new(block.account(), block.height());
+        let rival = BlockHash::from(99);
+        let setup = |retains_rival: bool| {
+            let mut container = ActiveElectionsContainer::default();
+            container.set_genesis_committee(
+                reps.iter()
+                    .enumerate()
+                    .map(|(i, rep)| AccountFrontier {
+                        account: PrivateKey::from(10 + i as u64).account(),
+                        height: 1,
+                        hash: BlockHash::from(70 + i as u64),
+                        representative: rep.public_key(),
+                        balance: Amount::raw(100),
+                    })
+                    .collect(),
+            );
+            container.start_epochs(now);
+            container.set_current_epoch(ConsensusEpoch::new(1));
+            // The instance opens and this node first-votes before S_0 is known
+            container.insert_for_vote(block.clone(), ConsensusEpoch::new(1), now);
+            let first: Vec<VoteTarget> = container
+                .kudzu_votes_due(|_| Ok(()))
+                .into_iter()
+                .filter(|target| target.vote_type.is_first())
+                .collect();
+            assert_eq!(first.len(), 1);
+            container.mark_kudzu_voted(first);
+            // S_0 arrives: it retains the rival under a recovery record of
+            // origin 0, which only an epoch-0 exclusion witness discharges
+            let mut state = EpochLedger::new();
+            if retains_rival {
+                state.retain_for_test(slot, rival, block.previous());
+                state.set_lock_for_test(rival, crate::consensus::election::RetainedKind::Recovery);
+            }
+            container
+                .decided
+                .insert(ConsensusEpoch::ZERO, Arc::new(state));
+            let id = ElectionId::new(block.qualified_root(), ConsensusEpoch::new(1));
+            container
+                .roots
+                .election_mut(&id)
+                .unwrap()
+                .set_predecessor_decided(true);
+            // The open epoch's committee notarizes the block
+            for rep in &reps[..4] {
+                let vote = Vote::new_in_epoch(
+                    rep,
+                    VoteKind::First,
+                    ConsensusEpoch::new(1),
+                    vec![block.hash()],
+                );
+                container.apply_vote(ApplyVoteArgs {
+                    vote: &ReceivedVote::new(Arc::new(vote), VoteDelivery::Direct, None).into(),
+                    rep_weights: &RepWeights::default(),
+                    quorum_snapshot: &QuorumSnapshot::new_test_instance(),
+                    now,
+                });
+            }
+            assert!(container.complete_in_epoch(&block.hash(), ConsensusEpoch::new(1)));
+            container
+                .kudzu_votes_due(|_| Ok(()))
+                .into_iter()
+                .any(|target| target.winner == block.hash() && target.vote_type == VoteType::Final)
+        };
+
+        assert!(setup(false), "the final vote is due at a free position");
+        assert!(
+            !setup(true),
+            "no final vote for a block bypassing an undischarged record"
+        );
     }
 
     /// An instance whose position the checkpoint omitted is erased: its
