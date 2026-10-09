@@ -107,6 +107,12 @@ pub struct Recovered {
 pub struct SigningRecords {
     env: LmdbEnvironment,
     store: LmdbSigningStore,
+    /// RAI: the bulk records a restart can do without or fetch again - the
+    /// decided states and the retained evidence - in an environment of
+    /// their own, not synced: LMDB has one writer per environment, and the
+    /// voter must not wait behind megabytes of them to record a vote
+    bulk_env: LmdbEnvironment,
+    bulk_store: LmdbSigningStore,
     drive_flush: DriveFlush,
     /// How long each kind of write took, waiting for the environment's one
     /// writer included, since the timings were last taken
@@ -178,13 +184,18 @@ const CLOSE: u8 = b'C';
 /// oldest epoch still closing, and the one before it, which the overlap
 /// gate checks against
 const DECIDED_STATES_KEPT: u64 = 2;
+/// Records of old epochs deleted per transaction
+const FORGET_CHUNK: usize = 2000;
 
 impl SigningRecords {
-    pub fn new(env: LmdbEnvironment) -> anyhow::Result<Self> {
+    pub fn new(env: LmdbEnvironment, bulk_env: LmdbEnvironment) -> anyhow::Result<Self> {
         let store = LmdbSigningStore::new(&env)?;
+        let bulk_store = LmdbSigningStore::new(&bulk_env)?;
         Ok(Self {
             env,
             store,
+            bulk_env,
+            bulk_store,
             drive_flush: DriveFlush::new_null(),
             timings: Default::default(),
         })
@@ -216,7 +227,8 @@ impl SigningRecords {
     }
 
     pub fn new_null() -> Self {
-        Self::new(LmdbEnvironment::new_null()).expect("a nulled environment opens")
+        Self::new(LmdbEnvironment::new_null(), LmdbEnvironment::new_null())
+            .expect("a nulled environment opens")
     }
 
     /// Persists the slot states of a batch of votes about to be released
@@ -302,19 +314,19 @@ impl SigningRecords {
             if records.is_empty() {
                 return;
             }
-            let mut txn = self.env.begin_write();
+            let mut txn = self.bulk_env.begin_write();
             let mut written = std::collections::HashSet::new();
             for record in records {
                 for vote in &record.votes {
                     let key = evidence_vote_key(record.epoch, vote);
-                    if written.insert(key.clone()) && self.store.get(&txn, &key).is_none() {
+                    if written.insert(key.clone()) && self.bulk_store.get(&txn, &key).is_none() {
                         let mut bytes = Vec::new();
                         vote.serialize(&mut bytes)
                             .expect("a vote serializes to memory");
-                        self.store.put(&mut txn, &key, &bytes);
+                        self.bulk_store.put(&mut txn, &key, &bytes);
                     }
                 }
-                self.store.put(
+                self.bulk_store.put(
                     &mut txn,
                     &evidence_key(record.epoch, &record.hash),
                     &encode_evidence(record),
@@ -333,10 +345,10 @@ impl SigningRecords {
         keep: impl Fn(ConsensusEpoch, &AccountSlot) -> bool,
     ) {
         self.timed("forget_evidence", || {
-            let mut txn = self.env.begin_write();
+            let mut txn = self.bulk_env.begin_write();
             let mut old = Vec::new();
             let mut referenced = std::collections::HashSet::new();
-            for (key, value) in self.store.with_prefix(&txn, &[EVIDENCE]) {
+            for (key, value) in self.bulk_store.with_prefix(&txn, &[EVIDENCE]) {
                 let kept = decode_evidence_key(&key).and_then(|(held, _)| {
                     let (slot, votes) = decode_evidence(&value)?;
                     (held >= epoch || keep(held, &slot)).then_some((held, votes))
@@ -352,14 +364,14 @@ impl SigningRecords {
             }
             // A stored vote no remaining record names goes too
             old.extend(
-                self.store
+                self.bulk_store
                     .with_prefix(&txn, &[EVIDENCE_VOTE])
                     .into_iter()
                     .map(|(key, _)| key)
                     .filter(|key| !referenced.contains(key)),
             );
             for key in old {
-                self.store.delete(&mut txn, &key);
+                self.bulk_store.delete(&mut txn, &key);
             }
             txn.commit();
         })
@@ -380,14 +392,18 @@ impl SigningRecords {
             let Some(latest) = records.iter().map(|record| record.epoch).max() else {
                 return;
             };
-            let store = &self.store;
             let mut txn = self.env.begin_write();
             for record in records {
-                store.put(
+                self.store.put(
                     &mut txn,
                     &epoch_key(DECIDED, record.epoch),
                     &encode_decided(record),
                 );
+            }
+            txn.commit();
+            let store = &self.bulk_store;
+            let mut txn = self.bulk_env.begin_write();
+            for record in records {
                 if let Some(state) = &record.state {
                     store.put(
                         &mut txn,
@@ -416,7 +432,7 @@ impl SigningRecords {
     pub fn forget_before(&self, epoch: ConsensusEpoch) {
         self.timed("forget", || {
             let store = &self.store;
-            let mut txn = self.env.begin_write();
+            let txn = self.env.begin_read();
             let old: Vec<Vec<u8>> = store
                 .with_prefix(&txn, &[SLOT])
                 .into_iter()
@@ -437,10 +453,15 @@ impl SigningRecords {
                         .filter(|key| decode_close_key(key).is_some_and(|(held, _)| held < epoch)),
                 )
                 .collect();
-            for key in old {
-                store.delete(&mut txn, &key);
+            drop(txn);
+            // In short transactions: the voter waits for the one writer
+            for chunk in old.chunks(FORGET_CHUNK) {
+                let mut txn = self.env.begin_write();
+                for key in chunk {
+                    store.delete(&mut txn, key);
+                }
+                txn.commit();
             }
-            txn.commit();
         })
     }
 
@@ -525,12 +546,14 @@ impl SigningRecords {
         }
         let mut votes: std::collections::HashMap<Vec<u8>, Arc<Vote>> =
             std::collections::HashMap::new();
-        for (key, value) in store.with_prefix(&txn, &[EVIDENCE_VOTE]) {
+        let bulk = &self.bulk_store;
+        let bulk_txn = self.bulk_env.begin_read();
+        for (key, value) in bulk.with_prefix(&bulk_txn, &[EVIDENCE_VOTE]) {
             if let Ok(vote) = Vote::deserialize(&value) {
                 votes.insert(key, Arc::new(vote));
             }
         }
-        for (key, value) in store.with_prefix(&txn, &[EVIDENCE]) {
+        for (key, value) in bulk.with_prefix(&bulk_txn, &[EVIDENCE]) {
             let Some((epoch, hash)) = decode_evidence_key(&key) else {
                 continue;
             };
@@ -570,8 +593,8 @@ impl SigningRecords {
             let Some(mut record) = decode_decided(epoch, &value) else {
                 continue;
             };
-            record.state = store
-                .get(&txn, &epoch_key(DECIDED_STATE, epoch))
+            record.state = bulk
+                .get(&bulk_txn, &epoch_key(DECIDED_STATE, epoch))
                 .and_then(|bytes| EpochLedger::from_bytes(&bytes))
                 .filter(|state| state.state_hash() == record.state_hash)
                 .map(Arc::new);
@@ -953,9 +976,9 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("signing.ldb");
-        let open = || {
+        let env = |path: std::path::PathBuf| {
             let options = rsnano_nullable_lmdb::EnvironmentOptions {
-                path: path.clone(),
+                path,
                 max_dbs: 1,
                 map_size: 64 * 1024 * 1024,
                 flags: rsnano_store_lmdb::get_lmdb_flags(&rsnano_store_lmdb::LmdbConfig {
@@ -963,10 +986,13 @@ mod tests {
                     ..Default::default()
                 }),
             };
-            let env = rsnano_nullable_lmdb::LmdbEnvironmentFactory::default()
+            rsnano_nullable_lmdb::LmdbEnvironmentFactory::default()
                 .create(options)
-                .unwrap();
-            let records = SigningRecords::new(env).unwrap();
+                .unwrap()
+        };
+        let open = || {
+            let records =
+                SigningRecords::new(env(path.clone()), env(dir.join("epoch_records.ldb"))).unwrap();
             records.with_drive_flush(DriveFlush::new(&path).unwrap())
         };
         let mut state = LocalSlotState::default();

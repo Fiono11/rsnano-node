@@ -884,10 +884,21 @@ impl Node {
                 map_size: 16 * 1024 * 1024 * 1024,
                 flags: get_lmdb_flags(&lmdb_config),
             };
+            // The bulk records - decided states, retained evidence - go
+            // where the ledger's sync setting applies
+            let bulk_options = EnvironmentOptions {
+                path: application_path.join("epoch_records.ldb"),
+                max_dbs: 1,
+                map_size: 16 * 1024 * 1024 * 1024,
+                flags: get_lmdb_flags(&config.lmdb_config),
+            };
             let records = crate::consensus::SigningRecords::new(
                 lmdb_env_factory
                     .create(options)
                     .expect("Could not create LMDB env for signing records"),
+                lmdb_env_factory
+                    .create(bulk_options)
+                    .expect("Could not create LMDB env for epoch records"),
             )
             .expect("Could not open the signing records");
             Arc::new(match sync {
