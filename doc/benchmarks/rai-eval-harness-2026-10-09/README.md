@@ -75,5 +75,5 @@ fired in `audit-only`.
 
 Not covered yet: power loss (the signing store still uses the ledger's
 `nosync_unsafe` flags), close-election votes are still not persisted, and a
-restart before the first decided record of the genesis (`Z`) is written loses
+restart before the epochs-started record (`Z`) is written loses
 the epochs.
