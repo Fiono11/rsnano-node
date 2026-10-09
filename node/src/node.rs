@@ -1267,6 +1267,7 @@ impl Node {
             RepTiersCalculator::new(rep_weights.clone(), rep_tracker.clone(), stats.clone());
         #[cfg(feature = "rai_protocol")]
         {
+            rep_tracker.set_committee(committee_members.clone());
             rep_tiers_calculator = rep_tiers_calculator.with_committee(committee_members.clone());
             ticker_pool.insert(
                 crate::consensus::CommitteeMembersSync::new(

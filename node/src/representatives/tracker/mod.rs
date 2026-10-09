@@ -43,6 +43,10 @@ pub struct RepresentativeTracker {
     state: Mutex<RepresentativeTrackerState>,
     trim_counter: AtomicU64,
     representative_weight_minimum: Amount,
+    /// RAI: the members of the committees around the current epoch count as
+    /// principal representatives whatever ledger weight they hold now: a
+    /// member whose weight moved away is still solicited for its votes
+    committee: std::sync::OnceLock<Arc<crate::consensus::CommitteeMembers>>,
 }
 
 impl RepresentativeTracker {
@@ -108,6 +112,7 @@ impl RepresentativeTracker {
             state: Mutex::new(RepresentativeTrackerState::new(online_weight_minimum)),
             trim_counter: AtomicU64::new(0),
             representative_weight_minimum,
+            committee: std::sync::OnceLock::new(),
         }
     }
 
@@ -165,6 +170,12 @@ impl RepresentativeTracker {
         self.peered_representatives_filter(min_weight)
     }
 
+    /// RAI: the committee members, peered principal representatives by
+    /// membership
+    pub fn set_committee(&self, committee: Arc<crate::consensus::CommitteeMembers>) {
+        let _ = self.committee.set(committee);
+    }
+
     /// Request a list of known representatives in descending order
     /// of weight, with at least **weight** voting weight
     fn peered_representatives_filter(&self, min_weight: Amount) -> Vec<PeeredRepInfo> {
@@ -182,7 +193,11 @@ impl RepresentativeTracker {
                             .cloned()
                             .unwrap_or_default();
 
-                        if weight > min_weight {
+                        let member = self
+                            .committee
+                            .get()
+                            .is_some_and(|committee| committee.contains(&rep.public_key));
+                        if weight > min_weight || member {
                             Some(PeeredRepInfo {
                                 rep_key: rep.public_key,
                                 channel_id: id,
