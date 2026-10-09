@@ -20,7 +20,7 @@ import tempfile
 import time
 import traceback
 
-PRS = 6
+from audit_votes import audit, read_logs
 
 
 def rpc(index, action, **fields):
@@ -147,6 +147,14 @@ def close_timings(text):
     return result
 
 
+def restart_events(text):
+    """nanospam's RAI_RESTART_* lines: what each --restart did"""
+    events = []
+    for kind, pr, rest in re.findall(r'RAI_RESTART_(KILLED|UP|RECONNECTED|SKIPPED|MISSED|FAILED) pr=(\d+)(.*)$', text, re.M):
+        events.append(dict(event=kind.lower(), pr=int(pr), detail=rest.strip()))
+    return events
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('output', type=Path)
@@ -168,7 +176,12 @@ def main():
     parser.add_argument('--wait-quiet', type=int, default=0, help='seconds to wait for a quiet host before giving up')
     parser.add_argument('--keep', action='store_true', help='leave the nodes running and their data for a post-mortem; print the process group')
     parser.add_argument('--settle-timeout', type=int, default=90, help='seconds to wait for settlement after the client finished or timed out')
+    parser.add_argument('--prs', type=int, default=6, help='representatives; more than the 3f + 2p + 1 seats leaves the lightest (ties by key) outside the committee')
+    parser.add_argument('--restart', action='append', default=[], help='nanospam --restart PR:at:SECS or PR:close:EPOCH[:ROUND] (SIGKILL, then start again); repeatable')
+    parser.add_argument('--restart-down-ms', type=int, default=0, help='how long a killed node stays down')
+    parser.add_argument('--audit-votes', action='store_true', help='every node logs the votes it signs; the run fails on any equivocation (implied by --restart)')
     args = parser.parse_args()
+    args.audit_votes = args.audit_votes or bool(args.restart)
     args.output.mkdir(parents=True, exist_ok=False)
     binary_dir = args.bin_dir.resolve()
     result = dict(gate='B', source_revision=subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
@@ -189,9 +202,9 @@ def main():
         (args.output / 'result.json').write_text(json.dumps(result, indent=2) + '\n')
         print(json.dumps(result, indent=2))
         return 7
-    nodes = PRS - args.byzantine - args.offline
+    nodes = args.prs - args.byzantine - args.offline
     result['nodes'] = nodes
-    for i in range(PRS):
+    for i in range(args.prs):
         try:
             rpc(i, 'version')
         except OSError:
@@ -199,10 +212,16 @@ def main():
         raise RuntimeError(f'Benchmark RPC port for PR{i} is already in use')
     with tempfile.TemporaryDirectory(prefix='rai-gate-b-') as temporary:
         data = Path(tempfile.mkdtemp(prefix='rai-gate-b-kept-')) if args.keep else Path(temporary)
-        command = [str(binary_dir / 'nanospam'), '--data-dir', str(data), '--prs', str(PRS), '--no-prio',
+        command = [str(binary_dir / 'nanospam'), '--data-dir', str(data), '--prs', str(args.prs), '--no-prio',
                    '--blocks', str(args.blocks), '--accounts', str(args.accounts), '--rate', str(args.rate),
                    '--fork-percentage', str(args.fork_percentage), '--epoch-duration-ms', str(args.epoch_ms),
                    '--byzantine', str(args.byzantine), '--offline', str(args.offline), '--no-kill']
+        for spec in args.restart:
+            command += ['--restart', spec]
+        if args.restart:
+            command += ['--restart-down-ms', str(args.restart_down_ms)]
+        if args.audit_votes:
+            command += ['--audit-votes']
         if args.vote_delay_ms is not None:
             command += ['--vote-generator-delay-ms', str(args.vote_delay_ms)]
         if args.weight_shift:
@@ -274,6 +293,19 @@ def main():
                                                 and (args.fork_percentage > 0
                                                      or (result['confirmed_primary'] >= args.blocks
                                                          and int(settled['cemented'][0]) >= args.blocks)))
+                if args.restart:
+                    events = restart_events(text)
+                    result['restarts'] = events
+                    # Every requested restart must have killed its node and
+                    # brought it back; a skipped or missed one tested nothing
+                    up = sum(e['event'] == 'up' for e in events)
+                    result['restarts_completed'] = up == len(args.restart)
+                    result['correctness_passed'] = result['correctness_passed'] and result['restarts_completed']
+                if args.audit_votes:
+                    vote_audit = audit(read_logs(data))
+                    (args.output / 'vote_audit.json').write_text(json.dumps(vote_audit, indent=2) + '\n')
+                    result['vote_audit'] = {k: v for k, v in vote_audit.items() if k != 'all_conflicts'}
+                    result['correctness_passed'] = result['correctness_passed'] and vote_audit['conflicts'] == 0
                 result['status'] = 'settled' if result['correctness_passed'] else 'failed'
                 for i in range(nodes):
                     saved = args.output / f'pr{i}'

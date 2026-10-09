@@ -72,11 +72,12 @@ use crate::{
         AecFact, AecForkInserter, AecService, AecTicker, AecVoter, BootstrapElectionActivator,
         BootstrapStaleElections, ConfirmReqSender, ConfirmationSolicitorPlugin, CpsLimiter,
         CurrentRepTiers, DependentElectionsConfirmer, ForkCache, ForkCacheUpdater,
-        LocalVoteHistory, LocalVotesRemover, RepTiersCalculator, RequestAggregator, VoteApplier,
-        VoteBroadcaster, VoteGenerators, VoteProcessor, VoteProcessorExt, VoteProcessorQueue,
-        VoteRebroadcastQueue, VoteRebroadcaster, WalletRepsChecker, WinnerBlockBroadcaster,
-        election::ConfirmedElection, election_schedulers::ElectionSchedulers,
-        get_bootstrap_weights, log_bootstrap_weights, vote_cache::VoteCache,
+        LocalVoteHistory, LocalVotesRemover, RepTiersCalculator, RequestAggregator, SignedVoteLog,
+        VoteApplier, VoteBroadcaster, VoteGenerators, VoteProcessor, VoteProcessorExt,
+        VoteProcessorQueue, VoteRebroadcastQueue, VoteRebroadcaster, WalletRepsChecker,
+        WinnerBlockBroadcaster, election::ConfirmedElection,
+        election_schedulers::ElectionSchedulers, get_bootstrap_weights, log_bootstrap_weights,
+        vote_cache::VoteCache,
     },
     ledger_event_processor::{LedgerEventProcessor, LedgerEventProcessorStats},
     node_id_key_file::NodeIdKeyFile,
@@ -604,6 +605,15 @@ impl Node {
             stats.clone(),
         ));
 
+        let signed_vote_log = if config.active_elections.signed_vote_log && !is_nulled {
+            Arc::new(
+                SignedVoteLog::new(application_path.join(SignedVoteLog::FILE_NAME))
+                    .expect("Could not open the signed vote log"),
+            )
+        } else {
+            Arc::new(SignedVoteLog::new_null())
+        };
+
         let vote_generators = Arc::new(VoteGenerators::new(
             ledger.clone(),
             wallet_reps.clone(),
@@ -614,6 +624,7 @@ impl Node {
             vote_broadcaster,
             message_sender.clone(),
             steady_clock.clone(),
+            signed_vote_log,
         ));
 
         let base_latency = match current_network {

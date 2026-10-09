@@ -7,6 +7,7 @@ use rsnano_types::PublicKey;
 
 use crate::{
     domain::{RateSpec, Representatives, SpamStrategy, spam_logic::SpamSpec},
+    restart::{RestartSpec, RestartTrigger},
     setup::pr_key,
 };
 
@@ -136,6 +137,23 @@ pub(crate) struct CliArgs {
     /// share, in permille of it
     #[arg(long, default_value_t = 100)]
     pub committee_drift: u32,
+
+    /// RAI: kill a node with SIGKILL and start it again on its data
+    /// directory: PR:SECS or PR:at:SECS after the spam started, or
+    /// PR:close:EPOCH[:ROUND] while the node is in that close election.
+    /// May be given several times. PR0 serves the measurement and is never
+    /// restarted.
+    #[arg(long)]
+    pub restart: Vec<RestartSpec>,
+
+    /// RAI: how long a killed node stays down before it is started again
+    #[arg(long, default_value_t = 0)]
+    pub restart_down_ms: u64,
+
+    /// RAI: every node appends each vote it signs to signed-votes.log in its
+    /// data directory, for tools/rai/audit_votes.py
+    #[arg(long, default_value_t = false)]
+    pub audit_votes: bool,
 }
 
 impl CliArgs {
@@ -173,13 +191,30 @@ impl CliArgs {
 
     pub(crate) fn validate(&self) -> anyhow::Result<()> {
         if self.committee_model != "weighted" {
+            // More representatives than seats leaves the lightest ones (ties
+            // by key) outside the committee
             let n = 3 * u64::from(self.committee_f) + 2 * u64::from(self.committee_p) + 1;
-            if self.prs as u64 != n {
+            if (self.prs as u64) < n {
                 return Err(anyhow!(
-                    "{} requires {n} representatives (3f + 2p + 1), got {}",
+                    "{} requires at least {n} representatives (3f + 2p + 1), got {}",
                     self.committee_model,
                     self.prs
                 ));
+            }
+        }
+        for spec in &self.restart {
+            if self.attach || self.cpp {
+                return Err(anyhow!("--restart needs nodes launched by this run"));
+            }
+            if spec.pr == 0 || spec.pr >= self.honest_prs() {
+                return Err(anyhow!(
+                    "--restart {}: PR0 serves the measurement; restart one of PR1..PR{}",
+                    spec.pr,
+                    self.honest_prs() - 1
+                ));
+            }
+            if matches!(spec.trigger, RestartTrigger::Close { .. }) && self.epoch_duration_ms == 0 {
+                return Err(anyhow!("a close trigger needs --epoch-duration-ms"));
             }
         }
         if self.byzantine + self.offline >= self.prs {
@@ -285,6 +320,15 @@ mod tests {
         ])
         .unwrap();
         assert!(bounded.validate().is_err());
+        let more_than_seats = CliArgs::try_parse_from([
+            "nanospam",
+            "--prs",
+            "8",
+            "--committee-model",
+            "bounded_weight",
+        ])
+        .unwrap();
+        assert!(more_than_seats.validate().is_ok());
         assert!(CliArgs::try_parse_from(["nanospam", "--committee-model", "typo"]).is_err());
         let shifts = |args: &[&str]| {
             CliArgs::try_parse_from(
@@ -308,5 +352,25 @@ mod tests {
                 .validate()
                 .is_ok()
         );
+    }
+
+    #[test]
+    fn restarts_need_a_running_pr_other_than_pr0() {
+        let restart = |args: &[&str]| {
+            CliArgs::try_parse_from(
+                ["nanospam", "--prs", "6", "--epoch-duration-ms", "8000"]
+                    .iter()
+                    .chain(args),
+            )
+            .unwrap()
+            .validate()
+        };
+        assert!(restart(&["--restart", "1:close:1", "--restart", "2:at:10"]).is_ok());
+        assert!(restart(&["--restart", "0:at:10"]).is_err());
+        assert!(restart(&["--restart", "6:at:10"]).is_err());
+        assert!(restart(&["--byzantine", "1", "--restart", "5:at:10"]).is_err());
+        let untimed =
+            CliArgs::try_parse_from(["nanospam", "--prs", "6", "--restart", "1:close:1"]).unwrap();
+        assert!(untimed.validate().is_err());
     }
 }

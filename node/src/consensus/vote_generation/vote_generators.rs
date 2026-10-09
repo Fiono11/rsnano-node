@@ -13,7 +13,7 @@ use rsnano_utils::{
     stats::{DetailType, StatType, Stats},
 };
 
-use super::{LocalVoteHistory, vote_generator::VoteGenerator};
+use super::{LocalVoteHistory, SignedVoteLog, vote_generator::VoteGenerator};
 use crate::{
     config::{NetworkParams, NodeConfig},
     consensus::{VoteBroadcaster, election::VoteType},
@@ -56,6 +56,7 @@ impl VoteGenerators {
         vote_broadcaster: Arc<VoteBroadcaster>,
         message_sender: MessageSender,
         clock: Arc<SteadyClock>,
+        signed_log: Arc<SignedVoteLog>,
     ) -> Self {
         let voting_delay = Self::voting_delay_for(network_params.network.current_network);
 
@@ -88,6 +89,7 @@ impl VoteGenerators {
                     config.vote_generator_delay,
                     vote_broadcaster.clone(),
                     clock.clone(),
+                    signed_log.clone(),
                 );
                 (vote_type, generator)
             })
@@ -122,6 +124,7 @@ impl VoteGenerators {
             vote_broadcaster,
             message_sender,
             clock,
+            Arc::new(SignedVoteLog::new_null()),
         )
     }
 

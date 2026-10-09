@@ -7,6 +7,7 @@ mod frontiers_sync;
 mod handshake;
 mod high_prio_check;
 pub(crate) mod node_lifetime;
+mod restart;
 mod setup;
 pub(crate) mod wallets_factory;
 mod weight_shift;

@@ -408,6 +408,9 @@ impl NodeConfig {
             if let Some(voting) = i.account_voting {
                 self.active_elections.account_voting = voting;
             }
+            if let Some(log) = i.signed_vote_log {
+                self.active_elections.signed_vote_log = log;
+            }
         }
         if let Some(vote_processor_toml) = &toml.vote_processor {
             self.vote_processor.merge_toml(vote_processor_toml);

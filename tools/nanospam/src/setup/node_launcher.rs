@@ -1,5 +1,6 @@
 use std::{
-    process::{Command, Stdio},
+    path::Path,
+    process::{Child, Command, Stdio},
     time::Duration,
 };
 
@@ -15,54 +16,16 @@ use crate::{
 
 pub(crate) async fn start_nodes(
     args: &CliArgs,
-    data_dir: std::path::PathBuf,
+    data_dir: &Path,
     rpc_clients: &[NanoRpcClient],
-) -> Vec<std::process::Child> {
+) -> Vec<Child> {
     let mut children = Vec::new();
     for (i, rpc_client) in rpc_clients.iter().enumerate() {
-        let mut node_dir = data_dir.clone();
-        node_dir.push(format!("pr{i}"));
-
-        let mut cmd = if args.cpp {
-            let mut cmd = Command::new("nano_node");
-            cmd.env("NANO_TEST_GENESIS_BLOCK", GENESIS_BLOCK)
-                .env("NANO_TEST_GENESIS_PRV ", GENESIS_PRV)
-                .env("NANO_TEST_EPOCH_1", "0")
-                .env("NANO_TEST_EPOCH_2", "0")
-                .env("NANO_TEST_EPOCH_2_RECV", "0")
-                .arg("--network")
-                .arg("test")
-                .arg("--data_path")
-                .arg(&node_dir)
-                .arg("--daemon")
-                .stdout(Stdio::null())
-                .stderr(Stdio::null());
-            cmd
-        } else {
-            let mut cmd = Command::new("rsnano");
-            cmd.env("NANO_TEST_GENESIS_BLOCK", GENESIS_BLOCK)
-                .env("NANO_TEST_GENESIS_PRV ", GENESIS_PRV)
-                .arg("--network")
-                .arg("test")
-                .arg("--data-path")
-                .arg(&node_dir)
-                .arg("node")
-                .arg("run")
-                .stdout(Stdio::null());
-            cmd
-        };
+        let mut cmd = node_command(args, data_dir, i);
 
         info!("Starting node: {cmd:?}");
         children.push(cmd.spawn().unwrap());
-        // Let the harness stop precisely the children of this run.
-        std::fs::write(
-            data_dir.join("node-pids"),
-            children
-                .iter()
-                .map(|child| format!("{}\n", child.id()))
-                .collect::<String>(),
-        )
-        .unwrap();
+        write_node_pids(data_dir, &children).unwrap();
 
         info!("Waiting for RPC...");
         while rpc_client.version().await.is_err() {
@@ -85,3 +48,52 @@ pub(crate) async fn start_nodes(
     }
     children
 }
+
+/// The command that starts node PR`i` on its data directory: at the start
+/// and again on a restart. Its diagnostics are tagged `pr<i>`.
+pub(crate) fn node_command(args: &CliArgs, data_dir: &Path, i: usize) -> Command {
+    let node_dir = data_dir.join(format!("pr{i}"));
+    if args.cpp {
+        let mut cmd = Command::new("nano_node");
+        cmd.env("NANO_TEST_GENESIS_BLOCK", GENESIS_BLOCK)
+            .env("NANO_TEST_GENESIS_PRV ", GENESIS_PRV)
+            .env("NANO_TEST_EPOCH_1", "0")
+            .env("NANO_TEST_EPOCH_2", "0")
+            .env("NANO_TEST_EPOCH_2_RECV", "0")
+            .arg("--network")
+            .arg("test")
+            .arg("--data_path")
+            .arg(&node_dir)
+            .arg("--daemon")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        cmd
+    } else {
+        let mut cmd = Command::new("rsnano");
+        cmd.env("NANO_TEST_GENESIS_BLOCK", GENESIS_BLOCK)
+            .env("NANO_TEST_GENESIS_PRV ", GENESIS_PRV)
+            .env(NODE_TAG_VAR, format!("pr{i}"))
+            .arg("--network")
+            .arg("test")
+            .arg("--data-path")
+            .arg(&node_dir)
+            .arg("node")
+            .arg("run")
+            .stdout(Stdio::null());
+        cmd
+    }
+}
+
+/// Lets the harness stop precisely the children of this run; line i is PR`i`
+pub(crate) fn write_node_pids(data_dir: &Path, children: &[Child]) -> std::io::Result<()> {
+    std::fs::write(
+        data_dir.join("node-pids"),
+        children
+            .iter()
+            .map(|child| format!("{}\n", child.id()))
+            .collect::<String>(),
+    )
+}
+
+/// Names the node in its diagnostic lines (read by the rsnano node)
+const NODE_TAG_VAR: &str = "RSNANO_NODE_TAG";

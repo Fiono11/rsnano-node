@@ -33,6 +33,8 @@ pub struct ActiveElectionsToml {
     /// RAI bounded_weight: how far a member's weight may move from the equal
     /// share, in permille of it
     pub committee_drift: Option<u32>,
+    /// RAI evaluation: append every signed vote to `signed-votes.log`
+    pub signed_vote_log: Option<bool>,
 }
 
 impl From<&NodeConfig> for ActiveElectionsToml {
@@ -73,6 +75,7 @@ impl From<&NodeConfig> for ActiveElectionsToml {
                 CommitteeModel::BoundedWeight { drift, .. } => Some(drift),
                 _ => None,
             },
+            signed_vote_log: Some(config.active_elections.signed_vote_log),
         }
     }
 }
@@ -122,6 +125,19 @@ mod tests {
                 drift: CommitteeModel::DEFAULT_DRIFT
             }
         );
+    }
+
+    #[test]
+    fn signed_vote_log_round_trip() {
+        let mut config = NodeConfig::new_test_instance();
+        config.active_elections.signed_vote_log = true;
+        let encoded = toml::to_string(&ActiveElectionsToml::from(&config)).unwrap();
+        let mut restored = NodeConfig::new_test_instance();
+        restored.merge_toml(&crate::config::toml::NodeToml {
+            active_elections: Some(toml::from_str(&encoded).unwrap()),
+            ..Default::default()
+        });
+        assert!(restored.active_elections.signed_vote_log);
     }
 
     #[test]

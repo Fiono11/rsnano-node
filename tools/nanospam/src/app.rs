@@ -1,6 +1,9 @@
 use std::{
     net::{Ipv6Addr, SocketAddrV6},
-    sync::Mutex,
+    sync::{
+        Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     thread::yield_now,
     time::{Duration, Instant},
 };
@@ -36,6 +39,7 @@ use crate::{
     handshake::perform_handshake,
     high_prio_check::HighPrioCheck,
     node_lifetime::NodeLifetime,
+    restart::Restarter,
     setup::{
         configure_nodes, create_account_map, genesis_key, get_genesis_hash, peering_port, rpc_port,
         start_nodes,
@@ -98,10 +102,8 @@ impl NanoSpamApp {
         let genesis_rpc = &self.rpc_clients[0];
 
         if !self.args.attach {
-            let node_handles = start_nodes(&self.args, data_dir, &self.rpc_clients).await;
-            if self.args.kill_nodes() {
-                self.node_lifetime = NodeLifetime::new(node_handles);
-            }
+            let node_handles = start_nodes(&self.args, &data_dir, &self.rpc_clients).await;
+            self.node_lifetime = NodeLifetime::new(node_handles, self.args.kill_nodes());
         }
 
         let representatives = self.args.representatives();
@@ -165,22 +167,12 @@ impl NanoSpamApp {
         let mut tcp_readers = Vec::new();
 
         for node_index in 0..self.args.honest_prs() {
-            let peer_addr = SocketAddrV6::new(Ipv6Addr::LOCALHOST, peering_port(node_index), 0, 0);
-            info!(?peer_addr, "Connecting to node PR{node_index}...");
-            let mut node_writers = Vec::with_capacity(CONNECTIONS_PER_NODE);
-            let mut node_readers = Vec::with_capacity(CONNECTIONS_PER_NODE);
-            for i in 0..CONNECTIONS_PER_NODE {
-                let mut tcp_stream = self.tcp_stream_factory.connect(peer_addr).await?;
-                info!("Performing handshake...");
-                let node_id_key: PrivateKey = RawKey::from(42 + i as u64).into();
-                perform_handshake(protocol, genesis_hash, node_id_key, &mut tcp_stream).await?;
-                let (tcp_read, tcp_write) = tokio::io::split(tcp_stream);
-                node_writers.push(tcp_write);
-                node_readers.push(tcp_read);
-            }
-            tcp_writers.push(node_writers);
+            let (node_readers, node_writers) =
+                connect_node(&self.tcp_stream_factory, node_index).await?;
+            tcp_writers.push(Some(node_writers));
             tcp_readers.push(node_readers);
         }
+        let (tx_reconnected, rx_reconnected) = mpsc::unbounded_channel();
 
         let recent_blocks = RecentBlocks::default();
         let tx_forks_clone = tx_blocks.clone();
@@ -196,6 +188,16 @@ impl NanoSpamApp {
         info!("Starting with {} BPS", logic.lock().unwrap().current_bps);
 
         let started = Instant::now();
+        let restarter = Restarter {
+            args: &self.args,
+            data_dir: &data_dir,
+            rpc_clients: &self.rpc_clients,
+            node_lifetime: &self.node_lifetime,
+            tcp_stream_factory: &self.tcp_stream_factory,
+            reconnected: tx_reconnected,
+            spam_started: started,
+            down: Duration::from_millis(self.args.restart_down_ms),
+        };
         std::thread::scope(|s| {
             s.spawn(|| {
                 enqueue_blocks(&logic, tx_blocks, &self.clock);
@@ -238,9 +240,14 @@ impl NanoSpamApp {
                     ));
                 }
 
+                for spec in &self.args.restart {
+                    scope.spawn(restarter.run(*spec, cancel_nanospam.clone()));
+                }
+
                 scope.spawn(publish_blocks(
                     rx_blocks,
                     tcp_writers,
+                    rx_reconnected,
                     protocol,
                     &logic,
                     cancel_nanospam,
@@ -324,7 +331,8 @@ fn enqueue_blocks(logic: &Mutex<SpamLogic>, tx_blocks: mpsc::Sender<Forks>, cloc
 
 async fn publish_blocks(
     mut rx_blocks: mpsc::Receiver<Forks>,
-    mut tcp_streams: Vec<Vec<WriteHalf<TcpStream>>>,
+    mut tcp_streams: Vec<Option<Vec<WriteHalf<TcpStream>>>>,
+    mut reconnected: mpsc::UnboundedReceiver<(usize, Vec<WriteHalf<TcpStream>>)>,
     protocol: ProtocolInfo,
     logic: &Mutex<SpamLogic>,
     cancel_token: CancellationToken,
@@ -336,6 +344,10 @@ async fn publish_blocks(
     let mut fork_serializer = MessageSerializer::new(protocol);
     let mut writer_index = 0;
     while let Some(forks) = rx_blocks.recv().await {
+        // A restarted node is published to again once nanospam reconnected
+        while let Ok((node_index, writers)) = reconnected.try_recv() {
+            tcp_streams[node_index] = Some(writers);
+        }
         let block = forks.block.clone();
         let hash = block.hash();
         // What the Byzantine representatives vote about
@@ -350,8 +362,9 @@ async fn publish_blocks(
         }
 
         let mut counter = 0;
+        let failed: Vec<AtomicBool> = tcp_streams.iter().map(|_| AtomicBool::new(false)).collect();
         tokio_scoped::scope(|s| {
-            for stream in &mut tcp_streams {
+            for (stream, failed) in tcp_streams.iter_mut().zip(&failed) {
                 if rng().random_bool(drop_probability) {
                     // drop this transmission
                     continue;
@@ -365,14 +378,25 @@ async fn publish_blocks(
                 } else {
                     buffer
                 };
-
-                s.spawn(async {
-                    stream[writer_index].write_all(buf).await.unwrap();
-                });
-
+                // A node that is down still takes its turn, so the nodes
+                // receiving the forks stay the same
                 counter += 1;
+
+                let Some(stream) = stream else {
+                    continue;
+                };
+                s.spawn(async {
+                    if stream[writer_index].write_all(buf).await.is_err() {
+                        failed.store(true, Ordering::Relaxed);
+                    }
+                });
             }
         });
+        for (node_index, failed) in failed.iter().enumerate() {
+            if failed.load(Ordering::Relaxed) && tcp_streams[node_index].take().is_some() {
+                info!("RAI_PUBLISH_DISCONNECTED pr={node_index}");
+            }
+        }
 
         let now = clock.now();
 
@@ -428,13 +452,8 @@ async fn receive_messages(
         _ = cancel_token.cancelled() => {},
         _ = async {
             let mut set = JoinSet::new();
-            for mut reader in readers.drain(..).flatten() {
-                set.spawn(async move {
-                    let mut recv_buffer = vec![0; 1024 * 4];
-                    loop{
-                        let _ = reader.read(&mut recv_buffer).await.unwrap();
-                    }
-                });
+            for reader in readers.drain(..).flatten() {
+                set.spawn(drain_reader(reader));
             }
             set.join_all().await;
         } => {}
@@ -597,5 +616,38 @@ async fn wait_for_full_quorum(
             _ => {}
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+}
+
+/// Opens nanospam's publishing connections to node PR`node_index`
+pub(crate) async fn connect_node(
+    tcp_stream_factory: &TcpStreamFactory,
+    node_index: usize,
+) -> anyhow::Result<(Vec<ReadHalf<TcpStream>>, Vec<WriteHalf<TcpStream>>)> {
+    let protocol = ProtocolInfo::default_for(NetworkType::NanoTestNetwork);
+    let peer_addr = SocketAddrV6::new(Ipv6Addr::LOCALHOST, peering_port(node_index), 0, 0);
+    info!(?peer_addr, "Connecting to node PR{node_index}...");
+    let mut readers = Vec::with_capacity(CONNECTIONS_PER_NODE);
+    let mut writers = Vec::with_capacity(CONNECTIONS_PER_NODE);
+    for i in 0..CONNECTIONS_PER_NODE {
+        let mut tcp_stream = tcp_stream_factory.connect(peer_addr).await?;
+        info!("Performing handshake...");
+        let node_id_key: PrivateKey = RawKey::from(42 + i as u64).into();
+        perform_handshake(protocol, get_genesis_hash(), node_id_key, &mut tcp_stream).await?;
+        let (tcp_read, tcp_write) = tokio::io::split(tcp_stream);
+        readers.push(tcp_read);
+        writers.push(tcp_write);
+    }
+    Ok((readers, writers))
+}
+
+/// Reads and discards what a node sends on a publishing connection, until
+/// the node closes it or goes away
+pub(crate) async fn drain_reader(mut reader: ReadHalf<TcpStream>) {
+    let mut recv_buffer = vec![0; 1024 * 4];
+    while let Ok(read) = reader.read(&mut recv_buffer).await {
+        if read == 0 {
+            break;
+        }
     }
 }

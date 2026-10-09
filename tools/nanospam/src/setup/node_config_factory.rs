@@ -43,6 +43,7 @@ pub(crate) const NODE_CONFIG: &str = r#"
     committee_f = COMMITTEE_F
     committee_p = COMMITTEE_P
     committee_drift = COMMITTEE_DRIFT
+    signed_vote_log = SIGNED_VOTE_LOG
 
 [node.lmdb]
     sync = "nosync_unsafe"
@@ -130,6 +131,7 @@ pub(crate) fn configure_nodes(args: &CliArgs, data_dir: &Path) {
                 .replace("COMMITTEE_F", &args.committee_f.to_string())
                 .replace("COMMITTEE_P", &args.committee_p.to_string())
                 .replace("COMMITTEE_DRIFT", &args.committee_drift.to_string())
+                .replace("SIGNED_VOTE_LOG", &args.audit_votes.to_string())
                 .replace(
                     "ONLINE_WEIGHT_MINIMUM",
                     &voting_weight().number().to_string(),

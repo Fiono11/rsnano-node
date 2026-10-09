@@ -19,7 +19,7 @@ use rsnano_utils::{
     stats::{DetailType, Direction, Sample, StatType, Stats},
 };
 
-use super::{LocalVoteHistory, VoteSpacing};
+use super::{LocalVoteHistory, SignedVoteLog, VoteSpacing};
 use crate::{
     consensus::{VoteBroadcaster, election::VoteType},
     transport::MessageSender,
@@ -66,6 +66,7 @@ impl VoteGenerator {
         vote_generator_delay: Duration,
         vote_broadcaster: Arc<VoteBroadcaster>,
         clock: Arc<SteadyClock>,
+        signed_log: Arc<SignedVoteLog>,
     ) -> Self {
         let kind = VoteKind::from(vote_type);
         let early = vote_type == VoteType::EarlyFirst;
@@ -88,6 +89,7 @@ impl VoteGenerator {
             spacing: Mutex::new(VoteSpacing::new(voting_delay)),
             vote_generator_delay,
             clock,
+            signed_log,
         });
 
         let shared_state_clone = Arc::clone(&shared_state);
@@ -261,6 +263,7 @@ struct SharedState {
     spacing: Mutex<VoteSpacing>,
     vote_generator_delay: Duration,
     clock: Arc<SteadyClock>,
+    signed_log: Arc<SignedVoteLog>,
 }
 
 impl SharedState {
@@ -387,6 +390,7 @@ impl SharedState {
                     spacing.flag(&roots[i], &hashes[i], now);
                 }
             }
+            self.signed_log.record(&vote, roots);
             action(vote);
         }
     }

@@ -53,6 +53,10 @@ pub struct ActiveElectionsConfig {
     /// proposal. A round led by a representative which does not propose
     /// costs this long; a leader proposes as soon as it can derive a value
     pub close_round_timeout: Duration,
+    /// RAI evaluation: append every vote this node signs to
+    /// `signed-votes.log` in the data path before it is sent, for the
+    /// equivocation audit of restart runs
+    pub signed_vote_log: bool,
 }
 
 impl Default for ActiveElectionsConfig {
@@ -64,6 +68,7 @@ impl Default for ActiveElectionsConfig {
             account_voting: true,
             committee_model: Default::default(),
             close_round_timeout: Duration::from_secs(2),
+            signed_vote_log: false,
         }
     }
 }
