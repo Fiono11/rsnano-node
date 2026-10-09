@@ -301,3 +301,60 @@ claim was refused. Goodput, latency and close time are within the
 run-to-run spread; the measurable cost is the follower's evidence check,
 about 30-60 ms more at the median (marking walks the fresh finalized blocks
 and the anchor's retained positions). Single Byzantine run per arm.
+
+## Step 7: every first vote names its base (`step7/`, `94ee7d7fb`)
+
+"Give each first vote its full base reference, not one bit." A first vote
+said only whether its signer had installed the predecessor checkpoint (the
+early bit). Which checkpoint it was cast on was nowhere: a receiver counted
+every vote not marked early towards a fast certificate, and a manifest's
+settled bits could not be checked against the signatures.
+
+- `Vote` carries a signed `base` (32 bytes, RAI wire format only): the state
+  hash of the checkpoint a first vote was cast on, `d_{e-1}` for a settled
+  vote and `d_{e-2}` for an early one (the genesis state before epoch 0);
+  zero for every other kind. The early bit stays.
+- `CheckpointBases`: the installed checkpoints' state hashes, recorded by
+  the active elections at installation and restore, read by the vote
+  generators and the request aggregator's re-signed statements.
+- Kudzu keeps each settled first vote with its base. An instance counts
+  towards a fast certificate the ones naming the predecessor installed here
+  (`SettledBase`); before it is installed they are held, and counted at
+  installation; a vote naming another base never counts.
+- The vote records keep `(voter, base)`: the manifest's settled bits, the
+  certificate kinds behind the report check and the manifest vote check
+  take the votes naming the installed predecessor only.
+- The signed vote log writes `base=` on first votes.
+
+Not covered: the paper's two other bases (a closing-epoch finalized parent
+with its proof, a complete current-epoch parent) are per block, not per
+vote; the base here is the checkpoint, the same for every hash a vote
+carries. A re-signed early statement names the closed checkpoint held when
+it is re-signed, which differs from the original only if `S_{e-2}` was
+installed in between.
+
+A/B against `a53482ed0` (A, step 6), same settings as step 6:
+
+| Run | cps | p50 / p95 ms | close median / max ms | fast finalizations (all nodes) | final-vote finalizations |
+|---|---|---|---|---|---|
+| A fork5-1 | 1,781 | 307 / 1,532 | 4,003 / 9,492 | 119,232 | 154,223 |
+| B fork5-1 | 1,533 | 280 / 2,388 | 4,434 / 10,869 | 105,309 | 174,570 |
+| B fork5-2 | 1,782 | 308 / 1,731 | 4,126 / 8,853 | 107,404 | 166,641 |
+| A fork5-2 | 1,780 | 265 / 1,177 | 4,156 / 8,493 | 119,183 | 169,088 |
+| A byz1 | 1,510 | 186 / 1,266 | 3,130 / 10,578 | 111,366 | 117,620 |
+| B byz1 | 1,613 | 167 / 1,605 | 2,946 / 8,969 | 121,590 | 106,230 |
+
+Every run settled with every epoch decided everywhere and nothing refused.
+The rule has the expected effect: a receiver that has not installed the
+predecessor no longer counts settled votes at face value, so fork5 forms
+about 10 % fewer fast certificates and finalizes those blocks by final
+votes instead. Goodput and latency are within the run-to-run spread except
+`B fork5-1`, whose epoch-2 close was derived twice (claims 30,377 twice) and
+ran 1.4 s longer; `B fork5-2` matched the baseline exactly. The vote grows by
+32 bytes (112 + 32 n to 144 + 32 n bytes for n hashes).
+
+Pitfall: a baseline built from `git archive` into a reused target directory
+keeps the old binary - the archive stamps files with the commit time, older
+than the previous build. The first attempt of this A/B ran a stale baseline
+and was discarded; the script now touches the sources and checks the
+baseline binary for a string of the expected commit.
