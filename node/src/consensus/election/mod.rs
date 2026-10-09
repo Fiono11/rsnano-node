@@ -10,6 +10,7 @@ mod epoch_value;
 mod final_state;
 mod kudzu;
 mod manifest;
+mod overlap_certificate;
 mod rateless;
 
 pub use certified_state::*;
@@ -23,4 +24,5 @@ pub use epoch_value::*;
 pub use final_state::*;
 pub use kudzu::*;
 pub use manifest::*;
+pub use overlap_certificate::*;
 pub use rateless::*;

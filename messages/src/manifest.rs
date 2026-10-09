@@ -11,7 +11,9 @@ use crate::MessageVariant;
 /// canonical key order. Late notarizations enter only exclusion witnesses.
 /// `settled` names the first voters whose first vote was settled, cast after
 /// installing the epoch's predecessor checkpoint: only these form a fast
-/// certificate.
+/// certificate. `overlap` marks the closing-epoch exclusion witness of an
+/// overlap certificate: the block was finalized in the epoch after the
+/// entry's, and the manifest holds the rest of its certificate.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ManifestEntry {
     pub epoch: ConsensusEpoch,
@@ -20,11 +22,12 @@ pub struct ManifestEntry {
     pub final_: u64,
     pub late: u64,
     pub settled: u64,
+    pub overlap: bool,
 }
 
 impl ManifestEntry {
     pub const SERIALIZED_SIZE: usize =
-        ConsensusEpoch::SERIALIZED_SIZE + BlockHash::SERIALIZED_SIZE + 32;
+        ConsensusEpoch::SERIALIZED_SIZE + BlockHash::SERIALIZED_SIZE + 32 + 1;
 
     pub fn serialize<T: std::io::Write>(&self, writer: &mut T) -> std::io::Result<()> {
         self.epoch.serialize(writer)?;
@@ -32,7 +35,8 @@ impl ManifestEntry {
         writer.write_all(&self.first.to_le_bytes())?;
         writer.write_all(&self.final_.to_le_bytes())?;
         writer.write_all(&self.late.to_le_bytes())?;
-        writer.write_all(&self.settled.to_le_bytes())
+        writer.write_all(&self.settled.to_le_bytes())?;
+        writer.write_all(&[self.overlap as u8])
     }
 
     pub fn deserialize(bytes: &mut &[u8]) -> Result<Self, DeserializationError> {
@@ -43,6 +47,11 @@ impl ManifestEntry {
             final_: u64::from_le_bytes(take::<8>(bytes)?),
             late: u64::from_le_bytes(take::<8>(bytes)?),
             settled: u64::from_le_bytes(take::<8>(bytes)?),
+            overlap: match take::<1>(bytes)? {
+                [0] => false,
+                [1] => true,
+                _ => return Err(DeserializationError::InvalidData),
+            },
         })
     }
 }
@@ -114,7 +123,7 @@ pub struct ManifestReply {
 
 impl ManifestReply {
     /// A full chunk's payload length must fit the 16-bit header extension
-    /// and the message size limit: 800 entries of 72 bytes are 57.6 KB
+    /// and the message size limit: 800 entries of 73 bytes are 58.4 KB
     pub const MAX_ENTRIES: usize = 800;
     const HEAD: usize = ConsensusEpoch::SERIALIZED_SIZE + BlockHash::SERIALIZED_SIZE + 8;
 
@@ -132,6 +141,7 @@ impl ManifestReply {
                     final_: 0b1,
                     late: 0b10,
                     settled: 0b100,
+                    overlap: true,
                 },
                 ManifestEntry {
                     epoch: ConsensusEpoch::new(3),
@@ -140,6 +150,7 @@ impl ManifestReply {
                     final_: 0,
                     late: 0,
                     settled: 0b11,
+                    overlap: false,
                 },
             ],
         }

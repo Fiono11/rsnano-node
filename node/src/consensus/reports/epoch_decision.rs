@@ -28,7 +28,7 @@ use crate::{
         election::{
             AccountSlot, BlockIndex, BuildRules, Committee, EpochLedger, EpochValue, Manifest,
             ManifestAssembly, MemberOrder, ReportIndex, ReportRef, ReportSource, SelectedReport,
-            witness_claims,
+            fresh_finalized, overlap_certified, overlap_claims, witness_claims,
         },
     },
     transport::MessageFlooder,
@@ -83,22 +83,70 @@ impl ManifestFetch {
 }
 
 /// RAI, "Immutable candidate inputs": what a candidate's manifest must name
-/// for a selection: the votes behind the selected reports' claims, and the
+/// for a selection: the votes behind the selected reports' claims, the
 /// exclusion witnesses that discharge the inherited recovery records those
-/// claims bypass
+/// claims bypass, and those that discharge the records of the overlap
+/// anchor `S_{e-2}` a fresh finalized block bypasses (its overlap
+/// certificate)
 fn candidate_claims(
     epoch: ConsensusEpoch,
     states: &[SelectedReport],
     previous: &EpochLedger,
+    anchor: Option<&EpochLedger>,
     index: &dyn BlockIndex,
 ) -> Vec<(ConsensusEpoch, BlockHash)> {
     let mut claims = manifest_claims(epoch, states, &|block, entry| {
         inherited_from(previous, block, entry)
     });
     claims.extend(witness_claims(previous, states, index));
+    if let Some(anchor) = anchor {
+        claims.extend(overlap_claims(anchor, &fresh_finalized(states, previous)));
+    }
     claims.sort();
     claims.dedup();
     claims
+}
+
+/// RAI, "Commit admission witnesses": the manifest with the closing-epoch
+/// witness of every overlap certificate its evidence proves marked. The
+/// marks enter the digest, so the decided value fixes which fresh
+/// finalized blocks the evidence admits under the overlap exception, and
+/// with them the anchor and witnesses those admissions rest on. They are a
+/// function of the evidence, the selection and the closed states: a
+/// validator recomputes them, and a manifest marking any other set is
+/// refused.
+fn marked_manifest(
+    evidence: &Manifest,
+    epoch: ConsensusEpoch,
+    states: &[SelectedReport],
+    previous: &EpochLedger,
+    anchor: Option<&EpochLedger>,
+    members: &EpochMembers,
+) -> Manifest {
+    let mut marked = evidence.without_overlaps();
+    let (Some(anchor), Some(before)) = (
+        anchor,
+        epoch.as_u64().checked_sub(1).map(ConsensusEpoch::new),
+    ) else {
+        return marked;
+    };
+    let fresh = fresh_finalized(states, previous);
+    let certified = overlap_certified(
+        &fresh,
+        previous,
+        anchor,
+        &|hash| manifest_witness(evidence, members, before, hash),
+        &|hash| {
+            members.get(epoch).is_some_and(|(committee, order)| {
+                evidence.kinds(epoch, hash, &committee, &order).notarization
+            })
+        },
+        &|origin, hash| manifest_witness(evidence, members, origin, hash),
+    );
+    for hash in &certified {
+        marked.set_overlap(before, hash);
+    }
+    marked
 }
 
 /// RAI, "The joint epoch election": the part of the close that reads and
@@ -515,15 +563,24 @@ impl EpochDecisionService {
             many: committee.thresholds().many,
             epoch,
         };
-        // The evidence this leader used, committed to by digest
+        // The evidence this leader used, committed to by digest, with the
+        // overlap certificates it proves marked
+        let anchor = self.overlap_anchor(epoch)?;
         let started = std::time::Instant::now();
-        let claims = candidate_claims(epoch, &states, &previous, &index);
+        let claims = candidate_claims(epoch, &states, &previous, anchor.as_deref(), &index);
         let claimed = started.elapsed();
-        let manifest = Arc::new(self.active_elections.evidence_manifest(&claims));
+        let members = EpochMembers::new(&self.active_elections);
+        let manifest = Arc::new(marked_manifest(
+            &self.active_elections.evidence_manifest(&claims),
+            epoch,
+            &states,
+            &previous,
+            anchor.as_deref(),
+            &members,
+        ));
         let digest = manifest.digest();
         let manifested = started.elapsed();
         self.remember_manifest(epoch, manifest.clone());
-        let members = EpochMembers::new(&self.active_elections);
         let witness = |origin: ConsensusEpoch, hash: &BlockHash| {
             manifest_witness(&manifest, &members, origin, hash)
         };
@@ -540,9 +597,10 @@ impl EpochDecisionService {
         ) {
             Ok((value, ledger)) => {
                 diagnostic!(
-                    "EPOCH_DERIVE_TIMING epoch={} claims={} claim_ms={} manifest_ms={} build_ms={}",
+                    "EPOCH_DERIVE_TIMING epoch={} claims={} overlaps={} claim_ms={} manifest_ms={} build_ms={}",
                     epoch,
                     claims.len(),
+                    manifest.overlaps().count(),
                     claimed.as_millis(),
                     (manifested - claimed).as_millis(),
                     (started.elapsed() - manifested).as_millis()
@@ -608,8 +666,11 @@ impl EpochDecisionService {
         if states.len() != value.reports().len() {
             return Validation::Pending;
         }
+        let Some(anchor) = self.overlap_anchor(value.epoch) else {
+            return Validation::Pending;
+        };
         let started = std::time::Instant::now();
-        match self.evidence_committed(value, &states, &previous, channel) {
+        match self.evidence_committed(value, &states, &previous, anchor.as_deref(), channel) {
             Evidence::Committed => {}
             Evidence::Pending => return Validation::Pending,
             Evidence::Refused => return Validation::Refused,
@@ -679,11 +740,26 @@ impl EpochDecisionService {
         value: &EpochValue,
         states: &[SelectedReport],
         previous: &EpochLedger,
+        anchor: Option<&EpochLedger>,
         channel: Option<&Arc<Channel>>,
     ) -> Evidence {
         let epoch = value.epoch;
-        let claims = candidate_claims(epoch, states, previous, &ReportIndex::new(previous, states));
-        let own = self.active_elections.evidence_manifest(&claims);
+        let claims = candidate_claims(
+            epoch,
+            states,
+            previous,
+            anchor,
+            &ReportIndex::new(previous, states),
+        );
+        let members = EpochMembers::new(&self.active_elections);
+        let own = marked_manifest(
+            &self.active_elections.evidence_manifest(&claims),
+            epoch,
+            states,
+            previous,
+            anchor,
+            &members,
+        );
         if own.digest() == value.manifest {
             self.remember_manifest(epoch, Arc::new(own));
             return Evidence::Committed;
@@ -726,8 +802,19 @@ impl EpochDecisionService {
             }
             return Evidence::Pending;
         }
+        // The overlap marks: exactly the certificates the evidence proves
+        let proven = marked_manifest(&manifest, epoch, states, previous, anchor, &members);
+        if proven.digest() != value.manifest {
+            diagnostic!(
+                "EPOCH_MANIFEST_OVERLAPS_REFUSED epoch={} manifest={} marked={} proven={}",
+                epoch,
+                value.manifest,
+                manifest.overlaps().count(),
+                proven.overlaps().count()
+            );
+            return Evidence::Refused;
+        }
         // Every claim, justified by the manifest's votes alone
-        let members = EpochMembers::new(&self.active_elections);
         for report in states {
             let kinds = |kinds_epoch: ConsensusEpoch, hashes: &[BlockHash]| {
                 let (committee, order) = members.get(kinds_epoch)?;
@@ -781,6 +868,19 @@ impl EpochDecisionService {
             }
         }
         Evidence::Committed
+    }
+
+    /// RAI: the last closed state an overlap admission in the epoch was
+    /// checked against, `S_{e-2}` (the genesis state for epoch 1); none for
+    /// epoch 0, which follows no closing epoch. None outside: not held here
+    fn overlap_anchor(&self, epoch: ConsensusEpoch) -> Option<Option<Arc<EpochLedger>>> {
+        match epoch.as_u64().checked_sub(1) {
+            None => Some(None),
+            Some(before) => self
+                .active_elections
+                .epoch_previous_state(ConsensusEpoch::new(before))
+                .map(Some),
+        }
     }
 
     /// Keeps a manifest for serving, dropping those of old epochs

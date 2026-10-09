@@ -70,6 +70,7 @@ struct Voters {
     final_: u64,
     late: u64,
     settled: u64,
+    overlap: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -93,8 +94,41 @@ impl Manifest {
                 final_: entry.final_,
                 late: entry.late,
                 settled: entry.settled,
+                overlap: entry.overlap,
             },
         );
+    }
+
+    /// RAI: marks the entry of a block in an epoch as the closing-epoch
+    /// exclusion witness of the block's overlap certificate; false if the
+    /// manifest has no such entry
+    pub fn set_overlap(&mut self, epoch: ConsensusEpoch, hash: &BlockHash) -> bool {
+        match self.entries.get_mut(&(epoch, *hash)) {
+            Some(voters) => {
+                voters.overlap = true;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// The manifest with no entry marked as an overlap witness: the
+    /// evidence alone, which the marks are derived from
+    pub fn without_overlaps(&self) -> Self {
+        let mut manifest = self.clone();
+        for voters in manifest.entries.values_mut() {
+            voters.overlap = false;
+        }
+        manifest
+    }
+
+    /// The blocks whose overlap certificate the manifest marks, with the
+    /// epoch of their closing-epoch witness
+    pub fn overlaps(&self) -> impl Iterator<Item = (ConsensusEpoch, BlockHash)> + '_ {
+        self.entries
+            .iter()
+            .filter(|(_, voters)| voters.overlap)
+            .map(|((epoch, hash), _)| (*epoch, *hash))
     }
 
     fn entry_of(epoch: ConsensusEpoch, hash: BlockHash, voters: &Voters) -> ManifestEntry {
@@ -105,6 +139,7 @@ impl Manifest {
             final_: voters.final_,
             late: voters.late,
             settled: voters.settled,
+            overlap: voters.overlap,
         }
     }
 
@@ -139,7 +174,8 @@ impl Manifest {
                 .update(entry.first.to_le_bytes())
                 .update(entry.final_.to_le_bytes())
                 .update(entry.late.to_le_bytes())
-                .update(entry.settled.to_le_bytes());
+                .update(entry.settled.to_le_bytes())
+                .update([entry.overlap as u8]);
         }
         builder.build()
     }
@@ -326,6 +362,7 @@ mod tests {
             final_: order.mask(keys[..2].iter().copied()),
             late: 0,
             settled: order.mask(keys[..4].iter().copied()),
+            overlap: false,
         };
         let other = ManifestEntry {
             epoch,
@@ -334,6 +371,7 @@ mod tests {
             final_: 0,
             late: 0,
             settled: order.mask(keys[..5].iter().copied()),
+            overlap: false,
         };
         a.insert(entry);
         a.insert(other);
@@ -372,6 +410,7 @@ mod tests {
                 final_: 0,
                 late: 0,
                 settled: 0,
+                overlap: false,
             });
         }
         let digest = manifest.digest();
@@ -389,6 +428,39 @@ mod tests {
         assert_eq!(wrong.take(total, 0, &manifest.chunk(0, 5)), Err(()));
     }
 
+    /// RAI: an overlap mark is committed evidence: it changes the digest,
+    /// travels with the entry, and is all `without_overlaps` strips
+    #[test]
+    fn an_overlap_mark_enters_the_digest_and_the_transfer() {
+        let (committee, keys) = committee(6);
+        let order = MemberOrder::of(&committee).unwrap();
+        let mut evidence = Manifest::new();
+        evidence.insert(ManifestEntry {
+            epoch: ConsensusEpoch::new(1),
+            hash: BlockHash::from(5),
+            first: order.mask(keys[..4].iter().copied()),
+            final_: 0,
+            late: 0,
+            settled: 0,
+            overlap: false,
+        });
+        let mut marked = evidence.clone();
+
+        assert!(marked.set_overlap(ConsensusEpoch::new(1), &BlockHash::from(5)));
+        assert!(!marked.set_overlap(ConsensusEpoch::new(2), &BlockHash::from(5)));
+        assert_ne!(marked.digest(), evidence.digest());
+        assert_eq!(
+            marked.overlaps().collect::<Vec<_>>(),
+            vec![(ConsensusEpoch::new(1), BlockHash::from(5))]
+        );
+        let mut assembly = ManifestAssembly::new(marked.digest());
+        assert_eq!(
+            assembly.take(1, 0, &marked.chunk(0, 1)),
+            Ok(Some(marked.clone()))
+        );
+        assert_eq!(marked.without_overlaps(), evidence);
+    }
+
     /// Mixed NC: three first votes and one late notarization are an
     /// exclusion witness and no certificate; the late bit is in mu_e
     #[test]
@@ -404,6 +476,7 @@ mod tests {
             final_: 0,
             late: 0,
             settled: 0,
+            overlap: false,
         };
         let mixed = ManifestEntry {
             late: order.mask([keys[3]]),
@@ -441,6 +514,7 @@ mod tests {
             final_: 0,
             late: 0,
             settled: order.mask(keys[..settled].iter().copied()),
+            overlap: false,
         };
         for (settled, fast) in [(0, false), (4, false), (5, true)] {
             let mut manifest = Manifest::new();
@@ -470,6 +544,7 @@ mod tests {
             final_: 0,
             late: 0,
             settled: 0,
+            overlap: false,
         };
         assert_eq!(assembly.take(5, 2, &[entry(2), entry(3)]), Ok(None));
         assert_eq!(assembly.missing_chunks(2), vec![0, 4]);

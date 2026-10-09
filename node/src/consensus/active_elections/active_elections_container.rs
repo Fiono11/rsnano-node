@@ -3957,6 +3957,7 @@ impl ActiveElectionsContainer {
                 final_: order.mask(support.final_.iter().copied()),
                 late: order.mask(support.late.iter().copied()),
                 settled: order.mask(support.settled.iter().copied()),
+                overlap: false,
             });
         }
         manifest
