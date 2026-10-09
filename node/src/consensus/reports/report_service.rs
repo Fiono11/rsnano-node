@@ -7,7 +7,7 @@ use rsnano_messages::{
     ConfirmAck, EpochInstalled, EvidenceReq, Message, Report, ReportSymbolsReply, ReportSymbolsReq,
 };
 use rsnano_network::{Channel, TrafficType};
-use rsnano_nullable_clock::SteadyClock;
+use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_types::{BlockHash, ConsensusEpoch, PublicKey};
 use rsnano_utils::stats::{DetailType, Direction, StatType, Stats};
 
@@ -44,6 +44,8 @@ pub struct ReportService {
     pending: Mutex<HashMap<ConsensusEpoch, Arc<EpochReport>>>,
     /// RAI: left epochs and frozen reports persisted before signatures leave
     signing: Arc<SigningRecords>,
+    /// When the signing records' write timings were last logged
+    timings_logged: Mutex<Option<Timestamp>>,
 }
 
 impl ReportService {
@@ -64,6 +66,7 @@ impl ReportService {
             stats,
             pending: Mutex::new(HashMap::new()),
             signing,
+            timings_logged: Mutex::new(None),
         }
     }
 
@@ -323,6 +326,37 @@ impl ReportService {
         log_reconciled(result);
     }
 
+    /// How long the signing records' writes took, every few seconds: the
+    /// cost of the signing sync mode, and what the voter may wait behind
+    fn log_write_timings(&self) {
+        const INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
+        let now = self.clock.now();
+        {
+            let mut last = self.timings_logged.lock().unwrap();
+            if last.is_some_and(|last| last.elapsed(now) < INTERVAL) {
+                return;
+            }
+            *last = Some(now);
+        }
+        let timings = self.signing.take_timings();
+        if timings.is_empty() {
+            return;
+        }
+        let summary: Vec<String> = timings
+            .iter()
+            .map(|(kind, t)| {
+                format!(
+                    "{}={}/{}ms/{}ms",
+                    kind,
+                    t.count,
+                    t.total.as_millis(),
+                    t.max.as_millis()
+                )
+            })
+            .collect();
+        crate::utils::diagnostic!("SIGNING_WRITES {}", summary.join(" "));
+    }
+
     /// Drives the reconciliations of the epochs still closing. The live
     /// certified state is refreshed from the active elections first: gossip
     /// keeps delivering the votes of a closed epoch, and it is that growth
@@ -339,6 +373,7 @@ impl ReportService {
             self.signing.write_epochs(&started);
         }
         self.signing.write_decided(&decided);
+        self.log_write_timings();
         // A report deferred for want of its predecessor checkpoint is signed
         // once that checkpoint is decided here
         let deferred: Vec<ConsensusEpoch> = self.pending.lock().unwrap().keys().copied().collect();

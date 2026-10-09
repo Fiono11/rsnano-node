@@ -108,6 +108,17 @@ pub struct SigningRecords {
     env: LmdbEnvironment,
     store: LmdbSigningStore,
     drive_flush: DriveFlush,
+    /// How long each kind of write took, waiting for the environment's one
+    /// writer included, since the timings were last taken
+    timings: std::sync::Mutex<std::collections::BTreeMap<&'static str, WriteTiming>>,
+}
+
+/// RAI: the writes of one kind since the timings were last taken
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct WriteTiming {
+    pub count: u64,
+    pub total: std::time::Duration,
+    pub max: std::time::Duration,
 }
 
 /// RAI: flushes the signing records' file through the drive's write cache
@@ -175,7 +186,27 @@ impl SigningRecords {
             env,
             store,
             drive_flush: DriveFlush::new_null(),
+            timings: Default::default(),
         })
+    }
+
+    /// How long each kind of write took since the last call
+    pub fn take_timings(&self) -> Vec<(&'static str, WriteTiming)> {
+        std::mem::take(&mut *self.timings.lock().unwrap())
+            .into_iter()
+            .collect()
+    }
+
+    fn timed<R>(&self, kind: &'static str, write: impl FnOnce() -> R) -> R {
+        let started = std::time::Instant::now();
+        let result = write();
+        let took = started.elapsed();
+        let mut timings = self.timings.lock().unwrap();
+        let timing = timings.entry(kind).or_default();
+        timing.count += 1;
+        timing.total += took;
+        timing.max = timing.max.max(took);
+        result
     }
 
     /// The signing writes are also flushed through the drive's write cache
@@ -196,61 +227,67 @@ impl SigningRecords {
     /// Persists a batch of votes about to be released, account and close
     /// votes alike, in one transaction: the group commit of the batch
     pub fn write_signing(&self, records: &[SlotRecord], closes: &[CloseRecord]) {
-        if records.is_empty() && closes.is_empty() {
-            return;
-        }
-        let store = &self.store;
-        let mut txn = self.env.begin_write();
-        for close in closes {
-            store.put(
-                &mut txn,
-                &close_key(close.epoch, close.round),
-                &encode_slot(&close.state),
-            );
-        }
-        for record in records {
-            store.put(
-                &mut txn,
-                &slot_key(&record.slot),
-                &encode_slot(&record.state),
-            );
-            for (hash, parent) in &record.parents {
-                store.put(&mut txn, &parent_key(hash), parent.as_bytes());
+        self.timed("signing", || {
+            if records.is_empty() && closes.is_empty() {
+                return;
             }
-        }
-        txn.commit();
-        self.drive_flush.flush();
+            let store = &self.store;
+            let mut txn = self.env.begin_write();
+            for close in closes {
+                store.put(
+                    &mut txn,
+                    &close_key(close.epoch, close.round),
+                    &encode_slot(&close.state),
+                );
+            }
+            for record in records {
+                store.put(
+                    &mut txn,
+                    &slot_key(&record.slot),
+                    &encode_slot(&record.state),
+                );
+                for (hash, parent) in &record.parents {
+                    store.put(&mut txn, &parent_key(hash), parent.as_bytes());
+                }
+            }
+            txn.commit();
+            self.drive_flush.flush();
+        })
     }
 
     /// Persists that this node left an epoch: it signs nothing new in it
     pub fn write_frozen(&self, epoch: ConsensusEpoch) {
-        let mut txn = self.env.begin_write();
-        self.store.put(&mut txn, &epoch_key(FROZEN, epoch), &[]);
-        txn.commit();
-        self.drive_flush.flush();
+        self.timed("frozen", || {
+            let mut txn = self.env.begin_write();
+            self.store.put(&mut txn, &epoch_key(FROZEN, epoch), &[]);
+            txn.commit();
+            self.drive_flush.flush();
+        })
     }
 
     /// Persists a frozen report before its headers are broadcast
     pub fn write_report(&self, record: &ReportRecord) {
-        let store = &self.store;
-        let mut txn = self.env.begin_write();
-        store.put(
-            &mut txn,
-            &epoch_key(REPORT, record.epoch),
-            &encode_headers(&record.signed),
-        );
-        store.put(
-            &mut txn,
-            &epoch_key(CERTIFIED, record.epoch),
-            &encode_items(record.certified.items()),
-        );
-        store.put(
-            &mut txn,
-            &epoch_key(RESIDUAL, record.epoch),
-            &encode_items(record.residual.items()),
-        );
-        txn.commit();
-        self.drive_flush.flush();
+        self.timed("report", || {
+            let store = &self.store;
+            let mut txn = self.env.begin_write();
+            store.put(
+                &mut txn,
+                &epoch_key(REPORT, record.epoch),
+                &encode_headers(&record.signed),
+            );
+            store.put(
+                &mut txn,
+                &epoch_key(CERTIFIED, record.epoch),
+                &encode_items(record.certified.items()),
+            );
+            store.put(
+                &mut txn,
+                &epoch_key(RESIDUAL, record.epoch),
+                &encode_items(record.residual.items()),
+            );
+            txn.commit();
+            self.drive_flush.flush();
+        })
     }
 
     /// Persists retained evidence, in one batch: a record replaces the one
@@ -261,28 +298,30 @@ impl SigningRecords {
     /// to 255 blocks, and the records of those blocks name it rather than
     /// hold a copy each. The signature names it without hashing its blocks.
     pub fn write_evidence(&self, records: &[EvidenceRecord]) {
-        if records.is_empty() {
-            return;
-        }
-        let mut txn = self.env.begin_write();
-        let mut written = std::collections::HashSet::new();
-        for record in records {
-            for vote in &record.votes {
-                let key = evidence_vote_key(record.epoch, vote);
-                if written.insert(key.clone()) && self.store.get(&txn, &key).is_none() {
-                    let mut bytes = Vec::new();
-                    vote.serialize(&mut bytes)
-                        .expect("a vote serializes to memory");
-                    self.store.put(&mut txn, &key, &bytes);
-                }
+        self.timed("evidence", || {
+            if records.is_empty() {
+                return;
             }
-            self.store.put(
-                &mut txn,
-                &evidence_key(record.epoch, &record.hash),
-                &encode_evidence(record),
-            );
-        }
-        txn.commit();
+            let mut txn = self.env.begin_write();
+            let mut written = std::collections::HashSet::new();
+            for record in records {
+                for vote in &record.votes {
+                    let key = evidence_vote_key(record.epoch, vote);
+                    if written.insert(key.clone()) && self.store.get(&txn, &key).is_none() {
+                        let mut bytes = Vec::new();
+                        vote.serialize(&mut bytes)
+                            .expect("a vote serializes to memory");
+                        self.store.put(&mut txn, &key, &bytes);
+                    }
+                }
+                self.store.put(
+                    &mut txn,
+                    &evidence_key(record.epoch, &record.hash),
+                    &encode_evidence(record),
+                );
+            }
+            txn.commit();
+        })
     }
 
     /// Drops the evidence of epochs before the given one, except where
@@ -293,108 +332,116 @@ impl SigningRecords {
         epoch: ConsensusEpoch,
         keep: impl Fn(ConsensusEpoch, &AccountSlot) -> bool,
     ) {
-        let mut txn = self.env.begin_write();
-        let mut old = Vec::new();
-        let mut referenced = std::collections::HashSet::new();
-        for (key, value) in self.store.with_prefix(&txn, &[EVIDENCE]) {
-            let kept = decode_evidence_key(&key).and_then(|(held, _)| {
-                let (slot, votes) = decode_evidence(&value)?;
-                (held >= epoch || keep(held, &slot)).then_some((held, votes))
-            });
-            match kept {
-                Some((held, votes)) => referenced.extend(
-                    votes
-                        .iter()
-                        .map(|signature| evidence_vote_key_of(held, signature)),
-                ),
-                None => old.push(key),
+        self.timed("forget_evidence", || {
+            let mut txn = self.env.begin_write();
+            let mut old = Vec::new();
+            let mut referenced = std::collections::HashSet::new();
+            for (key, value) in self.store.with_prefix(&txn, &[EVIDENCE]) {
+                let kept = decode_evidence_key(&key).and_then(|(held, _)| {
+                    let (slot, votes) = decode_evidence(&value)?;
+                    (held >= epoch || keep(held, &slot)).then_some((held, votes))
+                });
+                match kept {
+                    Some((held, votes)) => referenced.extend(
+                        votes
+                            .iter()
+                            .map(|signature| evidence_vote_key_of(held, signature)),
+                    ),
+                    None => old.push(key),
+                }
             }
-        }
-        // A stored vote no remaining record names goes too
-        old.extend(
-            self.store
-                .with_prefix(&txn, &[EVIDENCE_VOTE])
-                .into_iter()
-                .map(|(key, _)| key)
-                .filter(|key| !referenced.contains(key)),
-        );
-        for key in old {
-            self.store.delete(&mut txn, &key);
-        }
-        txn.commit();
+            // A stored vote no remaining record names goes too
+            old.extend(
+                self.store
+                    .with_prefix(&txn, &[EVIDENCE_VOTE])
+                    .into_iter()
+                    .map(|(key, _)| key)
+                    .filter(|key| !referenced.contains(key)),
+            );
+            for key in old {
+                self.store.delete(&mut txn, &key);
+            }
+            txn.commit();
+        })
     }
 
     /// Persists how the epochs started
     pub fn write_epochs(&self, record: &EpochsRecord) {
-        let mut txn = self.env.begin_write();
-        self.store.put(&mut txn, &[EPOCHS], &encode_epochs(record));
-        txn.commit();
+        self.timed("epochs", || {
+            let mut txn = self.env.begin_write();
+            self.store.put(&mut txn, &[EPOCHS], &encode_epochs(record));
+            txn.commit();
+        })
     }
 
     /// Persists decided epochs and drops all but the latest decided states
     pub fn write_decided(&self, records: &[DecidedRecord]) {
-        let Some(latest) = records.iter().map(|record| record.epoch).max() else {
-            return;
-        };
-        let store = &self.store;
-        let mut txn = self.env.begin_write();
-        for record in records {
-            store.put(
-                &mut txn,
-                &epoch_key(DECIDED, record.epoch),
-                &encode_decided(record),
-            );
-            if let Some(state) = &record.state {
+        self.timed("decided", || {
+            let Some(latest) = records.iter().map(|record| record.epoch).max() else {
+                return;
+            };
+            let store = &self.store;
+            let mut txn = self.env.begin_write();
+            for record in records {
                 store.put(
                     &mut txn,
-                    &epoch_key(DECIDED_STATE, record.epoch),
-                    &state.to_bytes(),
+                    &epoch_key(DECIDED, record.epoch),
+                    &encode_decided(record),
                 );
+                if let Some(state) = &record.state {
+                    store.put(
+                        &mut txn,
+                        &epoch_key(DECIDED_STATE, record.epoch),
+                        &state.to_bytes(),
+                    );
+                }
             }
-        }
-        let old: Vec<Vec<u8>> = store
-            .with_prefix(&txn, &[DECIDED_STATE])
-            .into_iter()
-            .map(|(key, _)| key)
-            .filter(|key| {
-                decode_epoch_key(key)
-                    .is_some_and(|held| held.as_u64() + DECIDED_STATES_KEPT <= latest.as_u64())
-            })
-            .collect();
-        for key in old {
-            store.delete(&mut txn, &key);
-        }
-        txn.commit();
+            let old: Vec<Vec<u8>> = store
+                .with_prefix(&txn, &[DECIDED_STATE])
+                .into_iter()
+                .map(|(key, _)| key)
+                .filter(|key| {
+                    decode_epoch_key(key)
+                        .is_some_and(|held| held.as_u64() + DECIDED_STATES_KEPT <= latest.as_u64())
+                })
+                .collect();
+            for key in old {
+                store.delete(&mut txn, &key);
+            }
+            txn.commit();
+        })
     }
 
     /// Drops the records of epochs before the given one
     pub fn forget_before(&self, epoch: ConsensusEpoch) {
-        let store = &self.store;
-        let mut txn = self.env.begin_write();
-        let old: Vec<Vec<u8>> = store
-            .with_prefix(&txn, &[SLOT])
-            .into_iter()
-            .map(|(key, _)| key)
-            .filter(|key| decode_slot_key(key).is_some_and(|slot| slot.epoch < epoch))
-            .chain(
-                [FROZEN, REPORT, CERTIFIED, RESIDUAL]
-                    .into_iter()
-                    .flat_map(|prefix| store.with_prefix(&txn, &[prefix]))
-                    .map(|(key, _)| key)
-                    .filter(|key| decode_epoch_key(key).is_some_and(|held| held < epoch)),
-            )
-            .chain(
-                store
-                    .with_prefix(&txn, &[CLOSE])
-                    .into_iter()
-                    .map(|(key, _)| key)
-                    .filter(|key| decode_close_key(key).is_some_and(|(held, _)| held < epoch)),
-            )
-            .collect();
-        for key in old {
-            store.delete(&mut txn, &key);
-        }
-        txn.commit();
+        self.timed("forget", || {
+            let store = &self.store;
+            let mut txn = self.env.begin_write();
+            let old: Vec<Vec<u8>> = store
+                .with_prefix(&txn, &[SLOT])
+                .into_iter()
+                .map(|(key, _)| key)
+                .filter(|key| decode_slot_key(key).is_some_and(|slot| slot.epoch < epoch))
+                .chain(
+                    [FROZEN, REPORT, CERTIFIED, RESIDUAL]
+                        .into_iter()
+                        .flat_map(|prefix| store.with_prefix(&txn, &[prefix]))
+                        .map(|(key, _)| key)
+                        .filter(|key| decode_epoch_key(key).is_some_and(|held| held < epoch)),
+                )
+                .chain(
+                    store
+                        .with_prefix(&txn, &[CLOSE])
+                        .into_iter()
+                        .map(|(key, _)| key)
+                        .filter(|key| decode_close_key(key).is_some_and(|(held, _)| held < epoch)),
+                )
+                .collect();
+            for key in old {
+                store.delete(&mut txn, &key);
+            }
+            txn.commit();
+        })
     }
 
     /// Everything persisted, for a restart
@@ -976,6 +1023,19 @@ mod tests {
 
         records.forget_before(ConsensusEpoch::new(2));
         assert_eq!(records.load().closes, vec![close(2, 3)]);
+    }
+
+    #[test]
+    fn writes_are_timed_by_kind() {
+        let records = SigningRecords::new_null();
+        records.write_frozen(ConsensusEpoch::new(1));
+        records.write_frozen(ConsensusEpoch::new(2));
+
+        let timings = records.take_timings();
+        assert_eq!(timings.len(), 1);
+        assert_eq!(timings[0].0, "frozen");
+        assert_eq!(timings[0].1.count, 2);
+        assert!(records.take_timings().is_empty());
     }
 
     #[test]
