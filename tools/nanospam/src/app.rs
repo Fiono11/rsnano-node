@@ -27,7 +27,7 @@ use rsnano_nullable_tcp::{TcpStream, TcpStreamFactory};
 use rsnano_nullable_tracing_subscriber::TracingInitializer;
 use rsnano_rpc_client::NanoRpcClient;
 use rsnano_rpc_messages::{AccountHistoryArgs, ProcessArgs};
-use rsnano_types::{BlockHash, NetworkType, PrivateKey, ProtocolInfo, RawKey, WalletId};
+use rsnano_types::{Account, BlockHash, NetworkType, PrivateKey, ProtocolInfo, RawKey, WalletId};
 use rsnano_websocket_messages::{BlockConfirmed, MessageEnvelope, Topic};
 
 use crate::{
@@ -574,11 +574,37 @@ async fn wait_for_equal_ledgers(rpc_clients: &[NanoRpcClient]) -> anyhow::Result
         if started.elapsed() > Duration::from_secs(10) && started.elapsed().as_millis() % 5000 < 200
         {
             republish_genesis_chain(rpc_clients).await;
+            // A node holding every block but never cementing one of them:
+            // its election there missed the votes, which nothing sends again
+            for (rpc_client, (count, cemented)) in rpc_clients.iter().zip(&counts) {
+                if count != cemented {
+                    confirm_uncemented_frontiers(rpc_client).await;
+                }
+            }
         }
         if started.elapsed() > Duration::from_secs(120) {
             return Err(anyhow!("the PRs never held the same ledger: {counts:?}"));
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+}
+
+/// Starts the election of every frontier a node holds unconfirmed again, so
+/// that it solicits the votes it missed
+async fn confirm_uncemented_frontiers(rpc_client: &NanoRpcClient) {
+    let Ok(response) = rpc_client.frontiers(Account::ZERO, 100_000).await else {
+        return;
+    };
+    for hash in response.frontiers.unwrap_or_default().into_values() {
+        let confirmed = rpc_client
+            .block_info(hash)
+            .await
+            .map(|info| info.confirmed.inner())
+            .unwrap_or(true);
+        if !confirmed {
+            info!("Confirming the uncemented setup block {hash} again");
+            let _ = rpc_client.block_confirm(hash).await;
+        }
     }
 }
 

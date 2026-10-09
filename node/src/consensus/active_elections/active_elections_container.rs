@@ -185,6 +185,12 @@ pub(crate) struct ActiveElectionsContainer {
     /// RAI: the representatives seen voting in each epoch. They lead the
     /// rounds of its close election while its committee is not known here
     epoch_voters: BTreeMap<ConsensusEpoch, BTreeSet<PublicKey>>,
+    /// RAI: the representatives seen voting in the close of each epoch from
+    /// the current one on: they have left that epoch (see `follow_ahead`)
+    close_voters: BTreeMap<ConsensusEpoch, BTreeSet<PublicKey>>,
+    /// RAI: when the current epoch, while it has no election, is next probed
+    /// for a close the members already hold (see `idle_epoch_probe`)
+    idle_probe_due: Option<Timestamp>,
     /// RAI: the close elections of the epochs this node has left
     closes: BTreeMap<ConsensusEpoch, EpochClose>,
     /// RAI: Δ_E of a close round
@@ -261,6 +267,8 @@ impl ActiveElectionsContainer {
             committees: EpochCommittees::default(),
             report_bases: BTreeMap::new(),
             epoch_voters: BTreeMap::new(),
+            close_voters: BTreeMap::new(),
+            idle_probe_due: None,
             closes: BTreeMap::new(),
             close_round_timeout: config.close_round_timeout,
             local_reps: Vec::new(),
@@ -664,6 +672,8 @@ impl ActiveElectionsContainer {
         self.current_epoch = self.current_epoch.next();
         self.decided_in_current_epoch = 0;
         self.epoch_ends_at = None;
+        self.idle_probe_due = None;
+        self.close_voters = self.close_voters.split_off(&self.current_epoch);
         self.stats.epochs_advanced += 1;
         let leaders = self.close_leaders(left);
         self.closes.insert(
@@ -3198,9 +3208,12 @@ impl ActiveElectionsContainer {
         let Some(committee) = self.committees.committee(self.current_epoch) else {
             return;
         };
+        // A vote in the close of this epoch or a later one counts as well:
+        // a member votes there only once it left the epoch
         let ahead: BTreeSet<PublicKey> = self
             .epoch_voters
             .range(self.current_epoch.next()..)
+            .chain(self.close_voters.range(self.current_epoch..))
             .flat_map(|(_, voters)| voters.iter().copied())
             .collect();
         let weight = ahead.iter().fold(Amount::ZERO, |sum, voter| {
@@ -3564,6 +3577,12 @@ impl ActiveElectionsContainer {
         } else {
             Some(live_committees(args.rep_weights, args.quorum_snapshot))
         };
+        if epoch >= self.current_epoch {
+            self.close_voters
+                .entry(epoch)
+                .or_default()
+                .insert(vote.voter);
+        }
         let mut per_block = HashMap::new();
         for hash in vote.filtered_blocks() {
             // Not left yet: the vote waits in the vote cache until this node
@@ -3601,7 +3620,8 @@ impl ActiveElectionsContainer {
     /// the value the request is routed through
     pub fn close_solicitations(&mut self, now: Timestamp) -> Vec<(ElectionId, BlockHash)> {
         let interval = self.base_latency;
-        self.closes
+        let mut result: Vec<_> = self
+            .closes
             .values_mut()
             .flat_map(|close| {
                 close
@@ -3610,7 +3630,36 @@ impl ActiveElectionsContainer {
                     .map(|(round, value)| (close.id(round), value))
                     .collect::<Vec<_>>()
             })
-            .collect()
+            .collect();
+        result.extend(self.idle_epoch_probe(now));
+        result
+    }
+
+    /// RAI: an epoch ends by time only once an election started in it. A
+    /// replica that lagged behind - restarted - and caught up with the
+    /// members once the load stopped finds no election in its epoch, while
+    /// the members have left and closed it: nothing they send any more tells
+    /// it so, and `follow_ahead` never sees them ahead. While its epoch has
+    /// no election, it asks the members once per epoch duration for the
+    /// first rounds of the epoch's close; their statements, if they hold the
+    /// close, show them ahead and the close's catch-up follows. Members that
+    /// have not left the epoch either have nothing to answer.
+    fn idle_epoch_probe(&mut self, now: Timestamp) -> Vec<(ElectionId, BlockHash)> {
+        if !self.epochs_started
+            || self.draining
+            || self.epoch_ends_at.is_some()
+            || self.epoch_duration.is_zero()
+        {
+            self.idle_probe_due = None;
+            return Vec::new();
+        }
+        let due = *self.idle_probe_due.get_or_insert(now + self.epoch_duration);
+        if now < due {
+            return Vec::new();
+        }
+        self.idle_probe_due = Some(now + self.epoch_duration);
+        self.stats.idle_epoch_probes += 1;
+        EpochClose::probe_ids(self.current_epoch)
     }
 
     pub fn apply_vote<'a>(
@@ -4856,6 +4905,64 @@ mod tests {
         vote_ahead(&mut container, &reps[1]);
         container.transition_time(now);
         assert_eq!(container.current_epoch(), ConsensusEpoch::new(1));
+        assert_eq!(container.stats.epochs_followed, 1);
+    }
+
+    /// RAI: a replica whose epoch has no election - it caught up after the
+    /// load stopped - asks the members for the epoch's close once per epoch
+    /// duration, and the close statements of members holding more than `f`
+    /// show the epoch over: it ends here too
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn an_idle_lagging_replica_asks_for_the_close_and_follows_it() {
+        let now = Timestamp::new_test_instance();
+        let config = ActiveElectionsConfig {
+            epoch_duration: Duration::from_secs(1),
+            ..Default::default()
+        };
+        let mut container = ActiveElectionsContainer::new(config, Duration::from_millis(10));
+        let reps: Vec<PrivateKey> = (1..=6).map(PrivateKey::from).collect();
+        container.set_genesis_committee(
+            reps.iter()
+                .enumerate()
+                .map(|(i, rep)| AccountFrontier {
+                    account: PrivateKey::from(10 + i as u64).account(),
+                    height: 1,
+                    hash: BlockHash::from(70 + i as u64),
+                    representative: rep.public_key(),
+                    balance: Amount::raw(100),
+                })
+                .collect(),
+        );
+        container.start_epochs(now);
+
+        // Epoch 0 ends at its boundary; no election starts in epoch 1
+        let start = now + Duration::from_secs(1);
+        container.transition_time(start);
+        assert_eq!(container.current_epoch(), ConsensusEpoch::new(1));
+
+        // Probed once per epoch duration, not before
+        assert!(container.close_solicitations(start).is_empty());
+        let later = start + Duration::from_secs(1);
+        assert_eq!(
+            container.close_solicitations(later),
+            EpochClose::probe_ids(ConsensusEpoch::new(1))
+        );
+        assert!(container.close_solicitations(later).is_empty());
+
+        // The members' answers: statements in the close of epoch 1. The
+        // epoch ends; it is left once the close of epoch 0 is decided
+        let round = ConsensusEpoch::close_round(ConsensusEpoch::new(1), 0);
+        for rep in &reps[..2] {
+            container.apply_vote(ApplyVoteArgs {
+                vote: &close_vote(rep, round, BlockHash::from(9)),
+                rep_weights: &RepWeights::default(),
+                quorum_snapshot: &QuorumSnapshot::new_test_instance(),
+                now: later,
+            });
+        }
+        container.transition_time(later);
+        assert!(container.is_draining());
         assert_eq!(container.stats.epochs_followed, 1);
     }
 

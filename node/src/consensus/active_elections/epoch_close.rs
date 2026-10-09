@@ -211,6 +211,20 @@ impl EpochClose {
         QualifiedRoot::new(Root::from(root), BlockHash::ZERO)
     }
 
+    /// RAI: the ids of the first rounds of an epoch's close, which a replica
+    /// that has not left the epoch asks the members for (see
+    /// `ActiveElectionsContainer::idle_epoch_probe`), each routed through
+    /// no value
+    pub fn probe_ids(epoch: ConsensusEpoch) -> Vec<(ElectionId, BlockHash)> {
+        let root = Self::root_of(epoch);
+        (0..Self::CATCH_UP_ROUNDS)
+            .map(|round| {
+                let round = ConsensusEpoch::close_round(epoch, round as u32);
+                (ElectionId::new(root.clone(), round), TIMEOUT_BLOCK)
+            })
+            .collect()
+    }
+
     pub fn epoch(&self) -> ConsensusEpoch {
         self.epoch
     }
