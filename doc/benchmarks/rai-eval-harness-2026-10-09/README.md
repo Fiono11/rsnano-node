@@ -197,3 +197,52 @@ asks a member whose weight moved away. Results, same settings as above:
 
 `check_committees.py` confirms the identities (`*.committees.txt`); no
 equivocation in any run. Single runs each, quiet host.
+
+## Step 5: departing validators hand off (`step5/`)
+
+"Departing validators keep serving until successors hold durable copies,
+including a departing validator that crashes." A departing member keeps an
+epoch's handoff evidence (its reports and vote records) until `N - f` of the
+successor committee acknowledged installing the epoch's checkpoint
+(`EpochInstalled`); the release is logged as `EPOCH_EVIDENCE_RELEASED`.
+
+`53f4b4d31`: the acknowledgement was sent when the checkpoint was installed
+in memory, before anything of it was on disk, and an epoch whose checkpoint
+finalized no new block was never acknowledged. It is now sent from the
+report service right after the decided record (`W`, synced) and the decided
+state (`D`, bulk environment, synced explicitly) are written, for every
+decided epoch. The report exchange also dropped epochs after four whether
+released or not; it keeps unreleased epochs up to 16 and logs a drop before
+release (`EPOCH_RETENTION_FORCED`, zero in every run below).
+
+`796dfe23a`: the first `depart-crash-byz` run decided epochs 0-5 everywhere
+but the restarted departing member stayed 62 blocks behind. It caught up
+epoch by epoch through the checkpoint catch-up, but by then the load had
+stopped: its epoch 5 never started an election, so it never ended by time,
+its close never opened, and nothing the members still sent showed them
+ahead. Now a close vote of the current epoch or a later one counts for
+`follow_ahead` (a member votes there only once it left the epoch), and while
+the current epoch has no election the replica solicits the first rounds of
+its close once per epoch duration. In the rerun pr3 logs
+`EPOCH_FOLLOW_AHEAD epoch=5 voters_ahead=5`, catches up epoch 5 and installs
+it. The same commit has nanospam ask a node that holds every setup block but
+leaves one uncemented to confirm its unconfirmed frontiers again
+(`block_confirm`); two of the first three runs failed in setup on that.
+
+8 PRs (7 with the Byzantine one), 2 standby, 800 blocks/s, 20,000 blocks,
+5 % forks. The rotation is scheduled at epoch 1; committees lag two epochs,
+so the departing members serve through epoch 2. One departing member is
+killed when the close of epoch 2 - the last epoch it is a member of -
+starts, and is down 30 s:
+
+| Scenario | Committees | Restarted | Settled | Decided everywhere | Non-fork cps | p50 / p95 ms |
+|---|---|---|---|---|---|---|
+| `depart-crash` (`1:4>6,5>7`, pr4 crashes) | 6 -> 6, two replaced | pr4, caught up 2-4 | yes | 0-4 | 340 | 100 / 220 |
+| `depart-crash-byz` (+1 Byzantine, `1:3>5,4>6`, pr3 crashes) | 6 -> 6, two replaced | pr3, caught up 2-5 | yes | 0-5 | 335 | 117 / 473 |
+| `partial-1` (control, no crash) | 6 -> 6, two replaced | - | yes | 0-3 | 750 | 100 / 210 |
+
+Every decided epoch's evidence was released on every node except the
+restarted one for the epochs it adopted by catch-up (it never held their
+reports). No epoch was dropped before release, the committees are the same
+on every node (`*.committees.txt`), and the vote audit finds no
+equivocation. Single runs each, quiet host.
