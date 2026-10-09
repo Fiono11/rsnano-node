@@ -1261,6 +1261,19 @@ impl Node {
         let rep_tiers = Arc::new(CurrentRepTiers::new());
         let mut rep_tiers_calculator =
             RepTiersCalculator::new(rep_weights.clone(), rep_tracker.clone(), stats.clone());
+        #[cfg(feature = "rai_protocol")]
+        {
+            let committee_members = Arc::new(crate::consensus::CommitteeMembers::default());
+            rep_tiers_calculator = rep_tiers_calculator.with_committee(committee_members.clone());
+            ticker_pool.insert(
+                crate::consensus::CommitteeMembersSync::new(
+                    active_elections.clone(),
+                    committee_members.clone(),
+                    wallet_reps.clone(),
+                ),
+                Duration::from_secs(1),
+            );
+        }
         rep_tiers_calculator.add_tiers_consumer(vote_processor_queue.clone());
         rep_tiers_calculator.add_tiers_consumer(vote_rebroadcast_queue.clone());
         rep_tiers_calculator.add_tiers_consumer(rep_tiers.clone());

@@ -90,6 +90,11 @@ impl AecService {
         self.aec.read().unwrap().current_epoch()
     }
 
+    /// RAI: the members of the committees around the current epoch
+    pub fn committee_members(&self) -> std::collections::HashSet<rsnano_types::PublicKey> {
+        self.aec.read().unwrap().committee_members()
+    }
+
     pub fn set_current_epoch(&self, epoch: ConsensusEpoch) {
         self.aec.write().unwrap().set_current_epoch(epoch)
     }

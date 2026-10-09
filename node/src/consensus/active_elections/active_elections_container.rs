@@ -206,6 +206,8 @@ pub(crate) struct ActiveElectionsContainer {
     /// RAI: the closes a restart recovered decided: what their certificate
     /// finalized, as seen from outside; their elections are not run again
     restored_closes: BTreeMap<ConsensusEpoch, EpochCloseInfo>,
+    /// RAI: when the open closes' tallies were last logged
+    close_tallies_logged: Option<Timestamp>,
 }
 
 impl ActiveElectionsContainer {
@@ -265,6 +267,7 @@ impl ActiveElectionsContainer {
             dirty_close_signing: Vec::new(),
             dirty_decided: Vec::new(),
             restored_closes: BTreeMap::new(),
+            close_tallies_logged: None,
         }
     }
 
@@ -448,6 +451,17 @@ impl ActiveElectionsContainer {
     /// is known here (see `EpochCommittees`)
     fn committees_for(&self, epoch: ConsensusEpoch) -> Option<Committees> {
         self.committees.for_epoch(epoch)
+    }
+
+    /// RAI: the members of the committees known here from two epochs before
+    /// the current one to two after it: those still closing, the current
+    /// one's, and those already derived for the epochs to come
+    pub fn committee_members(&self) -> std::collections::HashSet<PublicKey> {
+        let current = self.current_epoch.as_u64();
+        (current.saturating_sub(2)..=current + 2)
+            .filter_map(|epoch| self.committees.committee(ConsensusEpoch::new(epoch)))
+            .flat_map(|committee| committee.weights().keys().copied().collect::<Vec<_>>())
+            .collect()
     }
 
     /// RAI: `O_e = C_{e-2}`, the committee that issued an epoch's account
@@ -960,8 +974,36 @@ impl ActiveElectionsContainer {
             let events = close.take_events();
             self.log_close_events(epoch, events, now);
         }
+        #[cfg(feature = "rai_protocol")]
+        self.log_close_tallies(now);
         self.discard_late_instances();
         self.log_drain_wait(now);
+    }
+
+    /// RAI: what each close still open here has counted per round, every
+    /// few seconds: a close that does not finish shows which statements
+    /// this replica holds, and the replicas can be compared
+    #[cfg(feature = "rai_protocol")]
+    fn log_close_tallies(&mut self, now: Timestamp) {
+        const INTERVAL: Duration = Duration::from_secs(2);
+        if self
+            .close_tallies_logged
+            .is_some_and(|last| last.elapsed(now) < INTERVAL)
+        {
+            return;
+        }
+        self.close_tallies_logged = Some(now);
+        for close in self.closes.values().filter(|close| !close.is_closed()) {
+            for (round, timeout, votes) in close.tallies() {
+                diagnostic!(
+                    "EPOCH_CLOSE_TALLY epoch={} round={} tc={} votes=[{}]",
+                    close.epoch(),
+                    round,
+                    timeout,
+                    votes
+                );
+            }
+        }
     }
 
     /// RAI: the only discard: an instance of an agreed epoch notarized a

@@ -619,6 +619,40 @@ impl SlotVotes {
     }
 
     /// Recalculate all tallies in the given committees
+    /// RAI: every voter's statements in this slot, for a diagnostic:
+    /// `key8:f=hash8,n=hash8,t,x=hash8` per voter, in key order
+    pub fn describe(&self) -> String {
+        let short = |hash: &BlockHash| {
+            if *hash == TIMEOUT_BLOCK {
+                "T".to_owned()
+            } else {
+                hash.to_string()[..8].to_owned()
+            }
+        };
+        let mut voters: Vec<_> = self.reps.iter().collect();
+        voters.sort_by_key(|(voter, _)| **voter);
+        voters
+            .into_iter()
+            .map(|(voter, votes)| {
+                let mut parts = Vec::new();
+                if let Some(first) = &votes.first {
+                    parts.push(format!("f={}", short(first)));
+                }
+                for notar in &votes.notar {
+                    parts.push(format!("n={}", short(notar)));
+                }
+                if votes.timeout {
+                    parts.push("t".to_owned());
+                }
+                if let Some(final_) = &votes.final_ {
+                    parts.push(format!("x={}", short(final_)));
+                }
+                format!("{}:{}", &voter.to_string()[..8], parts.join(","))
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
     pub fn calculate(&mut self, committees: &Committees) {
         self.tallies = committees
             .iter()

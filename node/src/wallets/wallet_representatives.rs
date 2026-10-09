@@ -1,4 +1,7 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::HashSet,
+    sync::{Arc, Mutex},
+};
 
 use rsnano_ledger::RepWeightCache;
 use rsnano_types::{Account, Amount, PrivateKey, PublicKey};
@@ -18,6 +21,9 @@ pub struct WalletRepresentatives {
     rep_weights: Arc<RepWeightCache>,
     wallets: Arc<Wallets>,
     rep_tracker: Arc<RepresentativeTracker>,
+    /// RAI: the members of the committees around the current epoch; a
+    /// wallet key among them votes whatever ledger weight it holds now
+    committee_members: HashSet<PublicKey>,
 }
 
 impl WalletRepresentatives {
@@ -36,7 +42,13 @@ impl WalletRepresentatives {
             rep_weights,
             wallets,
             rep_tracker,
+            committee_members: HashSet::new(),
         }
+    }
+
+    /// RAI: the committee members, which vote by their membership
+    pub fn set_committee_members(&mut self, members: HashSet<PublicKey>) {
+        self.committee_members = members;
     }
 
     pub fn new_null() -> Self {
@@ -112,7 +124,7 @@ impl WalletRepresentatives {
     pub fn check_rep(&mut self, pub_key: PublicKey, half_principal_weight: Amount) -> bool {
         let weight = self.rep_weights.weight(&pub_key);
 
-        if weight < self.vote_minimum {
+        if weight < self.vote_minimum && !self.committee_members.contains(&pub_key) {
             return false; // account not a representative
         }
 

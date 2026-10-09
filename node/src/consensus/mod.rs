@@ -9,6 +9,7 @@ mod bootstrap_weights;
 mod bounded_hash_map;
 #[cfg(feature = "rai_protocol")]
 mod checkpoint_follower;
+mod committee_members;
 mod confirm_req_sender;
 mod confirmation_solicitor;
 mod confirmation_solicitor_plugin;
@@ -49,6 +50,9 @@ pub(crate) use attachment::*;
 pub(crate) use bootstrap_election_activator::*;
 pub(crate) use bootstrap_stale_elections::*;
 pub(crate) use bootstrap_weights::*;
+pub use committee_members::CommitteeMembers;
+#[cfg(feature = "rai_protocol")]
+pub(crate) use committee_members::CommitteeMembersSync;
 pub(crate) use confirm_req_sender::*;
 pub use confirmation_solicitor::ConfirmationSolicitor;
 pub(crate) use confirmation_solicitor_plugin::*;

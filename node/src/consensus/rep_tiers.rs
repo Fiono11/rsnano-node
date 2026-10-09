@@ -138,6 +138,9 @@ pub struct RepTiersCalculator {
     rep_tracker: Arc<RepresentativeTracker>,
     stats: Arc<Stats>,
     consumers: Vec<Box<dyn RepTiersConsumer + Send + Sync>>,
+    /// RAI: committee members are heard by their membership whatever
+    /// ledger weight they hold now: they are in every tier
+    committee: Option<Arc<crate::consensus::CommitteeMembers>>,
 }
 
 impl RepTiersCalculator {
@@ -152,7 +155,14 @@ impl RepTiersCalculator {
             rep_tracker,
             stats,
             consumers: Vec::new(),
+            committee: None,
         }
+    }
+
+    /// RAI: the committee members to put in every tier
+    pub fn with_committee(mut self, committee: Arc<crate::consensus::CommitteeMembers>) -> Self {
+        self.committee = Some(committee);
+        self
     }
 
     pub fn add_tiers_consumer(&mut self, consumer: impl RepTiersConsumer + Send + Sync + 'static) {
@@ -185,6 +195,14 @@ impl RepTiersCalculator {
                 } else {
                     ignored += 1;
                 }
+            }
+        }
+
+        if let Some(committee) = &self.committee {
+            for member in committee.get() {
+                new_tier1.insert(member);
+                new_tier2.insert(member);
+                new_tier3.insert(member);
             }
         }
 

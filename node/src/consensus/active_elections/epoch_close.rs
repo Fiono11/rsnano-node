@@ -606,6 +606,23 @@ impl EpochClose {
 
     /// Records a vote this replica is about to cast; the value becomes a
     /// candidate of the round like the values the other replicas vote for
+    /// RAI: what this replica counted in each round up to the current one,
+    /// with whether the round has a timeout certificate, for a diagnostic
+    pub fn tallies(&self) -> Vec<(u32, bool, String)> {
+        self.rounds
+            .iter()
+            .enumerate()
+            .take(self.current + 1)
+            .map(|(round, slot)| {
+                (
+                    round as u32,
+                    slot.certificates.timeout,
+                    slot.votes.describe(),
+                )
+            })
+            .collect()
+    }
+
     /// What this replica voted in a round, for the durable signing records
     pub fn voted_in(&self, round: u32) -> Option<&LocalSlotState> {
         self.rounds.get(round as usize).map(|slot| &slot.slot)
