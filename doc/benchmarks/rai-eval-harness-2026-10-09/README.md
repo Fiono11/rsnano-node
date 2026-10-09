@@ -118,3 +118,54 @@ ready close never solicited the round the others had certified.
 Still open: a restarted node takes 9-15 s to answer RPC after a respawn (2-3 s
 in most earlier runs, 11 s once without sync; not attributed); the parent
 records `P` are never forgotten.
+
+## Step 4: committee rotation (`step4/`)
+
+Harness (`a623778b7`): nanospam `--standby K` runs K extra representatives
+outside the committee (an eighth of a share) and `--rotation "E:FROM>TO,..."`
+moves FROM's whole balance to a holder delegating to TO at the start of epoch
+E, so the committee derived from that epoch (used two epochs on) has TO in
+FROM's place; the Byzantine representative keeps its weight and sits in every
+committee. `check_committees.py` shows the identities change and agree.
+
+Four membership bugs, each a stall in the first close after a rotation:
+`b4b7eddd7` the leader selected a non-member's report (its claims cannot be
+named by the committee bitsets of the manifest; the close split 2/3);
+`0e6fcbd71` a member whose balance had moved away stopped voting with its key
+and was tiered by weight; `faaa33833` its votes were dropped by the vote
+applier's weight gate; `26da01408` a node missing a frontier block's
+delegation derived a different committee (now it waits for the block).
+Members are now known by membership (`CommitteeMembers`, the committees from
+two epochs before the current one to two after).
+
+Then a protocol hole (`4de75a071`): a fork position split 3-3 in epoch e
+(both blocks retained in S_e under recovery records of origin e) was
+finalized in e+1 by a changed committee, four of whose members first-voted
+one side early, before S_e was known. The install-time recheck kept the
+instance (the retained rival is admitted), the exit final vote followed the
+notarization, and the block's bypass of the rival's record had no epoch-e
+witness (3 supporters in the old committee, 4 needed). Every honest report
+then carried an F entry the report rule refuses
+(`EPOCH_UNJUSTIFIED_WHY ... bypassed=[Recovery@2 ... witness=false]`,
+`partial-stalled-before-fix/`), no report was usable, and the epoch-3 close
+never finished: 2 of 5 partial runs. The final vote is now withheld for a
+winner `at_closed_lock` once the predecessor is decided, as a first vote is
+(`no_final_vote_for_a_block_the_checkpoint_excludes`).
+
+Results on `4de75a071`, fork5, 800 blocks/s, 20,000 blocks, `--stall-abort 40`:
+
+| Scenario | Committees | Settled | Non-fork cps | p50 / p95 ms |
+|---|---|---|---|---|
+| `partial-1/2/3` (8 PRs, 2 standbys, PR4,PR5 -> PR6,PR7 at epoch 1) | 6 -> 6, two replaced | 3 / 3 | 667 / 747 / 748 | 106/320 · 103/422 · 104/372 |
+| `partial-byz` (same, Byzantine member in both) | two replaced, then back at epoch 4 | 0 / 1 here; 2 / 2 earlier (`partial-byz-settled/`: 527 cps, 143/3,153) | - | - |
+| `full-byz` (7 PRs, f=1 p=0: 4 seats, PR0-2 -> PR3-5, Byzantine shared) | 4 -> 4, all correct members replaced | 0 / 1 | - | - |
+
+The two failures left are not rotation bugs: one honest member falls behind
+in a close (pr6 stuck in round 1 of the epoch-2 close without two members'
+timeout votes; one node in `full-byz` likewise in epoch 1), and with the
+Byzantine member in the committee the next close needs every honest member's
+report (N-f = 5 of 6, 3 of 4), so all wait for the straggler, who assembles
+the missed certificate only through close-round solicitations (the same
+fragility as in the close-round grace work). The full replacement needs the
+4-member committee: 10 nodes at 200 blocks/s gave 54 cps on this host.
+No equivocation in any run.
