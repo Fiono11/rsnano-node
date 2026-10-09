@@ -72,8 +72,8 @@ pub(crate) struct EpochClose {
     /// Δ_timeout of Protocol 1, line 22
     round_timeout: Duration,
     events: Vec<CloseEvent>,
-    /// RAI, checkpoint catch-up: since when this close is not ready, and
-    /// when its certificate was last solicited for that reason
+    /// RAI, checkpoint catch-up: since when this close is open here, and
+    /// when its first rounds were last solicited for that reason
     unready_since: Option<Timestamp>,
     catch_up_solicited: Option<Timestamp>,
 }
@@ -251,6 +251,13 @@ impl EpochClose {
     pub fn decided_state(&self) -> Option<&Arc<EpochLedger>> {
         let (_, value) = self.closed.as_ref()?;
         self.states.get(value)
+    }
+
+    /// The value the close finalized, with the state it decided, once
+    /// this replica holds both: what a lagging replica is served
+    pub fn decided_value(&self) -> Option<(&EpochValue, &Arc<EpochLedger>)> {
+        let (_, value) = self.closed.as_ref()?;
+        Some((self.values.get(value)?, self.states.get(value)?))
     }
 
     /// The epoch is closed and this replica holds the state decided
@@ -816,12 +823,13 @@ impl EpochClose {
         if self.closed.is_some() {
             return Vec::new();
         }
+        // The first rounds' certificate, for a replica that came late: once
+        // its own rounds moved on, those rounds are no longer solicited below
+        let mut result = self.catch_up_solicitations(now);
         if !self.ready {
-            return self.catch_up_solicitations(now);
+            return result;
         }
-        self.unready_since = None;
         let first = self.current.saturating_sub(Self::SOLICITED_ROUNDS);
-        let mut result = Vec::new();
         for round in first..=self.current.min(self.rounds.len() - 1) {
             let routing = self.routing(round);
             let slot = &mut self.rounds[round];
@@ -833,19 +841,22 @@ impl EpochClose {
                 continue;
             }
             slot.last_solicited = Some(now);
-            result.push((round as u32, routing));
+            if !result.iter().any(|(held, _)| *held == round as u32) {
+                result.push((round as u32, routing));
+            }
         }
         result
     }
 
-    /// RAI, checkpoint catch-up: a replica that can not derive a value -
-    /// it lagged behind, and the reports were released meanwhile - takes
-    /// part in no round, yet the certificate is what it needs: with it, it
-    /// fetches the decided state. Once the close has waited a while (a
-    /// replica merely short of a report for a moment derives soon), the
-    /// first rounds' statements are solicited from the replicas that made
-    /// them; they hand them out again, re-signed, for as long as they keep
-    /// the close.
+    /// RAI, checkpoint catch-up: a replica that came to a close late - it
+    /// lagged behind - may find it certified elsewhere in a round it never
+    /// entered, or one its own rounds left behind; and one that can not
+    /// derive a value takes part in no round at all. The certificate is
+    /// what it needs: with it, it fetches the value and the decided state.
+    /// Once the close has been open a while (a close running normally ends
+    /// sooner), the first rounds' statements are solicited from the
+    /// replicas that made them; they hand them out again, re-signed, for as
+    /// long as they keep the close.
     fn catch_up_solicitations(&mut self, now: Timestamp) -> Vec<(u32, BlockHash)> {
         let since = *self.unready_since.get_or_insert(now);
         if since.elapsed(now) < Self::CATCH_UP_AFTER
@@ -1029,6 +1040,25 @@ mod tests {
                 .any(|event| matches!(event, CloseEvent::Validated { .. })),
             "an adopted value is not one this replica votes for"
         );
+    }
+
+    /// RAI, checkpoint catch-up: a ready close that stays open solicits the
+    /// first rounds too, though its own rounds moved on
+    #[test]
+    fn a_ready_close_left_open_solicits_its_first_rounds() {
+        let mut close = close_election();
+        close.set_ready(true);
+        close.tick(t(0));
+        let interval = Duration::from_millis(100);
+        let _ = close.solicitations(t(0), interval);
+
+        let rounds: Vec<u32> = close
+            .solicitations(t(3), interval)
+            .into_iter()
+            .map(|(round, _)| round)
+            .collect();
+
+        assert_eq!(rounds, vec![0, 1, 2, 3]);
     }
 
     /// RAI, durable signing records: a restarted replica re-broadcasts

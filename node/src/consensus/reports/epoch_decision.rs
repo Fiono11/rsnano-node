@@ -14,8 +14,12 @@ use rsnano_types::{Amount, BlockHash, ConsensusEpoch, PublicKey};
 use rsnano_utils::stats::{DetailType, Direction, StatType, Stats};
 
 use super::{
-    ReportExchange, checkpoint_fetch::CheckpointFetch, chunk_window::ChunkWindow, manifest_claims,
-    report_service::inherited_from, unjustified,
+    ReportExchange,
+    checkpoint_fetch::{CheckpointFetch, checkpoint_bytes},
+    chunk_window::ChunkWindow,
+    manifest_claims,
+    report_service::inherited_from,
+    unjustified,
 };
 use crate::{
     consensus::{
@@ -129,10 +133,6 @@ pub struct EpochDecisionService {
     manifests: Mutex<HashMap<BlockHash, (ConsensusEpoch, Arc<Manifest>)>>,
     /// Manifests being fetched by digest
     assemblies: Mutex<HashMap<BlockHash, ManifestFetch>>,
-    /// RAI, checkpoint catch-up: the proposals received, by epoch and value
-    /// hash, checked or not: once a close certificate names one, its `d_e`
-    /// is what a fetched state must hash to
-    proposed_values: Mutex<HashMap<(ConsensusEpoch, BlockHash), EpochValue>>,
     /// Since when each epoch has been closed here without its value derived
     closed_undecided: Mutex<HashMap<ConsensusEpoch, Timestamp>>,
     /// Decided states being fetched
@@ -172,7 +172,6 @@ impl EpochDecisionService {
             unready_logged: Mutex::new(HashMap::new()),
             manifests: Mutex::new(HashMap::new()),
             assemblies: Mutex::new(HashMap::new()),
-            proposed_values: Mutex::new(HashMap::new()),
             closed_undecided: Mutex::new(HashMap::new()),
             checkpoint_fetches: Mutex::new(HashMap::new()),
             served_checkpoint: Mutex::new(None),
@@ -231,11 +230,6 @@ impl EpochDecisionService {
         if !prop.verify(hash) {
             return;
         }
-        self.proposed_values
-            .lock()
-            .unwrap()
-            .entry((prop.epoch, hash))
-            .or_insert_with(|| value.clone());
         // A leader repeats its proposal while its round stands, and
         // deriving the state walks the whole predecessor: check once. Every
         // round's proposal of an epoch decided here is repeated to replicas
@@ -944,9 +938,10 @@ impl EpochDecisionService {
     /// RAI, checkpoint catch-up: an epoch whose close certificate this node
     /// holds, but whose value it could not derive - it lagged behind, and
     /// the reports the derivation needs were released once `N - f` of the
-    /// successors had installed the checkpoint - takes the decided state
-    /// from a replica that holds it. The certificate binds the value, and
-    /// the value binds `d_e`, which the state fetched must hash to.
+    /// successors had installed the checkpoint - takes the value and the
+    /// decided state from a replica that holds them. The certificate binds
+    /// the value's hash, and the value binds `d_e`, which the state fetched
+    /// must hash to; neither the proposal nor the reports are needed.
     fn catch_up(&self, closes: &[crate::consensus::active_elections::EpochCloseInfo]) {
         let now = self.clock.now();
         let undecided: HashMap<ConsensusEpoch, BlockHash> = closes
@@ -954,11 +949,6 @@ impl EpochDecisionService {
             .filter(|close| close.value.is_none())
             .filter_map(|close| close.closed.map(|(_, value)| (close.epoch, value)))
             .collect();
-        let tracked: Vec<ConsensusEpoch> = closes.iter().map(|close| close.epoch).collect();
-        self.proposed_values
-            .lock()
-            .unwrap()
-            .retain(|(epoch, _), _| tracked.contains(epoch));
         self.closed_undecided
             .lock()
             .unwrap()
@@ -977,26 +967,11 @@ impl EpochDecisionService {
             if since.elapsed(now) < Self::CATCH_UP_AFTER {
                 continue;
             }
-            // The value comes with its leader's repeated proposal
-            let Some(value) = self
-                .proposed_values
-                .lock()
-                .unwrap()
-                .get(&(epoch, closed))
-                .cloned()
-            else {
-                continue;
-            };
             let due = {
                 let mut fetches = self.checkpoint_fetches.lock().unwrap();
                 let fetch = fetches.entry(epoch).or_insert_with(|| {
-                    diagnostic!(
-                        "EPOCH_CATCH_UP epoch={} value={} state={}",
-                        epoch,
-                        closed,
-                        value.state
-                    );
-                    CheckpointFetch::new(value.clone(), now)
+                    diagnostic!("EPOCH_CATCH_UP epoch={} value={}", epoch, closed);
+                    CheckpointFetch::new(epoch, closed, now)
                 });
                 fetch.due(now, Self::CHECKPOINT_RETRY)
             };
@@ -1004,7 +979,7 @@ impl EpochDecisionService {
                 self.send_checkpoint_request(
                     CheckpointReq {
                         epoch,
-                        state: value.state,
+                        value: closed,
                         from,
                     },
                     None,
@@ -1033,14 +1008,14 @@ impl EpochDecisionService {
     pub fn handle_checkpoint_request(&self, request: CheckpointReq, channel: &Arc<Channel>) {
         self.stats
             .inc_dir(StatType::Message, DetailType::CheckpointReq, Direction::In);
-        let Some(bytes) = self.checkpoint_bytes(request.epoch, request.state) else {
+        let Some(bytes) = self.checkpoint_bytes(request.epoch, request.value) else {
             return;
         };
         let from = (request.from as usize).min(bytes.len());
         let to = (from + CheckpointReply::MAX_DATA).min(bytes.len());
         let reply = CheckpointReply {
             epoch: request.epoch,
-            state: request.state,
+            value: request.value,
             total: bytes.len() as u32,
             from: from as u32,
             data: bytes[from..to].to_vec(),
@@ -1057,22 +1032,22 @@ impl EpochDecisionService {
         );
     }
 
-    /// The encoding of the state this node decided for an epoch, if it is
-    /// the one asked for
-    fn checkpoint_bytes(&self, epoch: ConsensusEpoch, state: BlockHash) -> Option<Arc<Vec<u8>>> {
+    /// The encoding of the value this node decided for an epoch and its
+    /// state, if it is the value asked for
+    fn checkpoint_bytes(&self, epoch: ConsensusEpoch, value: BlockHash) -> Option<Arc<Vec<u8>>> {
         let mut served = self.served_checkpoint.lock().unwrap();
         if let Some((held, hash, bytes)) = served.as_ref()
             && *held == epoch
-            && *hash == state
+            && *hash == value
         {
             return Some(bytes.clone());
         }
-        let decided = self.active_elections.epoch_previous_state(epoch.next())?;
-        if decided.state_hash() != state {
+        let (decided, state) = self.active_elections.decided_value(epoch)?;
+        if decided.hash() != value {
             return None;
         }
-        let bytes = Arc::new(decided.to_bytes());
-        *served = Some((epoch, state, bytes.clone()));
+        let bytes = Arc::new(checkpoint_bytes(&decided, &state));
+        *served = Some((epoch, value, bytes.clone()));
         Some(bytes)
     }
 
@@ -1091,21 +1066,21 @@ impl EpochDecisionService {
             let Some(fetch) = fetches.get_mut(&reply.epoch) else {
                 return;
             };
-            if fetch.value().state != reply.state {
+            if fetch.value() != reply.value {
                 return;
             }
             match fetch.take(reply.total, reply.from, &reply.data) {
                 Ok(None) => (fetch.due(now, Self::CHECKPOINT_RETRY), None),
-                Ok(Some(state)) => {
+                Ok(Some(decided)) => {
                     let fetch = fetches.remove(&reply.epoch).expect("held above");
-                    (Vec::new(), Some((fetch, state)))
+                    (Vec::new(), Some((fetch, decided)))
                 }
                 Err(()) => {
                     fetches.remove(&reply.epoch);
                     diagnostic!(
-                        "EPOCH_CATCH_UP_REJECTED epoch={} state={} total={} from={}",
+                        "EPOCH_CATCH_UP_REJECTED epoch={} value={} total={} from={}",
                         reply.epoch,
-                        reply.state,
+                        reply.value,
                         reply.total,
                         reply.from
                     );
@@ -1113,14 +1088,14 @@ impl EpochDecisionService {
                 }
             }
         };
-        if let Some((fetch, state)) = done {
+        if let Some((fetch, (value, state))) = done {
             let adopted = self
                 .active_elections
-                .adopt_certified_epoch_value(fetch.value().clone(), state);
+                .adopt_certified_epoch_value(value, state);
             diagnostic!(
-                "EPOCH_CAUGHT_UP epoch={} state={} bytes={} ms={} adopted={}",
+                "EPOCH_CAUGHT_UP epoch={} value={} bytes={} ms={} adopted={}",
                 reply.epoch,
-                reply.state,
+                reply.value,
                 reply.total,
                 fetch.started().elapsed(now).as_millis(),
                 adopted
@@ -1132,7 +1107,7 @@ impl EpochDecisionService {
             self.send_checkpoint_request(
                 CheckpointReq {
                     epoch: reply.epoch,
-                    state: reply.state,
+                    value: reply.value,
                     from,
                 },
                 Some(channel),

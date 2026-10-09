@@ -68,6 +68,51 @@ impl EpochValue {
         &self.reports
     }
 
+    /// The value as bytes, for the checkpoint catch-up: a replica that
+    /// holds the certificate but never saw the proposal obtains the value
+    /// with its state, and checks it against the certified hash
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(8 + 4 + 3 * 32 + 4 + 96 * self.reports.len());
+        bytes.extend_from_slice(&self.epoch.as_u64().to_be_bytes());
+        bytes.extend_from_slice(&self.slot.to_be_bytes());
+        bytes.extend_from_slice(self.parent.as_bytes());
+        bytes.extend_from_slice(self.manifest.as_bytes());
+        bytes.extend_from_slice(self.state.as_bytes());
+        bytes.extend_from_slice(&(self.reports.len() as u32).to_be_bytes());
+        for report in &self.reports {
+            bytes.extend_from_slice(report.reporter.as_bytes());
+            bytes.extend_from_slice(report.certified.as_bytes());
+            bytes.extend_from_slice(report.residual.as_bytes());
+        }
+        bytes
+    }
+
+    /// The value `to_bytes` wrote; None for bytes it did not write
+    pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        let hash = |at: usize| BlockHash::from_slice(bytes.get(at..at + 32)?);
+        let epoch = ConsensusEpoch::new(u64::from_be_bytes(bytes.get(..8)?.try_into().ok()?));
+        let slot = u32::from_be_bytes(bytes.get(8..12)?.try_into().ok()?);
+        let (parent, manifest, state) = (hash(12)?, hash(44)?, hash(76)?);
+        let count = u32::from_be_bytes(bytes.get(108..112)?.try_into().ok()?) as usize;
+        let rest = bytes.get(112..)?;
+        if rest.len() != count.checked_mul(96)? {
+            return None;
+        }
+        let reports = rest
+            .chunks(96)
+            .map(|chunk| {
+                Some(ReportRef {
+                    reporter: PublicKey::from_slice(&chunk[..32])?,
+                    certified: BlockHash::from_slice(&chunk[32..64])?,
+                    residual: BlockHash::from_slice(&chunk[64..96])?,
+                })
+            })
+            .collect::<Option<Vec<_>>>()?;
+        Some(Self::from_parts(
+            epoch, slot, parent, reports, manifest, state,
+        ))
+    }
+
     /// RAI: `(Q_e, d_e)`, the payload of a placement. "A child of a
     /// non-genesis placement must copy its parent's (Q_e, d_e)": only a
     /// child of election genesis may introduce a selection of its own, so
@@ -256,6 +301,34 @@ mod tests {
 
     /// Two validators holding the same reports derive the same state and the
     /// same value: the proposal carries the hash, not the state
+    #[test]
+    fn a_value_survives_its_byte_encoding() {
+        let value = EpochValue::from_parts(
+            ConsensusEpoch::new(4),
+            2,
+            BlockHash::from(1),
+            vec![
+                ReportRef {
+                    reporter: PublicKey::from(5),
+                    certified: BlockHash::from(6),
+                    residual: BlockHash::from(7),
+                },
+                ReportRef {
+                    reporter: PublicKey::from(8),
+                    certified: BlockHash::from(9),
+                    residual: BlockHash::from(10),
+                },
+            ],
+            BlockHash::from(2),
+            BlockHash::from(3),
+        );
+        let bytes = value.to_bytes();
+        let decoded = EpochValue::from_bytes(&bytes).unwrap();
+        assert_eq!(decoded, value);
+        assert_eq!(decoded.hash(), value.hash());
+        assert!(EpochValue::from_bytes(&bytes[..bytes.len() - 1]).is_none());
+    }
+
     #[test]
     fn the_same_reports_give_the_same_value() {
         let world = World::new(3);

@@ -4,15 +4,16 @@ use rsnano_types::{BlockHash, ConsensusEpoch, DeserializationError};
 
 use crate::MessageVariant;
 
-/// RAI, checkpoint catch-up: a request for the decided state `S_e` of an
-/// epoch, by its hash `d_e`, from byte `from` of its encoding on. A replica
-/// that learned the close certificate of an epoch but could not derive the
-/// value - the reports it needed were released while it lagged behind -
-/// fetches the state the certified value names and checks it against `d_e`.
+/// RAI, checkpoint catch-up: a request for the value a close certificate
+/// finalized and the decided state `S_e`, by the value's hash, from byte
+/// `from` of their encoding on. A replica that learned the certificate but
+/// could not derive the value - the reports it needed were released while
+/// it lagged behind - fetches both and checks them against the certified
+/// hash and the value's `d_e`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CheckpointReq {
     pub epoch: ConsensusEpoch,
-    pub state: BlockHash,
+    pub value: BlockHash,
     pub from: u32,
 }
 
@@ -23,14 +24,14 @@ impl CheckpointReq {
     pub fn new_test_instance() -> Self {
         Self {
             epoch: ConsensusEpoch::new(3),
-            state: BlockHash::from(7),
+            value: BlockHash::from(7),
             from: 60_000,
         }
     }
 
     pub fn serialize<T: std::io::Write>(&self, writer: &mut T) -> std::io::Result<()> {
         self.epoch.serialize(writer)?;
-        self.state.serialize(writer)?;
+        self.value.serialize(writer)?;
         writer.write_all(&self.from.to_le_bytes())
     }
 
@@ -41,12 +42,12 @@ impl CheckpointReq {
     pub fn deserialize(mut bytes: &[u8]) -> Result<Self, DeserializationError> {
         let bytes = &mut bytes;
         let epoch = ConsensusEpoch::deserialize(bytes)?;
-        let state = BlockHash::deserialize(bytes)?;
+        let value = BlockHash::deserialize(bytes)?;
         let from = u32::from_le_bytes(take::<4>(bytes)?);
         if !bytes.is_empty() {
             return Err(DeserializationError::InvalidData);
         }
-        Ok(Self { epoch, state, from })
+        Ok(Self { epoch, value, from })
     }
 }
 
@@ -56,12 +57,13 @@ impl MessageVariant for CheckpointReq {
     }
 }
 
-/// RAI, checkpoint catch-up: one chunk of the encoding of `S_e`, the bytes
+/// RAI, checkpoint catch-up: one chunk of the encoding of the value and
+/// `S_e`, the bytes
 /// `from .. from + data.len()` of `total`
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CheckpointReply {
     pub epoch: ConsensusEpoch,
-    pub state: BlockHash,
+    pub value: BlockHash,
     pub total: u32,
     pub from: u32,
     pub data: Vec<u8>,
@@ -76,7 +78,7 @@ impl CheckpointReply {
     pub fn new_test_instance() -> Self {
         Self {
             epoch: ConsensusEpoch::new(3),
-            state: BlockHash::from(7),
+            value: BlockHash::from(7),
             total: 70_000,
             from: 60_000,
             data: vec![1, 2, 3],
@@ -85,7 +87,7 @@ impl CheckpointReply {
 
     pub fn serialize<T: std::io::Write>(&self, writer: &mut T) -> std::io::Result<()> {
         self.epoch.serialize(writer)?;
-        self.state.serialize(writer)?;
+        self.value.serialize(writer)?;
         writer.write_all(&self.total.to_le_bytes())?;
         writer.write_all(&self.from.to_le_bytes())?;
         writer.write_all(&self.data)
@@ -99,7 +101,7 @@ impl CheckpointReply {
     pub fn deserialize(mut bytes: &[u8]) -> Result<Self, DeserializationError> {
         let bytes = &mut bytes;
         let epoch = ConsensusEpoch::deserialize(bytes)?;
-        let state = BlockHash::deserialize(bytes)?;
+        let value = BlockHash::deserialize(bytes)?;
         let total = u32::from_le_bytes(take::<4>(bytes)?);
         let from = u32::from_le_bytes(take::<4>(bytes)?);
         if bytes.len() > Self::MAX_DATA {
@@ -107,7 +109,7 @@ impl CheckpointReply {
         }
         Ok(Self {
             epoch,
-            state,
+            value,
             total,
             from,
             data: bytes.to_vec(),

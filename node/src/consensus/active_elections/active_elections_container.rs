@@ -887,6 +887,13 @@ impl ActiveElectionsContainer {
         }
     }
 
+    /// RAI, checkpoint catch-up: the value the close of an epoch finalized
+    /// here, with the state it decided
+    pub fn decided_value(&self, epoch: ConsensusEpoch) -> Option<(EpochValue, Arc<EpochLedger>)> {
+        let (value, state) = self.closes.get(&epoch)?.decided_value()?;
+        Some((value.clone(), state.clone()))
+    }
+
     /// RAI: `S_e` once the epoch's joint election decided and this node
     /// derived the state the finalized value names
     #[allow(dead_code)] // the RAI epoch decision uses these
