@@ -77,3 +77,44 @@ Not covered yet: power loss (the signing store still uses the ledger's
 `nosync_unsafe` flags), close-election votes are still not persisted, and a
 restart before the epochs-started record (`Z`) is written loses
 the epochs.
+
+## Step 3: durable signing and its cost (`step3/`)
+
+Commits: `fdd36eb8b` (`signing_sync = none | fsync | full`, default fsync;
+close votes persisted per round as `C`; no record-less final replies once the
+epochs run), `15675ecd3` (`SIGNING_WRITES` timings), `3594d6753` (decided
+states and evidence moved to `epoch_records.ldb` with the ledger's setting;
+old-epoch deletions in 2,000-key transactions), `9f892a841` (catch-up by the
+certified value's hash; a close open for 2 s solicits rounds 0-3).
+
+On this Mac LMDB's sync is `fsync` (`mdb.c:128`), measured at 0.05 ms per call:
+APFS hands the data to the drive without waiting for its media. `F_FULLFSYNC`,
+which does wait, measured 4.0 ms; mode `full` issues it after every signing write.
+
+fork5, 6 equal-weight PRs, 45,000 blocks at 2,000/s, two runs per arm in
+alternating order, quiet host. Non-fork goodput (blocks/s) and latency:
+
+| Mode | `sync-ab-before-split` (`fdd36eb8b`) cps, p50 / p95 ms | `sync-ab` (`3594d6753`) cps, p50 / p95 ms |
+|---|---|---|
+| none | 1,737, 176 / 1,031 · 1,717, 164 / 568 | 1,765, 173 / 668 · 1,820, 139 / 677 |
+| fsync | 1,740, 334 / 1,606 · 1,776, 346 / 1,244 | 1,802, 282 / 866 · 1,688, 310 / 1,400 |
+| full | 1,740, 348 / 1,908 · 1,748, 331 / 2,226 | 1,763, 409 / 1,993 · 1,777, 304 / 1,161 |
+
+Goodput is unchanged; synced signing costs about +130 ms at the median and up
+to 2x at p95. The `SIGNING_WRITES` timings explain the first table: the vote
+batches themselves took 1.4 ms on average under fsync, but the voter waited
+for LMDB's one writer behind synced evidence batches (max 443 ms) and
+boundary deletions (max 426 ms). With those moved out the longest signing
+write fell from 464 to 172 ms.
+
+`restarts/` (`9f892a841`, fsync): `--restart 2:close:1 --restart 3:at:12`
+twice, both settled with every epoch's value equal on all six nodes and no
+equivocation (0 conflicts); catch-up fired 1 and 4 times, follow-ahead 2 and
+7 times. `fsync-perf` there: 1,786 cps, p50 / p95 273 / 935 ms. Two earlier
+restart runs under fsync, before `9f892a841`, did not settle: a node left far
+behind could not fetch states whose proposals were no longer repeated, and a
+ready close never solicited the round the others had certified.
+
+Still open: a restarted node takes 9-15 s to answer RPC after a respawn (2-3 s
+in most earlier runs, 11 s once without sync; not attributed); the parent
+records `P` are never forgotten.
