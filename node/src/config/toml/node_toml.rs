@@ -411,6 +411,9 @@ impl NodeConfig {
             if let Some(log) = i.signed_vote_log {
                 self.active_elections.signed_vote_log = log;
             }
+            if let Some(sync) = i.signing_sync {
+                self.active_elections.signing_sync = sync.into();
+            }
         }
         if let Some(vote_processor_toml) = &toml.vote_processor {
             self.vote_processor.merge_toml(vote_processor_toml);

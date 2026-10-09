@@ -317,16 +317,21 @@ impl RequestAggregatorLoop {
         // out again only if this node made it, for the epoch it made it in. A
         // block cemented as a dependency has its instance still running here,
         // which answers with its own statements instead; a block without any
-        // instance (genesis, a crawler's query) is answered as before.
+        // instance (genesis, a crawler's query) is answered as before during
+        // the setup only. Once the epochs run, a fresh final vote for a block
+        // no instance here voted for would carry no signing record, and an
+        // instance of the same slot could later final-vote another block.
         #[cfg(feature = "rai_protocol")]
         {
+            let epochs_started = self.active_elections.epochs_started();
             remaining.remaining_final.retain(|block| {
                 let hash = block.hash();
                 !served.contains(&hash)
                     && self
                         .active_elections
                         .final_voted_in_epoch(&hash, request.epoch)
-                    || (!self.active_elections.is_finalized(&hash)
+                    || (!epochs_started
+                        && !self.active_elections.is_finalized(&hash)
                         && !self
                             .active_elections
                             .is_active_root(&block.qualified_root()))

@@ -158,7 +158,8 @@ impl Tickable for AecVoter {
             // Record the decisions before the generators pick them up, and
             // persist them before the signatures leave: one write per batch
             vote_queue = self.aec.mark_kudzu_voted(vote_queue);
-            self.signing.write_slots(&self.aec.take_signing_records());
+            let (slots, closes) = self.aec.take_signing_batch();
+            self.signing.write_signing(&slots, &closes);
         }
         self.flush(&mut vote_queue);
     }

@@ -556,10 +556,23 @@ impl AecService {
     }
 
     /// RAI: whether this node holds a voter's signed vote for a block
+
+    /// RAI, durable signing records: the account slots and close rounds
+    /// voted in since the last call, taken together for one write
     #[cfg(feature = "rai_protocol")]
-    /// RAI, durable signing records: the slot states changed since the last call
-    pub(crate) fn take_signing_records(&self) -> Vec<crate::consensus::SlotRecord> {
-        self.aec.write().unwrap().take_signing_records()
+    pub(crate) fn take_signing_batch(
+        &self,
+    ) -> (
+        Vec<crate::consensus::SlotRecord>,
+        Vec<crate::consensus::CloseRecord>,
+    ) {
+        let mut aec = self.aec.write().unwrap();
+        (aec.take_signing_records(), aec.take_close_records())
+    }
+
+    /// RAI, durable signing records: a restarted node's close votes
+    pub fn restore_close_votes(&self, records: Vec<crate::consensus::CloseRecord>) {
+        self.aec.write().unwrap().restore_close_votes(records)
     }
 
     /// RAI, durable signing records: what this node signed before a restart

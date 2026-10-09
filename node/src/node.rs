@@ -33,7 +33,7 @@ use rsnano_nullable_lmdb::{
     EnvironmentFlags, EnvironmentOptions, LmdbEnvironment, LmdbEnvironmentFactory,
 };
 use rsnano_output_tracker::OutputListenerMt;
-use rsnano_store_lmdb::get_lmdb_flags;
+use rsnano_store_lmdb::{LmdbConfig, SyncStrategy, get_lmdb_flags};
 use rsnano_types::{
     Account, Amount, Block, BlockHash, NetworkType, NodeId, Peer, PrivateKey, QualifiedRoot, Root,
     SavedBlock, Vote, VoteError, WorkNonce, WorkRequest, currency_constants::CURRENCY_NAME,
@@ -865,20 +865,40 @@ impl Node {
         } else {
             let mut signing_path = application_path.clone();
             signing_path.push("signing.ldb");
+            // Not the ledger's sync setting: the ledger can be fetched again,
+            // what this node signed can not
+            let sync = config.active_elections.signing_sync;
+            let lmdb_config = match sync {
+                crate::consensus::SigningSync::None => config.lmdb_config.clone(),
+                crate::consensus::SigningSync::Fsync | crate::consensus::SigningSync::Full => {
+                    LmdbConfig {
+                        sync: SyncStrategy::Always,
+                        ..config.lmdb_config.clone()
+                    }
+                }
+            };
+            info!("RAI signing records sync: {:?}", sync);
             let options = EnvironmentOptions {
-                path: signing_path,
+                path: signing_path.clone(),
                 max_dbs: 1,
                 map_size: 16 * 1024 * 1024 * 1024,
-                flags: get_lmdb_flags(&config.lmdb_config),
+                flags: get_lmdb_flags(&lmdb_config),
             };
-            Arc::new(
-                crate::consensus::SigningRecords::new(
-                    lmdb_env_factory
-                        .create(options)
-                        .expect("Could not create LMDB env for signing records"),
-                )
-                .expect("Could not open the signing records"),
+            let records = crate::consensus::SigningRecords::new(
+                lmdb_env_factory
+                    .create(options)
+                    .expect("Could not create LMDB env for signing records"),
             )
+            .expect("Could not open the signing records");
+            Arc::new(match sync {
+                crate::consensus::SigningSync::Full => records.with_drive_flush(
+                    crate::consensus::DriveFlush::new(&signing_path)
+                        .expect("Could not open the signing records for flushing"),
+                ),
+                crate::consensus::SigningSync::None | crate::consensus::SigningSync::Fsync => {
+                    records
+                }
+            })
         };
         #[cfg(feature = "rai_protocol")]
         let reports = Arc::new(ReportService::new(
@@ -912,6 +932,7 @@ impl Node {
                 recovered.decided,
                 crate::utils::unix_ms() as u64,
             );
+            active_elections.restore_close_votes(recovered.closes);
             if !recovered.evidence.is_empty() {
                 info!(
                     "RAI: restored {} retained evidence records",

@@ -599,6 +599,25 @@ impl EpochClose {
 
     /// Records a vote this replica is about to cast; the value becomes a
     /// candidate of the round like the values the other replicas vote for
+    /// What this replica voted in a round, for the durable signing records
+    pub fn voted_in(&self, round: u32) -> Option<&LocalSlotState> {
+        self.rounds.get(round as usize).map(|slot| &slot.slot)
+    }
+
+    /// RAI, durable signing records: what a restarted replica voted in a
+    /// round before, back in place: the round's votes are re-broadcast as
+    /// they were and no other is cast
+    pub fn restore_voted(&mut self, round: u32, state: LocalSlotState) {
+        self.ensure_round(round as usize);
+        let slot = &mut self.rounds[round as usize];
+        for value in state.voted() {
+            if value != TIMEOUT_BLOCK && !slot.candidates.contains(&value) {
+                slot.candidates.push(value);
+            }
+        }
+        slot.slot = state;
+    }
+
     pub fn mark_voted(&mut self, round: u32, value: BlockHash, kind: VoteKind) {
         self.ensure_round(round as usize);
         let slot = &mut self.rounds[round as usize];
@@ -1010,6 +1029,27 @@ mod tests {
                 .any(|event| matches!(event, CloseEvent::Validated { .. })),
             "an adopted value is not one this replica votes for"
         );
+    }
+
+    /// RAI, durable signing records: a restarted replica re-broadcasts
+    /// the first vote it cast in a round and casts no other there
+    #[test]
+    fn a_restored_round_repeats_its_vote_and_casts_no_other() {
+        let mut close = close_election();
+        let voted = genesis_value(0, 1).hash();
+        let mut state = LocalSlotState::default();
+        state.mark_voted(voted, VoteKind::First);
+        close.restore_voted(0, state);
+        close.set_ready(true);
+        close.tick(t(0));
+
+        let firsts: Vec<BlockHash> = close
+            .votes_due(&[])
+            .into_iter()
+            .filter(|(round, _, kind)| *round == 0 && *kind == VoteKind::First)
+            .map(|(_, value, _)| value)
+            .collect();
+        assert_eq!(firsts, vec![voted]);
     }
 
     /// RAI, checkpoint catch-up: a close that stays unready solicits the

@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{config::NodeConfig, consensus::election::CommitteeModel};
+use crate::{
+    config::NodeConfig,
+    consensus::{SigningSync, election::CommitteeModel},
+};
 
 /// Reject misspelled models during config parsing instead of silently changing quorum rules.
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -9,6 +12,35 @@ pub enum CommitteeModelToml {
     Weighted,
     EqualWeight,
     BoundedWeight,
+}
+
+/// RAI: how the signing records reach the disk (see `SigningSync`)
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SigningSyncToml {
+    None,
+    Fsync,
+    Full,
+}
+
+impl From<SigningSyncToml> for SigningSync {
+    fn from(value: SigningSyncToml) -> Self {
+        match value {
+            SigningSyncToml::None => SigningSync::None,
+            SigningSyncToml::Fsync => SigningSync::Fsync,
+            SigningSyncToml::Full => SigningSync::Full,
+        }
+    }
+}
+
+impl From<SigningSync> for SigningSyncToml {
+    fn from(value: SigningSync) -> Self {
+        match value {
+            SigningSync::None => SigningSyncToml::None,
+            SigningSync::Fsync => SigningSyncToml::Fsync,
+            SigningSync::Full => SigningSyncToml::Full,
+        }
+    }
 }
 
 #[derive(Deserialize, Serialize, Default)]
@@ -35,6 +67,8 @@ pub struct ActiveElectionsToml {
     pub committee_drift: Option<u32>,
     /// RAI evaluation: append every signed vote to `signed-votes.log`
     pub signed_vote_log: Option<bool>,
+    /// RAI: "none", "fsync" (default) or "full"
+    pub signing_sync: Option<SigningSyncToml>,
 }
 
 impl From<&NodeConfig> for ActiveElectionsToml {
@@ -76,6 +110,7 @@ impl From<&NodeConfig> for ActiveElectionsToml {
                 _ => None,
             },
             signed_vote_log: Some(config.active_elections.signed_vote_log),
+            signing_sync: Some(config.active_elections.signing_sync.into()),
         }
     }
 }
@@ -125,6 +160,21 @@ mod tests {
                 drift: CommitteeModel::DEFAULT_DRIFT
             }
         );
+    }
+
+    #[test]
+    fn signing_sync_round_trip_and_default() {
+        let mut config = NodeConfig::new_test_instance();
+        assert_eq!(config.active_elections.signing_sync, SigningSync::Fsync);
+        config.active_elections.signing_sync = SigningSync::Full;
+        let encoded = toml::to_string(&ActiveElectionsToml::from(&config)).unwrap();
+        let mut restored = NodeConfig::new_test_instance();
+        restored.merge_toml(&crate::config::toml::NodeToml {
+            active_elections: Some(toml::from_str(&encoded).unwrap()),
+            ..Default::default()
+        });
+        assert_eq!(restored.active_elections.signing_sync, SigningSync::Full);
+        assert!(toml::from_str::<ActiveElectionsToml>("signing_sync = 'always'").is_err());
     }
 
     #[test]

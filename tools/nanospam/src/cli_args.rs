@@ -154,6 +154,12 @@ pub(crate) struct CliArgs {
     /// data directory, for tools/rai/audit_votes.py
     #[arg(long, default_value_t = false)]
     pub audit_votes: bool,
+
+    /// RAI: how the nodes' signing records reach the disk: "none" (the OS
+    /// page cache, like the ledger), "fsync" (LMDB syncs every commit) or
+    /// "full" (also F_FULLFSYNC on macOS)
+    #[arg(long, default_value = "fsync", value_parser = ["none", "fsync", "full"])]
+    pub signing_sync: String,
 }
 
 impl CliArgs {

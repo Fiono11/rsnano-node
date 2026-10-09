@@ -57,6 +57,26 @@ pub struct ActiveElectionsConfig {
     /// `signed-votes.log` in the data path before it is sent, for the
     /// equivocation audit of restart runs
     pub signed_vote_log: bool,
+    /// RAI: how the durable signing records reach the disk
+    pub signing_sync: SigningSync,
+}
+
+/// RAI, "Correct validators persist their first vote and terminal state
+/// before releasing signatures": how far the signing records are written
+/// before the votes they record are released. The voter writes one
+/// transaction per batch of votes (group commit) in every mode.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SigningSync {
+    /// Written to the operating system only, like the ledger: a killed
+    /// process loses nothing, a power loss may
+    None,
+    /// Every commit is synced by LMDB (fsync). On macOS an fsync reaches
+    /// the drive but not necessarily its stable media
+    #[default]
+    Fsync,
+    /// As `Fsync`, and the signing writes are also flushed through the
+    /// drive's write cache (F_FULLFSYNC on macOS)
+    Full,
 }
 
 impl Default for ActiveElectionsConfig {
@@ -69,6 +89,7 @@ impl Default for ActiveElectionsConfig {
             committee_model: Default::default(),
             close_round_timeout: Duration::from_secs(2),
             signed_vote_log: false,
+            signing_sync: SigningSync::default(),
         }
     }
 }

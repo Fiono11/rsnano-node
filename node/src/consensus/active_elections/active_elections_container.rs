@@ -198,6 +198,9 @@ pub(crate) struct ActiveElectionsContainer {
     genesis_history: Vec<(AccountSlot, BlockHash, BlockHash)>,
     /// RAI, durable epochs: the epochs started and that is not persisted yet
     epochs_record_due: bool,
+    /// RAI, durable signing records: the close rounds this node voted in
+    /// since the voter last persisted them
+    dirty_close_signing: Vec<(ConsensusEpoch, u32)>,
     /// RAI, durable epochs: the epochs decided since the last persisting
     dirty_decided: Vec<crate::consensus::DecidedRecord>,
     /// RAI: the closes a restart recovered decided: what their certificate
@@ -259,6 +262,7 @@ impl ActiveElectionsContainer {
             genesis_frontiers: Vec::new(),
             genesis_history: Vec::new(),
             epochs_record_due: false,
+            dirty_close_signing: Vec::new(),
             dirty_decided: Vec::new(),
             restored_closes: BTreeMap::new(),
         }
@@ -2041,6 +2045,7 @@ impl ActiveElectionsContainer {
             if let Some((epoch, round)) = target.election.epoch.as_close_round() {
                 if let Some(close) = self.closes.get_mut(&epoch) {
                     close.mark_voted(round, target.winner, VoteKind::from(target.vote_type));
+                    self.dirty_close_signing.push((epoch, round));
                     accepted.push(target);
                 }
                 continue;
@@ -2175,6 +2180,35 @@ impl ActiveElectionsContainer {
                 })
             })
             .collect()
+    }
+
+    /// RAI, durable signing records: the close rounds voted in since the
+    /// last call, with what this node voted there
+    pub fn take_close_records(&mut self) -> Vec<crate::consensus::CloseRecord> {
+        let mut dirty = std::mem::take(&mut self.dirty_close_signing);
+        dirty.sort();
+        dirty.dedup();
+        dirty
+            .into_iter()
+            .filter_map(|(epoch, round)| {
+                let state = self.closes.get(&epoch)?.voted_in(round)?.clone();
+                Some(crate::consensus::CloseRecord {
+                    epoch,
+                    round,
+                    state,
+                })
+            })
+            .collect()
+    }
+
+    /// RAI, durable signing records: what a restarted node voted in the
+    /// closes it takes part in again (see `restore_epochs`)
+    pub fn restore_close_votes(&mut self, records: Vec<crate::consensus::CloseRecord>) {
+        for record in records {
+            if let Some(close) = self.closes.get_mut(&record.epoch) {
+                close.restore_voted(record.round, record.state);
+            }
+        }
     }
 
     /// RAI, overlap certificates: the evidence to persist now, each block's
