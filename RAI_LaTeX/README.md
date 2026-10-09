@@ -11,7 +11,7 @@ DSN 2027 regular papers: IEEE Computer Society two-column format, US Letter, 10-
 - Reformatted from ACM SIGPLAN (EuroSys 2027 draft) to IEEEtran; abstract cut to 150 words.
 - Sections 3 to 6 carry the repairs that followed the TLA+ models in `tla/`: exclusion witnesses distinct from notarization certificates, settled versus early first votes with no fast path on early votes, origin-stamped lock records with matching-origin discharge, overlap certificates, the second committed set `G_i` that keeps fresh votes for `R`-tagged blocks (Fix B), and the corresponding lemmas (signers hold the witness; the overlap verdict does not depend on installation order).
 - New Section 7 reports the model checking: three models, the counterexamples to the earlier rules, and the exhaustive runs of the repaired ones.
-- The evaluation table was regenerated from a nine-variant matrix on the final prototype commit (`doc/benchmarks/rai-dsn-2026-10-08`) with `tools/eval_table.py`.
+- The evaluation table was regenerated from a nine-variant matrix on `be09dd392` with synced signing (`doc/benchmarks/rai-eval-harness-2026-10-09/matrix`) with `tools/eval_table.py`; the restart, rotation, handoff, and A/B records are in the same directory (steps 2 to 7).
 - `supplement.tex` holds the full proofs, the model descriptions and results, the scripted regression cases, the prototype departures and the defects found while measuring. It is a separate PDF, since DSN counts appendices toward the page limit.
 
 ## Files

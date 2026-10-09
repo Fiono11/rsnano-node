@@ -358,3 +358,21 @@ keeps the old binary - the archive stamps files with the commit time, older
 than the previous build. The first attempt of this A/B ran a stale baseline
 and was discarded; the script now touches the sources and checks the
 baseline binary for a string of the expected commit.
+
+## Paper matrix (`matrix/`)
+
+The nine-variant matrix of the paper's Table III, rerun on `be09dd392` (all of the above, `signing_sync = fsync`), one run per variant, `--wait-quiet 900 --timeout 150 --settle-timeout 240 --stall-abort 60`. Every variant settled with every running validator deciding the same checkpoints. `RAI_LaTeX/tools/eval_table.py matrix RAI_LaTeX/sections/eval-table.tex` regenerates the table.
+
+| Variant | cps | p50 / p95 / p99 ms | Close median / max s | Close rounds | CP | Open | Late-notarized blocks with a closing-epoch witness |
+|---|---|---|---|---|---|---|---|
+| nofork | 1,845 | 131 / 742 / 976 | 2.6 / 7.9 | 0, 0, 0 | 3 | 0 | 97 % |
+| nofork-offline1 | 1,944 | 116 / 257 / 447 | 3.7 / 4.0 | 0, 0, 1 | 3 | 0 | 97 % |
+| nofork-byz1 | 1,950 | 117 / 290 / 651 | 2.8 / 3.9 | 0, 0, 1 | 3 | 0 | 91 % |
+| fork5 | 1,786 | 294 / 857 / 1,001 | 3.4 / 8.6 | 0, 0, 0, 0 | 4 | 0 | 90 % |
+| fork5-offline1 | 1,649 | 173 / 1,238 / 1,424 | 2.6 / 8.4 | 0, 0, 1, 0, 0 | 5 | 0 | 90 % |
+| fork5-byz1 | 1,529 | 211 / 1,351 / 1,550 | 7.4 / 9.4 | 0, 0, 1 | 3 | 722 | 88 % |
+| fork10 | 1,618 | 383 / 2,774 / 3,178 | 4.5 / 9.8 | 0, 0, 0, 0 | 4 | 0 | 82 % |
+| fork10-offline1 | 1,654 | 661 / 3,424 / 3,999 | 11.7 / 14.2 | 0, 0, 1 | 3 | 2,962 | 82 % |
+| fork10-byz1 | 1,273 | 740 / 4,332 / 5,241 | 7.9 / 15.7 | 0, 0, 1, 0, 0 | 5 | 1 | 80 % |
+
+Against the unsynced matrix on `2b785288e` (`../rai-dsn-2026-10-08/fixed`): no-fork medians 4-13 ms higher, the all-online no-fork row's p95 from one 7.9 s close; fork rows within the spread seen between passes (fork5 goodput 1,667 -> 1,786, fork10-byz1 1,367 -> 1,273, p50 618 -> 740).
