@@ -1276,6 +1276,13 @@ impl Node {
                 ),
                 Duration::from_secs(1),
             );
+            ticker_pool.insert(
+                crate::consensus::FrontierDelegationsSync::new(
+                    active_elections.clone(),
+                    ledger.clone(),
+                ),
+                Duration::from_secs(1),
+            );
         }
         rep_tiers_calculator.add_tiers_consumer(vote_processor_queue.clone());
         rep_tiers_calculator.add_tiers_consumer(vote_rebroadcast_queue.clone());

@@ -90,6 +90,35 @@ impl AecService {
         self.aec.read().unwrap().current_epoch()
     }
 
+    /// RAI: the frontier blocks the committees wait for, by epoch
+    pub fn missing_frontier_blocks(&self) -> Vec<(ConsensusEpoch, BlockHash)> {
+        self.aec.read().unwrap().missing_frontier_blocks()
+    }
+
+    /// RAI: what the frontier blocks delegate, as (hash, representative,
+    /// balance), read from the ledger
+    pub fn provide_delegations(
+        &self,
+        epoch: ConsensusEpoch,
+        delegations: Vec<(BlockHash, rsnano_types::PublicKey, rsnano_types::Amount)>,
+    ) {
+        let now = self.clock.now();
+        let delegations = delegations
+            .into_iter()
+            .map(
+                |(hash, representative, balance)| super::epoch_states::Delegation {
+                    hash,
+                    representative,
+                    balance,
+                },
+            )
+            .collect();
+        self.aec
+            .write()
+            .unwrap()
+            .provide_delegations(epoch, delegations, now)
+    }
+
     /// RAI: the members of the committees around the current epoch
     pub fn committee_members(&self) -> std::collections::HashSet<rsnano_types::PublicKey> {
         self.aec.read().unwrap().committee_members()

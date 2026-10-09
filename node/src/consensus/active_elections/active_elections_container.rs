@@ -208,6 +208,9 @@ pub(crate) struct ActiveElectionsContainer {
     restored_closes: BTreeMap<ConsensusEpoch, EpochCloseInfo>,
     /// RAI: when the open closes' tallies were last logged
     close_tallies_logged: Option<Timestamp>,
+    /// RAI: decided epochs whose committee waits for frontier blocks this
+    /// node does not hold yet (see `derive_or_wait`)
+    pending_frontiers: BTreeMap<ConsensusEpoch, Arc<EpochLedger>>,
 }
 
 impl ActiveElectionsContainer {
@@ -268,6 +271,7 @@ impl ActiveElectionsContainer {
             dirty_decided: Vec::new(),
             restored_closes: BTreeMap::new(),
             close_tallies_logged: None,
+            pending_frontiers: BTreeMap::new(),
         }
     }
 
@@ -841,7 +845,7 @@ impl ActiveElectionsContainer {
         &self,
         epoch: ConsensusEpoch,
         state: &EpochLedger,
-    ) -> Vec<AccountFrontier> {
+    ) -> (Vec<AccountFrontier>, Vec<BlockHash>) {
         let mut delegations_by_hash: HashMap<BlockHash, Delegation> = HashMap::new();
         for block in self.epoch_states.finalized_blocks_in(epoch) {
             delegations_by_hash.insert(block.delegation.hash, block.delegation);
@@ -858,7 +862,7 @@ impl ActiveElectionsContainer {
             }
         }
         let mut frontiers = Vec::new();
-        let mut missing = 0;
+        let mut missing = Vec::new();
         for (account, (height, hash)) in state.frontiers() {
             if self
                 .committees
@@ -875,18 +879,79 @@ impl ActiveElectionsContainer {
                     representative: delegation.representative,
                     balance: delegation.balance,
                 }),
-                None => missing += 1,
+                None => missing.push(hash),
             }
         }
-        if missing > 0 {
-            diagnostic!(
-                "EPOCH_FRONTIER_MISSING epoch={} accounts={} : blocks this node does not hold",
-                epoch,
-                missing
-            );
-        }
         frontiers.sort_by_key(|frontier| frontier.account);
-        frontiers
+        (frontiers, missing)
+    }
+
+    /// RAI: `Sigma_e` must be the same function of `S_e` on every replica:
+    /// a committee derived without a frontier block this node does not hold
+    /// would differ from the others'. The epoch waits until the block's
+    /// delegation is known (`provide_delegations`), and so does every later
+    /// epoch, the weights being cumulative; the lag of two epochs leaves the
+    /// time. Its durable record is written once its committee is derived.
+    fn derive_or_wait(&mut self, epoch: ConsensusEpoch, state: Arc<EpochLedger>, now: Timestamp) {
+        self.pending_frontiers.insert(epoch, state);
+        while let Some((&epoch, state)) = self.pending_frontiers.first_key_value() {
+            let state = state.clone();
+            let (frontiers, missing) = self.decided_frontiers(epoch, &state);
+            if !missing.is_empty() {
+                diagnostic!(
+                    "EPOCH_FRONTIER_MISSING epoch={} accounts={} : the committee waits for their blocks",
+                    epoch,
+                    missing.len()
+                );
+                return;
+            }
+            self.pending_frontiers.remove(&epoch);
+            self.dirty_decided.push(crate::consensus::DecidedRecord {
+                epoch,
+                closed: self
+                    .closes
+                    .get(&epoch)
+                    .and_then(|close| close.info().closed),
+                state_hash: state.state_hash(),
+                state: Some(state.clone()),
+                frontiers: frontiers.clone(),
+            });
+            self.derive_committee(epoch, frontiers, now);
+        }
+    }
+
+    /// RAI: the frontier blocks the committees wait for, by epoch
+    pub fn missing_frontier_blocks(&self) -> Vec<(ConsensusEpoch, BlockHash)> {
+        self.pending_frontiers
+            .iter()
+            .flat_map(|(epoch, state)| {
+                self.decided_frontiers(*epoch, state)
+                    .1
+                    .into_iter()
+                    .map(|hash| (*epoch, hash))
+                    .collect::<Vec<_>>()
+            })
+            .collect()
+    }
+
+    /// RAI: what frontier blocks delegate, read from the ledger by the
+    /// caller; the committees waiting for them are derived if they can be
+    pub fn provide_delegations(
+        &mut self,
+        epoch: ConsensusEpoch,
+        delegations: Vec<Delegation>,
+        now: Timestamp,
+    ) {
+        self.checkpoint_delegations
+            .entry(epoch)
+            .or_default()
+            .extend(delegations.into_iter().map(|d| (d.hash, d)));
+        let Some((&first, state)) = self.pending_frontiers.first_key_value() else {
+            return;
+        };
+        let state = state.clone();
+        self.pending_frontiers.remove(&first);
+        self.derive_or_wait(first, state, now);
     }
 
     /// RAI: `S_{e-1}` for the close of an epoch: the state the epoch before
@@ -1325,7 +1390,6 @@ impl ActiveElectionsContainer {
         // are released before the bookkeeping below, which concerns this
         // epoch's slots and the committee two epochs on
         self.release_predecessor_gate(epoch.next(), now);
-        let frontiers = self.decided_frontiers(epoch, &state);
         let live: FxHashSet<(Account, u64)> = self
             .roots
             .iter()
@@ -1334,17 +1398,7 @@ impl ActiveElectionsContainer {
             .map(|election| (election.account(), election.height()))
             .collect();
         self.slots.remove_epoch_except(epoch, &live);
-        self.dirty_decided.push(crate::consensus::DecidedRecord {
-            epoch,
-            closed: self
-                .closes
-                .get(&epoch)
-                .and_then(|close| close.info().closed),
-            state_hash: state.state_hash(),
-            state: Some(state.clone()),
-            frontiers: frontiers.clone(),
-        });
-        self.derive_committee(epoch, frontiers, now);
+        self.derive_or_wait(epoch, state, now);
         self.release_undecided_instances(epoch, now);
     }
 
@@ -4569,6 +4623,61 @@ mod tests {
                 .epoch_decided_state(ConsensusEpoch::new(2))
                 .is_none()
         );
+    }
+
+    /// RAI: an epoch whose frontier block this node does not hold derives
+    /// no committee until the block's delegation is known: a committee
+    /// derived without it would differ from the other replicas'
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn a_committee_waits_for_the_frontier_blocks_it_is_derived_from() {
+        let now = Timestamp::new_test_instance();
+        let mut container = ActiveElectionsContainer::new(
+            ActiveElectionsConfig {
+                epoch_duration: Duration::from_secs(1),
+                ..Default::default()
+            },
+            Duration::from_millis(10),
+        );
+        container.set_genesis_committee(
+            (1..=4)
+                .map(|i| AccountFrontier {
+                    account: PrivateKey::from(10 + i).account(),
+                    height: 1,
+                    hash: BlockHash::from(70 + i),
+                    representative: PrivateKey::from(i).public_key(),
+                    balance: Amount::raw(100),
+                })
+                .collect(),
+        );
+        container.start_epochs(now);
+        container.transition_time(now + Duration::from_secs(1));
+        let unknown = BlockHash::from(999);
+        let mut state = EpochLedger::new();
+        state.finalize_genesis(AccountSlot::new(Account::from(500), 1), unknown);
+
+        container.install_decided_checkpoint(ConsensusEpoch::ZERO, Arc::new(state), now);
+
+        assert_eq!(container.epoch_committees().len(), 1, "genesis only");
+        assert_eq!(
+            container.missing_frontier_blocks(),
+            vec![(ConsensusEpoch::ZERO, unknown)]
+        );
+        assert!(container.take_epoch_records(now, 0).1.is_empty());
+
+        container.provide_delegations(
+            ConsensusEpoch::ZERO,
+            vec![Delegation {
+                hash: unknown,
+                representative: PrivateKey::from(1).public_key(),
+                balance: Amount::raw(50),
+            }],
+            now,
+        );
+
+        assert_eq!(container.epoch_committees().len(), 2);
+        assert!(container.missing_frontier_blocks().is_empty());
+        assert_eq!(container.take_epoch_records(now, 0).1.len(), 1);
     }
 
     /// RAI: a replica left behind ends its epoch once members holding more

@@ -7,6 +7,9 @@ use rsnano_types::PublicKey;
 use rsnano_utils::{CancellationToken, ticker::Tickable};
 
 #[cfg(feature = "rai_protocol")]
+use rsnano_ledger::AnySet;
+
+#[cfg(feature = "rai_protocol")]
 use crate::{consensus::AecService, wallets::WalletRepresentatives};
 
 /// RAI: the members of the committees around the current epoch. A member
@@ -81,6 +84,54 @@ impl Tickable for CommitteeMembersSync {
                     .collect::<Vec<_>>()
                     .join(",")
             );
+        }
+    }
+}
+
+/// RAI: reads from the ledger what the frontier blocks of a decided epoch
+/// delegate, when the active elections no longer hold them: the committee
+/// that epoch derives waits for them (see `derive_or_wait`). A block the
+/// ledger does not hold yet arrives with the checkpoint follower.
+#[cfg(feature = "rai_protocol")]
+pub(crate) struct FrontierDelegationsSync {
+    aec: Arc<AecService>,
+    ledger: Arc<rsnano_ledger::Ledger>,
+}
+
+#[cfg(feature = "rai_protocol")]
+impl FrontierDelegationsSync {
+    pub fn new(aec: Arc<AecService>, ledger: Arc<rsnano_ledger::Ledger>) -> Self {
+        Self { aec, ledger }
+    }
+}
+
+#[cfg(feature = "rai_protocol")]
+impl Tickable for FrontierDelegationsSync {
+    fn tick(&mut self, _: &CancellationToken) {
+        let missing = self.aec.missing_frontier_blocks();
+        if missing.is_empty() {
+            return;
+        }
+        let mut by_epoch: std::collections::BTreeMap<_, Vec<_>> = Default::default();
+        {
+            let any = self.ledger.any();
+            for (epoch, hash) in missing {
+                let Some(block) = any.get_block(&hash) else {
+                    continue;
+                };
+                let (Some(representative), Some(balance)) =
+                    (block.representative_field(), block.balance_field())
+                else {
+                    continue;
+                };
+                by_epoch
+                    .entry(epoch)
+                    .or_default()
+                    .push((hash, representative, balance));
+            }
+        }
+        for (epoch, delegations) in by_epoch {
+            self.aec.provide_delegations(epoch, delegations);
         }
     }
 }

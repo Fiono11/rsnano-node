@@ -52,7 +52,7 @@ pub(crate) use bootstrap_stale_elections::*;
 pub(crate) use bootstrap_weights::*;
 pub use committee_members::CommitteeMembers;
 #[cfg(feature = "rai_protocol")]
-pub(crate) use committee_members::CommitteeMembersSync;
+pub(crate) use committee_members::{CommitteeMembersSync, FrontierDelegationsSync};
 pub(crate) use confirm_req_sender::*;
 pub use confirmation_solicitor::ConfirmationSolicitor;
 pub(crate) use confirmation_solicitor_plugin::*;
