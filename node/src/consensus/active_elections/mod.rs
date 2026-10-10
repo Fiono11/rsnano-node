@@ -59,6 +59,24 @@ pub struct ActiveElectionsConfig {
     pub signed_vote_log: bool,
     /// RAI: how the durable signing records reach the disk
     pub signing_sync: SigningSync,
+    /// RAI evaluation: how the account voting of one epoch overlaps the
+    /// close of the epoch before it (see `EpochTransition`)
+    pub epoch_transition: EpochTransition,
+}
+
+/// RAI evaluation: how a validator moves from one epoch to the next.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum EpochTransition {
+    /// The protocol: epoch e+1 account voting starts at the local boundary,
+    /// while epoch e closes; the predecessor gate, the overlap exception,
+    /// late notarization and the early-vote rule keep the two apart
+    #[default]
+    Pipelined,
+    /// The stop-and-drain baseline: no instance of epoch e+1 is started
+    /// before the checkpoint of epoch e is decided here. Blocks published
+    /// in the meantime wait in the scheduler. Nothing is voted early, so
+    /// the overlap exception and late notarization never apply.
+    Pause,
 }
 
 /// RAI, "Correct validators persist their first vote and terminal state
@@ -90,6 +108,7 @@ impl Default for ActiveElectionsConfig {
             close_round_timeout: Duration::from_secs(2),
             signed_vote_log: false,
             signing_sync: SigningSync::default(),
+            epoch_transition: EpochTransition::default(),
         }
     }
 }
@@ -109,6 +128,10 @@ pub enum AecFact {
     /// the epoch left was taken at the switch, under the same lock that
     /// stopped its signing
     EpochAdvanced(ConsensusEpoch, Option<Arc<EpochReport>>),
+
+    /// RAI evaluation, `EpochTransition::Pause`: the checkpoint the open
+    /// epoch waited for is decided; the blocks held back start now
+    VotingResumed(ConsensusEpoch),
 
     /// RAI: instances of a closed epoch opened after its certificate was
     /// seen got notarized: their blocks are not in the value finalized and

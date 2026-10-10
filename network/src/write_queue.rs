@@ -1,6 +1,9 @@
-use std::sync::{
-    Arc, Mutex,
-    atomic::{AtomicBool, Ordering},
+use std::{
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Instant,
 };
 
 use tokio::sync::Notify;
@@ -43,7 +46,10 @@ impl WriteQueue {
             {
                 let mut guard = self.queue.lock().unwrap();
                 if guard.free_capacity(&traffic_type) > 0 {
-                    let entry = Entry { buffer };
+                    let entry = Entry {
+                        buffer,
+                        enqueued: Instant::now(),
+                    };
                     guard.push(traffic_type, entry);
                     break;
                 }
@@ -60,7 +66,10 @@ impl WriteQueue {
         if self.closed.load(Ordering::SeqCst) {
             return false;
         }
-        let entry = Entry { buffer };
+        let entry = Entry {
+            buffer,
+            enqueued: Instant::now(),
+        };
         let inserted = self.queue.lock().unwrap().push(traffic_type, entry);
 
         if inserted {
@@ -125,4 +134,6 @@ impl Drop for WriteQueue {
 
 pub struct Entry {
     pub buffer: Arc<Vec<u8>>,
+    /// When the entry was queued, for the simulated link delay
+    pub enqueued: Instant,
 }

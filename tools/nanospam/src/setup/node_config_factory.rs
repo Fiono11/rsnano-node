@@ -45,12 +45,14 @@ pub(crate) const NODE_CONFIG: &str = r#"
     committee_drift = COMMITTEE_DRIFT
     signed_vote_log = SIGNED_VOTE_LOG
     signing_sync = "SIGNING_SYNC"
+    epoch_transition = "EPOCH_TRANSITION"
 
 [node.lmdb]
     sync = "nosync_unsafe"
 
 [node.network]
     max_peers_per_ip = 256
+    simulated_delay_ms = NETWORK_DELAY_MS
 
 [node.bounded_backlog]
     enable = false
@@ -134,6 +136,8 @@ pub(crate) fn configure_nodes(args: &CliArgs, data_dir: &Path) {
                 .replace("COMMITTEE_DRIFT", &args.committee_drift.to_string())
                 .replace("SIGNED_VOTE_LOG", &args.audit_votes.to_string())
                 .replace("SIGNING_SYNC", &args.signing_sync)
+                .replace("EPOCH_TRANSITION", &args.epoch_transition)
+                .replace("NETWORK_DELAY_MS", &args.network_delay_ms.to_string())
                 .replace(
                     "ONLINE_WEIGHT_MINIMUM",
                     &voting_weight().number().to_string(),

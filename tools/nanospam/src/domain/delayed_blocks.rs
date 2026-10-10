@@ -47,6 +47,11 @@ impl DelayedBlocks {
         }
     }
 
+    /// When the block was first published, if it was and is still unconfirmed
+    pub fn first_publish(&self, hash: &BlockHash) -> Option<Timestamp> {
+        self.blocks.get(hash).and_then(|info| info.first_publish)
+    }
+
     pub fn published(&mut self, hash: &BlockHash, timestamp: Timestamp) {
         if let Some(info) = self.blocks.get_mut(hash) {
             if info.first_publish.is_none() {

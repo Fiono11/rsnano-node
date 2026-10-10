@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     config::NodeConfig,
-    consensus::{SigningSync, election::CommitteeModel},
+    consensus::{EpochTransition, SigningSync, election::CommitteeModel},
 };
 
 /// Reject misspelled models during config parsing instead of silently changing quorum rules.
@@ -21,6 +21,33 @@ pub enum SigningSyncToml {
     None,
     Fsync,
     Full,
+}
+
+/// RAI evaluation: pipelined transitions (the protocol) or the
+/// stop-and-drain baseline (see `EpochTransition`)
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum EpochTransitionToml {
+    Pipelined,
+    Pause,
+}
+
+impl From<EpochTransitionToml> for EpochTransition {
+    fn from(value: EpochTransitionToml) -> Self {
+        match value {
+            EpochTransitionToml::Pipelined => EpochTransition::Pipelined,
+            EpochTransitionToml::Pause => EpochTransition::Pause,
+        }
+    }
+}
+
+impl From<EpochTransition> for EpochTransitionToml {
+    fn from(value: EpochTransition) -> Self {
+        match value {
+            EpochTransition::Pipelined => EpochTransitionToml::Pipelined,
+            EpochTransition::Pause => EpochTransitionToml::Pause,
+        }
+    }
 }
 
 impl From<SigningSyncToml> for SigningSync {
@@ -69,6 +96,8 @@ pub struct ActiveElectionsToml {
     pub signed_vote_log: Option<bool>,
     /// RAI: "none", "fsync" (default) or "full"
     pub signing_sync: Option<SigningSyncToml>,
+    /// RAI evaluation: "pipelined" (default) or "pause"
+    pub epoch_transition: Option<EpochTransitionToml>,
 }
 
 impl From<&NodeConfig> for ActiveElectionsToml {
@@ -111,6 +140,7 @@ impl From<&NodeConfig> for ActiveElectionsToml {
             },
             signed_vote_log: Some(config.active_elections.signed_vote_log),
             signing_sync: Some(config.active_elections.signing_sync.into()),
+            epoch_transition: Some(config.active_elections.epoch_transition.into()),
         }
     }
 }
@@ -175,6 +205,27 @@ mod tests {
         });
         assert_eq!(restored.active_elections.signing_sync, SigningSync::Full);
         assert!(toml::from_str::<ActiveElectionsToml>("signing_sync = 'always'").is_err());
+    }
+
+    #[test]
+    fn epoch_transition_round_trip_and_default() {
+        let mut config = NodeConfig::new_test_instance();
+        assert_eq!(
+            config.active_elections.epoch_transition,
+            EpochTransition::Pipelined
+        );
+        config.active_elections.epoch_transition = EpochTransition::Pause;
+        let encoded = toml::to_string(&ActiveElectionsToml::from(&config)).unwrap();
+        let mut restored = NodeConfig::new_test_instance();
+        restored.merge_toml(&crate::config::toml::NodeToml {
+            active_elections: Some(toml::from_str(&encoded).unwrap()),
+            ..Default::default()
+        });
+        assert_eq!(
+            restored.active_elections.epoch_transition,
+            EpochTransition::Pause
+        );
+        assert!(toml::from_str::<ActiveElectionsToml>("epoch_transition = 'stop'").is_err());
     }
 
     #[test]

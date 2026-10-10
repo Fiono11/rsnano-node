@@ -44,7 +44,7 @@ use crate::consensus::election::{
 
 use super::{
     ActiveElectionsConfig, ActiveElectionsInfo, AecFact, AecInsertError, AecInsertRequest, Entry,
-    RootContainer,
+    EpochTransition, RootContainer,
     apply_vote_helper::{
         ApplyVoteHelper, ApplyVoteResult, count_kudzu_election, election_got_confirmed,
         settle_election,
@@ -127,6 +127,9 @@ pub(crate) struct ActiveElectionsContainer {
     /// RAI: whether this node casts account votes at all (see
     /// `ActiveElectionsConfig::account_voting`)
     account_voting: bool,
+    /// RAI evaluation: pipelined transitions or the stop-and-drain baseline
+    /// (see `EpochTransition`)
+    epoch_transition: EpochTransition,
     /// RAI, Algorithm 1 line 8: the epochs this node stopped signing in, at
     /// their boundary. Their instances still collect the votes of the other
     /// replicas and construct certificates; this node issues no vote in them.
@@ -249,6 +252,7 @@ impl ActiveElectionsContainer {
             current_epoch: ConsensusEpoch::ZERO,
             draining: false,
             account_voting: config.account_voting,
+            epoch_transition: config.epoch_transition,
             frozen: BTreeSet::new(),
             vote_records: VoteRecords::default(),
             checkpoint_delegations: BTreeMap::new(),
@@ -352,6 +356,23 @@ impl ActiveElectionsContainer {
     /// RAI: the current epoch's duration has ended and its instances drain
     pub fn is_draining(&self) -> bool {
         self.draining
+    }
+
+    /// RAI evaluation, `EpochTransition::Pause`: whether the open epoch's
+    /// account voting is held back because the checkpoint of the epoch
+    /// before it is not decided here yet. The pipelined protocol never
+    /// holds it: its instances start at once and only their finality waits
+    /// (`release_predecessor_gate`).
+    fn voting_paused(&self) -> bool {
+        self.epoch_transition == EpochTransition::Pause
+            && self.epochs_started
+            && !self.predecessor_decided_for(self.current_epoch)
+    }
+
+    /// RAI: no new instance of the current epoch starts while the epoch
+    /// drains or, under the pause transition, while its predecessor closes
+    fn voting_held(&self) -> bool {
+        self.draining || self.voting_paused()
     }
 
     /// RAI: elections of the current epoch which got a certificate so far
@@ -1407,6 +1428,9 @@ impl ActiveElectionsContainer {
         // are released before the bookkeeping below, which concerns this
         // epoch's slots and the committee two epochs on
         self.release_predecessor_gate(epoch.next(), now);
+        if self.epoch_transition == EpochTransition::Pause && epoch.next() == self.current_epoch {
+            self.notify(AecFact::VotingResumed(self.current_epoch));
+        }
         let live: FxHashSet<(Account, u64)> = self
             .roots
             .iter()
@@ -1906,6 +1930,12 @@ impl ActiveElectionsContainer {
         // A retained position is never reopened
         if self.position_retained(&block) {
             self.stats.agreed_epoch_refused += 1;
+            return;
+        }
+        // Under the pause transition nothing of the open epoch is voted
+        // before its predecessor is decided, not even for another voter's
+        // instance: the scheduler starts the block once the gate opens
+        if epoch == self.current_epoch && self.voting_paused() {
             return;
         }
         // In an instance of an epoch this node has left it does not propose:
@@ -2969,7 +2999,7 @@ impl ActiveElectionsContainer {
             return false;
         }
         #[cfg(feature = "rai_protocol")]
-        if self.draining || self.roots.active_len() >= self.max_elections {
+        if self.voting_held() || self.roots.active_len() >= self.max_elections {
             return false;
         }
         let bucket_infos = self.roots.bucket_infos();
@@ -3129,7 +3159,7 @@ impl ActiveElectionsContainer {
             return 0;
         }
         #[cfg(feature = "rai_protocol")]
-        if self.draining {
+        if self.voting_held() {
             return 0;
         }
         #[cfg(feature = "rai_protocol")]
@@ -4486,6 +4516,57 @@ mod tests {
                 .any(|target| target.election.epoch == round0
                     && target.vote_type == VoteType::NonFinal)
         );
+    }
+
+    /// RAI evaluation, the stop-and-drain baseline: under the pause
+    /// transition no instance of the open epoch starts, not even for
+    /// another voter, until the epoch before it is decided here; the
+    /// pipelined protocol starts them at once
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn the_pause_transition_holds_voting_until_the_predecessor_is_decided() {
+        let now = Timestamp::new_test_instance();
+        let at = |secs: u64| now + Duration::from_secs(secs);
+        let rep_key = PrivateKey::from(1);
+        let mut container = close_test_container(&rep_key);
+        container.epoch_transition = EpochTransition::Pause;
+        let (tx, rx) = rsnano_utils::sync::backpressure_channel::channel(1024);
+        container.set_observer(tx);
+        container.start_epochs(now);
+        assert!(container.vacancy() > 0);
+        container.transition_time(at(1));
+        assert_eq!(container.current_epoch(), ConsensusEpoch::new(1));
+        assert!(!container.is_draining());
+        // Epoch 0 is closing: epoch 1 voting is held
+        assert_eq!(container.vacancy(), 0);
+        container.insert_for_vote(
+            SavedBlock::new_test_instance_with_key(2),
+            ConsensusEpoch::new(1),
+            at(1),
+        );
+        assert_eq!(container.len(), 0);
+
+        let value = propose_test_epoch_value(&mut container, ConsensusEpoch::ZERO, at(1));
+        let round0 = ConsensusEpoch::close_round(ConsensusEpoch::ZERO, 0);
+        container.apply_vote(ApplyVoteArgs {
+            vote: &close_vote(&rep_key, round0, value),
+            rep_weights: &RepWeights::default(),
+            quorum_snapshot: &QuorumSnapshot::new_test_instance(),
+            now: at(1),
+        });
+        assert!(container.epoch_closes()[0].closed.is_some());
+        assert!(container.vacancy() > 0);
+        let mut resumed = false;
+        while let Ok(fact) = rx.try_recv() {
+            resumed |= matches!(fact, AecFact::VotingResumed(e) if e == ConsensusEpoch::new(1));
+        }
+        assert!(resumed);
+        container.insert_for_vote(
+            SavedBlock::new_test_instance_with_key(2),
+            ConsensusEpoch::new(1),
+            at(1),
+        );
+        assert_eq!(container.len(), 1);
     }
 
     /// RAI: a close vote for an epoch this node has not left yet waits in

@@ -53,6 +53,11 @@ pub struct NetworkConfig {
     pub minimum_fanout: usize,
     pub idle_timeout: Duration,
     pub handshake_timeout: Duration,
+    /// Evaluation: every message leaves a channel this long after it was
+    /// queued, in order, as if the link had this one-way latency. Zero
+    /// sends at once. The write queue grows with the delay so that the
+    /// messages in flight fit in it.
+    pub simulated_delay: Duration,
 }
 
 impl NetworkConfig {
@@ -96,6 +101,7 @@ impl NetworkConfig {
             } else {
                 Duration::from_secs(30)
             },
+            simulated_delay: Duration::ZERO,
         }
     }
 }
@@ -280,6 +286,7 @@ impl Network {
             now,
             self.bandwidth_limiter.clone(),
             self.channel_stats.clone(),
+            self.config.simulated_delay,
         ));
         self.channels.insert(channel_id, channel.clone());
         self.network_stats.accepted(&peer_addr, direction);
@@ -727,6 +734,7 @@ fn create_loopback_channel(config: &NetworkConfig) -> Arc<Channel> {
         Timestamp::new_test_instance(),
         Arc::new(BandwidthLimiter::default()),
         Arc::new(ChannelStats::default()),
+        Duration::ZERO,
     ));
     channel.set_mode(ChannelMode::Established);
     channel

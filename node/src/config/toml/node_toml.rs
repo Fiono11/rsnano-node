@@ -414,6 +414,9 @@ impl NodeConfig {
             if let Some(sync) = i.signing_sync {
                 self.active_elections.signing_sync = sync.into();
             }
+            if let Some(transition) = i.epoch_transition {
+                self.active_elections.epoch_transition = transition.into();
+            }
         }
         if let Some(vote_processor_toml) = &toml.vote_processor {
             self.vote_processor.merge_toml(vote_processor_toml);
@@ -482,6 +485,9 @@ impl NodeConfig {
             }
             if let Some(i) = network.minimum_fanout {
                 self.network.minimum_fanout = i;
+            }
+            if let Some(ms) = network.simulated_delay_ms {
+                self.network.simulated_delay = Duration::from_millis(ms);
             }
         }
 

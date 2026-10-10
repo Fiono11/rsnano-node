@@ -310,6 +310,9 @@ impl NanoSpamApp {
             "fork_created": logic.fork_created,
             "fork_confirmed": logic.fork_confirmed,
             "fork_unresolved_at_end": logic.fork_created - logic.fork_confirmed,
+            "series_start_unix_ms": logic.series_start_unix_ms,
+            "series_columns": ["second", "published", "nonfork_confirmed", "nonfork_p50_ms", "nonfork_p95_ms"],
+            "nonfork_series": logic.series_json(),
         });
         info!("RAI_BENCH_METRICS {metrics}");
 

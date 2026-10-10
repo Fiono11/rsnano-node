@@ -162,6 +162,18 @@ pub(crate) struct CliArgs {
     #[arg(long, default_value = "fsync", value_parser = ["none", "fsync", "full"])]
     pub signing_sync: String,
 
+    /// RAI evaluation: how a node moves between epochs: "pipelined" (the
+    /// protocol: the next epoch's voting starts while the previous one
+    /// closes) or "pause" (the stop-and-drain baseline: no voting in the
+    /// next epoch until the previous checkpoint is decided)
+    #[arg(long, default_value = "pipelined", value_parser = ["pipelined", "pause"])]
+    pub epoch_transition: String,
+
+    /// Evaluation: every node delays each outbound message this long, as a
+    /// simulated one-way link latency (0: none)
+    #[arg(long, default_value_t = 0)]
+    pub network_delay_ms: u64,
+
     /// RAI: this many running representatives start outside the committee:
     /// funded with an eighth of a share, they run a node and vote without
     /// weight until a rotation moves a member's weight to them. They are the

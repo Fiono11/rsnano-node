@@ -56,6 +56,13 @@ pub(crate) struct SpamLogic {
     pub(crate) nonfork_done_at: Option<Timestamp>,
     /// When the unconfirmed blocks were last scanned for owner continuation
     continuation_scanned: Option<Timestamp>,
+    /// Evaluation time series, per second since the first publication:
+    /// the non-fork blocks published, and the non-fork blocks confirmed
+    /// in that second with their confirmation latencies in ms
+    series_start: Option<Timestamp>,
+    pub(crate) series_start_unix_ms: Option<u64>,
+    published_series: BTreeMap<u64, usize>,
+    nonfork_series: BTreeMap<u64, BTreeMap<u64, usize>>,
 }
 
 impl SpamLogic {
@@ -90,7 +97,56 @@ impl SpamLogic {
             confirmation_histogram_ms: Default::default(),
             nonfork_histogram_ms: Default::default(),
             nonfork_done_at: None,
+            series_start: None,
+            series_start_unix_ms: None,
+            published_series: Default::default(),
+            nonfork_series: Default::default(),
         }
+    }
+
+    /// The second of the evaluation time series a moment falls in, starting
+    /// the series at the first publication
+    fn series_second(&mut self, now: Timestamp) -> u64 {
+        let start = *self.series_start.get_or_insert_with(|| {
+            self.series_start_unix_ms = Some(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as u64)
+                    .unwrap_or(0),
+            );
+            now
+        });
+        start.elapsed(now).as_secs()
+    }
+
+    /// The evaluation time series as JSON rows `[second, published,
+    /// confirmed, p50_ms, p95_ms]`, one per second from the first
+    /// publication to the last non-fork confirmation
+    pub(crate) fn series_json(&self) -> serde_json::Value {
+        let last = self
+            .published_series
+            .keys()
+            .chain(self.nonfork_series.keys())
+            .max()
+            .copied();
+        let rows: Vec<serde_json::Value> = (0..=last.unwrap_or(0))
+            .map(|second| {
+                let published = self.published_series.get(&second).copied().unwrap_or(0);
+                let (confirmed, p50, p95) = match self.nonfork_series.get(&second) {
+                    Some(histogram) => {
+                        let total: usize = histogram.values().sum();
+                        (
+                            total,
+                            quantile(histogram, total, 0.5),
+                            quantile(histogram, total, 0.95),
+                        )
+                    }
+                    None => (0, None, None),
+                };
+                serde_json::json!([second, published, confirmed, p50, p95])
+            })
+            .collect();
+        serde_json::Value::Array(rows)
     }
 
     /// Every block is created and every non-fork block is confirmed. A fork
@@ -172,6 +228,10 @@ impl SpamLogic {
     }
 
     pub(crate) fn published(&mut self, hash: &BlockHash, now: Timestamp) -> bool {
+        if self.delayed.first_publish(hash).is_none() {
+            let second = self.series_second(now);
+            *self.published_series.entry(second).or_default() += 1;
+        }
         self.delayed.published(hash, now);
 
         if !self.spec.track_confirmations {
@@ -213,6 +273,13 @@ impl SpamLogic {
                     self.nonfork_confirmed += 1;
                     *self.nonfork_histogram_ms.entry(ms).or_default() += 1;
                     self.nonfork_done_at = Some(timestamp);
+                    let second = self.series_second(timestamp);
+                    *self
+                        .nonfork_series
+                        .entry(second)
+                        .or_default()
+                        .entry(ms)
+                        .or_default() += 1;
                 }
             }
             self.block_factory.confirm(block_hash);
@@ -385,4 +452,20 @@ mod tests {
             },
         )
     }
+}
+
+/// The q-quantile of a {ms: count} histogram holding `total` samples
+fn quantile(histogram: &BTreeMap<u64, usize>, total: usize, q: f64) -> Option<u64> {
+    if total == 0 {
+        return None;
+    }
+    let rank = (q * total as f64).ceil() as usize;
+    let mut seen = 0;
+    for (ms, count) in histogram {
+        seen += count;
+        if seen >= rank {
+            return Some(*ms);
+        }
+    }
+    histogram.keys().next_back().copied()
 }

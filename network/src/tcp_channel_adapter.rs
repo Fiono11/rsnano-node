@@ -1,6 +1,7 @@
 use std::{
     fmt::Display,
     sync::{Arc, Weak},
+    time::Duration,
 };
 use tokio::select;
 
@@ -44,6 +45,7 @@ impl TcpChannelAdapter {
                 Timestamp::new_test_instance(),
                 Arc::new(BandwidthLimiter::default()),
                 Arc::new(ChannelStats::default()),
+                Duration::ZERO,
             )),
             Arc::downgrade(&Arc::new(TcpStream::new_null())),
             Arc::new(SteadyClock::new_null()),
@@ -70,6 +72,18 @@ impl TcpChannelAdapter {
                 };
 
                 if let Some(entry) = res {
+                    // Evaluation: a simulated one-way link latency. The
+                    // entry waited in the queue since it was enqueued; the
+                    // rest of the delay is slept here, in queue order.
+                    let delay = channel.simulated_delay();
+                    if !delay.is_zero() {
+                        select! {
+                            _ = channel.cancelled() => {
+                                return;
+                            }
+                            _ = tokio::time::sleep_until((entry.enqueued + delay).into()) => {}
+                        }
+                    }
                     let mut written = 0;
                     let buffer = &entry.buffer;
                     loop {

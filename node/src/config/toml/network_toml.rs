@@ -11,6 +11,9 @@ pub struct NetworkToml {
     pub duplicate_filter_size: Option<usize>,
     pub duplicate_filter_cutoff: Option<usize>,
     pub minimum_fanout: Option<usize>,
+    /// Evaluation: a simulated one-way link latency applied to every
+    /// outbound message (0: none)
+    pub simulated_delay_ms: Option<u64>,
 }
 
 impl From<&NodeConfig> for NetworkToml {
@@ -23,6 +26,7 @@ impl From<&NodeConfig> for NetworkToml {
             duplicate_filter_size: Some(value.network_duplicate_filter_size),
             duplicate_filter_cutoff: Some(value.network_duplicate_filter_cutoff as usize),
             minimum_fanout: Some(value.network.minimum_fanout),
+            simulated_delay_ms: Some(value.network.simulated_delay.as_millis() as u64),
         }
     }
 }

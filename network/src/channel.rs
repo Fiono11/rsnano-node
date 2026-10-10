@@ -42,10 +42,15 @@ pub struct Channel {
     cancel_token: CancellationToken,
     limiter: Arc<BandwidthLimiter>,
     stats: Arc<ChannelStats>,
+    /// Evaluation: see `NetworkConfig::simulated_delay`
+    simulated_delay: Duration,
 }
 
 impl Channel {
     pub const MAX_QUEUE_SIZE: usize = 64;
+    /// Write-queue entries added per millisecond of simulated delay, so
+    /// that the messages in flight on a busy channel fit in the queue
+    const QUEUE_ENTRIES_PER_DELAY_MS: usize = 16;
 
     pub(crate) fn new(
         channel_id: ChannelId,
@@ -56,7 +61,10 @@ impl Channel {
         now: Timestamp,
         limiter: Arc<BandwidthLimiter>,
         stats: Arc<ChannelStats>,
+        simulated_delay: Duration,
     ) -> Self {
+        let queue_size = Self::MAX_QUEUE_SIZE
+            + simulated_delay.as_millis() as usize * Self::QUEUE_ENTRIES_PER_DELAY_MS;
         Self {
             channel_id,
             local_addr,
@@ -75,11 +83,18 @@ impl Channel {
                     None
                 },
             }),
-            write_queue: WriteQueue::new(Self::MAX_QUEUE_SIZE, stats.clone()),
+            write_queue: WriteQueue::new(queue_size, stats.clone()),
             cancel_token: CancellationToken::new(),
             limiter,
             stats,
+            simulated_delay,
         }
+    }
+
+    /// Evaluation: how long every message waits in the write queue before
+    /// it is written (see `NetworkConfig::simulated_delay`)
+    pub fn simulated_delay(&self) -> Duration {
+        self.simulated_delay
     }
 
     pub fn new_test_instance() -> Self {
@@ -96,6 +111,7 @@ impl Channel {
             Timestamp::new_test_instance(),
             Arc::new(BandwidthLimiter::default()),
             Arc::new(ChannelStats::default()),
+            Duration::ZERO,
         )
     }
 

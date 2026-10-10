@@ -117,7 +117,25 @@ def client_metrics(text):
                 nonfork_p50_ms=quantile(histogram, .5), nonfork_p95_ms=quantile(histogram, .95),
                 nonfork_p99_ms=quantile(histogram, .99),
                 fork_created=m['fork_created'], fork_confirmed=m['fork_confirmed'],
-                duration_secs=round(m['duration_secs'], 2))
+                duration_secs=round(m['duration_secs'], 2),
+                nonfork_histogram_ms=histogram,
+                # per second since the first publication: [second, published,
+                # nonfork confirmed, p50 ms, p95 ms]; the start as unix ms, so
+                # that the epoch events of the nodes can be placed on the axis
+                series_start_unix_ms=m.get('series_start_unix_ms'),
+                series_columns=m.get('series_columns'),
+                nonfork_series=m.get('nonfork_series'))
+
+
+def epoch_events(text):
+    """Every node's epoch lifecycle events with their unix ms, for the
+    time axis of the evaluation figures"""
+    events = []
+    for kind, epoch, rest, t in re.findall(
+            r'^EPOCH_(ENDED|ADVANCED|CLOSED|INSTALL|GATE) epoch=(\d+)(.*?) t=(\d+)$', text, re.M):
+        node = re.search(r'node=(\S+)', rest)
+        events.append(dict(kind=kind.lower(), epoch=int(epoch), node=node[1] if node else None, t_unix_ms=int(t)))
+    return events
 
 
 def close_timings(text):
@@ -195,7 +213,14 @@ def main():
     parser.add_argument('--rotation', default=None, help='committee rotations EPOCH:FROM>TO,...;EPOCH:... (nanospam --rotation)')
     parser.add_argument('--signing-sync', choices=['none', 'fsync', 'full'], default='fsync', help='how the signing records reach the disk (nanospam --signing-sync)')
     parser.add_argument('--audit-votes', action='store_true', help='every node logs the votes it signs; the run fails on any equivocation (implied by --restart)')
+    parser.add_argument('--epoch-transition', choices=['pipelined', 'pause'], default='pipelined',
+                        help='pipelined (the protocol) or pause (the stop-and-drain baseline: no voting in the next epoch until the previous checkpoint is decided)')
+    parser.add_argument('--network-delay-ms', type=int, default=0, help='simulated one-way link latency every node adds to each outbound message')
+    parser.add_argument('--no-epochs', action='store_true',
+                        help='the unmodified-node baseline: no epochs, no checkpoints, no committee model; settled means identical cemented state')
     args = parser.parse_args()
+    if args.no_epochs:
+        args.epoch_ms, args.min_closed, args.weighted = 0, 0, True
     args.audit_votes = args.audit_votes or bool(args.restart)
     args.output.mkdir(parents=True, exist_ok=False)
     binary_dir = args.bin_dir.resolve()
@@ -238,6 +263,10 @@ def main():
         if args.audit_votes:
             command += ['--audit-votes']
         command += ['--signing-sync', args.signing_sync]
+        if args.epoch_transition != 'pipelined':
+            command += ['--epoch-transition', args.epoch_transition]
+        if args.network_delay_ms:
+            command += ['--network-delay-ms', str(args.network_delay_ms)]
         if args.standby:
             command += ['--standby', str(args.standby)]
         if args.rotation:
@@ -283,7 +312,8 @@ def main():
                 last_view, last_progress = None, time.monotonic()
                 while True:
                     counts = poll(nodes, 'block_count', log)
-                    states = poll(nodes, 'final_state', log)
+                    # the unmodified node has no epochs and no final_state RPC
+                    states = poll(nodes, 'final_state', log) if not args.no_epochs else [{} for _ in range(nodes)]
                     settled = settlement(counts, states, args.min_closed)
                     if settled['settled'] or time.monotonic() >= deadline:
                         break
@@ -325,6 +355,7 @@ def main():
                 if result['streams']['recovered']:
                     result['streams']['symbols_per_item'] = round(result['streams']['symbols'] / result['streams']['recovered'], 2)
                 result['client'] = client_metrics(text)
+                result['epoch_events'] = epoch_events(text)
                 rates = re.findall(r'Confirmation rate: ([\d.]+) cps', text)
                 result['confirmation_rate_cps'] = float(rates[-1]) if rates else None
                 confirmed = re.findall(r'Confirm(?:ed|ing) ([\d,]+) blocks', text)
@@ -374,7 +405,10 @@ def main():
                     os.killpg(process.pid, signal.SIGKILL)
                 except (ProcessLookupError, PermissionError):
                     pass
-    summary = {k: v for k, v in result.items() if k not in ('stats', 'counters', 'final_states', 'block_counts')}
+    summary = {k: v for k, v in result.items() if k not in ('stats', 'counters', 'final_states', 'block_counts', 'epoch_events')}
+    if summary.get('client'):
+        summary['client'] = {k: v for k, v in summary['client'].items()
+                             if k not in ('nonfork_series', 'nonfork_histogram_ms', 'series_columns')}
     print(json.dumps(summary, indent=2, default=list))
     return 0 if result.get('correctness_passed') else 1
 
