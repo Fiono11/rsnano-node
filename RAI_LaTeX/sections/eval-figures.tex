@@ -87,12 +87,16 @@
 \begin{figure}[t]
 \centering
 \begin{tikzpicture}
-\begin{axis}[evalaxis,height=3.4cm,ylabel={Nano: \% confirmed},ymin=0,ymax=105,ybar,bar width=7pt,xmin=2.5,xmax=8.5,xtick={3,...,8},xticklabels={5\% forks,{5\%, 1 off},{5\%, 1 Byz},10\% forks,{10\%, 1 off},{10\%, 1 Byz}}]
-\addplot[fill=cNano,draw=cNano!70!black,error bars/.cd,y dir=both,y explicit] table[x=x,y=share,y error plus expr=\thisrow{share_hi}-\thisrow{share},y error minus expr=\thisrow{share}-\thisrow{share_lo}] {sections/eval-data/summary-nano.dat};
+\begin{axis}[evalaxis,height=3.6cm,ylabel={forks left unresolved (\%)},ymode=normal,ymin=0,ymax=105,ybar,bar width=4pt,xmin=2.5,xmax=8.5,xtick={3,...,8},
+  xticklabels={5\% forks,{5\%, 1 off},{5\%, 1 Byz},10\% forks,{10\%, 1 off},{10\%, 1 Byz}},legend pos=north west,legend columns=3,legend style={font=\scriptsize}]
+\addplot[fill=cRai,draw=cRai!70!black,error bars/.cd,y dir=both,y explicit] table[x=x,y expr=100*\thisrow{open}/\thisrow{forks},y error plus expr=100*(\thisrow{open_hi}-\thisrow{open})/\thisrow{forks},y error minus expr=100*(\thisrow{open}-\thisrow{open_lo})/\thisrow{forks},restrict x to domain=3:8] {sections/eval-data/summary-rai.dat};
+\addplot[fill=cPause,draw=cPause!70!black,error bars/.cd,y dir=both,y explicit] table[x=x,y expr=100*\thisrow{open}/\thisrow{forks},y error plus expr=100*(\thisrow{open_hi}-\thisrow{open})/\thisrow{forks},y error minus expr=100*(\thisrow{open}-\thisrow{open_lo})/\thisrow{forks},restrict x to domain=3:8] {sections/eval-data/summary-pause.dat};
+\addplot[fill=cNano,draw=cNano!70!black,error bars/.cd,y dir=both,y explicit] table[x=x,y expr=100*\thisrow{open}/\thisrow{forks},y error plus expr=100*(\thisrow{open_hi}-\thisrow{open})/\thisrow{forks},y error minus expr=100*(\thisrow{open}-\thisrow{open_lo})/\thisrow{forks},restrict x to domain=3:8] {sections/eval-data/summary-nano.dat};
+\legend{RAI,pause,Nano}
 \end{axis}
 \end{tikzpicture}
-\caption{The fork variants Nano did not finish: share of the 45{,}000 blocks (forks included) confirmed when its publishing deadline expired, median of three runs with spread. RAI and pause finished all of them.}
-\label{fig:eval-share}
+\caption{Forked positions with neither side final when the run settled, as a share of the forks published (about 2{,}250 at 5\%, 4{,}500 at 10\%); median of three runs with spread. The generator never builds on a forked position, so this measures what validators resolve without the owner, a route RAI does not guarantee (Section~\ref{sec:epoch}).}
+\label{fig:eval-forks}
 \end{figure}
 
 \begin{figure}[t]

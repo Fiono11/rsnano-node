@@ -1,6 +1,6 @@
 \section{Introduction}
 \label{sec:intro}
-A payment moves money from one account to another. If every account has a single owner, there is no need to put all payments of the world in one sequence: the owner orders the payments of their own account, and the validators only have to make sure that no two incompatible versions of that account's history both become final. Guerraoui et al.\ showed that this makes asset transfer strictly easier than consensus~\cite{consensusnumber}, and systems such as FastPay~\cite{fastpay}, Astro~\cite{astro}, Zef~\cite{zef}, and Nano~\cite{nano} use it to confirm a payment in about one network round trip, with no leader and no block interval.
+A payment moves money from one account to another. If every account has a single owner, there is no need to put all payments of the world in one sequence: the owner orders the payments of their own account, and the validators only have to make sure that no two incompatible versions of that account's history both become final. Guerraoui et al.\ showed that this makes asset transfer strictly easier than consensus~\cite{consensusnumber}, and systems such as FastPay~\cite{fastpay}, Astro~\cite{astro}, Zef~\cite{zef}, and Nano~\cite{nano} use it to confirm a payment in one or two rounds of votes, with no leader and no block interval.
 
 Such systems leave two problems open, and the two are connected.
 

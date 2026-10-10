@@ -117,7 +117,7 @@ def summarize(runs, out, suffix=''):
     numbers = {}
     for arm in ARMS:
         with open(out / f'summary-{arm}{suffix}.dat', 'w') as f:
-            f.write('x variant n settled goodput goodput_lo goodput_hi p50 p50_lo p50_hi p95 p95_lo p95_hi p99 p99_lo p99_hi close close_lo close_hi open share share_lo share_hi\n')
+            f.write('x variant n settled goodput goodput_lo goodput_hi p50 p50_lo p50_hi p95 p95_lo p95_hi p99 p99_lo p99_hi close close_lo close_hi open share share_lo share_hi open_lo open_hi client_n forks\n')
             for x, variant in enumerate(VARIANTS):
                 rs = runs.get(variant, {}).get(arm, [])
                 if not rs:
@@ -139,6 +139,13 @@ def summarize(runs, out, suffix=''):
                     row += [fmt(sp, scale), fmt(sp, scale, 'lo'), fmt(sp, scale, 'hi')]
                 row += [fmt(opens)]
                 row += [fmt(share), fmt(share, 1, 'lo'), fmt(share, 1, 'hi')]
+                row += [fmt(opens, 1, 'lo'), fmt(opens, 1, 'hi')]
+                client_n = sum(c.get('nonfork_p50_ms') is not None for c in clients)
+                forks = spread([c.get('fork_created') for c in clients])
+                row += [client_n, fmt(forks)]
+                numbers[f'{arm}{suffix}-{variant}-clientn'] = client_n
+                if forks is not None:
+                    numbers[f'{arm}{suffix}-{variant}-forks-median'] = forks['median']
                 f.write(' '.join(str(v) for v in row) + '\n')
                 for key, sp in (('goodput', g), ('p50', p50), ('p95', p95), ('p99', p99), ('close', close), ('open', opens), ('share', share)):
                     if sp is not None:
