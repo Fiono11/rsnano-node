@@ -15,7 +15,7 @@
 \begin{figure}[t]
 \centering
 \begin{tikzpicture}
-\begin{groupplot}[group style={group size=1 by 2,vertical sep=4mm,xticklabels at=edge bottom},evalaxis,ymode=log,log basis y=10]
+\begin{groupplot}[group style={group size=1 by 2,vertical sep=4mm,xticklabels at=edge bottom},evalaxis,ymode=log,log basis y=10,ytick={50,100,200,500,1000,2000,5000,10000}]
 \nextgroupplot[ylabel={p50 latency (ms)},height=3.6cm,legend columns=3,legend to name=latlegend]
 \latplot{rai}{-0.2}{p50}\addlegendentry{RAI}
 \latplot{pause}{0}{p50}\addlegendentry{pause}
@@ -50,7 +50,7 @@
 \begin{tikzpicture}
 \begin{groupplot}[group style={group size=3 by 2,horizontal sep=7mm,vertical sep=3mm,xticklabels at=edge bottom,yticklabels at=edge left},
   width=0.36\textwidth,height=3.3cm,tick label style={font=\scriptsize},label style={font=\scriptsize},title style={font=\scriptsize,yshift=-1.5mm},
-  xmin=0,xmax=30,ymajorgrids,grid style={gray!30},unbounded coords=jump,log ticks with fixed point,no markers,every axis plot/.append style={line width=0.6pt}]
+  xmin=0,xmax=40,ymajorgrids,grid style={gray!30},unbounded coords=jump,log ticks with fixed point,no markers,every axis plot/.append style={line width=0.6pt}]
   \nextgroupplot[title={RAI (pipelined)},ymin=0,ymax=2600,ylabel={confirmed/s}]
   \addplot[gray!60,dashed,line width=0.4pt] table[x=t,y=y,empty line=jump] {sections/eval-data/marks-advanced-\seriesvariant-rai.dat};
   \addplot[color=cRai!50,line width=0.4pt] table[x=t,y=y,empty line=jump] {sections/eval-data/marks-closed-\seriesvariant-rai.dat};
@@ -83,3 +83,40 @@
 \caption{One run of the 5\%-fork variant per system over time (the run with the median p95 of the three): confirmed non-fork blocks per second (top) and the mean confirmation latency of the blocks confirmed in each second (bottom, solid; dotted: 95th percentile of that second). Vertical marks: an epoch boundary (grey) and a decided checkpoint (coloured). Under the pause transition confirmations stop at every boundary until the checkpoint is decided; under RAI they continue.}
 \label{fig:eval-series}
 \end{figure*}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[evalaxis,height=3.4cm,ylabel={Nano: \% confirmed},ymin=0,ymax=105,ybar,bar width=7pt,xmin=2.5,xmax=8.5,xtick={3,...,8},xticklabels={5\% forks,{5\%, 1 off},{5\%, 1 Byz},10\% forks,{10\%, 1 off},{10\%, 1 Byz}}]
+\addplot[fill=cNano,draw=cNano!70!black,error bars/.cd,y dir=both,y explicit] table[x=x,y=share,y error plus expr=\thisrow{share_hi}-\thisrow{share},y error minus expr=\thisrow{share}-\thisrow{share_lo}] {sections/eval-data/summary-nano.dat};
+\end{axis}
+\end{tikzpicture}
+\caption{The fork variants Nano did not finish: share of the 45{,}000 blocks (forks included) confirmed when its publishing deadline expired, median of three runs with spread. RAI and pause finished all of them.}
+\label{fig:eval-share}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{groupplot}[group style={group size=2 by 1,horizontal sep=9mm},width=0.58\columnwidth,height=3.6cm,tick label style={font=\scriptsize},label style={font=\scriptsize},
+  ymode=log,log ticks with fixed point,ytick={50,100,200,500,1000,2000,5000,10000},ymajorgrids,grid style={gray!30},unbounded coords=jump,xmin=-0.6,xmax=1.6,xtick={0,1},xticklabels={no forks,5\% forks},x tick label style={font=\scriptsize},
+  error bars/y dir=both,error bars/y explicit,error bars/error bar style={line width=0.4pt},title style={font=\scriptsize,yshift=-1.5mm}]
+\nextgroupplot[ylabel={p50 latency (ms)},title={loopback vs.\ 40\,ms link delay}]
+\addplot[rai,mark=o] table[x expr=\thisrow{x}/3-0.25,y=p50,y error plus expr=\thisrow{p50_hi}-\thisrow{p50},y error minus expr=\thisrow{p50}-\thisrow{p50_lo}] {sections/eval-data/summary-rai.dat};
+\addplot[rai] table[x expr=\thisrow{x}/3-0.15,y=p50,y error plus expr=\thisrow{p50_hi}-\thisrow{p50},y error minus expr=\thisrow{p50}-\thisrow{p50_lo}] {sections/eval-data/summary-rai-delay.dat};
+\addplot[pause,mark=square] table[x expr=\thisrow{x}/3-0.05,y=p50,y error plus expr=\thisrow{p50_hi}-\thisrow{p50},y error minus expr=\thisrow{p50}-\thisrow{p50_lo}] {sections/eval-data/summary-pause.dat};
+\addplot[pause] table[x expr=\thisrow{x}/3+0.05,y=p50,y error plus expr=\thisrow{p50_hi}-\thisrow{p50},y error minus expr=\thisrow{p50}-\thisrow{p50_lo}] {sections/eval-data/summary-pause-delay.dat};
+\addplot[nano,mark=triangle] table[x expr=\thisrow{x}/3+0.15,y=p50,y error plus expr=\thisrow{p50_hi}-\thisrow{p50},y error minus expr=\thisrow{p50}-\thisrow{p50_lo}] {sections/eval-data/summary-nano.dat};
+\addplot[nano] table[x expr=\thisrow{x}/3+0.25,y=p50,y error plus expr=\thisrow{p50_hi}-\thisrow{p50},y error minus expr=\thisrow{p50}-\thisrow{p50_lo}] {sections/eval-data/summary-nano-delay.dat};
+\nextgroupplot[ylabel={p95 latency (ms)}]
+\addplot[rai,mark=o] table[x expr=\thisrow{x}/3-0.25,y=p95,y error plus expr=\thisrow{p95_hi}-\thisrow{p95},y error minus expr=\thisrow{p95}-\thisrow{p95_lo}] {sections/eval-data/summary-rai.dat};
+\addplot[rai] table[x expr=\thisrow{x}/3-0.15,y=p95,y error plus expr=\thisrow{p95_hi}-\thisrow{p95},y error minus expr=\thisrow{p95}-\thisrow{p95_lo}] {sections/eval-data/summary-rai-delay.dat};
+\addplot[pause,mark=square] table[x expr=\thisrow{x}/3-0.05,y=p95,y error plus expr=\thisrow{p95_hi}-\thisrow{p95},y error minus expr=\thisrow{p95}-\thisrow{p95_lo}] {sections/eval-data/summary-pause.dat};
+\addplot[pause] table[x expr=\thisrow{x}/3+0.05,y=p95,y error plus expr=\thisrow{p95_hi}-\thisrow{p95},y error minus expr=\thisrow{p95}-\thisrow{p95_lo}] {sections/eval-data/summary-pause-delay.dat};
+\addplot[nano,mark=triangle] table[x expr=\thisrow{x}/3+0.15,y=p95,y error plus expr=\thisrow{p95_hi}-\thisrow{p95},y error minus expr=\thisrow{p95}-\thisrow{p95_lo}] {sections/eval-data/summary-nano.dat};
+\addplot[nano] table[x expr=\thisrow{x}/3+0.25,y=p95,y error plus expr=\thisrow{p95_hi}-\thisrow{p95},y error minus expr=\thisrow{p95}-\thisrow{p95_lo}] {sections/eval-data/summary-nano-delay.dat};
+\end{groupplot}
+\end{tikzpicture}
+\caption{Latency without (hollow marks) and with (filled) an emulated 40\,ms one-way link delay on every message, for the no-fork and 5\%-fork variants; RAI circles, pause squares, Nano triangles; median of three runs with spread.}
+\label{fig:eval-delay}
+\end{figure}

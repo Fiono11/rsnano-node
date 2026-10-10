@@ -6,7 +6,13 @@ Research manuscript for RAI, a protocol for safe pipelined epoch transitions in 
 
 DSN 2027 regular papers: IEEE Computer Society two-column format, US Letter, 10-point text on 12-point leading, at most 11 pages including everything except references, double-blind, abstract of at most 150 words, paper type on the first page, an "AI Tool Usage" section after the acknowledgements that does not count toward the limit. `main.tex` uses the `IEEEtran` class in conference mode; the class is part of every TeX distribution and of tectonic's bundle and is not shipped here.
 
-## What changed in the October 2026 DSN revision
+## What changed in the October 10, 2026 revision
+
+- Rewritten for a general DSN audience: the problem by example (Section II), the protocol as ten rules (Section III), worked examples through Sections V to VII, proof intuition in Section VIII with the formal material moved to the supplement, and the evaluation as figures (latency and goodput per variant with the spread of three runs, a per-second view of one run per system, link delay).
+- Two new baselines: the *pause* (stop-and-drain) transition, a configuration switch of the prototype (`epoch_transition = "pause"`), and an emulated one-way link delay (`[node.network] simulated_delay_ms`). The matrix is `tools/rai/run_eval_matrix.py` (three arms, nine variants, three repetitions), records in `doc/benchmarks/rai-dsn-eval-2026-10-10/`, figures from `tools/eval_figures.py`.
+- Supplement: `\appendices` (so every appendix is lettered), formal model/account/transition appendices, proofs numbered as in the main text, the `RaiPrefix` model (prefix-wide guard, two positions, N = 4 and 6), closure invariants renamed `Thm64*` to `ClosureThm1*`.
+
+## What changed in the October 8, 2026 DSN revision
 
 - Reformatted from ACM SIGPLAN (EuroSys 2027 draft) to IEEEtran; abstract cut to 150 words.
 - Sections 3 to 6 carry the repairs that followed the TLA+ models in `tla/`: exclusion witnesses distinct from notarization certificates, settled versus early first votes with no fast path on early votes, origin-stamped lock records with matching-origin discharge, overlap certificates, the second committed set `G_i` that keeps fresh votes for `R`-tagged blocks (Fix B), and the corresponding lemmas (signers hold the witness; the overlap verdict does not depend on installation order).
@@ -16,10 +22,10 @@ DSN 2027 regular papers: IEEE Computer Society two-column format, US Letter, 10-
 
 ## Files
 
-- `main.tex`, `preamble.tex`, `sections/*.tex`: the submission. `sections/eval-table.tex` is generated.
-- `supplement.tex`: supplementary material (not part of the 11 pages).
+- `main.tex`, `preamble.tex`, `sections/*.tex`: the submission. `sections/eval-data/` and `sections/eval-figures.tex` hold the evaluation data and plots.
+- `supplement.tex`, `supplement/*.tex`: supplementary material (not part of the 11 pages).
 - `tla/`: the TLA+ models (`RaiClose`, `RaiOverlap`, `RaiHandoff`), their TLC configurations, `run.sh`, and the TLC outputs including the violating traces. See `tla/README.md`.
-- `tools/eval_table.py <matrix dir> sections/eval-table.tex`: regenerates the evaluation table from `run_gate_b.py` summaries.
+- `tools/eval_figures.py <matrix dir> sections/eval-data [--delay <delay dir>]`: regenerates the evaluation data files and number macros from a `run_eval_matrix.py` directory.
 - `references.bib`: bibliography source.
 - `build.sh`: builds `main.pdf` and `supplement.pdf` with pdflatex or tectonic.
 

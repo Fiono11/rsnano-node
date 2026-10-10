@@ -14,6 +14,7 @@ If an epoch-$e$ final certificate for $B$ can be formed from released votes, eve
 \end{theorem}
 \emph{Why.} Count overlaps. A normal certificate has $q$ final voters; the checkpoint selects $N-f$ reports; the two share at least $p+1$ correct validators, each of which notarized $B$ before final-voting and says so in its report, so the recipe keeps $B$ final or locks it. A fast certificate has $N-p$ first voters; it shares at least $r$ correct validators with the reports; if none of them tagged $B$ notarized, each lists $B$ in its second set, so $B$ has $r$ reporter votes while every rival has fewer (Lemma~1) and no rival is notarized; the recipe places a recovery lock. If $B$ bypasses an older lock, every correct signer of its certificate holds the releasing witness (Lemma~4), and the manifest carries it. A lock of origin $e$ on $B$ can only be released by an epoch-$e$ witness for a rival, which Lemma~1 excludes. The argument uses only the signers and the selected reporters, so it does not matter when the certificate is assembled.
 
+\setcounter{lemma}{6}
 \begin{lemma}[Same verdict before and after installation]
 \label{lem:verdict}
 A validator that finalizes $B$ under the overlap rule before installing $S_e$ accepts $B$ if and only if it would accept $B$ by re-checking after installing $S_e$; and a later checkpoint verifies a report that claims $B$ final.
