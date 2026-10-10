@@ -1,0 +1,43 @@
+% Figures of the evaluation; data in sections/eval-data (tools/eval_figures.py).
+\pgfplotsset{
+  evalaxis/.style={width=\columnwidth,height=4.2cm,tick label style={font=\scriptsize},label style={font=\scriptsize},
+    legend style={font=\scriptsize,draw=none,fill=none},xtick=data,xticklabels={no forks,{no forks, 1 off},{no forks, 1 Byz},5\% forks,{5\%, 1 off},{5\%, 1 Byz},10\% forks,{10\%, 1 off},{10\%, 1 Byz}},
+    x tick label style={rotate=35,anchor=east,font=\scriptsize},xmin=-0.5,xmax=8.5,ymajorgrids,grid style={gray!30},
+    unbounded coords=jump,log ticks with fixed point,error bars/y dir=both,error bars/y explicit,error bars/error bar style={line width=0.4pt}},
+  rai/.style={color=cRai,mark=*,mark size=1.6pt,only marks},
+  pause/.style={color=cPause,mark=square*,mark size=1.6pt,only marks},
+  nano/.style={color=cNano,mark=triangle*,mark size=2pt,only marks},
+  tsaxis/.style={tick label style={font=\scriptsize},label style={font=\scriptsize},title style={font=\scriptsize,yshift=-1.5mm},
+    xmin=0,xmax=34,ymajorgrids,grid style={gray!25},unbounded coords=jump,no markers,
+    every axis plot/.append style={line width=0.55pt}},
+  tput/.style={tsaxis,ymin=0,ymax=4000,ytick={0,1000,2000,3000,4000},yticklabels={0,1k,2k,3k,4k},restrict y to domain*=0:4000},
+  tlat/.style={tsaxis,ymin=40,ymax=12000,ytick={50,100,200,500,1000,2000,5000,10000},yticklabels={50,100,200,500,1k,2k,5k,10k}},
+}
+% Time series of one variant: throughput panel and latency panel.
+% #1 variant, #2 file suffix (empty or -delay), #3 row title
+\newcommand{\tsrow}[3]{%
+  \nextgroupplot[tput,ylabel={#3\\ confirmed/s},ylabel style={align=center}]
+  \addplot[color=cRai!55,line width=2.2pt] table[x=t,y expr=3850,empty line=jump] {sections/eval-data/closes-#1-rai#2.dat};
+  \addplot[color=cPause!60,line width=2.2pt] table[x=t,y expr=3550,empty line=jump] {sections/eval-data/closes-#1-pause#2.dat};
+  \addplot[color=cNano] table[x=t,y=confirmed] {sections/eval-data/pseries-#1-nano#2.dat};
+  \addplot[color=cPause] table[x=t,y=confirmed] {sections/eval-data/pseries-#1-pause#2.dat};
+  \addplot[color=cRai] table[x=t,y=confirmed] {sections/eval-data/pseries-#1-rai#2.dat};
+  \nextgroupplot[tlat,ymode=log,ylabel={latency (ms)}]
+  \addplot[color=cNano] table[x=t,y=p50] {sections/eval-data/pseries-#1-nano#2.dat};
+  \addplot[color=cNano,densely dotted] table[x=t,y=p95] {sections/eval-data/pseries-#1-nano#2.dat};
+  \addplot[color=cPause] table[x=t,y=p50] {sections/eval-data/pseries-#1-pause#2.dat};
+  \addplot[color=cPause,densely dotted] table[x=t,y=p95] {sections/eval-data/pseries-#1-pause#2.dat};
+  \addplot[color=cRai] table[x=t,y=p50] {sections/eval-data/pseries-#1-rai#2.dat};
+  \addplot[color=cRai,densely dotted] table[x=t,y=p95] {sections/eval-data/pseries-#1-rai#2.dat};
+}
+\newcommand{\tslegend}{%
+  \begin{tikzpicture}[font=\scriptsize]
+  \draw[cRai,line width=0.8pt] (0,0) -- (0.5,0) node[right,black] {RAI};
+  \draw[cPause,line width=0.8pt] (1.5,0) -- (2,0) node[right,black] {pause};
+  \draw[cNano,line width=0.8pt] (3.3,0) -- (3.8,0) node[right,black] {Nano};
+  \draw[cRai!55,line width=2.2pt] (5.0,0) -- (5.5,0);
+  \draw[cPause!60,line width=2.2pt] (5.6,0) -- (6.1,0) node[right,black] {closing an epoch (RAI, pause)};
+  \draw[black,line width=0.6pt] (10.1,0) -- (10.6,0) node[right] {p50};
+  \draw[black,densely dotted,line width=0.6pt] (11.4,0) -- (11.9,0) node[right] {p95};
+  \end{tikzpicture}}
+

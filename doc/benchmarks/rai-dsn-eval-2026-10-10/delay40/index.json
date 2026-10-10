@@ -1,0 +1,63 @@
+{
+  "arms": {
+    "nano": {
+      "bin_dir": "/Users/ruimorais/.claude/jobs/e320c0dd/tmp/devbin-delay",
+      "flags": [
+        "--no-epochs",
+        "--timeout=240",
+        "--settle-timeout=45"
+      ]
+    }
+  },
+  "variants": [
+    "nofork",
+    "fork5"
+  ],
+  "reps": 3,
+  "extra": "--network-delay-ms 40",
+  "started": 1791658283.4646888,
+  "runs": [
+    {
+      "variant": "nofork",
+      "arm": "nano",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 149
+    },
+    {
+      "variant": "fork5",
+      "arm": "nano",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 145
+    },
+    {
+      "variant": "nofork",
+      "arm": "nano",
+      "rep": 2,
+      "status": "settled",
+      "seconds": 146
+    },
+    {
+      "variant": "fork5",
+      "arm": "nano",
+      "rep": 2,
+      "status": "settled",
+      "seconds": 146
+    },
+    {
+      "variant": "nofork",
+      "arm": "nano",
+      "rep": 3,
+      "status": "settled",
+      "seconds": 134
+    },
+    {
+      "variant": "fork5",
+      "arm": "nano",
+      "rep": 3,
+      "status": "settled",
+      "seconds": 133
+    }
+  ]
+}

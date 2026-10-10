@@ -1,0 +1,79 @@
+{
+  "gate": "B",
+  "source_revision": "b139ca86a954af6cf4d6d3034d881cada757d983",
+  "node_sha256": "f8586d924500aace44d5a7544b15a381a32bdfef74d0dbc0c21c3b41cf3401c8",
+  "client_sha256": "c8773a81d229d659305f30d46be15d6567633d09a831a3c339ad26281d01605b",
+  "busy_processes": [],
+  "performance_eligible": true,
+  "nodes": 6,
+  "command": [
+    "/Users/ruimorais/.claude/jobs/e320c0dd/tmp/devbin/nanospam",
+    "--data-dir",
+    "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-49dv5y4u",
+    "--prs",
+    "6",
+    "--no-prio",
+    "--blocks",
+    "45000",
+    "--accounts",
+    "45000",
+    "--rate",
+    "2000",
+    "--fork-percentage",
+    "0",
+    "--epoch-duration-ms",
+    "0",
+    "--byzantine",
+    "0",
+    "--offline",
+    "0",
+    "--no-kill",
+    "--signing-sync",
+    "fsync"
+  ],
+  "status": "settled",
+  "client_finished": true,
+  "client_finished_s": 130.5,
+  "settled_after_s": 195.0,
+  "settlement": {
+    "all_cemented": true,
+    "cemented": [
+      45065
+    ],
+    "held": [
+      45065
+    ],
+    "uncemented": [
+      0
+    ],
+    "decided_everywhere": [],
+    "decided_somewhere": [],
+    "values_agree": true,
+    "settled": true
+  },
+  "finalization_p50_ms": [],
+  "close_rounds": [],
+  "close_timings": {},
+  "close_duration_ms": null,
+  "streams": {
+    "count": 0,
+    "dropped": 0,
+    "symbols": 0,
+    "recovered": 0
+  },
+  "client": {
+    "nonfork_goodput_cps": 1909.8,
+    "nonfork_created": 45000,
+    "nonfork_confirmed": 45000,
+    "nonfork_p50_ms": 190,
+    "nonfork_p95_ms": 235,
+    "nonfork_p99_ms": 271,
+    "fork_created": 0,
+    "fork_confirmed": 0,
+    "duration_secs": 23.56,
+    "series_start_unix_ms": 1791645336908
+  },
+  "confirmation_rate_cps": 1909.0,
+  "confirmed_primary": 45000,
+  "correctness_passed": true
+}

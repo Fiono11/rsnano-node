@@ -1,0 +1,224 @@
+diff --git a/network/src/channel.rs b/network/src/channel.rs
+index 9a280a84b..d12c2b4c0 100644
+--- a/network/src/channel.rs
++++ b/network/src/channel.rs
+@@ -42,10 +42,15 @@ pub struct Channel {
+     cancel_token: CancellationToken,
+     limiter: Arc<BandwidthLimiter>,
+     stats: Arc<ChannelStats>,
++    /// Evaluation: see `NetworkConfig::simulated_delay`
++    simulated_delay: Duration,
+ }
+ 
+ impl Channel {
+     pub const MAX_QUEUE_SIZE: usize = 64;
++    /// Write-queue entries added per millisecond of simulated delay, so
++    /// that the messages in flight on a busy channel fit in the queue
++    const QUEUE_ENTRIES_PER_DELAY_MS: usize = 16;
+ 
+     pub(crate) fn new(
+         channel_id: ChannelId,
+@@ -56,7 +61,10 @@ impl Channel {
+         now: Timestamp,
+         limiter: Arc<BandwidthLimiter>,
+         stats: Arc<ChannelStats>,
++        simulated_delay: Duration,
+     ) -> Self {
++        let queue_size = Self::MAX_QUEUE_SIZE
++            + simulated_delay.as_millis() as usize * Self::QUEUE_ENTRIES_PER_DELAY_MS;
+         Self {
+             channel_id,
+             local_addr,
+@@ -75,13 +83,20 @@ impl Channel {
+                     None
+                 },
+             }),
+-            write_queue: WriteQueue::new(Self::MAX_QUEUE_SIZE, stats.clone()),
++            write_queue: WriteQueue::new(queue_size, stats.clone()),
+             cancel_token: CancellationToken::new(),
+             limiter,
+             stats,
++            simulated_delay,
+         }
+     }
+ 
++    /// Evaluation: how long every message waits in the write queue before
++    /// it is written (see `NetworkConfig::simulated_delay`)
++    pub fn simulated_delay(&self) -> Duration {
++        self.simulated_delay
++    }
++
+     pub fn new_test_instance() -> Self {
+         Self::new_test_instance_with_id(42)
+     }
+@@ -96,6 +111,7 @@ impl Channel {
+             Timestamp::new_test_instance(),
+             Arc::new(BandwidthLimiter::default()),
+             Arc::new(ChannelStats::default()),
++            Duration::ZERO,
+         )
+     }
+ 
+diff --git a/network/src/network.rs b/network/src/network.rs
+index cf5b0bfa9..f8999a55e 100644
+--- a/network/src/network.rs
++++ b/network/src/network.rs
+@@ -53,6 +53,11 @@ pub struct NetworkConfig {
+     pub minimum_fanout: usize,
+     pub idle_timeout: Duration,
+     pub handshake_timeout: Duration,
++    /// Evaluation: every message leaves a channel this long after it was
++    /// queued, in order, as if the link had this one-way latency. Zero
++    /// sends at once. The write queue grows with the delay so that the
++    /// messages in flight fit in it.
++    pub simulated_delay: Duration,
+ }
+ 
+ impl NetworkConfig {
+@@ -96,6 +101,7 @@ impl NetworkConfig {
+             } else {
+                 Duration::from_secs(30)
+             },
++            simulated_delay: Duration::ZERO,
+         }
+     }
+ }
+@@ -280,6 +286,7 @@ impl Network {
+             now,
+             self.bandwidth_limiter.clone(),
+             self.channel_stats.clone(),
++            self.config.simulated_delay,
+         ));
+         self.channels.insert(channel_id, channel.clone());
+         self.network_stats.accepted(&peer_addr, direction);
+@@ -727,6 +734,7 @@ fn create_loopback_channel(config: &NetworkConfig) -> Arc<Channel> {
+         Timestamp::new_test_instance(),
+         Arc::new(BandwidthLimiter::default()),
+         Arc::new(ChannelStats::default()),
++        Duration::ZERO,
+     ));
+     channel.set_mode(ChannelMode::Established);
+     channel
+diff --git a/network/src/tcp_channel_adapter.rs b/network/src/tcp_channel_adapter.rs
+index 7d969d358..005f75534 100644
+--- a/network/src/tcp_channel_adapter.rs
++++ b/network/src/tcp_channel_adapter.rs
+@@ -1,6 +1,7 @@
+ use std::{
+     fmt::Display,
+     sync::{Arc, Weak},
++    time::Duration,
+ };
+ use tokio::select;
+ 
+@@ -44,6 +45,7 @@ impl TcpChannelAdapter {
+                 Timestamp::new_test_instance(),
+                 Arc::new(BandwidthLimiter::default()),
+                 Arc::new(ChannelStats::default()),
++                Duration::ZERO,
+             )),
+             Arc::downgrade(&Arc::new(TcpStream::new_null())),
+             Arc::new(SteadyClock::new_null()),
+@@ -70,6 +72,18 @@ impl TcpChannelAdapter {
+                 };
+ 
+                 if let Some(entry) = res {
++                    // Evaluation: a simulated one-way link latency. The
++                    // entry waited in the queue since it was enqueued; the
++                    // rest of the delay is slept here, in queue order.
++                    let delay = channel.simulated_delay();
++                    if !delay.is_zero() {
++                        select! {
++                            _ = channel.cancelled() => {
++                                return;
++                            }
++                            _ = tokio::time::sleep_until((entry.enqueued + delay).into()) => {}
++                        }
++                    }
+                     let mut written = 0;
+                     let buffer = &entry.buffer;
+                     loop {
+diff --git a/network/src/write_queue.rs b/network/src/write_queue.rs
+index f7f48d23a..c2875f04f 100644
+--- a/network/src/write_queue.rs
++++ b/network/src/write_queue.rs
+@@ -1,6 +1,9 @@
+-use std::sync::{
+-    Arc, Mutex,
+-    atomic::{AtomicBool, Ordering},
++use std::{
++    sync::{
++        Arc, Mutex,
++        atomic::{AtomicBool, Ordering},
++    },
++    time::Instant,
+ };
+ 
+ use tokio::sync::Notify;
+@@ -43,7 +46,10 @@ impl WriteQueue {
+             {
+                 let mut guard = self.queue.lock().unwrap();
+                 if guard.free_capacity(&traffic_type) > 0 {
+-                    let entry = Entry { buffer };
++                    let entry = Entry {
++                        buffer,
++                        enqueued: Instant::now(),
++                    };
+                     guard.push(traffic_type, entry);
+                     break;
+                 }
+@@ -60,7 +66,10 @@ impl WriteQueue {
+         if self.closed.load(Ordering::SeqCst) {
+             return false;
+         }
+-        let entry = Entry { buffer };
++        let entry = Entry {
++            buffer,
++            enqueued: Instant::now(),
++        };
+         let inserted = self.queue.lock().unwrap().push(traffic_type, entry);
+ 
+         if inserted {
+@@ -125,4 +134,6 @@ impl Drop for WriteQueue {
+ 
+ pub struct Entry {
+     pub buffer: Arc<Vec<u8>>,
++    /// When the entry was queued, for the simulated link delay
++    pub enqueued: Instant,
+ }
+diff --git a/node/src/config/toml/network_toml.rs b/node/src/config/toml/network_toml.rs
+index 80ff2990a..3663f6aa5 100644
+--- a/node/src/config/toml/network_toml.rs
++++ b/node/src/config/toml/network_toml.rs
+@@ -11,6 +11,9 @@ pub struct NetworkToml {
+     pub duplicate_filter_size: Option<usize>,
+     pub duplicate_filter_cutoff: Option<usize>,
+     pub minimum_fanout: Option<usize>,
++    /// Evaluation: a simulated one-way link latency applied to every
++    /// outbound message (0: none)
++    pub simulated_delay_ms: Option<u64>,
+ }
+ 
+ impl From<&NodeConfig> for NetworkToml {
+@@ -23,6 +26,7 @@ impl From<&NodeConfig> for NetworkToml {
+             duplicate_filter_size: Some(value.network_duplicate_filter_size),
+             duplicate_filter_cutoff: Some(value.network_duplicate_filter_cutoff as usize),
+             minimum_fanout: Some(value.network.minimum_fanout),
++            simulated_delay_ms: Some(value.network.simulated_delay.as_millis() as u64),
+         }
+     }
+ }
+diff --git a/node/src/config/toml/node_toml.rs b/node/src/config/toml/node_toml.rs
+index 08fbb0987..59eadb39c 100644
+--- a/node/src/config/toml/node_toml.rs
++++ b/node/src/config/toml/node_toml.rs
+@@ -450,6 +450,9 @@ impl NodeConfig {
+             if let Some(i) = network.minimum_fanout {
+                 self.network.minimum_fanout = i;
+             }
++            if let Some(ms) = network.simulated_delay_ms {
++                self.network.simulated_delay = Duration::from_millis(ms);
++            }
+         }
+ 
+         if let Some(toml) = &toml.fork_cache {

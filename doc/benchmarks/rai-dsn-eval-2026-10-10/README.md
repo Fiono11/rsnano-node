@@ -30,3 +30,15 @@ one-way link delay, no forks and 5 % forks). Six equal-weight PRs, 45,000 blocks
   (run under one `caffeinate -i`) re-runs the two excluded matrix runs, builds develop `ff2b32710` plus
   only the link-delay patch of `3ce49faff` (network crate and its TOML key), and re-runs the Nano arm of
   `delay40/` with it.
+- `finish.sh` completed at 20:06 on an awake machine: `fork10-byz1/rai-r1` and `pause-r1` re-run, and the
+  Nano arm of `delay40/` re-run with develop `ff2b32710` plus `develop-ff2b32710-link-delay.patch` (the
+  network crate and TOML key of `3ce49faff`, nothing else), built without `rai_protocol`.
+
+## Results (median of three runs; ranges are min-max)
+
+Figures and numbers: `RAI_LaTeX/tools/eval_figures.py matrix RAI_LaTeX/sections/eval-data --delay delay40`.
+Runs whose client never saw every non-fork block confirmed have no client numbers (stall in `result.json`):
+RAI `nofork` r3 (one confirmation notification missing, all nodes cemented it), pause `fork10-offline1`
+r1-r3 and `fork10-byz1` r1, r3. Runs not settled within the settle wait: pause `fork10` r3, Nano `fork10`
+r1, r2 (validators differed by a few cemented blocks).
+

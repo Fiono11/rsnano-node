@@ -84,6 +84,14 @@ def write_series(out, name, run):
             f.write('t published confirmed p50 p95\n')
             for second, published, confirmed, p50, p95 in series:
                 f.write(f'{(s0 + second * 1000 - start) / 1000:.1f} {published} {confirmed} {p50 if p50 is not None else "nan"} {p95 if p95 is not None else "nan"}\n')
+    else:
+        # a run stopped before the client's metrics line (it never saw every
+        # non-fork block confirmed): throughput from the client's per-second
+        # status lines, which count fork blocks too; no latency percentiles
+        with open(out / f'pseries-{name}.dat', 'w') as f:
+            f.write('t published confirmed p50 p95\n')
+            for t, confirmed, bps, cps, mean in rows:
+                f.write(f'{(t - start) / 1000:.1f} {bps} {cps} nan nan\n')
     events = run['full'].get('epoch_events') or []
     seen = {}
     for e in events:
@@ -94,6 +102,22 @@ def write_series(out, name, run):
         f.write('kind epoch t\n')
         for (kind, epoch), t in sorted(seen.items(), key=lambda kv: kv[1]):
             f.write(f'{kind} {epoch} {(t - start) / 1000:.1f}\n')
+    # close intervals (first validator leaves epoch e .. last one sees S_e
+    # decided) as horizontal segments for pgfplots (empty line = jump)
+    left = {ep - 1: t for (k, ep), t in seen.items() if k == 'advanced'}
+    closed_last = {}
+    for e in events:
+        if e['kind'] == 'closed':
+            closed_last[e['epoch']] = max(closed_last.get(e['epoch'], 0), e['t_unix_ms'])
+    with open(out / f'closes-{name}.dat', 'w') as f:
+        f.write('t y\n')
+        wrote = False
+        for ep in sorted(left):
+            if ep in closed_last:
+                f.write(f'{(left[ep] - start) / 1000:.2f} 1\n{(closed_last[ep] - start) / 1000:.2f} 1\n\n')
+                wrote = True
+        if not wrote:
+            f.write('-10 1\n-9 1\n\n')
     # vertical marks for pgfplots (empty line=jump): one segment per event
     for kind in ('advanced', 'closed'):
         with open(out / f'marks-{kind}-{name}.dat', 'w') as f:
