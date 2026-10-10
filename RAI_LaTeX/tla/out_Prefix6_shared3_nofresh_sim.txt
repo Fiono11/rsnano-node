@@ -1,0 +1,1289 @@
+TLC2 Version 2.20 of Day Month 20?? (rev: 2cf8424)
+Running Random Simulation with seed 1 with 2 workers on 8 cores with 1820MB heap and 64MB offheap memory [pid: 3385] (Mac OS X 14.6.1 aarch64, Eclipse Adoptium 17.0.7 x86_64).
+Parsing file /Users/ruimorais/rsnano-node/.claude/worktrees/rai-eval-harness/RAI_LaTeX/tla/RaiPrefix.tla
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-8735086346429397103/Naturals.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-8735086346429397103/FiniteSets.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-8735086346429397103/TLC.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-8735086346429397103/_TLCTrace.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-8735086346429397103/Sequences.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-8735086346429397103/TLCExt.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-8735086346429397103/Integers.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module Integers
+Semantic processing of module TLCExt
+Semantic processing of module _TLCTrace
+Semantic processing of module RaiPrefix
+Linting of module TLCExt
+Linting of module _TLCTrace
+Linting of module RaiPrefix
+Starting... (2026-10-10 11:42:14)
+Computed 1 initial states...
+Finished computing initial states: 1 distinct state generated at 2026-10-10 11:42:14.
+Error: Invariant NoConflict is violated.
+Error: The behavior up to this point is:
+State 1: <Init line 107, col 3 to line 111, col 48 of module RaiPrefix>
+/\ left = ( c1 :> FALSE @@
+  c2 :> FALSE @@
+  c3 :> FALSE @@
+  c4 :> FALSE @@
+  c5 :> FALSE @@
+  c6 :> TRUE @@
+  c7 :> TRUE )
+/\ fv1 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"-", "-">> @@
+  c4 :> <<"-", "-">> @@
+  c5 :> <<"-", "-">> @@
+  c6 :> <<"-", "-">> @@
+  c7 :> <<"-", "-">> )
+/\ fv2 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"-", "-">> @@
+  c4 :> <<"-", "-">> @@
+  c5 :> <<"-", "-">> @@
+  c6 :> <<"-", "-">> @@
+  c7 :> <<"-", "-">> )
+/\ fn1 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+/\ fn2 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+
+State 2: <Vote2(c7,"P") line 134, col 3 to line 138, col 38 of module RaiPrefix>
+/\ left = ( c1 :> FALSE @@
+  c2 :> FALSE @@
+  c3 :> FALSE @@
+  c4 :> FALSE @@
+  c5 :> FALSE @@
+  c6 :> TRUE @@
+  c7 :> TRUE )
+/\ fv1 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"-", "-">> @@
+  c4 :> <<"-", "-">> @@
+  c5 :> <<"-", "-">> @@
+  c6 :> <<"-", "-">> @@
+  c7 :> <<"-", "-">> )
+/\ fv2 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"-", "-">> @@
+  c4 :> <<"-", "-">> @@
+  c5 :> <<"-", "-">> @@
+  c6 :> <<"-", "-">> @@
+  c7 :> <<"P", "-">> )
+/\ fn1 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+/\ fn2 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+
+State 3: <Vote1(c5,"Pr") line 115, col 3 to line 118, col 38 of module RaiPrefix>
+/\ left = ( c1 :> FALSE @@
+  c2 :> FALSE @@
+  c3 :> FALSE @@
+  c4 :> FALSE @@
+  c5 :> FALSE @@
+  c6 :> TRUE @@
+  c7 :> TRUE )
+/\ fv1 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"-", "-">> @@
+  c4 :> <<"-", "-">> @@
+  c5 :> <<"Pr", "-">> @@
+  c6 :> <<"-", "-">> @@
+  c7 :> <<"-", "-">> )
+/\ fv2 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"-", "-">> @@
+  c4 :> <<"-", "-">> @@
+  c5 :> <<"-", "-">> @@
+  c6 :> <<"-", "-">> @@
+  c7 :> <<"P", "-">> )
+/\ fn1 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+/\ fn2 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+
+State 4: <Vote1(c1,"P") line 115, col 3 to line 118, col 38 of module RaiPrefix>
+/\ left = ( c1 :> FALSE @@
+  c2 :> FALSE @@
+  c3 :> FALSE @@
+  c4 :> FALSE @@
+  c5 :> FALSE @@
+  c6 :> TRUE @@
+  c7 :> TRUE )
+/\ fv1 = ( c1 :> <<"P", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"-", "-">> @@
+  c4 :> <<"-", "-">> @@
+  c5 :> <<"Pr", "-">> @@
+  c6 :> <<"-", "-">> @@
+  c7 :> <<"-", "-">> )
+/\ fv2 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"-", "-">> @@
+  c4 :> <<"-", "-">> @@
+  c5 :> <<"-", "-">> @@
+  c6 :> <<"-", "-">> @@
+  c7 :> <<"P", "-">> )
+/\ fn1 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+/\ fn2 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+
+State 5: <Vote1(c3,"P") line 115, col 3 to line 118, col 38 of module RaiPrefix>
+/\ left = ( c1 :> FALSE @@
+  c2 :> FALSE @@
+  c3 :> FALSE @@
+  c4 :> FALSE @@
+  c5 :> FALSE @@
+  c6 :> TRUE @@
+  c7 :> TRUE )
+/\ fv1 = ( c1 :> <<"P", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"P", "-">> @@
+  c4 :> <<"-", "-">> @@
+  c5 :> <<"Pr", "-">> @@
+  c6 :> <<"-", "-">> @@
+  c7 :> <<"-", "-">> )
+/\ fv2 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"-", "-">> @@
+  c4 :> <<"-", "-">> @@
+  c5 :> <<"-", "-">> @@
+  c6 :> <<"-", "-">> @@
+  c7 :> <<"P", "-">> )
+/\ fn1 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+/\ fn2 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+
+State 6: <Vote1(c4,"P") line 115, col 3 to line 118, col 38 of module RaiPrefix>
+/\ left = ( c1 :> FALSE @@
+  c2 :> FALSE @@
+  c3 :> FALSE @@
+  c4 :> FALSE @@
+  c5 :> FALSE @@
+  c6 :> TRUE @@
+  c7 :> TRUE )
+/\ fv1 = ( c1 :> <<"P", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"P", "-">> @@
+  c4 :> <<"P", "-">> @@
+  c5 :> <<"Pr", "-">> @@
+  c6 :> <<"-", "-">> @@
+  c7 :> <<"-", "-">> )
+/\ fv2 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"-", "-">> @@
+  c4 :> <<"-", "-">> @@
+  c5 :> <<"-", "-">> @@
+  c6 :> <<"-", "-">> @@
+  c7 :> <<"P", "-">> )
+/\ fn1 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+/\ fn2 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+
+State 7: <Vote1(c5,"C2") line 115, col 3 to line 118, col 38 of module RaiPrefix>
+/\ left = ( c1 :> FALSE @@
+  c2 :> FALSE @@
+  c3 :> FALSE @@
+  c4 :> FALSE @@
+  c5 :> FALSE @@
+  c6 :> TRUE @@
+  c7 :> TRUE )
+/\ fv1 = ( c1 :> <<"P", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"P", "-">> @@
+  c4 :> <<"P", "-">> @@
+  c5 :> <<"Pr", "C2">> @@
+  c6 :> <<"-", "-">> @@
+  c7 :> <<"-", "-">> )
+/\ fv2 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"-", "-">> @@
+  c4 :> <<"-", "-">> @@
+  c5 :> <<"-", "-">> @@
+  c6 :> <<"-", "-">> @@
+  c7 :> <<"P", "-">> )
+/\ fn1 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+/\ fn2 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+
+State 8: <Vote1(c4,"C2") line 115, col 3 to line 118, col 38 of module RaiPrefix>
+/\ left = ( c1 :> FALSE @@
+  c2 :> FALSE @@
+  c3 :> FALSE @@
+  c4 :> FALSE @@
+  c5 :> FALSE @@
+  c6 :> TRUE @@
+  c7 :> TRUE )
+/\ fv1 = ( c1 :> <<"P", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"P", "-">> @@
+  c4 :> <<"P", "C2">> @@
+  c5 :> <<"Pr", "C2">> @@
+  c6 :> <<"-", "-">> @@
+  c7 :> <<"-", "-">> )
+/\ fv2 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"-", "-">> @@
+  c4 :> <<"-", "-">> @@
+  c5 :> <<"-", "-">> @@
+  c6 :> <<"-", "-">> @@
+  c7 :> <<"P", "-">> )
+/\ fn1 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+/\ fn2 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+
+State 9: <Vote2(c6,"Pr") line 134, col 3 to line 138, col 38 of module RaiPrefix>
+/\ left = ( c1 :> FALSE @@
+  c2 :> FALSE @@
+  c3 :> FALSE @@
+  c4 :> FALSE @@
+  c5 :> FALSE @@
+  c6 :> TRUE @@
+  c7 :> TRUE )
+/\ fv1 = ( c1 :> <<"P", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"P", "-">> @@
+  c4 :> <<"P", "C2">> @@
+  c5 :> <<"Pr", "C2">> @@
+  c6 :> <<"-", "-">> @@
+  c7 :> <<"-", "-">> )
+/\ fv2 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"-", "-">> @@
+  c4 :> <<"-", "-">> @@
+  c5 :> <<"-", "-">> @@
+  c6 :> <<"Pr", "-">> @@
+  c7 :> <<"P", "-">> )
+/\ fn1 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+/\ fn2 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+
+State 10: <Vote1(c3,"C1") line 115, col 3 to line 118, col 38 of module RaiPrefix>
+/\ left = ( c1 :> FALSE @@
+  c2 :> FALSE @@
+  c3 :> FALSE @@
+  c4 :> FALSE @@
+  c5 :> FALSE @@
+  c6 :> TRUE @@
+  c7 :> TRUE )
+/\ fv1 = ( c1 :> <<"P", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"P", "C1">> @@
+  c4 :> <<"P", "C2">> @@
+  c5 :> <<"Pr", "C2">> @@
+  c6 :> <<"-", "-">> @@
+  c7 :> <<"-", "-">> )
+/\ fv2 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"-", "-">> @@
+  c4 :> <<"-", "-">> @@
+  c5 :> <<"-", "-">> @@
+  c6 :> <<"Pr", "-">> @@
+  c7 :> <<"P", "-">> )
+/\ fn1 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+/\ fn2 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+
+State 11: <Leave(c5) line 127, col 3 to line 129, col 37 of module RaiPrefix>
+/\ left = ( c1 :> FALSE @@
+  c2 :> FALSE @@
+  c3 :> FALSE @@
+  c4 :> FALSE @@
+  c5 :> TRUE @@
+  c6 :> TRUE @@
+  c7 :> TRUE )
+/\ fv1 = ( c1 :> <<"P", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"P", "C1">> @@
+  c4 :> <<"P", "C2">> @@
+  c5 :> <<"Pr", "C2">> @@
+  c6 :> <<"-", "-">> @@
+  c7 :> <<"-", "-">> )
+/\ fv2 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"-", "-">> @@
+  c4 :> <<"-", "-">> @@
+  c5 :> <<"-", "-">> @@
+  c6 :> <<"Pr", "-">> @@
+  c7 :> <<"P", "-">> )
+/\ fn1 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+/\ fn2 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+
+State 12: <Vote1(c1,"C2") line 115, col 3 to line 118, col 38 of module RaiPrefix>
+/\ left = ( c1 :> FALSE @@
+  c2 :> FALSE @@
+  c3 :> FALSE @@
+  c4 :> FALSE @@
+  c5 :> TRUE @@
+  c6 :> TRUE @@
+  c7 :> TRUE )
+/\ fv1 = ( c1 :> <<"P", "C2">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"P", "C1">> @@
+  c4 :> <<"P", "C2">> @@
+  c5 :> <<"Pr", "C2">> @@
+  c6 :> <<"-", "-">> @@
+  c7 :> <<"-", "-">> )
+/\ fv2 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"-", "-">> @@
+  c4 :> <<"-", "-">> @@
+  c5 :> <<"-", "-">> @@
+  c6 :> <<"Pr", "-">> @@
+  c7 :> <<"P", "-">> )
+/\ fn1 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+/\ fn2 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+
+State 13: <Final1(c4,1) line 121, col 3 to line 124, col 38 of module RaiPrefix>
+/\ left = ( c1 :> FALSE @@
+  c2 :> FALSE @@
+  c3 :> FALSE @@
+  c4 :> FALSE @@
+  c5 :> TRUE @@
+  c6 :> TRUE @@
+  c7 :> TRUE )
+/\ fv1 = ( c1 :> <<"P", "C2">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"P", "C1">> @@
+  c4 :> <<"P", "C2">> @@
+  c5 :> <<"Pr", "C2">> @@
+  c6 :> <<"-", "-">> @@
+  c7 :> <<"-", "-">> )
+/\ fv2 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"-", "-">> @@
+  c4 :> <<"-", "-">> @@
+  c5 :> <<"-", "-">> @@
+  c6 :> <<"Pr", "-">> @@
+  c7 :> <<"P", "-">> )
+/\ fn1 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<TRUE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+/\ fn2 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+
+State 14: <Vote1(c2,"Pr") line 115, col 3 to line 118, col 38 of module RaiPrefix>
+/\ left = ( c1 :> FALSE @@
+  c2 :> FALSE @@
+  c3 :> FALSE @@
+  c4 :> FALSE @@
+  c5 :> TRUE @@
+  c6 :> TRUE @@
+  c7 :> TRUE )
+/\ fv1 = ( c1 :> <<"P", "C2">> @@
+  c2 :> <<"Pr", "-">> @@
+  c3 :> <<"P", "C1">> @@
+  c4 :> <<"P", "C2">> @@
+  c5 :> <<"Pr", "C2">> @@
+  c6 :> <<"-", "-">> @@
+  c7 :> <<"-", "-">> )
+/\ fv2 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"-", "-">> @@
+  c4 :> <<"-", "-">> @@
+  c5 :> <<"-", "-">> @@
+  c6 :> <<"Pr", "-">> @@
+  c7 :> <<"P", "-">> )
+/\ fn1 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<TRUE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+/\ fn2 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+
+State 15: <Final1(c3,1) line 121, col 3 to line 124, col 38 of module RaiPrefix>
+/\ left = ( c1 :> FALSE @@
+  c2 :> FALSE @@
+  c3 :> FALSE @@
+  c4 :> FALSE @@
+  c5 :> TRUE @@
+  c6 :> TRUE @@
+  c7 :> TRUE )
+/\ fv1 = ( c1 :> <<"P", "C2">> @@
+  c2 :> <<"Pr", "-">> @@
+  c3 :> <<"P", "C1">> @@
+  c4 :> <<"P", "C2">> @@
+  c5 :> <<"Pr", "C2">> @@
+  c6 :> <<"-", "-">> @@
+  c7 :> <<"-", "-">> )
+/\ fv2 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"-", "-">> @@
+  c4 :> <<"-", "-">> @@
+  c5 :> <<"-", "-">> @@
+  c6 :> <<"Pr", "-">> @@
+  c7 :> <<"P", "-">> )
+/\ fn1 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<TRUE, FALSE>> @@
+  c4 :> <<TRUE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+/\ fn2 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+
+State 16: <Leave(c4) line 127, col 3 to line 129, col 37 of module RaiPrefix>
+/\ left = ( c1 :> FALSE @@
+  c2 :> FALSE @@
+  c3 :> FALSE @@
+  c4 :> TRUE @@
+  c5 :> TRUE @@
+  c6 :> TRUE @@
+  c7 :> TRUE )
+/\ fv1 = ( c1 :> <<"P", "C2">> @@
+  c2 :> <<"Pr", "-">> @@
+  c3 :> <<"P", "C1">> @@
+  c4 :> <<"P", "C2">> @@
+  c5 :> <<"Pr", "C2">> @@
+  c6 :> <<"-", "-">> @@
+  c7 :> <<"-", "-">> )
+/\ fv2 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"-", "-">> @@
+  c4 :> <<"-", "-">> @@
+  c5 :> <<"-", "-">> @@
+  c6 :> <<"Pr", "-">> @@
+  c7 :> <<"P", "-">> )
+/\ fn1 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<TRUE, FALSE>> @@
+  c4 :> <<TRUE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+/\ fn2 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+
+State 17: <Vote1(c2,"C2") line 115, col 3 to line 118, col 38 of module RaiPrefix>
+/\ left = ( c1 :> FALSE @@
+  c2 :> FALSE @@
+  c3 :> FALSE @@
+  c4 :> TRUE @@
+  c5 :> TRUE @@
+  c6 :> TRUE @@
+  c7 :> TRUE )
+/\ fv1 = ( c1 :> <<"P", "C2">> @@
+  c2 :> <<"Pr", "C2">> @@
+  c3 :> <<"P", "C1">> @@
+  c4 :> <<"P", "C2">> @@
+  c5 :> <<"Pr", "C2">> @@
+  c6 :> <<"-", "-">> @@
+  c7 :> <<"-", "-">> )
+/\ fv2 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"-", "-">> @@
+  c4 :> <<"-", "-">> @@
+  c5 :> <<"-", "-">> @@
+  c6 :> <<"Pr", "-">> @@
+  c7 :> <<"P", "-">> )
+/\ fn1 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<TRUE, FALSE>> @@
+  c4 :> <<TRUE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+/\ fn2 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+
+State 18: <Leave(c1) line 127, col 3 to line 129, col 37 of module RaiPrefix>
+/\ left = ( c1 :> TRUE @@
+  c2 :> FALSE @@
+  c3 :> FALSE @@
+  c4 :> TRUE @@
+  c5 :> TRUE @@
+  c6 :> TRUE @@
+  c7 :> TRUE )
+/\ fv1 = ( c1 :> <<"P", "C2">> @@
+  c2 :> <<"Pr", "C2">> @@
+  c3 :> <<"P", "C1">> @@
+  c4 :> <<"P", "C2">> @@
+  c5 :> <<"Pr", "C2">> @@
+  c6 :> <<"-", "-">> @@
+  c7 :> <<"-", "-">> )
+/\ fv2 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"-", "-">> @@
+  c4 :> <<"-", "-">> @@
+  c5 :> <<"-", "-">> @@
+  c6 :> <<"Pr", "-">> @@
+  c7 :> <<"P", "-">> )
+/\ fn1 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<TRUE, FALSE>> @@
+  c4 :> <<TRUE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+/\ fn2 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+
+State 19: <Final1(c2,2) line 121, col 3 to line 124, col 38 of module RaiPrefix>
+/\ left = ( c1 :> TRUE @@
+  c2 :> FALSE @@
+  c3 :> FALSE @@
+  c4 :> TRUE @@
+  c5 :> TRUE @@
+  c6 :> TRUE @@
+  c7 :> TRUE )
+/\ fv1 = ( c1 :> <<"P", "C2">> @@
+  c2 :> <<"Pr", "C2">> @@
+  c3 :> <<"P", "C1">> @@
+  c4 :> <<"P", "C2">> @@
+  c5 :> <<"Pr", "C2">> @@
+  c6 :> <<"-", "-">> @@
+  c7 :> <<"-", "-">> )
+/\ fv2 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"-", "-">> @@
+  c4 :> <<"-", "-">> @@
+  c5 :> <<"-", "-">> @@
+  c6 :> <<"Pr", "-">> @@
+  c7 :> <<"P", "-">> )
+/\ fn1 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, TRUE>> @@
+  c3 :> <<TRUE, FALSE>> @@
+  c4 :> <<TRUE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+/\ fn2 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+
+State 20: <Vote2(c5,"Pr") line 134, col 3 to line 138, col 38 of module RaiPrefix>
+/\ left = ( c1 :> TRUE @@
+  c2 :> FALSE @@
+  c3 :> FALSE @@
+  c4 :> TRUE @@
+  c5 :> TRUE @@
+  c6 :> TRUE @@
+  c7 :> TRUE )
+/\ fv1 = ( c1 :> <<"P", "C2">> @@
+  c2 :> <<"Pr", "C2">> @@
+  c3 :> <<"P", "C1">> @@
+  c4 :> <<"P", "C2">> @@
+  c5 :> <<"Pr", "C2">> @@
+  c6 :> <<"-", "-">> @@
+  c7 :> <<"-", "-">> )
+/\ fv2 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"-", "-">> @@
+  c4 :> <<"-", "-">> @@
+  c5 :> <<"Pr", "-">> @@
+  c6 :> <<"Pr", "-">> @@
+  c7 :> <<"P", "-">> )
+/\ fn1 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, TRUE>> @@
+  c3 :> <<TRUE, FALSE>> @@
+  c4 :> <<TRUE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+/\ fn2 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+
+State 21: <Vote2(c6,"C1") line 134, col 3 to line 138, col 38 of module RaiPrefix>
+/\ left = ( c1 :> TRUE @@
+  c2 :> FALSE @@
+  c3 :> FALSE @@
+  c4 :> TRUE @@
+  c5 :> TRUE @@
+  c6 :> TRUE @@
+  c7 :> TRUE )
+/\ fv1 = ( c1 :> <<"P", "C2">> @@
+  c2 :> <<"Pr", "C2">> @@
+  c3 :> <<"P", "C1">> @@
+  c4 :> <<"P", "C2">> @@
+  c5 :> <<"Pr", "C2">> @@
+  c6 :> <<"-", "-">> @@
+  c7 :> <<"-", "-">> )
+/\ fv2 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"-", "-">> @@
+  c4 :> <<"-", "-">> @@
+  c5 :> <<"Pr", "-">> @@
+  c6 :> <<"Pr", "C1">> @@
+  c7 :> <<"P", "-">> )
+/\ fn1 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, TRUE>> @@
+  c3 :> <<TRUE, FALSE>> @@
+  c4 :> <<TRUE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+/\ fn2 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+
+State 22: <Vote2(c5,"C2") line 134, col 3 to line 138, col 38 of module RaiPrefix>
+/\ left = ( c1 :> TRUE @@
+  c2 :> FALSE @@
+  c3 :> FALSE @@
+  c4 :> TRUE @@
+  c5 :> TRUE @@
+  c6 :> TRUE @@
+  c7 :> TRUE )
+/\ fv1 = ( c1 :> <<"P", "C2">> @@
+  c2 :> <<"Pr", "C2">> @@
+  c3 :> <<"P", "C1">> @@
+  c4 :> <<"P", "C2">> @@
+  c5 :> <<"Pr", "C2">> @@
+  c6 :> <<"-", "-">> @@
+  c7 :> <<"-", "-">> )
+/\ fv2 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"-", "-">> @@
+  c4 :> <<"-", "-">> @@
+  c5 :> <<"Pr", "C2">> @@
+  c6 :> <<"Pr", "C1">> @@
+  c7 :> <<"P", "-">> )
+/\ fn1 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, TRUE>> @@
+  c3 :> <<TRUE, FALSE>> @@
+  c4 :> <<TRUE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+/\ fn2 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+
+State 23: <Vote2(c7,"C1") line 134, col 3 to line 138, col 38 of module RaiPrefix>
+/\ left = ( c1 :> TRUE @@
+  c2 :> FALSE @@
+  c3 :> FALSE @@
+  c4 :> TRUE @@
+  c5 :> TRUE @@
+  c6 :> TRUE @@
+  c7 :> TRUE )
+/\ fv1 = ( c1 :> <<"P", "C2">> @@
+  c2 :> <<"Pr", "C2">> @@
+  c3 :> <<"P", "C1">> @@
+  c4 :> <<"P", "C2">> @@
+  c5 :> <<"Pr", "C2">> @@
+  c6 :> <<"-", "-">> @@
+  c7 :> <<"-", "-">> )
+/\ fv2 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"-", "-">> @@
+  c4 :> <<"-", "-">> @@
+  c5 :> <<"Pr", "C2">> @@
+  c6 :> <<"Pr", "C1">> @@
+  c7 :> <<"P", "C1">> )
+/\ fn1 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, TRUE>> @@
+  c3 :> <<TRUE, FALSE>> @@
+  c4 :> <<TRUE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+/\ fn2 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+
+State 24: <Leave(c2) line 127, col 3 to line 129, col 37 of module RaiPrefix>
+/\ left = ( c1 :> TRUE @@
+  c2 :> TRUE @@
+  c3 :> FALSE @@
+  c4 :> TRUE @@
+  c5 :> TRUE @@
+  c6 :> TRUE @@
+  c7 :> TRUE )
+/\ fv1 = ( c1 :> <<"P", "C2">> @@
+  c2 :> <<"Pr", "C2">> @@
+  c3 :> <<"P", "C1">> @@
+  c4 :> <<"P", "C2">> @@
+  c5 :> <<"Pr", "C2">> @@
+  c6 :> <<"-", "-">> @@
+  c7 :> <<"-", "-">> )
+/\ fv2 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"-", "-">> @@
+  c4 :> <<"-", "-">> @@
+  c5 :> <<"Pr", "C2">> @@
+  c6 :> <<"Pr", "C1">> @@
+  c7 :> <<"P", "C1">> )
+/\ fn1 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, TRUE>> @@
+  c3 :> <<TRUE, FALSE>> @@
+  c4 :> <<TRUE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+/\ fn2 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+
+State 25: <Vote2(c4,"C2") line 134, col 3 to line 138, col 38 of module RaiPrefix>
+/\ left = ( c1 :> TRUE @@
+  c2 :> TRUE @@
+  c3 :> FALSE @@
+  c4 :> TRUE @@
+  c5 :> TRUE @@
+  c6 :> TRUE @@
+  c7 :> TRUE )
+/\ fv1 = ( c1 :> <<"P", "C2">> @@
+  c2 :> <<"Pr", "C2">> @@
+  c3 :> <<"P", "C1">> @@
+  c4 :> <<"P", "C2">> @@
+  c5 :> <<"Pr", "C2">> @@
+  c6 :> <<"-", "-">> @@
+  c7 :> <<"-", "-">> )
+/\ fv2 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"-", "-">> @@
+  c4 :> <<"-", "C2">> @@
+  c5 :> <<"Pr", "C2">> @@
+  c6 :> <<"Pr", "C1">> @@
+  c7 :> <<"P", "C1">> )
+/\ fn1 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, TRUE>> @@
+  c3 :> <<TRUE, FALSE>> @@
+  c4 :> <<TRUE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+/\ fn2 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+
+State 26: <Leave(c3) line 127, col 3 to line 129, col 37 of module RaiPrefix>
+/\ left = ( c1 :> TRUE @@
+  c2 :> TRUE @@
+  c3 :> TRUE @@
+  c4 :> TRUE @@
+  c5 :> TRUE @@
+  c6 :> TRUE @@
+  c7 :> TRUE )
+/\ fv1 = ( c1 :> <<"P", "C2">> @@
+  c2 :> <<"Pr", "C2">> @@
+  c3 :> <<"P", "C1">> @@
+  c4 :> <<"P", "C2">> @@
+  c5 :> <<"Pr", "C2">> @@
+  c6 :> <<"-", "-">> @@
+  c7 :> <<"-", "-">> )
+/\ fv2 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"-", "-">> @@
+  c4 :> <<"-", "C2">> @@
+  c5 :> <<"Pr", "C2">> @@
+  c6 :> <<"Pr", "C1">> @@
+  c7 :> <<"P", "C1">> )
+/\ fn1 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, TRUE>> @@
+  c3 :> <<TRUE, FALSE>> @@
+  c4 :> <<TRUE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+/\ fn2 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+
+State 27: <Vote2(c3,"P") line 134, col 3 to line 138, col 38 of module RaiPrefix>
+/\ left = ( c1 :> TRUE @@
+  c2 :> TRUE @@
+  c3 :> TRUE @@
+  c4 :> TRUE @@
+  c5 :> TRUE @@
+  c6 :> TRUE @@
+  c7 :> TRUE )
+/\ fv1 = ( c1 :> <<"P", "C2">> @@
+  c2 :> <<"Pr", "C2">> @@
+  c3 :> <<"P", "C1">> @@
+  c4 :> <<"P", "C2">> @@
+  c5 :> <<"Pr", "C2">> @@
+  c6 :> <<"-", "-">> @@
+  c7 :> <<"-", "-">> )
+/\ fv2 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"P", "-">> @@
+  c4 :> <<"-", "C2">> @@
+  c5 :> <<"Pr", "C2">> @@
+  c6 :> <<"Pr", "C1">> @@
+  c7 :> <<"P", "C1">> )
+/\ fn1 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, TRUE>> @@
+  c3 :> <<TRUE, FALSE>> @@
+  c4 :> <<TRUE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+/\ fn2 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+
+State 28: <Vote2(c4,"P") line 134, col 3 to line 138, col 38 of module RaiPrefix>
+/\ left = ( c1 :> TRUE @@
+  c2 :> TRUE @@
+  c3 :> TRUE @@
+  c4 :> TRUE @@
+  c5 :> TRUE @@
+  c6 :> TRUE @@
+  c7 :> TRUE )
+/\ fv1 = ( c1 :> <<"P", "C2">> @@
+  c2 :> <<"Pr", "C2">> @@
+  c3 :> <<"P", "C1">> @@
+  c4 :> <<"P", "C2">> @@
+  c5 :> <<"Pr", "C2">> @@
+  c6 :> <<"-", "-">> @@
+  c7 :> <<"-", "-">> )
+/\ fv2 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"P", "-">> @@
+  c4 :> <<"P", "C2">> @@
+  c5 :> <<"Pr", "C2">> @@
+  c6 :> <<"Pr", "C1">> @@
+  c7 :> <<"P", "C1">> )
+/\ fn1 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, TRUE>> @@
+  c3 :> <<TRUE, FALSE>> @@
+  c4 :> <<TRUE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+/\ fn2 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+
+State 29: <Vote2(c3,"C1") line 134, col 3 to line 138, col 38 of module RaiPrefix>
+/\ left = ( c1 :> TRUE @@
+  c2 :> TRUE @@
+  c3 :> TRUE @@
+  c4 :> TRUE @@
+  c5 :> TRUE @@
+  c6 :> TRUE @@
+  c7 :> TRUE )
+/\ fv1 = ( c1 :> <<"P", "C2">> @@
+  c2 :> <<"Pr", "C2">> @@
+  c3 :> <<"P", "C1">> @@
+  c4 :> <<"P", "C2">> @@
+  c5 :> <<"Pr", "C2">> @@
+  c6 :> <<"-", "-">> @@
+  c7 :> <<"-", "-">> )
+/\ fv2 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"P", "C1">> @@
+  c4 :> <<"P", "C2">> @@
+  c5 :> <<"Pr", "C2">> @@
+  c6 :> <<"Pr", "C1">> @@
+  c7 :> <<"P", "C1">> )
+/\ fn1 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, TRUE>> @@
+  c3 :> <<TRUE, FALSE>> @@
+  c4 :> <<TRUE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+/\ fn2 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+
+State 30: <Final2(c7,1) line 142, col 3 to line 145, col 38 of module RaiPrefix>
+/\ left = ( c1 :> TRUE @@
+  c2 :> TRUE @@
+  c3 :> TRUE @@
+  c4 :> TRUE @@
+  c5 :> TRUE @@
+  c6 :> TRUE @@
+  c7 :> TRUE )
+/\ fv1 = ( c1 :> <<"P", "C2">> @@
+  c2 :> <<"Pr", "C2">> @@
+  c3 :> <<"P", "C1">> @@
+  c4 :> <<"P", "C2">> @@
+  c5 :> <<"Pr", "C2">> @@
+  c6 :> <<"-", "-">> @@
+  c7 :> <<"-", "-">> )
+/\ fv2 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"P", "C1">> @@
+  c4 :> <<"P", "C2">> @@
+  c5 :> <<"Pr", "C2">> @@
+  c6 :> <<"Pr", "C1">> @@
+  c7 :> <<"P", "C1">> )
+/\ fn1 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, TRUE>> @@
+  c3 :> <<TRUE, FALSE>> @@
+  c4 :> <<TRUE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+/\ fn2 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<TRUE, FALSE>> )
+
+State 31: <Final2(c6,2) line 142, col 3 to line 145, col 38 of module RaiPrefix>
+/\ left = ( c1 :> TRUE @@
+  c2 :> TRUE @@
+  c3 :> TRUE @@
+  c4 :> TRUE @@
+  c5 :> TRUE @@
+  c6 :> TRUE @@
+  c7 :> TRUE )
+/\ fv1 = ( c1 :> <<"P", "C2">> @@
+  c2 :> <<"Pr", "C2">> @@
+  c3 :> <<"P", "C1">> @@
+  c4 :> <<"P", "C2">> @@
+  c5 :> <<"Pr", "C2">> @@
+  c6 :> <<"-", "-">> @@
+  c7 :> <<"-", "-">> )
+/\ fv2 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"P", "C1">> @@
+  c4 :> <<"P", "C2">> @@
+  c5 :> <<"Pr", "C2">> @@
+  c6 :> <<"Pr", "C1">> @@
+  c7 :> <<"P", "C1">> )
+/\ fn1 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, TRUE>> @@
+  c3 :> <<TRUE, FALSE>> @@
+  c4 :> <<TRUE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+/\ fn2 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, TRUE>> @@
+  c7 :> <<TRUE, FALSE>> )
+
+State 32: <Final2(c3,2) line 142, col 3 to line 145, col 38 of module RaiPrefix>
+/\ left = ( c1 :> TRUE @@
+  c2 :> TRUE @@
+  c3 :> TRUE @@
+  c4 :> TRUE @@
+  c5 :> TRUE @@
+  c6 :> TRUE @@
+  c7 :> TRUE )
+/\ fv1 = ( c1 :> <<"P", "C2">> @@
+  c2 :> <<"Pr", "C2">> @@
+  c3 :> <<"P", "C1">> @@
+  c4 :> <<"P", "C2">> @@
+  c5 :> <<"Pr", "C2">> @@
+  c6 :> <<"-", "-">> @@
+  c7 :> <<"-", "-">> )
+/\ fv2 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"P", "C1">> @@
+  c4 :> <<"P", "C2">> @@
+  c5 :> <<"Pr", "C2">> @@
+  c6 :> <<"Pr", "C1">> @@
+  c7 :> <<"P", "C1">> )
+/\ fn1 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, TRUE>> @@
+  c3 :> <<TRUE, FALSE>> @@
+  c4 :> <<TRUE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+/\ fn2 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, TRUE>> @@
+  c4 :> <<FALSE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, TRUE>> @@
+  c7 :> <<TRUE, FALSE>> )
+
+State 33: <Final2(c3,1) line 142, col 3 to line 145, col 38 of module RaiPrefix>
+/\ left = ( c1 :> TRUE @@
+  c2 :> TRUE @@
+  c3 :> TRUE @@
+  c4 :> TRUE @@
+  c5 :> TRUE @@
+  c6 :> TRUE @@
+  c7 :> TRUE )
+/\ fv1 = ( c1 :> <<"P", "C2">> @@
+  c2 :> <<"Pr", "C2">> @@
+  c3 :> <<"P", "C1">> @@
+  c4 :> <<"P", "C2">> @@
+  c5 :> <<"Pr", "C2">> @@
+  c6 :> <<"-", "-">> @@
+  c7 :> <<"-", "-">> )
+/\ fv2 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"P", "C1">> @@
+  c4 :> <<"P", "C2">> @@
+  c5 :> <<"Pr", "C2">> @@
+  c6 :> <<"Pr", "C1">> @@
+  c7 :> <<"P", "C1">> )
+/\ fn1 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, TRUE>> @@
+  c3 :> <<TRUE, FALSE>> @@
+  c4 :> <<TRUE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+/\ fn2 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<TRUE, TRUE>> @@
+  c4 :> <<FALSE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, TRUE>> @@
+  c7 :> <<TRUE, FALSE>> )
+
+State 34: <Final2(c7,2) line 142, col 3 to line 145, col 38 of module RaiPrefix>
+/\ left = ( c1 :> TRUE @@
+  c2 :> TRUE @@
+  c3 :> TRUE @@
+  c4 :> TRUE @@
+  c5 :> TRUE @@
+  c6 :> TRUE @@
+  c7 :> TRUE )
+/\ fv1 = ( c1 :> <<"P", "C2">> @@
+  c2 :> <<"Pr", "C2">> @@
+  c3 :> <<"P", "C1">> @@
+  c4 :> <<"P", "C2">> @@
+  c5 :> <<"Pr", "C2">> @@
+  c6 :> <<"-", "-">> @@
+  c7 :> <<"-", "-">> )
+/\ fv2 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"P", "C1">> @@
+  c4 :> <<"P", "C2">> @@
+  c5 :> <<"Pr", "C2">> @@
+  c6 :> <<"Pr", "C1">> @@
+  c7 :> <<"P", "C1">> )
+/\ fn1 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, TRUE>> @@
+  c3 :> <<TRUE, FALSE>> @@
+  c4 :> <<TRUE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, FALSE>> @@
+  c7 :> <<FALSE, FALSE>> )
+/\ fn2 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<TRUE, TRUE>> @@
+  c4 :> <<FALSE, FALSE>> @@
+  c5 :> <<FALSE, FALSE>> @@
+  c6 :> <<FALSE, TRUE>> @@
+  c7 :> <<TRUE, TRUE>> )
+
+The number of states generated: 1086
+Simulation using seed 1 and aril 0
+Progress: 1087 states checked, 53 traces generated (trace length: mean=20, var(x)=39, sd=6)
+Finished in 00s at (2026-10-10 11:42:14)
+Trace exploration spec path: ./RaiPrefix_TTrace_1791628933.tla

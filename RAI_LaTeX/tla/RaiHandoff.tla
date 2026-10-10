@@ -244,8 +244,8 @@ Protected(S, b) == \/ b \in S.fin
                    \/ \E l \in S.locks : l.b = b /\ ~Disch(l)
 
 \* Theorem 6.4 for each closure, with no extra hypothesis.
-Thm64a == S1.done => \A b \in Blocks : Cert1(b) => Protected(S1, b)
-Thm64b == S2.done => \A b \in Blocks :
+ClosureThm1a == S1.done => \A b \in Blocks : Cert1(b) => Protected(S1, b)
+ClosureThm1b == S2.done => \A b \in Blocks :
             (Cert1(b) \/ Final2(b)) => Protected(S2, b)
 
 \* Reachability probes (expected to be VIOLATED).

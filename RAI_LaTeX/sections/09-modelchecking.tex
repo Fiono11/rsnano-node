@@ -1,0 +1,38 @@
+\section{Model Checking the Handover}
+\label{sec:mc}
+Three of the rules in Sections~\ref{sec:close} and~\ref{sec:pipeline} replaced earlier rules that written arguments had accepted. We wrote four TLA\textsuperscript{+} models of the handover and checked them with TLC. Each takes one account with $N=6$, $f=p=1$, five correct validators and one Byzantine validator whose signatures are available for every block, vote kind, and epoch, and whose report is chosen by the adversary subject to the usability checks. Agreement is the nondeterministic choice of one eligible candidate; TLC explores every interleaving, with validators identified up to permutation. The models, configurations, and TLC outputs with the violating traces are in the supplement and the artifact.
+
+\begin{description}
+\item[Close] three voting epochs and two checkpoints, no early voting; the recipe with locks of several origins and matching-origin release. Switch: the old or the new definition of the report's second set.
+\item[Overlap] one closing and one open epoch; validators cross their boundary one by one, vote early, late-notarize, and finalize under the overlap rule or after installing. Switches turn off matching-origin release, late supports as evidence, and the separation of notarization from late supports.
+\item[Handoff] early voting, two checkpoints, and a committee change with the Byzantine validator in both committees; the early-vote rule on or off; a releasing witness reaches the second checkpoint only through a selected correct report, which models a withheld signature.
+\item[Prefix] two positions of one account: a parent with a rival at position 1 and two children at position 2, so that the prefix-wide guard of~\ref{r:overlap} is exercised; committees identical, disjoint, or sharing members. Switches check only the finalizing block instead of the prefix, and let a child inherit its parent's witness.
+\end{description}
+
+\begin{table}[t]
+\caption{TLC results. States are distinct states of completed runs; a number of steps is the length of the counterexample.}
+\label{tab:mc}
+\centering\small
+\begin{tabularx}{\columnwidth}{@{}>{\raggedright\arraybackslash}p{0.36\columnwidth}Yr@{}}
+\toprule
+Model, switches & Result & States\\
+\midrule
+Close, old second set & Thm.~\ref{thm:closure} fails (19 steps); two fast certificates (23) & --\\
+Close, Fix~B & no violation & 0.65\,M\\
+Overlap, all repairs & no violation & 5.2\,M\\
+Overlap, no release & same-verdict fails (15) & --\\
+Overlap, late votes not evidence & next close cannot verify a correct report (14) & --\\
+Overlap, late votes in notarization & a correct report becomes unusable (9); safety holds & 5.5\,M\\
+Handoff, old fast path, same or disjoint $K$ & Thm.~\ref{thm:closure} fails for $S_2$ (22, 23) & --\\
+Handoff, rule, same / disjoint / 3 shared & no violation & 8.3 / 3.7 / 121\,M\\
+Prefix $N{=}4$, prefix guard, all overlaps & no violation & 0.3--4.0\,M\\
+Prefix $N{=}4$, target only, 2 shared & conflicting finality (13) & --\\
+Prefix $N{=}4$, child inherits witness, not same $K$ & conflicting finality (12--14) & --\\
+Prefix $N{=}6$, target only or inherited witness & conflicting finality (simulation) & --\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Table~\ref{tab:mc} summarizes. The three failures are easy to tell. With the old second set, a reporter that first-voted a block the predecessor kept under a recovery lock tagged it as inherited and the fresh vote appeared nowhere, so two conflicting fast certificates were reachable. Without matching-origin release, two correct validators finalized different blocks depending on which arrived first, the checkpoint or the certificate. With the fast path counting every first vote, Theorem~\ref{thm:closure} failed at the second checkpoint, with identical and with disjoint committees, by the trace of Section~\ref{sec:pipeline}. The prefix model adds a fourth: checking only the finalizing block, or letting a child inherit its parent's witness, finalizes conflicting children once the two committees share members or differ; the prefix-wide guard with a fresh witness per child passes every $N=4$ configuration, and its $N=6$ runs were still in progress at submission. Probes confirm the invariants are not vacuous: a block does finalize before the checkpoint, the second checkpoint does release first-checkpoint locks, and a block can carry locks of two origins.
+
+The models are small: one or two positions, two or three epochs, no receives, no restarts, $N\in\{4,6\}$. Their abstractions only add behaviours, so a violation in the model is a violation of the protocol, but a clean run is evidence, not proof.

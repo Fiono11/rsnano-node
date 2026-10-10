@@ -1,5 +1,6 @@
-\section{Model, Assumptions, and Abstract Services}
+\section{Formal Model, Assumptions, and Abstract Services}
 \label{sec:model}
+This appendix and the two that follow are the formal counterpart of Sections~III to~VII of the main text: the same rules, stated with the notation the proofs use.
 \subsection{Participants, faults, and retained evidence}
 Clients own accounts and sign blocks. An authenticated committee contains $N=3f+2p+1$ equal-weight validator identities, $f,p\geq0$, of which at most $f$ are Byzantine. Corruption is static: adversarial identities are fixed throughout the execution, and a correct departing identity is not later compromised. Membership admission, Sybil resistance, and the per-committee fault bound are deployment assumptions.
 
@@ -59,4 +60,5 @@ For handoff $e$, members of the closing committee $K_e$ call $\mathsf{Propose}(\
 \item[A3 (Integrity).] A proof cannot be replayed for another context, and $\mathsf{Verify}$ needs only $K_e$ and the retained inputs $v$ names.
 \item[A4 (Termination).] If at least $N-f$ correct members of $K_e$ eventually hold some eligible candidate for $\ctx_e$, then every correct member eventually decides, given recurring prepared windows long enough for the service's own rounds.
 \end{description}
-A2 is external validity~\cite{externalvalidity} with a predicate the service treats as opaque. C2 feeds A4: convergence makes correct reports usable, usable reports make an eligible candidate constructible at every correct member, and the consensus service then decides it. Nothing in A1--A4 refers to accounts, blocks, or report contents; any Byzantine agreement protocol with external validity and verifiable decisions, leader-based or not, fits the interface. Safety (Section~\ref{sec:correctness}) uses C1 and A1--A3 together with the static fault bound, authentication, persistent voting, and the voting rules of Section~\ref{sec:account}; termination additionally uses C2, A4, the data service, finite preparation, and recurring prepared windows.
+A2 is external validity~\cite{externalvalidity} with a predicate the service treats as opaque. C2 feeds A4: convergence makes correct reports usable, usable reports make an eligible candidate constructible at every correct member, and the consensus service then decides it. Nothing in A1--A4 refers to accounts, blocks, or report contents; any Byzantine agreement protocol with external validity and verifiable decisions, leader-based or not, fits the interface. Safety (Appendix~
+ef{app:proofs}) uses C1 and A1--A3 together with the static fault bound, authentication, persistent voting, and the voting rules of Section~\ref{sec:account}; termination additionally uses C2, A4, the data service, finite preparation, and recurring prepared windows.

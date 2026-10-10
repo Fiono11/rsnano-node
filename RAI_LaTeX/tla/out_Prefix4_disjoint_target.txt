@@ -1,0 +1,35 @@
+TLC2 Version 2.20 of Day Month 20?? (rev: 2cf8424)
+Running breadth-first search Model-Checking with fp 92 and seed -4639057752502314458 with 8 workers on 8 cores with 3641MB heap and 64MB offheap memory [pid: 2202] (Mac OS X 14.6.1 aarch64, Eclipse Adoptium 17.0.7 x86_64, MSBDiskFPSet, DiskStateQueue).
+Parsing file /Users/ruimorais/rsnano-node/.claude/worktrees/rai-eval-harness/RAI_LaTeX/tla/RaiPrefix.tla
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-12794419137088341773/Naturals.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-12794419137088341773/FiniteSets.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-12794419137088341773/TLC.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-12794419137088341773/_TLCTrace.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-12794419137088341773/Sequences.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-12794419137088341773/TLCExt.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-12794419137088341773/Integers.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module Integers
+Semantic processing of module TLCExt
+Semantic processing of module _TLCTrace
+Semantic processing of module RaiPrefix
+Linting of module TLCExt
+Linting of module _TLCTrace
+Linting of module RaiPrefix
+Starting... (2026-10-10 10:51:26)
+Computing initial states...
+Finished computing initial states: 1 distinct state generated at 2026-10-10 10:51:26.
+Progress(11) at 2026-10-10 10:51:29: 314 402 states generated (314 402 s/min), 55 822 distinct states found (55 822 ds/min), 33 129 states left on queue.
+Progress(18) at 2026-10-10 10:52:29: 9 523 106 states generated (9 208 704 s/min), 1 143 652 distinct states found (1 087 830 ds/min), 238 056 states left on queue.
+Model checking completed. No error has been found.
+  Estimates of the probability that TLC did not check all reachable states
+  because two distinct states had the same fingerprint:
+  calculated (optimistic):  val = 1.1E-6
+  based on the actual fingerprints:  val = 3.5E-8
+14629586 states generated, 1622276 distinct states found, 0 states left on queue.
+The depth of the complete state graph search is 28.
+The average outdegree of the complete state graph is 1 (minimum is 0, the maximum 15 and the 95th percentile is 4).
+Finished in 01min 39s at (2026-10-10 10:53:05)

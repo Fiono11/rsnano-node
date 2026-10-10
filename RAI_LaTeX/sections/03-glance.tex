@@ -1,0 +1,42 @@
+\section{RAI at a Glance}
+\label{sec:glance}
+Figure~\ref{fig:pipeline} shows one epoch transition. Three committees are involved: $K_e$ votes on payments in epoch $e$ and, at the end, decides the checkpoint $S_e$; $K_{e+1}$ is already known (it was fixed by $S_{e-1}$) and votes in epoch $e+1$ while $K_e$ is still closing; $S_e$ fixes $K_{e+2}$. Boundaries are local: each validator ends epoch $e$ on its own clock, freezes its report, and opens $e+1$ at once. Nothing requires the validators to stop together.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[x=1.0in,y=0.26in,>=Stealth,font=\small]
+\draw[|-|,thick,cRai] (0,3) -- (1.5,3) node[midway,above] {epoch $e$ voting, committee $K_e$};
+\draw[|-|,thick,cRai] (1.5,2) -- (3.1,2) node[midway,above] {epoch $e+1$ voting, $K_{e+1}$};
+\draw[->,dashed,cPause,thick] (1.5,1) -- (2.45,1) node[midway,below] {\footnotesize close $e$: reports $\to$ agree on $S_e$};
+\draw[->,thick,cFinal] (2.45,0) -- (3.1,0) node[midway,below] {\footnotesize install $S_e$};
+\draw[dotted] (1.5,3.6) -- (1.5,-0.7) node[below] {\footnotesize local boundary};
+\draw[dotted] (2.45,2.6) -- (2.45,-0.7) node[below] {\footnotesize $S_e$ decided};
+\node[font=\footnotesize,align=center] at (2.0,2.55) {overlap: rules of \S\ref{sec:pipeline}};
+\end{tikzpicture}
+\caption{A pipelined transition. Epoch $e+1$ voting starts at each validator's local boundary while epoch $e$ closes. Most new blocks finalize during the overlap under the overlap rule; the rest finalize when $S_e$ is installed.}
+\label{fig:pipeline}
+\end{figure}
+
+RAI is a set of rules. We state them here informally, with the thresholds of the six-validator example in parentheses, and spend the next sections explaining why each is needed.
+
+\para{Inside an epoch (Section~\ref{sec:epoch}).}
+\begin{enumerate}[label=\rulename{R\arabic*},ref=R\arabic*]
+\item\label{r:one} A validator casts at most one \emph{first vote} per account position per epoch, for the first valid block it sees there, and never switches.
+\item\label{r:final} A block with $q$ (4) first votes is \emph{notarized}. A validator casts a \emph{final vote} only for the block it first-voted, once it holds that block's notarization. A block is \emph{final} with $q$ (4) final votes, or on the fast path with $N-p$ (5) first votes from validators that know the previous checkpoint.
+\end{enumerate}
+\para{At the boundary (Section~\ref{sec:close}).}
+\begin{enumerate}[resume,label=\rulename{R\arabic*},ref=R\arabic*]
+\item\label{r:report} At its local boundary a validator stops voting in epoch $e$, signs one immutable \emph{report} naming what it holds final or notarized and what else it first-voted, and opens epoch $e+1$.
+\item\label{r:build} The outgoing committee agrees on a checkpoint built from $N-f$ (5) reports by a fixed recipe: keep what any report shows final; \emph{lock} a block that a report shows notarized; \emph{lock for recovery} a block that $r$ (3) reporters first-voted; promote a notarized block that is the only one kept at its position; carry every older lock forward unless evidence of its own origin epoch releases it.
+\item\label{r:install} The next committee installs the decided checkpoint without voting on it. A kept block is voted again at its position by everyone; a rival of a locked block is refused while the lock stands.
+\end{enumerate}
+\para{While the previous epoch closes (Section~\ref{sec:pipeline}).}
+\begin{enumerate}[resume,label=\rulename{R\arabic*},ref=R\arabic*]
+\item\label{r:gate} \emph{Gate.} A block of epoch $e+1$ does not become final before $S_e$ is installed, except under~\ref{r:overlap}.
+\item\label{r:overlap} \emph{Overlap rule.} It may become final early if it, and every unresolved block below it, has $q$ (4) supporters in epoch $e$ and $q$ (4) first votes in epoch $e+1$, and if every older recovery lock it bypasses is released by a witness of that lock's own origin.
+\item\label{r:late} \emph{Late notarization.} A validator that has left epoch $e$ but not yet installed $S_e$ also signs an epoch-$e$ \emph{support} for each block it first-votes in $e+1$, unless it supported a rival at that position in $e$. These supports count only toward the $q$ of~\ref{r:overlap}, never toward finality or reports.
+\item\label{r:early} \emph{Early votes.} A first vote cast before its signer installed $S_e$ counts toward notarization and toward~\ref{r:overlap}, never toward the fast path. An early final vote is released only with the witnesses of~\ref{r:overlap} in hand.
+\item\label{r:cross} \emph{No switching across the boundary.} Until $S_e$ is installed, a validator does not first-vote in $e+1$ a block that conflicts with one it supported at that position in $e$.
+\end{enumerate}
+
+Two services are left abstract: how a validator obtains the sets behind another's report (\emph{set reconstruction}) and how the outgoing committee picks one eligible checkpoint (\emph{agreement}). RAI only states what it needs from them (Section~\ref{sec:model}).

@@ -1,4 +1,4 @@
-\section{Pipelined Epoch Transitions}
+\section{Formal Epoch Transitions}
 \label{sec:transitions}
 \subsection{Lagged committees and local boundaries}
 \label{sec:lifecycle}
@@ -12,7 +12,8 @@ Every correct outgoing validator $i$ signs one header $R_i=\Sign_i(\ctx_e,\Root(
 \[
 G_i=V_i^{(e)}\setminus\{h:(h,\tagN)\in T_i\ \text{or}\ (h,\tagF)\in T_i\}.
 \]
-An $\tagN$ or $\tagF$ entry already exposes the vote. An $\tagR$ entry does not: it records what the predecessor carried, not what $i$ signed in epoch $e$, so a reporter that first-voted an $\tagR$-tagged block lists it in both $T_i$ and $G_i$. An earlier version removed every key of $T_i$; Section~\ref{sec:mc} shows how that hides a fresh vote and lets two conflicting fast certificates form.
+An $\tagN$ or $\tagF$ entry already exposes the vote. An $\tagR$ entry does not: it records what the predecessor carried, not what $i$ signed in epoch $e$, so a reporter that first-voted an $\tagR$-tagged block lists it in both $T_i$ and $G_i$. An earlier version removed every key of $T_i$; Appendix~
+ef{app:models} shows how that hides a fresh vote and lets two conflicting fast certificates form.
 
 Correct reporters retain the frozen sets, vote records, and admission evidence; later events change their live view but not the signed report. Late notarizations are released after freezing, so they are in no $V_i^{(e)}$; they create no $\tagN$ entry, no Rule~1 or Rule~2 support, and no Rule~3 promotion.
 
@@ -35,7 +36,7 @@ Start with inherited finality and all blocks satisfying $\mathsf{f}_Q$. Take acc
 At each new account position, after excluding conflicts with $F^\star$, retain the unique eligible represented $\NC$ target and its ancestry as a notarization lock; same-domain exclusion rules out two conflicting eligible $\NC$s.
 
 \para{Rule 2: reporter first votes.}
-If there is no represented eligible $\NC$ at that position and exactly one eligible block has $|U_Q(B)|\geq r$, retain that block and its ancestry under a recovery record of origin $e$, the closing epoch, whether or not the block already carries records of earlier origins. Theorem~\ref{thm:closure} shows that a formable fast-final block cannot coexist with a threshold rival.
+If there is no represented eligible $\NC$ at that position and exactly one eligible block has $|U_Q(B)|\geq r$, retain that block and its ancestry under a recovery record of origin $e$, the closing epoch, whether or not the block already carries records of earlier origins. If several conflicting blocks reach $r$, which requires a reporter whose report supports both, nothing is retained at the position and it is voted afresh in the next epoch. Theorem~\ref{thm:closure} shows that a formable fast-final block cannot coexist with a threshold rival.
 
 \para{Inherited state and discharge.}
 Carry every predecessor lock record forward unless explicit compatible finality excludes its block or, for a recovery record of origin $o$, the manifest contains an exclusion witness $\XW_o(\cdot)$ for a conflicting block. A selected vote or claim for a block that conflicts with a carried record is eligible only if the manifest contains that witness; the record is then discharged in this construction. A block leaves the retained state only when none of its records survives and it is not an ancestor of a block with a surviving record. Discharge is never inferred from a certificate's newer epoch number, and all evidence summaries are computed before any omission. Let $R_Q$ be the surviving inherited unresolved state, selected lock targets, and their ancestor closure.

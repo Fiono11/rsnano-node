@@ -1,0 +1,35 @@
+\section{Model and Assumptions}
+\label{sec:model}
+\para{Participants.}
+Clients own accounts and sign blocks. A committee has $N=3f+2p+1$ validators of equal weight, of which at most $f$ are Byzantine; $p$ is the number of responses the fast path may do without, not an extra fault allowance. Corruption is static: a Byzantine identity stays Byzantine, a correct one stays correct, including after it leaves. Who may join a committee, and that no committee exceeds $f$ faults, are deployment assumptions. Our running example and prototype use $f=p=1$, $N=6$; Table~\ref{tab:thresholds} lists the thresholds that follow.
+
+\begin{table}[t]
+\caption{Vote thresholds, and their values for $f=p=1$, $N=6$.}
+\label{tab:thresholds}
+\centering\small
+\begin{tabularx}{\columnwidth}{@{}>{\raggedright\arraybackslash}p{0.40\columnwidth}Yc@{}}
+\toprule
+What & Needs & Example\\
+\midrule
+Block notarized (also: exclusion witness) & $q=N-f-p$ first votes or supports & 4\\
+Block final, normal path & $q$ final votes & 4\\
+Block final, fast path & $N-p$ settled first votes & 5\\
+Recovery lock in a checkpoint & $r=f+p+1$ reporter first votes & 3\\
+Reports in a checkpoint & $N-f$ & 5\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The numbers are chosen so that any two groups of $q$ validators share at least $f+1$ members, hence at least one correct one ($2q-N=f+1$); so that any $q$ final voters and any $N-f$ reporters share at least $p+1$ correct ones ($q-2f=p+1$); and so that any $N-p$ fast voters and any $N-f$ reporters share at least $r$ correct ones ($N-p-2f=r$). These three overlaps carry every safety argument of the paper.
+
+\para{Accounts and blocks.}
+Each account is a chain of owner-signed blocks starting at a genesis. A block names its parent and sits at the parent's position plus one; positions are heights in the account, not times. Two blocks of one account \emph{conflict} if neither is an ancestor of the other. A block carries payments: a \emph{send} debits its own account; a \emph{receive} credits the account and names a send that must already be final. An owner \emph{equivocates} by signing conflicting blocks. Safety covers equivocating owners; liveness promises them nothing while they keep contradicting themselves.
+
+\para{Network and cryptography.}
+Signatures cannot be forged and hashes do not collide. Every vote binds its epoch, committee, account, position, kind, block, and the evidence under which it was cast, so a vote cannot be replayed in another context. Correct validators write what they sign to disk before sending it, keep blocks, votes, and evidence, and keep serving them after they leave an epoch. Safety needs no bound on message delay. Termination needs the usual: finite work, fair retry, and recurring windows in which messages arrive within a known delay and clocks drift by a bounded factor.
+
+\para{What a checkpoint contains.}
+A checkpoint $S_e$ is the agreed state at the end of epoch $e$: for each account the finalized prefix, the unresolved blocks the epoch kept, and \emph{locks} on those blocks; plus balances and the identifiers of received sends. A lock says ``keep this block, it may still be final'' and records its \emph{strength} (notarized, or recovery) and its \emph{origin}: the epoch whose possible confirmation it protects. A lock is released only by evidence from its own origin epoch (Section~\ref{sec:close}). The committee of epoch $e+2$ is a deterministic function of $S_e$, so it is known throughout the transition from $e+1$ to $e+2$.
+
+\para{Two abstract services.}
+RAI commits to sets by their hash and to candidates by their digest, and uses two services to turn these commitments into shared state. \emph{Set reconstruction} lets any validator obtain the two sets a reporter committed to in its signed report; RAI needs that a reconstructed set matches the signed hash (integrity) and that a correct reporter's sets are eventually reconstructible at every correct validator (termination). \emph{Agreement} lets the outgoing committee decide one candidate checkpoint among those RAI declares \emph{eligible}; RAI needs that all correct validators decide the same value, that the decided value is eligible, that the decision proof is verifiable by anyone who knows the committee and cannot be replayed, and that a decision is reached whenever $N-f$ correct members hold an eligible candidate. Any set-reconciliation mechanism and any Byzantine agreement protocol with external validity~\cite{externalvalidity} fit; our prototype uses rateless set reconciliation~\cite{rateless} and a Kudzu-style election~\cite{kudzu}. The supplement states the interfaces formally (C1--C2, A1--A4).

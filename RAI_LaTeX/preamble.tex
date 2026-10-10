@@ -4,15 +4,16 @@
 \usepackage[T1]{fontenc}
 \usepackage{amsmath,mathtools,amssymb}
 \usepackage{array,tabularx,booktabs}
-\usepackage{algorithm}
-\usepackage{algpseudocode}
 \usepackage{enumitem}
 \usepackage{tikz}
-\usetikzlibrary{arrows.meta,positioning,calc}
+\usetikzlibrary{arrows.meta,positioning,calc,shapes.misc,matrix}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usepgfplotslibrary{groupplots}
 \usepackage{xurl}
 \usepackage{balance}
 \usepackage[hidelinks]{hyperref}
-\hypersetup{pdfauthor={Anonymous Author(s)},pdftitle={RAI: Safe Pipelined Epoch Transitions for Account-Local Payments}}
+\hypersetup{pdfauthor={Anonymous Author(s)},pdftitle={RAI: Safe Payments Through Committee Changes Without Stopping}}
 \setlist[enumerate]{leftmargin=*,topsep=2pt,itemsep=1pt,parsep=0pt}
 \setlist[itemize]{leftmargin=*,topsep=2pt,itemsep=1pt,parsep=0pt}
 \setlist[description]{leftmargin=1.2em,topsep=2pt,itemsep=1pt,parsep=0pt}
@@ -22,29 +23,22 @@
 \newtheorem{lemma}{Lemma}
 \newtheorem{definition}{Definition}
 \newcommand{\rai}{RAI}
-\newcommand{\NC}{\mathsf{NC}}
-\newcommand{\XW}{\mathsf{XW}}
-\newcommand{\OC}{\mathsf{OC}}
-\newcommand{\FC}{\mathsf{FC}}
-\newcommand{\FF}{\mathsf{FF}}
-\newcommand{\Build}{\mathsf{BuildState}}
-\newcommand{\Agree}{\mathsf{Decide}}
-\newcommand{\Conv}{\mathsf{Reconstruct}}
-\newcommand{\Freeze}{\mathsf{Freeze}}
-\newcommand{\Elig}{\mathsf{Eligible}}
-\newcommand{\Root}{\mathsf{Root}}
-\newcommand{\Replay}{\mathsf{Replay}}
-\newcommand{\Anc}{\mathsf{Anc}}
-\newcommand{\keys}{\mathsf{keys}}
-\newcommand{\Sign}{\mathsf{Sign}}
-\newcommand{\ctx}{\mathsf{ctx}}
-\newcommand{\Send}{\mathsf{Send}}
-\newcommand{\Receive}{\mathsf{Receive}}
-\newcommand{\tagR}{\mathsf{R}}
-\newcommand{\tagN}{\mathsf{N}}
-\newcommand{\tagF}{\mathsf{F}}
-\newcommand{\Byz}{\mathsf{Byz}}
 \newcommand{\para}[1]{\smallskip\noindent\textit{#1}\hspace{0.5em}}
+\newcommand{\rulename}[1]{\textbf{#1}}
 \newcolumntype{Y}{>{\raggedright\arraybackslash}X}
 % IEEEtran names its proof environment IEEEproof.
 \newenvironment{proof}{\begin{IEEEproof}}{\end{IEEEproof}}
+% Figure colours: distinct in lightness, so they also read in grayscale.
+\definecolor{cRai}{RGB}{0,84,159}
+\definecolor{cPause}{RGB}{217,95,2}
+\definecolor{cNano}{RGB}{120,120,120}
+\definecolor{cFinal}{RGB}{27,120,55}
+\definecolor{cLock}{RGB}{200,160,0}
+\definecolor{cBad}{RGB}{178,24,43}
+\tikzset{
+  blk/.style={draw,rounded corners=1pt,minimum width=1.7em,minimum height=1.3em,font=\footnotesize,inner sep=2pt},
+  final/.style={blk,fill=cFinal!25},
+  locked/.style={blk,fill=cLock!35},
+  bad/.style={blk,fill=cBad!20},
+  val/.style={font=\scriptsize},
+}

@@ -189,7 +189,7 @@ Finals == {b \in Blocks : Cert1(b)} \cup ovf \cup pof \cup S.fin
 Agreement == Cardinality(Finals) <= 1
 
 \* Theorem 6.4 for closure 1, with discharge by either kind of NC.
-Thm64 ==
+ClosureThm1 ==
   S.done => \A b \in Blocks : Cert1(b) =>
     \/ b \in S.fin
     \/ \E l \in S.locks : l.b = b /\ ~MixedNC1(Other(b))

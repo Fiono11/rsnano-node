@@ -1,0 +1,65 @@
+TLC2 Version 2.20 of Day Month 20?? (rev: 2cf8424)
+Running breadth-first search Model-Checking with fp 22 and seed -8042308706327330360 with 8 workers on 8 cores with 3641MB heap and 64MB offheap memory [pid: 2698] (Mac OS X 14.6.1 aarch64, Eclipse Adoptium 17.0.7 x86_64, MSBDiskFPSet, DiskStateQueue).
+Parsing file /Users/ruimorais/rsnano-node/.claude/worktrees/rai-eval-harness/RAI_LaTeX/tla/RaiPrefix.tla
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-725461167078965777/Naturals.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-725461167078965777/FiniteSets.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-725461167078965777/TLC.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-725461167078965777/_TLCTrace.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-725461167078965777/Sequences.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-725461167078965777/TLCExt.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-725461167078965777/Integers.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module Integers
+Semantic processing of module TLCExt
+Semantic processing of module _TLCTrace
+Semantic processing of module RaiPrefix
+Linting of module TLCExt
+Linting of module _TLCTrace
+Linting of module RaiPrefix
+Starting... (2026-10-10 11:03:27)
+Computing initial states...
+Finished computing initial states: 1 distinct state generated at 2026-10-10 11:03:27.
+Progress(11) at 2026-10-10 11:03:31: 269 885 states generated (269 885 s/min), 58 181 distinct states found (58 181 ds/min), 44 543 states left on queue.
+Progress(13) at 2026-10-10 11:04:31: 7 625 230 states generated (7 355 345 s/min), 1 333 742 distinct states found (1 275 561 ds/min), 905 389 states left on queue.
+Progress(14) at 2026-10-10 11:05:31: 14 734 023 states generated (7 108 793 s/min), 2 433 935 distinct states found (1 100 193 ds/min), 1 585 080 states left on queue.
+Progress(14) at 2026-10-10 11:06:31: 21 267 086 states generated (6 533 063 s/min), 3 517 532 distinct states found (1 083 597 ds/min), 2 266 056 states left on queue.
+Progress(14) at 2026-10-10 11:07:31: 28 109 601 states generated (6 842 515 s/min), 4 568 045 distinct states found (1 050 513 ds/min), 2 897 360 states left on queue.
+Progress(15) at 2026-10-10 11:08:31: 35 077 079 states generated (6 967 478 s/min), 5 543 031 distinct states found (974 986 ds/min), 3 441 677 states left on queue.
+Progress(15) at 2026-10-10 11:09:31: 41 903 649 states generated (6 826 570 s/min), 6 585 084 distinct states found (1 042 053 ds/min), 4 064 426 states left on queue.
+Progress(15) at 2026-10-10 11:10:31: 48 497 048 states generated (6 593 399 s/min), 7 642 531 distinct states found (1 057 447 ds/min), 4 709 928 states left on queue.
+Progress(15) at 2026-10-10 11:11:31: 54 800 310 states generated (6 303 262 s/min), 8 644 834 distinct states found (1 002 303 ds/min), 5 285 804 states left on queue.
+Progress(15) at 2026-10-10 11:12:31: 61 508 374 states generated (6 708 064 s/min), 9 571 275 distinct states found (926 441 ds/min), 5 794 200 states left on queue.
+Progress(15) at 2026-10-10 11:13:31: 68 144 170 states generated (6 635 796 s/min), 10 616 670 distinct states found (1 045 395 ds/min), 6 422 363 states left on queue.
+Progress(15) at 2026-10-10 11:14:31: 74 587 588 states generated (6 443 418 s/min), 11 518 026 distinct states found (901 356 ds/min), 6 899 287 states left on queue.
+Progress(15) at 2026-10-10 11:15:31: 81 382 808 states generated (6 795 220 s/min), 12 378 381 distinct states found (860 355 ds/min), 7 322 054 states left on queue.
+Progress(16) at 2026-10-10 11:16:31: 87 847 934 states generated (6 465 126 s/min), 13 319 322 distinct states found (940 941 ds/min), 7 850 633 states left on queue.
+Progress(16) at 2026-10-10 11:17:31: 94 651 149 states generated (6 803 215 s/min), 14 222 847 distinct states found (903 525 ds/min), 8 318 953 states left on queue.
+Progress(16) at 2026-10-10 11:18:31: 101 146 260 states generated (6 495 111 s/min), 15 230 052 distinct states found (1 007 205 ds/min), 8 890 213 states left on queue.
+Progress(16) at 2026-10-10 11:19:31: 107 632 935 states generated (6 486 675 s/min), 16 150 833 distinct states found (920 781 ds/min), 9 430 950 states left on queue.
+Progress(16) at 2026-10-10 11:20:31: 114 005 949 states generated (6 373 014 s/min), 17 202 798 distinct states found (1 051 965 ds/min), 10 059 569 states left on queue.
+Progress(16) at 2026-10-10 11:21:31: 120 269 703 states generated (6 263 754 s/min), 18 100 446 distinct states found (897 648 ds/min), 10 548 583 states left on queue.
+Progress(16) at 2026-10-10 11:22:31: 126 553 356 states generated (6 283 653 s/min), 19 095 272 distinct states found (994 826 ds/min), 11 085 370 states left on queue.
+Progress(16) at 2026-10-10 11:23:31: 132 995 856 states generated (6 442 500 s/min), 20 063 776 distinct states found (968 504 ds/min), 11 615 071 states left on queue.
+Progress(16) at 2026-10-10 11:24:31: 139 495 861 states generated (6 500 005 s/min), 20 941 708 distinct states found (877 932 ds/min), 12 045 053 states left on queue.
+Progress(16) at 2026-10-10 11:25:31: 146 089 706 states generated (6 593 845 s/min), 21 806 785 distinct states found (865 077 ds/min), 12 488 996 states left on queue.
+Progress(16) at 2026-10-10 11:26:31: 152 503 522 states generated (6 413 816 s/min), 22 706 947 distinct states found (900 162 ds/min), 12 992 498 states left on queue.
+Progress(16) at 2026-10-10 11:27:31: 159 175 278 states generated (6 671 756 s/min), 23 594 741 distinct states found (887 794 ds/min), 13 477 549 states left on queue.
+Progress(16) at 2026-10-10 11:28:31: 165 223 402 states generated (6 048 124 s/min), 24 665 553 distinct states found (1 070 812 ds/min), 14 128 488 states left on queue.
+Progress(16) at 2026-10-10 11:29:31: 171 654 611 states generated (6 431 209 s/min), 25 559 967 distinct states found (894 414 ds/min), 14 584 175 states left on queue.
+Progress(16) at 2026-10-10 11:30:31: 178 181 384 states generated (6 526 773 s/min), 26 427 633 distinct states found (867 666 ds/min), 15 006 989 states left on queue.
+Progress(16) at 2026-10-10 11:31:31: 184 573 707 states generated (6 392 323 s/min), 27 231 957 distinct states found (804 324 ds/min), 15 383 363 states left on queue.
+Progress(16) at 2026-10-10 11:32:31: 191 294 574 states generated (6 720 867 s/min), 28 018 042 distinct states found (786 085 ds/min), 15 724 336 states left on queue.
+Checkpointing of run /private/tmp/claude-501/-Users-ruimorais-rsnano-node/cc1e87d8-2f79-4532-999d-7793feffe4d2/scratchpad/meta-Prefix6_shared3_target/26-10-10-11-03-27.699
+Checkpointing completed at (2026-10-10 11:33:31)
+Progress(17) at 2026-10-10 11:33:31: 197 855 529 states generated (6 560 955 s/min), 28 930 212 distinct states found (912 170 ds/min), 16 229 866 states left on queue.
+Progress(17) at 2026-10-10 11:34:31: 204 301 978 states generated (6 446 449 s/min), 29 863 898 distinct states found (933 686 ds/min), 16 720 648 states left on queue.
+Progress(17) at 2026-10-10 11:35:31: 210 860 067 states generated (6 558 089 s/min), 30 728 831 distinct states found (864 933 ds/min), 17 142 248 states left on queue.
+Progress(17) at 2026-10-10 11:36:31: 217 408 390 states generated (6 548 323 s/min), 31 473 909 distinct states found (745 078 ds/min), 17 451 231 states left on queue.
+Progress(17) at 2026-10-10 11:37:31: 223 722 228 states generated (6 313 838 s/min), 32 446 719 distinct states found (972 810 ds/min), 17 996 518 states left on queue.
+Progress(17) at 2026-10-10 11:38:31: 229 964 441 states generated (6 242 213 s/min), 33 372 499 distinct states found (925 780 ds/min), 18 462 510 states left on queue.
+Progress(17) at 2026-10-10 11:39:31: 236 304 895 states generated (6 340 454 s/min), 34 214 089 distinct states found (841 590 ds/min), 18 918 446 states left on queue.
+Progress(17) at 2026-10-10 11:40:31: 242 556 321 states generated (6 251 426 s/min), 35 081 432 distinct states found (867 343 ds/min), 19 399 143 states left on queue.
+Progress(17) at 2026-10-10 11:41:31: 248 816 881 states generated (6 260 560 s/min), 35 834 675 distinct states found (753 243 ds/min), 19 791 892 states left on queue.

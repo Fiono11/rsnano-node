@@ -1,0 +1,220 @@
+TLC2 Version 2.20 of Day Month 20?? (rev: 2cf8424)
+Running breadth-first search Model-Checking with fp 84 and seed -3343119354356510792 with 8 workers on 8 cores with 3641MB heap and 64MB offheap memory [pid: 2627] (Mac OS X 14.6.1 aarch64, Eclipse Adoptium 17.0.7 x86_64, MSBDiskFPSet, DiskStateQueue).
+Parsing file /Users/ruimorais/rsnano-node/.claude/worktrees/rai-eval-harness/RAI_LaTeX/tla/RaiPrefix.tla
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-3372830108531399609/Naturals.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-3372830108531399609/FiniteSets.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-3372830108531399609/TLC.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-3372830108531399609/_TLCTrace.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-3372830108531399609/Sequences.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-3372830108531399609/TLCExt.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-3372830108531399609/Integers.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module Integers
+Semantic processing of module TLCExt
+Semantic processing of module _TLCTrace
+Semantic processing of module RaiPrefix
+Linting of module TLCExt
+Linting of module _TLCTrace
+Linting of module RaiPrefix
+Starting... (2026-10-10 11:02:50)
+Computing initial states...
+Finished computing initial states: 1 distinct state generated at 2026-10-10 11:02:50.
+Error: Invariant ProbeChildEarly is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ left = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> TRUE)
+/\ fv1 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"-", "-">> @@
+  c4 :> <<"-", "-">> )
+/\ fv2 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"-", "-">> @@
+  c4 :> <<"-", "-">> )
+/\ fn1 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> )
+/\ fn2 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> )
+
+State 2: <Vote1(c1,"P") line 115, col 3 to line 118, col 38 of module RaiPrefix>
+/\ left = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> TRUE)
+/\ fv1 = ( c1 :> <<"P", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"-", "-">> @@
+  c4 :> <<"-", "-">> )
+/\ fv2 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"-", "-">> @@
+  c4 :> <<"-", "-">> )
+/\ fn1 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> )
+/\ fn2 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> )
+
+State 3: <Vote1(c2,"P") line 115, col 3 to line 118, col 38 of module RaiPrefix>
+/\ left = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> TRUE)
+/\ fv1 = ( c1 :> <<"P", "-">> @@
+  c2 :> <<"P", "-">> @@
+  c3 :> <<"-", "-">> @@
+  c4 :> <<"-", "-">> )
+/\ fv2 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"-", "-">> @@
+  c4 :> <<"-", "-">> )
+/\ fn1 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> )
+/\ fn2 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> )
+
+State 4: <Vote1(c3,"P") line 115, col 3 to line 118, col 38 of module RaiPrefix>
+/\ left = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> TRUE)
+/\ fv1 = ( c1 :> <<"P", "-">> @@
+  c2 :> <<"P", "-">> @@
+  c3 :> <<"P", "-">> @@
+  c4 :> <<"-", "-">> )
+/\ fv2 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"-", "-">> @@
+  c4 :> <<"-", "-">> )
+/\ fn1 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> )
+/\ fn2 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> )
+
+State 5: <Vote1(c1,"C1") line 115, col 3 to line 118, col 38 of module RaiPrefix>
+/\ left = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> TRUE)
+/\ fv1 = ( c1 :> <<"P", "C1">> @@
+  c2 :> <<"P", "-">> @@
+  c3 :> <<"P", "-">> @@
+  c4 :> <<"-", "-">> )
+/\ fv2 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"-", "-">> @@
+  c4 :> <<"-", "-">> )
+/\ fn1 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> )
+/\ fn2 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> )
+
+State 6: <Vote2(c4,"C1") line 134, col 3 to line 138, col 38 of module RaiPrefix>
+/\ left = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> TRUE)
+/\ fv1 = ( c1 :> <<"P", "C1">> @@
+  c2 :> <<"P", "-">> @@
+  c3 :> <<"P", "-">> @@
+  c4 :> <<"-", "-">> )
+/\ fv2 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"-", "-">> @@
+  c4 :> <<"-", "C1">> )
+/\ fn1 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> )
+/\ fn2 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> )
+
+State 7: <Leave(c2) line 127, col 3 to line 129, col 37 of module RaiPrefix>
+/\ left = (c1 :> FALSE @@ c2 :> TRUE @@ c3 :> FALSE @@ c4 :> TRUE)
+/\ fv1 = ( c1 :> <<"P", "C1">> @@
+  c2 :> <<"P", "-">> @@
+  c3 :> <<"P", "-">> @@
+  c4 :> <<"-", "-">> )
+/\ fv2 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "-">> @@
+  c3 :> <<"-", "-">> @@
+  c4 :> <<"-", "C1">> )
+/\ fn1 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> )
+/\ fn2 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> )
+
+State 8: <Vote2(c2,"C1") line 134, col 3 to line 138, col 38 of module RaiPrefix>
+/\ left = (c1 :> FALSE @@ c2 :> TRUE @@ c3 :> FALSE @@ c4 :> TRUE)
+/\ fv1 = ( c1 :> <<"P", "C1">> @@
+  c2 :> <<"P", "-">> @@
+  c3 :> <<"P", "-">> @@
+  c4 :> <<"-", "-">> )
+/\ fv2 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "C1">> @@
+  c3 :> <<"-", "-">> @@
+  c4 :> <<"-", "C1">> )
+/\ fn1 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> )
+/\ fn2 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> )
+
+State 9: <Final2(c2,2) line 142, col 3 to line 145, col 38 of module RaiPrefix>
+/\ left = (c1 :> FALSE @@ c2 :> TRUE @@ c3 :> FALSE @@ c4 :> TRUE)
+/\ fv1 = ( c1 :> <<"P", "C1">> @@
+  c2 :> <<"P", "-">> @@
+  c3 :> <<"P", "-">> @@
+  c4 :> <<"-", "-">> )
+/\ fv2 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "C1">> @@
+  c3 :> <<"-", "-">> @@
+  c4 :> <<"-", "C1">> )
+/\ fn1 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> )
+/\ fn2 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, TRUE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> )
+
+State 10: <Final2(c4,2) line 142, col 3 to line 145, col 38 of module RaiPrefix>
+/\ left = (c1 :> FALSE @@ c2 :> TRUE @@ c3 :> FALSE @@ c4 :> TRUE)
+/\ fv1 = ( c1 :> <<"P", "C1">> @@
+  c2 :> <<"P", "-">> @@
+  c3 :> <<"P", "-">> @@
+  c4 :> <<"-", "-">> )
+/\ fv2 = ( c1 :> <<"-", "-">> @@
+  c2 :> <<"-", "C1">> @@
+  c3 :> <<"-", "-">> @@
+  c4 :> <<"-", "C1">> )
+/\ fn1 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, FALSE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, FALSE>> )
+/\ fn2 = ( c1 :> <<FALSE, FALSE>> @@
+  c2 :> <<FALSE, TRUE>> @@
+  c3 :> <<FALSE, FALSE>> @@
+  c4 :> <<FALSE, TRUE>> )
+
+70199 states generated, 21442 distinct states found, 13419 states left on queue.
+The depth of the complete state graph search is 10.
+Finished in 01s at (2026-10-10 11:02:52)
+Trace exploration spec path: ./RaiPrefix_TTrace_1791626570.tla

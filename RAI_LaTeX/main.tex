@@ -2,13 +2,13 @@
 \IEEEoverridecommandlockouts
 \input{preamble}
 \begin{document}
-\title{RAI: Safe Pipelined Epoch Transitions\\for Account-Local Payments}
+\title{RAI: Safe Payments Through Committee Changes\\Without Stopping}
 \author{\IEEEauthorblockN{Anonymous Author(s)}
 \IEEEauthorblockA{Regular paper}}
 \maketitle
 
 \begin{abstract}
-Single-writer payments finalize from account-local quorums without a global transaction sequence. Replacing validators is the hard part: votes already released by the outgoing committee can still form a final certificate after the handoff. RAI lets the next epoch's account voting proceed while the previous epoch closes. Each outgoing validator freezes one signed report; a deterministic construction turns an eligible selection of reports into a checkpoint carrying finality and origin-stamped locks. RAI is safe and terminates given the safety and termination of abstract reconstruction and agreement services. A predecessor gate, a prefix-wide overlap exception, late notarization, and a no-fast-path rule for early votes keep the pipeline safe; TLA\textsuperscript{+} model checking exposes three earlier rules' failures and verifies the repairs. A prototype in RsNano settles nine fork and fault workloads at 2,000 blocks/s, with median latency of 116 to 131\,ms without forks, and stays consistent across restarts and committee changes.
+Payment systems such as Nano and FastPay confirm each account's transactions separately, with no global order, in one network round trip. Two things remain hard. When the validators change, votes already given by the old validators can still complete a confirmation after the handover, so a careless handover can confirm two conflicting payments. And when an account signs two conflicting payments, by mistake or on purpose, most systems leave it stuck forever. RAI adds epochs to such a system. Each epoch ends in a checkpoint built from signed reports of the outgoing validators, and the next epoch's voting runs while the previous one closes, under a small set of rules that keep the two from contradicting each other. Checkpoints also give every conflicting payment a decision, so an honest owner can recover. We prove safety and termination, model-check the handover rules, and show on a prototype that transitions cost little latency where a stop-and-drain handover stalls confirmations.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -16,18 +16,20 @@ Byzantine fault tolerance, reconfiguration, asset transfer, consensusless paymen
 \end{IEEEkeywords}
 
 \input{sections/01-introduction}
-\input{sections/02-overview}
-\input{sections/03-model}
-\input{sections/04-account}
-\input{sections/05-transitions}
-\input{sections/06-correctness}
-\input{sections/07-modelchecking}
-\input{sections/08-costs}
-\input{sections/09-related}
+\input{sections/02-problem}
+\input{sections/03-glance}
+\input{sections/04-model}
+\input{sections/05-epoch}
+\input{sections/06-close}
+\input{sections/07-pipeline}
+\input{sections/08-correctness}
+\input{sections/09-modelchecking}
 \input{sections/10-eval}
+\input{sections/11-related}
+\input{sections/12-conclusion}
 
 \section*{AI Tool Usage}
-ChatGPT assisted with an earlier restructuring of the manuscript, source checking, protocol review, and proof exposition. Claude Code assisted with the prototype implementation, the benchmark harness, running the experiments, diagnosing the defects of Section~\ref{sec:eval}, and drafting this revision. The TLA\textsuperscript{+} models were written with the help of ChatGPT and checked with TLC. The proof arguments were reviewed by the authors and have not been machine checked beyond the finite configurations of Section~\ref{sec:mc}.
+ChatGPT assisted with an earlier restructuring of the manuscript, with source checking, protocol review, and proof exposition, and helped write the TLA\textsuperscript{+} models, which were checked with TLC. Claude Code (Anthropic) assisted with the prototype implementation, the benchmark harness and the stop-and-drain and link-delay switches, ran the experiments of Section~\ref{sec:eval} and produced their figures, diagnosed the defects listed in the supplement, and drafted the text and figures of this revision, which the authors revised. The proof arguments were reviewed by the authors and have not been machine checked beyond the finite configurations of Section~\ref{sec:mc}. No data in this paper is AI-generated: all measurements come from the prototype runs described in Section~\ref{sec:eval}.
 
 \balance
 \bibliographystyle{IEEEtran}

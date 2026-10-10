@@ -1,0 +1,38 @@
+\section{Inside an Epoch}
+\label{sec:epoch}
+Within an epoch RAI votes like Nano or FastPay, with two twists that pay off at the boundary: a validator never switches sides, and a final vote is preceded by a notarization.
+
+\para{Confirming a block.}
+Alice signs block $A$ at position 7 of her account and sends it to the six validators. Each validator checks the block against Alice's chain as it knows it (parent, balance, no duplicate receive) and, if it has not voted at position 7 in this epoch, casts a first vote for $A$ (\ref{r:one}). With four first votes $A$ is \emph{notarized}; a validator that holds the notarization and first-voted $A$ casts its final vote. Four final votes make $A$ final. If five first votes arrive from validators that have installed the previous checkpoint, $A$ is final at once, in one round trip; this is the common case, and the reason RAI's median latency in Section~\ref{sec:eval} is below Nano's, which always needs a second round.
+
+\para{Why the thresholds are safe.}
+Any two groups of four validators out of six share at least two, and at most one of those is Byzantine. A correct validator supports one block per position (\ref{r:one}), so two conflicting blocks cannot both reach four supporters. Four supporters for $A$ therefore \emph{exclude} every rival: no rival can be notarized or final in this epoch. We call a set of $q$ supporters an \emph{exclusion witness}; it is the one piece of evidence the boundary rules will ask for again and again. Five first votes for $A$ leave at most one correct validator free to support a rival, so a fast-final block has no rival with three honest supporters either; this is what makes the recovery threshold $r=3$ of~\ref{r:build} work.
+
+\para{A double spend.}
+Suppose Alice also signs $A'$ at position 7, paying someone else, and shows $A$ to three validators and $A'$ to the other three (Figure~\ref{fig:fork}). Neither reaches four. In Nano this position is stuck: final votes cannot be withdrawn, no block at position 7 will ever confirm, and every later block of Alice's account waits behind it. In RAI the position is settled at the next checkpoint (\ref{r:build}). The checkpoint is built from five of the six reports, which show three first votes for one side and two for the other, say three for $A$. $A$ is kept under a \emph{recovery lock} of origin $e$, $A'$ is dropped, and from now on no validator admits a rival of $A$ at position 7 while the lock stands. In epoch $e+1$ the kept block is voted again, and the validators that voted $A'$ in epoch $e$ are free to vote $A$ now, because once $S_e$ is decided no epoch-$e$ certificate for $A'$ can ever form: $A$ collects five first votes and is final. Should the five reports show three against three, which needs a reporter who voted both sides, nothing is kept and the position is voted afresh in epoch $e+1$, where one side wins as usual. Either way Alice's account is unblocked within an epoch or two, and if she prefers she can extend the kept block with a fresh child, whose confirmation confirms the kept block below it (Section~\ref{sec:close}). A deliberate attacker gains nothing: at most one side becomes final, and nobody else is affected.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[>=Stealth,font=\footnotesize]
+\node[final] (a6) at (0,0) {$A_6$};
+\node[blk] (a) at (1.2,0.55) {$A$};
+\node[blk] (ap) at (1.2,-0.55) {$A'$};
+\draw[->] (a) -- (a6); \draw[->] (ap) -- (a6);
+\node[val,anchor=west] at (1.65,0.55) {first votes $V_1,V_2,V_3$};
+\node[val,anchor=west] at (1.65,-0.55) {first votes $V_4,V_5,V_6$};
+\node[val,anchor=north] at (0,-0.3) {final};
+\draw[->,thick,cPause] (4.1,0) -- (4.9,0) node[midway,above,val] {close $e$};
+\node[locked] (ka) at (5.4,0.55) {$A$};
+\node[val,anchor=west] at (5.75,0.55) {recovery lock, origin $e$};
+\node[val,anchor=west,text=cBad] at (5.1,-0.55) {$A'$ dropped};
+\draw[->,thick,cFinal] (5.4,0.25) -- (5.4,-0.15) node[right,val,xshift=1pt,yshift=-4pt] {};
+\node[final] (fa) at (5.4,-1.3) {$A$};
+\draw[->,thick,cFinal] (ka) -- (fa);
+\node[val,anchor=west] at (5.75,-1.3) {epoch $e+1$: five first votes, final};
+\end{tikzpicture}
+\caption{A double spend at position 7. Neither block reaches four first votes. The five selected reports show three votes for $A$ and two for $A'$: the checkpoint locks $A$ for recovery and drops $A'$; in the next epoch every validator may vote $A$, which becomes final.}
+\label{fig:fork}
+\end{figure}
+
+\para{Durable votes.}
+A correct validator writes its first vote and its final vote to disk before releasing them, so that a crash and restart cannot make it vote twice. Our prototype syncs these writes; Section~\ref{sec:eval} reports what that costs.

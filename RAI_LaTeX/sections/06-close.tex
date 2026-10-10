@@ -1,0 +1,48 @@
+\section{Closing an Epoch}
+\label{sec:close}
+An epoch closes in three steps: every outgoing validator freezes a report, the outgoing committee agrees on a checkpoint built from $N-f$ reports, and the next committee installs it. Figure~\ref{fig:close} follows Alice's account through one close.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[>=Stealth,font=\footnotesize,node distance=2mm and 3mm]
+\matrix (m) [matrix of nodes,row sep=1.5mm,column sep=4mm,nodes={anchor=west,font=\footnotesize}]{
+ \textbf{report $V_1$} & $A_6$: F & $A$: N & $B$: voted \\
+ \textbf{report $V_2$} & $A_6$: F & $A$: N & $B$: voted \\
+ \textbf{report $V_3$} & $A_6$: F & $A$: N & $B'$: voted \\
+ \textbf{report $V_4$} & $A_6$: F & $A$: voted & $B$: voted \\
+ \textbf{report $V_6$} & $A_6$: F & \textcolor{cBad}{$A'$: N} & \\
+};
+\node[below=3mm of m.south,anchor=north,align=left,text width=0.96\columnwidth,font=\footnotesize] (res) {%
+\textbf{checkpoint $S_e$}: $A_6$ final (inherited); $A$ \emph{locked, notarized}
+($V_1$, $V_2$, $V_3$ show it notarized; $V_6$'s claim for $A'$ has no four first votes behind it and is dropped);\\
+$B$ \emph{locked for recovery, origin $e$} (three reporter first votes, no rival with three); $B'$ dropped.\\
+Promotion: $A$ is the only block kept at position 7 and has an epoch-$e$ notarization $\Rightarrow$ $A$ final in $S_e$.};
+\end{tikzpicture}
+\caption{Five of six reports close epoch $e$ for Alice's account. F = final, N = notarized, voted = first-voted but not notarized (the report's second set).}
+\label{fig:close}
+\end{figure}
+
+\para{Reports (\ref{r:report}).}
+When a validator's local clock says the epoch is over, it stops first- and final-voting in it, and signs one header committing to two sets. The first is a tagged view of its ledger: every block it holds, tagged \emph{final} (by an inherited checkpoint or by a certificate it has seen), \emph{notarized} (four first votes seen, no finality), or \emph{inherited} (kept by the previous checkpoint under a recovery lock, nothing new seen). The second set lists every block the validator first-voted in this epoch that the first set does not already show as notarized or final. The two sets are frozen: later events change the validator's live view, never its report. The header carries only the hashes of the two sets; whoever needs the sets reconstructs them (Section~\ref{sec:model}). A report is \emph{usable} at a validator once both sets are reconstructed and every claim in them is backed by evidence that validator holds: four first votes behind every ``notarized'', a certificate behind every ``final'', the reporter's own signed first vote behind every entry of the second set. A Byzantine reporter can make its own report unusable, and nobody else's.
+
+The second set has a subtle requirement, found by model checking. A reporter that first-voted a block the previous checkpoint already keeps under a recovery lock tags it \emph{inherited} in the first set. If the second set excluded every block of the first set, as our earlier definition did, this fresh vote would appear nowhere, and a latent fast certificate could vanish from the checkpoint. The second set therefore excludes only blocks tagged notarized or final.
+
+\para{The recipe (\ref{r:build}).}
+A candidate checkpoint names exactly $N-f$ usable reports from distinct members, in a fixed order, plus a manifest of the evidence behind their claims. From these inputs every validator computes the same state by the following recipe, which is deterministic and never consults the candidate's own certificate.
+\begin{enumerate}
+\item \emph{Keep finality.} Every block a selected report shows final, with its ancestors and the sends its receives depend on, is final.
+\item \emph{Lock notarized blocks.} At each position, if a selected report shows a block notarized, backed by four first votes, keep it under a \emph{notarization lock}. Two conflicting blocks cannot both be notarized (Section~\ref{sec:epoch}), so there is at most one.
+\item \emph{Lock for recovery.} If no block at the position is notarized, but exactly one block has first votes from $r$ (3) of the selected reporters, keep it under a \emph{recovery lock} with origin $e$. If several conflicting blocks reach $r$, which needs a reporter who voted both, nothing is locked and the position is voted afresh in the next epoch; this is safe because a block that can still become fast-final has no rival with $r$ supporters.
+\item \emph{Carry old locks.} Every lock of the previous checkpoint is carried forward, unless a final block excludes its block, or, for a recovery lock of origin $o$, the manifest contains an exclusion witness of epoch $o$ for a conflicting block. Nothing else releases a lock; in particular a newer epoch number never does.
+\item \emph{Promote.} For each account, starting at its last final block, walk up while the next block is the only one kept at its position and has an epoch-$e$ notarization of first votes; those blocks become final with the checkpoint. Promotion never resolves a fork and never promotes a block kept by a recovery lock alone.
+\end{enumerate}
+The thresholds make this safe (Theorem~\ref{thm:closure}): whatever the old epoch could still confirm is kept as final or under a lock, and a lock can only be released by evidence of its own origin epoch, which cannot exist if the block it protects can still be final.
+
+\para{Why locks have an origin.}
+A recovery lock says ``three validators first-voted this block in epoch $o$; a fast certificate with five epoch-$o$ votes may exist.'' Such a certificate is excluded exactly by four epoch-$o$ supporters for a rival, and by nothing else: four epoch-$(o+1)$ votes for the rival say nothing about epoch $o$. So the lock records $o$, and a block may carry locks of several origins, one per epoch in which it was voted but not resolved. Releasing a lock on the strength of a newer epoch's votes was our second wrong rule; it let two validators finalize different blocks.
+
+\para{Eligibility, agreement, and installation (\ref{r:install}).}
+A candidate is \emph{eligible} if its $N-f$ reports are usable, its manifest hash matches, and the recipe yields the state whose digest it names. The outgoing committee runs the agreement service with this predicate; the service may be any Byzantine agreement protocol with external validity. The decided value is small, $N-f$ report headers and two digests, whatever the number of accounts. The next committee verifies the decision proof, reconstructs the inputs, recomputes the state, and installs it: its final set is the union of its base and what it had already finalized, replay applies each operation once, and nothing is rolled back. There is no second vote; the successor only checks.
+
+\para{Continuing from a kept block.}
+A kept block gets an instance at its own position in the open epoch, and no rival is admitted there while a lock on it stands. Validators that voted the dropped rival in the closed epoch may vote the kept block now: the rule against switching (\ref{r:cross}) ends when the checkpoint is decided, because a decided checkpoint that kept $A$ proves that no closed-epoch certificate for a rival can form. So the kept block normally collects a full set of first votes and is final in the next epoch. If it does not, the next checkpoint keeps it again with a new origin, and its owner can extend it with a fresh child, whose confirmation confirms the kept block below it. A position at which nothing was kept is simply voted afresh. In our fork workloads nearly all split positions were resolved this way within an epoch or two; the few that stayed kept were kept identically on every validator (Section~\ref{sec:eval}).

@@ -193,7 +193,7 @@ NoConflict == ~(FinalEv("X") /\ FinalEv("Y"))
 \* Theorem 6.4: every decided checkpoint keeps each block whose account
 \* final certificate can be formed, as final or under a lock record that
 \* no admissible witness can discharge.
-Thm64 ==
+ClosureThm1 ==
   \A e \in Closes : S[e].done =>
     \A b \in Blocks :
       (\E e2 \in 1..e : Cert(e2, b)) =>

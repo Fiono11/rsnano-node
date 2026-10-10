@@ -1,0 +1,33 @@
+\section{Why It Is Safe and Why It Terminates}
+\label{sec:correctness}
+This section gives the arguments in words; the supplement has the formal statements and full proofs, numbered as here. All arguments are relative to the two services: safety uses the integrity of set reconstruction and the agreement, eligibility, and verifiability of agreement; termination additionally uses their termination properties.
+
+\para{One epoch (Lemma~1, account exclusion).}
+Two sets of $q$ supporters share a correct validator, and a correct validator supports one block per position. So at most one block per position has an exclusion witness, and if a block can become final, by $q$ final votes or by $N-p$ settled first votes, no rival has a witness; if it can become fast-final, every rival has fewer than $r$ supporters.
+
+\para{Reports expose votes (Lemma~3).}
+A correct reporter's frozen report tags a block it final-voted as notarized or final, and lists every other block it first-voted in the second set, whatever the block inherited from the previous checkpoint. Late supports are never in a report. This is why the second set must list fresh votes for blocks the predecessor already kept (Fix~B in Section~\ref{sec:mc}): the earlier definition removed them, and a fresh vote vanished.
+
+\begin{theorem}[Closure preserves latent and late finality]
+\label{thm:closure}
+If an epoch-$e$ final certificate for $B$ can be formed from released votes, even one completed after the reports froze or after $S_e$ was decided, then every eligible checkpoint $S_e$ holds $B$: as final, under a notarization lock, or under a recovery lock of origin $e$. No admissible evidence releases that hold.
+\end{theorem}
+\emph{Why.} Count overlaps. A normal certificate has $q$ final voters; the checkpoint selects $N-f$ reports; the two share at least $p+1$ correct validators, each of which notarized $B$ before final-voting and says so in its report, so the recipe keeps $B$ final or locks it. A fast certificate has $N-p$ first voters; it shares at least $r$ correct validators with the reports; if none of them tagged $B$ notarized, each lists $B$ in its second set, so $B$ has $r$ reporter votes while every rival has fewer (Lemma~1) and no rival is notarized; the recipe places a recovery lock. If $B$ bypasses an older lock, every correct signer of its certificate holds the releasing witness (Lemma~4), and the manifest carries it. A lock of origin $e$ on $B$ can only be released by an epoch-$e$ witness for a rival, which Lemma~1 excludes. The argument uses only the signers and the selected reporters, so it does not matter when the certificate is assembled.
+
+\begin{lemma}[Same verdict before and after installation]
+\label{lem:verdict}
+A validator that finalizes $B$ under the overlap rule before installing $S_e$ accepts $B$ if and only if it would accept $B$ by re-checking after installing $S_e$; and a later checkpoint verifies a report that claims $B$ final.
+\end{lemma}
+\emph{Why.} The overlap rule asks for exactly the evidence that re-checking consults: the epoch-$e$ witness for $B$ rules out a final or notarized rival in $S_e$ and releases any origin-$e$ lock on a rival; the matching-origin witnesses release any older lock; and $S_{e-1}$ was already installed when the overlap began. Without matching-origin release (the second earlier rule) two correct validators reached different verdicts on the same evidence depending on arrival order.
+
+\begin{theorem}[Transfer safety across epochs]
+\label{thm:safety}
+Finalized histories at correct validators are compatible and never rolled back, finalized balances are nonnegative, and each send is received at most once.
+\end{theorem}
+\emph{Why.} By induction over epochs. Inside an epoch Lemma~1 excludes conflicting finality. At a boundary, agreement gives every correct validator the same eligible checkpoint, Theorem~\ref{thm:closure} says it preserves every formable old certificate, and promotion (\ref{r:build}) only finalizes a block with a closing-epoch notarization, which excludes rivals. For the overlap, the first unresolved position of an early-final prefix has an epoch-$e$ witness, so no closing-epoch certificate or promotion can contradict it, and Lemma~\ref{lem:verdict} makes all correct validators agree on which overlap blocks are final. The checkpoint's construction is deterministic in its inputs (Lemma~8), so correct validators compute the same state, and installing is a union of final sets with duplicate-suppressed replay, never a rollback.
+
+\begin{theorem}[Termination]
+\label{thm:live}
+Every started handover is eventually decided and installed by correct validators. An owner who extends a kept branch, or retries an omitted block, and whose blocks are not contested eventually sees them final and in a checkpoint.
+\end{theorem}
+\emph{Why.} A correct reporter's report is finite and backed by evidence it holds, so under set reconstruction and the data service it becomes usable at every correct validator; $N-f$ usable reports make an eligible candidate constructible, and agreement decides one; successors verify the proof and install. For accounts: in a window where $N-f\geq q$ correct validators are open, an uncontested block collects $q$ first votes, hence a notarization and $q$ final votes; a block caught by a boundary is preserved by Theorem~\ref{thm:closure}, an omitted one is retried, and a kept fork is selected by a fresh child. What RAI does \emph{not} promise is a winner at a position the owner keeps contesting; it promises that such a position is kept identically everywhere and blocks nothing else.

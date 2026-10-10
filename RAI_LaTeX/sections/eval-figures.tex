@@ -1,0 +1,85 @@
+% Figures of the evaluation; data in sections/eval-data (tools/eval_figures.py).
+\providecommand{\seriesvariant}{fork5}
+\pgfplotsset{
+  evalaxis/.style={width=\columnwidth,height=4.2cm,tick label style={font=\scriptsize},label style={font=\scriptsize},
+    legend style={font=\scriptsize,draw=none,fill=none},xtick=data,xticklabels={no forks,{no forks, 1 off},{no forks, 1 Byz},5\% forks,{5\%, 1 off},{5\%, 1 Byz},10\% forks,{10\%, 1 off},{10\%, 1 Byz}},
+    x tick label style={rotate=35,anchor=east,font=\scriptsize},xmin=-0.5,xmax=8.5,ymajorgrids,grid style={gray!30},
+    unbounded coords=jump,log ticks with fixed point,error bars/y dir=both,error bars/y explicit,error bars/error bar style={line width=0.4pt}},
+  rai/.style={color=cRai,mark=*,mark size=1.6pt,only marks},
+  pause/.style={color=cPause,mark=square*,mark size=1.6pt,only marks},
+  nano/.style={color=cNano,mark=triangle*,mark size=2pt,only marks},
+}
+\newcommand{\latplot}[3]{% #1 arm style, #2 x offset, #3 column (p50 or p95)
+  \addplot[#1] table[x expr=\thisrow{x}+#2,y=#3,y error plus expr=\thisrow{#3_hi}-\thisrow{#3},y error minus expr=\thisrow{#3}-\thisrow{#3_lo}] {sections/eval-data/summary-#1.dat};}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{groupplot}[group style={group size=1 by 2,vertical sep=4mm,xticklabels at=edge bottom},evalaxis,ymode=log,log basis y=10]
+\nextgroupplot[ylabel={p50 latency (ms)},height=3.6cm,legend columns=3,legend to name=latlegend]
+\latplot{rai}{-0.2}{p50}\addlegendentry{RAI}
+\latplot{pause}{0}{p50}\addlegendentry{pause}
+\latplot{nano}{0.2}{p50}\addlegendentry{Nano}
+\nextgroupplot[ylabel={p95 latency (ms)},height=4.4cm]
+\latplot{rai}{-0.2}{p95}
+\latplot{pause}{0}{p95}
+\latplot{nano}{0.2}{p95}
+\end{groupplot}
+\node at ($(group c1r1.north)+(0,0.35cm)$) {\pgfplotslegendfromname{latlegend}};
+\end{tikzpicture}
+\caption{Confirmation latency of non-fork blocks at an offered 2{,}000 blocks/s: median and 95th percentile per run, shown as the median of three runs with the spread (minimum to maximum) as bars. Nano has no point for the fork variants, which it never finished.}
+\label{fig:eval-latency}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[evalaxis,height=4cm,ylabel={non-fork blocks/s},ymin=0,ymax=2200,ybar,bar width=4pt,legend pos=south west,legend columns=3]
+\addplot[fill=cRai,draw=cRai!70!black,error bars/.cd,y dir=both,y explicit] table[x=x,y=goodput,y error plus expr=\thisrow{goodput_hi}-\thisrow{goodput},y error minus expr=\thisrow{goodput}-\thisrow{goodput_lo}] {sections/eval-data/summary-rai.dat};
+\addplot[fill=cPause,draw=cPause!70!black,error bars/.cd,y dir=both,y explicit] table[x=x,y=goodput,y error plus expr=\thisrow{goodput_hi}-\thisrow{goodput},y error minus expr=\thisrow{goodput}-\thisrow{goodput_lo}] {sections/eval-data/summary-pause.dat};
+\addplot[fill=cNano,draw=cNano!70!black,error bars/.cd,y dir=both,y explicit] table[x=x,y=goodput,y error plus expr=\thisrow{goodput_hi}-\thisrow{goodput},y error minus expr=\thisrow{goodput}-\thisrow{goodput_lo}] {sections/eval-data/summary-nano.dat};
+\legend{RAI,pause,Nano}
+\end{axis}
+\end{tikzpicture}
+\caption{Non-fork goodput: confirmed non-fork blocks per second of the publishing-to-last-confirmation interval, median of three runs with spread. A missing Nano bar is a variant it did not finish; Figure~\ref{fig:eval-share} gives the share it confirmed.}
+\label{fig:eval-goodput}
+\end{figure}
+
+\begin{figure*}[t]
+\centering
+\begin{tikzpicture}
+\begin{groupplot}[group style={group size=3 by 2,horizontal sep=7mm,vertical sep=3mm,xticklabels at=edge bottom,yticklabels at=edge left},
+  width=0.36\textwidth,height=3.3cm,tick label style={font=\scriptsize},label style={font=\scriptsize},title style={font=\scriptsize,yshift=-1.5mm},
+  xmin=0,xmax=30,ymajorgrids,grid style={gray!30},unbounded coords=jump,log ticks with fixed point,no markers,every axis plot/.append style={line width=0.6pt}]
+  \nextgroupplot[title={RAI (pipelined)},ymin=0,ymax=2600,ylabel={confirmed/s}]
+  \addplot[gray!60,dashed,line width=0.4pt] table[x=t,y=y,empty line=jump] {sections/eval-data/marks-advanced-\seriesvariant-rai.dat};
+  \addplot[color=cRai!50,line width=0.4pt] table[x=t,y=y,empty line=jump] {sections/eval-data/marks-closed-\seriesvariant-rai.dat};
+  \addplot[color=cRai] table[x=t,y=cps] {sections/eval-data/series-\seriesvariant-rai.dat};
+  \nextgroupplot[title={pause (stop-and-drain)},ymin=0,ymax=2600,ylabel={confirmed/s}]
+  \addplot[gray!60,dashed,line width=0.4pt] table[x=t,y=y,empty line=jump] {sections/eval-data/marks-advanced-\seriesvariant-pause.dat};
+  \addplot[color=cPause!50,line width=0.4pt] table[x=t,y=y,empty line=jump] {sections/eval-data/marks-closed-\seriesvariant-pause.dat};
+  \addplot[color=cPause] table[x=t,y=cps] {sections/eval-data/series-\seriesvariant-pause.dat};
+  \nextgroupplot[title={Nano (no epochs)},ymin=0,ymax=2600,ylabel={confirmed/s}]
+  \addplot[gray!60,dashed,line width=0.4pt] table[x=t,y=y,empty line=jump] {sections/eval-data/marks-advanced-\seriesvariant-nano.dat};
+  \addplot[color=cNano!50,line width=0.4pt] table[x=t,y=y,empty line=jump] {sections/eval-data/marks-closed-\seriesvariant-nano.dat};
+  \addplot[color=cNano] table[x=t,y=cps] {sections/eval-data/series-\seriesvariant-nano.dat};
+  \nextgroupplot[ymode=log,ymin=40,ymax=20000,ylabel={latency (ms)},xlabel={seconds since first publication}]
+  \addplot[gray!60,dashed,line width=0.4pt] table[x=t,y=y,empty line=jump] {sections/eval-data/marks-advanced-\seriesvariant-rai.dat};
+  \addplot[color=cRai!50,line width=0.4pt] table[x=t,y=y,empty line=jump] {sections/eval-data/marks-closed-\seriesvariant-rai.dat};
+  \addplot[color=cRai] table[x=t,y=mean_ms] {sections/eval-data/series-\seriesvariant-rai.dat};
+  \addplot[color=cRai!60,densely dotted] table[x=t,y=p95] {sections/eval-data/pseries-\seriesvariant-rai.dat};
+  \nextgroupplot[ymode=log,ymin=40,ymax=20000,ylabel={latency (ms)},xlabel={seconds since first publication}]
+  \addplot[gray!60,dashed,line width=0.4pt] table[x=t,y=y,empty line=jump] {sections/eval-data/marks-advanced-\seriesvariant-pause.dat};
+  \addplot[color=cPause!50,line width=0.4pt] table[x=t,y=y,empty line=jump] {sections/eval-data/marks-closed-\seriesvariant-pause.dat};
+  \addplot[color=cPause] table[x=t,y=mean_ms] {sections/eval-data/series-\seriesvariant-pause.dat};
+  \addplot[color=cPause!60,densely dotted] table[x=t,y=p95] {sections/eval-data/pseries-\seriesvariant-pause.dat};
+  \nextgroupplot[ymode=log,ymin=40,ymax=20000,ylabel={latency (ms)},xlabel={seconds since first publication}]
+  \addplot[gray!60,dashed,line width=0.4pt] table[x=t,y=y,empty line=jump] {sections/eval-data/marks-advanced-\seriesvariant-nano.dat};
+  \addplot[color=cNano!50,line width=0.4pt] table[x=t,y=y,empty line=jump] {sections/eval-data/marks-closed-\seriesvariant-nano.dat};
+  \addplot[color=cNano] table[x=t,y=mean_ms] {sections/eval-data/series-\seriesvariant-nano.dat};
+  \addplot[color=cNano!60,densely dotted] table[x=t,y=p95] {sections/eval-data/pseries-\seriesvariant-nano.dat};
+\end{groupplot}
+\end{tikzpicture}
+\caption{One run of the 5\%-fork variant per system over time (the run with the median p95 of the three): confirmed non-fork blocks per second (top) and the mean confirmation latency of the blocks confirmed in each second (bottom, solid; dotted: 95th percentile of that second). Vertical marks: an epoch boundary (grey) and a decided checkpoint (coloured). Under the pause transition confirmations stop at every boundary until the checkpoint is decided; under RAI they continue.}
+\label{fig:eval-series}
+\end{figure*}
