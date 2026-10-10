@@ -19,3 +19,14 @@ one-way link delay, no forks and 5 % forks). Six equal-weight PRs, 45,000 blocks
   first pass) re-runs the two excluded runs under `caffeinate -i`.
 - The harness's settle poll could wait forever on nodes that stop answering; fixed in `96771e673` (gives up
   past a hard deadline).
+- 16:49 the charger was unplugged again. The first pass (matrix + `delay40/`) ended at 18:39; in the gap
+  before the queued `resume.sh` started, nothing held the Mac awake and it idle-slept at 18:39:32. The
+  resume pass then started `fork10-byz1/rai-r1` during a dark wake at 18:55 and the run spanned sleeps
+  again (`rai-r1.slept-again/`, excluded). Aborting it, I killed the process group of the run that had
+  already replaced it, `fork10-byz1/pause-r1` (`pause-r1.killed-by-operator-2/`, excluded). No sleep
+  occurred between 16:05 and 18:39, the window of every other run.
+- The Nano arm of `delay40/` ran on the develop binary, which has no `simulated_delay_ms` and ignored it
+  (its latencies equal the loopback ones): moved to `delay40-nano-unpatched/`, excluded. `finish.sh`
+  (run under one `caffeinate -i`) re-runs the two excluded matrix runs, builds develop `ff2b32710` plus
+  only the link-delay patch of `3ce49faff` (network crate and its TOML key), and re-runs the Nano arm of
+  `delay40/` with it.
