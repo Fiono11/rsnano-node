@@ -37,16 +37,28 @@ def rpc(index, action, **fields):
         connection.close()
 
 
-def poll(nodes, action, log, **fields):
+def poll(nodes, action, log, deadline=None, **fields):
     """One settle-loop poll of every node; a failed call is reported and the
     poll repeated instead of ending the run, since the nodes outlive the
-    client and a slow answer is not a stall."""
+    client and a slow answer is not a stall. Past the deadline it gives up
+    and returns None, so that a node that never answers cannot hold the
+    harness forever."""
     while True:
         try:
             return [rpc(i, action, **fields) for i in range(nodes)]
         except Exception as error:
             print(f'poll {action} failed: {error!r}; retrying', file=log, flush=True)
+            if deadline is not None and time.monotonic() >= deadline:
+                return None
             time.sleep(1)
+
+
+def rpc_or(index, default, action, **fields):
+    """A post-mortem RPC that must not hang the run: one attempt."""
+    try:
+        return rpc(index, action, **fields)
+    except Exception:
+        return default
 
 
 def sha256(path):
@@ -310,10 +322,15 @@ def main():
                 result['client_finished_s'] = round(args.timeout - (deadline - time.monotonic()), 1)
                 deadline = time.monotonic() + args.settle_timeout
                 last_view, last_progress = None, time.monotonic()
+                hard_deadline = deadline + 120
                 while True:
-                    counts = poll(nodes, 'block_count', log)
+                    counts = poll(nodes, 'block_count', log, hard_deadline)
                     # the unmodified node has no epochs and no final_state RPC
-                    states = poll(nodes, 'final_state', log) if not args.no_epochs else [{} for _ in range(nodes)]
+                    states = (poll(nodes, 'final_state', log, hard_deadline) if not args.no_epochs
+                              else [{} for _ in range(nodes)])
+                    if counts is None or states is None:
+                        result['stalled'] = dict(phase='settle', reason='nodes stopped answering')
+                        raise RuntimeError('nodes stopped answering during the settle wait')
                     settled = settlement(counts, states, args.min_closed)
                     if settled['settled'] or time.monotonic() >= deadline:
                         break
@@ -330,8 +347,8 @@ def main():
                 result['settlement'] = settled
                 result['block_counts'] = counts
                 result['final_states'] = states
-                result['stats'] = [rpc(i, 'stats', type='objects') for i in range(nodes)]
-                result['counters'] = [rpc(i, 'stats', type='counters') for i in range(nodes)]
+                result['stats'] = [rpc_or(i, {}, 'stats', type='objects') for i in range(nodes)]
+                result['counters'] = [rpc_or(i, {}, 'stats', type='counters') for i in range(nodes)]
                 result['finalization_p50_ms'] = [
                     int(entry['value']) for counters in result['counters']
                     for entry in counters.get('entries', [])
