@@ -28,7 +28,7 @@ RAI is a set of rules. We state them here informally, with the thresholds of the
 \begin{enumerate}[resume,label=\rulename{R\arabic*},ref=R\arabic*]
 \item\label{r:report} At its local boundary a validator stops voting in epoch $e$, signs one immutable \emph{report} naming what it holds final or notarized and what else it first-voted, and opens epoch $e+1$.
 \item\label{r:build} The outgoing committee agrees on a checkpoint built from $N-f$ (5) reports by a fixed recipe: keep what any report shows final; \emph{lock} a block that a report shows notarized; \emph{lock for recovery} a block that $r$ (3) reporters first-voted; promote a notarized block that is the only one kept at its position; carry every older lock forward unless evidence of its own origin epoch releases it.
-\item\label{r:install} The next committee installs the decided checkpoint without voting on it. A kept block is voted again at its position by everyone; a rival of a locked block is refused while the lock stands.
+\item\label{r:install} The next committee installs the decided checkpoint without voting on it. A rival of a locked block is refused while the lock stands, so the dropped side of a fork never becomes final; the owner recovers the account by extending the kept block.
 \end{enumerate}
 \para{While the previous epoch closes (Section~\ref{sec:pipeline}).}
 \begin{enumerate}[resume,label=\rulename{R\arabic*},ref=R\arabic*]
