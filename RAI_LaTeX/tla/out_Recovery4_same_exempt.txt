@@ -1,0 +1,223 @@
+TLC2 Version 2.20 of Day Month 20?? (rev: 2cf8424)
+Running breadth-first search Model-Checking with fp 66 and seed -6080909493117252183 with 4 workers on 8 cores with 3641MB heap and 64MB offheap memory [pid: 26296] (Mac OS X 14.6.1 aarch64, Eclipse Adoptium 17.0.7 x86_64, MSBDiskFPSet, DiskStateQueue).
+Parsing file /Users/ruimorais/rsnano-node/.claude/worktrees/rai-eval-harness/RAI_LaTeX/tla/RaiRecovery.tla
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-4910695118382125253/Naturals.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-4910695118382125253/FiniteSets.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-4910695118382125253/TLC.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-4910695118382125253/_TLCTrace.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-4910695118382125253/Sequences.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-4910695118382125253/TLCExt.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-4910695118382125253/Integers.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module Integers
+Semantic processing of module TLCExt
+Semantic processing of module _TLCTrace
+Semantic processing of module RaiRecovery
+Linting of module TLCExt
+Linting of module _TLCTrace
+Linting of module RaiRecovery
+Starting... (2026-10-11 12:56:39)
+Computing initial states...
+Finished computing initial states: 1 distinct state generated at 2026-10-11 12:56:40.
+Progress(15) at 2026-10-11 12:56:43: 387 880 states generated (387 880 s/min), 101 564 distinct states found (101 564 ds/min), 48 869 states left on queue.
+Error: Invariant NoConflict is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ na = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ nc = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ ph = (c1 :> "e1" @@ c2 :> "e1" @@ c3 :> "e1")
+/\ ea = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ ec = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ fa = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-")
+/\ fc = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-")
+/\ fv1 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-")
+/\ S1 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+
+State 2: <Vote1(c1,"X") line 121, col 3 to line 123, col 54 of module RaiRecovery>
+/\ na = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ nc = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ ph = (c1 :> "e1" @@ c2 :> "e1" @@ c3 :> "e1")
+/\ ea = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ ec = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ fa = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-")
+/\ fc = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-")
+/\ fv1 = (c1 :> "X" @@ c2 :> "-" @@ c3 :> "-")
+/\ S1 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+
+State 3: <Vote1(c2,"X") line 121, col 3 to line 123, col 54 of module RaiRecovery>
+/\ na = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ nc = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ ph = (c1 :> "e1" @@ c2 :> "e1" @@ c3 :> "e1")
+/\ ea = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ ec = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ fa = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-")
+/\ fc = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-")
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "-")
+/\ S1 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+
+State 4: <Vote1(c3,"Y") line 121, col 3 to line 123, col 54 of module RaiRecovery>
+/\ na = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ nc = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ ph = (c1 :> "e1" @@ c2 :> "e1" @@ c3 :> "e1")
+/\ ea = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ ec = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ fa = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-")
+/\ fc = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-")
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "Y")
+/\ S1 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+
+State 5: <Leave1(c1) line 131, col 3 to line 133, col 55 of module RaiRecovery>
+/\ na = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ nc = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ ph = (c1 :> "e2" @@ c2 :> "e1" @@ c3 :> "e1")
+/\ ea = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ ec = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ fa = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-")
+/\ fc = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-")
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "Y")
+/\ S1 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+
+State 6: <Leave1(c3) line 131, col 3 to line 133, col 55 of module RaiRecovery>
+/\ na = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ nc = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ ph = (c1 :> "e2" @@ c2 :> "e1" @@ c3 :> "e2")
+/\ ea = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ ec = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ fa = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-")
+/\ fc = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-")
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "Y")
+/\ S1 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+
+State 7: <Close1 line 190, col 3 to line 205, col 55 of module RaiRecovery>
+/\ na = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ nc = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ ph = (c1 :> "e2" @@ c2 :> "e1" @@ c3 :> "e2")
+/\ ea = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ ec = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ fa = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-")
+/\ fc = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-")
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "Y")
+/\ S1 = [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+
+State 8: <Install(c1) line 136, col 3 to line 138, col 55 of module RaiRecovery>
+/\ na = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ nc = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ ph = (c1 :> "in" @@ c2 :> "e1" @@ c3 :> "e2")
+/\ ea = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ ec = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ fa = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-")
+/\ fc = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-")
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "Y")
+/\ S1 = [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+
+State 9: <VoteA(c1,"X") line 142, col 3 to line 150, col 51 of module RaiRecovery>
+/\ na = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ nc = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ ph = (c1 :> "in" @@ c2 :> "e1" @@ c3 :> "e2")
+/\ ea = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ ec = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ fa = (c1 :> "X" @@ c2 :> "-" @@ c3 :> "-")
+/\ fc = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-")
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "Y")
+/\ S1 = [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+
+State 10: <VoteC(c1,"CY") line 154, col 3 to line 160, col 51 of module RaiRecovery>
+/\ na = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ nc = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ ph = (c1 :> "in" @@ c2 :> "e1" @@ c3 :> "e2")
+/\ ea = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ ec = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ fa = (c1 :> "X" @@ c2 :> "-" @@ c3 :> "-")
+/\ fc = (c1 :> "CY" @@ c2 :> "-" @@ c3 :> "-")
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "Y")
+/\ S1 = [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+
+State 11: <Install(c2) line 136, col 3 to line 138, col 55 of module RaiRecovery>
+/\ na = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ nc = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ ph = (c1 :> "in" @@ c2 :> "in" @@ c3 :> "e2")
+/\ ea = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ ec = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ fa = (c1 :> "X" @@ c2 :> "-" @@ c3 :> "-")
+/\ fc = (c1 :> "CY" @@ c2 :> "-" @@ c3 :> "-")
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "Y")
+/\ S1 = [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+
+State 12: <VoteA(c2,"X") line 142, col 3 to line 150, col 51 of module RaiRecovery>
+/\ na = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ nc = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ ph = (c1 :> "in" @@ c2 :> "in" @@ c3 :> "e2")
+/\ ea = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ ec = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ fa = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "-")
+/\ fc = (c1 :> "CY" @@ c2 :> "-" @@ c3 :> "-")
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "Y")
+/\ S1 = [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+
+State 13: <VoteC(c2,"CY") line 154, col 3 to line 160, col 51 of module RaiRecovery>
+/\ na = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ nc = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ ph = (c1 :> "in" @@ c2 :> "in" @@ c3 :> "e2")
+/\ ea = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ ec = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ fa = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "-")
+/\ fc = (c1 :> "CY" @@ c2 :> "CY" @@ c3 :> "-")
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "Y")
+/\ S1 = [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+
+State 14: <Install(c3) line 136, col 3 to line 138, col 55 of module RaiRecovery>
+/\ na = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ nc = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ ph = (c1 :> "in" @@ c2 :> "in" @@ c3 :> "in")
+/\ ea = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ ec = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ fa = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "-")
+/\ fc = (c1 :> "CY" @@ c2 :> "CY" @@ c3 :> "-")
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "Y")
+/\ S1 = [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+
+State 15: <VoteA(c3,"X") line 142, col 3 to line 150, col 51 of module RaiRecovery>
+/\ na = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ nc = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ ph = (c1 :> "in" @@ c2 :> "in" @@ c3 :> "in")
+/\ ea = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ ec = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ fa = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "X")
+/\ fc = (c1 :> "CY" @@ c2 :> "CY" @@ c3 :> "-")
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "Y")
+/\ S1 = [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+
+State 16: <VoteC(c3,"CY") line 154, col 3 to line 160, col 51 of module RaiRecovery>
+/\ na = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ nc = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ ph = (c1 :> "in" @@ c2 :> "in" @@ c3 :> "in")
+/\ ea = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ ec = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+/\ fa = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "X")
+/\ fc = (c1 :> "CY" @@ c2 :> "CY" @@ c3 :> "CY")
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "Y")
+/\ S1 = [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE)
+
+986377 states generated, 246155 distinct states found, 98674 states left on queue.
+The depth of the complete state graph search is 17.
+Finished in 06s at (2026-10-11 12:56:46)
+Trace exploration spec path: ./RaiRecovery_TTrace_1791719799.tla

@@ -14,13 +14,13 @@ Suppose Alice also signs $A'$ at position 7, paying someone else, and shows $A$ 
 \para{How Alice recovers.}
 RAI guarantees that Alice gets her account back once she stops contradicting herself (Theorem~\ref{thm:live}). She reads the decided checkpoint from any validator and acts on what it says:
 \begin{itemize}
-\item If it kept $A$, she signs one new block $C$ at position 8 on top of $A$; $C$ may carry a payment or nothing at all. Nothing conflicts with $C$, so it collects four first votes and four final votes in the next epoch and becomes final, and finalizing $C$ finalizes $A$ below it (Figure~\ref{fig:fork}).
+\item If it kept $A$, she signs one new block $C$ at position 8 on top of $A$; $C$ may carry a payment or nothing at all. Because $A$ is kept only for recovery, $C$ is admitted once $A$ has four first votes again at position 7, which only $A$ can now collect. Nothing conflicts with $C$, so it then collects four first and four final votes and becomes final, and finalizing $C$ finalizes $A$ below it (Figure~\ref{fig:fork}).
 \item If it kept nothing at position 7, she publishes one block there, $A$, $A'$, or a new one, and only that one; it is uncontested and becomes final like any other block.
 \item If one side is already final, there is nothing to recover.
 \end{itemize}
-She cannot pick the side the checkpoint dropped: a block on top of $A'$ is refused while the lock on $A$ stands. In the normal case recovery takes until the checkpoint after the fork is installed, plus one confirmation.
+She cannot pick the side the checkpoint dropped: a block on top of $A'$ is refused while the lock on $A$ stands. In the normal case recovery takes until the checkpoint after the fork is installed, plus two confirmations.
 
-Alice often does not need to do anything. In the next epoch the validators vote the kept block $A$ again, and those that voted $A'$ in epoch $e$ may now vote $A$, because the decided checkpoint proves that no epoch-$e$ certificate for $A'$ can form; $A$ then becomes final on its own. This is a convenience, not a guarantee: a validator may already have spent its one first vote in the new epoch, the votes can split again, and an attacker who keeps signing alternatives can keep a position open. What RAI guarantees for such a position is that it is kept identically on every validator, that at most one side ever becomes final, and that it blocks nothing outside the account.
+Alice often does not need to do anything: in the next epoch the validators vote $A$ again, those that voted $A'$ included, since the decided checkpoint proves that no epoch-$e$ certificate for $A'$ can form, and $A$ becomes final on its own. This is a convenience, not a guarantee: a validator may already have spent its one first vote of the new epoch. For any forked position RAI guarantees that it is kept identically on every validator, that at most one side ever becomes final, and that it blocks nothing outside the account. Recovery itself needs a lock that the dropped side cannot release, which holds unless a Byzantine validator supported both sides (Theorem~\ref{thm:live}).
 
 \begin{figure}[t]
 \centering

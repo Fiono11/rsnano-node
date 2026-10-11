@@ -1,0 +1,418 @@
+TLC2 Version 2.20 of Day Month 20?? (rev: 2cf8424)
+Running Random Simulation with seed -4463136610597959916 with 6 workers on 8 cores with 7282MB heap and 64MB offheap memory [pid: 26759] (Mac OS X 14.6.1 aarch64, Eclipse Adoptium 17.0.7 x86_64).
+Parsing file /Users/ruimorais/rsnano-node/.claude/worktrees/rai-eval-harness/RAI_LaTeX/tla/RaiRecovery.tla
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-11751839062011176839/Naturals.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-11751839062011176839/FiniteSets.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-11751839062011176839/TLC.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-11751839062011176839/_TLCTrace.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-11751839062011176839/Sequences.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-11751839062011176839/TLCExt.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-11751839062011176839/Integers.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module Integers
+Semantic processing of module TLCExt
+Semantic processing of module _TLCTrace
+Semantic processing of module RaiRecovery
+Linting of module TLCExt
+Linting of module _TLCTrace
+Linting of module RaiRecovery
+Starting... (2026-10-11 13:04:52)
+Computed 1 initial states...
+Finished computing initial states: 1 distinct state generated at 2026-10-11 13:04:52.
+Error: Invariant ProbeRecovery is violated.
+Error: The behavior up to this point is:
+State 1: <Init line 114, col 3 to line 118, col 14 of module RaiRecovery>
+/\ na = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ nc = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ph = (c1 :> "e1" @@ c2 :> "e1" @@ c3 :> "e1" @@ c4 :> "e1" @@ c5 :> "e1")
+/\ ea = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ec = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fa = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fc = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv1 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ S1 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+
+State 2: <Vote1(c3,"Y") line 121, col 3 to line 123, col 54 of module RaiRecovery>
+/\ na = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ nc = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ph = (c1 :> "e1" @@ c2 :> "e1" @@ c3 :> "e1" @@ c4 :> "e1" @@ c5 :> "e1")
+/\ ea = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ec = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fa = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fc = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv1 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "-" @@ c5 :> "-")
+/\ S1 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+
+State 3: <Vote1(c4,"Y") line 121, col 3 to line 123, col 54 of module RaiRecovery>
+/\ na = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ nc = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ph = (c1 :> "e1" @@ c2 :> "e1" @@ c3 :> "e1" @@ c4 :> "e1" @@ c5 :> "e1")
+/\ ea = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ec = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fa = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fc = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv1 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "-")
+/\ S1 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+
+State 4: <Leave1(c2) line 131, col 3 to line 133, col 55 of module RaiRecovery>
+/\ na = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ nc = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ph = (c1 :> "e1" @@ c2 :> "e2" @@ c3 :> "e1" @@ c4 :> "e1" @@ c5 :> "e1")
+/\ ea = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ec = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fa = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fc = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv1 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "-")
+/\ S1 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+
+State 5: <Vote1(c5,"Y") line 121, col 3 to line 123, col 54 of module RaiRecovery>
+/\ na = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ nc = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ph = (c1 :> "e1" @@ c2 :> "e2" @@ c3 :> "e1" @@ c4 :> "e1" @@ c5 :> "e1")
+/\ ea = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ec = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fa = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fc = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv1 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ S1 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+
+State 6: <VoteA(c2,"X") line 142, col 3 to line 150, col 51 of module RaiRecovery>
+/\ na = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ nc = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ph = (c1 :> "e1" @@ c2 :> "e2" @@ c3 :> "e1" @@ c4 :> "e1" @@ c5 :> "e1")
+/\ ea = (c1 :> FALSE @@ c2 :> TRUE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ec = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fa = (c1 :> "-" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fc = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv1 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ S1 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+
+State 7: <Leave1(c5) line 131, col 3 to line 133, col 55 of module RaiRecovery>
+/\ na = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ nc = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ph = (c1 :> "e1" @@ c2 :> "e2" @@ c3 :> "e1" @@ c4 :> "e1" @@ c5 :> "e2")
+/\ ea = (c1 :> FALSE @@ c2 :> TRUE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ec = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fa = (c1 :> "-" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fc = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv1 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ S1 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+
+State 8: <Leave1(c3) line 131, col 3 to line 133, col 55 of module RaiRecovery>
+/\ na = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ nc = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ph = (c1 :> "e1" @@ c2 :> "e2" @@ c3 :> "e2" @@ c4 :> "e1" @@ c5 :> "e2")
+/\ ea = (c1 :> FALSE @@ c2 :> TRUE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ec = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fa = (c1 :> "-" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fc = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv1 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ S1 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+
+State 9: <Final1(c4) line 126, col 3 to line 128, col 54 of module RaiRecovery>
+/\ na = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ nc = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ph = (c1 :> "e1" @@ c2 :> "e2" @@ c3 :> "e2" @@ c4 :> "e1" @@ c5 :> "e2")
+/\ ea = (c1 :> FALSE @@ c2 :> TRUE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ec = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fa = (c1 :> "-" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fc = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv1 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ S1 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> TRUE @@ c5 :> FALSE)
+
+State 10: <Vote1(c1,"Y") line 121, col 3 to line 123, col 54 of module RaiRecovery>
+/\ na = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ nc = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ph = (c1 :> "e1" @@ c2 :> "e2" @@ c3 :> "e2" @@ c4 :> "e1" @@ c5 :> "e2")
+/\ ea = (c1 :> FALSE @@ c2 :> TRUE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ec = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fa = (c1 :> "-" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fc = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv1 = (c1 :> "Y" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ S1 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> TRUE @@ c5 :> FALSE)
+
+State 11: <VoteC(c3,"CY") line 154, col 3 to line 160, col 51 of module RaiRecovery>
+/\ na = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ nc = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ph = (c1 :> "e1" @@ c2 :> "e2" @@ c3 :> "e2" @@ c4 :> "e1" @@ c5 :> "e2")
+/\ ea = (c1 :> FALSE @@ c2 :> TRUE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ec = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fa = (c1 :> "-" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fc = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "CY" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv1 = (c1 :> "Y" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ S1 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> TRUE @@ c5 :> FALSE)
+
+State 12: <Leave1(c1) line 131, col 3 to line 133, col 55 of module RaiRecovery>
+/\ na = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ nc = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ph = (c1 :> "e2" @@ c2 :> "e2" @@ c3 :> "e2" @@ c4 :> "e1" @@ c5 :> "e2")
+/\ ea = (c1 :> FALSE @@ c2 :> TRUE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ec = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fa = (c1 :> "-" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fc = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "CY" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv1 = (c1 :> "Y" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ S1 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> TRUE @@ c5 :> FALSE)
+
+State 13: <VoteC(c5,"CY") line 154, col 3 to line 160, col 51 of module RaiRecovery>
+/\ na = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ nc = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ph = (c1 :> "e2" @@ c2 :> "e2" @@ c3 :> "e2" @@ c4 :> "e1" @@ c5 :> "e2")
+/\ ea = (c1 :> FALSE @@ c2 :> TRUE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ec = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE @@ c4 :> FALSE @@ c5 :> TRUE)
+/\ fa = (c1 :> "-" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fc = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "CY" @@ c4 :> "-" @@ c5 :> "CY")
+/\ fv1 = (c1 :> "Y" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ S1 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> TRUE @@ c5 :> FALSE)
+
+State 14: <Close1 line 190, col 3 to line 205, col 55 of module RaiRecovery>
+/\ na = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ nc = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ph = (c1 :> "e2" @@ c2 :> "e2" @@ c3 :> "e2" @@ c4 :> "e1" @@ c5 :> "e2")
+/\ ea = (c1 :> FALSE @@ c2 :> TRUE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ec = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE @@ c4 :> FALSE @@ c5 :> TRUE)
+/\ fa = (c1 :> "-" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fc = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "CY" @@ c4 :> "-" @@ c5 :> "CY")
+/\ fv1 = (c1 :> "Y" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ S1 = [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> TRUE @@ c5 :> FALSE)
+
+State 15: <Install(c4) line 136, col 3 to line 138, col 55 of module RaiRecovery>
+/\ na = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ nc = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ph = (c1 :> "e2" @@ c2 :> "e2" @@ c3 :> "e2" @@ c4 :> "in" @@ c5 :> "e2")
+/\ ea = (c1 :> FALSE @@ c2 :> TRUE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ec = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE @@ c4 :> FALSE @@ c5 :> TRUE)
+/\ fa = (c1 :> "-" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fc = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "CY" @@ c4 :> "-" @@ c5 :> "CY")
+/\ fv1 = (c1 :> "Y" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ S1 = [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> TRUE @@ c5 :> FALSE)
+
+State 16: <VoteC(c1,"CY") line 154, col 3 to line 160, col 51 of module RaiRecovery>
+/\ na = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ nc = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ph = (c1 :> "e2" @@ c2 :> "e2" @@ c3 :> "e2" @@ c4 :> "in" @@ c5 :> "e2")
+/\ ea = (c1 :> FALSE @@ c2 :> TRUE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ec = (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> TRUE @@ c4 :> FALSE @@ c5 :> TRUE)
+/\ fa = (c1 :> "-" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fc = (c1 :> "CY" @@ c2 :> "-" @@ c3 :> "CY" @@ c4 :> "-" @@ c5 :> "CY")
+/\ fv1 = (c1 :> "Y" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ S1 = [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> TRUE @@ c5 :> FALSE)
+
+State 17: <VoteA(c1,"Y") line 142, col 3 to line 150, col 51 of module RaiRecovery>
+/\ na = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ nc = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ph = (c1 :> "e2" @@ c2 :> "e2" @@ c3 :> "e2" @@ c4 :> "in" @@ c5 :> "e2")
+/\ ea = (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ec = (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> TRUE @@ c4 :> FALSE @@ c5 :> TRUE)
+/\ fa = (c1 :> "Y" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fc = (c1 :> "CY" @@ c2 :> "-" @@ c3 :> "CY" @@ c4 :> "-" @@ c5 :> "CY")
+/\ fv1 = (c1 :> "Y" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ S1 = [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> TRUE @@ c5 :> FALSE)
+
+State 18: <Install(c2) line 136, col 3 to line 138, col 55 of module RaiRecovery>
+/\ na = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ nc = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ph = (c1 :> "e2" @@ c2 :> "in" @@ c3 :> "e2" @@ c4 :> "in" @@ c5 :> "e2")
+/\ ea = (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ec = (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> TRUE @@ c4 :> FALSE @@ c5 :> TRUE)
+/\ fa = (c1 :> "Y" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fc = (c1 :> "CY" @@ c2 :> "-" @@ c3 :> "CY" @@ c4 :> "-" @@ c5 :> "CY")
+/\ fv1 = (c1 :> "Y" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ S1 = [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> TRUE @@ c5 :> FALSE)
+
+State 19: <VoteA(c5,"Y") line 142, col 3 to line 150, col 51 of module RaiRecovery>
+/\ na = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ nc = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ph = (c1 :> "e2" @@ c2 :> "in" @@ c3 :> "e2" @@ c4 :> "in" @@ c5 :> "e2")
+/\ ea = (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> TRUE)
+/\ ec = (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> TRUE @@ c4 :> FALSE @@ c5 :> TRUE)
+/\ fa = (c1 :> "Y" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "Y")
+/\ fc = (c1 :> "CY" @@ c2 :> "-" @@ c3 :> "CY" @@ c4 :> "-" @@ c5 :> "CY")
+/\ fv1 = (c1 :> "Y" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ S1 = [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> TRUE @@ c5 :> FALSE)
+
+State 20: <VoteA(c4,"Y") line 142, col 3 to line 150, col 51 of module RaiRecovery>
+/\ na = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ nc = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ph = (c1 :> "e2" @@ c2 :> "in" @@ c3 :> "e2" @@ c4 :> "in" @@ c5 :> "e2")
+/\ ea = (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> TRUE)
+/\ ec = (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> TRUE @@ c4 :> FALSE @@ c5 :> TRUE)
+/\ fa = (c1 :> "Y" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ fc = (c1 :> "CY" @@ c2 :> "-" @@ c3 :> "CY" @@ c4 :> "-" @@ c5 :> "CY")
+/\ fv1 = (c1 :> "Y" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ S1 = [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> TRUE @@ c5 :> FALSE)
+
+State 21: <FinalVoteA(c1) line 164, col 3 to line 168, col 55 of module RaiRecovery>
+/\ na = (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ nc = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ph = (c1 :> "e2" @@ c2 :> "in" @@ c3 :> "e2" @@ c4 :> "in" @@ c5 :> "e2")
+/\ ea = (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> TRUE)
+/\ ec = (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> TRUE @@ c4 :> FALSE @@ c5 :> TRUE)
+/\ fa = (c1 :> "Y" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ fc = (c1 :> "CY" @@ c2 :> "-" @@ c3 :> "CY" @@ c4 :> "-" @@ c5 :> "CY")
+/\ fv1 = (c1 :> "Y" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ S1 = [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> TRUE @@ c5 :> FALSE)
+
+State 22: <VoteC(c2,"CY") line 154, col 3 to line 160, col 51 of module RaiRecovery>
+/\ na = (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ nc = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ph = (c1 :> "e2" @@ c2 :> "in" @@ c3 :> "e2" @@ c4 :> "in" @@ c5 :> "e2")
+/\ ea = (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> TRUE)
+/\ ec = (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> TRUE @@ c4 :> FALSE @@ c5 :> TRUE)
+/\ fa = (c1 :> "Y" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ fc = (c1 :> "CY" @@ c2 :> "CY" @@ c3 :> "CY" @@ c4 :> "-" @@ c5 :> "CY")
+/\ fv1 = (c1 :> "Y" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ S1 = [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> TRUE @@ c5 :> FALSE)
+
+State 23: <Install(c1) line 136, col 3 to line 138, col 55 of module RaiRecovery>
+/\ na = (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ nc = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ph = (c1 :> "in" @@ c2 :> "in" @@ c3 :> "e2" @@ c4 :> "in" @@ c5 :> "e2")
+/\ ea = (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> TRUE)
+/\ ec = (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> TRUE @@ c4 :> FALSE @@ c5 :> TRUE)
+/\ fa = (c1 :> "Y" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ fc = (c1 :> "CY" @@ c2 :> "CY" @@ c3 :> "CY" @@ c4 :> "-" @@ c5 :> "CY")
+/\ fv1 = (c1 :> "Y" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ S1 = [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> TRUE @@ c5 :> FALSE)
+
+State 24: <FinalVoteA(c4) line 164, col 3 to line 168, col 55 of module RaiRecovery>
+/\ na = (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> TRUE @@ c5 :> FALSE)
+/\ nc = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ph = (c1 :> "in" @@ c2 :> "in" @@ c3 :> "e2" @@ c4 :> "in" @@ c5 :> "e2")
+/\ ea = (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> TRUE)
+/\ ec = (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> TRUE @@ c4 :> FALSE @@ c5 :> TRUE)
+/\ fa = (c1 :> "Y" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ fc = (c1 :> "CY" @@ c2 :> "CY" @@ c3 :> "CY" @@ c4 :> "-" @@ c5 :> "CY")
+/\ fv1 = (c1 :> "Y" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ S1 = [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> TRUE @@ c5 :> FALSE)
+
+State 25: <VoteA(c3,"Y") line 142, col 3 to line 150, col 51 of module RaiRecovery>
+/\ na = (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> TRUE @@ c5 :> FALSE)
+/\ nc = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ph = (c1 :> "in" @@ c2 :> "in" @@ c3 :> "e2" @@ c4 :> "in" @@ c5 :> "e2")
+/\ ea = (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE @@ c4 :> FALSE @@ c5 :> TRUE)
+/\ ec = (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> TRUE @@ c4 :> FALSE @@ c5 :> TRUE)
+/\ fa = (c1 :> "Y" @@ c2 :> "X" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ fc = (c1 :> "CY" @@ c2 :> "CY" @@ c3 :> "CY" @@ c4 :> "-" @@ c5 :> "CY")
+/\ fv1 = (c1 :> "Y" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ S1 = [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> TRUE @@ c5 :> FALSE)
+
+State 26: <FinalVoteC(c2) line 171, col 3 to line 175, col 55 of module RaiRecovery>
+/\ na = (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> TRUE @@ c5 :> FALSE)
+/\ nc = (c1 :> FALSE @@ c2 :> TRUE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ph = (c1 :> "in" @@ c2 :> "in" @@ c3 :> "e2" @@ c4 :> "in" @@ c5 :> "e2")
+/\ ea = (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE @@ c4 :> FALSE @@ c5 :> TRUE)
+/\ ec = (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> TRUE @@ c4 :> FALSE @@ c5 :> TRUE)
+/\ fa = (c1 :> "Y" @@ c2 :> "X" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ fc = (c1 :> "CY" @@ c2 :> "CY" @@ c3 :> "CY" @@ c4 :> "-" @@ c5 :> "CY")
+/\ fv1 = (c1 :> "Y" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ S1 = [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> TRUE @@ c5 :> FALSE)
+
+State 27: <Install(c5) line 136, col 3 to line 138, col 55 of module RaiRecovery>
+/\ na = (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> TRUE @@ c5 :> FALSE)
+/\ nc = (c1 :> FALSE @@ c2 :> TRUE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ph = (c1 :> "in" @@ c2 :> "in" @@ c3 :> "e2" @@ c4 :> "in" @@ c5 :> "in")
+/\ ea = (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE @@ c4 :> FALSE @@ c5 :> TRUE)
+/\ ec = (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> TRUE @@ c4 :> FALSE @@ c5 :> TRUE)
+/\ fa = (c1 :> "Y" @@ c2 :> "X" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ fc = (c1 :> "CY" @@ c2 :> "CY" @@ c3 :> "CY" @@ c4 :> "-" @@ c5 :> "CY")
+/\ fv1 = (c1 :> "Y" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ S1 = [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> TRUE @@ c5 :> FALSE)
+
+State 28: <VoteC(c4,"CY") line 154, col 3 to line 160, col 51 of module RaiRecovery>
+/\ na = (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> TRUE @@ c5 :> FALSE)
+/\ nc = (c1 :> FALSE @@ c2 :> TRUE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ph = (c1 :> "in" @@ c2 :> "in" @@ c3 :> "e2" @@ c4 :> "in" @@ c5 :> "in")
+/\ ea = (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE @@ c4 :> FALSE @@ c5 :> TRUE)
+/\ ec = (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> TRUE @@ c4 :> FALSE @@ c5 :> TRUE)
+/\ fa = (c1 :> "Y" @@ c2 :> "X" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ fc = (c1 :> "CY" @@ c2 :> "CY" @@ c3 :> "CY" @@ c4 :> "CY" @@ c5 :> "CY")
+/\ fv1 = (c1 :> "Y" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ S1 = [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> TRUE @@ c5 :> FALSE)
+
+State 29: <FinalVoteA(c3) line 164, col 3 to line 168, col 55 of module RaiRecovery>
+/\ na = (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> TRUE @@ c4 :> TRUE @@ c5 :> FALSE)
+/\ nc = (c1 :> FALSE @@ c2 :> TRUE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ph = (c1 :> "in" @@ c2 :> "in" @@ c3 :> "e2" @@ c4 :> "in" @@ c5 :> "in")
+/\ ea = (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE @@ c4 :> FALSE @@ c5 :> TRUE)
+/\ ec = (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> TRUE @@ c4 :> FALSE @@ c5 :> TRUE)
+/\ fa = (c1 :> "Y" @@ c2 :> "X" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ fc = (c1 :> "CY" @@ c2 :> "CY" @@ c3 :> "CY" @@ c4 :> "CY" @@ c5 :> "CY")
+/\ fv1 = (c1 :> "Y" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ S1 = [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> TRUE @@ c5 :> FALSE)
+
+State 30: <Install(c3) line 136, col 3 to line 138, col 55 of module RaiRecovery>
+/\ na = (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> TRUE @@ c4 :> TRUE @@ c5 :> FALSE)
+/\ nc = (c1 :> FALSE @@ c2 :> TRUE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ph = (c1 :> "in" @@ c2 :> "in" @@ c3 :> "in" @@ c4 :> "in" @@ c5 :> "in")
+/\ ea = (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE @@ c4 :> FALSE @@ c5 :> TRUE)
+/\ ec = (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> TRUE @@ c4 :> FALSE @@ c5 :> TRUE)
+/\ fa = (c1 :> "Y" @@ c2 :> "X" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ fc = (c1 :> "CY" @@ c2 :> "CY" @@ c3 :> "CY" @@ c4 :> "CY" @@ c5 :> "CY")
+/\ fv1 = (c1 :> "Y" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ S1 = [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> TRUE @@ c5 :> FALSE)
+
+State 31: <FinalVoteC(c3) line 171, col 3 to line 175, col 55 of module RaiRecovery>
+/\ na = (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> TRUE @@ c4 :> TRUE @@ c5 :> FALSE)
+/\ nc = (c1 :> FALSE @@ c2 :> TRUE @@ c3 :> TRUE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ph = (c1 :> "in" @@ c2 :> "in" @@ c3 :> "in" @@ c4 :> "in" @@ c5 :> "in")
+/\ ea = (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE @@ c4 :> FALSE @@ c5 :> TRUE)
+/\ ec = (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> TRUE @@ c4 :> FALSE @@ c5 :> TRUE)
+/\ fa = (c1 :> "Y" @@ c2 :> "X" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ fc = (c1 :> "CY" @@ c2 :> "CY" @@ c3 :> "CY" @@ c4 :> "CY" @@ c5 :> "CY")
+/\ fv1 = (c1 :> "Y" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ S1 = [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> TRUE @@ c5 :> FALSE)
+
+State 32: <FinalVoteC(c1) line 171, col 3 to line 175, col 55 of module RaiRecovery>
+/\ na = (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> TRUE @@ c4 :> TRUE @@ c5 :> FALSE)
+/\ nc = (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ ph = (c1 :> "in" @@ c2 :> "in" @@ c3 :> "in" @@ c4 :> "in" @@ c5 :> "in")
+/\ ea = (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE @@ c4 :> FALSE @@ c5 :> TRUE)
+/\ ec = (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> TRUE @@ c4 :> FALSE @@ c5 :> TRUE)
+/\ fa = (c1 :> "Y" @@ c2 :> "X" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ fc = (c1 :> "CY" @@ c2 :> "CY" @@ c3 :> "CY" @@ c4 :> "CY" @@ c5 :> "CY")
+/\ fv1 = (c1 :> "Y" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ S1 = [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> TRUE @@ c5 :> FALSE)
+
+The number of states generated: 523
+Simulation using seed -4463136610597959916 and aril 0
+Progress: 576 states checked, 15 traces generated (trace length: mean=15, var(x)=238, sd=15)
+Finished in 00s at (2026-10-11 13:04:52)
+Trace exploration spec path: ./RaiRecovery_TTrace_1791720292.tla
+real 0,48
+user 1,70
+sys 0,06

@@ -1,4 +1,4 @@
-# TLA+ models for the RAI handoff (N = 6, f = p = 1, one account position; RaiPrefix: two positions, N = 4 and 6)
+# TLA+ models for the RAI handoff (N = 6, f = p = 1, one account position; RaiPrefix and RaiRecovery: two positions, N = 4 and 6)
 
 The closure invariants were renamed from `Thm64*` to `ClosureThm1*` (Theorem 1 of the paper) on 2026-10-10; the archived `out_*.txt` files of runs made before that date still print the old names.
 
@@ -49,3 +49,18 @@ The header comment of each module lists its abstractions. No model covers more t
 | `Prefix6_disjoint_nofresh_sim`, `Prefix6_shared3_target_sim`, `Prefix6_shared3_nofresh_sim` | `NoConflict` violated (random simulation) | < 1 s |
 | `Prefix6_same_probes`, `Prefix6_shared3_probes` | probes violated, as intended | 14 s, 3.7 min |
 | `Prefix6_same_fixed`, `Prefix6_shared3_target` (BFS) | unfinished at archive time (13.4 M and 35.8 M distinct states, no violation so far) | - |
+
+`RaiRecovery.tla` checks owner recovery on top of a recovery-locked block: conflicting X and Y at position 1, children CX (on X) and CY (on Y) at position 2, one closure, installation, early and settled votes; a final child finalizes its parent. Switch: `EXEMPT = TRUE` is the earlier rule (a tip retained under a recovery record alone may always be extended), `EXEMPT = FALSE` the re-notarization rule (such a tip is a parent in epoch 2 only with an epoch-2 NC). `recovery.sh` runs every configuration below.
+
+| Config | Result | Time (6 workers) |
+|---|---|---|
+| `Recovery4_same_exempt` | `NoConflict` violated after 16 steps (short Case 5: no early votes) | 6 s |
+| `Recovery4_{disjoint,shared1,shared2}_exempt` | `NoConflict` violated after 16 steps | < 1 min |
+| `Recovery4_same_fixed` | no error, 734,980 distinct states | 17 s |
+| `Recovery4_disjoint_fixed` | no error, 755,978 distinct states | 42 s |
+| `Recovery4_shared1_fixed` | no error, 3,337,378 distinct states | 2.5 min |
+| `Recovery4_shared2_fixed` | no error, 3,922,566 distinct states | 2.2 min |
+| `Recovery4_same_Probe{FinalVsLock,Recovery,RecoveryContested}` | probes violated, as intended | < 5 s |
+| `Recovery6_same_exempt_sim` | `NoConflict` violated (random simulation) | < 1 s |
+| `Recovery6_same_ProbeRecovery` | probe violated (random simulation) | < 1 s |
+| `Recovery6_same_fixed` (BFS) | stopped after 75 min (time cap): 87,462,063 distinct states to depth 25, no violation | - |
