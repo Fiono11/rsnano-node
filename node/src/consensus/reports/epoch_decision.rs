@@ -559,10 +559,7 @@ impl EpochDecisionService {
         }
         let states: Vec<SelectedReport> = resolved.iter().map(|(_, state)| *state).collect();
         let index = ReportIndex::new(&previous, &states);
-        let rules = BuildRules {
-            many: committee.thresholds().many,
-            epoch,
-        };
+        let rules = BuildRules { epoch };
         // The evidence this leader used, committed to by digest, with the
         // overlap certificates it proves marked
         let anchor = self.overlap_anchor(epoch)?;
@@ -691,10 +688,7 @@ impl EpochDecisionService {
             manifest_witness(&manifest, &members, origin, hash)
         };
         let index = ReportIndex::new(&previous, &states);
-        let rules = BuildRules {
-            many: committee.thresholds().many,
-            epoch: value.epoch,
-        };
+        let rules = BuildRules { epoch: value.epoch };
         match value.validate(
             &previous,
             &source,

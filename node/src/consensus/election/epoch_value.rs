@@ -520,8 +520,7 @@ mod tests {
             &|_, _| false,
         )
         .unwrap();
-        // Below-threshold residuals need not be retained, but Q is still bound.
-        assert_eq!(all.state, some.state);
+        // Q is bound even where the derived states agree
         assert_ne!(all.hash(), some.hash());
     }
 
@@ -555,14 +554,11 @@ mod tests {
      * Test helpers
      */
 
-    /// f + p + 1, against a reporter weight that keeps a single report below
-    /// the checkpoint recovery threshold
-    const MANY: Amount = Amount::raw(25);
+    /// The weight each test reporter carries
     const REPORTER_WEIGHT: Amount = Amount::raw(10);
 
     fn rules() -> BuildRules {
         BuildRules {
-            many: MANY,
             epoch: ConsensusEpoch::new(1),
         }
     }

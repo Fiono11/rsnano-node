@@ -732,8 +732,6 @@ pub enum BuildStateError {
 /// What BuildState needs besides the predecessor and the selected reports
 #[derive(Clone, Copy)]
 pub struct BuildRules {
-    /// r = f + p + 1 as weight: the reporter first votes a recovery lock needs
-    pub many: Amount,
     /// The closing epoch: the origin of every lock record Rules 1 and 2 add
     pub epoch: ConsensusEpoch,
 }
@@ -761,7 +759,6 @@ pub fn build_state(
     rules: BuildRules,
     witness: &dyn Fn(ConsensusEpoch, &BlockHash) -> bool,
 ) -> Result<EpochLedger, BuildStateError> {
-    let many = rules.many;
     #[derive(Default)]
     struct Evidence {
         notarized: BTreeSet<BlockHash>,
@@ -860,18 +857,17 @@ pub fn build_state(
         let represented: Vec<_> = at.notarized.iter().copied().collect();
         let target = match represented.as_slice() {
             [hash] => Some((*hash, LockStrength::Notarization)),
-            [] => {
-                let recovered: Vec<_> = at
-                    .first
-                    .iter()
-                    .filter(|(_, weight)| **weight >= many)
-                    .map(|(hash, _)| *hash)
-                    .collect();
-                match recovered.as_slice() {
-                    [hash] => Some((*hash, LockStrength::Recovery)),
-                    _ => None,
-                }
-            }
+            // Rule 2, "always pick a side": the eligible block with the
+            // most reporter first-vote weight, ties broken by the smallest
+            // hash. A block that may be fast-final has at least r of it and
+            // every rival less, so it is the unique maximum; keeping a side
+            // where the old rule kept nothing lets the next epoch converge
+            [] => at
+                .first
+                .iter()
+                .filter(|(_, weight)| !weight.is_zero())
+                .max_by(|(a, weight_a), (b, weight_b)| weight_a.cmp(weight_b).then(b.cmp(a)))
+                .map(|(hash, _)| (*hash, LockStrength::Recovery)),
             _ => return Err(BuildStateError::ConflictingNotarizations),
         };
         // "Inherited state and discharge": a represented NC for a block that
@@ -1430,9 +1426,11 @@ mod tests {
         assert!(ledger.frontiers().is_empty());
     }
 
-    /// Below-threshold new residual branches may be omitted.
+    /// RAI, Rule 2, "always pick a side": below the old threshold r the
+    /// block with the most reporter first votes is still kept, under a
+    /// recovery record, so the next epoch votes it
     #[test]
-    fn first_votes_below_the_threshold_recover_nothing() {
+    fn the_block_with_most_reporter_first_votes_is_kept_below_the_threshold() {
         let mut index = StubIndex::default();
         let one = index.add(1, 1, BlockHash::ZERO);
         let other = index.add(1, 1, BlockHash::ZERO);
@@ -1453,7 +1451,33 @@ mod tests {
         );
 
         assert_eq!(ledger.finalized(&slot(1, 1)), None);
-        assert!(ledger.notarized(&slot(1, 1)).is_empty());
+        assert_eq!(ledger.notarized(&slot(1, 1)), vec![one]);
+        assert_eq!(ledger.retained_kind(&one), RetainedKind::Recovery);
+    }
+
+    /// RAI, Rule 2: equal reporter first votes are broken by the smaller
+    /// hash, the same at every validator
+    #[test]
+    fn equal_reporter_first_votes_keep_the_smaller_hash() {
+        let mut index = StubIndex::default();
+        let one = index.add(1, 1, BlockHash::ZERO);
+        let other = index.add(1, 1, BlockHash::ZERO);
+        let certified = CertifiedState::new();
+        let mut for_one = ResidualVotes::new();
+        record(&mut for_one, &index, one, ResidualKind::First);
+        let mut for_other = ResidualVotes::new();
+        record(&mut for_other, &index, other, ResidualKind::First);
+
+        let ledger = derive(
+            &EpochLedger::new(),
+            &[
+                reported_by(1, &certified, &for_one),
+                reported_by(2, &certified, &for_other),
+            ],
+            &index,
+        );
+
+        assert_eq!(ledger.notarized(&slot(1, 1)), vec![one.min(other)]);
     }
 
     /// Rule 3: a block the reports show finalized is finalized, and the
@@ -2202,7 +2226,6 @@ mod tests {
     /// The rules of the closure of an epoch
     fn rules_of(epoch: u64) -> BuildRules {
         BuildRules {
-            many: MANY,
             epoch: ConsensusEpoch::new(epoch),
         }
     }

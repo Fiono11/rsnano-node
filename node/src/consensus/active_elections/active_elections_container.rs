@@ -1594,9 +1594,14 @@ impl ActiveElectionsContainer {
             .is_some_and(|state| state.is_locked(slot, hash))
     }
 
-    /// RAI: whether a block of an election may not be first voted under the
-    /// latest checkpoint: it bypasses a record this node holds no
-    /// discharging witness for
+    /// RAI, "witnesses validate, checkpoints decide": whether a block of an
+    /// election may not be first or final voted under the latest
+    /// checkpoint. It bypasses a record of that checkpoint, and the block it
+    /// bypasses the record with is not final here. An exclusion witness
+    /// still admits the block's instance and its certificate
+    /// (`position_retained`, the overlap check); it no longer earns a new
+    /// vote, so that every validator that installed the checkpoint votes
+    /// the block it keeps.
     fn at_closed_lock(&self, election: &Election, hash: &BlockHash) -> bool {
         let Some(state) = self.decided.values().next_back() else {
             return false;
@@ -1607,8 +1612,32 @@ impl ActiveElectionsContainer {
                 slot,
                 *hash,
                 election.qualified_root().previous,
-                &|origin, hash| self.holds_exclusion_witness(origin, hash),
+                &|_, target| self.is_finalized(target),
             )
+    }
+
+    /// RAI, "no early votes at a contested position": a new first vote
+    /// there waits for the epoch's predecessor checkpoint, and then votes
+    /// the block that checkpoint keeps. One cast before is re-broadcast.
+    fn withholds_early_first_vote(&self, election: &Election) -> bool {
+        self.slots
+            .get(&election.epoch_slot())
+            .is_none_or(|slot| slot.first_voted.is_none())
+            && self.votes_early_in(election.epoch())
+            && self.contested(election)
+    }
+
+    /// This node has seen two blocks at the election's position, or the
+    /// latest checkpoint it installed keeps an unresolved block there
+    fn contested(&self, election: &Election) -> bool {
+        let slot = AccountSlot::new(election.account(), election.height());
+        self.elections_for_root(&election.qualified_root())
+            .any(|instance| instance.block_count() > 1)
+            || self
+                .decided
+                .values()
+                .next_back()
+                .is_some_and(|state| state.retains(&slot) && state.finalized(&slot).is_none())
     }
 
     /// RAI: the locks of the latest checkpoint that became continuable since
@@ -2172,6 +2201,9 @@ impl ActiveElectionsContainer {
                 if kind == VoteKind::First && self.cross_epoch_locked(election, &hash) {
                     continue;
                 }
+                if kind == VoteKind::First && self.withholds_early_first_vote(election) {
+                    continue;
+                }
                 // RAI, matching-origin discharge: no final vote for a block
                 // that bypasses a record of the latest checkpoint this node
                 // holds no discharging witness for. The first vote may have
@@ -2263,7 +2295,10 @@ impl ActiveElectionsContainer {
             let kind = VoteKind::from(target.vote_type);
             // The decision is recorded here, before the signature escapes;
             // the lock of the epoch before is checked on the record too
-            if kind == VoteKind::First && self.cross_epoch_locked(election, &target.winner) {
+            if kind == VoteKind::First
+                && (self.cross_epoch_locked(election, &target.winner)
+                    || self.withholds_early_first_vote(election))
+            {
                 continue;
             }
             let slot = self.slots.get_or_default(&election.epoch_slot());
@@ -5755,9 +5790,12 @@ mod tests {
             first_in(&container, again.hash()).is_some(),
             "the same block"
         );
+        // RAI, "no early votes at a contested position": the rival makes
+        // the position contested, so the first-voted block is not re-voted
+        // before S_0 is known
         assert!(
-            first_in(&container, locked.hash()).is_some(),
-            "the first-voted block is re-voted in the new epoch"
+            first_in(&container, locked.hash()).is_none(),
+            "contested: waits for the checkpoint"
         );
         // Not even when handed in directly
         let smuggled = VoteTarget {
@@ -6657,6 +6695,57 @@ mod tests {
             );
             assert!(child_proposable(&container), "{kind:?}");
         }
+    }
+
+    /// RAI, "witnesses validate, checkpoints decide": once the installed
+    /// checkpoint keeps a block, a rival whose exclusion witness this node
+    /// holds is admitted as an instance, so that its certificate is still
+    /// accepted, but earns no first vote
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn a_witness_earns_no_vote_against_the_block_a_checkpoint_keeps() {
+        let (mut container, reps, rep_weights, start) = committee_fixture(|_| {});
+        let kept = SavedBlock::new_test_instance_with_key(2);
+        let rival = sibling_of(&kept);
+        let mut state = EpochLedger::new();
+        state.retain_recovery_for_test(
+            AccountSlot::new(kept.account(), kept.height()),
+            kept.hash(),
+            kept.previous(),
+        );
+        container
+            .decided
+            .insert(ConsensusEpoch::ZERO, Arc::new(state));
+        for (rep, kind) in reps[..3]
+            .iter()
+            .zip([VoteKind::First, VoteKind::First, VoteKind::Notar])
+        {
+            vote_in(
+                &mut container,
+                rep,
+                kind,
+                ConsensusEpoch::ZERO,
+                rival.hash(),
+                &rep_weights,
+                start,
+            );
+        }
+        assert!(container.holds_exclusion_witness(ConsensusEpoch::ZERO, &rival.hash()));
+        // The rival arrives first and is the instance's current winner
+        container
+            .insert(
+                AecInsertRequest::new_priority(rival.clone(), BlockPriority::new_test_instance()),
+                start,
+            )
+            .unwrap();
+        assert!(container.try_add_fork(&kept, Amount::raw(1)));
+        let first_votes: Vec<BlockHash> = container
+            .kudzu_votes_due(|_| Ok(()))
+            .into_iter()
+            .filter(|target| target.vote_type.is_first())
+            .map(|target| target.winner)
+            .collect();
+        assert!(!first_votes.contains(&rival.hash()));
     }
 
     /// RAI, Case 2 of the repairs, installation side: B was voted in the
