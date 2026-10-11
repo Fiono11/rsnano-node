@@ -1,7 +1,7 @@
 use rsnano_ledger::{AnySet, LedgerSet};
 use rsnano_types::{BlockHash, SavedBlock};
 
-use crate::consensus::election::{AccountSlot, EpochLedger};
+use crate::consensus::election::{AccountSlot, EpochLedger, RetainedKind};
 
 /// Which dependency keeps a block from being proposed here
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -9,10 +9,12 @@ pub(crate) enum Unattached {
     /// The block sits at a position the latest checkpoint retains: a
     /// shorter retained branch can not reopen it
     Retained,
-    /// The previous block is neither final nor a lock of the checkpoint.
-    /// Reported only when the source of a receive is final, so that a
-    /// complete current-epoch parent can stand in for it (RAI, "Subsequent
-    /// children require complete epoch-e parents").
+    /// The previous block is neither final nor a notarization-locked tip of
+    /// the checkpoint. Reported only when the source of a receive is final,
+    /// so that a complete current-epoch parent can stand in for it (RAI,
+    /// "Subsequent children require complete epoch-e parents"). A tip the
+    /// checkpoint holds under recovery records alone is reported here too:
+    /// it is a complete parent only once re-notarized in the child's epoch.
     Previous,
     /// The source of a receive is not final
     Link,
@@ -21,7 +23,9 @@ pub(crate) enum Unattached {
 }
 
 /// Attachment subset for owner recovery: a parent must be confirmed or a
-/// maximum-depth tip retained by the latest checkpoint. Receive sources must
+/// maximum-depth tip the latest checkpoint holds under a notarization lock;
+/// any other parent must be complete in the child's epoch, which the
+/// container checks (`Unattached::Previous`). Receive sources must
 /// be confirmed. Full overlap eligibility and signed-evidence validation are
 /// separate protocol requirements; this helper does not establish them.
 /// Returns which dependency is missing, if any.
@@ -61,10 +65,15 @@ pub(crate) fn unattached_dependency(
     None
 }
 
+/// RAI, re-notarization rule: a maximum-depth tip stands in for a final
+/// parent only under a notarization lock, which no rival can ever pass. A
+/// tip held by recovery records alone may lose to a rival that becomes final
+/// in the open epoch; a child finalizing it would then finalize both sides.
 fn is_locked(any: &dyn AnySet, state: &EpochLedger, hash: BlockHash) -> bool {
     any.get_block(&hash).is_some_and(|block| {
         state.retained_depth(block.account()) == Some(block.height())
             && state.is_locked(&AccountSlot::new(block.account(), block.height()), &hash)
+            && state.retained_kind(&hash) == RetainedKind::Notarized
     })
 }
 
@@ -87,6 +96,26 @@ mod tests {
         let (ledger, parent, child, _) = locked_parent_fixture();
 
         assert!(attachable(&ledger, &child, Some(&lock_of(&parent))));
+    }
+
+    /// RAI, re-notarization rule: a recovery-only tip is a complete parent
+    /// only once it is notarized in the child's epoch, which the container
+    /// checks for `Previous`
+    #[test]
+    fn a_child_of_a_recovery_lock_needs_its_parent_complete_in_the_epoch() {
+        let (ledger, parent, child, _) = locked_parent_fixture();
+        let mut checkpoint = EpochLedger::new();
+        checkpoint.retain_recovery_for_test(
+            AccountSlot::new(parent.account(), parent.height()),
+            parent.hash(),
+            parent.previous(),
+        );
+
+        assert_eq!(
+            unattached_dependency(&ledger.any(), &child, Some(&checkpoint)),
+            Some(Unattached::Previous)
+        );
+        assert!(attachable(&ledger, &parent, Some(&checkpoint)));
     }
 
     #[test]

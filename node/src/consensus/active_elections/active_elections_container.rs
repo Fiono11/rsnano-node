@@ -6570,6 +6570,95 @@ mod tests {
         assert_eq!(insert(&mut container, &rival), Ok(()));
     }
 
+    /// RAI, re-notarization rule (Case 5): a checkpoint keeps B' under a
+    /// recovery record and drops B, but B may still become final in the
+    /// open epoch on its old exclusion witness. A child C' of B' is a
+    /// complete-parent extension like any other: it is first-voted only once
+    /// B' is notarized in the child's epoch, which the members who spent
+    /// their first vote at B's position on B cannot help form. Under a
+    /// notarization lock, which no rival passes, C' is proposable at once.
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn a_child_of_a_recovery_lock_waits_for_its_parent_to_be_renotarized() {
+        use crate::consensus::{Unattached, election::RetainedKind, unattached_dependency};
+        use rsnano_ledger::{AnySet, Ledger, test_helpers::UnsavedBlockLatticeBuilder};
+        for kind in [RetainedKind::Notarized, RetainedKind::Recovery] {
+            let (mut container, reps, rep_weights, start) = committee_fixture(|_| {});
+            let ledger = Ledger::new_null();
+            let mut lattice = UnsavedBlockLatticeBuilder::with_stub_work();
+            let key = PrivateKey::from(1);
+            let kept = ledger
+                .process_one(&lattice.genesis().send(&key, 1))
+                .unwrap();
+            let child = ledger
+                .process_one(&lattice.genesis().send(&key, 1))
+                .unwrap();
+            let mut checkpoint = EpochLedger::new();
+            checkpoint.keep_for_test(
+                AccountSlot::new(kept.account(), kept.height()),
+                kept.hash(),
+                kept.previous(),
+                kind,
+            );
+            for block in [&kept, &child] {
+                container
+                    .insert(
+                        AecInsertRequest::new_priority(
+                            block.clone(),
+                            BlockPriority::new_test_instance(),
+                        ),
+                        start,
+                    )
+                    .unwrap();
+            }
+            let any = ledger.any();
+            let proposal_valid = |hash: &BlockHash| {
+                let block = any.get_block(hash).ok_or(Unattached::Block)?;
+                match unattached_dependency(&any, &block, Some(&checkpoint)) {
+                    None => Ok(()),
+                    Some(why) => Err(why),
+                }
+            };
+            let child_proposable = |container: &ActiveElectionsContainer| {
+                container
+                    .kudzu_votes_due(proposal_valid)
+                    .into_iter()
+                    .any(|target| {
+                        target.vote_type == VoteType::NonFinal && target.winner == child.hash()
+                    })
+            };
+            let recovery_only = kind == RetainedKind::Recovery;
+            assert_eq!(child_proposable(&container), !recovery_only, "{kind:?}");
+
+            // Two of four members first-vote the kept block in this epoch;
+            // the others spent theirs on its rival
+            for rep in &reps[..2] {
+                vote_in(
+                    &mut container,
+                    rep,
+                    VoteKind::First,
+                    ConsensusEpoch::ZERO,
+                    kept.hash(),
+                    &rep_weights,
+                    start,
+                );
+            }
+            assert_eq!(child_proposable(&container), !recovery_only, "{kind:?}");
+
+            // Re-notarized in the child's epoch: owner recovery goes ahead
+            vote_in(
+                &mut container,
+                &reps[2],
+                VoteKind::First,
+                ConsensusEpoch::ZERO,
+                kept.hash(),
+                &rep_weights,
+                start,
+            );
+            assert!(child_proposable(&container), "{kind:?}");
+        }
+    }
+
     /// RAI, Case 2 of the repairs, installation side: B was voted in the
     /// open epoch before the closing checkpoint was known, and late
     /// notarized in the closing epoch. The checkpoint retains B's rival

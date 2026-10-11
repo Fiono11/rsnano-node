@@ -600,8 +600,7 @@ impl EpochLedger {
     /// A slot the checkpoint kept as a notarized fork, for tests
     #[cfg(test)]
     pub fn retain_for_test(&mut self, slot: AccountSlot, hash: BlockHash, previous: BlockHash) {
-        self.keep(slot, PlacedBlock::new(hash, previous));
-        self.set_lock_for_test(hash, RetainedKind::Notarized);
+        self.keep_for_test(slot, hash, previous, RetainedKind::Notarized);
     }
 
     /// A slot the checkpoint kept as a recovery-only lock, for tests
@@ -612,8 +611,20 @@ impl EpochLedger {
         hash: BlockHash,
         previous: BlockHash,
     ) {
+        self.keep_for_test(slot, hash, previous, RetainedKind::Recovery);
+    }
+
+    /// A slot the checkpoint kept with a lock of the given kind, for tests
+    #[cfg(test)]
+    pub fn keep_for_test(
+        &mut self,
+        slot: AccountSlot,
+        hash: BlockHash,
+        previous: BlockHash,
+        kind: RetainedKind,
+    ) {
         self.keep(slot, PlacedBlock::new(hash, previous));
-        self.set_lock_for_test(hash, RetainedKind::Recovery);
+        self.set_lock_for_test(hash, kind);
     }
 
     /// Replaces a block's lock records with one of the given kind, of origin
