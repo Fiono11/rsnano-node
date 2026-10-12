@@ -1,6 +1,6 @@
 \section{Model Checking the Handover}
 \label{sec:mc}
-Three of the rules in Sections~\ref{sec:close} and~\ref{sec:pipeline} replaced earlier rules that written arguments had accepted; a fourth, re-notarization, was found by review. We wrote five TLA\textsuperscript{+} models of the handover and checked them with TLC. Each takes one account with $N=6$, $f=p=1$, five correct validators and one Byzantine validator whose signatures are available for every block, vote kind, and epoch, and whose report is chosen by the adversary subject to the usability checks. Agreement is the nondeterministic choice of one eligible candidate; TLC explores every interleaving, with validators identified up to permutation. The models, configurations, and TLC outputs with the violating traces are in the supplement and the artifact.
+Three of the rules in Sections~\ref{sec:close} and~\ref{sec:pipeline} replaced earlier rules that written arguments had accepted; review found two more gaps, closed by re-notarization and the termination rules. We wrote six TLA\textsuperscript{+} models of the handover and checked them with TLC. Each takes one account with $N=6$, $f=p=1$, five correct validators and one Byzantine validator whose signatures are available for every block, vote kind, and epoch, and whose report is chosen by the adversary subject to the usability checks. Agreement is the nondeterministic choice of one eligible candidate; TLC explores every interleaving, with validators identified up to permutation. The models, configurations, and TLC outputs with the violating traces are in the supplement and the artifact.
 
 \begin{description}
 \item[Close] three voting epochs and two checkpoints, no early voting; the recipe with locks of several origins and matching-origin release. Switch: the old or the new definition of the report's second set.
@@ -8,6 +8,7 @@ Three of the rules in Sections~\ref{sec:close} and~\ref{sec:pipeline} replaced e
 \item[Handoff] early voting, two checkpoints, and a committee change with the Byzantine validator in both committees; the early-vote rule on or off; a releasing witness reaches the second checkpoint only through a selected correct report, which models a withheld signature.
 \item[Prefix] two positions of one account: a parent with a rival at position 1 and two children at position 2, so that the prefix-wide guard of~\ref{r:overlap} is exercised; committees identical, disjoint, or sharing members. Switches check only the finalizing block instead of the prefix, and let a child inherit its parent's witness.
 \item[Recovery] a child of each forked block at the next position, installation, and settled votes. Switch: the earlier retained-tip exemption.
+\item[Resolve] one forked position over three epochs and two checkpoints; a Byzantine validator that votes both sides or withholds; epochs flagged as good (synchronous) or not. Switch: the termination rules.
 \end{description}
 
 \begin{table}[t]
@@ -32,10 +33,13 @@ Prefix $N{=}4$, child inherits witness, not same $K$ & conflicting finality (12-
 Prefix $N{=}6$, target only or inherited witness & conflicting finality (simulation) & --\\
 Recovery $N{=}4$, tip always extensible, all $K$ & conflicting finality (16) & --\\
 Recovery $N{=}4$, re-notarization, all $K$ & no violation & 0.7--3.9\,M\\
+Close, Overlap, Handoff, Recovery: Rule~2 keeps a side & no violation & 0.3--5.9\,M\\
+Resolve $N{=}4$, no termination rules & fork open after two good epochs (sim.) & --\\
+Resolve $N{=}4$, termination rules, epochs 2--3 good & no violation & 4.6\,M\\
 \bottomrule
 \end{tabularx}
 \end{table}
 
-Table~\ref{tab:mc} summarizes. With the old second set a fresh vote for a recovery-locked block appeared in no report, and two conflicting fast certificates were reachable; without matching-origin release two correct validators finalized different blocks depending on whether the checkpoint or the certificate arrived first; with the fast path counting every first vote, Theorem~\ref{thm:closure} failed at the second checkpoint by the trace of Section~\ref{sec:pipeline}, with identical and with disjoint committees. In the prefix model, checking only the finalizing block or letting a child inherit its parent's witness finalizes conflicting children once the committees differ; the prefix-wide guard passes every $N=4$ configuration, and its $N=6$ runs were still in progress at submission. The recovery model finds the retained-tip exemption unsafe for every pair of committees, even without early votes. Probes show that the invariants are not vacuous.
+Table~\ref{tab:mc} summarizes. With the old second set a fresh vote for a recovery-locked block appeared in no report, and two conflicting fast certificates were reachable; without matching-origin release two correct validators finalized different blocks depending on whether the checkpoint or the certificate arrived first; with the fast path counting every first vote, Theorem~\ref{thm:closure} failed at the second checkpoint by the trace of Section~\ref{sec:pipeline}, with identical and with disjoint committees. In the prefix model, checking only the finalizing block or letting a child inherit its parent's witness finalizes conflicting children once the committees differ; the prefix-wide guard passes every $N=4$ configuration, and its $N=6$ runs were still in progress at submission. The recovery model finds the retained-tip exemption unsafe for every pair of committees, even without early votes. The resolve model keeps a fork open through two good epochs without the termination rules and finalizes it with them; Rule~2's new choice passes every safety model. Probes show that the invariants are not vacuous.
 
 The models are small: one or two positions, two or three epochs, no receives, no restarts, $N\in\{4,6\}$. Their abstractions only add behaviours, so a violation in the model is a violation of the protocol, but a clean run is evidence, not proof.
