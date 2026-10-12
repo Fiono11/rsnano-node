@@ -7,7 +7,9 @@ summary exists is skipped.
       --arm pause=target/release:--epoch-transition=pause \\
       --arm develop=<develop bin dir>:--no-epochs:--timeout=240:--settle-timeout=45
 
-Runs land in OUT/<variant>/r<rate>/<arm>{,.summary.json}.
+Runs land in OUT/<variant>/r<rate>/<arm>{,.summary.json}; with --reps N the
+points at --reps-from offered blocks/s and above get repetitions 2..N in
+<arm>-rep<k>. Repetition k uses the point's seed plus k - 1.
 """
 import argparse
 import json
@@ -76,6 +78,8 @@ def main():
     parser.add_argument('--arm', action='append', required=True, help='name=bin_dir[:flag[:flag...]]')
     parser.add_argument('--blocks', type=int, default=45000)
     parser.add_argument('--wait-quiet', type=int, default=3600)
+    parser.add_argument('--reps', type=int, default=1, help='repetitions at the high rates')
+    parser.add_argument('--reps-from', type=int, default=1500, help='offered rate from which --reps applies')
     parser.add_argument('--dry-run', action='store_true')
     args = parser.parse_args()
     arms = dict(parse_arm(spec) for spec in args.arm)
@@ -89,11 +93,13 @@ def main():
         for variant, (flags, rates, only) in SETS[name].items():
             for rate in rates:
                 # the same workload choices for every system at this point
-                seed = 1000 * rate + sum(map(ord, variant))
-                for arm, spec in arms.items():
+                base_seed = 1000 * rate + sum(map(ord, variant))
+                reps = args.reps if rate >= args.reps_from else 1
+                for k, (arm, spec) in [(k, a) for k in range(1, reps + 1) for a in arms.items()]:
                     if only and arm not in only:
                         continue
-                    run = args.output / variant / f'r{rate}' / arm
+                    seed = base_seed + k - 1
+                    run = args.output / variant / f'r{rate}' / (arm if k == 1 else f'{arm}-rep{k}')
                     summary = run.with_suffix('.summary.json')
                     if summary.exists():
                         continue
@@ -107,7 +113,7 @@ def main():
                                '--settle-timeout', '120', '--stall-abort', '45',
                                '--rate', str(rate), '--blocks', str(args.blocks), '--accounts', str(args.blocks),
                                '--seed', str(seed)] + flags + spec['flags']
-                    print(f'[{time.strftime("%H:%M:%S")}] {variant} {rate}/s {arm}', flush=True)
+                    print(f'[{time.strftime("%H:%M:%S")}] {variant} {rate}/s {arm} rep {k}', flush=True)
                     if args.dry_run:
                         print('  ' + ' '.join(command))
                         continue
@@ -120,7 +126,7 @@ def main():
                         status = json.loads(completed.stdout).get('status')
                     except (json.JSONDecodeError, AttributeError):
                         status = f'exit {completed.returncode}'
-                    plan['runs'].append(dict(variant=variant, rate=rate, arm=arm, status=status,
+                    plan['runs'].append(dict(variant=variant, rate=rate, arm=arm, rep=k, status=status,
                                              seconds=round(time.time() - started)))
                     index.write_text(json.dumps(plan, indent=2) + '\n')
                     print(f'  {status} in {round(time.time() - started)} s', flush=True)

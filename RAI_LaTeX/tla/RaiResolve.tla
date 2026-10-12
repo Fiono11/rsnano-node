@@ -22,7 +22,9 @@
 (*        validator first- or final-votes only K here, witnesses or not;   *)
 (*  (ii)  at a contested position (it saw both blocks, or its installed    *)
 (*        checkpoint keeps a block here) it first-votes in epoch e only    *)
-(*        after installing S_{e-1};                                        *)
+(*        after installing S_{e-1}; with EARLYKEPT = TRUE only where its   *)
+(*        latest installed checkpoint keeps nothing here (where it keeps   *)
+(*        K, an early vote for K is allowed, rule (i) forbids the rest);   *)
 (*  (iii) Rule 2 keeps the eligible block with the most reporter first     *)
 (*        votes, ties broken by hash, instead of keeping nothing.          *)
 (*                                                                         *)
@@ -40,7 +42,7 @@
 (***************************************************************************)
 EXTENDS Naturals, FiniteSets, TLC
 
-CONSTANTS C, byz, N, f, p, RULES
+CONSTANTS C, byz, N, f, p, RULES, EARLYKEPT
 
 E        == 3
 Epochs   == 1..E
@@ -88,7 +90,7 @@ VoteOK(v, b) ==
   /\ e <= E /\ fv[e][v] = "-" /\ b \in seen[v]
   /\ Admissible(k, b)
   /\ (~settled /\ e > 1) => fv[e-1][v] \in {"-", b}        \* cross-epoch rule
-  /\ RULES => /\ Contested(v) => settled                   \* (ii)
+  /\ RULES => /\ Contested(v) /\ ~(EARLYKEPT /\ Kept(k) # {}) => settled  \* (ii)
               /\ Kept(k) # {} => b \in Kept(k)             \* (i)
 
 FinalOK(v) ==

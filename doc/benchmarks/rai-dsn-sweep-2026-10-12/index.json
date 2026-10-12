@@ -1,0 +1,324 @@
+{
+  "sets": [
+    "main",
+    "byz",
+    "reconf"
+  ],
+  "arms": {
+    "rai": {
+      "bin_dir": "target/release",
+      "flags": []
+    },
+    "pause": {
+      "bin_dir": "target/release",
+      "flags": [
+        "--epoch-transition=pause"
+      ]
+    },
+    "develop": {
+      "bin_dir": "/Users/ruimorais/.claude/jobs/43c953df/tmp/devbin",
+      "flags": [
+        "--no-epochs",
+        "--timeout=240",
+        "--settle-timeout=45"
+      ]
+    }
+  },
+  "started": 1791797980.271648,
+  "runs": [
+    {
+      "variant": "nofork",
+      "rate": 500,
+      "arm": "rai",
+      "status": "settled",
+      "seconds": 173
+    },
+    {
+      "variant": "nofork",
+      "rate": 500,
+      "arm": "pause",
+      "status": "settled",
+      "seconds": 173
+    },
+    {
+      "variant": "nofork",
+      "rate": 500,
+      "arm": "develop",
+      "status": "settled",
+      "seconds": 209
+    },
+    {
+      "variant": "nofork",
+      "rate": 1000,
+      "arm": "rai",
+      "status": "settled",
+      "seconds": 127
+    },
+    {
+      "variant": "nofork",
+      "rate": 1000,
+      "arm": "pause",
+      "status": "settled",
+      "seconds": 124
+    },
+    {
+      "variant": "nofork",
+      "rate": 1000,
+      "arm": "develop",
+      "status": "settled",
+      "seconds": 163
+    },
+    {
+      "variant": "nofork",
+      "rate": 1500,
+      "arm": "rai",
+      "status": "settled",
+      "seconds": 115
+    },
+    {
+      "variant": "nofork",
+      "rate": 1500,
+      "arm": "pause",
+      "status": "settled",
+      "seconds": 113
+    },
+    {
+      "variant": "nofork",
+      "rate": 1500,
+      "arm": "develop",
+      "status": "settled",
+      "seconds": 149
+    },
+    {
+      "variant": "nofork",
+      "rate": 2000,
+      "arm": "rai",
+      "status": "settled",
+      "seconds": 109
+    },
+    {
+      "variant": "nofork",
+      "rate": 2000,
+      "arm": "pause",
+      "status": "settled",
+      "seconds": 107
+    },
+    {
+      "variant": "nofork",
+      "rate": 2000,
+      "arm": "develop",
+      "status": "settled",
+      "seconds": 141
+    },
+    {
+      "variant": "nofork",
+      "rate": 2500,
+      "arm": "rai",
+      "status": "settled",
+      "seconds": 108
+    },
+    {
+      "variant": "nofork",
+      "rate": 2500,
+      "arm": "pause",
+      "status": "settled",
+      "seconds": 108
+    },
+    {
+      "variant": "nofork",
+      "rate": 2500,
+      "arm": "develop",
+      "status": "settled",
+      "seconds": 137
+    },
+    {
+      "variant": "nofork",
+      "rate": 3000,
+      "arm": "rai",
+      "status": "settled",
+      "seconds": 108
+    },
+    {
+      "variant": "nofork",
+      "rate": 3000,
+      "arm": "pause",
+      "status": "settled",
+      "seconds": 131
+    },
+    {
+      "variant": "nofork",
+      "rate": 3000,
+      "arm": "develop",
+      "status": "settled",
+      "seconds": 134
+    },
+    {
+      "variant": "fork5",
+      "rate": 500,
+      "arm": "rai",
+      "status": "settled",
+      "seconds": 174
+    },
+    {
+      "variant": "fork5",
+      "rate": 500,
+      "arm": "pause",
+      "status": "settled",
+      "seconds": 175
+    },
+    {
+      "variant": "fork5",
+      "rate": 500,
+      "arm": "develop",
+      "status": "settled",
+      "seconds": 209
+    },
+    {
+      "variant": "fork5",
+      "rate": 1000,
+      "arm": "rai",
+      "status": "settled",
+      "seconds": 129
+    },
+    {
+      "variant": "fork5",
+      "rate": 1000,
+      "arm": "pause",
+      "status": "settled",
+      "seconds": 139
+    },
+    {
+      "variant": "fork5",
+      "rate": 1000,
+      "arm": "develop",
+      "status": "settled",
+      "seconds": 163
+    },
+    {
+      "variant": "fork5",
+      "rate": 1500,
+      "arm": "rai",
+      "status": "settled",
+      "seconds": 121
+    },
+    {
+      "variant": "fork5",
+      "rate": 1500,
+      "arm": "pause",
+      "status": "settled",
+      "seconds": 135
+    },
+    {
+      "variant": "fork5",
+      "rate": 1500,
+      "arm": "develop",
+      "status": "settled",
+      "seconds": 148
+    },
+    {
+      "variant": "fork5",
+      "rate": 2000,
+      "arm": "rai",
+      "status": "settled",
+      "seconds": 117
+    },
+    {
+      "variant": "fork5",
+      "rate": 2000,
+      "arm": "pause",
+      "status": "settled",
+      "seconds": 116
+    },
+    {
+      "variant": "fork5",
+      "rate": 2000,
+      "arm": "develop",
+      "status": "settled",
+      "seconds": 145
+    },
+    {
+      "variant": "fork5",
+      "rate": 2500,
+      "arm": "rai",
+      "status": "settled",
+      "seconds": 124
+    },
+    {
+      "variant": "fork5",
+      "rate": 2500,
+      "arm": "pause",
+      "status": "settled",
+      "seconds": 153
+    },
+    {
+      "variant": "fork5",
+      "rate": 2500,
+      "arm": "develop",
+      "status": "settled",
+      "seconds": 128
+    },
+    {
+      "variant": "fork5",
+      "rate": 3000,
+      "arm": "rai",
+      "status": "settled",
+      "seconds": 182
+    },
+    {
+      "variant": "fork5",
+      "rate": 3000,
+      "arm": "pause",
+      "status": "settled",
+      "seconds": 154
+    },
+    {
+      "variant": "fork5",
+      "rate": 3000,
+      "arm": "develop",
+      "status": "failed",
+      "seconds": 182
+    },
+    {
+      "variant": "fork10",
+      "rate": 500,
+      "arm": "rai",
+      "status": "settled",
+      "seconds": 176
+    },
+    {
+      "variant": "fork10",
+      "rate": 500,
+      "arm": "pause",
+      "status": "settled",
+      "seconds": 177
+    },
+    {
+      "variant": "fork10",
+      "rate": 500,
+      "arm": "develop",
+      "status": "failed",
+      "seconds": 288
+    },
+    {
+      "variant": "fork10",
+      "rate": 1000,
+      "arm": "rai",
+      "status": "settled",
+      "seconds": 140
+    },
+    {
+      "variant": "fork10",
+      "rate": 1000,
+      "arm": "pause",
+      "status": "settled",
+      "seconds": 140
+    },
+    {
+      "variant": "fork10",
+      "rate": 1000,
+      "arm": "develop",
+      "status": "failed",
+      "seconds": 232
+    }
+  ]
+}
