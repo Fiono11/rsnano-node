@@ -988,6 +988,11 @@ impl Node {
 
         #[cfg(feature = "rai_protocol")]
         aec_ticker.add_plugin(ReportTicker::new(reports.clone(), epoch_decision.clone()));
+        #[cfg(feature = "rai_protocol")]
+        aec_ticker.add_plugin(crate::consensus::KeptBlockLoader::new(
+            ledger.clone(),
+            steady_clock.clone(),
+        ));
 
         let mut bootstrap_stale =
             BootstrapStaleElections::new(bootstrapper.clone(), steady_clock.clone());

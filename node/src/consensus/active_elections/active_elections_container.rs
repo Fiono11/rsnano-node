@@ -1645,13 +1645,50 @@ impl ActiveElectionsContainer {
     /// of a recovery-only lock is often assembled from gossip afterwards
     #[cfg(feature = "rai_protocol")]
     fn continue_retained_locks(&mut self, now: Timestamp) {
-        let Some((&decided, state)) = self.decided.iter().next_back() else {
+        let Some(&decided) = self.decided.keys().next_back() else {
             return;
         };
-        let state = state.clone();
-        let open = self.current_epoch;
         let candidates: Vec<SavedBlock> = self
-            .roots
+            .kept_blocks_to_continue()
+            .into_iter()
+            .filter_map(|(_, block)| block)
+            .collect();
+        // Every retained block is continued (§5.6), hundreds of them at an
+        // install: spread over the ticks, they do not stall the open epoch's
+        // own instances
+        let mut continued = 0;
+        for block in candidates {
+            if continued >= Self::CONTINUED_PER_TICK {
+                break;
+            }
+            if self.continue_kept_block(block, now) {
+                continued += 1;
+            }
+        }
+        if continued > 0 {
+            self.stats.carried += continued;
+            diagnostic!(
+                "EPOCH_LOCKS_CONTINUED epoch={} instances={}",
+                decided,
+                continued
+            );
+        }
+    }
+
+    /// RAI, "checkpoints decide": the blocks the latest checkpoint keeps
+    /// alone at their position whose open-epoch instance does not hold them
+    /// yet, with the body the decided epoch's instance saved, if it did. A
+    /// fork candidate the ledger took in place of its rival only later
+    /// (the checkpoint follower forces it in) stays unsaved there, or was
+    /// never a candidate here; the ledger has it
+    /// (`kept_blocks_awaiting_ledger`).
+    #[cfg(feature = "rai_protocol")]
+    fn kept_blocks_to_continue(&self) -> Vec<(BlockHash, Option<SavedBlock>)> {
+        let Some((&decided, state)) = self.decided.iter().next_back() else {
+            return Vec::new();
+        };
+        let open = self.current_epoch;
+        self.roots
             .iter()
             .map(|entry| &entry.election)
             .filter(|election| election.epoch() == decided && !election.is_confirmed())
@@ -1667,34 +1704,47 @@ impl ActiveElectionsContainer {
                 {
                     return None;
                 }
-                match election.candidate_blocks().get(hash)? {
-                    rsnano_types::MaybeSavedBlock::Saved(block) => Some(block.clone()),
+                // A node that never received the kept block as a candidate
+                // continues it all the same, once its ledger holds it
+                let saved = match election.candidate_blocks().get(hash) {
+                    Some(rsnano_types::MaybeSavedBlock::Saved(block)) => Some(block.clone()),
                     _ => None,
-                }
+                };
+                Some((*hash, saved))
             })
-            .collect();
-        // Every retained block is continued (§5.6), hundreds of them at an
-        // install: spread over the ticks, they do not stall the open epoch's
-        // own instances
-        let mut continued = 0;
-        for block in candidates {
-            if continued >= Self::CONTINUED_PER_TICK {
-                break;
-            }
-            let slot = AccountSlot::new(block.account(), block.height());
-            if !self.lock_continuable(&slot, &block.hash()) {
-                continue;
-            }
-            self.insert_for_vote(block, open, now);
-            continued += 1;
+            .collect()
+    }
+
+    /// RAI: the kept blocks of `kept_blocks_to_continue` this container has
+    /// no body for; the caller reads them from the ledger and continues them
+    #[cfg(feature = "rai_protocol")]
+    pub fn kept_blocks_awaiting_ledger(&self) -> Vec<BlockHash> {
+        self.kept_blocks_to_continue()
+            .into_iter()
+            .filter(|(_, block)| block.is_none())
+            .map(|(hash, _)| hash)
+            .take(Self::CONTINUED_PER_TICK as usize)
+            .collect()
+    }
+
+    /// RAI, §5.6: a block the latest checkpoint keeps gets its instance in
+    /// the open epoch. If the position already has one, carried at the
+    /// boundary with another block, the kept block joins it as a candidate:
+    /// it is the one block there a validator that installed the checkpoint
+    /// votes. Whether it was continued.
+    #[cfg(feature = "rai_protocol")]
+    pub fn continue_kept_block(&mut self, block: SavedBlock, now: Timestamp) -> bool {
+        let slot = AccountSlot::new(block.account(), block.height());
+        if !self.lock_continuable(&slot, &block.hash()) {
+            return false;
         }
-        if continued > 0 {
-            self.stats.carried += continued;
-            diagnostic!(
-                "EPOCH_LOCKS_CONTINUED epoch={} instances={}",
-                decided,
-                continued
-            );
+        let open = self.current_epoch;
+        let id = ElectionId::new(block.qualified_root(), open);
+        if self.roots.get(&id).is_some() {
+            self.try_add_fork_to(&id, &block, Amount::ZERO)
+        } else {
+            self.insert_for_vote(block, open, now);
+            self.roots.get(&id).is_some()
         }
     }
 
@@ -6700,7 +6750,7 @@ mod tests {
     /// RAI, "witnesses validate, checkpoints decide": once the installed
     /// checkpoint keeps a block, a rival whose exclusion witness this node
     /// holds is admitted as an instance, so that its certificate is still
-    /// accepted, but earns no first vote
+    /// accepted, but earns no first vote; the instance votes the kept block
     #[cfg(feature = "rai_protocol")]
     #[test]
     fn a_witness_earns_no_vote_against_the_block_a_checkpoint_keeps() {
@@ -6746,6 +6796,51 @@ mod tests {
             .map(|target| target.winner)
             .collect();
         assert!(!first_votes.contains(&rival.hash()));
+        // "For the first valid block it sees": the kept block, although the
+        // rival arrived first
+        assert!(first_votes.contains(&kept.hash()));
+    }
+
+    /// RAI, "checkpoints decide": the open epoch's instance at a position
+    /// was carried at the boundary with this node's block; the checkpoint
+    /// keeps the rival, which the ledger takes in later. Continued, the kept
+    /// block joins that instance and is the block it first-votes.
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn a_kept_block_joins_the_open_epochs_instance_and_is_voted() {
+        let (mut container, _, _, start) = committee_fixture(|_| {});
+        let kept = SavedBlock::new_test_instance_with_key(2);
+        let rival = sibling_of(&kept);
+        let epoch1 = ConsensusEpoch::new(1);
+        container.frozen.insert(ConsensusEpoch::ZERO);
+        container.set_current_epoch(epoch1);
+        container.insert_for_vote(rival.clone(), epoch1, start);
+        let mut state = EpochLedger::new();
+        state.retain_recovery_for_test(
+            AccountSlot::new(kept.account(), kept.height()),
+            kept.hash(),
+            kept.previous(),
+        );
+        container
+            .decided
+            .insert(ConsensusEpoch::ZERO, Arc::new(state));
+
+        assert!(container.continue_kept_block(kept.clone(), start));
+
+        let kept_hash = kept.hash();
+        let first_votes: Vec<BlockHash> = container
+            .kudzu_votes_due(|hash| {
+                if *hash == kept_hash {
+                    Ok(())
+                } else {
+                    Err(crate::consensus::Unattached::Retained)
+                }
+            })
+            .into_iter()
+            .filter(|target| target.vote_type.is_first() && target.election.epoch == epoch1)
+            .map(|target| target.winner)
+            .collect();
+        assert_eq!(first_votes, vec![kept_hash]);
     }
 
     /// RAI, Case 2 of the repairs, installation side: B was voted in the

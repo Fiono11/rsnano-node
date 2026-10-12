@@ -21,6 +21,8 @@ pub mod election_schedulers;
 mod filtered_vote;
 mod fork_cache;
 mod fork_cache_updater;
+#[cfg(feature = "rai_protocol")]
+mod kept_block_loader;
 mod local_votes_remover;
 mod rep_tiers;
 #[cfg(feature = "rai_protocol")]
@@ -63,6 +65,8 @@ pub(crate) use dependent_elections_confirmer::*;
 pub use filtered_vote::*;
 pub(crate) use fork_cache::*;
 pub(crate) use fork_cache_updater::*;
+#[cfg(feature = "rai_protocol")]
+pub(crate) use kept_block_loader::*;
 pub(crate) use local_votes_remover::LocalVotesRemover;
 pub use rep_tiers::*;
 pub(crate) use vote_applier::*;

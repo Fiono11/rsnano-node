@@ -705,6 +705,18 @@ impl AecService {
         self.aec.write().unwrap().insert(request, now)
     }
 
+    /// RAI: see `ActiveElectionsContainer::kept_blocks_awaiting_ledger`
+    #[cfg(feature = "rai_protocol")]
+    pub fn kept_blocks_awaiting_ledger(&self) -> Vec<BlockHash> {
+        self.aec.read().unwrap().kept_blocks_awaiting_ledger()
+    }
+
+    /// RAI: see `ActiveElectionsContainer::continue_kept_block`
+    #[cfg(feature = "rai_protocol")]
+    pub fn continue_kept_block(&self, block: SavedBlock, now: Timestamp) -> bool {
+        self.aec.write().unwrap().continue_kept_block(block, now)
+    }
+
     pub fn try_add_fork(&self, fork: &Block, fork_tally: Amount) -> bool {
         self.aec.write().unwrap().try_add_fork(fork, fork_tally)
     }

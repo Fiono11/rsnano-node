@@ -813,14 +813,28 @@ impl Election {
         // A replica issues at most one first vote per slot: the valid
         // proposal, if it has one. RAI: there is no account timeout vote of
         // any kind; an unresolved position is carried to the epoch decision.
-        if !finalized && slot.first_voted.is_none() {
+        if !finalized && slot.first_voted.is_none() && !slot.stale {
             // Lines 18–21: first vote for the valid proposal, i.e. our ledger
-            // block whose dependencies are finalized
-            let proposable = !slot.stale
-                && matches!(self.winner, MaybeSavedBlock::Saved(_))
-                && proposal_valid(&winner);
-            if proposable {
-                due.push((winner, VoteKind::First));
+            // block whose dependencies are finalized. RAI: "for the first
+            // valid block it sees there". Where the winner is not valid - a
+            // checkpoint keeps a rival here, which every validator that
+            // installed it votes instead - a valid candidate is voted, the
+            // smallest hash if there were several. A fork candidate stays
+            // unsaved here when the ledger takes it in place of the winner
+            // (the checkpoint follower forces it in); `proposal_valid`
+            // checks that the ledger holds it
+            let proposal =
+                if matches!(self.winner, MaybeSavedBlock::Saved(_)) && proposal_valid(&winner) {
+                    Some(winner)
+                } else {
+                    self.candidate_blocks
+                        .keys()
+                        .filter(|hash| **hash != winner && proposal_valid(hash))
+                        .min()
+                        .copied()
+                };
+            if let Some(hash) = proposal {
+                due.push((hash, VoteKind::First));
             }
         }
 
