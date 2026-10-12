@@ -64,3 +64,23 @@ The header comment of each module lists its abstractions. No model covers more t
 | `Recovery6_same_exempt_sim` | `NoConflict` violated (random simulation) | < 1 s |
 | `Recovery6_same_ProbeRecovery` | probe violated (random simulation) | < 1 s |
 | `Recovery6_same_fixed` (BFS) | stopped after 75 min (time cap): 87,462,063 distinct states to depth 25, no violation | - |
+
+`RaiResolve.tla` checks termination at a forked position: one position with X and Y, three epochs, two closures, N = 4, a Byzantine validator that double-votes or withholds, epochs flagged good (synchronous) or not. `RULES` switches the two termination rules (checkpoints decide; no early votes at a contested position) and the new Rule 2 (keep the side with most reporter votes). `TwoGood`: two consecutive good epochs make some block final. `Spec` explores every pattern of good epochs (simulation); `Spec23` starts from an arbitrary fork epoch with epochs 2 and 3 good (exhaustive, deadlock checking on). `resolve.sh` runs them.
+
+| Config | Result | Time (6-7 workers) |
+|---|---|---|
+| `Resolve4_norules_sim`, `Resolve4_norules_23_sim` | `TwoGood` violated (the stall) | < 2 s |
+| `Resolve4_rules_sim` | no violation in 493,465 random runs (88 M states) | 15 min (stopped) |
+| `Resolve4_rules_23` | no error, no deadlock, 4,635,660 distinct states, depth 33 | 8.8 min |
+| `Resolve4_rules_23_ProbeOneGood` | violated after 10 steps: one good epoch is not enough | 1 min |
+| `Resolve4_rules_23_ProbeGood23` | violated after 23 steps: the antecedent is reachable | 1 min |
+
+`MAXKEEP = TRUE` (Rule 2 keeps the block with most reporter votes, ties by hash) is a switch in RaiClose, RaiOverlap, RaiHandoff and RaiRecovery; existing configs set it FALSE. `maxkeep.sh` runs:
+
+| Config | Result | Time (auto workers) |
+|---|---|---|
+| `Close_TRUE_maxkeep` | no error, 278,404 distinct states | 68 s |
+| `Overlap_fixed_maxkeep` | no error, 4,959,763 distinct states | 6.3 min |
+| `Handoff_same_rule_maxkeep` | no error, 5,862,017 distinct states | 9.5 min |
+| `Handoff_disjoint_rule_maxkeep` | no error, 2,686,030 distinct states | 10.6 min |
+| `Recovery4_{same,disjoint,shared1,shared2}_fixed_maxkeep` | no error, 637,038 / 620,222 / 2,622,687 / 3,245,504 | < 3 min |

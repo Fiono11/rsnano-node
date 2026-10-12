@@ -38,7 +38,7 @@
 (***************************************************************************)
 EXTENDS Naturals, FiniteSets, TLC
 
-CONSTANTS K1, K2, byz, RULE
+CONSTANTS K1, K2, byz, RULE, MAXKEEP
 
 C       == K1 \cup K2
 Blocks  == {"X", "Y"}
@@ -167,8 +167,13 @@ Close1 ==
                 Ns    == {b \in Blocks : \E i \in Qs : Rp(i).T[b] = "N"}
                 U(b)  == {i \in Qs : b \in Rp(i).G}
                 Thr   == {b \in Blocks : Cardinality(U(b)) >= R}
-                new   == IF Cardinality(Thr) = 1
-                         THEN {[b |-> CHOOSE b \in Thr : TRUE, o |-> 1]} ELSE {}
+                Most  == {b \in Blocks : Cardinality(U(b)) >= 1 /\
+                            \A c \in Blocks : Cardinality(U(c)) <= Cardinality(U(b))}
+                Pick  == IF "X" \in Most THEN "X" ELSE "Y"   \* ties by hash
+                new   == IF MAXKEEP
+                         THEN IF Most = {} THEN {} ELSE {[b |-> Pick, o |-> 1]}
+                         ELSE IF Cardinality(Thr) = 1
+                              THEN {[b |-> CHOOSE b \in Thr : TRUE, o |-> 1]} ELSE {}
             IN S1' = IF Fs # {} THEN [done |-> TRUE, fin |-> Fs, locks |-> {}]
                      ELSE IF Ns # {} THEN [done |-> TRUE, fin |-> Ns, locks |-> {}]
                      ELSE [done |-> TRUE, fin |-> {}, locks |-> new]
@@ -213,9 +218,13 @@ Close2 ==
                                    Elig(b) /\ \E i \in Qs : Rp(i).T[b] = "N"}
                         U(b) == IF Elig(b) THEN {i \in Qs : b \in Rp(i).G} ELSE {}
                         Thr  == {b \in Blocks : Cardinality(U(b)) >= R}
-                        new  == IF Cardinality(Thr) = 1
-                                THEN {[b |-> CHOOSE b \in Thr : TRUE, o |-> 2]}
-                                ELSE {}
+                        Most  == {b \in Blocks : Cardinality(U(b)) >= 1 /\
+                                    \A c \in Blocks : Cardinality(U(c)) <= Cardinality(U(b))}
+                        Pick  == IF "X" \in Most THEN "X" ELSE "Y"   \* ties by hash
+                        new  == IF MAXKEEP
+                                 THEN IF Most = {} THEN {} ELSE {[b |-> Pick, o |-> 2]}
+                                 ELSE IF Cardinality(Thr) = 1
+                                      THEN {[b |-> CHOOSE b \in Thr : TRUE, o |-> 2]} ELSE {}
                     IN S2' = IF S1.fin # {}
                              THEN [done |-> TRUE, fin |-> S1.fin, locks |-> {}]
                              ELSE IF Ns # {}

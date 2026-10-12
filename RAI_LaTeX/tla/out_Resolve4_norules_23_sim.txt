@@ -1,0 +1,635 @@
+TLC2 Version 2.20 of Day Month 20?? (rev: 2cf8424)
+Running Random Simulation with seed 2722142189660231302 with 4 workers on 8 cores with 2731MB heap and 64MB offheap memory [pid: 33843] (Mac OS X 14.6.1 aarch64, Eclipse Adoptium 17.0.7 x86_64).
+Parsing file /Users/ruimorais/rsnano-node/.claude/worktrees/rai-eval-harness/RAI_LaTeX/tla/RaiResolve.tla
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-4030827401024565118/Naturals.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-4030827401024565118/FiniteSets.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-4030827401024565118/TLC.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-4030827401024565118/_TLCTrace.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-4030827401024565118/Sequences.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-4030827401024565118/TLCExt.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-4030827401024565118/Integers.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module Integers
+Semantic processing of module TLCExt
+Semantic processing of module _TLCTrace
+Semantic processing of module RaiResolve
+Linting of module TLCExt
+Linting of module _TLCTrace
+Linting of module RaiResolve
+Starting... (2026-10-12 08:54:07)
+Computed 6592 initial states...
+Finished computing initial states: 6592 distinct state generated at 2026-10-12 08:54:09.
+Error: Invariant TwoGood is violated.
+Error: The behavior up to this point is:
+State 1: <Init23 line 224, col 3 to line 239, col 60 of module RaiResolve>
+/\ cur = (c1 :> 2 @@ c2 :> 2 @@ c3 :> 2)
+/\ bf = <<{"X", "Y"}, {}, {}>>
+/\ S = ( 0 :> [fin |-> {}, locks |-> {}, done |-> TRUE] @@
+  1 :> [fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}, done |-> TRUE] @@
+  2 :> [fin |-> {}, locks |-> {}, done |-> FALSE] )
+/\ bn = <<{}, {}, {}>>
+/\ good = <<FALSE, TRUE, TRUE>>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ fv = << (c1 :> "Y" @@ c2 :> "X" @@ c3 :> "X"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-") >>
+/\ sv = << (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ inst = (c1 :> 0 @@ c2 :> 0 @@ c3 :> 0)
+/\ seen = (c1 :> {"X", "Y"} @@ c2 :> {"X"} @@ c3 :> {"X", "Y"})
+
+State 2: <Show(c2,"Y") line 126, col 3 to line 128, col 57 of module RaiResolve>
+/\ cur = (c1 :> 2 @@ c2 :> 2 @@ c3 :> 2)
+/\ bf = <<{"X", "Y"}, {}, {}>>
+/\ S = ( 0 :> [fin |-> {}, locks |-> {}, done |-> TRUE] @@
+  1 :> [fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}, done |-> TRUE] @@
+  2 :> [fin |-> {}, locks |-> {}, done |-> FALSE] )
+/\ bn = <<{}, {}, {}>>
+/\ good = <<FALSE, TRUE, TRUE>>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ fv = << (c1 :> "Y" @@ c2 :> "X" @@ c3 :> "X"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-") >>
+/\ sv = << (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ inst = (c1 :> 0 @@ c2 :> 0 @@ c3 :> 0)
+/\ seen = (c1 :> {"X", "Y"} @@ c2 :> {"X", "Y"} @@ c3 :> {"X", "Y"})
+
+State 3: <ByzFirst(2,"X") line 149, col 3 to line 152, col 59 of module RaiResolve>
+/\ cur = (c1 :> 2 @@ c2 :> 2 @@ c3 :> 2)
+/\ bf = <<{"X", "Y"}, {"X"}, {}>>
+/\ S = ( 0 :> [fin |-> {}, locks |-> {}, done |-> TRUE] @@
+  1 :> [fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}, done |-> TRUE] @@
+  2 :> [fin |-> {}, locks |-> {}, done |-> FALSE] )
+/\ bn = <<{}, {}, {}>>
+/\ good = <<FALSE, TRUE, TRUE>>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ fv = << (c1 :> "Y" @@ c2 :> "X" @@ c3 :> "X"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-") >>
+/\ sv = << (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ inst = (c1 :> 0 @@ c2 :> 0 @@ c3 :> 0)
+/\ seen = (c1 :> {"X", "Y"} @@ c2 :> {"X", "Y"} @@ c3 :> {"X", "Y"})
+
+State 4: <Install(c3) line 131, col 3 to line 133, col 57 of module RaiResolve>
+/\ cur = (c1 :> 2 @@ c2 :> 2 @@ c3 :> 2)
+/\ bf = <<{"X", "Y"}, {"X"}, {}>>
+/\ S = ( 0 :> [fin |-> {}, locks |-> {}, done |-> TRUE] @@
+  1 :> [fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}, done |-> TRUE] @@
+  2 :> [fin |-> {}, locks |-> {}, done |-> FALSE] )
+/\ bn = <<{}, {}, {}>>
+/\ good = <<FALSE, TRUE, TRUE>>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ fv = << (c1 :> "Y" @@ c2 :> "X" @@ c3 :> "X"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-") >>
+/\ sv = << (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ inst = (c1 :> 0 @@ c2 :> 0 @@ c3 :> 1)
+/\ seen = (c1 :> {"X", "Y"} @@ c2 :> {"X", "Y"} @@ c3 :> {"X", "Y"})
+
+State 5: <Install(c1) line 131, col 3 to line 133, col 57 of module RaiResolve>
+/\ cur = (c1 :> 2 @@ c2 :> 2 @@ c3 :> 2)
+/\ bf = <<{"X", "Y"}, {"X"}, {}>>
+/\ S = ( 0 :> [fin |-> {}, locks |-> {}, done |-> TRUE] @@
+  1 :> [fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}, done |-> TRUE] @@
+  2 :> [fin |-> {}, locks |-> {}, done |-> FALSE] )
+/\ bn = <<{}, {}, {}>>
+/\ good = <<FALSE, TRUE, TRUE>>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ fv = << (c1 :> "Y" @@ c2 :> "X" @@ c3 :> "X"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-") >>
+/\ sv = << (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ inst = (c1 :> 1 @@ c2 :> 0 @@ c3 :> 1)
+/\ seen = (c1 :> {"X", "Y"} @@ c2 :> {"X", "Y"} @@ c3 :> {"X", "Y"})
+
+State 6: <Vote(c3,"Y") line 115, col 3 to line 118, col 55 of module RaiResolve>
+/\ cur = (c1 :> 2 @@ c2 :> 2 @@ c3 :> 2)
+/\ bf = <<{"X", "Y"}, {"X"}, {}>>
+/\ S = ( 0 :> [fin |-> {}, locks |-> {}, done |-> TRUE] @@
+  1 :> [fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}, done |-> TRUE] @@
+  2 :> [fin |-> {}, locks |-> {}, done |-> FALSE] )
+/\ bn = <<{}, {}, {}>>
+/\ good = <<FALSE, TRUE, TRUE>>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ fv = << (c1 :> "Y" @@ c2 :> "X" @@ c3 :> "X"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "Y"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-") >>
+/\ sv = << (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ inst = (c1 :> 1 @@ c2 :> 0 @@ c3 :> 1)
+/\ seen = (c1 :> {"X", "Y"} @@ c2 :> {"X", "Y"} @@ c3 :> {"X", "Y"})
+
+State 7: <Vote(c2,"X") line 115, col 3 to line 118, col 55 of module RaiResolve>
+/\ cur = (c1 :> 2 @@ c2 :> 2 @@ c3 :> 2)
+/\ bf = <<{"X", "Y"}, {"X"}, {}>>
+/\ S = ( 0 :> [fin |-> {}, locks |-> {}, done |-> TRUE] @@
+  1 :> [fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}, done |-> TRUE] @@
+  2 :> [fin |-> {}, locks |-> {}, done |-> FALSE] )
+/\ bn = <<{}, {}, {}>>
+/\ good = <<FALSE, TRUE, TRUE>>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ fv = << (c1 :> "Y" @@ c2 :> "X" @@ c3 :> "X"),
+   (c1 :> "-" @@ c2 :> "X" @@ c3 :> "Y"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-") >>
+/\ sv = << (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ inst = (c1 :> 1 @@ c2 :> 0 @@ c3 :> 1)
+/\ seen = (c1 :> {"X", "Y"} @@ c2 :> {"X", "Y"} @@ c3 :> {"X", "Y"})
+
+State 8: <Vote(c1,"X") line 115, col 3 to line 118, col 55 of module RaiResolve>
+/\ cur = (c1 :> 2 @@ c2 :> 2 @@ c3 :> 2)
+/\ bf = <<{"X", "Y"}, {"X"}, {}>>
+/\ S = ( 0 :> [fin |-> {}, locks |-> {}, done |-> TRUE] @@
+  1 :> [fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}, done |-> TRUE] @@
+  2 :> [fin |-> {}, locks |-> {}, done |-> FALSE] )
+/\ bn = <<{}, {}, {}>>
+/\ good = <<FALSE, TRUE, TRUE>>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ fv = << (c1 :> "Y" @@ c2 :> "X" @@ c3 :> "X"),
+   (c1 :> "X" @@ c2 :> "X" @@ c3 :> "Y"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-") >>
+/\ sv = << (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE),
+   (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ inst = (c1 :> 1 @@ c2 :> 0 @@ c3 :> 1)
+/\ seen = (c1 :> {"X", "Y"} @@ c2 :> {"X", "Y"} @@ c3 :> {"X", "Y"})
+
+State 9: <ByzFirst(2,"Y") line 149, col 3 to line 152, col 59 of module RaiResolve>
+/\ cur = (c1 :> 2 @@ c2 :> 2 @@ c3 :> 2)
+/\ bf = <<{"X", "Y"}, {"X", "Y"}, {}>>
+/\ S = ( 0 :> [fin |-> {}, locks |-> {}, done |-> TRUE] @@
+  1 :> [fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}, done |-> TRUE] @@
+  2 :> [fin |-> {}, locks |-> {}, done |-> FALSE] )
+/\ bn = <<{}, {}, {}>>
+/\ good = <<FALSE, TRUE, TRUE>>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ fv = << (c1 :> "Y" @@ c2 :> "X" @@ c3 :> "X"),
+   (c1 :> "X" @@ c2 :> "X" @@ c3 :> "Y"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-") >>
+/\ sv = << (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE),
+   (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ inst = (c1 :> 1 @@ c2 :> 0 @@ c3 :> 1)
+/\ seen = (c1 :> {"X", "Y"} @@ c2 :> {"X", "Y"} @@ c3 :> {"X", "Y"})
+
+State 10: <FinalVote(c1) line 121, col 3 to line 123, col 59 of module RaiResolve>
+/\ cur = (c1 :> 2 @@ c2 :> 2 @@ c3 :> 2)
+/\ bf = <<{"X", "Y"}, {"X", "Y"}, {}>>
+/\ S = ( 0 :> [fin |-> {}, locks |-> {}, done |-> TRUE] @@
+  1 :> [fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}, done |-> TRUE] @@
+  2 :> [fin |-> {}, locks |-> {}, done |-> FALSE] )
+/\ bn = <<{}, {}, {}>>
+/\ good = <<FALSE, TRUE, TRUE>>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ fv = << (c1 :> "Y" @@ c2 :> "X" @@ c3 :> "X"),
+   (c1 :> "X" @@ c2 :> "X" @@ c3 :> "Y"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-") >>
+/\ sv = << (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE),
+   (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ inst = (c1 :> 1 @@ c2 :> 0 @@ c3 :> 1)
+/\ seen = (c1 :> {"X", "Y"} @@ c2 :> {"X", "Y"} @@ c3 :> {"X", "Y"})
+
+State 11: <FinalVote(c2) line 121, col 3 to line 123, col 59 of module RaiResolve>
+/\ cur = (c1 :> 2 @@ c2 :> 2 @@ c3 :> 2)
+/\ bf = <<{"X", "Y"}, {"X", "Y"}, {}>>
+/\ S = ( 0 :> [fin |-> {}, locks |-> {}, done |-> TRUE] @@
+  1 :> [fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}, done |-> TRUE] @@
+  2 :> [fin |-> {}, locks |-> {}, done |-> FALSE] )
+/\ bn = <<{}, {}, {}>>
+/\ good = <<FALSE, TRUE, TRUE>>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ fv = << (c1 :> "Y" @@ c2 :> "X" @@ c3 :> "X"),
+   (c1 :> "X" @@ c2 :> "X" @@ c3 :> "Y"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-") >>
+/\ sv = << (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE),
+   (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ inst = (c1 :> 1 @@ c2 :> 0 @@ c3 :> 1)
+/\ seen = (c1 :> {"X", "Y"} @@ c2 :> {"X", "Y"} @@ c3 :> {"X", "Y"})
+
+State 12: <Install(c2) line 131, col 3 to line 133, col 57 of module RaiResolve>
+/\ cur = (c1 :> 2 @@ c2 :> 2 @@ c3 :> 2)
+/\ bf = <<{"X", "Y"}, {"X", "Y"}, {}>>
+/\ S = ( 0 :> [fin |-> {}, locks |-> {}, done |-> TRUE] @@
+  1 :> [fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}, done |-> TRUE] @@
+  2 :> [fin |-> {}, locks |-> {}, done |-> FALSE] )
+/\ bn = <<{}, {}, {}>>
+/\ good = <<FALSE, TRUE, TRUE>>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ fv = << (c1 :> "Y" @@ c2 :> "X" @@ c3 :> "X"),
+   (c1 :> "X" @@ c2 :> "X" @@ c3 :> "Y"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-") >>
+/\ sv = << (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE),
+   (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ inst = (c1 :> 1 @@ c2 :> 1 @@ c3 :> 1)
+/\ seen = (c1 :> {"X", "Y"} @@ c2 :> {"X", "Y"} @@ c3 :> {"X", "Y"})
+
+State 13: <Leave(c1) line 143, col 3 to line 146, col 58 of module RaiResolve>
+/\ cur = (c1 :> 3 @@ c2 :> 2 @@ c3 :> 2)
+/\ bf = <<{"X", "Y"}, {"X", "Y"}, {}>>
+/\ S = ( 0 :> [fin |-> {}, locks |-> {}, done |-> TRUE] @@
+  1 :> [fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}, done |-> TRUE] @@
+  2 :> [fin |-> {}, locks |-> {}, done |-> FALSE] )
+/\ bn = <<{}, {}, {}>>
+/\ good = <<FALSE, TRUE, TRUE>>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ fv = << (c1 :> "Y" @@ c2 :> "X" @@ c3 :> "X"),
+   (c1 :> "X" @@ c2 :> "X" @@ c3 :> "Y"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-") >>
+/\ sv = << (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE),
+   (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ inst = (c1 :> 1 @@ c2 :> 1 @@ c3 :> 1)
+/\ seen = (c1 :> {"X", "Y"} @@ c2 :> {"X", "Y"} @@ c3 :> {"X", "Y"})
+
+State 14: <ByzFirst(3,"Y") line 149, col 3 to line 152, col 59 of module RaiResolve>
+/\ cur = (c1 :> 3 @@ c2 :> 2 @@ c3 :> 2)
+/\ bf = <<{"X", "Y"}, {"X", "Y"}, {"Y"}>>
+/\ S = ( 0 :> [fin |-> {}, locks |-> {}, done |-> TRUE] @@
+  1 :> [fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}, done |-> TRUE] @@
+  2 :> [fin |-> {}, locks |-> {}, done |-> FALSE] )
+/\ bn = <<{}, {}, {}>>
+/\ good = <<FALSE, TRUE, TRUE>>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ fv = << (c1 :> "Y" @@ c2 :> "X" @@ c3 :> "X"),
+   (c1 :> "X" @@ c2 :> "X" @@ c3 :> "Y"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-") >>
+/\ sv = << (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE),
+   (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ inst = (c1 :> 1 @@ c2 :> 1 @@ c3 :> 1)
+/\ seen = (c1 :> {"X", "Y"} @@ c2 :> {"X", "Y"} @@ c3 :> {"X", "Y"})
+
+State 15: <ByzFirst(3,"X") line 149, col 3 to line 152, col 59 of module RaiResolve>
+/\ cur = (c1 :> 3 @@ c2 :> 2 @@ c3 :> 2)
+/\ bf = <<{"X", "Y"}, {"X", "Y"}, {"X", "Y"}>>
+/\ S = ( 0 :> [fin |-> {}, locks |-> {}, done |-> TRUE] @@
+  1 :> [fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}, done |-> TRUE] @@
+  2 :> [fin |-> {}, locks |-> {}, done |-> FALSE] )
+/\ bn = <<{}, {}, {}>>
+/\ good = <<FALSE, TRUE, TRUE>>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ fv = << (c1 :> "Y" @@ c2 :> "X" @@ c3 :> "X"),
+   (c1 :> "X" @@ c2 :> "X" @@ c3 :> "Y"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-") >>
+/\ sv = << (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE),
+   (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ inst = (c1 :> 1 @@ c2 :> 1 @@ c3 :> 1)
+/\ seen = (c1 :> {"X", "Y"} @@ c2 :> {"X", "Y"} @@ c3 :> {"X", "Y"})
+
+State 16: <Vote(c1,"X") line 115, col 3 to line 118, col 55 of module RaiResolve>
+/\ cur = (c1 :> 3 @@ c2 :> 2 @@ c3 :> 2)
+/\ bf = <<{"X", "Y"}, {"X", "Y"}, {"X", "Y"}>>
+/\ S = ( 0 :> [fin |-> {}, locks |-> {}, done |-> TRUE] @@
+  1 :> [fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}, done |-> TRUE] @@
+  2 :> [fin |-> {}, locks |-> {}, done |-> FALSE] )
+/\ bn = <<{}, {}, {}>>
+/\ good = <<FALSE, TRUE, TRUE>>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ fv = << (c1 :> "Y" @@ c2 :> "X" @@ c3 :> "X"),
+   (c1 :> "X" @@ c2 :> "X" @@ c3 :> "Y"),
+   (c1 :> "X" @@ c2 :> "-" @@ c3 :> "-") >>
+/\ sv = << (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE),
+   (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ inst = (c1 :> 1 @@ c2 :> 1 @@ c3 :> 1)
+/\ seen = (c1 :> {"X", "Y"} @@ c2 :> {"X", "Y"} @@ c3 :> {"X", "Y"})
+
+State 17: <Leave(c3) line 143, col 3 to line 146, col 58 of module RaiResolve>
+/\ cur = (c1 :> 3 @@ c2 :> 2 @@ c3 :> 3)
+/\ bf = <<{"X", "Y"}, {"X", "Y"}, {"X", "Y"}>>
+/\ S = ( 0 :> [fin |-> {}, locks |-> {}, done |-> TRUE] @@
+  1 :> [fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}, done |-> TRUE] @@
+  2 :> [fin |-> {}, locks |-> {}, done |-> FALSE] )
+/\ bn = <<{}, {}, {}>>
+/\ good = <<FALSE, TRUE, TRUE>>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ fv = << (c1 :> "Y" @@ c2 :> "X" @@ c3 :> "X"),
+   (c1 :> "X" @@ c2 :> "X" @@ c3 :> "Y"),
+   (c1 :> "X" @@ c2 :> "-" @@ c3 :> "-") >>
+/\ sv = << (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE),
+   (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ inst = (c1 :> 1 @@ c2 :> 1 @@ c3 :> 1)
+/\ seen = (c1 :> {"X", "Y"} @@ c2 :> {"X", "Y"} @@ c3 :> {"X", "Y"})
+
+State 18: <Leave(c2) line 143, col 3 to line 146, col 58 of module RaiResolve>
+/\ cur = (c1 :> 3 @@ c2 :> 3 @@ c3 :> 3)
+/\ bf = <<{"X", "Y"}, {"X", "Y"}, {"X", "Y"}>>
+/\ S = ( 0 :> [fin |-> {}, locks |-> {}, done |-> TRUE] @@
+  1 :> [fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}, done |-> TRUE] @@
+  2 :> [fin |-> {}, locks |-> {}, done |-> FALSE] )
+/\ bn = <<{}, {}, {}>>
+/\ good = <<FALSE, TRUE, TRUE>>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ fv = << (c1 :> "Y" @@ c2 :> "X" @@ c3 :> "X"),
+   (c1 :> "X" @@ c2 :> "X" @@ c3 :> "Y"),
+   (c1 :> "X" @@ c2 :> "-" @@ c3 :> "-") >>
+/\ sv = << (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE),
+   (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ inst = (c1 :> 1 @@ c2 :> 1 @@ c3 :> 1)
+/\ seen = (c1 :> {"X", "Y"} @@ c2 :> {"X", "Y"} @@ c3 :> {"X", "Y"})
+
+State 19: <Vote(c3,"Y") line 115, col 3 to line 118, col 55 of module RaiResolve>
+/\ cur = (c1 :> 3 @@ c2 :> 3 @@ c3 :> 3)
+/\ bf = <<{"X", "Y"}, {"X", "Y"}, {"X", "Y"}>>
+/\ S = ( 0 :> [fin |-> {}, locks |-> {}, done |-> TRUE] @@
+  1 :> [fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}, done |-> TRUE] @@
+  2 :> [fin |-> {}, locks |-> {}, done |-> FALSE] )
+/\ bn = <<{}, {}, {}>>
+/\ good = <<FALSE, TRUE, TRUE>>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ fv = << (c1 :> "Y" @@ c2 :> "X" @@ c3 :> "X"),
+   (c1 :> "X" @@ c2 :> "X" @@ c3 :> "Y"),
+   (c1 :> "X" @@ c2 :> "-" @@ c3 :> "Y") >>
+/\ sv = << (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE),
+   (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ inst = (c1 :> 1 @@ c2 :> 1 @@ c3 :> 1)
+/\ seen = (c1 :> {"X", "Y"} @@ c2 :> {"X", "Y"} @@ c3 :> {"X", "Y"})
+
+State 20: <Vote(c2,"X") line 115, col 3 to line 118, col 55 of module RaiResolve>
+/\ cur = (c1 :> 3 @@ c2 :> 3 @@ c3 :> 3)
+/\ bf = <<{"X", "Y"}, {"X", "Y"}, {"X", "Y"}>>
+/\ S = ( 0 :> [fin |-> {}, locks |-> {}, done |-> TRUE] @@
+  1 :> [fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}, done |-> TRUE] @@
+  2 :> [fin |-> {}, locks |-> {}, done |-> FALSE] )
+/\ bn = <<{}, {}, {}>>
+/\ good = <<FALSE, TRUE, TRUE>>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ fv = << (c1 :> "Y" @@ c2 :> "X" @@ c3 :> "X"),
+   (c1 :> "X" @@ c2 :> "X" @@ c3 :> "Y"),
+   (c1 :> "X" @@ c2 :> "X" @@ c3 :> "Y") >>
+/\ sv = << (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE),
+   (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ inst = (c1 :> 1 @@ c2 :> 1 @@ c3 :> 1)
+/\ seen = (c1 :> {"X", "Y"} @@ c2 :> {"X", "Y"} @@ c3 :> {"X", "Y"})
+
+State 21: <FinalVote(c1) line 121, col 3 to line 123, col 59 of module RaiResolve>
+/\ cur = (c1 :> 3 @@ c2 :> 3 @@ c3 :> 3)
+/\ bf = <<{"X", "Y"}, {"X", "Y"}, {"X", "Y"}>>
+/\ S = ( 0 :> [fin |-> {}, locks |-> {}, done |-> TRUE] @@
+  1 :> [fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}, done |-> TRUE] @@
+  2 :> [fin |-> {}, locks |-> {}, done |-> FALSE] )
+/\ bn = <<{}, {}, {}>>
+/\ good = <<FALSE, TRUE, TRUE>>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE),
+   (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ fv = << (c1 :> "Y" @@ c2 :> "X" @@ c3 :> "X"),
+   (c1 :> "X" @@ c2 :> "X" @@ c3 :> "Y"),
+   (c1 :> "X" @@ c2 :> "X" @@ c3 :> "Y") >>
+/\ sv = << (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE),
+   (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ inst = (c1 :> 1 @@ c2 :> 1 @@ c3 :> 1)
+/\ seen = (c1 :> {"X", "Y"} @@ c2 :> {"X", "Y"} @@ c3 :> {"X", "Y"})
+
+State 22: <Close(2) line 198, col 3 to line 200, col 60 of module RaiResolve>
+/\ cur = (c1 :> 3 @@ c2 :> 3 @@ c3 :> 3)
+/\ bf = <<{"X", "Y"}, {"X", "Y"}, {"X", "Y"}>>
+/\ S = ( 0 :> [fin |-> {}, locks |-> {}, done |-> TRUE] @@
+  1 :> [fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}, done |-> TRUE] @@
+  2 :>
+      [ fin |-> {},
+        locks |-> {[b |-> "Y", o |-> 1], [b |-> "Y", o |-> 2]},
+        done |-> TRUE ] )
+/\ bn = <<{}, {}, {}>>
+/\ good = <<FALSE, TRUE, TRUE>>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE),
+   (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ fv = << (c1 :> "Y" @@ c2 :> "X" @@ c3 :> "X"),
+   (c1 :> "X" @@ c2 :> "X" @@ c3 :> "Y"),
+   (c1 :> "X" @@ c2 :> "X" @@ c3 :> "Y") >>
+/\ sv = << (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE),
+   (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ inst = (c1 :> 1 @@ c2 :> 1 @@ c3 :> 1)
+/\ seen = (c1 :> {"X", "Y"} @@ c2 :> {"X", "Y"} @@ c3 :> {"X", "Y"})
+
+State 23: <FinalVote(c2) line 121, col 3 to line 123, col 59 of module RaiResolve>
+/\ cur = (c1 :> 3 @@ c2 :> 3 @@ c3 :> 3)
+/\ bf = <<{"X", "Y"}, {"X", "Y"}, {"X", "Y"}>>
+/\ S = ( 0 :> [fin |-> {}, locks |-> {}, done |-> TRUE] @@
+  1 :> [fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}, done |-> TRUE] @@
+  2 :>
+      [ fin |-> {},
+        locks |-> {[b |-> "Y", o |-> 1], [b |-> "Y", o |-> 2]},
+        done |-> TRUE ] )
+/\ bn = <<{}, {}, {}>>
+/\ good = <<FALSE, TRUE, TRUE>>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE),
+   (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE) >>
+/\ fv = << (c1 :> "Y" @@ c2 :> "X" @@ c3 :> "X"),
+   (c1 :> "X" @@ c2 :> "X" @@ c3 :> "Y"),
+   (c1 :> "X" @@ c2 :> "X" @@ c3 :> "Y") >>
+/\ sv = << (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE),
+   (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ inst = (c1 :> 1 @@ c2 :> 1 @@ c3 :> 1)
+/\ seen = (c1 :> {"X", "Y"} @@ c2 :> {"X", "Y"} @@ c3 :> {"X", "Y"})
+
+State 24: <Install(c3) line 131, col 3 to line 133, col 57 of module RaiResolve>
+/\ cur = (c1 :> 3 @@ c2 :> 3 @@ c3 :> 3)
+/\ bf = <<{"X", "Y"}, {"X", "Y"}, {"X", "Y"}>>
+/\ S = ( 0 :> [fin |-> {}, locks |-> {}, done |-> TRUE] @@
+  1 :> [fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}, done |-> TRUE] @@
+  2 :>
+      [ fin |-> {},
+        locks |-> {[b |-> "Y", o |-> 1], [b |-> "Y", o |-> 2]},
+        done |-> TRUE ] )
+/\ bn = <<{}, {}, {}>>
+/\ good = <<FALSE, TRUE, TRUE>>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE),
+   (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE) >>
+/\ fv = << (c1 :> "Y" @@ c2 :> "X" @@ c3 :> "X"),
+   (c1 :> "X" @@ c2 :> "X" @@ c3 :> "Y"),
+   (c1 :> "X" @@ c2 :> "X" @@ c3 :> "Y") >>
+/\ sv = << (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE),
+   (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ inst = (c1 :> 1 @@ c2 :> 1 @@ c3 :> 2)
+/\ seen = (c1 :> {"X", "Y"} @@ c2 :> {"X", "Y"} @@ c3 :> {"X", "Y"})
+
+State 25: <Install(c1) line 131, col 3 to line 133, col 57 of module RaiResolve>
+/\ cur = (c1 :> 3 @@ c2 :> 3 @@ c3 :> 3)
+/\ bf = <<{"X", "Y"}, {"X", "Y"}, {"X", "Y"}>>
+/\ S = ( 0 :> [fin |-> {}, locks |-> {}, done |-> TRUE] @@
+  1 :> [fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}, done |-> TRUE] @@
+  2 :>
+      [ fin |-> {},
+        locks |-> {[b |-> "Y", o |-> 1], [b |-> "Y", o |-> 2]},
+        done |-> TRUE ] )
+/\ bn = <<{}, {}, {}>>
+/\ good = <<FALSE, TRUE, TRUE>>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE),
+   (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE) >>
+/\ fv = << (c1 :> "Y" @@ c2 :> "X" @@ c3 :> "X"),
+   (c1 :> "X" @@ c2 :> "X" @@ c3 :> "Y"),
+   (c1 :> "X" @@ c2 :> "X" @@ c3 :> "Y") >>
+/\ sv = << (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE),
+   (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ inst = (c1 :> 2 @@ c2 :> 1 @@ c3 :> 2)
+/\ seen = (c1 :> {"X", "Y"} @@ c2 :> {"X", "Y"} @@ c3 :> {"X", "Y"})
+
+State 26: <Install(c2) line 131, col 3 to line 133, col 57 of module RaiResolve>
+/\ cur = (c1 :> 3 @@ c2 :> 3 @@ c3 :> 3)
+/\ bf = <<{"X", "Y"}, {"X", "Y"}, {"X", "Y"}>>
+/\ S = ( 0 :> [fin |-> {}, locks |-> {}, done |-> TRUE] @@
+  1 :> [fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}, done |-> TRUE] @@
+  2 :>
+      [ fin |-> {},
+        locks |-> {[b |-> "Y", o |-> 1], [b |-> "Y", o |-> 2]},
+        done |-> TRUE ] )
+/\ bn = <<{}, {}, {}>>
+/\ good = <<FALSE, TRUE, TRUE>>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE),
+   (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE) >>
+/\ fv = << (c1 :> "Y" @@ c2 :> "X" @@ c3 :> "X"),
+   (c1 :> "X" @@ c2 :> "X" @@ c3 :> "Y"),
+   (c1 :> "X" @@ c2 :> "X" @@ c3 :> "Y") >>
+/\ sv = << (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE),
+   (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ inst = (c1 :> 2 @@ c2 :> 2 @@ c3 :> 2)
+/\ seen = (c1 :> {"X", "Y"} @@ c2 :> {"X", "Y"} @@ c3 :> {"X", "Y"})
+
+State 27: <Leave(c1) line 143, col 3 to line 146, col 58 of module RaiResolve>
+/\ cur = (c1 :> 4 @@ c2 :> 3 @@ c3 :> 3)
+/\ bf = <<{"X", "Y"}, {"X", "Y"}, {"X", "Y"}>>
+/\ S = ( 0 :> [fin |-> {}, locks |-> {}, done |-> TRUE] @@
+  1 :> [fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}, done |-> TRUE] @@
+  2 :>
+      [ fin |-> {},
+        locks |-> {[b |-> "Y", o |-> 1], [b |-> "Y", o |-> 2]},
+        done |-> TRUE ] )
+/\ bn = <<{}, {}, {}>>
+/\ good = <<FALSE, TRUE, TRUE>>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE),
+   (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE) >>
+/\ fv = << (c1 :> "Y" @@ c2 :> "X" @@ c3 :> "X"),
+   (c1 :> "X" @@ c2 :> "X" @@ c3 :> "Y"),
+   (c1 :> "X" @@ c2 :> "X" @@ c3 :> "Y") >>
+/\ sv = << (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE),
+   (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ inst = (c1 :> 2 @@ c2 :> 2 @@ c3 :> 2)
+/\ seen = (c1 :> {"X", "Y"} @@ c2 :> {"X", "Y"} @@ c3 :> {"X", "Y"})
+
+State 28: <Leave(c3) line 143, col 3 to line 146, col 58 of module RaiResolve>
+/\ cur = (c1 :> 4 @@ c2 :> 3 @@ c3 :> 4)
+/\ bf = <<{"X", "Y"}, {"X", "Y"}, {"X", "Y"}>>
+/\ S = ( 0 :> [fin |-> {}, locks |-> {}, done |-> TRUE] @@
+  1 :> [fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}, done |-> TRUE] @@
+  2 :>
+      [ fin |-> {},
+        locks |-> {[b |-> "Y", o |-> 1], [b |-> "Y", o |-> 2]},
+        done |-> TRUE ] )
+/\ bn = <<{}, {}, {}>>
+/\ good = <<FALSE, TRUE, TRUE>>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE),
+   (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE) >>
+/\ fv = << (c1 :> "Y" @@ c2 :> "X" @@ c3 :> "X"),
+   (c1 :> "X" @@ c2 :> "X" @@ c3 :> "Y"),
+   (c1 :> "X" @@ c2 :> "X" @@ c3 :> "Y") >>
+/\ sv = << (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE),
+   (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ inst = (c1 :> 2 @@ c2 :> 2 @@ c3 :> 2)
+/\ seen = (c1 :> {"X", "Y"} @@ c2 :> {"X", "Y"} @@ c3 :> {"X", "Y"})
+
+State 29: <Leave(c2) line 143, col 3 to line 146, col 58 of module RaiResolve>
+/\ cur = (c1 :> 4 @@ c2 :> 4 @@ c3 :> 4)
+/\ bf = <<{"X", "Y"}, {"X", "Y"}, {"X", "Y"}>>
+/\ S = ( 0 :> [fin |-> {}, locks |-> {}, done |-> TRUE] @@
+  1 :> [fin |-> {}, locks |-> {[b |-> "Y", o |-> 1]}, done |-> TRUE] @@
+  2 :>
+      [ fin |-> {},
+        locks |-> {[b |-> "Y", o |-> 1], [b |-> "Y", o |-> 2]},
+        done |-> TRUE ] )
+/\ bn = <<{}, {}, {}>>
+/\ good = <<FALSE, TRUE, TRUE>>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE),
+   (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> FALSE) >>
+/\ fv = << (c1 :> "Y" @@ c2 :> "X" @@ c3 :> "X"),
+   (c1 :> "X" @@ c2 :> "X" @@ c3 :> "Y"),
+   (c1 :> "X" @@ c2 :> "X" @@ c3 :> "Y") >>
+/\ sv = << (c1 :> TRUE @@ c2 :> TRUE @@ c3 :> TRUE),
+   (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ inst = (c1 :> 2 @@ c2 :> 2 @@ c3 :> 2)
+/\ seen = (c1 :> {"X", "Y"} @@ c2 :> {"X", "Y"} @@ c3 :> {"X", "Y"})
+
+The number of states generated: 10201
+Simulation using seed 2722142189660231302 and aril 0
+Progress: 10204 states checked, 37 traces generated (trace length: mean=79, var(x)=890, sd=30)
+Finished in 01s at (2026-10-12 08:54:09)
+Trace exploration spec path: ./RaiResolve_TTrace_1791791647.tla

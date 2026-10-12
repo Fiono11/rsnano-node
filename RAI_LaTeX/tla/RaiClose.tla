@@ -31,9 +31,10 @@
 (***************************************************************************)
 EXTENDS Naturals, FiniteSets, TLC
 
-CONSTANTS C,     \* the five correct validators
-          byz,   \* the Byzantine validator
-          FIXB   \* BOOLEAN
+CONSTANTS C,       \* the five correct validators
+          byz,     \* the Byzantine validator
+          FIXB,    \* BOOLEAN
+          MAXKEEP  \* BOOLEAN: Rule 2 keeps the block with most reporter votes
 
 MaxE    == 3
 
@@ -145,8 +146,13 @@ Build(e, Qs, brep, D) ==
       Elig(b) == \A l \in surv : l.b # Other(b)
       U(b)   == IF Elig(b) THEN {i \in Qs : b \in Rp(i).G} ELSE {}
       Thr    == {b \in Blocks : Cardinality(U(b)) >= R}
-      new    == IF Cardinality(Thr) = 1
-                THEN {[b |-> CHOOSE b \in Thr : TRUE, o |-> e]} ELSE {}
+      Most  == {b \in Blocks : Cardinality(U(b)) >= 1 /\
+                  \A c \in Blocks : Cardinality(U(c)) <= Cardinality(U(b))}
+      Pick  == IF "X" \in Most THEN "X" ELSE "Y"   \* ties by hash
+      new    == IF MAXKEEP
+               THEN IF Most = {} THEN {} ELSE {[b |-> Pick, o |-> e]}
+               ELSE IF Cardinality(Thr) = 1
+                    THEN {[b |-> CHOOSE b \in Thr : TRUE, o |-> e]} ELSE {}
   IN IF Fs # {} THEN [done |-> TRUE, fin |-> Fs, locks |-> {}]
      ELSE IF Ns # {} THEN [done |-> TRUE, fin |-> Ns, locks |-> {}] \* Rules 1+3
      ELSE [done |-> TRUE, fin |-> {}, locks |-> surv \cup new]      \* Rule 2

@@ -28,7 +28,7 @@
 (***************************************************************************)
 EXTENDS Naturals, FiniteSets, TLC
 
-CONSTANTS C, byz, NCSPLIT, DISCHARGE, LATEEV
+CONSTANTS C, byz, NCSPLIT, DISCHARGE, LATEEV, MAXKEEP
 
 Blocks  == {"X", "Y"}
 Other(b) == IF b = "X" THEN "Y" ELSE "X"
@@ -156,8 +156,13 @@ Build(Qs, brep) ==
       Ns    == {b \in Blocks : \E i \in Qs : Rp(i).T[b] = "N"}
       U(b)  == {i \in Qs : b \in Rp(i).G}
       Thr   == {b \in Blocks : Cardinality(U(b)) >= R}
-      new   == IF Cardinality(Thr) = 1
-               THEN {[b |-> CHOOSE b \in Thr : TRUE, o |-> 1]} ELSE {}
+      Most  == {b \in Blocks : Cardinality(U(b)) >= 1 /\
+                  \A c \in Blocks : Cardinality(U(c)) <= Cardinality(U(b))}
+      Pick  == IF "X" \in Most THEN "X" ELSE "Y"   \* ties by hash
+      new   == IF MAXKEEP
+               THEN IF Most = {} THEN {} ELSE {[b |-> Pick, o |-> 1]}
+               ELSE IF Cardinality(Thr) = 1
+                    THEN {[b |-> CHOOSE b \in Thr : TRUE, o |-> 1]} ELSE {}
   IN IF Fs # {} THEN [done |-> TRUE, fin |-> Fs, locks |-> {}]
      ELSE IF Ns # {} THEN [done |-> TRUE, fin |-> Ns, locks |-> {}]
      ELSE [done |-> TRUE, fin |-> {}, locks |-> new]
