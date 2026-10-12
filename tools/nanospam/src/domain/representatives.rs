@@ -53,7 +53,7 @@ impl Representatives {
     }
 
     pub(crate) fn random(&self) -> Option<PublicKey> {
-        self.reps.choose(&mut rand::rng()).copied()
+        crate::workload_rng::with_rng(|r| self.reps.choose(r).copied())
     }
 }
 

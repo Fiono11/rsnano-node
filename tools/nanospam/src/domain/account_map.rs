@@ -1,7 +1,4 @@
-use rand::{
-    rng,
-    seq::{IndexedRandom, IteratorRandom},
-};
+use rand::seq::{IndexedRandom, IteratorRandom};
 use rsnano_types::{Account, Amount, BlockHash, PrivateKey};
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -124,7 +121,7 @@ impl AccountMap {
     }
 
     pub fn random_account(&self) -> Option<Account> {
-        self.all_accounts.choose(&mut rand::rng()).cloned()
+        crate::workload_rng::with_rng(|r| self.all_accounts.choose(r).cloned())
     }
 
     pub fn process_send(
@@ -291,7 +288,8 @@ impl AccountMap {
 
     pub fn random_account_that_can_send(&self) -> Option<&AccountState> {
         for _ in 0..100 {
-            let account = self.active_accounts_vec.iter().choose(&mut rng())?;
+            let account =
+                crate::workload_rng::with_rng(|r| self.active_accounts_vec.iter().choose(r))?;
             let state = self.account_states.get(account).unwrap();
             if (state.confirmed() || self.continuable.contains(account)) && !state.balance.is_zero()
             {

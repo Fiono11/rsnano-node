@@ -63,6 +63,9 @@ pub(crate) struct SpamLogic {
     pub(crate) series_start_unix_ms: Option<u64>,
     published_series: BTreeMap<u64, usize>,
     nonfork_series: BTreeMap<u64, BTreeMap<u64, usize>>,
+    /// Non-fork latencies by the second the block was first published: the
+    /// evaluation splits them by whether a close was in progress then
+    nonfork_by_publish: BTreeMap<u64, BTreeMap<u64, usize>>,
 }
 
 impl SpamLogic {
@@ -101,6 +104,7 @@ impl SpamLogic {
             series_start_unix_ms: None,
             published_series: Default::default(),
             nonfork_series: Default::default(),
+            nonfork_by_publish: Default::default(),
         }
     }
 
@@ -122,6 +126,20 @@ impl SpamLogic {
     /// The evaluation time series as JSON rows `[second, published,
     /// confirmed, p50_ms, p95_ms]`, one per second from the first
     /// publication to the last non-fork confirmation
+    /// `[[publish second, [[latency ms, count], ...]], ...]`
+    pub(crate) fn publish_histograms_json(&self) -> serde_json::Value {
+        self.nonfork_by_publish
+            .iter()
+            .map(|(second, histogram)| {
+                let buckets: Vec<[u64; 2]> = histogram
+                    .iter()
+                    .map(|(ms, count)| [*ms, *count as u64])
+                    .collect();
+                serde_json::json!([second, buckets])
+            })
+            .collect()
+    }
+
     pub(crate) fn series_json(&self) -> serde_json::Value {
         let last = self
             .published_series
@@ -277,6 +295,13 @@ impl SpamLogic {
                     *self
                         .nonfork_series
                         .entry(second)
+                        .or_default()
+                        .entry(ms)
+                        .or_default() += 1;
+                    let published = self.series_second(timestamp - conf_time);
+                    *self
+                        .nonfork_by_publish
+                        .entry(published)
                         .or_default()
                         .entry(ms)
                         .or_default() += 1;

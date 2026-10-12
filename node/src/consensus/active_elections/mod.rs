@@ -23,8 +23,8 @@ pub use epoch_committees::CommitteeInfo;
 use std::{collections::HashMap, isize, sync::Arc, time::Duration};
 
 use rsnano_types::{
-    Account, Amount, Block, BlockHash, BlockPriority, ConsensusEpoch, QualifiedRoot, SavedBlock,
-    TimePriority, VoteError,
+    Account, Amount, Block, BlockHash, BlockPriority, ConsensusEpoch, PublicKey, QualifiedRoot,
+    SavedBlock, TimePriority, VoteError,
 };
 
 use super::{
@@ -62,6 +62,11 @@ pub struct ActiveElectionsConfig {
     /// RAI evaluation: how the account voting of one epoch overlaps the
     /// close of the epoch before it (see `EpochTransition`)
     pub epoch_transition: EpochTransition,
+    /// RAI evaluation, not the protocol: this member leads the first round
+    /// of every close, the rotation continuing from it. Set to a Byzantine
+    /// member, every close starts with a faulty leader, the worst case of
+    /// the round-robin schedule. Every node must use the same value.
+    pub close_first_leader: Option<PublicKey>,
 }
 
 /// RAI evaluation: how a validator moves from one epoch to the next.
@@ -109,6 +114,7 @@ impl Default for ActiveElectionsConfig {
             signed_vote_log: false,
             signing_sync: SigningSync::default(),
             epoch_transition: EpochTransition::default(),
+            close_first_leader: None,
         }
     }
 }

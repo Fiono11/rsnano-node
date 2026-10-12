@@ -130,6 +130,8 @@ pub(crate) struct ActiveElectionsContainer {
     /// RAI evaluation: pipelined transitions or the stop-and-drain baseline
     /// (see `EpochTransition`)
     epoch_transition: EpochTransition,
+    /// RAI evaluation: see `ActiveElectionsConfig::close_first_leader`
+    close_first_leader: Option<PublicKey>,
     /// RAI, Algorithm 1 line 8: the epochs this node stopped signing in, at
     /// their boundary. Their instances still collect the votes of the other
     /// replicas and construct certificates; this node issues no vote in them.
@@ -253,6 +255,7 @@ impl ActiveElectionsContainer {
             draining: false,
             account_voting: config.account_voting,
             epoch_transition: config.epoch_transition,
+            close_first_leader: config.close_first_leader,
             frozen: BTreeSet::new(),
             vote_records: VoteRecords::default(),
             checkpoint_delegations: BTreeMap::new(),
@@ -1025,6 +1028,14 @@ impl ActiveElectionsContainer {
     /// representative funding the others) leads a round that times out, not
     /// every round.
     fn close_leaders(&self, epoch: ConsensusEpoch) -> Vec<PublicKey> {
+        let leaders = self.round_robin_leaders(epoch);
+        match self.close_first_leader {
+            Some(first) => leading_first(leaders, first, epoch),
+            None => leaders,
+        }
+    }
+
+    fn round_robin_leaders(&self, epoch: ConsensusEpoch) -> Vec<PublicKey> {
         // "Each slot has a leader chosen in round-robin order from the union
         // of the two committees", where both are known here
         if let Some(committees) = self.committees.for_close(epoch) {
@@ -4400,6 +4411,24 @@ impl EpochCertifiedParts {
     }
 }
 
+/// RAI evaluation: the round-robin order rotated so that `first` leads
+/// round 0 of the close of `epoch` (`EpochClose::leader` starts at index
+/// `epoch mod n`); unchanged if `first` is not among the leaders
+fn leading_first(
+    leaders: Vec<PublicKey>,
+    first: PublicKey,
+    epoch: ConsensusEpoch,
+) -> Vec<PublicKey> {
+    let Some(position) = leaders.iter().position(|leader| *leader == first) else {
+        return leaders;
+    };
+    let n = leaders.len();
+    let start = (epoch.as_u64() % n as u64) as usize;
+    (0..n)
+        .map(|index| leaders[(position + index + n - start) % n])
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -6841,6 +6870,28 @@ mod tests {
             .map(|target| target.winner)
             .collect();
         assert_eq!(first_votes, vec![kept_hash]);
+    }
+
+    /// RAI evaluation: with `close_first_leader`, that member leads round 0
+    /// of every close and the rotation continues from it
+    #[test]
+    fn the_configured_member_leads_the_first_round_of_every_close() {
+        let leaders: Vec<PublicKey> = (1..=6).map(PublicKey::from).collect();
+        let first = PublicKey::from(4);
+        for epoch in 0..8 {
+            let epoch = ConsensusEpoch::new(epoch);
+            let close = EpochClose::new(
+                epoch,
+                leading_first(leaders.clone(), first, epoch),
+                Duration::from_secs(2),
+            );
+            assert_eq!(close.leader(0), Some(first), "{epoch:?}");
+            assert_eq!(close.leader(1), Some(PublicKey::from(5)), "{epoch:?}");
+        }
+        assert_eq!(
+            leading_first(leaders.clone(), PublicKey::from(9), ConsensusEpoch::new(3)),
+            leaders
+        );
     }
 
     /// RAI, Case 2 of the repairs, installation side: B was voted in the

@@ -98,6 +98,9 @@ pub struct ActiveElectionsToml {
     pub signing_sync: Option<SigningSyncToml>,
     /// RAI evaluation: "pipelined" (default) or "pause"
     pub epoch_transition: Option<EpochTransitionToml>,
+    /// RAI evaluation: the public key (hex) of the member that leads the
+    /// first round of every close; not the protocol
+    pub close_first_leader: Option<String>,
 }
 
 impl From<&NodeConfig> for ActiveElectionsToml {
@@ -141,6 +144,10 @@ impl From<&NodeConfig> for ActiveElectionsToml {
             signed_vote_log: Some(config.active_elections.signed_vote_log),
             signing_sync: Some(config.active_elections.signing_sync.into()),
             epoch_transition: Some(config.active_elections.epoch_transition.into()),
+            close_first_leader: config
+                .active_elections
+                .close_first_leader
+                .map(|key| key.encode_hex()),
         }
     }
 }

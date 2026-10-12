@@ -114,6 +114,16 @@ pub(crate) struct CliArgs {
     /// they hold their share of the weight and do not follow the protocol
     #[arg(long, default_value_t = 0)]
     pub byzantine: usize,
+    /// Seeds the workload's random choices (account, destination, amount,
+    /// fork), so that runs of different systems get the same choices as
+    /// long as the same accounts are ready to send
+    #[arg(long)]
+    pub seed: Option<u64>,
+    /// RAI evaluation: the first Byzantine representative leads the first
+    /// round of every close (node setting `close_first_leader`), the worst
+    /// case of the round-robin leader schedule; needs --byzantine
+    #[arg(long)]
+    pub byzantine_leads_close: bool,
 
     /// RAI: p, the weight the fast path may do without. This many principal
     /// representatives do not run a node and never vote; they still hold

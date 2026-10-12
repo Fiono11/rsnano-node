@@ -12,6 +12,7 @@ mod rotation;
 mod setup;
 pub(crate) mod wallets_factory;
 mod weight_shift;
+mod workload_rng;
 
 use crate::cli_args::CliArgs;
 use app::NanoSpamApp;
@@ -20,6 +21,9 @@ use clap::Parser;
 #[tokio::main(flavor = "multi_thread", worker_threads = 4)]
 async fn main() -> anyhow::Result<()> {
     let args = CliArgs::parse();
+    if let Some(seed) = args.seed {
+        workload_rng::set_seed(seed);
+    }
     args.validate()?;
     NanoSpamApp::new(args).run().await
 }

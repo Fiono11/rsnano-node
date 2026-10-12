@@ -226,6 +226,12 @@ impl NanoSpamApp {
                 if self.args.byzantine > 0 {
                     scope.spawn(run_byzantine(
                         byzantine_keys(self.args.prs, self.args.byzantine),
+                        (self.args.epoch_duration_ms > 0).then(|| {
+                            (
+                                epochs_started,
+                                Duration::from_millis(self.args.epoch_duration_ms),
+                            )
+                        }),
                         self.args.honest_prs(),
                         protocol,
                         genesis_hash,
@@ -313,6 +319,7 @@ impl NanoSpamApp {
             "series_start_unix_ms": logic.series_start_unix_ms,
             "series_columns": ["second", "published", "nonfork_confirmed", "nonfork_p50_ms", "nonfork_p95_ms"],
             "nonfork_series": logic.series_json(),
+            "nonfork_by_publish": logic.publish_histograms_json(),
         });
         info!("RAI_BENCH_METRICS {metrics}");
 
@@ -326,7 +333,7 @@ fn enqueue_blocks(logic: &Mutex<SpamLogic>, tx_blocks: mpsc::Sender<Forks>, cloc
 
         let result = {
             let mut l = logic.lock().unwrap();
-            let is_fork = rng().random_bool(l.fork_propability());
+            let is_fork = crate::workload_rng::with_rng(|r| r.random_bool(l.fork_propability()));
             l.next_block(is_fork, now)
         };
 

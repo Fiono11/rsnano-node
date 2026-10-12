@@ -46,6 +46,7 @@ pub(crate) const NODE_CONFIG: &str = r#"
     signed_vote_log = SIGNED_VOTE_LOG
     signing_sync = "SIGNING_SYNC"
     epoch_transition = "EPOCH_TRANSITION"
+    CLOSE_FIRST_LEADER
 
 [node.lmdb]
     sync = "nosync_unsafe"
@@ -137,6 +138,7 @@ pub(crate) fn configure_nodes(args: &CliArgs, data_dir: &Path) {
                 .replace("SIGNED_VOTE_LOG", &args.audit_votes.to_string())
                 .replace("SIGNING_SYNC", &args.signing_sync)
                 .replace("EPOCH_TRANSITION", &args.epoch_transition)
+                .replace("CLOSE_FIRST_LEADER", &close_first_leader(args))
                 .replace("NETWORK_DELAY_MS", &args.network_delay_ms.to_string())
                 .replace(
                     "ONLINE_WEIGHT_MINIMUM",
@@ -196,4 +198,15 @@ pub(crate) fn genesis_key() -> PrivateKey {
 pub(crate) fn get_genesis_hash() -> BlockHash {
     let genesis_block: Block = serde_json::from_str(GENESIS_BLOCK).unwrap();
     genesis_block.hash()
+}
+
+/// RAI evaluation: the `close_first_leader` line of the node config, set to
+/// the first Byzantine representative with `--byzantine-leads-close`
+fn close_first_leader(args: &CliArgs) -> String {
+    match crate::byzantine::byzantine_keys(args.prs, args.byzantine).first() {
+        Some(key) if args.byzantine_leads_close => {
+            format!("close_first_leader = \"{}\"", key.public_key().encode_hex())
+        }
+        _ => String::new(),
+    }
 }

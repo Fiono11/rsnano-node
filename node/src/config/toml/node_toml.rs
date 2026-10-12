@@ -1,7 +1,7 @@
 use super::{fork_cache_toml::ForkCacheToml, *};
 use crate::config::NodeConfig;
 use bounded_backlog_toml::BoundedBacklogToml;
-use rsnano_types::{Account, Amount, Peer};
+use rsnano_types::{Account, Amount, Peer, PublicKey};
 use serde::{Deserialize, Serialize};
 use std::{str::FromStr, time::Duration};
 use tcp_toml::TcpToml;
@@ -416,6 +416,9 @@ impl NodeConfig {
             }
             if let Some(transition) = i.epoch_transition {
                 self.active_elections.epoch_transition = transition.into();
+            }
+            if let Some(leader) = &i.close_first_leader {
+                self.active_elections.close_first_leader = PublicKey::decode_hex(leader);
             }
         }
         if let Some(vote_processor_toml) = &toml.vote_processor {

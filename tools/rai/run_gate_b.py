@@ -136,7 +136,10 @@ def client_metrics(text):
                 # that the epoch events of the nodes can be placed on the axis
                 series_start_unix_ms=m.get('series_start_unix_ms'),
                 series_columns=m.get('series_columns'),
-                nonfork_series=m.get('nonfork_series'))
+                nonfork_series=m.get('nonfork_series'),
+                # [[publish second, [[latency ms, count], ...]], ...]: split by
+                # whether a close was in progress when the block was published
+                nonfork_by_publish=m.get('nonfork_by_publish'))
 
 
 def epoch_events(text):
@@ -228,6 +231,8 @@ def main():
     parser.add_argument('--epoch-transition', choices=['pipelined', 'pause'], default='pipelined',
                         help='pipelined (the protocol) or pause (the stop-and-drain baseline: no voting in the next epoch until the previous checkpoint is decided)')
     parser.add_argument('--network-delay-ms', type=int, default=0, help='simulated one-way link latency every node adds to each outbound message')
+    parser.add_argument('--seed', type=int, default=None, help='seed of the workload choices (nanospam --seed)')
+    parser.add_argument('--byzantine-leads-close', action='store_true', help='the first Byzantine representative leads round 0 of every close (nanospam --byzantine-leads-close)')
     parser.add_argument('--no-epochs', action='store_true',
                         help='the unmodified-node baseline: no epochs, no checkpoints, no committee model; settled means identical cemented state')
     args = parser.parse_args()
@@ -279,6 +284,10 @@ def main():
             command += ['--epoch-transition', args.epoch_transition]
         if args.network_delay_ms:
             command += ['--network-delay-ms', str(args.network_delay_ms)]
+        if args.seed is not None:
+            command += ['--seed', str(args.seed)]
+        if args.byzantine_leads_close:
+            command += ['--byzantine-leads-close']
         if args.standby:
             command += ['--standby', str(args.standby)]
         if args.rotation:

@@ -2,7 +2,7 @@ use std::{
     collections::VecDeque,
     net::{Ipv6Addr, SocketAddrV6},
     sync::{Arc, Mutex},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use rand::{RngExt, seq::IndexedRandom};
@@ -57,6 +57,7 @@ impl RecentBlocks {
 /// contradicting themselves and each other as often as they please.
 pub(crate) async fn run_byzantine(
     keys: Vec<PrivateKey>,
+    epochs: Option<(Instant, Duration)>,
     honest_prs: usize,
     protocol: ProtocolInfo,
     genesis_hash: BlockHash,
@@ -122,8 +123,13 @@ pub(crate) async fn run_byzantine(
                     VoteKind::Abstain,
                     VoteKind::Final,
                 ][rng.random_range(0..5)];
-                // Any epoch it feels like, including ones nobody has reached
-                let epoch = ConsensusEpoch::new(rng.random_range(0..4));
+                // Any epoch around the current one, including the next,
+                // which nobody has reached yet
+                let current = epochs.map_or(0, |(started, duration)| {
+                    (started.elapsed().as_millis() / duration.as_millis().max(1)) as u64
+                });
+                let epoch =
+                    ConsensusEpoch::new(rng.random_range(current.saturating_sub(1)..=current + 1));
                 let vote = Vote::new_in_epoch(&key, kind, epoch, hashes);
                 let message = Message::ConfirmAck(ConfirmAck::new_with_own_vote(vote));
                 serializer.serialize(&message).to_vec()

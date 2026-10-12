@@ -179,7 +179,8 @@ fn create_send_or_receive_block(
     } else if let Some(state) = account_map.random_account_that_can_send() {
         let is_fork = is_fork && can_fork(account_map, &state.key.account());
         let destination = account_map.random_account().unwrap();
-        let new_balance: Amount = rand::rng().random_range(..state.balance.number()).into();
+        let new_balance: Amount =
+            crate::workload_rng::with_rng(|r| r.random_range(..state.balance.number())).into();
         let amount_sent = state.balance - new_balance;
         let representative = representative(state, representatives);
 
@@ -244,7 +245,7 @@ fn create_change_block(
     };
     let representative = representatives
         .random()
-        .unwrap_or_else(|| PublicKey::from_bytes(rand::rng().random()));
+        .unwrap_or_else(|| PublicKey::from_bytes(crate::workload_rng::with_rng(|r| r.random())));
     let block: Block = StateBlockArgs {
         key: &state.key,
         previous: state.unconfirmed_frontier,
