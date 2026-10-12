@@ -1,0 +1,69 @@
+% Figures of the evaluation from the throughput-latency sweep; data in
+% sections/eval-data/sweep-*.dat (tools/sweep_figures.py).
+\pgfplotsset{
+  sweepaxis/.style={tick label style={font=\scriptsize},label style={font=\scriptsize},title style={font=\scriptsize,yshift=-1.5mm},
+    ymode=log,ymin=60,ymax=20000,ytick={100,200,500,1000,2000,5000,10000},yticklabels={100,200,500,1k,2k,5k,10k},
+    xmin=0,xmax=3000,xtick={0,1000,2000,3000},xticklabels={0,1k,2k,3k},ymajorgrids,xmajorgrids,grid style={gray!25},
+    unbounded coords=jump,every axis plot/.append style={line width=0.6pt}},
+  s50/.style={mark=*,mark size=1.1pt},
+  s95/.style={densely dashed,mark=o,mark size=1.1pt},
+}
+% One system's curves in a throughput-latency panel: #1 data file, #2 color
+\newcommand{\sweepcurves}[2]{%
+  \addplot[color=#2,s50] table[x=throughput,y=p50] {#1};
+  \addplot[color=#2,s95] table[x=throughput,y=p95] {#1};
+}
+\newcommand{\sweeplegend}{%
+  \begin{tikzpicture}[font=\scriptsize]
+  \draw[cRai,line width=0.8pt] (0,0) -- (0.5,0) node[right,black] {RAI};
+  \draw[cPause,line width=0.8pt] (1.5,0) -- (2,0) node[right,black] {pause};
+  \draw[cNano,line width=0.8pt] (3.3,0) -- (3.8,0) node[right,black] {Nano (develop)};
+  \draw[black,line width=0.6pt] (6.3,0) -- (6.8,0) node[right] {p50};
+  \draw[black,densely dashed,line width=0.6pt] (7.6,0) -- (8.1,0) node[right] {p95};
+  \end{tikzpicture}}
+
+\begin{figure*}[t]
+\centering
+\sweeplegend\\[1mm]
+\begin{tikzpicture}
+\begin{groupplot}[group style={group size=3 by 1,horizontal sep=6mm,yticklabels at=edge left},sweepaxis,width=0.36\textwidth,height=4.4cm]
+\nextgroupplot[title={no forks},ylabel={non-fork latency (ms)}]
+\sweepcurves{sections/eval-data/sweep-nofork-develop.dat}{cNano}
+\sweepcurves{sections/eval-data/sweep-nofork-pause.dat}{cPause}
+\sweepcurves{sections/eval-data/sweep-nofork-rai.dat}{cRai}
+\nextgroupplot[title={5\% forks},xlabel={sustained non-fork throughput (blocks/s)}]
+\sweepcurves{sections/eval-data/sweep-fork5-develop.dat}{cNano}
+\sweepcurves{sections/eval-data/sweep-fork5-pause.dat}{cPause}
+\sweepcurves{sections/eval-data/sweep-fork5-rai.dat}{cRai}
+\nextgroupplot[title={10\% forks}]
+\sweepcurves{sections/eval-data/sweep-fork10-develop.dat}{cNano}
+\sweepcurves{sections/eval-data/sweep-fork10-pause.dat}{cPause}
+\sweepcurves{sections/eval-data/sweep-fork10-rai.dat}{cRai}
+\end{groupplot}
+\end{tikzpicture}
+\caption{Throughput against latency of non-fork blocks, one point per offered load (500 to 3{,}000 blocks/s in steps of 500). Throughput is sustained: 99\% of the non-fork blocks over the time from the first publication until they were confirmed. Points at 1{,}500 blocks/s and above are the median of three runs, below one run. A missing point is a load at which the client never saw every non-fork block confirmed in any run. Six validators share one eight-core host, so every system saturates at 2{,}000 to 3{,}000 blocks/s.}
+\label{fig:eval-sweep}
+\end{figure*}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{groupplot}[group style={group size=1 by 2,vertical sep=3mm,xticklabels at=edge bottom},sweepaxis,width=\columnwidth,height=3.6cm,
+  xmin=250,xmax=3250,xtick={500,1000,1500,2000,2500,3000},xticklabels={500,1k,1.5k,2k,2.5k,3k},ymin=60,ymax=10000]
+\nextgroupplot[ylabel={no forks},legend columns=2,legend to name=closelegend,legend style={font=\scriptsize,draw=none}]
+\addplot[color=cRai,s95,solid] table[x=rate,y=close_p95] {sections/eval-data/sweep-nofork-rai.dat};\addlegendentry{RAI, during a close}
+\addplot[color=cRai,s95,densely dotted] table[x=rate,y=open_p95] {sections/eval-data/sweep-nofork-rai.dat};\addlegendentry{RAI, outside closes}
+\addplot[color=cPause,s95,solid] table[x=rate,y=close_p95] {sections/eval-data/sweep-nofork-pause.dat};\addlegendentry{pause, during a close}
+\addplot[color=cPause,s95,densely dotted] table[x=rate,y=open_p95] {sections/eval-data/sweep-nofork-pause.dat};\addlegendentry{pause, outside closes}
+\nextgroupplot[ylabel={5\% forks},xlabel={offered load (blocks/s)}]
+\addplot[color=cRai,s95,solid] table[x=rate,y=close_p95] {sections/eval-data/sweep-fork5-rai.dat};
+\addplot[color=cRai,s95,densely dotted] table[x=rate,y=open_p95] {sections/eval-data/sweep-fork5-rai.dat};
+\addplot[color=cPause,s95,solid] table[x=rate,y=close_p95] {sections/eval-data/sweep-fork5-pause.dat};
+\addplot[color=cPause,s95,densely dotted] table[x=rate,y=open_p95] {sections/eval-data/sweep-fork5-pause.dat};
+\end{groupplot}
+\node at ($(group c1r1.north)+(0,0.45cm)$) {\pgfplotslegendfromname{closelegend}};
+\end{tikzpicture}
+\caption{95th-percentile latency (ms) of non-fork blocks published while a close was in progress (from the first validator leaving the epoch to the last one seeing its checkpoint decided) and of the other blocks. Pause stops confirming until the checkpoint is decided; RAI keeps confirming.}
+\label{fig:eval-closes}
+\end{figure}
+

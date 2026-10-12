@@ -1,0 +1,260 @@
+{
+  "gate": "B",
+  "source_revision": "016ba9dbf359fdd6a487b6769cbfa6a671fa8c3d",
+  "node_sha256": "61eeda28add3d23322be44b6fde6e6d3629f7b548b39aec5b9abc56977b771af",
+  "client_sha256": "1a5db305fd7d614e9633c2001317c4d0cbde8560b67a6abde5d95c96bd8cb74c",
+  "busy_processes": [],
+  "performance_eligible": true,
+  "nodes": 5,
+  "command": [
+    "/Users/ruimorais/rsnano-node/.claude/worktrees/rai-eval-harness/target/release/nanospam",
+    "--data-dir",
+    "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-tcxs514_",
+    "--prs",
+    "6",
+    "--no-prio",
+    "--blocks",
+    "45000",
+    "--accounts",
+    "45000",
+    "--rate",
+    "3000",
+    "--fork-percentage",
+    "10",
+    "--epoch-duration-ms",
+    "8000",
+    "--byzantine",
+    "1",
+    "--offline",
+    "0",
+    "--no-kill",
+    "--signing-sync",
+    "fsync",
+    "--epoch-transition",
+    "pause",
+    "--seed",
+    "3001323",
+    "--byzantine-leads-close",
+    "--committee-model",
+    "equal_weight",
+    "--committee-f",
+    "1",
+    "--committee-p",
+    "1"
+  ],
+  "status": "failed",
+  "client_finished": false,
+  "client_finished_s": 150.1,
+  "stalled": {
+    "phase": "settle",
+    "cemented": [
+      36133,
+      36173,
+      36174
+    ],
+    "decided": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8
+    ]
+  },
+  "settled_after_s": 75.3,
+  "settlement": {
+    "all_cemented": false,
+    "cemented": [
+      36133,
+      36173,
+      36174
+    ],
+    "held": [
+      45065
+    ],
+    "uncemented": [
+      8891,
+      8892,
+      8932
+    ],
+    "decided_everywhere": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8
+    ],
+    "decided_somewhere": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8
+    ],
+    "values_agree": true,
+    "settled": false
+  },
+  "finalization_p50_ms": [
+    309,
+    295,
+    291,
+    264,
+    259
+  ],
+  "close_rounds": [
+    [
+      0,
+      "1"
+    ],
+    [
+      1,
+      "1"
+    ],
+    [
+      2,
+      "1"
+    ],
+    [
+      3,
+      "1"
+    ],
+    [
+      4,
+      "1"
+    ],
+    [
+      5,
+      "1"
+    ],
+    [
+      6,
+      "1"
+    ],
+    [
+      7,
+      "1"
+    ],
+    [
+      8,
+      "1"
+    ]
+  ],
+  "close_timings": {
+    "0": {
+      "nodes_left": 5,
+      "nodes_closed": 5,
+      "first_close_ms": 4610,
+      "last_close_ms": 7681,
+      "left_spread_ms": 144,
+      "rounds": [
+        1
+      ]
+    },
+    "1": {
+      "nodes_left": 5,
+      "nodes_closed": 5,
+      "first_close_ms": 7013,
+      "last_close_ms": 7185,
+      "left_spread_ms": 215,
+      "rounds": [
+        1
+      ]
+    },
+    "2": {
+      "nodes_left": 5,
+      "nodes_closed": 5,
+      "first_close_ms": 8168,
+      "last_close_ms": 8241,
+      "left_spread_ms": 313,
+      "rounds": [
+        1
+      ]
+    },
+    "3": {
+      "nodes_left": 5,
+      "nodes_closed": 5,
+      "first_close_ms": 5208,
+      "last_close_ms": 5366,
+      "left_spread_ms": 81,
+      "rounds": [
+        1
+      ]
+    },
+    "4": {
+      "nodes_left": 5,
+      "nodes_closed": 5,
+      "first_close_ms": 4277,
+      "last_close_ms": 4325,
+      "left_spread_ms": 13,
+      "rounds": [
+        1
+      ]
+    },
+    "5": {
+      "nodes_left": 5,
+      "nodes_closed": 5,
+      "first_close_ms": 4653,
+      "last_close_ms": 4718,
+      "left_spread_ms": 67,
+      "rounds": [
+        1
+      ]
+    },
+    "6": {
+      "nodes_left": 5,
+      "nodes_closed": 5,
+      "first_close_ms": 4102,
+      "last_close_ms": 4140,
+      "left_spread_ms": 28,
+      "rounds": [
+        1
+      ]
+    },
+    "7": {
+      "nodes_left": 5,
+      "nodes_closed": 5,
+      "first_close_ms": 4240,
+      "last_close_ms": 4274,
+      "left_spread_ms": 64,
+      "rounds": [
+        1
+      ]
+    },
+    "8": {
+      "nodes_left": 5,
+      "nodes_closed": 5,
+      "first_close_ms": 4039,
+      "last_close_ms": 4210,
+      "left_spread_ms": 110,
+      "rounds": [
+        1
+      ]
+    }
+  },
+  "close_duration_ms": {
+    "max": 8241,
+    "median": 4718
+  },
+  "streams": {
+    "count": 112,
+    "dropped": 0,
+    "symbols": 195865,
+    "recovered": 136509,
+    "symbols_per_item": 1.43
+  },
+  "client": null,
+  "confirmation_rate_cps": null,
+  "confirmed_primary": 36109,
+  "correctness_passed": false
+}

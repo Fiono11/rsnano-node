@@ -1,0 +1,291 @@
+{
+  "gate": "B",
+  "source_revision": "016ba9dbf359fdd6a487b6769cbfa6a671fa8c3d",
+  "node_sha256": "61eeda28add3d23322be44b6fde6e6d3629f7b548b39aec5b9abc56977b771af",
+  "client_sha256": "1a5db305fd7d614e9633c2001317c4d0cbde8560b67a6abde5d95c96bd8cb74c",
+  "busy_processes": [],
+  "performance_eligible": true,
+  "nodes": 8,
+  "command": [
+    "/Users/ruimorais/rsnano-node/.claude/worktrees/rai-eval-harness/target/release/nanospam",
+    "--data-dir",
+    "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-_etkbw9m",
+    "--prs",
+    "8",
+    "--no-prio",
+    "--blocks",
+    "45000",
+    "--accounts",
+    "45000",
+    "--rate",
+    "500",
+    "--fork-percentage",
+    "0",
+    "--epoch-duration-ms",
+    "8000",
+    "--byzantine",
+    "0",
+    "--offline",
+    "0",
+    "--no-kill",
+    "--signing-sync",
+    "fsync",
+    "--epoch-transition",
+    "pause",
+    "--seed",
+    "500711",
+    "--standby",
+    "2",
+    "--rotation",
+    "1:1>6;2:2>7;3:3>1;4:4>2;5:5>3;6:6>4;7:7>5;8:1>6;9:2>7;10:3>1;11:4>2;12:5>3;13:6>4;14:7>5;15:1>6;16:2>7",
+    "--committee-model",
+    "equal_weight",
+    "--committee-f",
+    "1",
+    "--committee-p",
+    "1"
+  ],
+  "status": "failed",
+  "client_finished": false,
+  "client_finished_s": 204.2,
+  "settled_after_s": 84.1,
+  "settlement": {
+    "all_cemented": true,
+    "cemented": [
+      45087
+    ],
+    "held": [
+      45087
+    ],
+    "uncemented": [
+      0
+    ],
+    "decided_everywhere": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11
+    ],
+    "decided_somewhere": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11
+    ],
+    "values_agree": true,
+    "settled": true
+  },
+  "finalization_p50_ms": [
+    90,
+    90,
+    90,
+    90,
+    89,
+    89,
+    90,
+    90
+  ],
+  "close_rounds": [
+    [
+      0,
+      "0"
+    ],
+    [
+      1,
+      "0"
+    ],
+    [
+      2,
+      "0"
+    ],
+    [
+      3,
+      "0"
+    ],
+    [
+      4,
+      "0"
+    ],
+    [
+      5,
+      "0"
+    ],
+    [
+      6,
+      "0"
+    ],
+    [
+      7,
+      "0"
+    ],
+    [
+      8,
+      "0"
+    ],
+    [
+      9,
+      "0"
+    ],
+    [
+      10,
+      "0"
+    ],
+    [
+      11,
+      "0"
+    ]
+  ],
+  "close_timings": {
+    "0": {
+      "nodes_left": 8,
+      "nodes_closed": 8,
+      "first_close_ms": 684,
+      "last_close_ms": 788,
+      "left_spread_ms": 15,
+      "rounds": [
+        0
+      ]
+    },
+    "1": {
+      "nodes_left": 8,
+      "nodes_closed": 8,
+      "first_close_ms": 706,
+      "last_close_ms": 714,
+      "left_spread_ms": 9,
+      "rounds": [
+        0
+      ]
+    },
+    "2": {
+      "nodes_left": 8,
+      "nodes_closed": 8,
+      "first_close_ms": 824,
+      "last_close_ms": 829,
+      "left_spread_ms": 29,
+      "rounds": [
+        0
+      ]
+    },
+    "3": {
+      "nodes_left": 8,
+      "nodes_closed": 8,
+      "first_close_ms": 1019,
+      "last_close_ms": 1258,
+      "left_spread_ms": 34,
+      "rounds": [
+        0
+      ]
+    },
+    "4": {
+      "nodes_left": 8,
+      "nodes_closed": 8,
+      "first_close_ms": 1130,
+      "last_close_ms": 1137,
+      "left_spread_ms": 28,
+      "rounds": [
+        0
+      ]
+    },
+    "5": {
+      "nodes_left": 8,
+      "nodes_closed": 8,
+      "first_close_ms": 1068,
+      "last_close_ms": 1081,
+      "left_spread_ms": 96,
+      "rounds": [
+        0
+      ]
+    },
+    "6": {
+      "nodes_left": 8,
+      "nodes_closed": 8,
+      "first_close_ms": 974,
+      "last_close_ms": 1007,
+      "left_spread_ms": 94,
+      "rounds": [
+        0
+      ]
+    },
+    "7": {
+      "nodes_left": 8,
+      "nodes_closed": 8,
+      "first_close_ms": 925,
+      "last_close_ms": 1273,
+      "left_spread_ms": 29,
+      "rounds": [
+        0
+      ]
+    },
+    "8": {
+      "nodes_left": 8,
+      "nodes_closed": 8,
+      "first_close_ms": 1679,
+      "last_close_ms": 1745,
+      "left_spread_ms": 23,
+      "rounds": [
+        0
+      ]
+    },
+    "9": {
+      "nodes_left": 8,
+      "nodes_closed": 8,
+      "first_close_ms": 1368,
+      "last_close_ms": 1429,
+      "left_spread_ms": 22,
+      "rounds": [
+        0
+      ]
+    },
+    "10": {
+      "nodes_left": 8,
+      "nodes_closed": 8,
+      "first_close_ms": 1437,
+      "last_close_ms": 1499,
+      "left_spread_ms": 116,
+      "rounds": [
+        0
+      ]
+    },
+    "11": {
+      "nodes_left": 8,
+      "nodes_closed": 8,
+      "first_close_ms": 1224,
+      "last_close_ms": 1236,
+      "left_spread_ms": 155,
+      "rounds": [
+        0
+      ]
+    }
+  },
+  "close_duration_ms": {
+    "max": 1745,
+    "median": 1186.5
+  },
+  "streams": {
+    "count": 141,
+    "dropped": 0,
+    "symbols": 11656,
+    "recovered": 6453,
+    "symbols_per_item": 1.81
+  },
+  "client": null,
+  "confirmation_rate_cps": null,
+  "confirmed_primary": 44872,
+  "correctness_passed": false
+}

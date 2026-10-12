@@ -50,6 +50,12 @@ SETS = {
         'fork5-byzlead': (['--fork-percentage', '5', '--byzantine', '1', '--byzantine-leads-close'], BYZ_RATES, None),
         'fork10-byzlead': (['--fork-percentage', '10', '--byzantine', '1', '--byzantine-leads-close'], BYZ_RATES, None),
     },
+    # Fork resolution: after settling, the nodes keep running up to 90 s
+    # (about eleven epochs) until no forked position is open anywhere
+    'forks': {
+        'fork5-grace': (['--fork-percentage', '5', '--fork-grace', '90'], [1000, 2000], None),
+        'fork10-grace': (['--fork-percentage', '10', '--fork-grace', '90'], [1000, 2000], None),
+    },
     # Eight running representatives in both: six committee members and two
     # standby ones (PR6, PR7); the rotating variant replaces one member
     # every epoch. With the Byzantine leader: PR7 is Byzantine (no node),

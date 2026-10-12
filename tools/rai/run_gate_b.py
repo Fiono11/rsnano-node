@@ -232,6 +232,7 @@ def main():
                         help='pipelined (the protocol) or pause (the stop-and-drain baseline: no voting in the next epoch until the previous checkpoint is decided)')
     parser.add_argument('--network-delay-ms', type=int, default=0, help='simulated one-way link latency every node adds to each outbound message')
     parser.add_argument('--seed', type=int, default=None, help='seed of the workload choices (nanospam --seed)')
+    parser.add_argument('--fork-grace', type=int, default=0, help='after settling, keep the nodes running up to this many seconds until no forked position is open on any node')
     parser.add_argument('--byzantine-leads-close', action='store_true', help='the first Byzantine representative leads round 0 of every close (nanospam --byzantine-leads-close)')
     parser.add_argument('--no-epochs', action='store_true',
                         help='the unmodified-node baseline: no epochs, no checkpoints, no committee model; settled means identical cemented state')
@@ -353,6 +354,23 @@ def main():
                         break
                     time.sleep(1)
                 result['settled_after_s'] = round(args.timeout - (deadline - time.monotonic()), 1)
+                # Forked positions resolve after the load: keep the nodes
+                # running until none is open anywhere, or the grace ends
+                if args.fork_grace and counts is not None:
+                    before = settled['uncemented']
+                    grace_end = time.monotonic() + args.fork_grace
+                    while max(settled['uncemented']) > 0 and time.monotonic() < grace_end:
+                        time.sleep(2)
+                        polled = poll(nodes, 'block_count', log, grace_end + 30)
+                        polled_states = (poll(nodes, 'final_state', log, grace_end + 30) if not args.no_epochs
+                                         else [{} for _ in range(nodes)])
+                        if polled is None or polled_states is None:
+                            break
+                        counts, states = polled, polled_states
+                        settled = settlement(counts, states, args.min_closed)
+                    result['fork_grace'] = dict(seconds=args.fork_grace, uncemented_before=before,
+                                                uncemented_after=settled['uncemented'],
+                                                waited_s=round(args.fork_grace - max(0.0, grace_end - time.monotonic()), 1))
                 result['settlement'] = settled
                 result['block_counts'] = counts
                 result['final_states'] = states

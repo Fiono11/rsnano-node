@@ -1,44 +1,44 @@
-Processes: 441 total, 2 running, 439 sleeping, 1836 threads 
-2026/10/12 12:24:17
-Load Avg: 3.48, 4.45, 5.24 
-CPU usage: 2.43% user, 12.19% sys, 85.36% idle 
-SharedLibs: 502M resident, 106M data, 34M linkedit.
-MemRegions: 41183 total, 1629M resident, 176M private, 480M shared.
-PhysMem: 7788M used (1343M wired, 2836M compressor), 8034M unused.
-VM: 168T vsize, 4915M framework vsize, 0(0) swapins, 0(0) swapouts.
-Networks: packets: 143202226/98G in, 142646003/97G out.
-Disks: 3803501/84G read, 39953266/1015G written.
+Processes: 449 total, 2 running, 447 sleeping, 1844 threads 
+2026/10/12 14:42:45
+Load Avg: 8.36, 7.54, 7.23 
+CPU usage: 2.38% user, 9.52% sys, 88.9% idle 
+SharedLibs: 553M resident, 110M data, 50M linkedit.
+MemRegions: 41226 total, 1955M resident, 221M private, 505M shared.
+PhysMem: 5962M used (1386M wired, 699M compressor), 9860M unused.
+VM: 171T vsize, 4915M framework vsize, 0(0) swapins, 0(0) swapouts.
+Networks: packets: 185063024/141G in, 184432721/140G out.
+Disks: 3905607/86G read, 51011364/1298G written.
 
-PID    %CPU COMMAND         
-41042  0.0  top             
-41040  0.0  Python          
-41037  0.0  sleep           
-40443  0.0  com.apple.access
-40440  0.0  com.apple.access
-40436  0.0  xpcroleaccountd 
-40435  0.0  com.apple.NRD.Up
-40434  0.0  NRDUpdated      
-40433  0.0  installerauthage
-40429  0.0  com.apple.Mobile
-Processes: 441 total, 2 running, 439 sleeping, 1843 threads 
-2026/10/12 12:24:18
-Load Avg: 3.48, 4.45, 5.24 
-CPU usage: 0.71% user, 1.54% sys, 97.74% idle 
-SharedLibs: 502M resident, 106M data, 34M linkedit.
-MemRegions: 41183 total, 1629M resident, 176M private, 480M shared.
-PhysMem: 7788M used (1343M wired, 2836M compressor), 8033M unused.
-VM: 168T vsize, 4915M framework vsize, 0(0) swapins, 0(0) swapouts.
-Networks: packets: 143202232/98G in, 142646009/97G out.
-Disks: 3803501/84G read, 39953266/1015G written.
+PID    %CPU COMMAND       
+44312  0.0  top           
+44310  0.0  Python        
+44309  0.0  sleep         
+44300  0.0  mediaanalysisd
+43956  0.0  spindump      
+43935  0.0  parsec-fbf    
+43162  0.0  appleaccountd 
+42339  0.0  Python        
+42337  0.0  bash          
+42331  0.0  caffeinate    
+Processes: 449 total, 2 running, 447 sleeping, 1841 threads 
+2026/10/12 14:42:46
+Load Avg: 8.36, 7.54, 7.23 
+CPU usage: 0.47% user, 0.94% sys, 98.58% idle 
+SharedLibs: 553M resident, 110M data, 50M linkedit.
+MemRegions: 41226 total, 1955M resident, 221M private, 505M shared.
+PhysMem: 5962M used (1386M wired, 699M compressor), 9861M unused.
+VM: 171T vsize, 4915M framework vsize, 0(0) swapins, 0(0) swapouts.
+Networks: packets: 185063026/141G in, 184432723/140G out.
+Disks: 3905607/86G read, 51011364/1298G written.
 
-PID    %CPU COMMAND         
-0      5.4  kernel_task     
-41042  4.8  top             
-386    2.2  WindowServer    
-5220   0.6  2.1.296         
-39504  0.5  PerfPowerService
-323    0.4  fseventsd       
-4232   0.4  2.1.296         
-320    0.3  UserEventAgent  
-332    0.3  powerd          
-1424   0.3  2.1.296         
+PID    %CPU COMMAND        
+44312  4.3  top            
+0      1.4  kernel_task    
+1424   1.1  2.1.296        
+5220   0.8  2.1.296        
+4232   0.6  2.1.296        
+386    0.4  WindowServer   
+4187   0.3  2.1.296        
+323    0.3  fseventsd      
+357    0.2  thermalmonitord
+382    0.1  corebrightnessd
