@@ -3988,12 +3988,31 @@ impl ActiveElectionsContainer {
         crate::consensus::election::CertifiedState,
         crate::consensus::election::ResidualVotes,
     ) {
+        Self::complete_report_on(self.report_base(epoch).as_deref(), certified, residual)
+    }
+
+    /// RAI: the inherited part of an epoch's report, if its predecessor is
+    /// decided here
+    pub fn report_base(
+        &self,
+        epoch: ConsensusEpoch,
+    ) -> Option<Arc<crate::consensus::election::CertifiedState>> {
+        self.report_bases.get(&epoch).cloned()
+    }
+
+    /// RAI: an epoch's report, the inherited base with the epoch's own
+    /// certificates on top. It copies the whole base, so it is built
+    /// outside the AEC's lock (`AecService::complete_report`)
+    pub fn complete_report_on(
+        base: Option<&crate::consensus::election::CertifiedState>,
+        certified: &crate::consensus::election::CertifiedState,
+        residual: &crate::consensus::election::ResidualVotes,
+    ) -> (
+        crate::consensus::election::CertifiedState,
+        crate::consensus::election::ResidualVotes,
+    ) {
         use crate::consensus::election::ResidualVotes;
-        let mut complete = self
-            .report_bases
-            .get(&epoch)
-            .map(|base| (**base).clone())
-            .unwrap_or_default();
+        let mut complete = base.cloned().unwrap_or_default();
         for (block, entry) in certified.entries() {
             complete.certify(*block, entry.previous, entry.status);
         }

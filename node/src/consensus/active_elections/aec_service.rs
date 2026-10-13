@@ -535,10 +535,10 @@ impl AecService {
         crate::consensus::election::CertifiedState,
         crate::consensus::election::ResidualVotes,
     ) {
-        self.aec
-            .read()
-            .unwrap()
-            .complete_report(epoch, certified, residual)
+        // Only the base is read under the lock: copying it holds up every
+        // vote the AEC applies meanwhile
+        let base = self.aec.read().unwrap().report_base(epoch);
+        ActiveElectionsContainer::complete_report_on(base.as_deref(), certified, residual)
     }
 
     /// RAI: how many first and final voters this node holds for a block

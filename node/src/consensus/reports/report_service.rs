@@ -1,6 +1,7 @@
 use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex},
+    collections::{HashMap, VecDeque},
+    sync::{Arc, Condvar, Mutex},
+    thread::JoinHandle,
 };
 
 use rsnano_messages::{
@@ -46,6 +47,18 @@ pub struct ReportService {
     signing: Arc<SigningRecords>,
     /// When the signing records' write timings were last logged
     timings_logged: Mutex<Option<Timestamp>>,
+    /// Epochs left whose report is still to be signed, by the worker thread
+    left: Mutex<LeftEpochs>,
+    left_ready: Condvar,
+    worker: Mutex<Option<JoinHandle<()>>>,
+}
+
+/// The epochs left, in order, for the report worker
+#[derive(Default)]
+struct LeftEpochs {
+    queue: VecDeque<(ConsensusEpoch, Arc<EpochReport>)>,
+    running: bool,
+    stopped: bool,
 }
 
 impl ReportService {
@@ -67,6 +80,64 @@ impl ReportService {
             pending: Mutex::new(HashMap::new()),
             signing,
             timings_logged: Mutex::new(None),
+            left: Mutex::new(LeftEpochs::default()),
+            left_ready: Condvar::new(),
+            worker: Mutex::new(None),
+        }
+    }
+
+    /// Signs the reports of the epochs left on a thread of their own: taking
+    /// a report persists and hashes the whole inherited state, which must not
+    /// hold up the confirmations the AEC's facts carry
+    pub fn start(self: &Arc<Self>) {
+        self.left.lock().unwrap().running = true;
+        let service = Arc::clone(self);
+        let handle = std::thread::Builder::new()
+            .name("Epoch reports".to_owned())
+            .spawn(move || service.run_left_epochs())
+            .unwrap();
+        *self.worker.lock().unwrap() = Some(handle);
+    }
+
+    /// The epochs already left are reported before the worker ends
+    pub fn stop(&self) {
+        self.left.lock().unwrap().stopped = true;
+        self.left_ready.notify_all();
+        if let Some(handle) = self.worker.lock().unwrap().take() {
+            handle.join().unwrap();
+        }
+    }
+
+    /// The node left an epoch: its report is signed on the worker thread,
+    /// or here when the worker is not running
+    pub fn queue_epoch_left(&self, epoch: ConsensusEpoch, report: Arc<EpochReport>) {
+        {
+            let mut left = self.left.lock().unwrap();
+            if left.running && !left.stopped {
+                left.queue.push_back((epoch, report));
+                self.left_ready.notify_one();
+                return;
+            }
+        }
+        self.epoch_left(epoch, report);
+    }
+
+    fn run_left_epochs(&self) {
+        loop {
+            let (epoch, report) = {
+                let mut left = self.left.lock().unwrap();
+                loop {
+                    if let Some(item) = left.queue.pop_front() {
+                        break item;
+                    }
+                    if left.stopped {
+                        left.running = false;
+                        return;
+                    }
+                    left = self.left_ready.wait(left).unwrap();
+                }
+            };
+            self.epoch_left(epoch, report);
         }
     }
 
@@ -700,4 +771,47 @@ fn log_reconciled(result: Option<ReconcileResult>) {
         result.symbols,
         result.dropped
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// An epoch left while the worker runs is reported on the worker, and
+    /// stopping it reports what was queued: here no predecessor checkpoint
+    /// is decided, so the report waits to be signed
+    #[test]
+    fn the_worker_reports_the_epochs_left_before_it_stops() {
+        let service = Arc::new(ReportService::new_null());
+        service.start();
+        service.queue_epoch_left(ConsensusEpoch::new(1), test_report());
+        service.queue_epoch_left(ConsensusEpoch::new(2), test_report());
+        service.stop();
+        let pending = service.pending.lock().unwrap();
+        assert!(pending.contains_key(&ConsensusEpoch::new(1)));
+        assert!(pending.contains_key(&ConsensusEpoch::new(2)));
+    }
+
+    #[test]
+    fn without_the_worker_an_epoch_left_is_reported_at_once() {
+        let service = ReportService::new_null();
+        service.queue_epoch_left(ConsensusEpoch::new(1), test_report());
+        assert!(
+            service
+                .pending
+                .lock()
+                .unwrap()
+                .contains_key(&ConsensusEpoch::new(1))
+        );
+    }
+
+    /* Test helpers */
+
+    fn test_report() -> Arc<EpochReport> {
+        Arc::new(EpochReport {
+            committee: BlockHash::ZERO,
+            certified: CertifiedState::default(),
+            residual: ResidualVotes::default(),
+        })
+    }
 }

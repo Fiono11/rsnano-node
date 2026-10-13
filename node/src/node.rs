@@ -167,6 +167,10 @@ pub struct Node {
     channel_event_processor: EventProcessor<ChannelEvent>,
     #[cfg(feature = "ledger_snapshots")]
     pub ledger_snapshots: Arc<LedgerSnapshots>,
+    /// RAI: signs and broadcasts the report of each epoch left, on its own
+    /// thread
+    #[cfg(feature = "rai_protocol")]
+    reports: Arc<ReportService>,
 }
 
 pub(crate) struct NodeArgs {
@@ -1537,6 +1541,8 @@ impl Node {
             stopped: AtomicBool::new(false),
             start_stop_listener: OutputListenerMt::new(),
             vote_rebroadcaster,
+            #[cfg(feature = "rai_protocol")]
+            reports,
             tokio_runner,
             aec_ticker: TimerThread::new("AEC ticker", aec_ticker),
             recently_cemented,
@@ -1784,6 +1790,8 @@ impl Node {
         if self.config.enable_vote_rebroadcast {
             self.vote_rebroadcaster.start();
         }
+        #[cfg(feature = "rai_protocol")]
+        self.reports.start();
         self.ticker_pool.start();
     }
 
@@ -1835,6 +1843,8 @@ impl Node {
         // never call into a half-dropped subsystem.
         self.channel_event_processor.join();
         self.vote_rebroadcaster.stop();
+        #[cfg(feature = "rai_protocol")]
+        self.reports.stop();
         self.ledger.drop_publisher();
         self.workers.join();
         self.tokio_runner.stop();

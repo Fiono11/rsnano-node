@@ -28,7 +28,7 @@ impl EventHandlerMut<AecFact> for ReportPlugin {
                 };
                 if let Some(report) = report {
                     self.reports
-                        .epoch_left(ConsensusEpoch::new(left), report.clone());
+                        .queue_epoch_left(ConsensusEpoch::new(left), report.clone());
                 }
             }
             // The installation is acknowledged once the decided state is
