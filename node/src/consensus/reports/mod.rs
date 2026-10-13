@@ -2147,6 +2147,86 @@ mod tests {
         );
     }
 
+    /// The cost of an epoch's report steps against the history the
+    /// inherited base holds, flat and laid over the base, 15,000 changes an
+    /// epoch. Not a check: run with
+    /// `cargo test --release --lib --features rai_protocol -p rsnano_node -- --ignored report_cost --nocapture`
+    #[test]
+    #[ignore]
+    fn report_cost_against_history() {
+        use std::time::Instant;
+        let changes = 15_000u64;
+        println!("history   step                     flat ms   over ms");
+        for history in [45_000u64, 450_000, 2_000_000] {
+            let mut inherited = CertifiedState::new();
+            for i in 1..=history {
+                inherited.certify(entry(i), BlockHash::ZERO, CertifiedStatus::Finalized);
+            }
+            let (inherited, _) = inherited.into_report_base();
+            let base = Arc::new(inherited);
+            let epoch_entries = |state: &mut CertifiedState| {
+                for i in history + 1..=history + changes {
+                    state.certify(entry(i), BlockHash::ZERO, CertifiedStatus::Finalized);
+                }
+                state.project_final_prefixes();
+            };
+            let started = Instant::now();
+            let mut flat = (*base).clone();
+            epoch_entries(&mut flat);
+            let flat_build = started.elapsed();
+            let started = Instant::now();
+            let mut over = CertifiedState::over(&base);
+            epoch_entries(&mut over);
+            let over_build = started.elapsed();
+            assert_eq!(flat.root(), over.root());
+
+            let started = Instant::now();
+            let mut live = (*base).clone();
+            live.certify_all(&flat);
+            let flat_merge = started.elapsed();
+            let started = Instant::now();
+            let mut live = CertifiedState::over(&base);
+            live.certify_all(&over);
+            let over_merge = started.elapsed();
+
+            let started = Instant::now();
+            let mut encoder = Encoder::new(flat.items());
+            encoder.symbols(0, 64);
+            let flat_encode = started.elapsed();
+            let started = Instant::now();
+            let mut encoder = Encoder::signed(over.changed_items(&base));
+            encoder.symbols(0, 64);
+            let over_encode = started.elapsed();
+
+            let started = Instant::now();
+            let flat_checked = flat.changed_entries().count();
+            let flat_scan = started.elapsed();
+            let started = Instant::now();
+            let over_checked = over.changed_entries().count();
+            let over_scan = started.elapsed();
+
+            let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.0;
+            for (step, flat, over) in [
+                ("build the report", ms(flat_build), ms(over_build)),
+                ("merge into the live view", ms(flat_merge), ms(over_merge)),
+                ("encode for a stream", ms(flat_encode), ms(over_encode)),
+                ("entries a check reads", ms(flat_scan), ms(over_scan)),
+            ] {
+                println!("{history:>9} {step:<24} {flat:>9.1} {over:>9.1}");
+            }
+            println!(
+                "{history:>9} {:<24} {:>9} {:>9}",
+                "entries checked / kB", flat_checked, over_checked
+            );
+            println!(
+                "{history:>9} {:<24} {:>9} {:>9}",
+                "persisted kB",
+                flat.len() * 105 / 1000,
+                over.changed_items(&base).len() * 106 / 1000
+            );
+        }
+    }
+
     /// Every entry counts as justified: the evidence check is tested apart
     fn trust_all(exchange: &mut ReportExchange, epoch: ConsensusEpoch) {
         exchange.verify(epoch, Timestamp::new_test_instance(), |_, _, _, _| {
