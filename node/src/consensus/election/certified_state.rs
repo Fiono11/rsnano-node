@@ -341,6 +341,17 @@ impl CertifiedState {
             *self = other.clone();
             return;
         }
+        // A state without a base, `other` over one: the same entries come
+        // of certifying this state's into a copy of `other`, since a status
+        // only grows and a block names one parent, and the result is laid
+        // over the base from then on
+        if self.base.is_none() && other.base.is_some() {
+            let held = std::mem::replace(self, other.clone());
+            for (block, entry) in held.entries() {
+                self.certify(*block, entry.previous, entry.status);
+            }
+            return;
+        }
         if !self.shares_base(other) {
             for (block, entry) in other.entries() {
                 self.certify(*block, entry.previous, entry.status);
@@ -1094,6 +1105,14 @@ mod tests {
             let mut empty = CertifiedState::new();
             empty.certify_all(&other);
             assert_eq!(empty, other);
+            let mut flat = one.flattened();
+            let mut expected = flat.clone();
+            for (block, entry) in other.entries() {
+                expected.certify(*block, entry.previous, entry.status);
+            }
+            flat.certify_all(&other);
+            assert_eq!(flat, expected);
+            assert!(flat.shares_base(&other));
         }
     }
 
