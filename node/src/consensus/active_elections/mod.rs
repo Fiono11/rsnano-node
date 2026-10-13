@@ -139,6 +139,11 @@ pub enum AecFact {
     /// epoch waited for is decided; the blocks held back start now
     VotingResumed(ConsensusEpoch),
 
+    /// RAI: the committee of an epoch became known here. The close votes
+    /// that waited for it in the vote cache - of the close counted in it as
+    /// the new committee and of the one counted in it as the old - count now
+    CommitteeDerived(ConsensusEpoch),
+
     /// RAI: instances of a closed epoch opened after its certificate was
     /// seen got notarized: their blocks are not in the value finalized and
     /// are discarded, rolled back from the ledger

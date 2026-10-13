@@ -131,10 +131,12 @@ impl PendingCheckpointBlocks {
                 return false;
             }
             let wait = match pending.goal {
-                // Cementing is retried at the plain interval: the ancestors
-                // it waits for arrive by themselves
-                Goal::Cement if held() => Self::RETRY,
-                _ => Self::wait(pending.requests.saturating_sub(1)),
+                // A finalized block is held by the correct nodes that
+                // finalized it: no answer means one was lost, not that no
+                // peer has it, and the next committee waits for it. Asked
+                // for, like cementing, at the plain interval.
+                Goal::Cement => Self::RETRY,
+                Goal::Hold { .. } => Self::wait(pending.requests.saturating_sub(1)),
             };
             if pending.last.is_some_and(|last| last.elapsed(now) < wait) {
                 return true;
@@ -366,9 +368,25 @@ mod tests {
     }
 
     #[test]
-    fn a_block_no_peer_sends_is_asked_for_less_and_less_often() {
+    fn a_finalized_block_is_asked_for_at_the_plain_interval() {
         let mut pending = PendingCheckpointBlocks::default();
         pending.add([hash(1)]);
+        let nothing = |_: &BlockHash| false;
+        let asked: Vec<u64> = (0..6)
+            .filter(|second| {
+                !pending
+                    .tick(now(*second), nothing, nothing, no_position)
+                    .request
+                    .is_empty()
+            })
+            .collect();
+        assert_eq!(asked, vec![0, 1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn a_retained_block_no_peer_sends_is_asked_for_less_and_less_often() {
+        let mut pending = PendingCheckpointBlocks::default();
+        pending.hold([(Account::from(1), 2, hash(1))]);
         let nothing = |_: &BlockHash| false;
         let mut asked = Vec::new();
         for second in 0..16 {

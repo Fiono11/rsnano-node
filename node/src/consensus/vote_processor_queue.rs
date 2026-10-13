@@ -30,6 +30,7 @@ impl VoteProcessorQueue {
         Self {
             data: Mutex::new(VoteProcessorQueueData {
                 stopped: false,
+                close_lane: VecDeque::new(),
                 rep_tiers: Default::default(),
                 queue: FairQueue::new(
                     move |(tier, channel)| {
@@ -74,12 +75,21 @@ impl VoteProcessorQueue {
         Self::new(VoteProcessorConfig::new(1), Stats::default().into())
     }
 
+    /// RAI: the bound of the lane for close-election votes. They are few -
+    /// one statement per member and round - and each is needed: a replica
+    /// that drops one at a vote queue full of account votes is left without
+    /// the round's certificate until the voter repeats it, while the others
+    /// have closed the epoch.
+    const CLOSE_LANE_MAX: usize = 4096;
+
     pub fn len(&self) -> usize {
-        self.data.lock().unwrap().queue.len()
+        let guard = self.data.lock().unwrap();
+        guard.queue.len() + guard.close_lane.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.data.lock().unwrap().queue.is_empty()
+        let guard = self.data.lock().unwrap();
+        guard.queue.is_empty() && guard.close_lane.is_empty()
     }
 
     /// Queue vote for processing. @returns true if the vote was queued
@@ -99,9 +109,16 @@ impl VoteProcessorQueue {
         let added = {
             let mut guard = self.data.lock().unwrap();
             tier = guard.rep_tiers.tier(&vote.voter);
-            guard
-                .queue
-                .push((tier, channel_id), (vote, source, channel, filter))
+            if vote.epoch.is_close_round() && guard.close_lane.len() < Self::CLOSE_LANE_MAX {
+                guard
+                    .close_lane
+                    .push_back(((tier, channel_id), (vote, source, channel, filter)));
+                true
+            } else {
+                guard
+                    .queue
+                    .push((tier, channel_id), (vote, source, channel, filter))
+            }
         };
 
         if added {
@@ -135,8 +152,14 @@ impl VoteProcessorQueue {
                 return VecDeque::new();
             }
 
-            if !guard.queue.is_empty() {
-                return guard.queue.next_batch(max_batch_size);
+            if !guard.close_lane.is_empty() || !guard.queue.is_empty() {
+                let first = max_batch_size.min(guard.close_lane.len());
+                let mut batch: VecDeque<QueuedVote> = guard.close_lane.drain(..first).collect();
+                if batch.len() < max_batch_size {
+                    let rest = max_batch_size - batch.len();
+                    batch.extend(guard.queue.next_batch(rest));
+                }
+                return batch;
             } else {
                 guard = self.condition.wait(guard).unwrap();
             }
@@ -147,6 +170,7 @@ impl VoteProcessorQueue {
         {
             let mut guard = self.data.lock().unwrap();
             guard.queue.clear();
+            guard.close_lane.clear();
         }
         self.condition.notify_all();
     }
@@ -203,8 +227,22 @@ impl EventHandler<ChannelEvent> for VoteProcessorQueue {
     }
 }
 
+/// A vote waiting in the queue, with where it came from
+type QueuedVote = (
+    (RepTier, ChannelId),
+    (
+        Arc<Vote>,
+        VoteDelivery,
+        Option<Arc<Channel>>,
+        Option<BlockHash>,
+    ),
+);
+
 struct VoteProcessorQueueData {
     stopped: bool,
+    /// RAI: the votes of the epoch close elections, taken past a full fair
+    /// queue and drained before it (see `CLOSE_LANE_MAX`)
+    close_lane: VecDeque<QueuedVote>,
     queue: FairQueue<
         (RepTier, ChannelId),
         (
@@ -215,4 +253,40 @@ struct VoteProcessorQueueData {
         ),
     >,
     rep_tiers: RepTiers,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rsnano_types::{ConsensusEpoch, PrivateKey, VoteKind};
+
+    /// RAI: a close-election vote is taken in past a full vote queue and
+    /// comes out first; an account vote is dropped like any other
+    #[test]
+    fn close_votes_bypass_a_full_queue() {
+        let mut config = VoteProcessorConfig::new(1);
+        config.max_pr_queue = 1;
+        config.max_non_pr_queue = 1;
+        let queue = VoteProcessorQueue::new(config, Arc::new(Stats::default()));
+        let channel = Some(Arc::new(Channel::new_test_instance()));
+        let vote_in = |epoch| {
+            Arc::new(Vote::new_in_epoch(
+                &PrivateKey::from(1),
+                VoteKind::First,
+                epoch,
+                vec![BlockHash::from(7)],
+            ))
+        };
+        let account = || vote_in(ConsensusEpoch::ZERO);
+        let close = vote_in(ConsensusEpoch::close_round(ConsensusEpoch::new(1), 0));
+        assert!(queue.enqueue(account(), channel.clone(), VoteDelivery::Direct, None));
+        assert!(!queue.enqueue(account(), channel.clone(), VoteDelivery::Direct, None));
+        assert!(queue.enqueue(close.clone(), channel, VoteDelivery::Direct, None));
+        assert_eq!(queue.len(), 2);
+
+        let batch = queue.wait_for_votes(10);
+        assert_eq!(batch.len(), 2);
+        assert!(Arc::ptr_eq(&(batch[0].1).0, &close));
+        assert!(queue.is_empty());
+    }
 }

@@ -33,11 +33,18 @@ pub struct InboundMessageQueue {
 /// certificate, which only solicitations recover, and those replies arrive
 /// through the same queue. The lane is drained before the fair queue and
 /// is not subject to the per-channel cap, up to its own bound.
+///
+/// Evidence blocks go in it too: each answers a request this node made, for
+/// a block a decided checkpoint finalized or for a fork candidate. Dropped
+/// at a full queue, the request waits for its retry; a node short of a
+/// checkpoint's blocks can not derive the next committee, and counts no
+/// close vote meanwhile.
 const PRIORITY_LANE_MAX: usize = 4096;
 
 fn is_priority(message: &Message) -> bool {
     match message {
         Message::ConfirmAck(ack) => ack.vote().epoch.is_close_round(),
+        Message::Publish(publish) => publish.is_evidence,
         _ => false,
     }
 }
@@ -252,6 +259,28 @@ mod tests {
         assert_eq!(batch.len(), 2);
         assert!(matches!(batch[0].1.0, Message::ConfirmAck(_)));
         assert_eq!(queue.size(), 0);
+    }
+
+    /// RAI: an evidence block, the answer to a request, is taken in past a
+    /// full channel queue; a block published live is dropped
+    #[test]
+    fn evidence_blocks_bypass_a_full_queue() {
+        use rsnano_messages::Publish;
+        use rsnano_types::Block;
+
+        let queue = InboundMessageQueue::new(1);
+        let channel = Arc::new(Channel::new_test_instance());
+        assert!(queue.put(Message::BulkPush, channel.clone()));
+        assert!(!queue.put(
+            Message::Publish(Publish::new_test_instance()),
+            channel.clone()
+        ));
+        assert!(queue.put(
+            Message::Publish(Publish::new_evidence(Block::new_test_instance())),
+            channel
+        ));
+        let batch = queue.next_batch(10);
+        assert!(matches!(&batch[0].1.0, Message::Publish(publish) if publish.is_evidence));
     }
 
     #[test]

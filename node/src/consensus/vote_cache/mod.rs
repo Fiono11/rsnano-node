@@ -171,6 +171,21 @@ impl VoteCache {
             .collect()
     }
 
+    /// The blocks a close vote that requires reaching the epoch was cast for
+    pub fn hashes_voted_in_close_requiring(&self, epoch: ConsensusEpoch) -> Vec<BlockHash> {
+        self.blocks
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|block| {
+                block
+                    .iter_votes()
+                    .any(|vote| vote.epoch.is_close_round() && vote.epoch.required_epoch() == epoch)
+            })
+            .map(|block| *block.block_hash())
+            .collect()
+    }
+
     /// Removes an entry associated with block hash, does nothing if entry does not exist
     /// return true if hash existed and was erased, false otherwise
     pub fn remove(&self, hash: &BlockHash) -> bool {
@@ -247,6 +262,16 @@ impl EventHandler<AecFact> for VoteCache {
             AecFact::EpochAdvanced(epoch, _) => {
                 for hash in self.hashes_voted_in_epoch(*epoch) {
                     self.processor.trigger(hash);
+                }
+            }
+            // RAI: a close vote counts in the committees of its epoch and the
+            // next; the close of the epoch before this committee's and its
+            // own close become countable, and their votes waited here
+            AecFact::CommitteeDerived(epoch) => {
+                for required in [*epoch, epoch.next()] {
+                    for hash in self.hashes_voted_in_close_requiring(required) {
+                        self.processor.trigger(hash);
+                    }
                 }
             }
             AecFact::VoteProcessed(vote, voter_weight, results) => {
@@ -334,6 +359,28 @@ mod tests {
 
         cache.handle(&AecFact::EpochAdvanced(epoch1, None));
 
+        assert_eq!(cache.processor.len(), 1);
+    }
+
+    /// RAI: a close vote that came before its committee was known waits in
+    /// the cache; once the committee is derived it is replayed
+    #[test]
+    fn replays_the_close_votes_a_derived_committee_counts() {
+        let cache = make_vote_cache();
+        let rep = PrivateKey::from(1);
+        let value = BlockHash::from(3);
+        // A close vote of epoch 2 counts in the committees of epochs 2 and 3
+        let close_vote = Arc::new(Vote::new_in_epoch(
+            &rep,
+            VoteKind::Final,
+            ConsensusEpoch::close_round(ConsensusEpoch::new(2), 0),
+            vec![value],
+        ));
+        cache.process(close_vote, Amount::raw(7), &HashMap::new());
+
+        cache.handle(&AecFact::CommitteeDerived(ConsensusEpoch::new(4)));
+        assert_eq!(cache.processor.len(), 0);
+        cache.handle(&AecFact::CommitteeDerived(ConsensusEpoch::new(3)));
         assert_eq!(cache.processor.len(), 1);
     }
 

@@ -579,6 +579,11 @@ impl ActiveElectionsContainer {
             self.recount_epoch(ConsensusEpoch::new(epoch.as_u64() + 2), now);
         }
         self.recount_closes(now);
+        for (epoch, _) in &derived {
+            self.notify(AecFact::CommitteeDerived(ConsensusEpoch::new(
+                epoch.as_u64() + 2,
+            )));
+        }
     }
 
     /// RAI: count the open instances of an epoch again: its committee
