@@ -171,6 +171,9 @@ pub struct Node {
     /// thread
     #[cfg(feature = "rai_protocol")]
     reports: Arc<ReportService>,
+    /// RAI: checks the epoch proposals received, on its own thread
+    #[cfg(feature = "rai_protocol")]
+    epoch_decision: Arc<EpochDecisionService>,
 }
 
 pub(crate) struct NodeArgs {
@@ -1543,6 +1546,8 @@ impl Node {
             vote_rebroadcaster,
             #[cfg(feature = "rai_protocol")]
             reports,
+            #[cfg(feature = "rai_protocol")]
+            epoch_decision,
             tokio_runner,
             aec_ticker: TimerThread::new("AEC ticker", aec_ticker),
             recently_cemented,
@@ -1792,6 +1797,8 @@ impl Node {
         }
         #[cfg(feature = "rai_protocol")]
         self.reports.start();
+        #[cfg(feature = "rai_protocol")]
+        self.epoch_decision.start();
         self.ticker_pool.start();
     }
 
@@ -1845,6 +1852,8 @@ impl Node {
         self.vote_rebroadcaster.stop();
         #[cfg(feature = "rai_protocol")]
         self.reports.stop();
+        #[cfg(feature = "rai_protocol")]
+        self.epoch_decision.stop();
         self.ledger.drop_publisher();
         self.workers.join();
         self.tokio_runner.stop();

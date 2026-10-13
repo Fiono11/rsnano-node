@@ -1,7 +1,8 @@
 use std::{
     cell::RefCell,
-    collections::HashMap,
-    sync::{Arc, Mutex},
+    collections::{HashMap, VecDeque},
+    sync::{Arc, Condvar, Mutex},
+    thread::JoinHandle,
 };
 
 use rsnano_messages::{
@@ -28,8 +29,8 @@ use crate::{
         election::{
             AccountSlot, BlockIndex, BuildRules, CertifiedState, Committee, EpochLedger,
             EpochValue, Manifest, ManifestAssembly, MemberOrder, ReportIndex, ReportRef,
-            ReportSource, SelectedReport, build_state, fresh_finalized, overlap_certified,
-            overlap_claims, witness_claims,
+            ReportSource, ResidualVotes, SelectedReport, build_state, fresh_finalized,
+            overlap_certified, overlap_claims, witness_claims,
         },
     },
     transport::MessageFlooder,
@@ -189,6 +190,24 @@ pub struct EpochDecisionService {
     /// The encoding of the state this node served last: a fetch asks for
     /// many chunks of the same state
     served_checkpoint: Mutex<Option<(ConsensusEpoch, BlockHash, Arc<Vec<u8>>)>>,
+    /// Held for a derivation or a proposal check: they run one at a time
+    /// and queue in arrival order, as they did on the report exchange, but
+    /// without holding it, which every report message needs
+    checking: Mutex<()>,
+    /// The proposals received and not checked yet, for the checking thread
+    unchecked: Mutex<ProposalQueue>,
+    proposal_ready: Condvar,
+    worker: Mutex<Option<JoinHandle<()>>>,
+}
+
+/// RAI: the proposals waiting for a check, in arrival order, each value
+/// once: a copy of one already waiting adds nothing
+#[derive(Default)]
+struct ProposalQueue {
+    order: VecDeque<BlockHash>,
+    waiting: HashMap<BlockHash, (EpochValue, Arc<Channel>)>,
+    running: bool,
+    stopped: bool,
 }
 
 impl EpochDecisionService {
@@ -200,6 +219,17 @@ impl EpochDecisionService {
     /// that a straggler can still obtain a value while an old epoch's
     /// proposals are not repeated for the rest of the run
     const REPEATED_EPOCHS: usize = 4;
+
+    pub(crate) fn new_null() -> Self {
+        Self::new(
+            Arc::new(Mutex::new(ReportExchange::new())),
+            Arc::new(AecService::new_null()),
+            Arc::new(Mutex::new(WalletRepresentatives::new_null())),
+            MessageFlooder::new_null(),
+            Arc::new(SteadyClock::new_null()),
+            Arc::new(Stats::default()),
+        )
+    }
 
     pub(crate) fn new(
         exchange: Arc<Mutex<ReportExchange>>,
@@ -224,6 +254,10 @@ impl EpochDecisionService {
             closed_undecided: Mutex::new(HashMap::new()),
             checkpoint_fetches: Mutex::new(HashMap::new()),
             served_checkpoint: Mutex::new(None),
+            checking: Mutex::new(()),
+            unchecked: Mutex::new(ProposalQueue::default()),
+            proposal_ready: Condvar::new(),
+            worker: Mutex::new(None),
         }
     }
 
@@ -289,8 +323,73 @@ impl EpochDecisionService {
         {
             return;
         }
-        let (epoch, slot) = (prop.epoch, prop.slot);
-        match self.validate(&value, Some(_channel)) {
+        self.queue_check(value, _channel);
+    }
+
+    /// Checks proposals on a thread of their own: a check derives a state and
+    /// may fetch a manifest, and a network thread waiting for it holds up
+    /// every message behind it
+    pub fn start(self: &Arc<Self>) {
+        self.unchecked.lock().unwrap().running = true;
+        let service = Arc::clone(self);
+        let handle = std::thread::Builder::new()
+            .name("Epoch proposals".to_owned())
+            .spawn(move || service.run_checks())
+            .unwrap();
+        *self.worker.lock().unwrap() = Some(handle);
+    }
+
+    pub fn stop(&self) {
+        self.unchecked.lock().unwrap().stopped = true;
+        self.proposal_ready.notify_all();
+        if let Some(handle) = self.worker.lock().unwrap().take() {
+            handle.join().unwrap();
+        }
+    }
+
+    /// A proposal to check: queued for the checking thread, once per value,
+    /// or checked here when that thread is not running
+    fn queue_check(&self, value: EpochValue, channel: &Arc<Channel>) {
+        {
+            let mut queue = self.unchecked.lock().unwrap();
+            if queue.running && !queue.stopped {
+                let hash = value.hash();
+                if !queue.waiting.contains_key(&hash) {
+                    queue.order.push_back(hash);
+                    queue.waiting.insert(hash, (value, channel.clone()));
+                    self.proposal_ready.notify_one();
+                }
+                return;
+            }
+        }
+        self.check_proposal(value, channel);
+    }
+
+    fn run_checks(&self) {
+        loop {
+            let (value, channel) = {
+                let mut queue = self.unchecked.lock().unwrap();
+                loop {
+                    if queue.stopped {
+                        queue.running = false;
+                        return;
+                    }
+                    if let Some(hash) = queue.order.pop_front()
+                        && let Some(waiting) = queue.waiting.remove(&hash)
+                    {
+                        break waiting;
+                    }
+                    queue = self.proposal_ready.wait(queue).unwrap();
+                }
+            };
+            self.check_proposal(value, &channel);
+        }
+    }
+
+    fn check_proposal(&self, value: EpochValue, channel: &Arc<Channel>) {
+        let hash = value.hash();
+        let (epoch, slot) = (value.epoch, value.slot);
+        match self.validate(&value, Some(channel)) {
             Validation::Accepted(_, state) => {
                 self.active_elections.accept_epoch_value(value, state);
             }
@@ -508,6 +607,7 @@ impl EpochDecisionService {
         let previous = self.active_elections.epoch_previous_state(epoch)?;
         let committee = self.active_elections.epoch_committee(epoch)?;
         let predecessor = self.active_elections.epoch_previous_hash(epoch)?;
+        let _checking = self.checking.lock().unwrap();
         let exchange = self.exchange.lock().unwrap();
         // Only reports signed against the same predecessor checkpoint, by
         // members of the committee they are counted in: a representative
@@ -547,12 +647,9 @@ impl EpochDecisionService {
         if weight < committee.thresholds().report {
             return None;
         }
-        let source = UsableReports {
-            exchange: &exchange,
-            epoch,
-            committee: &committee,
-            predecessor,
-        };
+        // Copied out: the derivation runs without holding the exchange
+        let source = OwnedReports::copy(&exchange, epoch, &committee, predecessor, &selected);
+        drop(exchange);
         let resolved: Vec<(ReportRef, SelectedReport)> = selected
             .iter()
             .filter_map(|report| Some((*report, source.report(report)?)))
@@ -645,13 +742,12 @@ impl EpochDecisionService {
         let Some(committee) = self.active_elections.epoch_committee(value.epoch) else {
             return Validation::Pending;
         };
-        let exchange = self.exchange.lock().unwrap();
+        let _checking = self.checking.lock().unwrap();
         // Copies of a proposal arrive from several peers and its leader
         // repeats it every `REPEAT_INTERVAL`, so several wait here while one
         // is checked, a second or more with a fetched manifest. Once that
         // check has accepted the value, or the epoch is decided, the waiting
-        // copies return instead of checking it again while every report
-        // message waits on the exchange.
+        // copies return instead of checking it again.
         if self
             .active_elections
             .holds_epoch_value(value.epoch, &value.hash())
@@ -669,12 +765,15 @@ impl EpochDecisionService {
             );
             return Validation::Accepted(value.hash(), state);
         }
-        let source = UsableReports {
-            exchange: &exchange,
-            epoch: value.epoch,
-            committee: &committee,
+        // The selected reports are copied out, and the exchange released for
+        // the report messages while the check runs
+        let source = OwnedReports::copy(
+            &self.exchange.lock().unwrap(),
+            value.epoch,
+            &committee,
             predecessor,
-        };
+            value.reports(),
+        );
         let states: Vec<SelectedReport> = value
             .reports()
             .iter()
@@ -1291,25 +1390,54 @@ impl EpochDecisionService {
 /// The reports this node has reconstructed, as an epoch derivation sees
 /// them: those signed against the predecessor checkpoint the derivation
 /// starts from
-struct UsableReports<'a> {
-    exchange: &'a ReportExchange,
-    epoch: ConsensusEpoch,
-    committee: &'a Committee,
-    predecessor: BlockHash,
+/// RAI: the usable reports a derivation or a check selects, copied out of
+/// the exchange, so that it runs without holding it: every report message
+/// needs the exchange, and a derivation takes long. A report laid over the
+/// inherited base is copied in the time of its changes.
+struct OwnedReports {
+    reports: Vec<(ReportRef, Amount, CertifiedState, ResidualVotes)>,
 }
 
-impl ReportSource for UsableReports<'_> {
+impl OwnedReports {
+    fn copy(
+        exchange: &ReportExchange,
+        epoch: ConsensusEpoch,
+        committee: &Committee,
+        predecessor: BlockHash,
+        selection: &[ReportRef],
+    ) -> Self {
+        let reports = selection
+            .iter()
+            .filter_map(|report| {
+                let (certified, residual) = exchange.usable_report(
+                    epoch,
+                    &report.reporter,
+                    report.certified,
+                    report.residual,
+                    predecessor,
+                )?;
+                Some((
+                    *report,
+                    committee.weight(&report.reporter),
+                    certified.clone(),
+                    residual.clone(),
+                ))
+            })
+            .collect();
+        Self { reports }
+    }
+}
+
+impl ReportSource for OwnedReports {
     fn report(&self, report: &ReportRef) -> Option<SelectedReport<'_>> {
-        let (certified, residual) = self.exchange.usable_report(
-            self.epoch,
-            &report.reporter,
-            report.certified,
-            report.residual,
-            self.predecessor,
-        )?;
+        let (_, weight, certified, residual) = self.reports.iter().find(|(held, ..)| {
+            held.reporter == report.reporter
+                && held.certified == report.certified
+                && held.residual == report.residual
+        })?;
         Some(SelectedReport {
             reporter: report.reporter,
-            weight: self.committee.weight(&report.reporter),
+            weight: *weight,
             certified,
             residual,
         })
@@ -1437,5 +1565,56 @@ fn selection_of(report: &ReportRef) -> ReportSelection {
         reporter: report.reporter,
         certified: report.certified,
         residual: report.residual,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A proposal waits for the checking thread once per value; without
+    /// that thread it is checked at once
+    #[test]
+    fn a_proposal_is_queued_once_for_the_checking_thread() {
+        let service = EpochDecisionService::new_null();
+        let channel = Arc::new(Channel::new_test_instance());
+        service.queue_check(test_value(1), &channel);
+        assert!(service.unchecked.lock().unwrap().waiting.is_empty());
+
+        service.unchecked.lock().unwrap().running = true;
+        service.queue_check(test_value(1), &channel);
+        service.queue_check(test_value(1), &channel);
+        service.queue_check(test_value(2), &channel);
+        let queue = service.unchecked.lock().unwrap();
+        assert_eq!(queue.waiting.len(), 2);
+        assert_eq!(queue.order.len(), 2);
+    }
+
+    /// The checking thread waits for proposals and ends when stopped
+    #[test]
+    fn the_checking_thread_ends_when_stopped() {
+        let service = Arc::new(EpochDecisionService::new_null());
+        service.start();
+        let channel = Arc::new(Channel::new_test_instance());
+        service.queue_check(test_value(1), &channel);
+        service.stop();
+        assert!(!service.unchecked.lock().unwrap().running);
+    }
+
+    /* Test helpers */
+
+    fn test_value(slot: u32) -> EpochValue {
+        EpochValue::from_parts(
+            ConsensusEpoch::new(1),
+            slot,
+            BlockHash::ZERO,
+            vec![ReportRef {
+                reporter: rsnano_types::PrivateKey::from(1).public_key(),
+                certified: BlockHash::from(1),
+                residual: BlockHash::from(2),
+            }],
+            BlockHash::from(3),
+            BlockHash::from(4),
+        )
     }
 }
