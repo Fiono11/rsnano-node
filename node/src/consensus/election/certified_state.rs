@@ -111,7 +111,7 @@ pub struct CertifiedState {
     delta: BTreeMap<CertifiedBlock, Option<Certification>>,
     /// The block hashes the entries name, with the tag of each: G excludes
     /// a vote for one tagged N or F. Over a base, the changes to its index
-    hashes: BTreeMap<BlockHash, Option<CertifiedStatus>>,
+    hashes: BTreeMap<BlockHash, Option<Indexed>>,
     /// The XOR of the entry digests, so that a status upgrade or an added
     /// block is a constant-time update of the root
     digest: [u8; 32],
@@ -222,6 +222,53 @@ impl CertifiedState {
         }
     }
 
+    /// A report base laid over the previous one, made flat: the base's maps
+    /// copied with the changes applied, the root carried over rather than
+    /// rehashed. Marked as its own prefix projection if it is one, which
+    /// over a projected base costs the accounts it changes; the flag is
+    /// what `into_report_base` would set. Whether it is one.
+    pub fn into_flat_base(self) -> (Self, bool) {
+        let mut projected = self.clone();
+        projected.project_final_prefixes();
+        let is_projected = projected.root() == self.root();
+        let Some(base) = self.base else {
+            let mut flat = self;
+            flat.projected = is_projected;
+            return (flat, is_projected);
+        };
+        let mut delta = base.delta.clone();
+        let mut hashes = base.hashes.clone();
+        for (block, entry) in self.delta {
+            match entry {
+                Some(entry) => delta.insert(block, Some(entry)),
+                None => delta.remove(&block),
+            };
+        }
+        for (hash, indexed) in self.hashes {
+            match indexed {
+                Some(indexed) => hashes.insert(hash, Some(indexed)),
+                None => hashes.remove(&hash),
+            };
+        }
+        (
+            Self {
+                base: None,
+                delta,
+                hashes,
+                digest: self.digest,
+                len: self.len,
+                projected: is_projected,
+                unfinalized: OnceLock::new(),
+            },
+            is_projected,
+        )
+    }
+
+    /// Whether this state is marked as its own prefix projection
+    pub fn is_projected(&self) -> bool {
+        self.projected
+    }
+
     /// The report base this state makes: the state itself, marked as its
     /// own prefix projection if it is one, so that every report laid over
     /// it projects only what it changes. Whether it is one.
@@ -252,7 +299,7 @@ impl CertifiedState {
         })
     }
 
-    fn hash_status(&self, hash: &BlockHash) -> Option<CertifiedStatus> {
+    fn hash_entry(&self, hash: &BlockHash) -> Option<Indexed> {
         match self.hashes.get(hash) {
             Some(changed) => *changed,
             None => self
@@ -260,6 +307,19 @@ impl CertifiedState {
                 .as_ref()
                 .and_then(|base| base.hashes.get(hash).copied().flatten()),
         }
+    }
+
+    fn hash_status(&self, hash: &BlockHash) -> Option<CertifiedStatus> {
+        self.hash_entry(hash).map(|indexed| indexed.status)
+    }
+
+    /// The entry naming a block hash: where the block sits and the parent it
+    /// names. A report base answers this for every block of the predecessor
+    /// checkpoint, which places them all.
+    pub fn entry_of_hash(&self, hash: &BlockHash) -> Option<(CertifiedBlock, Certification)> {
+        let indexed = self.hash_entry(hash)?;
+        let block = CertifiedBlock::new(indexed.account, indexed.height, *hash);
+        Some((block, self.certification(&block)?))
     }
 
     /// Whether an entry names this block, under any tag
@@ -418,7 +478,11 @@ impl CertifiedState {
             self.toggle(&block, entry);
             self.len += 1;
         }
-        let status = entry.map(|entry| entry.status);
+        let status = entry.map(|entry| Indexed {
+            account: block.account,
+            height: block.height,
+            status: entry.status,
+        });
         match &self.base {
             None => {
                 match entry {
@@ -547,6 +611,15 @@ impl CertifiedState {
             *d ^= e;
         }
     }
+}
+
+/// What the hash index of a `CertifiedState` holds of an entry: where it
+/// sits and its tag
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Indexed {
+    account: Account,
+    height: u64,
+    status: CertifiedStatus,
 }
 
 /// The entries of a `CertifiedState` in canonical order: the base's, merged

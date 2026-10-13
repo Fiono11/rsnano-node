@@ -368,6 +368,11 @@ impl AecService {
         self.aec.read().unwrap().epoch_previous_state(epoch)
     }
 
+    /// RAI: `d_{e-1}`, the hash of an epoch's predecessor checkpoint
+    pub fn epoch_previous_hash(&self, epoch: ConsensusEpoch) -> Option<BlockHash> {
+        self.aec.read().unwrap().epoch_previous_hash(epoch)
+    }
+
     /// RAI: this node holds what it takes to derive a value for an epoch's
     /// close
     #[cfg(feature = "rai_protocol")]

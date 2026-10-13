@@ -147,6 +147,16 @@ impl TheirReport {
     }
 }
 
+/// RAI evaluation, `RAI_DELTA_CHECK=1`: whether the paths that read only
+/// what changed over the inherited state are also run in full and compared:
+/// every validation derives from flat copies of the selected reports (see
+/// `EpochDecisionService`), and every report base laid over the previous one
+/// is compared with one built afresh
+pub(crate) fn delta_check_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var("RAI_DELTA_CHECK").is_ok_and(|value| value == "1"))
+}
+
 /// RAI, "Immutable candidate inputs": the blocks, by epoch, whose signed
 /// votes a candidate's evidence manifest must name for the selected reports:
 /// every certified entry the predecessor checkpoint does not justify, in the
@@ -2061,9 +2071,18 @@ mod tests {
             let (over_selection, flat_selection) = (selected(&over), selected(&flat));
             let over_index = ReportIndex::new(&previous, &over_selection);
             let flat_index = ReportIndex::new(&previous, &flat_selection);
+            let base_index = ReportIndex::over_base(&base, &over_selection);
             for hash in tree.keys() {
                 assert_eq!(over_index.placement(hash), flat_index.placement(hash));
+                assert_eq!(base_index.placement(hash), flat_index.placement(hash));
             }
+            let derived_over_base = build_state(
+                &previous,
+                &over_selection,
+                &base_index,
+                BuildRules { epoch: epoch2 },
+                &witness,
+            );
             let derive = |selection: &[SelectedReport], index: &ReportIndex| {
                 build_state(
                     &previous,
@@ -2075,6 +2094,29 @@ mod tests {
             };
             let derived = derive(&over_selection, &over_index);
             assert_eq!(derived, derive(&flat_selection, &flat_index), "seed {seed}");
+            assert_eq!(derived, derived_over_base, "seed {seed}");
+            if let Ok(next) = &derived {
+                // What the derivation recorded finalizing is the difference,
+                // and the next base built from it is the one built afresh
+                let mut fresh = next.finalized_beyond(&previous).expect("recorded").to_vec();
+                fresh.sort();
+                let difference: Vec<_> = next
+                    .finalized_slots()
+                    .filter(|(slot, block)| !previous.is_finalized(slot, &block.hash))
+                    .map(|(slot, _)| *slot)
+                    .collect();
+                assert_eq!(fresh, difference, "seed {seed}");
+                let (full, full_projected) = next.report_ledger().into_report_base();
+                let (incremental, projected) = next.next_report_base(&base, &fresh);
+                assert_eq!(incremental, full, "seed {seed}");
+                assert_eq!(incremental.root(), full.root());
+                assert_eq!(projected, full_projected);
+                assert_eq!(incremental.is_projected(), full.is_projected());
+                assert!(incremental.base().is_none());
+                for hash in tree.keys() {
+                    assert_eq!(incremental.entry_of_hash(hash), full.entry_of_hash(hash));
+                }
+            }
             compared += derived.is_ok() as usize;
             assert_eq!(
                 witness_claims(&previous, &over_selection, &over_index),
@@ -2224,6 +2266,106 @@ mod tests {
                 flat.len() * 105 / 1000,
                 over.changed_items(&base).len() * 106 / 1000
             );
+        }
+    }
+
+    /// The cost of the checkpoint steps of a close against the history the
+    /// predecessor holds, 15,000 changes an epoch in five reports. Not a
+    /// check: run with
+    /// `cargo test --release --lib --features rai_protocol -p rsnano_node -- --ignored checkpoint_cost --nocapture`
+    #[test]
+    #[ignore]
+    fn checkpoint_cost_against_history() {
+        use crate::consensus::election::{
+            AccountSlot, BuildRules, ReportIndex, SelectedReport, build_state,
+        };
+        use std::time::Instant;
+        let changes = 15_000u64;
+        let ms = |started: Instant| started.elapsed().as_secs_f64() * 1000.0;
+        println!("history   step                          ms");
+        for history in [45_000u64, 450_000, 2_000_000] {
+            let mut previous = EpochLedger::new();
+            for i in 1..=history {
+                previous.finalize_genesis(AccountSlot::new(Account::from(i), 1), entry(i).hash);
+            }
+            let mut steps: Vec<(&str, f64)> = Vec::new();
+            let started = Instant::now();
+            let copy = previous.clone();
+            steps.push(("clone the predecessor", ms(started)));
+            drop(copy);
+            let started = Instant::now();
+            let hash = previous.state_hash();
+            steps.push(("state hash", ms(started)));
+            let started = Instant::now();
+            let (base, _) = previous.report_ledger().into_report_base();
+            steps.push(("report base", ms(started)));
+            let base = Arc::new(base);
+            let started = Instant::now();
+            let frontiers = previous.frontiers().len();
+            steps.push(("frontiers", ms(started)));
+            let started = Instant::now();
+            let bytes = previous.to_bytes().len();
+            steps.push(("encode for the record", ms(started)));
+            let reports: Vec<(CertifiedState, ResidualVotes)> = (0..5)
+                .map(|_| {
+                    let mut state = CertifiedState::over(&base);
+                    for i in history + 1..=history + changes {
+                        state.certify(entry(i), BlockHash::ZERO, CertifiedStatus::Finalized);
+                    }
+                    (state, ResidualVotes::new())
+                })
+                .collect();
+            let selection: Vec<SelectedReport> = selected(&reports);
+            let started = Instant::now();
+            let index = ReportIndex::new(&previous, &selection);
+            steps.push(("place the blocks", ms(started)));
+            let started = Instant::now();
+            let state = build_state(
+                &previous,
+                &selection,
+                &index,
+                BuildRules { epoch: EPOCH },
+                &|_, _| false,
+            )
+            .unwrap();
+            steps.push(("build state (with clone)", ms(started)));
+            let started = Instant::now();
+            let fresh = state
+                .finalized_slots()
+                .filter(|(slot, block)| !previous.is_finalized(slot, &block.hash))
+                .count();
+            steps.push(("installation's new finals", ms(started)));
+            assert_eq!(fresh as u64, changes);
+            let started = Instant::now();
+            let recorded = state.finalized_beyond(&previous).unwrap().len();
+            steps.push(("  recorded new finals", ms(started)));
+            assert_eq!(recorded as u64, changes);
+            let started = Instant::now();
+            let index = ReportIndex::over_base(&base, &selection);
+            steps.push(("  place the blocks (base)", ms(started)));
+            let started = Instant::now();
+            let state = build_state(
+                &previous,
+                &selection,
+                &index,
+                BuildRules { epoch: EPOCH },
+                &|_, _| false,
+            )
+            .unwrap();
+            steps.push(("  build state (base index)", ms(started)));
+            let started = Instant::now();
+            let (base, _) = state.report_ledger().into_report_base();
+            steps.push(("next report base (afresh)", ms(started)));
+            let fresh: Vec<AccountSlot> = state.finalized_beyond(&previous).unwrap().to_vec();
+            let old_base = Arc::new(previous.report_ledger().into_report_base().0);
+            let started = Instant::now();
+            let (next, _) = state.next_report_base(&old_base, &fresh);
+            steps.push(("  next report base (incr.)", ms(started)));
+            assert_eq!(next, base);
+            for (step, ms) in steps {
+                println!("{history:>9} {step:<28} {ms:>9.1}");
+            }
+            println!("{history:>9} (hash {hash}, {frontiers} frontiers, {bytes} bytes)");
         }
     }
 

@@ -1010,6 +1010,18 @@ impl ActiveElectionsContainer {
         }
     }
 
+    /// RAI: `d_{e-1}`, the hash of an epoch's predecessor checkpoint, as
+    /// recorded when it was decided: hashing the state walks all of it
+    pub fn epoch_previous_hash(&self, epoch: ConsensusEpoch) -> Option<BlockHash> {
+        let state = self.epoch_previous_state(epoch)?;
+        let hash = self
+            .checkpoint_bases
+            .before(epoch, 1)
+            .unwrap_or_else(|| state.state_hash());
+        debug_assert_eq!(hash, state.state_hash());
+        Some(hash)
+    }
+
     /// RAI, checkpoint catch-up: the value the close of an epoch finalized
     /// here, with the state it decided
     pub fn decided_value(&self, epoch: ConsensusEpoch) -> Option<(EpochValue, Arc<EpochLedger>)> {
@@ -1428,10 +1440,36 @@ impl ActiveElectionsContainer {
         }
         self.decided.insert(epoch, state.clone());
         self.checkpoint_bases.insert(epoch, state.state_hash());
-        self.report_bases.insert(
-            epoch.next(),
-            Arc::new(projected_base(state.report_ledger())),
-        );
+        // Laid over the base of this epoch's reports when the state records
+        // what it finalized beyond the predecessor; built afresh otherwise
+        let next_base = match (
+            self.report_bases.get(&epoch),
+            self.epoch_previous_state(epoch),
+        ) {
+            (Some(base), Some(previous)) if let Some(fresh) = state.finalized_beyond(&previous) => {
+                let (next, projected) = state.next_report_base(base, fresh);
+                #[cfg(feature = "rai_protocol")]
+                if !projected {
+                    diagnostic!("REPORT_BASE_UNPROJECTED entries={}", next.len());
+                }
+                #[cfg(feature = "rai_protocol")]
+                if crate::consensus::reports::delta_check_enabled() {
+                    let (afresh, afresh_projected) = state.report_ledger().into_report_base();
+                    diagnostic!(
+                        "REPORT_BASE_CHECK epoch={} entries={} fresh={} agrees={}",
+                        epoch.next(),
+                        next.len(),
+                        fresh.len(),
+                        afresh == next && afresh_projected == projected
+                    );
+                }
+                #[cfg(not(feature = "rai_protocol"))]
+                let _ = projected;
+                next
+            }
+            _ => projected_base(state.report_ledger()),
+        };
+        self.report_bases.insert(epoch.next(), Arc::new(next_base));
         self.report_bases
             .retain(|held, _| held.as_u64() + Self::VOTE_RECORD_EPOCHS_KEPT > epoch.as_u64());
         self.stats.epochs_closed += 1;
@@ -1862,15 +1900,30 @@ impl ActiveElectionsContainer {
     /// twice": a block already cemented is left as it is.
     fn install_checkpoint(&mut self, epoch: ConsensusEpoch, state: &EpochLedger, now: Timestamp) {
         let previous = self.epoch_previous_state(epoch);
-        let hashes: Vec<BlockHash> = state
-            .finalized_slots()
-            .filter(|(slot, block)| {
-                !previous
-                    .as_ref()
-                    .is_some_and(|previous| previous.is_finalized(slot, &block.hash))
-            })
-            .map(|(_, block)| block.hash)
-            .collect();
+        // What the derivation recorded finalizing beyond the predecessor, in
+        // slot order as the whole state lists it; the whole state otherwise
+        let recorded = previous
+            .as_ref()
+            .and_then(|previous| state.finalized_beyond(previous))
+            .map(|fresh| {
+                let mut fresh = fresh.to_vec();
+                fresh.sort();
+                fresh
+                    .iter()
+                    .filter_map(|slot| state.finalized(slot))
+                    .collect::<Vec<BlockHash>>()
+            });
+        let hashes: Vec<BlockHash> = recorded.unwrap_or_else(|| {
+            state
+                .finalized_slots()
+                .filter(|(slot, block)| {
+                    !previous
+                        .as_ref()
+                        .is_some_and(|previous| previous.is_finalized(slot, &block.hash))
+                })
+                .map(|(_, block)| block.hash)
+                .collect()
+        });
         let mut confirmed = 0;
         for hash in &hashes {
             let Some(election) = self.roots.election_for_block_mut(hash) else {

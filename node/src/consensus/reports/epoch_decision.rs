@@ -17,7 +17,7 @@ use super::{
     ReportExchange,
     checkpoint_fetch::{CheckpointFetch, checkpoint_bytes},
     chunk_window::ChunkWindow,
-    manifest_claims,
+    delta_check_enabled, manifest_claims,
     report_service::inherited_from,
     unjustified,
 };
@@ -325,7 +325,9 @@ impl EpochDecisionService {
             );
             return false;
         };
-        let predecessor = previous.state_hash();
+        let Some(predecessor) = self.active_elections.epoch_previous_hash(epoch) else {
+            return false;
+        };
         let (reporters, weight) = {
             let exchange = self.exchange.lock().unwrap();
             (
@@ -505,7 +507,7 @@ impl EpochDecisionService {
     ) -> Option<(EpochValue, Arc<EpochLedger>)> {
         let previous = self.active_elections.epoch_previous_state(epoch)?;
         let committee = self.active_elections.epoch_committee(epoch)?;
-        let predecessor = previous.state_hash();
+        let predecessor = self.active_elections.epoch_previous_hash(epoch)?;
         let exchange = self.exchange.lock().unwrap();
         // Only reports signed against the same predecessor checkpoint, by
         // members of the committee they are counted in: a representative
@@ -559,7 +561,7 @@ impl EpochDecisionService {
             return None;
         }
         let states: Vec<SelectedReport> = resolved.iter().map(|(_, state)| *state).collect();
-        let index = ReportIndex::new(&previous, &states);
+        let index = self.report_index(epoch, &previous, &states);
         let rules = BuildRules { epoch };
         // The evidence this leader used, committed to by digest, with the
         // overlap certificates it proves marked
@@ -619,8 +621,25 @@ impl EpochDecisionService {
 
     /// RAI: derive the state a value's reports determine and check that it
     /// hashes to the `d_e` the value carries
+    /// The index placing the blocks of a derivation: the predecessor's by
+    /// the epoch's report base, which holds them all, and the reports' own
+    fn report_index(
+        &self,
+        epoch: ConsensusEpoch,
+        previous: &EpochLedger,
+        states: &[SelectedReport],
+    ) -> ReportIndex {
+        match self.active_elections.report_base(epoch) {
+            Some(base) => ReportIndex::over_base(&base, states),
+            None => ReportIndex::new(previous, states),
+        }
+    }
+
     fn validate(&self, value: &EpochValue, channel: Option<&Arc<Channel>>) -> Validation {
         let Some(previous) = self.active_elections.epoch_previous_state(value.epoch) else {
+            return Validation::Pending;
+        };
+        let Some(predecessor) = self.active_elections.epoch_previous_hash(value.epoch) else {
             return Validation::Pending;
         };
         let Some(committee) = self.active_elections.epoch_committee(value.epoch) else {
@@ -654,7 +673,7 @@ impl EpochDecisionService {
             exchange: &exchange,
             epoch: value.epoch,
             committee: &committee,
-            predecessor: previous.state_hash(),
+            predecessor,
         };
         let states: Vec<SelectedReport> = value
             .reports()
@@ -688,7 +707,7 @@ impl EpochDecisionService {
         let witness = |origin: ConsensusEpoch, hash: &BlockHash| {
             manifest_witness(&manifest, &members, origin, hash)
         };
-        let index = ReportIndex::new(&previous, &states);
+        let index = self.report_index(value.epoch, &previous, &states);
         let rules = BuildRules { epoch: value.epoch };
         match value.validate(
             &previous,
@@ -710,6 +729,7 @@ impl EpochDecisionService {
                         value.epoch,
                         &previous,
                         &states,
+                        &index,
                         anchor.as_deref(),
                         &ledger,
                         rules,
@@ -755,7 +775,7 @@ impl EpochDecisionService {
             states,
             previous,
             anchor,
-            &ReportIndex::new(previous, states),
+            &self.report_index(epoch, previous, states),
         );
         let members = EpochMembers::new(&self.active_elections);
         let own = marked_manifest(
@@ -1298,13 +1318,6 @@ impl ReportSource for UsableReports<'_> {
 
 /// RAI: whether a manifest holds an exclusion witness for a block in an
 /// epoch, counted in the committee that issued that epoch's votes
-/// RAI evaluation, `RAI_DELTA_CHECK=1`: whether every validation also
-/// derives from flat copies of the selected reports (see
-/// `check_reports_flat`)
-fn delta_check_enabled() -> bool {
-    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ENABLED.get_or_init(|| std::env::var("RAI_DELTA_CHECK").is_ok_and(|value| value == "1"))
-}
 
 /// RAI evaluation: the reports laid over the inherited base are checked
 /// and derived from by their changes alone. This derives the same value from
@@ -1314,6 +1327,7 @@ fn check_reports_flat(
     epoch: ConsensusEpoch,
     previous: &EpochLedger,
     states: &[SelectedReport],
+    index: &ReportIndex,
     anchor: Option<&EpochLedger>,
     derived: &EpochLedger,
     rules: BuildRules,
@@ -1331,11 +1345,10 @@ fn check_reports_flat(
             ..*state
         })
         .collect();
-    let index = ReportIndex::new(previous, states);
     let flat_index = ReportIndex::new(previous, &flat_states);
     let state_agrees = build_state(previous, &flat_states, &flat_index, rules, witness)
         .is_ok_and(|ledger| ledger == *derived);
-    let claims_agree = candidate_claims(epoch, states, previous, anchor, &index)
+    let claims_agree = candidate_claims(epoch, states, previous, anchor, index)
         == candidate_claims(epoch, &flat_states, previous, anchor, &flat_index);
     diagnostic!(
         "REPORT_DELTA_CHECK epoch={} reports={} changed={} state_agrees={} claims_agree={}",

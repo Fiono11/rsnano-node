@@ -1,4 +1,7 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::{
+    collections::{BTreeMap, BTreeSet, HashMap},
+    sync::Arc,
+};
 
 use rsnano_types::{Account, Amount, Blake2HashBuilder, BlockHash, ConsensusEpoch, PublicKey};
 
@@ -158,9 +161,85 @@ pub struct EpochLedger {
     /// The lock records of each lock target. A retained block without an
     /// entry is held as an ancestor of one.
     locks: BTreeMap<BlockHash, BTreeSet<LockRecord>>,
+    /// While a derivation tracks them, the slots it finalized beyond its
+    /// predecessor
+    fresh: FreshFinals,
 }
 
+/// RAI: the slots a derivation finalized beyond the state it started from,
+/// in the order it finalized them; None when not tracked, or when a slot
+/// changed its finalized block. Not part of the state: two states holding
+/// the same blocks are equal, hash and encode alike, whatever each recorded.
+#[derive(Clone, Debug, Default)]
+struct FreshFinals(Option<Vec<AccountSlot>>);
+
+impl PartialEq for FreshFinals {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for FreshFinals {}
+
 impl EpochLedger {
+    /// RAI: what this state finalized beyond `previous`, if it was derived
+    /// from it and recorded so: finality only grows, so a record of new
+    /// slots none of which `previous` finalized, that accounts for every
+    /// finalized slot `previous` does not hold, is exactly the difference
+    pub fn finalized_beyond(&self, previous: &EpochLedger) -> Option<&[AccountSlot]> {
+        let fresh = self.fresh.0.as_deref()?;
+        (previous.finalized.len() + fresh.len() == self.finalized.len()
+            && fresh
+                .iter()
+                .all(|slot| !previous.finalized.contains_key(slot)))
+        .then_some(fresh)
+    }
+
+    /// RAI: the report base of the epoch after this state, from the base
+    /// of this state's own epoch, the projection of the `previous` state it
+    /// was derived from, and the slots it finalized beyond it: the base with
+    /// the fresh finalized blocks added and the retained positions restated.
+    /// The same base `report_ledger` and `into_report_base` make, in the
+    /// time of the changes and one copy of the base's maps.
+    pub fn next_report_base(
+        &self,
+        base: &Arc<CertifiedState>,
+        fresh: &[AccountSlot],
+    ) -> (CertifiedState, bool) {
+        use super::{Certification, CertifiedBlock, CertifiedStatus};
+        let mut next = CertifiedState::over(base);
+        let inherited: Vec<CertifiedBlock> = base.unfinalized().map(|(block, _)| *block).collect();
+        for block in &inherited {
+            next.remove(block);
+        }
+        for slot in fresh {
+            let block = self.finalized[slot];
+            next.set(
+                CertifiedBlock::new(slot.account, slot.height, block.hash),
+                Certification {
+                    status: CertifiedStatus::Finalized,
+                    previous: block.previous,
+                },
+            );
+        }
+        for (slot, blocks) in &self.notarized {
+            for block in blocks {
+                let status = match self.retained_kind(&block.hash) {
+                    RetainedKind::Notarized => CertifiedStatus::Notarized,
+                    RetainedKind::Recovery | RetainedKind::Ancestor => CertifiedStatus::Recovery,
+                };
+                next.set(
+                    CertifiedBlock::new(slot.account, slot.height, block.hash),
+                    Certification {
+                        status,
+                        previous: block.previous,
+                    },
+                );
+            }
+        }
+        next.into_flat_base()
+    }
+
     /// Canonical inherited report projection. Uncertified selected ancestors
     /// retain their predecessor protection; they never acquire an NC here.
     pub fn report_ledger(&self) -> CertifiedState {
@@ -657,7 +736,14 @@ impl EpochLedger {
     }
 
     fn finalize(&mut self, slot: AccountSlot, block: PlacedBlock) {
-        self.finalized.insert(slot, block);
+        let held = self.finalized.insert(slot, block);
+        if self.fresh.0.is_some() {
+            match held {
+                None => self.fresh.0.as_mut().unwrap().push(slot),
+                Some(held) if held != block => self.fresh.0 = None,
+                Some(_) => {}
+            }
+        }
         // A finalized position keeps no conflicting survivor
         if let Some(blocks) = self.notarized.remove(&slot) {
             for block in blocks {
@@ -683,6 +769,9 @@ impl EpochLedger {
 /// The predecessor's own blocks are placed too: an inherited provisional
 /// fork is a candidate whether or not the current reports mention it.
 pub struct ReportIndex {
+    /// The report base of the epoch, which holds every block of the
+    /// predecessor at its position: what places them without a copy
+    inherited: Option<Arc<CertifiedState>>,
     placements: BTreeMap<BlockHash, BlockPlacement>,
 }
 
@@ -692,27 +781,65 @@ impl ReportIndex {
         for (hash, placement) in previous.placements() {
             placements.insert(hash, placement);
         }
+        Self::with_reports(None, placements, selection)
+    }
+
+    /// The same index, the predecessor's blocks placed by the epoch's report
+    /// base: its report ledger, which names exactly the predecessor's
+    /// finalized and retained blocks with their parents
+    pub fn over_base(base: &Arc<CertifiedState>, selection: &[SelectedReport]) -> Self {
+        Self::with_reports(Some(Arc::clone(base)), BTreeMap::new(), selection)
+    }
+
+    fn with_reports(
+        inherited: Option<Arc<CertifiedState>>,
+        mut placements: BTreeMap<BlockHash, BlockPlacement>,
+        selection: &[SelectedReport],
+    ) -> Self {
+        let inherited_placement = |hash: &BlockHash| {
+            inherited
+                .as_ref()
+                .is_some_and(|base| base.entry_of_hash(hash).is_some())
+        };
         for report in selection {
             // The inherited base's entries are placed as the predecessor's
             for (block, entry) in report.certified.changed_entries() {
+                if inherited_placement(&block.hash) {
+                    continue;
+                }
                 placements.entry(block.hash).or_insert(BlockPlacement {
                     slot: AccountSlot::new(block.account, block.height),
                     previous: entry.previous,
                 });
             }
             for (block, _, previous) in report.residual.entries() {
+                if inherited_placement(&block.hash) {
+                    continue;
+                }
                 placements.entry(block.hash).or_insert(BlockPlacement {
                     slot: AccountSlot::new(block.account, block.height),
                     previous,
                 });
             }
         }
-        Self { placements }
+        Self {
+            inherited,
+            placements,
+        }
     }
 }
 
 impl BlockIndex for ReportIndex {
     fn placement(&self, hash: &BlockHash) -> Option<BlockPlacement> {
+        // The predecessor's placement comes first, as it was inserted first
+        if let Some(base) = &self.inherited
+            && let Some((block, entry)) = base.entry_of_hash(hash)
+        {
+            return Some(BlockPlacement {
+                slot: AccountSlot::new(block.account, block.height),
+                previous: entry.previous,
+            });
+        }
         self.placements.get(hash).copied()
     }
 }
@@ -773,6 +900,7 @@ pub fn build_state(
         }
     }
     let mut ledger = previous.clone();
+    ledger.fresh = FreshFinals(Some(Vec::new()));
     let mut released = BTreeSet::new();
     let named = named_blocks(selection);
     let mut inherited = BypassCache::new(previous, index);

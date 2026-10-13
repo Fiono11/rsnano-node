@@ -205,9 +205,7 @@ impl ReportService {
     /// d_{e-1}: the hash of the decided predecessor checkpoint, if this node
     /// holds it
     fn predecessor_of(&self, epoch: ConsensusEpoch) -> Option<rsnano_types::BlockHash> {
-        self.active_elections
-            .epoch_previous_state(epoch)
-            .map(|state| state.state_hash())
+        self.active_elections.epoch_previous_hash(epoch)
     }
 
     fn sign_report(
