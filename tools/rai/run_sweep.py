@@ -57,6 +57,16 @@ SETS = {
         'fork5-grace': (['--fork-percentage', '5', '--fork-grace', '600'], [1000, 2000], None),
         'fork10-grace': (['--fork-percentage', '10', '--fork-grace', '600'], [1000, 2000], None),
     },
+    # The paper's figures: one load below saturation, the three systems in
+    # four scenarios; fork runs keep the nodes running until no forked
+    # position is open (the fork-resolution trace)
+    'paper': {
+        'nofork': ([], [1000], None),
+        'fork5-grace': (['--fork-percentage', '5', '--fork-grace', '600'], [1000], None),
+        'fork10-grace': (['--fork-percentage', '10', '--fork-grace', '600'], [1000], None),
+        'fork5-byzlead-grace': (['--fork-percentage', '5', '--byzantine', '1', '--byzantine-leads-close',
+                                 '--fork-grace', '600'], [1000], None),
+    },
     # Eight running representatives in both: six committee members and two
     # standby ones (PR6, PR7); the rotating variant replaces one member
     # every epoch. With the Byzantine leader: PR7 is Byzantine (no node),

@@ -334,6 +334,7 @@ def main():
                 deadline = time.monotonic() + args.settle_timeout
                 last_view, last_progress = None, time.monotonic()
                 hard_deadline = deadline + 120
+                open_trace = []
                 while True:
                     counts = poll(nodes, 'block_count', log, hard_deadline)
                     # the unmodified node has no epochs and no final_state RPC
@@ -343,6 +344,9 @@ def main():
                         result['stalled'] = dict(phase='settle', reason='nodes stopped answering')
                         raise RuntimeError('nodes stopped answering during the settle wait')
                     settled = settlement(counts, states, args.min_closed)
+                    # open positions over wall-clock time, for the fork
+                    # resolution figure: [unix ms, most uncemented on a node]
+                    open_trace.append([int(time.time() * 1000), max(settled['uncemented'])])
                     if settled['settled'] or time.monotonic() >= deadline:
                         break
                     # Nothing cemented and no epoch decided anywhere for a while
@@ -383,6 +387,7 @@ def main():
                         counts, states = polled, polled_states
                         settled = settlement(counts, states, args.min_closed)
                         open_now = max(settled['uncemented'])
+                        open_trace.append([int(time.time() * 1000), open_now])
                         if open_now < lowest:
                             lowest, dropped_at = open_now, time.monotonic()
                             trace.append([round(dropped_at - started, 1), open_now])
@@ -392,6 +397,7 @@ def main():
                                                 last_drop_s=round(dropped_at - started, 1),
                                                 waited_s=round(time.monotonic() - started, 1),
                                                 trace=trace)
+                result['open_trace'] = open_trace
                 result['settlement'] = settled
                 result['block_counts'] = counts
                 result['final_states'] = states
