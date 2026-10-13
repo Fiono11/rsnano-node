@@ -711,8 +711,12 @@ impl ActiveElectionsContainer {
             EpochClose::new(left, leaders, self.close_round_timeout),
         );
         self.tick_closes(now);
+        // Under the pause transition the open epoch takes no instance before
+        // the epoch left is decided: its instances are carried then
         #[cfg(feature = "rai_protocol")]
-        self.carry_notarized_instances(left, now);
+        if !self.voting_paused() {
+            self.carry_notarized_instances(left, now);
+        }
         self.notify(AecFact::EpochAdvanced(self.current_epoch, report));
         #[cfg(feature = "rai_protocol")]
         {
@@ -1440,6 +1444,10 @@ impl ActiveElectionsContainer {
         // epoch's slots and the committee two epochs on
         self.release_predecessor_gate(epoch.next(), now);
         if self.epoch_transition == EpochTransition::Pause && epoch.next() == self.current_epoch {
+            // What the checkpoint retains is refused here and continued
+            // below (`release_undecided_instances`); the rest is retried
+            #[cfg(feature = "rai_protocol")]
+            self.carry_notarized_instances(epoch, now);
             self.notify(AecFact::VotingResumed(self.current_epoch));
         }
         let live: FxHashSet<(Account, u64)> = self
@@ -1688,7 +1696,10 @@ impl ActiveElectionsContainer {
 
     /// RAI, "checkpoints decide": the blocks the latest checkpoint keeps
     /// alone at their position whose open-epoch instance does not hold them
-    /// yet, with the body the decided epoch's instance saved, if it did. A
+    /// yet, with the body the instance of a decided epoch saved, if it did.
+    /// A lock an older checkpoint retained is inherited by the latest one:
+    /// its instance in an older epoch counts too, or a lock not continued
+    /// before the next checkpoint was decided would never be. A
     /// fork candidate the ledger took in place of its rival only later
     /// (the checkpoint follower forces it in) stays unsaved there, or was
     /// never a candidate here; the ledger has it
@@ -1699,10 +1710,11 @@ impl ActiveElectionsContainer {
             return Vec::new();
         };
         let open = self.current_epoch;
+        let mut seen = FxHashSet::default();
         self.roots
             .iter()
             .map(|entry| &entry.election)
-            .filter(|election| election.epoch() == decided && !election.is_confirmed())
+            .filter(|election| election.epoch() <= decided && !election.is_confirmed())
             .filter_map(|election| {
                 let slot = AccountSlot::new(election.account(), election.height());
                 let locked = state.notarized(&slot);
@@ -1712,6 +1724,7 @@ impl ActiveElectionsContainer {
                 if self.roots.election_for_block_in_epoch(hash, open).is_some()
                     || self.epoch_states.is_finalized(hash)
                     || self.recently_confirmed.hash_exists(hash)
+                    || !seen.insert(*hash)
                 {
                     return None;
                 }
@@ -4683,6 +4696,53 @@ mod tests {
         assert_eq!(container.len(), 1);
     }
 
+    /// RAI evaluation, the stop-and-drain baseline: an instance of the epoch
+    /// left that did not finalize is carried once voting resumes. Carried at
+    /// the switch, while the open epoch's voting is held, it was refused and
+    /// its position never voted again
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn the_pause_transition_carries_the_epoch_left_once_voting_resumes() {
+        let now = Timestamp::new_test_instance();
+        let at = |secs: u64| now + Duration::from_secs(secs);
+        let rep_key = PrivateKey::from(1);
+        let mut container = close_test_container(&rep_key);
+        container.epoch_transition = EpochTransition::Pause;
+        container.start_epochs(now);
+        let block = SavedBlock::new_test_instance_with_key(2);
+        container
+            .insert(
+                AecInsertRequest::new_priority(block.clone(), BlockPriority::new_test_instance()),
+                now,
+            )
+            .unwrap();
+        let epoch1 = ConsensusEpoch::new(1);
+        container.transition_time(at(1));
+        assert_eq!(container.current_epoch(), epoch1);
+        assert!(
+            container
+                .roots
+                .election_for_block_in_epoch(&block.hash(), epoch1)
+                .is_none()
+        );
+
+        let value = propose_test_epoch_value(&mut container, ConsensusEpoch::ZERO, at(1));
+        let round0 = ConsensusEpoch::close_round(ConsensusEpoch::ZERO, 0);
+        container.apply_vote(ApplyVoteArgs {
+            vote: &close_vote(&rep_key, round0, value),
+            rep_weights: &RepWeights::default(),
+            quorum_snapshot: &QuorumSnapshot::new_test_instance(),
+            now: at(1),
+        });
+        assert!(container.epoch_closes()[0].closed.is_some());
+        assert!(
+            container
+                .roots
+                .election_for_block_in_epoch(&block.hash(), epoch1)
+                .is_some()
+        );
+    }
+
     /// RAI: a close vote for an epoch this node has not left yet waits in
     /// the vote cache; one for the epoch just left is counted
     #[test]
@@ -6637,6 +6697,57 @@ mod tests {
                 "notarized={notarized}"
             );
         }
+    }
+
+    /// RAI: a lock an older checkpoint retained, and the latest one
+    /// inherits, is continued from its instance in the older epoch. Only
+    /// the latest checkpoint's own instances were, so a lock not continued
+    /// before the next checkpoint was decided stayed open for good
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn a_lock_inherited_from_an_older_checkpoint_is_continued() {
+        let (mut container, reps, rep_weights, start) = committee_fixture(|_| {});
+        let block = SavedBlock::new_test_instance_with_key(2);
+        container
+            .insert(
+                AecInsertRequest::new_priority(block.clone(), BlockPriority::new_test_instance()),
+                start,
+            )
+            .unwrap();
+        for rep in &reps[..2] {
+            vote_in(
+                &mut container,
+                rep,
+                VoteKind::First,
+                ConsensusEpoch::ZERO,
+                block.hash(),
+                &rep_weights,
+                start,
+            );
+        }
+        let epoch1 = ConsensusEpoch::new(1);
+        let epoch2 = ConsensusEpoch::new(2);
+        container.frozen.insert(ConsensusEpoch::ZERO);
+        container.frozen.insert(epoch1);
+        container.set_current_epoch(epoch2);
+        let mut state = EpochLedger::new();
+        state.retain_recovery_for_test(
+            AccountSlot::new(block.account(), block.height()),
+            block.hash(),
+            block.previous(),
+        );
+        let state = Arc::new(state);
+        container
+            .decided
+            .insert(ConsensusEpoch::ZERO, state.clone());
+        container.decided.insert(epoch1, state);
+        container.release_undecided_instances(epoch1, start);
+        assert!(
+            container
+                .roots
+                .election_for_block_in_epoch(&block.hash(), epoch2)
+                .is_some()
+        );
     }
 
     /// RAI, matching-origin discharge on the voting side: a rival at a
