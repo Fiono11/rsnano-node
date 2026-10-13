@@ -29,3 +29,19 @@ Still linear in history per close: `build_state` clones the predecessor
 `EpochLedger` and `ReportIndex::new` places all of it; the report base
 (`report_ledger` + projection) and the decided-state record are built once
 per epoch.
+
+## 1df3a92b8: placement, installation and the next report base from the changes
+
+`check-1df3/`: RAI, 10% forks, 1,000 blocks/s, `RAI_DELTA_CHECK=1`. 38
+validations re-derived from flat reports with a full ReportIndex agreed in
+state and claims; 42 incremental report bases (6 nodes x 7 epochs) equal
+the base built afresh, projected flag included. Settled, p95 412 ms, every
+fork resolved.
+
+`checkpoint_cost_against_history` (release), at 2,000,000 finalized blocks:
+placement 303 -> 11 ms, installation's new finals 205 -> 1 ms, next report
+base 2,319 -> 179 ms, d_{e-1} per check 319 ms -> lookup. Still linear, once
+per epoch: frontiers for the committee (314 ms), the state hash recorded at
+installation (319 ms), copying the report base's maps (179 ms), the decided
+record (48 ms, 208 MB written); per derivation: the predecessor clone in
+build_state (69 ms).
