@@ -1,4 +1,9 @@
-use std::collections::BTreeMap;
+use std::{
+    collections::{BTreeMap, BTreeSet, btree_map},
+    iter::Peekable,
+    ops::RangeBounds,
+    sync::{Arc, OnceLock},
+};
 
 use rsnano_types::{Account, Blake2HashBuilder, BlockHash, ConsensusEpoch, PublicKey};
 
@@ -88,33 +93,178 @@ pub struct Certification {
 /// order the votes reached them in. A report signs the root of a frozen
 /// snapshot; the live tree goes on growing as gossip delivers more votes,
 /// which is what lets a later common state bridge to a historical root.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+///
+/// A state may be laid over a shared base: an epoch's report holds the whole
+/// inherited state `S_{e-1}`, which every report of the epoch shares, and
+/// the epoch's own changes. The base is held once and never copied; the
+/// state records what it adds, upgrades and removes, and keeps the root and
+/// the length up to date, so that a copy, a root and every lookup cost what
+/// the epoch changed, not the whole history. What a state holds does not
+/// depend on how it is laid out: two states with the same entries are
+/// equal, and hash to the same root.
+#[derive(Clone, Debug, Default)]
 pub struct CertifiedState {
-    entries: BTreeMap<CertifiedBlock, Certification>,
+    /// The shared state underneath; it has no base of its own
+    base: Option<Arc<CertifiedState>>,
+    /// Without a base, every entry. Over a base, the entries added or
+    /// changed (Some) and those of the base removed (None)
+    delta: BTreeMap<CertifiedBlock, Option<Certification>>,
     /// The block hashes the entries name, with the tag of each: G excludes
-    /// a vote for one tagged N or F
-    hashes: BTreeMap<BlockHash, CertifiedStatus>,
+    /// a vote for one tagged N or F. Over a base, the changes to its index
+    hashes: BTreeMap<BlockHash, Option<CertifiedStatus>>,
     /// The XOR of the entry digests, so that a status upgrade or an added
     /// block is a constant-time update of the root
     digest: [u8; 32],
+    len: usize,
+    /// Without a base: no change since the last prefix projection
+    projected: bool,
+    /// The entries not finalized, once asked for; a change forgets them
+    unfinalized: OnceLock<BTreeMap<CertifiedBlock, Option<Certification>>>,
 }
+
+impl PartialEq for CertifiedState {
+    fn eq(&self, other: &Self) -> bool {
+        self.len == other.len && self.digest == other.digest && self.entries().eq(other.entries())
+    }
+}
+
+impl Eq for CertifiedState {}
 
 impl CertifiedState {
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// A state holding exactly what `base` holds, laid over it: what is
+    /// changed from now on is recorded apart from the shared entries
+    pub fn over(base: &Arc<CertifiedState>) -> Self {
+        let base = if base.base.is_some() {
+            Arc::new(base.flattened())
+        } else {
+            Arc::clone(base)
+        };
+        Self {
+            digest: base.digest,
+            len: base.len,
+            base: Some(base),
+            delta: BTreeMap::new(),
+            hashes: BTreeMap::new(),
+            projected: false,
+            unfinalized: OnceLock::new(),
+        }
+    }
+
+    /// The same entries without a base
+    pub fn flattened(&self) -> Self {
+        let mut flat = Self::new();
+        for (block, entry) in self.entries() {
+            flat.set(*block, *entry);
+        }
+        flat
+    }
+
+    /// Whether the two states are laid over the same shared base
+    pub fn shares_base(&self, other: &CertifiedState) -> bool {
+        match (&self.base, &other.base) {
+            (Some(one), Some(other)) => Arc::ptr_eq(one, other),
+            _ => false,
+        }
+    }
+
+    /// The shared base this state is laid over, if any
+    pub fn base(&self) -> Option<&Arc<CertifiedState>> {
+        self.base.as_ref()
+    }
+
+    /// Over a base, what this state changes: entries added or changed
+    /// (Some) and entries of the base removed (None). Without a base, every
+    /// entry.
+    pub fn changes(&self) -> impl Iterator<Item = (&CertifiedBlock, Option<&Certification>)> {
+        self.delta
+            .iter()
+            .map(|(block, entry)| (block, entry.as_ref()))
+    }
+
     pub fn len(&self) -> usize {
-        self.entries.len()
+        self.len
     }
 
     pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
+        self.len == 0
+    }
+
+    /// The entries a check of this state must look at when every entry of
+    /// its base is inherited, i.e. justified by the predecessor checkpoint
+    /// the base projects: those this state adds or changes. Without a base,
+    /// every entry.
+    pub fn changed_entries(&self) -> impl Iterator<Item = (&CertifiedBlock, &Certification)> {
+        self.delta
+            .iter()
+            .filter_map(|(block, entry)| entry.as_ref().map(|entry| (block, entry)))
+    }
+
+    /// The changed entries and the unfinalized entries the state keeps of
+    /// its base: what a derivation must see of a report whose base projects
+    /// the predecessor checkpoint. An inherited finalized entry restates
+    /// finality the derivation starts from; an inherited lock still takes
+    /// part in it.
+    /// In canonical order, as `entries` gives them.
+    pub fn changed_or_unfinalized(&self) -> Entries<'_> {
+        static NONE: BTreeMap<CertifiedBlock, Option<Certification>> = BTreeMap::new();
+        let kept = self
+            .base
+            .as_ref()
+            .map(|base| base.unfinalized_state())
+            .unwrap_or(&NONE);
+        Entries {
+            base: kept.range(..).peekable(),
+            delta: self.delta.range(..).peekable(),
+        }
+    }
+
+    /// The report base this state makes: the state itself, marked as its
+    /// own prefix projection if it is one, so that every report laid over
+    /// it projects only what it changes. Whether it is one.
+    pub fn into_report_base(self) -> (Self, bool) {
+        let mut projected = self.clone();
+        projected.project_final_prefixes();
+        if projected == self {
+            (projected, true)
+        } else {
+            (self, false)
+        }
+    }
+
+    /// The entries not finalized: of an inherited state, the positions it
+    /// retains, few next to its finalized history. Computed once per state.
+    pub fn unfinalized(&self) -> impl Iterator<Item = (&CertifiedBlock, &Certification)> {
+        self.unfinalized_state()
+            .iter()
+            .filter_map(|(block, entry)| entry.as_ref().map(|entry| (block, entry)))
+    }
+
+    fn unfinalized_state(&self) -> &BTreeMap<CertifiedBlock, Option<Certification>> {
+        self.unfinalized.get_or_init(|| {
+            self.entries()
+                .filter(|(_, entry)| !entry.status.is_finalized())
+                .map(|(block, entry)| (*block, Some(*entry)))
+                .collect()
+        })
+    }
+
+    fn hash_status(&self, hash: &BlockHash) -> Option<CertifiedStatus> {
+        match self.hashes.get(hash) {
+            Some(changed) => *changed,
+            None => self
+                .base
+                .as_ref()
+                .and_then(|base| base.hashes.get(hash).copied().flatten()),
+        }
     }
 
     /// Whether an entry names this block, under any tag
     pub fn contains_hash(&self, hash: &BlockHash) -> bool {
-        self.hashes.contains_key(hash)
+        self.hash_status(hash).is_some()
     }
 
     /// RAI, Fix B: whether an entry tags this block N or F. Such an entry
@@ -122,22 +272,41 @@ impl CertifiedState {
     /// not, since it records what the predecessor checkpoint carried, not
     /// what the reporter signed in the epoch.
     pub fn summarizes(&self, hash: &BlockHash) -> bool {
-        self.hashes
-            .get(hash)
-            .is_some_and(|status| *status != CertifiedStatus::Recovery)
+        self.hash_status(hash)
+            .is_some_and(|status| status != CertifiedStatus::Recovery)
     }
 
     pub fn status(&self, block: &CertifiedBlock) -> Option<CertifiedStatus> {
-        self.entries.get(block).map(|held| held.status)
+        self.certification(block).map(|held| held.status)
     }
 
     /// The status of a block and the parent it names
     pub fn certification(&self, block: &CertifiedBlock) -> Option<Certification> {
-        self.entries.get(block).copied()
+        match self.delta.get(block) {
+            Some(changed) => *changed,
+            None => self
+                .base
+                .as_ref()
+                .and_then(|base| base.delta.get(block).copied().flatten()),
+        }
     }
 
-    pub fn entries(&self) -> impl DoubleEndedIterator<Item = (&CertifiedBlock, &Certification)> {
-        self.entries.iter()
+    /// Every entry, in canonical order
+    pub fn entries(&self) -> Entries<'_> {
+        self.entries_in(..)
+    }
+
+    /// The entries in a range of blocks, in canonical order
+    pub fn entries_in(&self, range: impl RangeBounds<CertifiedBlock> + Clone) -> Entries<'_> {
+        Entries {
+            base: self
+                .base
+                .as_ref()
+                .map(|base| base.delta.range(range.clone()))
+                .unwrap_or_default()
+                .peekable(),
+            delta: self.delta.range(range).peekable(),
+        }
     }
 
     /// Records a certified block, or upgrades the status of one already
@@ -150,21 +319,46 @@ impl CertifiedState {
         previous: BlockHash,
         status: CertifiedStatus,
     ) -> bool {
-        match self.entries.get(&block).copied() {
+        match self.certification(&block) {
             Some(held) if held.status >= status => false,
             held => {
                 let entry = Certification {
                     status,
                     previous: held.map(|held| held.previous).unwrap_or(previous),
                 };
-                if let Some(held) = held {
-                    self.toggle(&block, held);
-                }
-                self.toggle(&block, entry);
-                self.entries.insert(block, entry);
-                self.hashes.insert(block.hash, status);
+                self.put(block, held, Some(entry));
                 true
             }
+        }
+    }
+
+    /// Certifies every entry of `other` here, as `certify` would one by
+    /// one. Over the same base only the entries either state changes can
+    /// make a difference: every other one is the base's on both sides.
+    pub fn certify_all(&mut self, other: &CertifiedState) {
+        // Certifying every entry into an empty state copies them as they are
+        if self.is_empty() && self.base.is_none() {
+            *self = other.clone();
+            return;
+        }
+        if !self.shares_base(other) {
+            for (block, entry) in other.entries() {
+                self.certify(*block, entry.previous, entry.status);
+            }
+            return;
+        }
+        let mut changed: Vec<(CertifiedBlock, Certification)> = other
+            .changed_entries()
+            .map(|(block, entry)| (*block, *entry))
+            .collect();
+        changed.extend(
+            self.delta
+                .keys()
+                .filter(|block| !other.delta.contains_key(block))
+                .filter_map(|block| Some((*block, other.certification(block)?))),
+        );
+        for (block, entry) in changed {
+            self.certify(block, entry.previous, entry.status);
         }
     }
 
@@ -173,7 +367,7 @@ impl CertifiedState {
         Blake2HashBuilder::new()
             .update(b"RAI certified state")
             .update(self.digest)
-            .update(self.entries.len().to_le_bytes())
+            .update(self.len.to_le_bytes())
             .build()
     }
 
@@ -181,17 +375,62 @@ impl CertifiedState {
     /// reconstruction rebuilds the reporter's state, which is not this
     /// node's own and is not required to grow
     pub fn set(&mut self, block: CertifiedBlock, entry: Certification) {
-        if let Some(held) = self.entries.insert(block, entry) {
-            self.toggle(&block, held);
-        }
-        self.toggle(&block, entry);
-        self.hashes.insert(block.hash, entry.status);
+        let held = self.certification(&block);
+        self.put(block, held, Some(entry));
     }
 
     pub fn remove(&mut self, block: &CertifiedBlock) {
-        if let Some(held) = self.entries.remove(block) {
-            self.toggle(block, held);
-            self.hashes.remove(&block.hash);
+        if let Some(held) = self.certification(block) {
+            self.put(*block, Some(held), None);
+        }
+    }
+
+    /// Replaces the entry `held` of a block, the one this state holds, by
+    /// `entry`, keeping the root, the length and the hash index in step.
+    /// Over a base, a change back to the base's own entry is no change.
+    fn put(
+        &mut self,
+        block: CertifiedBlock,
+        held: Option<Certification>,
+        entry: Option<Certification>,
+    ) {
+        if held == entry {
+            return;
+        }
+        self.projected = false;
+        self.unfinalized = OnceLock::new();
+        if let Some(held) = held {
+            self.toggle(&block, held);
+            self.len -= 1;
+        }
+        if let Some(entry) = entry {
+            self.toggle(&block, entry);
+            self.len += 1;
+        }
+        let status = entry.map(|entry| entry.status);
+        match &self.base {
+            None => {
+                match entry {
+                    Some(entry) => self.delta.insert(block, Some(entry)),
+                    None => self.delta.remove(&block),
+                };
+                match status {
+                    Some(status) => self.hashes.insert(block.hash, Some(status)),
+                    None => self.hashes.remove(&block.hash),
+                };
+            }
+            Some(base) => {
+                if base.delta.get(&block).copied().flatten() == entry {
+                    self.delta.remove(&block);
+                } else {
+                    self.delta.insert(block, entry);
+                }
+                if base.hashes.get(&block.hash).copied().flatten() == status {
+                    self.hashes.remove(&block.hash);
+                } else {
+                    self.hashes.insert(block.hash, status);
+                }
+            }
         }
     }
 
@@ -200,51 +439,80 @@ impl CertifiedState {
     /// ancestors become finalized, and the competing unresolved branches
     /// leave the live state
     pub fn project_final_prefixes(&mut self) {
-        let targets: Vec<_> = self
-            .entries
-            .iter()
-            .filter(|(_, e)| e.status.is_finalized())
-            .map(|(b, e)| (*b, *e))
-            .collect();
-        for (mut block, mut entry) in targets {
-            while block.height > 1 && !entry.previous.is_zero() {
-                let parent = CertifiedBlock::new(block.account, block.height - 1, entry.previous);
-                let Some(held) = self.entries.get(&parent).copied() else {
-                    break;
-                };
-                if held.status.is_finalized() {
-                    break;
-                }
-                self.certify(parent, held.previous, CertifiedStatus::Finalized);
-                block = parent;
-                entry = held;
+        match &self.base {
+            Some(base) if base.projected => {
+                let accounts: BTreeSet<Account> =
+                    self.delta.keys().map(|block| block.account).collect();
+                self.project(accounts);
+            }
+            _ => {
+                let accounts: BTreeSet<Account> =
+                    self.entries().map(|(block, _)| block.account).collect();
+                self.project(accounts);
             }
         }
-        let finals: BTreeMap<_, _> = self
-            .entries
-            .iter()
-            .filter(|(_, e)| e.status.is_finalized())
-            .map(|(b, _)| ((b.account, b.height), b.hash))
-            .collect();
-        let excluded: Vec<_> = self
-            .entries
-            .iter()
-            .filter(|(_, e)| !e.status.is_finalized())
-            .filter_map(|(candidate, _)| {
-                let mut current = *candidate;
-                loop {
-                    if let Some(final_hash) = finals.get(&(current.account, current.height)) {
-                        return (*final_hash != current.hash).then_some(*candidate);
+        if self.base.is_none() {
+            self.projected = true;
+        }
+    }
+
+    /// The projection of the given accounts. It is local to an account -
+    /// a prefix, a rival and the finality excluding it all sit on one - and
+    /// a projected state is its own projection, so over a projected base
+    /// only the accounts this state changes need it: the result is the
+    /// projection of the whole state, in the time of the changes.
+    fn project(&mut self, accounts: BTreeSet<Account>) {
+        let mut excluded = Vec::new();
+        for account in accounts {
+            let range = CertifiedBlock::new(account, 0, BlockHash::ZERO)
+                ..=CertifiedBlock::new(account, u64::MAX, BlockHash::from_bytes([0xff; 32]));
+            let targets: Vec<_> = self
+                .entries_in(range.clone())
+                .filter(|(_, entry)| entry.status.is_finalized())
+                .map(|(block, entry)| (*block, *entry))
+                .collect();
+            for (mut block, mut entry) in targets {
+                while block.height > 1 && !entry.previous.is_zero() {
+                    let parent =
+                        CertifiedBlock::new(block.account, block.height - 1, entry.previous);
+                    let Some(held) = self.certification(&parent) else {
+                        break;
+                    };
+                    if held.status.is_finalized() {
+                        break;
                     }
-                    let entry = self.entries.get(&current)?;
-                    if current.height <= 1 || entry.previous.is_zero() {
-                        return None;
-                    }
-                    current =
-                        CertifiedBlock::new(current.account, current.height - 1, entry.previous);
+                    self.certify(parent, held.previous, CertifiedStatus::Finalized);
+                    block = parent;
+                    entry = held;
                 }
-            })
-            .collect();
+            }
+            let finals: BTreeMap<u64, BlockHash> = self
+                .entries_in(range.clone())
+                .filter(|(_, entry)| entry.status.is_finalized())
+                .map(|(block, _)| (block.height, block.hash))
+                .collect();
+            excluded.extend(
+                self.entries_in(range)
+                    .filter(|(_, entry)| !entry.status.is_finalized())
+                    .filter_map(|(candidate, _)| {
+                        let mut current = *candidate;
+                        loop {
+                            if let Some(final_hash) = finals.get(&current.height) {
+                                return (*final_hash != current.hash).then_some(*candidate);
+                            }
+                            let entry = self.certification(&current)?;
+                            if current.height <= 1 || entry.previous.is_zero() {
+                                return None;
+                            }
+                            current = CertifiedBlock::new(
+                                current.account,
+                                current.height - 1,
+                                entry.previous,
+                            );
+                        }
+                    }),
+            );
+        }
         for block in excluded {
             self.remove(&block);
         }
@@ -266,6 +534,46 @@ impl CertifiedState {
         let digest = Self::entry_digest(block, &entry);
         for (d, e) in self.digest.iter_mut().zip(digest.as_bytes()) {
             *d ^= e;
+        }
+    }
+}
+
+/// The entries of a `CertifiedState` in canonical order: the base's, merged
+/// with what the state changes over it
+pub struct Entries<'a> {
+    base: Peekable<btree_map::Range<'a, CertifiedBlock, Option<Certification>>>,
+    delta: Peekable<btree_map::Range<'a, CertifiedBlock, Option<Certification>>>,
+}
+
+impl<'a> Iterator for Entries<'a> {
+    type Item = (&'a CertifiedBlock, &'a Certification);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let from_base = match (self.base.peek(), self.delta.peek()) {
+                (None, None) => return None,
+                (Some(_), None) => true,
+                (None, Some(_)) => false,
+                (Some((base, _)), Some((delta, _))) => {
+                    if base < delta {
+                        true
+                    } else {
+                        // A change replaces the base's entry for the block
+                        if base == delta {
+                            self.base.next();
+                        }
+                        false
+                    }
+                }
+            };
+            let (block, entry) = if from_base {
+                self.base.next()?
+            } else {
+                self.delta.next()?
+            };
+            if let Some(entry) = entry {
+                return Some((block, entry));
+            }
         }
     }
 }
@@ -505,9 +813,78 @@ fn decode_item(item: &Item) -> (CertifiedBlock, BlockHash, u8) {
 impl CertifiedState {
     /// Every entry as a reconciliation item
     pub fn items(&self) -> impl Iterator<Item = Item> + '_ {
-        self.entries
-            .iter()
+        self.entries()
             .map(|(block, entry)| encode_item(block, &entry.previous, entry.status.as_byte()))
+    }
+
+    /// What this state changes over `base` as signed reconciliation items:
+    /// an entry `base` lacks +1, an entry of `base` this state lacks -1. A
+    /// state laid over `base` holds them; any other is compared in full.
+    pub fn changed_items(&self, base: &Arc<CertifiedState>) -> Vec<(Item, i64)> {
+        let item = |block: &CertifiedBlock, entry: &Certification| {
+            encode_item(block, &entry.previous, entry.status.as_byte())
+        };
+        let mut items = Vec::new();
+        if self.base.as_ref().is_some_and(|own| Arc::ptr_eq(own, base)) {
+            for (block, entry) in &self.delta {
+                if let Some(held) = base.certification(block) {
+                    items.push((item(block, &held), -1));
+                }
+                if let Some(entry) = entry {
+                    items.push((item(block, entry), 1));
+                }
+            }
+            return items;
+        }
+        let mut ours = self.entries().peekable();
+        let mut theirs = base.entries().peekable();
+        loop {
+            match (ours.peek(), theirs.peek()) {
+                (None, None) => return items,
+                (Some(&(block, entry)), Some(&(base_block, base_entry))) if block == base_block => {
+                    if entry != base_entry {
+                        items.push((item(base_block, base_entry), -1));
+                        items.push((item(block, entry), 1));
+                    }
+                    ours.next();
+                    theirs.next();
+                }
+                (Some(&(block, entry)), Some(&(base_block, _))) if block < base_block => {
+                    items.push((item(block, entry), 1));
+                    ours.next();
+                }
+                (Some(&(block, entry)), None) => {
+                    items.push((item(block, entry), 1));
+                    ours.next();
+                }
+                (_, Some(&(base_block, base_entry))) => {
+                    items.push((item(base_block, base_entry), -1));
+                    theirs.next();
+                }
+            }
+        }
+    }
+
+    /// The state `changed_items` describes: `base` with the changes laid
+    /// over it. None if a change names no entry, or removes one `base` does
+    /// not hold as encoded.
+    pub fn with_changes(base: &Arc<CertifiedState>, changes: &[(Item, i64)]) -> Option<Self> {
+        let mut state = Self::over(base);
+        for (item, direction) in changes.iter().filter(|(_, direction)| *direction < 0) {
+            let (block, entry) = Self::entry_of(item)?;
+            if *direction != -1 || base.certification(&block) != Some(entry) {
+                return None;
+            }
+            state.remove(&block);
+        }
+        for (item, direction) in changes.iter().filter(|(_, direction)| *direction > 0) {
+            let (block, entry) = Self::entry_of(item)?;
+            if *direction != 1 {
+                return None;
+            }
+            state.set(block, entry);
+        }
+        Some(state)
     }
 
     /// The entry an item encodes; None for an item no entry encodes to
@@ -627,6 +1004,97 @@ mod tests {
         assert!(state.is_empty());
         assert_eq!(state.root(), CertifiedState::new().root());
         assert_ne!(state.root(), BlockHash::ZERO);
+    }
+
+    /// A state laid over a shared base holds, roots and answers exactly as
+    /// the same state held flat, through any sequence of changes, prefix
+    /// projections included, and its copies leave the base alone
+    #[test]
+    fn a_state_over_a_base_behaves_as_the_flat_state() {
+        let mut seed = 0x9e37_79b9_7f4a_7c15_u64;
+        let mut next = move |bound: u64| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed % bound
+        };
+        for _ in 0..200 {
+            let mut flat = CertifiedState::new();
+            for _ in 0..next(30) {
+                random_change(&mut flat, &mut next);
+            }
+            flat.project_final_prefixes();
+            let base = Arc::new(flat.clone());
+            let mut over = CertifiedState::over(&base);
+            assert_eq!(over, flat);
+            assert_eq!(over.root(), flat.root());
+            for _ in 0..next(30) {
+                let mut both = [&mut flat, &mut over];
+                let change = next(u64::MAX);
+                for state in both.iter_mut() {
+                    let mut replay = change;
+                    random_change(state, &mut |bound| {
+                        replay = replay.rotate_left(17) ^ 0x5bd1_e995;
+                        replay % bound
+                    });
+                }
+                if next(5) == 0 {
+                    flat.project_final_prefixes();
+                    over.project_final_prefixes();
+                }
+                assert_eq!(over.len(), flat.len());
+                assert_eq!(over.root(), flat.root());
+                assert!(over.entries().eq(flat.entries()));
+                for i in 0..40 {
+                    let block = chained(i % 6, 1 + i / 12, i % 2);
+                    assert_eq!(over.certification(&block), flat.certification(&block));
+                    assert_eq!(
+                        over.contains_hash(&block.hash),
+                        flat.contains_hash(&block.hash)
+                    );
+                    assert_eq!(over.summarizes(&block.hash), flat.summarizes(&block.hash));
+                }
+            }
+            assert_eq!(*base, base.flattened());
+            assert_eq!(over.flattened(), flat);
+        }
+    }
+
+    /// Certifying every entry of another state, laid over the same base or
+    /// not, is certifying them one by one
+    #[test]
+    fn certifying_a_whole_state_is_certifying_its_entries() {
+        let mut seed = 0x2545_f491_4f6c_dd1d_u64;
+        let mut next = move |bound: u64| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed % bound
+        };
+        for _ in 0..300 {
+            let mut base = CertifiedState::new();
+            for _ in 0..next(20) {
+                random_change(&mut base, &mut next);
+            }
+            base.project_final_prefixes();
+            let base = Arc::new(base);
+            let (mut one, mut other) = (CertifiedState::over(&base), CertifiedState::over(&base));
+            for _ in 0..next(15) {
+                random_change(&mut one, &mut next);
+            }
+            for _ in 0..next(15) {
+                random_change(&mut other, &mut next);
+            }
+            let mut expected = one.flattened();
+            for (block, entry) in other.entries() {
+                expected.certify(*block, entry.previous, entry.status);
+            }
+            one.certify_all(&other);
+            assert_eq!(one, expected);
+            let mut empty = CertifiedState::new();
+            empty.certify_all(&other);
+            assert_eq!(empty, other);
+        }
     }
 
     /// Two validators that constructed the same certificates hold the same
@@ -801,6 +1269,39 @@ mod tests {
     /*
      * Test helpers
      */
+
+    /// A block of a small forked tree: account, height, and one of two
+    /// branches, each continuing the branch of the same index below
+    fn chained(account: u64, height: u64, branch: u64) -> CertifiedBlock {
+        CertifiedBlock::new(
+            Account::from(account + 1),
+            height,
+            BlockHash::from(account * 1_000 + height * 10 + branch + 1),
+        )
+    }
+
+    fn random_change(state: &mut CertifiedState, next: &mut dyn FnMut(u64) -> u64) {
+        let height = 1 + next(4);
+        let branch = next(2);
+        let block = chained(next(6), height, branch);
+        let previous = if height == 1 {
+            BlockHash::ZERO
+        } else {
+            chained(block.account.as_bytes()[31] as u64 - 1, height - 1, branch).hash
+        };
+        let status = [
+            CertifiedStatus::Recovery,
+            CertifiedStatus::Notarized,
+            CertifiedStatus::Finalized,
+        ][next(3) as usize];
+        match next(4) {
+            0 => state.remove(&block),
+            1 => state.set(block, Certification { status, previous }),
+            _ => {
+                state.certify(block, previous, status);
+            }
+        }
+    }
 
     fn block(i: u64) -> CertifiedBlock {
         CertifiedBlock::new(Account::from(i), 1 + i % 4, BlockHash::from(i * 7 + 1))

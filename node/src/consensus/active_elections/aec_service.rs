@@ -1,6 +1,6 @@
 use std::{
     collections::{BTreeMap, HashMap},
-    sync::RwLock,
+    sync::{Arc, RwLock},
     time::Duration,
 };
 
@@ -352,6 +352,15 @@ impl AecService {
         self.aec.read().unwrap().vote_records_of(epoch, voter)
     }
 
+    /// RAI: the inherited base of an epoch's reports, once its predecessor
+    /// is decided here
+    pub fn report_base(
+        &self,
+        epoch: ConsensusEpoch,
+    ) -> Option<Arc<crate::consensus::election::CertifiedState>> {
+        self.aec.read().unwrap().report_base(epoch)
+    }
+
     pub fn epoch_previous_state(
         &self,
         epoch: ConsensusEpoch,
@@ -538,7 +547,7 @@ impl AecService {
         // Only the base is read under the lock: copying it holds up every
         // vote the AEC applies meanwhile
         let base = self.aec.read().unwrap().report_base(epoch);
-        ActiveElectionsContainer::complete_report_on(base.as_deref(), certified, residual)
+        ActiveElectionsContainer::complete_report_on(base.as_ref(), certified, residual)
     }
 
     /// RAI: how many first and final voters this node holds for a block

@@ -64,6 +64,9 @@ struct TheirReport {
 /// RAI: one running reconciliation of an inventory against a fixed base,
 /// the local view as it stood when the stream started
 struct Stream<B> {
+    /// What the stream asks for: a residual set, a certified state in full,
+    /// or a certified state's changes over the inherited base
+    set: ReportSet,
     base: B,
     decoder: Decoder,
     /// When symbols were last asked for; None before the first request
@@ -75,8 +78,9 @@ struct Stream<B> {
 impl<B> Stream<B> {
     const FIRST_BATCH: u16 = 16;
 
-    fn new(base: B, decoder: Decoder) -> Self {
+    fn new(set: ReportSet, base: B, decoder: Decoder) -> Self {
         Self {
+            set,
             base,
             decoder,
             requested_at: None,
@@ -89,7 +93,6 @@ impl<B> Stream<B> {
     fn due(
         &mut self,
         epoch: ConsensusEpoch,
-        set: ReportSet,
         target: BlockHash,
         now: Timestamp,
     ) -> Option<ReportSymbolsReq> {
@@ -100,18 +103,13 @@ impl<B> Stream<B> {
             return None;
         }
         self.requested_at = Some(now);
-        Some(self.request(epoch, set, target))
+        Some(self.request(epoch, target))
     }
 
-    fn request(
-        &self,
-        epoch: ConsensusEpoch,
-        set: ReportSet,
-        target: BlockHash,
-    ) -> ReportSymbolsReq {
+    fn request(&self, epoch: ConsensusEpoch, target: BlockHash) -> ReportSymbolsReq {
         ReportSymbolsReq {
             epoch,
-            set,
+            set: self.set,
             target,
             from: self.decoder.received() as u32,
             count: self.batch,
@@ -164,7 +162,8 @@ pub(crate) fn manifest_claims(
         .collect();
     let mut claims = std::collections::BTreeSet::new();
     for report in selection {
-        for (block, entry) in report.certified.entries() {
+        // An entry of the report's inherited base is inherited
+        for (block, entry) in report.certified.changed_entries() {
             if inherited(block, *entry) {
                 continue;
             }
@@ -261,8 +260,9 @@ pub(crate) fn well_formed(
                 previous.is_finalized(&AccountSlot::new(block.account, block.height), &block.hash)
             })
     };
+    // An entry of the inherited base is placed by the predecessor itself
     certified
-        .entries()
+        .changed_entries()
         .all(|(block, entry)| placed(block, &entry.previous))
         && residual
             .entries()
@@ -300,9 +300,12 @@ pub(crate) fn unjustified(
     let only: Option<HashSet<&BlockHash>> = only.map(|only| only.iter().collect());
     let wanted = |hash: &BlockHash| only.as_ref().is_none_or(|only| only.contains(hash));
     // What the predecessor checkpoint itself holds is justified by it,
-    // whatever its certificates here: they are looked up for the rest only
+    // whatever its certificates here: they are looked up for the rest only.
+    // The entries of the report's inherited base are all of that kind, and
+    // no unproven entry is in the finalized prefix of one: that prefix is
+    // inherited too.
     let entries: Vec<(&CertifiedBlock, Certification, bool)> = certified
-        .entries()
+        .changed_entries()
         .filter(|(block, _)| wanted(&block.hash))
         .map(|(block, entry)| (block, *entry, inherited(block, *entry)))
         .collect();
@@ -384,7 +387,7 @@ pub(crate) fn unjustified(
     if only.is_some() {
         anchors.extend(
             certified
-                .entries()
+                .changed_entries()
                 .filter(|(block, entry)| {
                     entry.status == CertifiedStatus::Finalized && !wanted(&block.hash)
                 })
@@ -392,10 +395,6 @@ pub(crate) fn unjustified(
         );
     }
     if !unproven.is_empty() {
-        let by_hash: HashMap<BlockHash, CertifiedBlock> = certified
-            .entries()
-            .map(|(block, _)| (block.hash, *block))
-            .collect();
         for anchor in anchors {
             let mut current = anchor;
             while justified.insert(current) {
@@ -405,16 +404,14 @@ pub(crate) fn unjustified(
                 if current.height <= 1 || entry.previous.is_zero() {
                     break;
                 }
-                let Some(parent) = by_hash.get(&entry.previous) else {
-                    break;
-                };
-                if parent.height + 1 != current.height
-                    || parent.account != current.account
-                    || certified.status(parent) != Some(CertifiedStatus::Finalized)
-                {
+                // The parent is the entry the parent hash names, which a
+                // well-placed report holds one height below on the account
+                let parent =
+                    CertifiedBlock::new(current.account, current.height - 1, entry.previous);
+                if certified.status(&parent) != Some(CertifiedStatus::Finalized) {
                     break;
                 }
-                current = *parent;
+                current = parent;
             }
         }
         missing.extend(
@@ -517,10 +514,8 @@ impl ReportExchange {
                 )
             })
             .collect();
-        held.snapshots.insert(certified_root, certified.clone());
-        for (block, entry) in certified.entries() {
-            held.live.certify(*block, entry.previous, entry.status);
-        }
+        held.live.certify_all(&certified);
+        held.snapshots.insert(certified_root, certified);
         held.residuals.insert(residual_root, residual);
         let messages = held
             .signed
@@ -709,7 +704,7 @@ impl ReportExchange {
         } else if their.residual_stream.is_none() {
             // A running stream keeps its base: it must not move under it
             let decoder = Decoder::new(derived.items());
-            their.residual_stream = Some(Stream::new(derived, decoder));
+            their.residual_stream = Some(Stream::new(ReportSet::Residual, derived, decoder));
         }
         Some(ReconcileResult {
             epoch,
@@ -836,14 +831,14 @@ impl ReportExchange {
                 if let Some(stream) = &mut their.certified_stream {
                     messages.extend(
                         stream
-                            .due(*epoch, ReportSet::Certified, report.certified, now)
+                            .due(*epoch, report.certified, now)
                             .map(ReportMessage::Request),
                     );
                 }
                 if let Some(stream) = &mut their.residual_stream {
                     messages.extend(
                         stream
-                            .due(*epoch, ReportSet::Residual, report.residual, now)
+                            .due(*epoch, report.residual, now)
                             .map(ReportMessage::Request),
                     );
                 }
@@ -861,6 +856,11 @@ impl ReportExchange {
         if !held.encoders.contains_key(&key) {
             let encoder = match request.set {
                 ReportSet::Certified => Encoder::new(held.state(request.target)?.items()),
+                // Over the base this node's live view of the epoch is laid
+                // over: the inherited base, the same at every holder
+                ReportSet::CertifiedChanges => {
+                    Encoder::signed(held.state(request.target)?.changed_items(held.live.base()?))
+                }
                 ReportSet::Residual => Encoder::new(held.residual(request.target)?.items()),
             };
             while held.encoders.len() >= EpochReports::MAX_ENCODERS {
@@ -905,14 +905,14 @@ impl ReportExchange {
         };
         for (reporter, their) in &mut held.theirs {
             match reply.set {
-                ReportSet::Certified => {
+                ReportSet::Certified | ReportSet::CertifiedChanges => {
                     if their.report.certified != reply.target {
                         continue;
                     }
                     let Some(stream) = &mut their.certified_stream else {
                         continue;
                     };
-                    if !stream.accept(reply, now) {
+                    if stream.set != reply.set || !stream.accept(reply, now) {
                         continue;
                     }
                     if stream.decoder.failed() {
@@ -921,11 +921,9 @@ impl ReportExchange {
                         continue;
                     }
                     if !stream.decoder.is_done() {
-                        messages.push(ReportMessage::Request(stream.request(
-                            reply.epoch,
-                            ReportSet::Certified,
-                            reply.target,
-                        )));
+                        messages.push(ReportMessage::Request(
+                            stream.request(reply.epoch, reply.target),
+                        ));
                         continue;
                     }
                     let entries = stream.decoder.recovered().count();
@@ -964,11 +962,9 @@ impl ReportExchange {
                         continue;
                     }
                     if !stream.decoder.is_done() {
-                        messages.push(ReportMessage::Request(stream.request(
-                            reply.epoch,
-                            ReportSet::Residual,
-                            reply.target,
-                        )));
+                        messages.push(ReportMessage::Request(
+                            stream.request(reply.epoch, reply.target),
+                        ));
                         continue;
                     }
                     let entries = stream.decoder.recovered().count();
@@ -1023,9 +1019,7 @@ impl ReportExchange {
         }
         let certified_root = certified.root();
         let residual_root = residual.root();
-        for (block, entry) in certified.entries() {
-            held.live.certify(*block, entry.previous, entry.status);
-        }
+        held.live.certify_all(&certified);
         held.snapshots.insert(certified_root, certified);
         held.residuals.insert(residual_root, residual);
         held.signed = signed;
@@ -1079,9 +1073,7 @@ impl ReportExchange {
             return;
         }
         let held = self.epochs.entry(epoch).or_default();
-        for (block, entry) in live.entries() {
-            held.live.certify(*block, entry.previous, entry.status);
-        }
+        held.live.certify_all(&live);
     }
     pub fn reconcile(
         &mut self,
@@ -1115,9 +1107,21 @@ impl ReportExchange {
             ));
         }
         if their.certified_stream.is_none() {
+            // Laid over the inherited base, the live view asks for the
+            // reporter's changes over it and decodes against its own
             let base = held_live.clone();
-            let decoder = Decoder::new(base.items());
-            their.certified_stream = Some(Stream::new(base, decoder));
+            let stream = match held_live.base() {
+                Some(inherited) => Stream::new(
+                    ReportSet::CertifiedChanges,
+                    base.clone(),
+                    Decoder::signed(base.changed_items(inherited)),
+                ),
+                None => {
+                    let decoder = Decoder::new(base.items());
+                    Stream::new(ReportSet::Certified, base, decoder)
+                }
+            };
+            their.certified_stream = Some(stream);
         }
         Some((Vec::new(), None))
     }
@@ -1167,7 +1171,7 @@ impl EpochReports {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::consensus::election::CertifiedStatus;
+    use crate::consensus::election::{BlockIndex, CertifiedStatus};
     use rsnano_types::Account;
 
     fn block() -> CertifiedBlock {
@@ -1308,6 +1312,62 @@ mod tests {
         let usable = requester.usable(report.epoch);
         assert_eq!(usable.len(), 1);
         assert_eq!(usable[0].1.root(), report.certified);
+    }
+
+    /// Two nodes whose views are laid over the same inherited base, each its
+    /// own copy, reconcile the changes only: the holder encodes what the
+    /// report changes over the base, a removed inherited entry included, and
+    /// the requester rebuilds the report from its own changes
+    #[test]
+    fn reports_over_the_inherited_base_reconcile_their_changes_only() {
+        let mut inherited = CertifiedState::new();
+        for i in 1..=2000 {
+            inherited.certify(entry(i), BlockHash::ZERO, CertifiedStatus::Finalized);
+        }
+        let (inherited, _) = inherited.into_report_base();
+        let (base_r, base_q) = (Arc::new(inherited.clone()), Arc::new(inherited));
+        let mut state = CertifiedState::over(&base_r);
+        for i in 3001..=3030 {
+            state.certify(entry(i), BlockHash::ZERO, CertifiedStatus::Notarized);
+        }
+        state.remove(&entry(5));
+        let mut reporter = ReportExchange::new();
+        reporter.report_epoch(
+            EPOCH,
+            state.clone(),
+            ResidualVotes::new(),
+            BlockHash::from(3),
+            BlockHash::from(4),
+            &[PrivateKey::from(1)],
+        );
+        let report = reporter.own_reports(EPOCH)[0].clone();
+        let mut live = CertifiedState::over(&base_q);
+        for i in 3010..=3040 {
+            live.certify(entry(i), BlockHash::ZERO, CertifiedStatus::Finalized);
+        }
+        let mut requester = ReportExchange::new();
+        requester.refresh_live(EPOCH, live);
+        requester.handle_report(report.clone());
+        let now = Timestamp::new_test_instance();
+        requester.reconcile(EPOCH, report.reporter, now);
+        let requests = requester.stream_requests(now);
+        assert!(requests.iter().any(|message| matches!(
+            message,
+            ReportMessage::Request(request) if request.set == ReportSet::CertifiedChanges
+        )));
+        carry(&mut requester, &mut reporter, requests, now);
+        pull(&mut requester, &mut reporter, now);
+        let encoded: Vec<usize> = reporter.epochs[&EPOCH]
+            .encoders
+            .values()
+            .map(Encoder::len)
+            .collect();
+        assert_eq!(encoded, vec![31]);
+        trust_all(&mut requester, EPOCH);
+        let usable = requester.usable(EPOCH);
+        assert_eq!(usable.len(), 1);
+        assert_eq!(usable[0].1.root(), report.certified);
+        assert_eq!(*usable[0].1, state);
     }
 
     /// A node thousands of entries behind finishes in one pull loop
@@ -1948,6 +2008,145 @@ mod tests {
         replies
     }
 
+    /// Reports laid over the inherited base that projects the predecessor
+    /// checkpoint give every check and the derivation exactly what the same
+    /// reports held flat give: they only skip what the base holds. Random
+    /// forked trees, two closures: the first builds the predecessor, the
+    /// second compares.
+    #[test]
+    fn reports_over_the_inherited_base_derive_as_flat_reports() {
+        use crate::consensus::election::{
+            BuildRules, ReportIndex, SelectedReport, build_state, fresh_finalized, witness_claims,
+        };
+        let (mut compared, mut locked) = (0, 0);
+        for seed in 1..400u64 {
+            let mut rng = Rng(seed.wrapping_mul(0x9e37_79b9_7f4a_7c15));
+            let tree = random_tree(&mut rng);
+            let chains = true_chains(&mut rng, &tree);
+            let epoch1 = ConsensusEpoch::new(1);
+            let epoch2 = ConsensusEpoch::new(2);
+            let witness = |epoch: ConsensusEpoch, hash: &BlockHash| {
+                (hash.as_bytes()[31] as u64 + epoch.as_u64()) % 3 == 0
+            };
+
+            let first: Vec<(CertifiedState, ResidualVotes)> = (0..4)
+                .map(|_| random_report(&mut rng, &tree, &chains, 0, CertifiedState::new()))
+                .collect();
+            let selection = selected(&first);
+            let index = ReportIndex::new(&EpochLedger::new(), &selection);
+            let Ok(previous) = build_state(
+                &EpochLedger::new(),
+                &selection,
+                &index,
+                BuildRules { epoch: epoch1 },
+                &witness,
+            ) else {
+                continue;
+            };
+
+            locked += previous
+                .report_ledger()
+                .entries()
+                .any(|(_, entry)| entry.status == CertifiedStatus::Notarized)
+                as usize;
+            let (base, _) = previous.report_ledger().into_report_base();
+            let base = Arc::new(base);
+            let over: Vec<(CertifiedState, ResidualVotes)> = (0..4)
+                .map(|_| random_report(&mut rng, &tree, &chains, 1, CertifiedState::over(&base)))
+                .collect();
+            let flat: Vec<(CertifiedState, ResidualVotes)> = over
+                .iter()
+                .map(|(certified, residual)| (certified.flattened(), residual.clone()))
+                .collect();
+            let (over_selection, flat_selection) = (selected(&over), selected(&flat));
+            let over_index = ReportIndex::new(&previous, &over_selection);
+            let flat_index = ReportIndex::new(&previous, &flat_selection);
+            for hash in tree.keys() {
+                assert_eq!(over_index.placement(hash), flat_index.placement(hash));
+            }
+            let derive = |selection: &[SelectedReport], index: &ReportIndex| {
+                build_state(
+                    &previous,
+                    selection,
+                    index,
+                    BuildRules { epoch: epoch2 },
+                    &witness,
+                )
+            };
+            let derived = derive(&over_selection, &over_index);
+            assert_eq!(derived, derive(&flat_selection, &flat_index), "seed {seed}");
+            compared += derived.is_ok() as usize;
+            assert_eq!(
+                witness_claims(&previous, &over_selection, &over_index),
+                witness_claims(&previous, &flat_selection, &flat_index)
+            );
+            assert_eq!(
+                fresh_finalized(&over_selection, &previous),
+                fresh_finalized(&flat_selection, &previous)
+            );
+            let inherited = |block: &CertifiedBlock, entry| {
+                report_service::inherited_from(&previous, block, entry)
+            };
+            assert_eq!(
+                manifest_claims(epoch2, &over_selection, &inherited),
+                manifest_claims(epoch2, &flat_selection, &inherited)
+            );
+            for ((over, residual), (flat, _)) in over.iter().zip(&flat) {
+                assert_eq!(
+                    well_formed(over, residual, Some(&previous)),
+                    well_formed(flat, residual, Some(&previous))
+                );
+                let check = |certified: &CertifiedState, only: Option<&[BlockHash]>| {
+                    unjustified(
+                        epoch2,
+                        certified,
+                        residual,
+                        only,
+                        &|epoch, hashes| {
+                            Some(
+                                hashes
+                                    .iter()
+                                    .map(|hash| {
+                                        let byte = hash.as_bytes()[31] as u64 + epoch.as_u64();
+                                        CertificateKinds {
+                                            notarization: byte % 2 == 0,
+                                            finalization: byte % 5 == 0,
+                                            fast: byte % 7 == 0,
+                                        }
+                                    })
+                                    .collect(),
+                            )
+                        },
+                        &inherited,
+                        &|votes| {
+                            votes
+                                .iter()
+                                .map(|(hash, _)| hash.as_bytes()[30] % 2 == 0)
+                                .collect()
+                        },
+                        &|block, _| block.hash.as_bytes()[31] % 4 != 0,
+                    )
+                    .map(|mut missing| {
+                        missing.sort();
+                        missing
+                    })
+                };
+                assert_eq!(check(over, None), check(flat, None), "seed {seed}");
+                let only: Vec<BlockHash> = tree.keys().copied().step_by(2).collect();
+                assert_eq!(
+                    check(over, Some(&only)),
+                    check(flat, Some(&only)),
+                    "seed {seed}"
+                );
+            }
+        }
+        assert!(compared > 50, "only {compared} derivations compared");
+        assert!(
+            locked > 20,
+            "only {locked} predecessors with notarization locks"
+        );
+    }
+
     /// Every entry counts as justified: the evidence check is tested apart
     fn trust_all(exchange: &mut ReportExchange, epoch: ConsensusEpoch) {
         exchange.verify(epoch, Timestamp::new_test_instance(), |_, _, _, _| {
@@ -1958,4 +2157,144 @@ mod tests {
     /* Test helpers */
 
     const EPOCH: ConsensusEpoch = ConsensusEpoch::new(1);
+
+    /// A deterministic xorshift generator
+    struct Rng(u64);
+
+    impl Rng {
+        fn below(&mut self, bound: u64) -> u64 {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 7;
+            self.0 ^= self.0 << 17;
+            self.0 % bound
+        }
+    }
+
+    /// Four accounts, four heights, one or two blocks at each position, each
+    /// continuing one of the blocks below it: forks with descendants
+    fn random_tree(rng: &mut Rng) -> BTreeMap<BlockHash, (CertifiedBlock, BlockHash)> {
+        let mut tree = BTreeMap::new();
+        let mut next = 1u64;
+        for account in 1..=4u64 {
+            let mut below: Vec<BlockHash> = vec![BlockHash::ZERO];
+            for height in 1..=4u64 {
+                let mut here = Vec::new();
+                for _ in 0..1 + rng.below(2) {
+                    let previous = below[rng.below(below.len() as u64) as usize];
+                    let hash = BlockHash::from(next * 1_000_003);
+                    next += 1;
+                    tree.insert(
+                        hash,
+                        (
+                            CertifiedBlock::new(Account::from(account), height, hash),
+                            previous,
+                        ),
+                    );
+                    here.push(hash);
+                }
+                below = here;
+            }
+        }
+        tree
+    }
+
+    /// The branch every account's finality follows: from a block at the top
+    /// height down its parents
+    fn true_chains(
+        rng: &mut Rng,
+        tree: &BTreeMap<BlockHash, (CertifiedBlock, BlockHash)>,
+    ) -> Vec<Vec<(CertifiedBlock, BlockHash)>> {
+        (1..=4u64)
+            .map(|account| {
+                let tops: Vec<_> = tree
+                    .values()
+                    .filter(|(block, _)| {
+                        block.account == Account::from(account) && block.height == 4
+                    })
+                    .collect();
+                let mut chain = Vec::new();
+                let mut current = *tops[rng.below(tops.len() as u64) as usize];
+                loop {
+                    chain.push(current);
+                    let Some(parent) = tree.get(&current.1) else {
+                        break;
+                    };
+                    current = *parent;
+                }
+                chain.reverse();
+                chain
+            })
+            .collect()
+    }
+
+    /// A correct reporter's certified state, starting from `start`: the true
+    /// chain of every account finalized up to a height at least `floor`, the
+    /// block above notarized or not; and its first votes, on any branch,
+    /// for what that state does not summarize
+    fn random_report(
+        rng: &mut Rng,
+        tree: &BTreeMap<BlockHash, (CertifiedBlock, BlockHash)>,
+        chains: &[Vec<(CertifiedBlock, BlockHash)>],
+        floor: u64,
+        start: CertifiedState,
+    ) -> (CertifiedState, ResidualVotes) {
+        let mut certified = start;
+        for chain in chains {
+            let finalized = floor + rng.below(5 - floor);
+            for (block, previous) in chain.iter().take(finalized as usize) {
+                certified.certify(*block, *previous, CertifiedStatus::Finalized);
+            }
+            // Notarized: the block above the finalized tip, or one with a gap
+            // below it, which no promotion turns into finality
+            let above = finalized + rng.below(2);
+            if let Some((block, previous)) = chain.get(above as usize)
+                && rng.below(3) != 0
+            {
+                certified.certify(*block, *previous, CertifiedStatus::Notarized);
+            }
+            // Rarely, a rival notarized at a position of the chain
+            if rng.below(6) == 0 {
+                let height = 1 + rng.below(4);
+                let rivals: Vec<_> = tree
+                    .values()
+                    .filter(|(block, _)| {
+                        block.account == chain[0].0.account
+                            && block.height == height
+                            && block.hash != chain[height as usize - 1].0.hash
+                    })
+                    .collect();
+                if let Some((block, previous)) = rivals.first() {
+                    certified.certify(*block, *previous, CertifiedStatus::Notarized);
+                }
+            }
+        }
+        // Rarely, a reconstruction that lost an entry of the base
+        if rng.below(8) == 0
+            && let Some((block, _)) = certified.entries().nth(rng.below(4) as usize)
+        {
+            let block = *block;
+            certified.remove(&block);
+        }
+        certified.project_final_prefixes();
+        let mut residual = ResidualVotes::new();
+        for (block, previous) in tree.values() {
+            if !certified.contains_hash(&block.hash) && rng.below(3) == 0 {
+                residual.record(*block, *previous, ResidualKind::First);
+            }
+        }
+        (certified, residual)
+    }
+
+    fn selected(reports: &[(CertifiedState, ResidualVotes)]) -> Vec<SelectedReport<'_>> {
+        reports
+            .iter()
+            .enumerate()
+            .map(|(i, (certified, residual))| SelectedReport {
+                reporter: PrivateKey::from(i as u64 + 1).public_key(),
+                weight: rsnano_types::Amount::raw(10),
+                certified,
+                residual,
+            })
+            .collect()
+    }
 }

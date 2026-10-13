@@ -22,7 +22,8 @@ pub fn fresh_finalized(
 ) -> Vec<FreshFinalized> {
     let mut fresh = BTreeSet::new();
     for report in selection {
-        for (block, entry) in report.certified.entries() {
+        // The finalized entries of the inherited base are finalized in it
+        for (block, entry) in report.certified.changed_entries() {
             if entry.status != CertifiedStatus::Finalized {
                 continue;
             }

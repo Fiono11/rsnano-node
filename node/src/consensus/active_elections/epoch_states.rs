@@ -69,6 +69,9 @@ pub(crate) struct EpochStates {
     instances: HashMap<BlockHash, Vec<Arc<FinalizedInstance>>>,
     /// The block finalized at each position
     by_slot: HashMap<(Account, u64), BlockHash>,
+    /// The instances finalized in each epoch, in the order recorded: what
+    /// the epoch's queries read without going through every older epoch
+    per_epoch: BTreeMap<ConsensusEpoch, Vec<Arc<FinalizedInstance>>>,
     len: usize,
 }
 
@@ -89,6 +92,10 @@ impl EpochStates {
                 .or_default()
                 .push(instance.clone());
         }
+        self.per_epoch
+            .entry(instance.epoch)
+            .or_default()
+            .push(instance.clone());
         self.len += 1;
     }
 
@@ -150,19 +157,17 @@ impl EpochStates {
     pub fn finalized_blocks_in(&self, epoch: ConsensusEpoch) -> Vec<FinalizedBlock> {
         let mut blocks: Vec<FinalizedBlock> = Vec::new();
         let mut seen: HashSet<FinalizedBlock> = HashSet::new();
-        for instances in self.instances.values() {
-            for instance in instances.iter().filter(|i| i.epoch == epoch) {
-                let Some(delegation) = instance.delegation else {
-                    continue;
-                };
-                let entry = FinalizedBlock {
-                    account: instance.account,
-                    height: instance.height,
-                    delegation,
-                };
-                if seen.insert(entry) {
-                    blocks.push(entry);
-                }
+        for instance in self.epoch_instances(epoch) {
+            let Some(delegation) = instance.delegation else {
+                continue;
+            };
+            let entry = FinalizedBlock {
+                account: instance.account,
+                height: instance.height,
+                delegation,
+            };
+            if seen.insert(entry) {
+                blocks.push(entry);
             }
         }
         blocks
@@ -170,26 +175,38 @@ impl EpochStates {
 
     /// The blocks finalized in the given epoch, as (account, height, hash)
     pub fn finalized_in(&self, epoch: ConsensusEpoch) -> Vec<(Account, u64, BlockHash)> {
-        self.instances
-            .iter()
-            .filter_map(|(hash, instances)| {
-                instances
-                    .iter()
-                    .find(|i| i.epoch == epoch && i.winner == *hash)
-                    .map(|i| (i.account, i.height, i.winner))
-            })
+        self.epoch_instances(epoch)
+            .map(|i| (i.account, i.height, i.winner))
             .collect()
+    }
+
+    /// Every instance finalized in the epoch, one per winner
+    fn epoch_instances(&self, epoch: ConsensusEpoch) -> impl Iterator<Item = &FinalizedInstance> {
+        self.per_epoch
+            .get(&epoch)
+            .into_iter()
+            .flatten()
+            .map(|instance| instance.as_ref())
+    }
+
+    /// The instance `instances_through` gives for a block: the first one
+    /// recorded, of the epoch or an older one, that the block won
+    pub fn first_won_through(
+        &self,
+        hash: &BlockHash,
+        epoch: ConsensusEpoch,
+    ) -> Option<&FinalizedInstance> {
+        self.instances
+            .get(hash)?
+            .iter()
+            .find(|i| i.epoch <= epoch && i.winner == *hash)
+            .map(|i| i.as_ref())
     }
 
     /// RAI: the instances of one epoch which finalized and left the AEC
     #[allow(dead_code)] // the RAI epoch decision uses these
     pub fn instances_of(&self, epoch: ConsensusEpoch) -> impl Iterator<Item = &FinalizedInstance> {
-        self.instances.iter().filter_map(move |(hash, instances)| {
-            instances
-                .iter()
-                .find(|i| i.epoch == epoch && i.winner == *hash)
-                .map(|i| i.as_ref())
-        })
+        self.epoch_instances(epoch)
     }
 
     /// RAI: finality already known from this epoch or an older one, never

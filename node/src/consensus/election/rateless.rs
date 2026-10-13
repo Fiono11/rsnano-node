@@ -203,10 +203,16 @@ pub struct Encoder {
 
 impl Encoder {
     pub fn new(items: impl IntoIterator<Item = Item>) -> Self {
+        Self::signed(items.into_iter().map(|item| (item, 1)))
+    }
+
+    /// The symbols of a signed set: each item counted +1 or -1, as the
+    /// changes of a state over a shared base are
+    pub fn signed(items: impl IntoIterator<Item = (Item, i64)>) -> Self {
         let mut window = Window::default();
-        for item in items {
+        for (item, direction) in items {
             let (_, seed) = item_hash(&item);
-            window.push(item, 1, Mapping::new(seed));
+            window.push(item, direction, Mapping::new(seed));
         }
         Self {
             window,
@@ -257,8 +263,15 @@ pub struct Decoder {
 
 impl Decoder {
     pub fn new(local: impl IntoIterator<Item = Item>) -> Self {
+        Self::signed(local.into_iter().map(|item| (item, 1)))
+    }
+
+    /// Decodes against a signed local set (see `Encoder::signed`): the
+    /// difference of two signed sets over one base is the difference of the
+    /// sets themselves
+    pub fn signed(local: impl IntoIterator<Item = (Item, i64)>) -> Self {
         Self {
-            local: Encoder::new(local),
+            local: Encoder::signed(local),
             cells: Vec::new(),
             recovered: Window::default(),
             seen: HashSet::new(),

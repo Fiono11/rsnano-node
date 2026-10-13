@@ -693,7 +693,8 @@ impl ReportIndex {
             placements.insert(hash, placement);
         }
         for report in selection {
-            for (block, entry) in report.certified.entries() {
+            // The inherited base's entries are placed as the predecessor's
+            for (block, entry) in report.certified.changed_entries() {
                 placements.entry(block.hash).or_insert(BlockPlacement {
                     slot: AccountSlot::new(block.account, block.height),
                     previous: entry.previous,
@@ -796,7 +797,9 @@ pub fn build_state(
     let eligible = |_: AccountSlot, hash: BlockHash| !ineligible.contains(&hash);
     let mut evidence: BTreeMap<AccountSlot, Evidence> = BTreeMap::new();
     for report in selection {
-        for (block, entry) in report.certified.entries() {
+        // Of the inherited base only the locks take part: its finalized
+        // entries restate finality `ledger` starts from
+        for (block, entry) in report.certified.changed_or_unfinalized() {
             let slot = AccountSlot::new(block.account, block.height);
             if index.placement(&block.hash)
                 != Some(BlockPlacement {
@@ -934,7 +937,9 @@ pub fn build_state(
 fn named_blocks(selection: &[SelectedReport]) -> BTreeSet<(AccountSlot, BlockHash)> {
     let mut named = BTreeSet::new();
     for report in selection {
-        for (block, _) in report.certified.entries() {
+        // An inherited finalized block bypasses no record: the predecessor
+        // keeps no branch incompatible with its finality
+        for (block, _) in report.certified.changed_or_unfinalized() {
             named.insert((AccountSlot::new(block.account, block.height), block.hash));
         }
         for (block, _, _) in report.residual.entries() {

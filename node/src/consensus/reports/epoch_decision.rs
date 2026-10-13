@@ -26,9 +26,10 @@ use crate::{
         AecService,
         active_elections::EpochProposalContext,
         election::{
-            AccountSlot, BlockIndex, BuildRules, Committee, EpochLedger, EpochValue, Manifest,
-            ManifestAssembly, MemberOrder, ReportIndex, ReportRef, ReportSource, SelectedReport,
-            fresh_finalized, overlap_certified, overlap_claims, witness_claims,
+            AccountSlot, BlockIndex, BuildRules, CertifiedState, Committee, EpochLedger,
+            EpochValue, Manifest, ManifestAssembly, MemberOrder, ReportIndex, ReportRef,
+            ReportSource, SelectedReport, build_state, fresh_finalized, overlap_certified,
+            overlap_claims, witness_claims,
         },
     },
     transport::MessageFlooder,
@@ -704,6 +705,17 @@ impl EpochDecisionService {
                     committed.as_millis(),
                     (started.elapsed() - committed).as_millis()
                 );
+                if delta_check_enabled() {
+                    check_reports_flat(
+                        value.epoch,
+                        &previous,
+                        &states,
+                        anchor.as_deref(),
+                        &ledger,
+                        rules,
+                        &witness,
+                    );
+                }
                 Validation::Accepted(value.hash(), Arc::new(ledger))
             }
             Err(error) => {
@@ -1286,6 +1298,58 @@ impl ReportSource for UsableReports<'_> {
 
 /// RAI: whether a manifest holds an exclusion witness for a block in an
 /// epoch, counted in the committee that issued that epoch's votes
+/// RAI evaluation, `RAI_DELTA_CHECK=1`: whether every validation also
+/// derives from flat copies of the selected reports (see
+/// `check_reports_flat`)
+fn delta_check_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var("RAI_DELTA_CHECK").is_ok_and(|value| value == "1"))
+}
+
+/// RAI evaluation: the reports laid over the inherited base are checked
+/// and derived from by their changes alone. This derives the same value from
+/// flat copies of them, which every check reads in full, and says whether
+/// the state and the evidence claims agree.
+fn check_reports_flat(
+    epoch: ConsensusEpoch,
+    previous: &EpochLedger,
+    states: &[SelectedReport],
+    anchor: Option<&EpochLedger>,
+    derived: &EpochLedger,
+    rules: BuildRules,
+    witness: &dyn Fn(ConsensusEpoch, &BlockHash) -> bool,
+) {
+    let flat: Vec<CertifiedState> = states
+        .iter()
+        .map(|state| state.certified.flattened())
+        .collect();
+    let flat_states: Vec<SelectedReport> = states
+        .iter()
+        .zip(&flat)
+        .map(|(state, certified)| SelectedReport {
+            certified,
+            ..*state
+        })
+        .collect();
+    let index = ReportIndex::new(previous, states);
+    let flat_index = ReportIndex::new(previous, &flat_states);
+    let state_agrees = build_state(previous, &flat_states, &flat_index, rules, witness)
+        .is_ok_and(|ledger| ledger == *derived);
+    let claims_agree = candidate_claims(epoch, states, previous, anchor, &index)
+        == candidate_claims(epoch, &flat_states, previous, anchor, &flat_index);
+    diagnostic!(
+        "REPORT_DELTA_CHECK epoch={} reports={} changed={} state_agrees={} claims_agree={}",
+        epoch,
+        states.len(),
+        states
+            .iter()
+            .map(|state| state.certified.changed_entries().count())
+            .sum::<usize>(),
+        state_agrees,
+        claims_agree
+    );
+}
+
 fn manifest_witness(
     manifest: &Manifest,
     members: &EpochMembers,

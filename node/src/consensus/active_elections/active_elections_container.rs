@@ -308,7 +308,7 @@ impl ActiveElectionsContainer {
                 .set_genesis(self.genesis_state.state_hash());
             self.report_bases.insert(
                 ConsensusEpoch::ZERO,
-                Arc::new(self.genesis_state.report_ledger()),
+                Arc::new(projected_base(self.genesis_state.report_ledger())),
             );
             self.epoch_origin = Some(now);
             self.epoch_ends_at = self.next_boundary(now);
@@ -1428,8 +1428,10 @@ impl ActiveElectionsContainer {
         }
         self.decided.insert(epoch, state.clone());
         self.checkpoint_bases.insert(epoch, state.state_hash());
-        self.report_bases
-            .insert(epoch.next(), Arc::new(state.report_ledger()));
+        self.report_bases.insert(
+            epoch.next(),
+            Arc::new(projected_base(state.report_ledger())),
+        );
         self.report_bases
             .retain(|held, _| held.as_u64() + Self::VOTE_RECORD_EPOCHS_KEPT > epoch.as_u64());
         self.stats.epochs_closed += 1;
@@ -2086,17 +2088,32 @@ impl ActiveElectionsContainer {
         // certificate that finalized it. The parent goes with it: an epoch
         // derivation places a candidate by the branch it continues, and two
         // blocks at one slot are told apart by nothing else.
-        let finalized = self
+        // One instance per block, the first it won in this epoch or an
+        // older one. An older one counts only where the base holds its
+        // block, and only unfinalized there, so the base's few retained
+        // positions are looked up, not the whole history
+        let base = self.report_bases.get(&epoch);
+        let first = |hash: &BlockHash| self.epoch_states.first_won_through(hash, epoch);
+        let item = |instance: &FinalizedInstance| {
+            (
+                CertifiedBlock::new(instance.account, instance.height, instance.winner),
+                instance.root.previous,
+                instance.epoch == epoch,
+            )
+        };
+        let mut finalized: Vec<_> = self
             .epoch_states
-            .instances_through(epoch)
-            .map(|instance| {
-                (
-                    CertifiedBlock::new(instance.account, instance.height, instance.winner),
-                    instance.root.previous,
-                    instance.epoch == epoch,
-                )
-            })
+            .instances_of(epoch)
+            .filter_map(|instance| first(&instance.winner))
+            .map(item)
             .collect();
+        for (block, _) in base.into_iter().flat_map(|base| base.unfinalized()) {
+            if let Some(instance) = first(&block.hash)
+                && instance.epoch != epoch
+            {
+                finalized.push(item(instance));
+            }
+        }
         // What the instances still in the AEC have certified
         let mut live = Vec::new();
         for election in self.roots.iter().map(|entry| &entry.election) {
@@ -2114,7 +2131,7 @@ impl ActiveElectionsContainer {
             }
         }
         EpochCertifiedParts {
-            base: self.report_bases.get(&epoch).cloned(),
+            base: base.cloned(),
             finalized,
             live,
         }
@@ -2597,7 +2614,7 @@ impl ActiveElectionsContainer {
         self.epoch_origin = now.checked_sub(since_origin);
         self.report_bases.insert(
             ConsensusEpoch::ZERO,
-            Arc::new(self.genesis_state.report_ledger()),
+            Arc::new(projected_base(self.genesis_state.report_ledger())),
         );
         let mut decided = decided;
         decided.sort_by_key(|record| record.epoch);
@@ -2606,8 +2623,10 @@ impl ActiveElectionsContainer {
                 self.log_committee(&epoch.to_string(), &committee);
             }
             if let Some(state) = record.state {
-                self.report_bases
-                    .insert(record.epoch.next(), Arc::new(state.report_ledger()));
+                self.report_bases.insert(
+                    record.epoch.next(),
+                    Arc::new(projected_base(state.report_ledger())),
+                );
                 self.checkpoint_bases
                     .insert(record.epoch, state.state_hash());
                 self.decided.insert(record.epoch, state);
@@ -3988,7 +4007,7 @@ impl ActiveElectionsContainer {
         crate::consensus::election::CertifiedState,
         crate::consensus::election::ResidualVotes,
     ) {
-        Self::complete_report_on(self.report_base(epoch).as_deref(), certified, residual)
+        Self::complete_report_on(self.report_base(epoch).as_ref(), certified, residual)
     }
 
     /// RAI: the inherited part of an epoch's report, if its predecessor is
@@ -4004,7 +4023,7 @@ impl ActiveElectionsContainer {
     /// certificates on top. It copies the whole base, so it is built
     /// outside the AEC's lock (`AecService::complete_report`)
     pub fn complete_report_on(
-        base: Option<&crate::consensus::election::CertifiedState>,
+        base: Option<&Arc<crate::consensus::election::CertifiedState>>,
         certified: &crate::consensus::election::CertifiedState,
         residual: &crate::consensus::election::ResidualVotes,
     ) -> (
@@ -4012,7 +4031,9 @@ impl ActiveElectionsContainer {
         crate::consensus::election::ResidualVotes,
     ) {
         use crate::consensus::election::ResidualVotes;
-        let mut complete = base.cloned().unwrap_or_default();
+        let mut complete = base
+            .map(crate::consensus::election::CertifiedState::over)
+            .unwrap_or_default();
         for (block, entry) in certified.entries() {
             complete.certify(*block, entry.previous, entry.status);
         }
@@ -4422,7 +4443,8 @@ impl EpochCertifiedParts {
         use crate::consensus::election::{CertifiedState, CertifiedStatus};
         let mut certified = self
             .base
-            .map(|base| (*base).clone())
+            .as_ref()
+            .map(CertifiedState::over)
             .unwrap_or_else(CertifiedState::new);
         // Late finality of a position an older epoch left retained is
         // carried too, but never another older block, and never successor
@@ -4441,6 +4463,24 @@ impl EpochCertifiedParts {
         certified.project_final_prefixes();
         certified
     }
+}
+
+/// RAI: an epoch's inherited report base. A decided state finalizes whole
+/// prefixes and keeps no rival of a finalized block, so its report ledger is
+/// its own prefix projection; marked as such, every report laid over it
+/// projects only what it changes. A base the projection would change is
+/// kept as it is, and reports over it project in full.
+fn projected_base(
+    base: crate::consensus::election::CertifiedState,
+) -> crate::consensus::election::CertifiedState {
+    let (base, projected) = base.into_report_base();
+    #[cfg(feature = "rai_protocol")]
+    if !projected {
+        diagnostic!("REPORT_BASE_UNPROJECTED entries={}", base.len());
+    }
+    #[cfg(not(feature = "rai_protocol"))]
+    let _ = projected;
+    base
 }
 
 /// RAI evaluation: the round-robin order rotated so that `first` leads

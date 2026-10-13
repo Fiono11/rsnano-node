@@ -157,12 +157,17 @@ impl ReportService {
     pub fn restore_reports(&self, records: Vec<crate::consensus::ReportRecord>) {
         let mut exchange = self.exchange.lock().unwrap();
         for record in records {
-            exchange.restore_signed(
-                record.epoch,
-                record.signed,
-                record.certified,
-                record.residual,
-            );
+            // Persisted as changes: laid over the inherited base again,
+            // which the decided states restored before the reports give
+            let certified = match &record.certified_changes {
+                Some(changes) => self
+                    .active_elections
+                    .report_base(record.epoch)
+                    .and_then(|base| CertifiedState::with_changes(&base, changes))
+                    .unwrap_or_default(),
+                None => record.certified,
+            };
+            exchange.restore_signed(record.epoch, record.signed, certified, record.residual);
         }
     }
 
@@ -250,6 +255,7 @@ impl ReportService {
                 .collect(),
             certified: certified_state,
             residual: residual_votes,
+            certified_changes: None,
         });
         crate::utils::diagnostic!(
             "EPOCH_REPORT epoch={} certified={} residual={} root={} reports={}",

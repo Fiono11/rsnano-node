@@ -11,6 +11,14 @@ pub enum ReportSet {
     Certified,
     /// The residual vote records, signed as the report's residual root
     Residual,
+    /// The certified state as what it changes over the inherited base, the
+    /// report ledger of the predecessor checkpoint every report of the epoch
+    /// is laid over: an entry the base lacks counted once, an entry of the
+    /// base the state lacks counted minus once. Two states over the same base
+    /// differ exactly where their changes do, so the stream costs what the
+    /// epoch changed, not the history. Asked only by a node that holds the
+    /// base; signed with the same certified root.
+    CertifiedChanges,
 }
 
 impl ReportSet {
@@ -18,6 +26,7 @@ impl ReportSet {
         match self {
             ReportSet::Certified => 0,
             ReportSet::Residual => 1,
+            ReportSet::CertifiedChanges => 2,
         }
     }
 
@@ -25,6 +34,7 @@ impl ReportSet {
         match byte {
             0 => Ok(ReportSet::Certified),
             1 => Ok(ReportSet::Residual),
+            2 => Ok(ReportSet::CertifiedChanges),
             _ => Err(DeserializationError::InvalidData),
         }
     }

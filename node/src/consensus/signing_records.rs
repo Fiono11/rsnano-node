@@ -35,8 +35,12 @@ pub struct CloseRecord {
 pub struct ReportRecord {
     pub epoch: ConsensusEpoch,
     pub signed: Vec<Report>,
+    /// The certified state; restored empty when it was persisted as changes
     pub certified: CertifiedState,
     pub residual: ResidualVotes,
+    /// Restored only: the certified state persisted as its changes over the
+    /// inherited base, which the restorer lays them over again
+    pub certified_changes: Option<Vec<(Item, i64)>>,
 }
 
 /// RAI, overlap certificates as retained evidence: the signed votes for
@@ -173,6 +177,8 @@ const PARENT: u8 = b'P';
 const FROZEN: u8 = b'F';
 const REPORT: u8 = b'R';
 const CERTIFIED: u8 = b'T';
+/// A certified state as its changes over the inherited base
+const CERTIFIED_CHANGES: u8 = b'U';
 const RESIDUAL: u8 = b'G';
 const EVIDENCE: u8 = b'E';
 const EVIDENCE_VOTE: u8 = b'V';
@@ -287,11 +293,20 @@ impl SigningRecords {
                 &epoch_key(REPORT, record.epoch),
                 &encode_headers(&record.signed),
             );
-            store.put(
-                &mut txn,
-                &epoch_key(CERTIFIED, record.epoch),
-                &encode_items(record.certified.items()),
-            );
+            // Over the inherited base only the changes are written: the base
+            // is the predecessor checkpoint's, restored before the report
+            match record.certified.base() {
+                Some(base) => store.put(
+                    &mut txn,
+                    &epoch_key(CERTIFIED_CHANGES, record.epoch),
+                    &encode_signed_items(&record.certified.changed_items(base)),
+                ),
+                None => store.put(
+                    &mut txn,
+                    &epoch_key(CERTIFIED, record.epoch),
+                    &encode_items(record.certified.items()),
+                ),
+            }
             store.put(
                 &mut txn,
                 &epoch_key(RESIDUAL, record.epoch),
@@ -447,7 +462,7 @@ impl SigningRecords {
                 .map(|(key, _)| key)
                 .filter(|key| decode_slot_key(key).is_some_and(|slot| slot.epoch < epoch))
                 .chain(
-                    [FROZEN, REPORT, CERTIFIED, RESIDUAL]
+                    [FROZEN, REPORT, CERTIFIED, CERTIFIED_CHANGES, RESIDUAL]
                         .into_iter()
                         .flat_map(|prefix| store.with_prefix(&txn, &[prefix]))
                         .map(|(key, _)| key)
@@ -545,11 +560,15 @@ impl SigningRecords {
                     votes
                 })
                 .unwrap_or_default();
+            let certified_changes = store
+                .get(&txn, &epoch_key(CERTIFIED_CHANGES, epoch))
+                .and_then(|bytes| decode_signed_items(&bytes));
             recovered.reports.push(ReportRecord {
                 epoch,
                 signed,
                 certified,
                 residual,
+                certified_changes,
             });
         }
         let mut votes: std::collections::HashMap<Vec<u8>, Arc<Vote>> =
@@ -952,6 +971,35 @@ fn encode_items(items: impl Iterator<Item = Item>) -> Vec<u8> {
     bytes
 }
 
+/// Items each followed by its direction, 1 for +1 and 0 for -1
+fn encode_signed_items(items: &[(Item, i64)]) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(items.len() * (std::mem::size_of::<Item>() + 1));
+    for (item, direction) in items {
+        bytes.extend_from_slice(item);
+        bytes.push((*direction > 0) as u8);
+    }
+    bytes
+}
+
+fn decode_signed_items(bytes: &[u8]) -> Option<Vec<(Item, i64)>> {
+    let size = std::mem::size_of::<Item>() + 1;
+    if bytes.len() % size != 0 {
+        return None;
+    }
+    bytes
+        .chunks_exact(size)
+        .map(|chunk| {
+            let mut item: Item = [0; std::mem::size_of::<Item>()];
+            item.copy_from_slice(&chunk[..size - 1]);
+            match chunk[size - 1] {
+                0 => Some((item, -1)),
+                1 => Some((item, 1)),
+                _ => None,
+            }
+        })
+        .collect()
+}
+
 fn decode_items(bytes: &[u8]) -> Option<Vec<Item>> {
     let size = std::mem::size_of::<Item>();
     if bytes.len() % size != 0 {
@@ -1222,11 +1270,51 @@ mod tests {
             signed: vec![report],
             certified,
             residual,
+            certified_changes: None,
         };
         records.write_report(&record);
 
         let recovered = records.load();
         assert_eq!(recovered.reports, vec![record]);
+    }
+
+    /// A report laid over the inherited base is persisted as its changes,
+    /// a removed inherited entry included, and rebuilt over the same base
+    #[test]
+    fn a_report_over_the_inherited_base_is_persisted_as_its_changes() {
+        let records = SigningRecords::new_null();
+        let block = |i: u64| CertifiedBlock::new(Account::from(i), 1, BlockHash::from(i + 100));
+        let mut inherited = CertifiedState::new();
+        for i in 1..=50 {
+            inherited.certify(block(i), BlockHash::ZERO, CertifiedStatus::Finalized);
+        }
+        let base = Arc::new(inherited);
+        let mut certified = CertifiedState::over(&base);
+        certified.certify(block(60), BlockHash::ZERO, CertifiedStatus::Notarized);
+        certified.remove(&block(7));
+        let report = Report::new(
+            &PrivateKey::from(1),
+            ConsensusEpoch::new(4),
+            BlockHash::from(9),
+            BlockHash::from(8),
+            certified.root(),
+            ResidualVotes::new().root(),
+            BlockHash::from(99),
+        );
+        records.write_report(&ReportRecord {
+            epoch: ConsensusEpoch::new(4),
+            signed: vec![report],
+            certified: certified.clone(),
+            residual: ResidualVotes::new(),
+            certified_changes: None,
+        });
+
+        let recovered = records.load().reports.remove(0);
+        let changes = recovered.certified_changes.unwrap();
+        assert_eq!(changes.len(), 2);
+        let rebuilt = CertifiedState::with_changes(&base, &changes).unwrap();
+        assert_eq!(rebuilt, certified);
+        assert_eq!(rebuilt.root(), certified.root());
     }
 
     #[test]
