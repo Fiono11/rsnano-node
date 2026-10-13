@@ -1,0 +1,76 @@
+% The evaluation's three figures; data in sections/eval-data/paper
+% (tools/paper_figures.py from the 'paper' set of tools/rai/run_sweep.py).
+\pgfplotsset{
+  paperaxis/.style={tick label style={font=\scriptsize},label style={font=\scriptsize},title style={font=\scriptsize,yshift=-1.5mm},
+    ymajorgrids,grid style={gray!25},unbounded coords=jump,every axis plot/.append style={line width=0.6pt}},
+  timeaxis/.style={paperaxis,xmin=0,xmax=50,ymin=0,ymax=2500,ytick={0,1000,2000},yticklabels={0,1k,2k},
+    restrict y to domain*=0:2500,no markers},
+}
+\newcommand{\paperdata}[1]{sections/eval-data/paper/#1.dat}
+% One timeline panel: #1 scenario, #2 system, #3 color. The close windows
+% are shaded, the system's non-fork confirmations per second drawn on top
+\newcommand{\timeline}[3]{%
+  \addplot[fill=#3!18,draw=none] table[x=t,y expr=\thisrow{y}*2500] {\paperdata{closes-#1-#2}} \closedcycle;
+  \addplot[color=#3,line width=0.7pt] table[x=t,y=confirmed] {\paperdata{timeline-#1-#2}};
+}
+
+\begin{figure*}[t]
+\centering
+\begin{tikzpicture}
+\begin{groupplot}[group style={group size=2 by 2,horizontal sep=5mm,vertical sep=3mm,xticklabels at=edge bottom,yticklabels at=edge left},
+  timeaxis,width=0.52\textwidth,height=3.1cm]
+\nextgroupplot[title={5\% forks},ylabel={RAI\\ confirmed/s},ylabel style={align=center}]
+\timeline{fork5-grace}{rai}{cRai}
+\nextgroupplot[title={5\% forks, Byzantine leader in every close}]
+\timeline{fork5-byzlead-grace}{rai}{cRai}
+\nextgroupplot[ylabel={pause\\ confirmed/s},ylabel style={align=center},xlabel={time since the first block was published (s)}]
+\timeline{fork5-grace}{pause}{cPause}
+\nextgroupplot[xlabel={time since the first block was published (s)}]
+\timeline{fork5-byzlead-grace}{pause}{cPause}
+\end{groupplot}
+\end{tikzpicture}
+\caption{Non-fork blocks confirmed per second at an offered load of 1{,}000 blocks/s; shaded: an epoch is closing (from the first validator leaving it to the last one seeing its checkpoint decided). Pause confirms nothing until the checkpoint is decided, then catches up in a burst; RAI keeps confirming through every close. A Byzantine validator that leads the first round of every close and stays silent makes each close wait for the round timeout, which stops pause for longer and does not stop RAI. One run each.}
+\label{fig:eval-timeline}
+\end{figure*}
+
+% Latency bars: #1 system, #2 color, #3 shift. The p95 bar is drawn hollow,
+% the p50 bar filled inside it
+\newcommand{\latencybars}[3]{%
+  \addplot[ybar,bar width=7pt,bar shift=#3,draw=#2,fill=white,line width=0.6pt,forget plot] table[x=x,y=p95] {\paperdata{latency-#1}};
+  \addplot[ybar,bar width=7pt,bar shift=#3,draw=#2,fill=#2,line width=0.6pt,area legend] table[x=x,y=p50] {\paperdata{latency-#1}};
+}
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[paperaxis,width=\columnwidth,height=4.6cm,ymode=log,log origin=infty,ymin=50,ymax=20000,
+  ytick={50,100,200,500,1000,2000,5000,10000,20000},yticklabels={50,100,200,500,1k,2k,5k,10k,20k},
+  ylabel={non-fork latency (ms)},xmin=-0.5,xmax=3.5,xtick={0,1,2,3},
+  xticklabels={no forks,5\% forks,10\% forks,{5\% forks,\\ Byz.\ leader}},x tick label style={align=center},
+  legend style={font=\scriptsize,draw=none,fill=none,at={(0.02,0.98)},anchor=north west},legend columns=3]
+\latencybars{rai}{cRai}{-8pt}
+\latencybars{pause}{cPause}{0pt}
+\latencybars{develop}{cNano}{8pt}
+\legend{RAI,pause,Nano}
+\end{axis}
+\end{tikzpicture}
+\caption{Median (filled) and 95th-percentile (outline) latency of non-fork blocks at 1{,}000 blocks/s, one run each.}
+\label{fig:eval-latency}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[paperaxis,width=\columnwidth,height=4.2cm,xmode=log,xmin=0.25,xmax=500,ymin=0,ymax=3500,
+  xtick={0.5,1,2,5,10,20,50,100,200,500},xticklabels={0.5,1,2,5,10,20,50,100,200,500},
+  ytick={0,1000,2000,3000},yticklabels={0,1k,2k,3k},xmajorgrids,
+  xlabel={time since the load ended (s, log scale)},ylabel={blocks not yet final},
+  legend style={font=\scriptsize,draw=none,fill=none},legend pos=north west,no markers]
+\addplot[color=cRai,line width=0.8pt] table[x=t,y=open] {\paperdata{forks-rai}};
+\addplot[color=cPause,line width=0.8pt,densely dashed] table[x=t,y=open] {\paperdata{forks-pause}};
+\addplot[color=cNano,line width=0.8pt] table[x=t,y=open] {\paperdata{forks-develop}};
+\legend{RAI,pause,Nano}
+\end{axis}
+\end{tikzpicture}
+\caption{Blocks not yet final on the validator with the most of them, after the load of 10\% forks at 1{,}000 blocks/s ended (one run each): forked positions and the blocks behind them. RAI and pause finalize all of them within 12\,s, identically on every validator. Nano still has 3{,}311 open when its client stops waiting, 80\,s after the load, and stops making progress with 8 to 81 open, a different number on each validator.}
+\label{fig:eval-forks}
+\end{figure}
