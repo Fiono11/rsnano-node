@@ -16,6 +16,7 @@ use rsnano_utils::stats::{DetailType, Direction, StatType, Stats};
 
 use super::{
     ReportExchange,
+    certificate_memo::CertificateMemo,
     checkpoint_fetch::{CheckpointFetch, checkpoint_bytes},
     chunk_window::ChunkWindow,
     close_memo::{CloseMemo, MemoMiss, PreparedClose},
@@ -176,6 +177,9 @@ struct Derivation<'m, 'r> {
 /// named, which is a public function of evidence every replica can obtain.
 pub struct EpochDecisionService {
     exchange: Arc<Mutex<ReportExchange>>,
+    /// The certificates the report checks look up, filled in for the
+    /// epoch's finalized blocks while it runs
+    certificates: Arc<Mutex<CertificateMemo>>,
     active_elections: Arc<AecService>,
     wallet_reps: Arc<Mutex<WalletRepresentatives>>,
     flooder: Mutex<MessageFlooder>,
@@ -239,6 +243,7 @@ impl EpochDecisionService {
     pub(crate) fn new_null() -> Self {
         Self::new(
             Arc::new(Mutex::new(ReportExchange::new())),
+            Arc::new(Mutex::new(CertificateMemo::default())),
             Arc::new(AecService::new_null()),
             Arc::new(Mutex::new(WalletRepresentatives::new_null())),
             MessageFlooder::new_null(),
@@ -249,6 +254,7 @@ impl EpochDecisionService {
 
     pub(crate) fn new(
         exchange: Arc<Mutex<ReportExchange>>,
+        certificates: Arc<Mutex<CertificateMemo>>,
         active_elections: Arc<AecService>,
         wallet_reps: Arc<Mutex<WalletRepresentatives>>,
         flooder: MessageFlooder,
@@ -257,6 +263,7 @@ impl EpochDecisionService {
     ) -> Self {
         Self {
             exchange,
+            certificates,
             active_elections,
             wallet_reps,
             flooder: Mutex::new(flooder),
@@ -284,6 +291,8 @@ impl EpochDecisionService {
     /// How often the close memo of a running epoch catches up with the
     /// certified view
     const MEMO_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
+    /// Certificates looked up ahead of the report checks at a time
+    const CERTIFICATE_BATCH: usize = 256;
 
     /// RAI: drive the joint election of every epoch still closing. A replica
     /// takes part once it holds the decided predecessor state and enough
@@ -469,19 +478,49 @@ impl EpochDecisionService {
             }
             let started = std::time::Instant::now();
             let frozen = own.is_some();
-            let view =
-                own.unwrap_or_else(|| Arc::new(self.active_elections.epoch_certified(epoch)));
-            let viewed = started.elapsed();
-            let derived = Arc::make_mut(&mut memo).refresh(&view, frozen);
+            // While the epoch runs, only what it finalized since: the
+            // elections' lock is held for that, not for the epoch so far.
+            // The signed report, once there, is read in full: it holds the
+            // certificates of instances not finalized yet as well.
+            let (derived, viewed) = match own {
+                Some(view) => (
+                    Arc::make_mut(&mut memo).refresh(&view, true),
+                    std::time::Duration::ZERO,
+                ),
+                None => {
+                    let (finalized, recorded) = self
+                        .active_elections
+                        .epoch_finalized_since(epoch, memo.absorbed());
+                    let viewed = started.elapsed();
+                    // The report checks of the close will ask for the
+                    // certificates of what the epoch finalized: looked up
+                    // now, a batch at a time, they are answered then
+                    let fresh: Vec<BlockHash> = finalized
+                        .iter()
+                        .filter(|(_, _, own_epoch)| *own_epoch)
+                        .map(|(block, _, _)| block.hash)
+                        .collect();
+                    for batch in fresh.chunks(Self::CERTIFICATE_BATCH) {
+                        CertificateMemo::kinds_of(
+                            &self.certificates,
+                            epoch,
+                            batch,
+                            &|epoch, hashes| self.active_elections.certificate_kinds(epoch, hashes),
+                        );
+                    }
+                    (Arc::make_mut(&mut memo).absorb(finalized, recorded), viewed)
+                }
+            };
             let (accounts, standing) = memo.counts();
             diagnostic!(
-                "EPOCH_MEMO_REFRESH epoch={} frozen={} derived={} accounts={} memoized={} unmemoized={:?} view_ms={} ms={}",
+                "EPOCH_MEMO_REFRESH epoch={} frozen={} derived={} accounts={} memoized={} unmemoized={:?} certificates={} view_ms={} ms={}",
                 epoch,
                 frozen,
                 derived,
                 accounts,
                 standing,
                 memo.unmemoized(),
+                self.certificates.lock().unwrap().len(),
                 viewed.as_millis(),
                 started.elapsed().as_millis()
             );
@@ -502,6 +541,13 @@ impl EpochDecisionService {
         for epoch in decided {
             memos.remove(&epoch);
             refreshed.remove(&epoch);
+        }
+        // A report check reads finality back a few epochs, no further
+        if let Some(oldest) = current.as_u64().checked_sub(Self::REPEATED_EPOCHS as u64) {
+            self.certificates
+                .lock()
+                .unwrap()
+                .forget_before(ConsensusEpoch::new(oldest));
         }
     }
 

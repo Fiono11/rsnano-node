@@ -52,6 +52,11 @@ pub(crate) struct CloseMemo {
     tainted: BTreeSet<Account>,
     /// Refreshed from this node's signed report: the reports are frozen
     frozen: bool,
+    /// What the epoch's instances finalized so far, laid over the base:
+    /// the view the memo follows while the epoch runs (see `absorb`)
+    view: CertifiedState,
+    /// How many of the epoch's finalized instances `view` holds
+    absorbed: usize,
 }
 
 #[derive(Clone)]
@@ -105,12 +110,14 @@ impl CloseMemo {
             epoch,
             predecessor,
             previous,
+            view: CertifiedState::over(&base),
             base,
             anchor,
             accounts: BTreeMap::new(),
             owners: HashMap::new(),
             tainted: BTreeSet::new(),
             frozen: false,
+            absorbed: 0,
         }
     }
 
@@ -143,6 +150,64 @@ impl CloseMemo {
             }
         }
         reasons
+    }
+
+    /// How many of the epoch's finalized instances the memo has absorbed
+    pub fn absorbed(&self) -> usize {
+        self.absorbed
+    }
+
+    /// Takes in what the epoch's instances finalized since the memo last
+    /// looked, each as (block, parent, finalized in this epoch), and the
+    /// count of instances finalized so far; only the accounts those blocks
+    /// sit at are looked at again. A block finalized in an older epoch
+    /// counts only where the base holds it, as in the certified view. The
+    /// view lacks the certificates of instances not finalized yet, which the
+    /// signed report carries: the refresh from it (`refresh`) makes good
+    /// what this one lacks. The number of accounts derived.
+    pub fn absorb(
+        &mut self,
+        finalized: Vec<(CertifiedBlock, BlockHash, bool)>,
+        recorded: usize,
+    ) -> usize {
+        let mut touched = BTreeSet::new();
+        for (block, previous, own_epoch) in finalized {
+            if !own_epoch && !self.view.contains_hash(&block.hash) {
+                continue;
+            }
+            self.view
+                .certify(block, previous, CertifiedStatus::Finalized);
+            touched.insert(block.account);
+        }
+        self.absorbed = recorded;
+        let mut derived = 0;
+        for account in touched {
+            let slice: Slice = self
+                .view
+                .changes_in(account_range(account))
+                .map(|(block, entry)| (*block, entry.copied()))
+                .collect();
+            derived += self.update_account(account, slice) as usize;
+        }
+        derived
+    }
+
+    /// Records an account's slice, deriving it again if it changed; true if
+    /// it was derived
+    fn update_account(&mut self, account: Account, slice: Slice) -> bool {
+        if self
+            .accounts
+            .get(&account)
+            .is_some_and(|memo| memo.slice == slice)
+        {
+            return false;
+        }
+        if let Some(old) = self.accounts.remove(&account) {
+            self.forget_owners(account, &old.slice);
+        }
+        let memo = self.derive(account, slice);
+        self.accounts.insert(account, memo);
+        true
     }
 
     /// Brings the memo up to `view`, a certified state over the memo's

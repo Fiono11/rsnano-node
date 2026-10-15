@@ -1,3 +1,4 @@
+mod certificate_memo;
 mod checkpoint_fetch;
 mod chunk_window;
 mod close_memo;
@@ -2697,6 +2698,65 @@ mod tests {
             misses < 300,
             "{misses} selections the memo could not stand for"
         );
+    }
+
+    /// A memo that takes in what the epoch finalizes as it goes stands for
+    /// a close exactly as one refreshed from the whole view: two batches of
+    /// finalized blocks give the same claims, fresh blocks and state.
+    #[test]
+    fn a_memo_absorbing_finalized_blocks_derives_as_a_refreshed_one() {
+        use super::close_memo::CloseMemo;
+        use crate::consensus::election::{AccountSlot, PlacedBlock};
+        let epoch = ConsensusEpoch::new(2);
+        let h1 = |i: u64| BlockHash::from(i * 2 + 1_000_000);
+        let h2 = |i: u64| BlockHash::from(i * 2 + 1_000_001);
+        let mut previous = EpochLedger::new();
+        for i in 1..=40 {
+            previous.finalize_genesis_block(
+                AccountSlot::new(Account::from(i), 1),
+                PlacedBlock::new(h1(i), BlockHash::ZERO),
+            );
+        }
+        let previous = Arc::new(previous);
+        let base = Arc::new(previous.report_ledger().into_report_base().0);
+        let finalized: Vec<(CertifiedBlock, BlockHash, bool)> = (1..=30)
+            .map(|i| (CertifiedBlock::new(Account::from(i), 2, h2(i)), h1(i), true))
+            .collect();
+        let mut view = CertifiedState::over(&base);
+        for (block, previous, _) in &finalized {
+            view.certify(*block, *previous, CertifiedStatus::Finalized);
+        }
+        let new_memo = || {
+            CloseMemo::new(
+                epoch,
+                BlockHash::from(7),
+                previous.clone(),
+                base.clone(),
+                None,
+            )
+        };
+        let mut refreshed = new_memo();
+        refreshed.refresh(&view, false);
+        let mut absorbed = new_memo();
+        absorbed.absorb(finalized[..12].to_vec(), 12);
+        absorbed.absorb(finalized[12..].to_vec(), 30);
+        assert_eq!(absorbed.absorbed(), 30);
+        assert_eq!(absorbed.counts(), refreshed.counts());
+
+        let reports: Vec<(CertifiedState, ResidualVotes)> = (0..3)
+            .map(|_| (view.clone(), ResidualVotes::new()))
+            .collect();
+        let selection = selected(&reports);
+        let derive = |memo: &CloseMemo| {
+            let prepared = memo.prepare(&selection).unwrap();
+            let fresh = prepared.fresh();
+            let claims = prepared.claims(&fresh);
+            let state = prepared.build(&|_, _| false).unwrap().unwrap();
+            (prepared.counts(), fresh, claims, state)
+        };
+        let (counts, fresh, claims, state) = derive(&absorbed);
+        assert_eq!(counts, (30, 0));
+        assert_eq!((counts, fresh, claims, state), derive(&refreshed));
     }
 
     /// The cost of a close's derivation, in full and with the close memo:

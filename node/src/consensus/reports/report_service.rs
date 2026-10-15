@@ -13,7 +13,8 @@ use rsnano_types::{BlockHash, ConsensusEpoch, PublicKey};
 use rsnano_utils::stats::{DetailType, Direction, StatType, Stats};
 
 use super::{
-    ReconcileResult, ReportExchange, ReportMessage, Verification, unjustified, well_formed,
+    ReconcileResult, ReportExchange, ReportMessage, Verification,
+    certificate_memo::CertificateMemo, unjustified, well_formed,
 };
 use crate::{
     consensus::{
@@ -35,6 +36,9 @@ use crate::{
 /// infrastructure around it: the keys, the clock, the network.
 pub struct ReportService {
     exchange: Arc<Mutex<ReportExchange>>,
+    /// The certificates looked up for report checks, shared with the epoch
+    /// decision, which looks up the epoch's finalized blocks ahead of them
+    certificates: Arc<Mutex<CertificateMemo>>,
     active_elections: Arc<AecService>,
     wallet_reps: Arc<Mutex<WalletRepresentatives>>,
     flooder: Mutex<MessageFlooder>,
@@ -72,6 +76,7 @@ impl ReportService {
     ) -> Self {
         Self {
             exchange: Arc::new(Mutex::new(ReportExchange::new())),
+            certificates: Arc::new(Mutex::new(CertificateMemo::default())),
             active_elections,
             wallet_reps,
             flooder: Mutex::new(flooder),
@@ -551,7 +556,14 @@ impl ReportService {
                     certified,
                     residual,
                     only,
-                    &|epoch, hashes| aec.certificate_kinds(epoch, hashes),
+                    &|epoch, hashes| {
+                        CertificateMemo::kinds_of(
+                            &self.certificates,
+                            epoch,
+                            hashes,
+                            &|epoch, hashes| aec.certificate_kinds(epoch, hashes),
+                        )
+                    },
                     &|block, entry| {
                         previous
                             .as_ref()
@@ -706,6 +718,12 @@ impl ReportService {
     /// from: the reports it selects are the ones reconstructed here
     pub(crate) fn exchange(&self) -> Arc<Mutex<ReportExchange>> {
         self.exchange.clone()
+    }
+
+    /// RAI: the certificates looked up for report checks, which the epoch
+    /// decision fills in ahead of them while an epoch runs
+    pub(crate) fn certificates(&self) -> Arc<Mutex<CertificateMemo>> {
+        self.certificates.clone()
     }
 
     fn send(&self, messages: Vec<ReportMessage>, _channel: Option<&Arc<Channel>>) {

@@ -2140,6 +2140,26 @@ impl ActiveElectionsContainer {
     /// is applied. Building it hashes and inserts every entry of the
     /// cumulative state, which a caller sharing the container does after
     /// releasing it.
+    /// RAI: what the epoch's instances finalized, from its `from`-th
+    /// finalized instance on, as `epoch_certified_parts` certifies it, and
+    /// how many instances the epoch has finalized: a reader that keeps the
+    /// count reads each one once
+    pub fn epoch_finalized_since(
+        &self,
+        epoch: ConsensusEpoch,
+        from: usize,
+    ) -> (
+        Vec<(crate::consensus::election::CertifiedBlock, BlockHash, bool)>,
+        usize,
+    ) {
+        let (instances, recorded) = self.epoch_states.instances_of_since(epoch, from);
+        let items = instances
+            .filter_map(|instance| self.epoch_states.first_won_through(&instance.winner, epoch))
+            .map(|instance| finalized_item(instance, epoch))
+            .collect();
+        (items, recorded)
+    }
+
     pub fn epoch_certified_parts(&self, epoch: ConsensusEpoch) -> EpochCertifiedParts {
         use crate::consensus::election::{CertifiedBlock, CertifiedStatus};
         // What finalized in the epoch and left the AEC is certified by the
@@ -2152,19 +2172,8 @@ impl ActiveElectionsContainer {
         // positions are looked up, not the whole history
         let base = self.report_bases.get(&epoch);
         let first = |hash: &BlockHash| self.epoch_states.first_won_through(hash, epoch);
-        let item = |instance: &FinalizedInstance| {
-            (
-                CertifiedBlock::new(instance.account, instance.height, instance.winner),
-                instance.root.previous,
-                instance.epoch == epoch,
-            )
-        };
-        let mut finalized: Vec<_> = self
-            .epoch_states
-            .instances_of(epoch)
-            .filter_map(|instance| first(&instance.winner))
-            .map(item)
-            .collect();
+        let item = |instance: &FinalizedInstance| finalized_item(instance, epoch);
+        let (mut finalized, _) = self.epoch_finalized_since(epoch, 0);
         for (block, _) in base.into_iter().flat_map(|base| base.unfinalized()) {
             if let Some(instance) = first(&block.hash)
                 && instance.epoch != epoch
@@ -4494,6 +4503,24 @@ pub struct EpochCertifiedParts {
         BlockHash,
         crate::consensus::election::CertifiedStatus,
     )>,
+}
+
+/// RAI: what a finalized instance certifies in an epoch's certified state:
+/// its winner at its position with the parent it names, and whether it was
+/// finalized in that epoch rather than an older one
+fn finalized_item(
+    instance: &FinalizedInstance,
+    epoch: ConsensusEpoch,
+) -> (crate::consensus::election::CertifiedBlock, BlockHash, bool) {
+    (
+        crate::consensus::election::CertifiedBlock::new(
+            instance.account,
+            instance.height,
+            instance.winner,
+        ),
+        instance.root.previous,
+        instance.epoch == epoch,
+    )
 }
 
 impl EpochCertifiedParts {

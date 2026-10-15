@@ -209,6 +209,18 @@ impl EpochStates {
         self.epoch_instances(epoch)
     }
 
+    /// The instances finalized in the epoch from the `from`-th recorded on,
+    /// and how many it has recorded: the instances an epoch records only
+    /// ever grow, so a reader that keeps the count reads each one once
+    pub fn instances_of_since(
+        &self,
+        epoch: ConsensusEpoch,
+        from: usize,
+    ) -> (impl Iterator<Item = &FinalizedInstance>, usize) {
+        let recorded = self.per_epoch.get(&epoch).map_or(0, Vec::len);
+        (self.epoch_instances(epoch).skip(from), recorded)
+    }
+
     /// RAI: finality already known from this epoch or an older one, never
     /// from successor work. The caller decides which old blocks belong to its
     /// report.

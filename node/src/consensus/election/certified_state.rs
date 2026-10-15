@@ -185,6 +185,16 @@ impl CertifiedState {
             .map(|(block, entry)| (block, entry.as_ref()))
     }
 
+    /// `changes` within a range of blocks
+    pub fn changes_in(
+        &self,
+        range: impl RangeBounds<CertifiedBlock>,
+    ) -> impl Iterator<Item = (&CertifiedBlock, Option<&Certification>)> {
+        self.delta
+            .range(range)
+            .map(|(block, entry)| (block, entry.as_ref()))
+    }
+
     pub fn len(&self) -> usize {
         self.len
     }

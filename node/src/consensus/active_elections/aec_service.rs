@@ -336,6 +336,21 @@ impl AecService {
         parts.build()
     }
 
+    /// RAI: what the epoch's instances finalized from its `from`-th on, and
+    /// how many it has finalized (`epoch_finalized_since`): the lock is held
+    /// for what was finalized since, not for the epoch so far
+    #[cfg(feature = "rai_protocol")]
+    pub fn epoch_finalized_since(
+        &self,
+        epoch: ConsensusEpoch,
+        from: usize,
+    ) -> (
+        Vec<(crate::consensus::election::CertifiedBlock, BlockHash, bool)>,
+        usize,
+    ) {
+        self.aec.read().unwrap().epoch_finalized_since(epoch, from)
+    }
+
     /// RAI: `S_{e-1}` for the close of an epoch, the state its derivation
     /// builds on
     #[cfg(feature = "rai_protocol")]

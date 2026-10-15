@@ -977,6 +977,7 @@ impl Node {
         #[cfg(feature = "rai_protocol")]
         let epoch_decision = Arc::new(EpochDecisionService::new(
             reports.exchange(),
+            reports.certificates(),
             active_elections.clone(),
             wallet_reps.clone(),
             message_flooder.clone(),
