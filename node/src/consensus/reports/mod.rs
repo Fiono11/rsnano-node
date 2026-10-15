@@ -2817,6 +2817,60 @@ mod tests {
             m[1] / n,
             m[2] / n
         );
+        // With forks: every report first votes a rival at 1,500 positions,
+        // as with 10% forks, and those accounts are derived at the close
+        let rival = |i: u64| BlockHash::from(i * 2 + 9_000_001);
+        let forked: Vec<(CertifiedState, ResidualVotes)> = reports
+            .iter()
+            .map(|(certified, _)| {
+                let mut residual = ResidualVotes::new();
+                for i in (1..=changes).step_by(15) {
+                    residual.record(
+                        CertifiedBlock::new(Account::from(i), 2, rival(i)),
+                        h1(i),
+                        ResidualKind::First,
+                    );
+                }
+                (certified.clone(), residual)
+            })
+            .collect();
+        let selection: Vec<SelectedReport> = selected(&forked);
+        let mut f = [0f64; 3];
+        for _ in 0..loops {
+            let s = Instant::now();
+            let index = ReportIndex::over_base(&base, &selection);
+            let claims = manifest_claims(ConsensusEpoch::new(3), &selection, &|block, entry| {
+                report_service::inherited_from(&previous, block, entry)
+            });
+            let witnesses = witness_claims(&previous, &selection, &index);
+            let state = build_state(
+                &previous,
+                &selection,
+                &index,
+                BuildRules {
+                    epoch: ConsensusEpoch::new(3),
+                },
+                &|_, _| false,
+            )
+            .unwrap();
+            f[0] += s.elapsed().as_secs_f64();
+            let s = Instant::now();
+            let prepared = memo.prepare(&selection).unwrap();
+            let fresh = prepared.fresh();
+            let memo_claims = prepared.claims(&fresh);
+            f[1] += s.elapsed().as_secs_f64();
+            let s = Instant::now();
+            let built = prepared.build(&|_, _| false).unwrap().unwrap();
+            f[2] += s.elapsed().as_secs_f64();
+            assert_eq!(built, state);
+            std::hint::black_box((claims, witnesses, memo_claims));
+        }
+        println!(
+            "with forks per close ms: full claims+build {:.1}  memo prepare+fresh+claims {:.1}  build {:.1}",
+            f[0] / n,
+            f[1] / n,
+            f[2] / n
+        );
     }
 
     /// Every entry counts as justified: the evidence check is tested apart

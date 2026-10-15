@@ -315,6 +315,8 @@ impl CloseMemo {
         let mut clean_accounts: BTreeSet<Account> = BTreeSet::new();
         let mut dirty: Vec<(Account, Vec<AccountView<'r>>)> = Vec::new();
         let mut slices: Vec<Slice> = vec![Vec::new(); selection.len()];
+        let mut votes: Vec<Vec<(CertifiedBlock, ResidualKind, BlockHash)>> =
+            vec![Vec::new(); selection.len()];
         loop {
             let next = deltas
                 .iter_mut()
@@ -329,7 +331,6 @@ impl CloseMemo {
             let Some(account) = next else {
                 break;
             };
-            let mut voted = false;
             for (delta, slice) in deltas.iter_mut().zip(slices.iter_mut()) {
                 slice.clear();
                 while let Some((block, entry)) =
@@ -338,14 +339,14 @@ impl CloseMemo {
                     slice.push((*block, entry.copied()));
                 }
             }
-            for residual in residuals.iter_mut() {
-                while residual
-                    .next_if(|(block, _, _)| block.account == account)
-                    .is_some()
+            for (residual, voted) in residuals.iter_mut().zip(votes.iter_mut()) {
+                voted.clear();
+                while let Some(record) = residual.next_if(|(block, _, _)| block.account == account)
                 {
-                    voted = true;
+                    voted.push(record);
                 }
             }
+            let voted = votes.iter().any(|voted| !voted.is_empty());
             let inherits = retained.next_if_eq(&account).is_some();
             let memo = self
                 .accounts
@@ -362,7 +363,10 @@ impl CloseMemo {
                     let range = account_range(account);
                     let views = selection
                         .iter()
-                        .map(|report| AccountView::of(report, range.clone()))
+                        .zip(votes.iter_mut())
+                        .map(|(report, voted)| {
+                            AccountView::of(report, range.clone(), std::mem::take(voted))
+                        })
                         .collect();
                     dirty.push((account, views));
                 }
@@ -541,8 +545,13 @@ pub(crate) struct AccountView<'r> {
 }
 
 impl<'r> AccountView<'r> {
-    fn of(report: &SelectedReport<'r>, range: RangeInclusive<CertifiedBlock>) -> Self {
-        let account = range.start().account;
+    /// The part of a report naming the account `range` spans, with the
+    /// report's residual records for the account
+    fn of(
+        report: &SelectedReport<'r>,
+        range: RangeInclusive<CertifiedBlock>,
+        residual: Vec<(CertifiedBlock, ResidualKind, BlockHash)>,
+    ) -> Self {
         Self {
             reporter: report.reporter,
             weight: report.weight,
@@ -551,11 +560,7 @@ impl<'r> AccountView<'r> {
                 .changed_or_unfinalized_in(range)
                 .map(|(block, entry)| (*block, *entry))
                 .collect(),
-            residual: report
-                .residual
-                .entries()
-                .filter(|(block, _, _)| block.account == account)
-                .collect(),
+            residual,
             summarized: Some(report.certified),
         }
     }
