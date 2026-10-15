@@ -160,10 +160,25 @@ impl EpochValue {
         rules: BuildRules,
         witness: &dyn Fn(ConsensusEpoch, &BlockHash) -> bool,
     ) -> Result<(Self, EpochLedger), BuildStateError> {
-        let mut reports: Vec<ReportRef> = selection.iter().map(|(report, _)| *report).collect();
-        reports.sort();
         let states: Vec<SelectedReport> = selection.iter().map(|(_, state)| *state).collect();
         let ledger = build_state(previous, &states, index, rules, witness)?;
+        Ok(Self::propose_built(
+            epoch, slot, parent, selection, manifest, ledger,
+        ))
+    }
+
+    /// The value a leader proposes for a state already derived from the
+    /// selected reports
+    pub fn propose_built(
+        epoch: ConsensusEpoch,
+        slot: u32,
+        parent: BlockHash,
+        selection: &[(ReportRef, SelectedReport)],
+        manifest: BlockHash,
+        ledger: EpochLedger,
+    ) -> (Self, EpochLedger) {
+        let mut reports: Vec<ReportRef> = selection.iter().map(|(report, _)| *report).collect();
+        reports.sort();
         let value = Self {
             epoch,
             slot,
@@ -172,7 +187,7 @@ impl EpochValue {
             manifest,
             state: ledger.state_hash(),
         };
-        Ok((value, ledger))
+        (value, ledger)
     }
 
     /// The hash a proposal binds and the votes name
@@ -209,6 +224,19 @@ impl EpochValue {
         quorum: Amount,
         rules: BuildRules,
         witness: &dyn Fn(ConsensusEpoch, &BlockHash) -> bool,
+    ) -> Result<EpochLedger, EpochValueError> {
+        self.validate_with(reconstructed, quorum, |states| {
+            build_state(previous, states, index, rules, witness)
+        })
+    }
+
+    /// `validate` with the derivation of the selected reports' state left
+    /// to `build`
+    pub fn validate_with(
+        &self,
+        reconstructed: &dyn ReportSource,
+        quorum: Amount,
+        build: impl FnOnce(&[SelectedReport]) -> Result<EpochLedger, BuildStateError>,
     ) -> Result<EpochLedger, EpochValueError> {
         // Distinct reporters: a value that names one reporter twice would
         // count one report as several
@@ -252,11 +280,11 @@ impl EpochValue {
                 required: quorum,
             });
         }
-        let ledger = build_state(previous, &states, index, rules, witness)
-            .map_err(EpochValueError::InvalidState)?;
-        if ledger.state_hash() != self.state {
+        let ledger = build(&states).map_err(EpochValueError::InvalidState)?;
+        let derived = ledger.state_hash();
+        if derived != self.state {
             return Err(EpochValueError::StateMismatch {
-                derived: ledger.state_hash(),
+                derived,
                 proposed: self.state,
             });
         }

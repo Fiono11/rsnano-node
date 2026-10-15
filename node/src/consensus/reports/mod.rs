@@ -1,5 +1,6 @@
 mod checkpoint_fetch;
 mod chunk_window;
+mod close_memo;
 mod epoch_decision;
 mod report_plugin;
 mod report_service;
@@ -35,8 +36,8 @@ pub(crate) struct ReportExchange {
 #[derive(Default)]
 struct EpochReports {
     live: CertifiedState,
-    snapshots: BTreeMap<BlockHash, CertifiedState>,
-    residuals: HashMap<BlockHash, ResidualVotes>,
+    snapshots: BTreeMap<BlockHash, Arc<CertifiedState>>,
+    residuals: HashMap<BlockHash, Arc<ResidualVotes>>,
     signed: Vec<Report>,
     theirs: HashMap<PublicKey, TheirReport>,
     repeated: Option<Timestamp>,
@@ -157,6 +158,20 @@ pub(crate) fn delta_check_enabled() -> bool {
     *ENABLED.get_or_init(|| std::env::var("RAI_DELTA_CHECK").is_ok_and(|value| value == "1"))
 }
 
+/// RAI evaluation: whether a close derives with the memo built during the
+/// epoch (`close_memo`); on unless `RAI_CLOSE_MEMO=0`, the switch for an A/B
+pub(crate) fn close_memo_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var("RAI_CLOSE_MEMO").map_or(true, |value| value != "0"))
+}
+
+/// RAI evaluation: whether every derivation made with the close memo is
+/// also made in full and compared (`RAI_CLOSE_MEMO_CHECK=1`)
+pub(crate) fn close_memo_check_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var("RAI_CLOSE_MEMO_CHECK").is_ok_and(|value| value == "1"))
+}
+
 /// RAI, "Immutable candidate inputs": the blocks, by epoch, whose signed
 /// votes a candidate's evidence manifest must name for the selected reports:
 /// every certified entry the predecessor checkpoint does not justify, in the
@@ -167,9 +182,6 @@ pub(crate) fn manifest_claims(
     selection: &[SelectedReport],
     inherited: &dyn Fn(&CertifiedBlock, Certification) -> bool,
 ) -> Vec<(ConsensusEpoch, BlockHash)> {
-    let earlier: Vec<ConsensusEpoch> = (1..=EARLIER_FINALITY_EPOCHS)
-        .filter_map(|back| epoch.as_u64().checked_sub(back).map(ConsensusEpoch::new))
-        .collect();
     let mut claims = std::collections::BTreeSet::new();
     for report in selection {
         // An entry of the report's inherited base is inherited
@@ -177,18 +189,32 @@ pub(crate) fn manifest_claims(
             if inherited(block, *entry) {
                 continue;
             }
-            claims.insert((epoch, block.hash));
-            if entry.status == CertifiedStatus::Finalized {
-                for before in &earlier {
-                    claims.insert((*before, block.hash));
-                }
-            }
+            entry_claims(epoch, block, entry, &mut claims);
         }
         for (block, _, _) in report.residual.entries() {
             claims.insert((epoch, block.hash));
         }
     }
     claims.into_iter().collect()
+}
+
+/// The votes a manifest must name for one certified entry that is not
+/// inherited: the epoch's, and for a finalized block those of the epochs
+/// before it, where its finality may rest on early votes
+pub(crate) fn entry_claims(
+    epoch: ConsensusEpoch,
+    block: &CertifiedBlock,
+    entry: &Certification,
+    claims: &mut impl Extend<(ConsensusEpoch, BlockHash)>,
+) {
+    claims.extend([(epoch, block.hash)]);
+    if entry.status == CertifiedStatus::Finalized {
+        claims.extend(
+            (1..=EARLIER_FINALITY_EPOCHS)
+                .filter_map(|back| epoch.as_u64().checked_sub(back))
+                .map(|before| (ConsensusEpoch::new(before), block.hash)),
+        );
+    }
 }
 
 /// RAI: a reconstructed report due a check against the evidence held here,
@@ -525,8 +551,8 @@ impl ReportExchange {
             })
             .collect();
         held.live.certify_all(&certified);
-        held.snapshots.insert(certified_root, certified);
-        held.residuals.insert(residual_root, residual);
+        held.snapshots.insert(certified_root, Arc::new(certified));
+        held.residuals.insert(residual_root, Arc::new(residual));
         let messages = held
             .signed
             .iter()
@@ -546,6 +572,13 @@ impl ReportExchange {
             .get(&epoch)
             .map(|held| held.signed.as_slice())
             .unwrap_or_default()
+    }
+
+    /// The certified state this node signed for an epoch, if it signed one
+    pub fn own_certified(&self, epoch: ConsensusEpoch) -> Option<Arc<CertifiedState>> {
+        let held = self.epochs.get(&epoch)?;
+        let report = held.signed.first()?;
+        held.snapshots.get(&report.certified).cloned()
     }
     pub fn repeat_reports(&mut self, now: Timestamp) -> Vec<ReportMessage> {
         let mut messages = Vec::new();
@@ -593,7 +626,10 @@ impl ReportExchange {
             {
                 return None;
             }
-            return Some((held.state(certified)?, held.residuals.get(&residual)?));
+            return Some((
+                held.state(certified)?,
+                held.residuals.get(&residual)?.as_ref(),
+            ));
         }
         let their = held.theirs.get(reporter)?;
         if their.report.certified != certified
@@ -605,6 +641,31 @@ impl ReportExchange {
         }
         Some((their.reconstructed.as_deref()?, their.residual.as_deref()?))
     }
+    /// `usable_report` as shared handles, without copying the report
+    pub fn usable_report_shared(
+        &self,
+        epoch: ConsensusEpoch,
+        reporter: &PublicKey,
+        certified: BlockHash,
+        residual: BlockHash,
+        predecessor: BlockHash,
+    ) -> Option<(Arc<CertifiedState>, Arc<ResidualVotes>)> {
+        self.usable_report(epoch, reporter, certified, residual, predecessor)?;
+        let held = self.epochs.get(&epoch)?;
+        if held
+            .signed
+            .iter()
+            .any(|report| &report.reporter == reporter)
+        {
+            return Some((
+                held.shared_state(certified)?,
+                held.residuals.get(&residual)?.clone(),
+            ));
+        }
+        let their = held.theirs.get(reporter)?;
+        Some((their.reconstructed.clone()?, their.residual.clone()?))
+    }
+
     pub fn usable(&self, epoch: ConsensusEpoch) -> Vec<(&Report, &CertifiedState, &ResidualVotes)> {
         let Some(held) = self.epochs.get(&epoch) else {
             return Vec::new();
@@ -613,7 +674,7 @@ impl ReportExchange {
             Some((
                 report,
                 held.state(report.certified)?,
-                held.residuals.get(&report.residual)?,
+                held.residuals.get(&report.residual)?.as_ref(),
             ))
         });
         let theirs = held
@@ -1030,8 +1091,8 @@ impl ReportExchange {
         let certified_root = certified.root();
         let residual_root = residual.root();
         held.live.certify_all(&certified);
-        held.snapshots.insert(certified_root, certified);
-        held.residuals.insert(residual_root, residual);
+        held.snapshots.insert(certified_root, Arc::new(certified));
+        held.residuals.insert(residual_root, Arc::new(residual));
         held.signed = signed;
         self.trim();
     }
@@ -1156,7 +1217,7 @@ impl EpochReports {
 
     fn residual(&self, root: BlockHash) -> Option<&ResidualVotes> {
         if let Some(residual) = self.residuals.get(&root) {
-            return Some(residual);
+            return Some(residual.as_ref());
         }
         self.theirs
             .values()
@@ -1169,12 +1230,28 @@ impl EpochReports {
             return Some(&self.live);
         }
         if let Some(state) = self.snapshots.get(&root) {
-            return Some(state);
+            return Some(state.as_ref());
         }
         self.theirs
             .values()
             .filter_map(|their| their.reconstructed.as_deref())
             .find(|state| state.root() == root)
+    }
+
+    /// `state` as a shared handle, without copying the state
+    fn shared_state(&self, root: BlockHash) -> Option<Arc<CertifiedState>> {
+        if let Some(state) = self.snapshots.get(&root) {
+            return Some(state.clone());
+        }
+        if let Some(state) = self
+            .theirs
+            .values()
+            .filter_map(|their| their.reconstructed.as_ref())
+            .find(|state| state.root() == root)
+        {
+            return Some(state.clone());
+        }
+        (self.live.root() == root).then(|| Arc::new(self.live.clone()))
     }
 }
 
@@ -2369,6 +2446,379 @@ mod tests {
         }
     }
 
+    /// The close memo gives exactly what the whole derivation gives: the
+    /// same fresh finalized blocks, the same manifest claims and the same
+    /// state, or the same failure. Random forked trees, a predecessor from a
+    /// first closure, a memo refreshed from one view, and reports that copy
+    /// that view for some accounts and differ for others.
+    #[test]
+    fn the_close_memo_derives_what_the_whole_derivation_derives() {
+        use super::close_memo::CloseMemo;
+        use crate::consensus::election::{
+            AccountSlot, BuildRules, ReportIndex, RetainedKind, build_state, fresh_finalized,
+            overlap_claims, witness_claims,
+        };
+        let (mut compared, mut memoized, mut derived_here, mut misses) = (0, 0, 0, 0);
+        let (mut both_failed, mut skipped, mut locked) = (0, 0, 0);
+        for seed in 1..600u64 {
+            let mut rng = Rng(seed.wrapping_mul(0x2545_f491_4f6c_dd1d));
+            let tree = random_tree_sized(&mut rng, 12, 8);
+            let chains = true_chains(&mut rng, &tree);
+            let epoch1 = ConsensusEpoch::new(1);
+            let epoch2 = ConsensusEpoch::new(2);
+            let witness = |epoch: ConsensusEpoch, hash: &BlockHash| {
+                (hash.as_bytes()[31] as u64 + epoch.as_u64()) % 3 == 0
+            };
+            // The predecessor decides the lower half of every chain at most
+            let lower: Vec<Vec<(CertifiedBlock, BlockHash)>> =
+                chains.iter().map(|chain| chain[..4].to_vec()).collect();
+            let first: Vec<(CertifiedState, ResidualVotes)> = (0..4)
+                .map(|_| {
+                    let (certified, _) = random_report_with(
+                        &mut rng,
+                        &tree,
+                        &lower,
+                        0,
+                        CertifiedState::new(),
+                        Odds {
+                            rival: 30,
+                            vote: 40,
+                            gap: 25,
+                        },
+                    );
+                    (certified, ResidualVotes::new())
+                })
+                .collect();
+            let selection = selected(&first);
+            let index = ReportIndex::new(&EpochLedger::new(), &selection);
+            let Ok(previous) = build_state(
+                &EpochLedger::new(),
+                &selection,
+                &index,
+                BuildRules { epoch: epoch1 },
+                &witness,
+            ) else {
+                skipped += 1;
+                continue;
+            };
+            // Some accounts keep a lock above their finalized tip, of either
+            // strength, on the true branch or a rival
+            let mut previous = previous;
+            for account in 1..=12u64 {
+                if rng.below(3) != 0 {
+                    continue;
+                }
+                let account = Account::from(account);
+                let tip = previous.finalized_depth(account).unwrap_or(0);
+                let parent = previous
+                    .finalized(&AccountSlot::new(account, tip))
+                    .unwrap_or(BlockHash::ZERO);
+                let candidates: Vec<_> = tree
+                    .values()
+                    .filter(|(block, previous)| {
+                        block.account == account && block.height == tip + 1 && *previous == parent
+                    })
+                    .collect();
+                if candidates.is_empty() {
+                    continue;
+                }
+                let (block, parent) = candidates[rng.below(candidates.len() as u64) as usize];
+                let kind = if rng.below(2) == 0 {
+                    RetainedKind::Notarized
+                } else {
+                    RetainedKind::Recovery
+                };
+                previous.keep_for_test(
+                    AccountSlot::new(account, block.height),
+                    block.hash,
+                    *parent,
+                    kind,
+                );
+            }
+            let previous = Arc::new(previous);
+            let (base, _) = previous.report_ledger().into_report_base();
+            let base = Arc::new(base);
+            let anchor = (seed % 2 == 0).then(|| previous.clone());
+            let (view, _) = random_report_with(
+                &mut rng,
+                &tree,
+                &chains,
+                1,
+                CertifiedState::over(&base),
+                Odds {
+                    rival: 30,
+                    vote: 40,
+                    gap: 25,
+                },
+            );
+            let mut memo = CloseMemo::new(
+                epoch2,
+                BlockHash::from(seed),
+                previous.clone(),
+                base.clone(),
+                anchor.clone(),
+            );
+            memo.refresh(&view, false);
+            locked += !previous.retained_accounts().is_empty() as usize;
+            // Each report copies the view, then takes another reporter's
+            // entries for some accounts, and some keep their residual votes
+            let reports: Vec<(CertifiedState, ResidualVotes)> = (0..4)
+                .map(|_| {
+                    let (other, residual) = random_report_with(
+                        &mut rng,
+                        &tree,
+                        &chains,
+                        1,
+                        CertifiedState::over(&base),
+                        Odds {
+                            rival: 30,
+                            vote: 40,
+                            gap: 25,
+                        },
+                    );
+                    let mut certified = view.clone();
+                    for account in 1..=12u64 {
+                        if rng.below(4) != 0 {
+                            continue;
+                        }
+                        let account = Account::from(account);
+                        let mine: Vec<_> = certified
+                            .changes()
+                            .filter(|(block, _)| block.account == account)
+                            .map(|(block, _)| *block)
+                            .collect();
+                        for block in mine {
+                            certified.remove(&block);
+                        }
+                        for (block, entry) in other.changes() {
+                            if block.account == account
+                                && let Some(entry) = entry
+                            {
+                                certified.set(*block, *entry);
+                            }
+                        }
+                    }
+                    // Rarely, a block named for a second account
+                    if rng.below(10) == 0
+                        && let Some((block, entry)) = view
+                            .changed_entries()
+                            .nth(rng.below(view.changed_entries().count().max(1) as u64) as usize)
+                    {
+                        let other = Account::from(1 + rng.below(12));
+                        if other != block.account {
+                            certified
+                                .set(CertifiedBlock::new(other, block.height, block.hash), *entry);
+                        }
+                    }
+                    let residual = if rng.below(4) == 0 {
+                        residual
+                    } else {
+                        ResidualVotes::new()
+                    };
+                    (certified, residual)
+                })
+                .collect();
+            let selection = selected(&reports);
+            let prepared = match memo.prepare(&selection) {
+                Ok(prepared) => prepared,
+                Err(_) => {
+                    misses += 1;
+                    continue;
+                }
+            };
+            let (clean, dirty) = prepared.counts();
+            memoized += clean;
+            derived_here += dirty;
+
+            let fresh = fresh_finalized(&selection, &previous);
+            assert_eq!(prepared.fresh(), fresh, "seed {seed}");
+            let base_index = ReportIndex::over_base(&base, &selection);
+            let inherited = |block: &CertifiedBlock, entry| {
+                report_service::inherited_from(&previous, block, entry)
+            };
+            let mut claims = manifest_claims(epoch2, &selection, &inherited);
+            claims.extend(witness_claims(&previous, &selection, &base_index));
+            if let Some(anchor) = &anchor {
+                claims.extend(overlap_claims(anchor, &fresh));
+            }
+            claims.sort();
+            claims.dedup();
+            assert_eq!(prepared.claims(&fresh), claims, "seed {seed}");
+
+            let whole = build_state(
+                &previous,
+                &selection,
+                &base_index,
+                BuildRules { epoch: epoch2 },
+                &witness,
+            );
+            match (whole, prepared.build(&witness)) {
+                (Ok(whole), Ok(Some(built))) => {
+                    assert_eq!(built, whole, "seed {seed}");
+                    assert_eq!(built.state_hash(), whole.state_hash(), "seed {seed}");
+                    let sorted = |state: &EpochLedger| {
+                        let mut fresh = state.finalized_beyond(&previous).unwrap().to_vec();
+                        fresh.sort();
+                        fresh
+                    };
+                    assert_eq!(sorted(&built), sorted(&whole), "seed {seed}");
+                    compared += 1;
+                }
+                (Err(error), Err(_)) => {
+                    both_failed += 1;
+                    if both_failed < 8 {
+                        println!("both failed: {error:?}");
+                    }
+                }
+                (whole, built) => {
+                    panic!(
+                        "seed {seed}: whole {:?} memo {:?}",
+                        whole.is_ok(),
+                        built.map(|b| b.is_some())
+                    )
+                }
+            }
+        }
+        println!(
+            "compared {compared} both_failed {both_failed} misses {misses} skipped {skipped} locked {locked} memoized {memoized} derived_here {derived_here}"
+        );
+        assert!(compared > 100, "only {compared} states compared");
+        assert!(locked > 100, "only {locked} predecessors with locks");
+        assert!(misses > 10, "only {misses} selections naming a block twice");
+        assert!(
+            memoized > 100,
+            "only {memoized} accounts taken from the memo"
+        );
+        assert!(
+            derived_here > 100,
+            "only {derived_here} accounts derived at the close"
+        );
+        assert!(
+            misses < 300,
+            "{misses} selections the memo could not stand for"
+        );
+    }
+
+    /// The cost of a close's derivation, in full and with the close memo:
+    /// 48,000 accounts of history, 23,000 blocks in the epoch, five reports
+    /// naming them all. Not a check: run with
+    /// `LOOPS=20 cargo test --release --lib --features rai_protocol -p rsnano_node -- --ignored close_derivation_cost --nocapture`
+    #[test]
+    #[ignore]
+    fn close_derivation_cost() {
+        use crate::consensus::election::{
+            AccountSlot, BuildRules, PlacedBlock, ReportIndex, build_state, witness_claims,
+        };
+        use std::time::Instant;
+        let history = 48_000u64;
+        let changes = 23_000u64;
+        let h1 = |i: u64| BlockHash::from(i * 2 + 1_000_000);
+        let h2 = |i: u64| BlockHash::from(i * 2 + 1_000_001);
+        let mut previous = EpochLedger::new();
+        for i in 1..=history {
+            previous.finalize_genesis_block(
+                AccountSlot::new(Account::from(i), 1),
+                PlacedBlock::new(h1(i), BlockHash::ZERO),
+            );
+        }
+        let (base, _) = previous.report_ledger().into_report_base();
+        let base = Arc::new(base);
+        let reports: Vec<(CertifiedState, ResidualVotes)> = (0..5)
+            .map(|_| {
+                let mut state = CertifiedState::over(&base);
+                for i in 1..=changes {
+                    state.certify(
+                        CertifiedBlock::new(Account::from(i), 2, h2(i)),
+                        h1(i),
+                        CertifiedStatus::Finalized,
+                    );
+                }
+                (state, ResidualVotes::new())
+            })
+            .collect();
+        let selection: Vec<SelectedReport> = selected(&reports);
+        let loops: u32 = std::env::var("LOOPS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(20);
+        let mut t = [0f64; 5];
+        for _ in 0..loops {
+            let s = Instant::now();
+            let claims = manifest_claims(ConsensusEpoch::new(3), &selection, &|block, entry| {
+                report_service::inherited_from(&previous, block, entry)
+            });
+            t[0] += s.elapsed().as_secs_f64();
+            let index = ReportIndex::over_base(&base, &selection);
+            let s = Instant::now();
+            let witnesses = witness_claims(&previous, &selection, &index);
+            t[1] += s.elapsed().as_secs_f64();
+            let s = Instant::now();
+            let state = build_state(
+                &previous,
+                &selection,
+                &index,
+                BuildRules {
+                    epoch: ConsensusEpoch::new(3),
+                },
+                &|_, _| false,
+            )
+            .unwrap();
+            t[2] += s.elapsed().as_secs_f64();
+            let s = Instant::now();
+            let hash = state.state_hash();
+            t[3] += s.elapsed().as_secs_f64();
+            let s = Instant::now();
+            let copy = previous.clone();
+            t[4] += s.elapsed().as_secs_f64();
+            std::hint::black_box((claims, witnesses, hash, copy));
+        }
+        let n = loops as f64 * 1e-3;
+        println!(
+            "per close ms: manifest_claims {:.1}  witness_claims {:.1}  build_state {:.1}  state_hash {:.1}  previous.clone {:.1}",
+            t[0] / n,
+            t[1] / n,
+            t[2] / n,
+            t[3] / n,
+            t[4] / n
+        );
+        // The same close with the memo refreshed from the view all reports copy
+        let previous = Arc::new(previous);
+        let mut memo = super::close_memo::CloseMemo::new(
+            ConsensusEpoch::new(3),
+            BlockHash::from(1),
+            previous.clone(),
+            base.clone(),
+            None,
+        );
+        let s = Instant::now();
+        memo.refresh(&reports[0].0, false);
+        let refresh = s.elapsed().as_secs_f64() * 1e3;
+        let s = Instant::now();
+        memo.refresh(&reports[0].0, false);
+        let unchanged = s.elapsed().as_secs_f64() * 1e3;
+        let mut m = [0f64; 3];
+        for _ in 0..loops {
+            let s = Instant::now();
+            let prepared = memo.prepare(&selection).unwrap();
+            let fresh = prepared.fresh();
+            let claims = prepared.claims(&fresh);
+            m[0] += s.elapsed().as_secs_f64();
+            let s = Instant::now();
+            let state = prepared.build(&|_, _| false).unwrap().unwrap();
+            m[1] += s.elapsed().as_secs_f64();
+            let s = Instant::now();
+            let hash = state.state_hash();
+            m[2] += s.elapsed().as_secs_f64();
+            std::hint::black_box((claims, hash));
+        }
+        println!(
+            "memo: first refresh {refresh:.1} ms, unchanged refresh {unchanged:.1} ms; per close ms: prepare+fresh+claims {:.1}  build {:.1}  state_hash {:.1}",
+            m[0] / n,
+            m[1] / n,
+            m[2] / n
+        );
+    }
+
     /// Every entry counts as justified: the evidence check is tested apart
     fn trust_all(exchange: &mut ReportExchange, epoch: ConsensusEpoch) {
         exchange.verify(epoch, Timestamp::new_test_instance(), |_, _, _, _| {
@@ -2395,11 +2845,20 @@ mod tests {
     /// Four accounts, four heights, one or two blocks at each position, each
     /// continuing one of the blocks below it: forks with descendants
     fn random_tree(rng: &mut Rng) -> BTreeMap<BlockHash, (CertifiedBlock, BlockHash)> {
+        random_tree_sized(rng, 4, 4)
+    }
+
+    /// `random_tree` with the given numbers of accounts and heights
+    fn random_tree_sized(
+        rng: &mut Rng,
+        accounts: u64,
+        heights: u64,
+    ) -> BTreeMap<BlockHash, (CertifiedBlock, BlockHash)> {
         let mut tree = BTreeMap::new();
         let mut next = 1u64;
-        for account in 1..=4u64 {
+        for account in 1..=accounts {
             let mut below: Vec<BlockHash> = vec![BlockHash::ZERO];
-            for height in 1..=4u64 {
+            for height in 1..=heights {
                 let mut here = Vec::new();
                 for _ in 0..1 + rng.below(2) {
                     let previous = below[rng.below(below.len() as u64) as usize];
@@ -2426,12 +2885,22 @@ mod tests {
         rng: &mut Rng,
         tree: &BTreeMap<BlockHash, (CertifiedBlock, BlockHash)>,
     ) -> Vec<Vec<(CertifiedBlock, BlockHash)>> {
-        (1..=4u64)
+        let accounts = tree
+            .values()
+            .map(|(block, _)| block.account)
+            .collect::<std::collections::BTreeSet<_>>()
+            .len() as u64;
+        let heights = tree
+            .values()
+            .map(|(block, _)| block.height)
+            .max()
+            .unwrap_or(0);
+        (1..=accounts)
             .map(|account| {
                 let tops: Vec<_> = tree
                     .values()
                     .filter(|(block, _)| {
-                        block.account == Account::from(account) && block.height == 4
+                        block.account == Account::from(account) && block.height == heights
                     })
                     .collect();
                 let mut chain = Vec::new();
@@ -2460,23 +2929,54 @@ mod tests {
         floor: u64,
         start: CertifiedState,
     ) -> (CertifiedState, ResidualVotes) {
+        random_report_with(
+            rng,
+            tree,
+            chains,
+            floor,
+            start,
+            Odds {
+                rival: 6,
+                vote: 3,
+                gap: 2,
+            },
+        )
+    }
+
+    /// How rarely `random_report_with` notarizes a rival at a position,
+    /// first votes a block its state does not summarize, and notarizes a
+    /// block with a gap below it: one in so many
+    struct Odds {
+        rival: u64,
+        vote: u64,
+        gap: u64,
+    }
+
+    fn random_report_with(
+        rng: &mut Rng,
+        tree: &BTreeMap<BlockHash, (CertifiedBlock, BlockHash)>,
+        chains: &[Vec<(CertifiedBlock, BlockHash)>],
+        floor: u64,
+        start: CertifiedState,
+        odds: Odds,
+    ) -> (CertifiedState, ResidualVotes) {
         let mut certified = start;
         for chain in chains {
-            let finalized = floor + rng.below(5 - floor);
+            let finalized = floor + rng.below(chain.len() as u64 + 1 - floor);
             for (block, previous) in chain.iter().take(finalized as usize) {
                 certified.certify(*block, *previous, CertifiedStatus::Finalized);
             }
             // Notarized: the block above the finalized tip, or one with a gap
             // below it, which no promotion turns into finality
-            let above = finalized + rng.below(2);
+            let above = finalized + (rng.below(odds.gap) + 1) / odds.gap;
             if let Some((block, previous)) = chain.get(above as usize)
                 && rng.below(3) != 0
             {
                 certified.certify(*block, *previous, CertifiedStatus::Notarized);
             }
             // Rarely, a rival notarized at a position of the chain
-            if rng.below(6) == 0 {
-                let height = 1 + rng.below(4);
+            if rng.below(odds.rival) == 0 {
+                let height = 1 + rng.below(chain.len() as u64);
                 let rivals: Vec<_> = tree
                     .values()
                     .filter(|(block, _)| {
@@ -2500,7 +3000,7 @@ mod tests {
         certified.project_final_prefixes();
         let mut residual = ResidualVotes::new();
         for (block, previous) in tree.values() {
-            if !certified.contains_hash(&block.hash) && rng.below(3) == 0 {
+            if !certified.contains_hash(&block.hash) && rng.below(odds.vote) == 0 {
                 residual.record(*block, *previous, ResidualKind::First);
             }
         }

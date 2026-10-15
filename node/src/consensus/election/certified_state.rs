@@ -210,6 +210,14 @@ impl CertifiedState {
     /// part in it.
     /// In canonical order, as `entries` gives them.
     pub fn changed_or_unfinalized(&self) -> Entries<'_> {
+        self.changed_or_unfinalized_in(..)
+    }
+
+    /// `changed_or_unfinalized` within a range of blocks
+    pub fn changed_or_unfinalized_in(
+        &self,
+        range: impl RangeBounds<CertifiedBlock> + Clone,
+    ) -> Entries<'_> {
         static NONE: BTreeMap<CertifiedBlock, Option<Certification>> = BTreeMap::new();
         let kept = self
             .base
@@ -217,8 +225,8 @@ impl CertifiedState {
             .map(|base| base.unfinalized_state())
             .unwrap_or(&NONE);
         Entries {
-            base: kept.range(..).peekable(),
-            delta: self.delta.range(..).peekable(),
+            base: kept.range(range.clone()).peekable(),
+            delta: self.delta.range(range).peekable(),
         }
     }
 

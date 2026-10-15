@@ -18,7 +18,8 @@ use super::{
     ReportExchange,
     checkpoint_fetch::{CheckpointFetch, checkpoint_bytes},
     chunk_window::ChunkWindow,
-    delta_check_enabled, manifest_claims,
+    close_memo::{CloseMemo, MemoMiss, PreparedClose},
+    close_memo_check_enabled, close_memo_enabled, delta_check_enabled, manifest_claims,
     report_service::inherited_from,
     unjustified,
 };
@@ -27,10 +28,10 @@ use crate::{
         AecService,
         active_elections::EpochProposalContext,
         election::{
-            AccountSlot, BlockIndex, BuildRules, CertifiedState, Committee, EpochLedger,
-            EpochValue, Manifest, ManifestAssembly, MemberOrder, ReportIndex, ReportRef,
-            ReportSource, ResidualVotes, SelectedReport, build_state, fresh_finalized,
-            overlap_certified, overlap_claims, witness_claims,
+            AccountSlot, BlockIndex, BuildRules, BuildStateError, CertifiedState, Committee,
+            EpochLedger, EpochValue, FreshFinalized, Manifest, ManifestAssembly, MemberOrder,
+            ReportIndex, ReportRef, ReportSource, ResidualVotes, SelectedReport, build_state,
+            fresh_finalized, overlap_certified, overlap_claims, witness_claims,
         },
     },
     transport::MessageFlooder,
@@ -96,13 +97,14 @@ fn candidate_claims(
     previous: &EpochLedger,
     anchor: Option<&EpochLedger>,
     index: &dyn BlockIndex,
+    fresh: &[FreshFinalized],
 ) -> Vec<(ConsensusEpoch, BlockHash)> {
     let mut claims = manifest_claims(epoch, states, &|block, entry| {
         inherited_from(previous, block, entry)
     });
     claims.extend(witness_claims(previous, states, index));
     if let Some(anchor) = anchor {
-        claims.extend(overlap_claims(anchor, &fresh_finalized(states, previous)));
+        claims.extend(overlap_claims(anchor, fresh));
     }
     claims.sort();
     claims.dedup();
@@ -120,7 +122,7 @@ fn candidate_claims(
 fn marked_manifest(
     evidence: &Manifest,
     epoch: ConsensusEpoch,
-    states: &[SelectedReport],
+    fresh: &[FreshFinalized],
     previous: &EpochLedger,
     anchor: Option<&EpochLedger>,
     members: &EpochMembers,
@@ -132,9 +134,8 @@ fn marked_manifest(
     ) else {
         return marked;
     };
-    let fresh = fresh_finalized(states, previous);
     let certified = overlap_certified(
-        &fresh,
+        fresh,
         previous,
         anchor,
         &|hash| manifest_witness(evidence, members, before, hash),
@@ -149,6 +150,17 @@ fn marked_manifest(
         marked.set_overlap(before, hash);
     }
     marked
+}
+
+/// RAI: what a close derives from a selection before its state: the claims
+/// its evidence manifest must cover and the fresh finalized blocks, taken
+/// from the close memo where it stands for the selection
+struct Derivation<'m, 'r> {
+    prepared: Option<PreparedClose<'m, 'r>>,
+    claims: Vec<(ConsensusEpoch, BlockHash)>,
+    fresh: Vec<FreshFinalized>,
+    /// For the timing diagnostics: accounts memoized/derived, or why not
+    label: String,
 }
 
 /// RAI, "The joint epoch election": the part of the close that reads and
@@ -198,6 +210,10 @@ pub struct EpochDecisionService {
     unchecked: Mutex<ProposalQueue>,
     proposal_ready: Condvar,
     worker: Mutex<Option<JoinHandle<()>>>,
+    /// The derivation of the epochs not decided here yet, memoized while
+    /// each epoch runs, and when each was last refreshed
+    memos: Mutex<HashMap<ConsensusEpoch, Arc<CloseMemo>>>,
+    memo_refreshed: Mutex<HashMap<ConsensusEpoch, Timestamp>>,
 }
 
 /// RAI: the proposals waiting for a check, in arrival order, each value
@@ -258,11 +274,16 @@ impl EpochDecisionService {
             unchecked: Mutex::new(ProposalQueue::default()),
             proposal_ready: Condvar::new(),
             worker: Mutex::new(None),
+            memos: Mutex::new(HashMap::new()),
+            memo_refreshed: Mutex::new(HashMap::new()),
         }
     }
 
     /// How often a manifest chunk is asked for again
     const MANIFEST_RETRY: std::time::Duration = std::time::Duration::from_millis(300);
+    /// How often the close memo of a running epoch catches up with the
+    /// certified view
+    const MEMO_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
 
     /// RAI: drive the joint election of every epoch still closing. A replica
     /// takes part once it holds the decided predecessor state and enough
@@ -365,24 +386,242 @@ impl EpochDecisionService {
         self.check_proposal(value, channel);
     }
 
+    /// Checks the proposals in arrival order. While none is waiting, the
+    /// thread brings the close memos up to date: the derivation work of a
+    /// close, done while its epoch runs.
     fn run_checks(&self) {
         loop {
-            let (value, channel) = {
+            let next = {
                 let mut queue = self.unchecked.lock().unwrap();
-                loop {
-                    if queue.stopped {
-                        queue.running = false;
-                        return;
+                if queue.stopped {
+                    queue.running = false;
+                    return;
+                }
+                match queue.order.pop_front() {
+                    Some(hash) => queue.waiting.remove(&hash),
+                    None => {
+                        let (queue, _) = self
+                            .proposal_ready
+                            .wait_timeout(queue, Self::MEMO_INTERVAL / 4)
+                            .unwrap();
+                        drop(queue);
+                        None
                     }
-                    if let Some(hash) = queue.order.pop_front()
-                        && let Some(waiting) = queue.waiting.remove(&hash)
-                    {
-                        break waiting;
-                    }
-                    queue = self.proposal_ready.wait(queue).unwrap();
                 }
             };
-            self.check_proposal(value, &channel);
+            match next {
+                Some((value, channel)) => self.check_proposal(value, &channel),
+                None => self.refresh_memos(),
+            }
+        }
+    }
+
+    /// RAI: brings the close memo of every epoch not decided here up to
+    /// date: from this node's signed report once it holds one, after which
+    /// the memo is final, and from the certified view at most once every
+    /// `MEMO_INTERVAL` before. A memo derives against the epoch's decided
+    /// predecessor and report base, so it starts once they are installed.
+    fn refresh_memos(&self) {
+        if !close_memo_enabled() {
+            return;
+        }
+        let now = self.clock.now();
+        let current = self.active_elections.current_epoch();
+        let mut epochs: Vec<ConsensusEpoch> = self
+            .active_elections
+            .epoch_closes()
+            .iter()
+            .filter(|close| close.value.is_none())
+            .map(|close| close.epoch)
+            .collect();
+        if !epochs.contains(&current) {
+            epochs.push(current);
+        }
+        for epoch in epochs {
+            if self.active_elections.epoch_decided(epoch) {
+                continue;
+            }
+            let (Some(previous), Some(predecessor), Some(base), Some(anchor)) = (
+                self.active_elections.epoch_previous_state(epoch),
+                self.active_elections.epoch_previous_hash(epoch),
+                self.active_elections.report_base(epoch),
+                self.overlap_anchor(epoch),
+            ) else {
+                continue;
+            };
+            let held = self.memos.lock().unwrap().get(&epoch).cloned();
+            let mut memo = match held {
+                Some(memo) if memo.derives_against(predecessor, &base) => memo,
+                _ => Arc::new(CloseMemo::new(epoch, predecessor, previous, base, anchor)),
+            };
+            if memo.is_frozen() {
+                continue;
+            }
+            let own = self.exchange.lock().unwrap().own_certified(epoch);
+            let due = self
+                .memo_refreshed
+                .lock()
+                .unwrap()
+                .get(&epoch)
+                .is_none_or(|last| last.elapsed(now) >= Self::MEMO_INTERVAL);
+            if own.is_none() && !due {
+                continue;
+            }
+            let started = std::time::Instant::now();
+            let frozen = own.is_some();
+            let view =
+                own.unwrap_or_else(|| Arc::new(self.active_elections.epoch_certified(epoch)));
+            let viewed = started.elapsed();
+            let derived = Arc::make_mut(&mut memo).refresh(&view, frozen);
+            let (accounts, standing) = memo.counts();
+            diagnostic!(
+                "EPOCH_MEMO_REFRESH epoch={} frozen={} derived={} accounts={} memoized={} unmemoized={:?} view_ms={} ms={}",
+                epoch,
+                frozen,
+                derived,
+                accounts,
+                standing,
+                memo.unmemoized(),
+                viewed.as_millis(),
+                started.elapsed().as_millis()
+            );
+            self.memos.lock().unwrap().insert(epoch, memo);
+            self.memo_refreshed.lock().unwrap().insert(epoch, now);
+        }
+        // A decided epoch's memo is done with
+        let decided: Vec<ConsensusEpoch> = self
+            .memos
+            .lock()
+            .unwrap()
+            .keys()
+            .copied()
+            .filter(|epoch| self.active_elections.epoch_decided(*epoch))
+            .collect();
+        let mut memos = self.memos.lock().unwrap();
+        let mut refreshed = self.memo_refreshed.lock().unwrap();
+        for epoch in decided {
+            memos.remove(&epoch);
+            refreshed.remove(&epoch);
+        }
+    }
+
+    /// The close memo of an epoch, if it derives against this predecessor
+    fn memo_for(&self, epoch: ConsensusEpoch, predecessor: BlockHash) -> Option<Arc<CloseMemo>> {
+        if !close_memo_enabled() {
+            return None;
+        }
+        let base = self.active_elections.report_base(epoch)?;
+        self.memos
+            .lock()
+            .unwrap()
+            .get(&epoch)
+            .filter(|memo| memo.derives_against(predecessor, &base))
+            .cloned()
+    }
+
+    /// The claims and fresh finalized blocks of a selection, by the memo
+    /// where it stands for it, in full otherwise
+    fn derivation<'m, 'r>(
+        &self,
+        memo: Option<&'m CloseMemo>,
+        epoch: ConsensusEpoch,
+        states: &[SelectedReport<'r>],
+        previous: &EpochLedger,
+        anchor: Option<&EpochLedger>,
+    ) -> Derivation<'m, 'r> {
+        let prepared = match memo {
+            Some(memo) => memo.prepare(states).map_err(|miss| match miss {
+                MemoMiss::OtherBase => "other_base",
+                MemoMiss::RepeatedReporter => "repeated_reporter",
+                MemoMiss::SharedHash => "shared_hash",
+            }),
+            None => Err("none"),
+        };
+        let full = || {
+            let fresh = fresh_finalized(states, previous);
+            let index = self.report_index(epoch, previous, states);
+            let claims = candidate_claims(epoch, states, previous, anchor, &index, &fresh);
+            (claims, fresh)
+        };
+        match prepared {
+            Ok(prepared) => {
+                let fresh = prepared.fresh();
+                let claims = prepared.claims(&fresh);
+                let (memoized, derived) = prepared.counts();
+                if close_memo_check_enabled() {
+                    let (full_claims, full_fresh) = full();
+                    diagnostic!(
+                        "EPOCH_MEMO_CHECK epoch={} part=claims agrees={} fresh_agrees={}",
+                        epoch,
+                        full_claims == claims,
+                        full_fresh == fresh
+                    );
+                    if full_claims != claims || full_fresh != fresh {
+                        return Derivation {
+                            prepared: None,
+                            claims: full_claims,
+                            fresh: full_fresh,
+                            label: "check_failed".to_owned(),
+                        };
+                    }
+                }
+                Derivation {
+                    prepared: Some(prepared),
+                    claims,
+                    fresh,
+                    label: format!("{memoized}/{derived}"),
+                }
+            }
+            Err(reason) => {
+                let (claims, fresh) = full();
+                Derivation {
+                    prepared: None,
+                    claims,
+                    fresh,
+                    label: reason.to_owned(),
+                }
+            }
+        }
+    }
+
+    /// `BuildState(S_{e-1}, Q_e)` of a selection: by the memo where the
+    /// derivation was prepared with it, in full otherwise
+    fn build(
+        &self,
+        derivation: &Derivation,
+        epoch: ConsensusEpoch,
+        states: &[SelectedReport],
+        previous: &EpochLedger,
+        witness: &dyn Fn(ConsensusEpoch, &BlockHash) -> bool,
+    ) -> Result<EpochLedger, BuildStateError> {
+        let rules = BuildRules { epoch };
+        let full = || {
+            let index = self.report_index(epoch, previous, states);
+            build_state(previous, states, &index, rules, witness)
+        };
+        let Some(prepared) = &derivation.prepared else {
+            return full();
+        };
+        let built = prepared.build(witness);
+        if close_memo_check_enabled() {
+            let whole = full();
+            let agrees = match (&built, &whole) {
+                (Ok(Some(built)), Ok(whole)) => built == whole,
+                (Err(_), Err(_)) | (Ok(None), _) => true,
+                _ => false,
+            };
+            diagnostic!(
+                "EPOCH_MEMO_CHECK epoch={} part=state agrees={}",
+                epoch,
+                agrees
+            );
+            if !agrees {
+                return whole;
+            }
+        }
+        match built? {
+            Some(ledger) => Ok(ledger),
+            None => full(),
         }
     }
 
@@ -658,19 +897,24 @@ impl EpochDecisionService {
             return None;
         }
         let states: Vec<SelectedReport> = resolved.iter().map(|(_, state)| *state).collect();
-        let index = self.report_index(epoch, &previous, &states);
-        let rules = BuildRules { epoch };
         // The evidence this leader used, committed to by digest, with the
         // overlap certificates it proves marked
         let anchor = self.overlap_anchor(epoch)?;
         let started = std::time::Instant::now();
-        let claims = candidate_claims(epoch, &states, &previous, anchor.as_deref(), &index);
+        let memo = self.memo_for(epoch, predecessor);
+        let derivation = self.derivation(
+            memo.as_deref(),
+            epoch,
+            &states,
+            &previous,
+            anchor.as_deref(),
+        );
         let claimed = started.elapsed();
         let members = EpochMembers::new(&self.active_elections);
         let manifest = Arc::new(marked_manifest(
-            &self.active_elections.evidence_manifest(&claims),
+            &self.active_elections.evidence_manifest(&derivation.claims),
             epoch,
-            &states,
+            &derivation.fresh,
             &previous,
             anchor.as_deref(),
             &members,
@@ -681,26 +925,22 @@ impl EpochDecisionService {
         let witness = |origin: ConsensusEpoch, hash: &BlockHash| {
             manifest_witness(&manifest, &members, origin, hash)
         };
-        match EpochValue::propose(
-            epoch,
-            round,
-            BlockHash::ZERO,
-            &previous,
-            &resolved,
-            digest,
-            &index,
-            rules,
-            &witness,
-        ) {
+        let built = self
+            .build(&derivation, epoch, &states, &previous, &witness)
+            .map(|ledger| {
+                EpochValue::propose_built(epoch, round, BlockHash::ZERO, &resolved, digest, ledger)
+            });
+        match built {
             Ok((value, ledger)) => {
                 diagnostic!(
-                    "EPOCH_DERIVE_TIMING epoch={} claims={} overlaps={} claim_ms={} manifest_ms={} build_ms={}",
+                    "EPOCH_DERIVE_TIMING epoch={} claims={} overlaps={} claim_ms={} manifest_ms={} build_ms={} memo={}",
                     epoch,
-                    claims.len(),
+                    derivation.claims.len(),
                     manifest.overlaps().count(),
                     claimed.as_millis(),
                     (manifested - claimed).as_millis(),
-                    (started.elapsed() - manifested).as_millis()
+                    (started.elapsed() - manifested).as_millis(),
+                    derivation.label
                 );
                 Some((value, Arc::new(ledger)))
             }
@@ -786,7 +1026,22 @@ impl EpochDecisionService {
             return Validation::Pending;
         };
         let started = std::time::Instant::now();
-        match self.evidence_committed(value, &states, &previous, anchor.as_deref(), channel) {
+        let memo = self.memo_for(value.epoch, predecessor);
+        let derivation = self.derivation(
+            memo.as_deref(),
+            value.epoch,
+            &states,
+            &previous,
+            anchor.as_deref(),
+        );
+        match self.evidence_committed(
+            value,
+            &states,
+            &derivation,
+            &previous,
+            anchor.as_deref(),
+            channel,
+        ) {
             Evidence::Committed => {}
             Evidence::Pending => return Validation::Pending,
             Evidence::Refused => return Validation::Refused,
@@ -806,24 +1061,20 @@ impl EpochDecisionService {
         let witness = |origin: ConsensusEpoch, hash: &BlockHash| {
             manifest_witness(&manifest, &members, origin, hash)
         };
-        let index = self.report_index(value.epoch, &previous, &states);
         let rules = BuildRules { epoch: value.epoch };
-        match value.validate(
-            &previous,
-            &source,
-            &index,
-            committee.thresholds().report,
-            rules,
-            &witness,
-        ) {
+        match value.validate_with(&source, committee.thresholds().report, |states| {
+            self.build(&derivation, value.epoch, states, &previous, &witness)
+        }) {
             Ok(ledger) => {
                 diagnostic!(
-                    "EPOCH_VALIDATE_TIMING epoch={} evidence_ms={} build_ms={}",
+                    "EPOCH_VALIDATE_TIMING epoch={} evidence_ms={} build_ms={} memo={}",
                     value.epoch,
                     committed.as_millis(),
-                    (started.elapsed() - committed).as_millis()
+                    (started.elapsed() - committed).as_millis(),
+                    derivation.label
                 );
                 if delta_check_enabled() {
+                    let index = self.report_index(value.epoch, &previous, &states);
                     check_reports_flat(
                         value.epoch,
                         &previous,
@@ -864,23 +1115,17 @@ impl EpochDecisionService {
         &self,
         value: &EpochValue,
         states: &[SelectedReport],
+        derivation: &Derivation,
         previous: &EpochLedger,
         anchor: Option<&EpochLedger>,
         channel: Option<&Arc<Channel>>,
     ) -> Evidence {
         let epoch = value.epoch;
-        let claims = candidate_claims(
-            epoch,
-            states,
-            previous,
-            anchor,
-            &self.report_index(epoch, previous, states),
-        );
         let members = EpochMembers::new(&self.active_elections);
         let own = marked_manifest(
-            &self.active_elections.evidence_manifest(&claims),
+            &self.active_elections.evidence_manifest(&derivation.claims),
             epoch,
-            states,
+            &derivation.fresh,
             previous,
             anchor,
             &members,
@@ -928,7 +1173,14 @@ impl EpochDecisionService {
             return Evidence::Pending;
         }
         // The overlap marks: exactly the certificates the evidence proves
-        let proven = marked_manifest(&manifest, epoch, states, previous, anchor, &members);
+        let proven = marked_manifest(
+            &manifest,
+            epoch,
+            &derivation.fresh,
+            previous,
+            anchor,
+            &members,
+        );
         if proven.digest() != value.manifest {
             diagnostic!(
                 "EPOCH_MANIFEST_OVERLAPS_REFUSED epoch={} manifest={} marked={} proven={}",
@@ -1395,7 +1647,7 @@ impl EpochDecisionService {
 /// needs the exchange, and a derivation takes long. A report laid over the
 /// inherited base is copied in the time of its changes.
 struct OwnedReports {
-    reports: Vec<(ReportRef, Amount, CertifiedState, ResidualVotes)>,
+    reports: Vec<(ReportRef, Amount, Arc<CertifiedState>, Arc<ResidualVotes>)>,
 }
 
 impl OwnedReports {
@@ -1409,7 +1661,7 @@ impl OwnedReports {
         let reports = selection
             .iter()
             .filter_map(|report| {
-                let (certified, residual) = exchange.usable_report(
+                let (certified, residual) = exchange.usable_report_shared(
                     epoch,
                     &report.reporter,
                     report.certified,
@@ -1419,8 +1671,8 @@ impl OwnedReports {
                 Some((
                     *report,
                     committee.weight(&report.reporter),
-                    certified.clone(),
-                    residual.clone(),
+                    certified,
+                    residual,
                 ))
             })
             .collect();
@@ -1476,8 +1728,21 @@ fn check_reports_flat(
     let flat_index = ReportIndex::new(previous, &flat_states);
     let state_agrees = build_state(previous, &flat_states, &flat_index, rules, witness)
         .is_ok_and(|ledger| ledger == *derived);
-    let claims_agree = candidate_claims(epoch, states, previous, anchor, index)
-        == candidate_claims(epoch, &flat_states, previous, anchor, &flat_index);
+    let claims_agree = candidate_claims(
+        epoch,
+        states,
+        previous,
+        anchor,
+        index,
+        &fresh_finalized(states, previous),
+    ) == candidate_claims(
+        epoch,
+        &flat_states,
+        previous,
+        anchor,
+        &flat_index,
+        &fresh_finalized(&flat_states, previous),
+    );
     diagnostic!(
         "REPORT_DELTA_CHECK epoch={} reports={} changed={} state_agrees={} claims_agree={}",
         epoch,

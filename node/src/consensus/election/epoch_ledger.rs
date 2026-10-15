@@ -5,7 +5,7 @@ use std::{
 
 use rsnano_types::{Account, Amount, Blake2HashBuilder, BlockHash, ConsensusEpoch, PublicKey};
 
-use super::{CertifiedState, ResidualVotes};
+use super::{Certification, CertifiedBlock, CertifiedState, ResidualKind, ResidualVotes};
 
 /// A position in an account forest. The slot follows from the parent: a block
 /// whose parent sits at slot v-1 is at slot v.
@@ -66,6 +66,49 @@ pub struct SelectedReport<'a> {
     pub weight: Amount,
     pub certified: &'a CertifiedState,
     pub residual: &'a ResidualVotes,
+}
+
+/// What `BuildState` reads of a selected report: a whole report, or the
+/// part of one that names a single account (an account's derivation reads
+/// nothing of the others)
+pub trait ReportView {
+    fn reporter(&self) -> PublicKey;
+    fn weight(&self) -> Amount;
+    /// The changed entries and the unfinalized entries kept of the
+    /// inherited base, in canonical order
+    fn derivation_entries(&self) -> impl Iterator<Item = (CertifiedBlock, Certification)> + '_;
+    /// The residual records, in canonical order, each with its parent
+    fn residual_entries(
+        &self,
+    ) -> impl Iterator<Item = (CertifiedBlock, ResidualKind, BlockHash)> + '_;
+    /// Whether the report's certified state tags the block N or F
+    fn summarizes(&self, hash: &BlockHash) -> bool;
+}
+
+impl ReportView for SelectedReport<'_> {
+    fn reporter(&self) -> PublicKey {
+        self.reporter
+    }
+
+    fn weight(&self) -> Amount {
+        self.weight
+    }
+
+    fn derivation_entries(&self) -> impl Iterator<Item = (CertifiedBlock, Certification)> + '_ {
+        self.certified
+            .changed_or_unfinalized()
+            .map(|(block, entry)| (*block, *entry))
+    }
+
+    fn residual_entries(
+        &self,
+    ) -> impl Iterator<Item = (CertifiedBlock, ResidualKind, BlockHash)> + '_ {
+        self.residual.entries()
+    }
+
+    fn summarizes(&self, hash: &BlockHash) -> bool {
+        self.certified.summarizes(hash)
+    }
 }
 
 /// RAI: the decided state of an epoch, `S_e = (L_e, Sigma_e)`. `L_e` is the
@@ -755,6 +798,116 @@ impl EpochLedger {
     fn keep(&mut self, slot: AccountSlot, block: PlacedBlock) {
         self.notarized.entry(slot).or_default().insert(block);
     }
+
+    /// The accounts this state retains a position of
+    pub fn retained_accounts(&self) -> BTreeSet<Account> {
+        self.notarized.keys().map(|slot| slot.account).collect()
+    }
+
+    /// The part of this state naming one account: its finalized and retained
+    /// positions and the lock records of its retained blocks. A derivation of
+    /// the account reads and writes nothing else (see `build_state_of`).
+    pub fn account_part(&self, account: Account) -> EpochLedger {
+        let range = AccountSlot::new(account, 0)..=AccountSlot::new(account, u64::MAX);
+        let finalized = self
+            .finalized
+            .range(range.clone())
+            .map(|(slot, block)| (*slot, *block))
+            .collect();
+        let notarized: BTreeMap<AccountSlot, BTreeSet<PlacedBlock>> = self
+            .notarized
+            .range(range)
+            .map(|(slot, blocks)| (*slot, blocks.clone()))
+            .collect();
+        let locks = notarized
+            .values()
+            .flatten()
+            .filter_map(|block| Some((block.hash, self.locks.get(&block.hash)?.clone())))
+            .collect();
+        EpochLedger {
+            finalized,
+            notarized,
+            locks,
+            fresh: FreshFinals::default(),
+        }
+    }
+
+    /// What a derivation over an `account_part` left of the account: the
+    /// positions it finalized beyond the part, in the order it finalized
+    /// them, and the retained blocks and lock records it holds. None if the
+    /// derivation did not record what it finalized.
+    pub fn account_outcome(&self) -> Option<AccountOutcome> {
+        let fresh = self
+            .fresh
+            .0
+            .as_ref()?
+            .iter()
+            .map(|slot| (*slot, self.finalized[slot]))
+            .collect();
+        Some(AccountOutcome {
+            fresh,
+            notarized: self
+                .notarized
+                .iter()
+                .map(|(slot, blocks)| (*slot, blocks.clone()))
+                .collect(),
+            locks: self
+                .locks
+                .iter()
+                .map(|(hash, records)| (*hash, records.clone()))
+                .collect(),
+        })
+    }
+
+    /// Lays an account's derivation outcome over this state, which holds
+    /// the predecessor's part of the account (`part`): the fresh finalized
+    /// positions are added and the retained blocks and their records
+    /// replaced. Finality only grows, so the predecessor's finalized
+    /// positions stay as they are.
+    pub fn apply_account_outcome(&mut self, part: &EpochLedger, outcome: &AccountOutcome) {
+        for (slot, blocks) in &part.notarized {
+            self.notarized.remove(slot);
+            for block in blocks {
+                self.locks.remove(&block.hash);
+            }
+        }
+        for (slot, blocks) in &outcome.notarized {
+            self.notarized.insert(*slot, blocks.clone());
+        }
+        for (hash, records) in &outcome.locks {
+            self.locks.insert(*hash, records.clone());
+        }
+        for (slot, block) in &outcome.fresh {
+            self.finalized.insert(*slot, *block);
+            if let Some(fresh) = self.fresh.0.as_mut() {
+                fresh.push(*slot);
+            }
+        }
+    }
+
+    /// The predecessor a derivation starts from: this state, recording what
+    /// is finalized beyond it
+    pub fn derivation_start(&self) -> EpochLedger {
+        let mut ledger = self.clone();
+        ledger.fresh = FreshFinals(Some(Vec::new()));
+        ledger
+    }
+}
+
+/// RAI: what deriving one account's part of a checkpoint produced (see
+/// `EpochLedger::account_outcome`)
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AccountOutcome {
+    fresh: Vec<(AccountSlot, PlacedBlock)>,
+    notarized: Vec<(AccountSlot, BTreeSet<PlacedBlock>)>,
+    locks: Vec<(BlockHash, BTreeSet<LockRecord>)>,
+}
+
+impl AccountOutcome {
+    /// The positions finalized beyond the predecessor
+    pub fn fresh(&self) -> &[(AccountSlot, PlacedBlock)] {
+        &self.fresh
+    }
 }
 
 /// RAI: where every candidate of an epoch derivation sits. A report's
@@ -887,6 +1040,20 @@ pub fn build_state(
     rules: BuildRules,
     witness: &dyn Fn(ConsensusEpoch, &BlockHash) -> bool,
 ) -> Result<EpochLedger, BuildStateError> {
+    build_state_of(previous, selection, index, rules, witness)
+}
+
+/// `build_state` over any view of the selected reports. Every rule of it
+/// reads and writes the positions of one account at a time, so the state of
+/// an account derives from the predecessor's part for that account and the
+/// reports' entries naming it, whatever the other accounts hold.
+pub fn build_state_of<R: ReportView>(
+    previous: &EpochLedger,
+    selection: &[R],
+    index: &dyn BlockIndex,
+    rules: BuildRules,
+    witness: &dyn Fn(ConsensusEpoch, &BlockHash) -> bool,
+) -> Result<EpochLedger, BuildStateError> {
     #[derive(Default)]
     struct Evidence {
         notarized: BTreeSet<BlockHash>,
@@ -895,12 +1062,11 @@ pub fn build_state(
     }
     let mut reporters = BTreeSet::new();
     for report in selection {
-        if !reporters.insert(report.reporter) {
+        if !reporters.insert(report.reporter()) {
             return Err(BuildStateError::RepeatedReporter);
         }
     }
-    let mut ledger = previous.clone();
-    ledger.fresh = FreshFinals(Some(Vec::new()));
+    let mut ledger = previous.derivation_start();
     let mut released = BTreeSet::new();
     let named = named_blocks(selection);
     let mut inherited = BypassCache::new(previous, index);
@@ -927,7 +1093,7 @@ pub fn build_state(
     for report in selection {
         // Of the inherited base only the locks take part: its finalized
         // entries restate finality `ledger` starts from
-        for (block, entry) in report.certified.changed_or_unfinalized() {
+        for (block, entry) in report.derivation_entries() {
             let slot = AccountSlot::new(block.account, block.height);
             if index.placement(&block.hash)
                 != Some(BlockPlacement {
@@ -963,14 +1129,18 @@ pub fn build_state(
         // not tag N or F (Fix B): an R tag exposes no vote, so a first vote
         // for an R-tagged block counts. The residual set is canonical, and
         // the identity is counted once.
-        for block in report.residual.first_votes() {
+        let first_votes = report
+            .residual_entries()
+            .filter(|(_, kind, _)| *kind == ResidualKind::First)
+            .map(|(block, _, _)| block);
+        for block in first_votes {
             let slot = AccountSlot::new(block.account, block.height);
-            if report.certified.summarizes(&block.hash) || !eligible(slot, block.hash) {
+            if report.summarizes(&block.hash) || !eligible(slot, block.hash) {
                 continue;
             }
             let at = evidence.entry(slot).or_default();
             let weight = at.first.entry(block.hash).or_insert(Amount::ZERO);
-            *weight = weight.checked_add(report.weight).unwrap_or(Amount::MAX);
+            *weight = weight.checked_add(report.weight()).unwrap_or(Amount::MAX);
         }
     }
     for (slot, at) in &evidence {
@@ -1062,15 +1232,15 @@ pub fn build_state(
 }
 
 /// Every block a selected report names, certified or in G, at its position
-fn named_blocks(selection: &[SelectedReport]) -> BTreeSet<(AccountSlot, BlockHash)> {
+fn named_blocks<R: ReportView>(selection: &[R]) -> BTreeSet<(AccountSlot, BlockHash)> {
     let mut named = BTreeSet::new();
     for report in selection {
         // An inherited finalized block bypasses no record: the predecessor
         // keeps no branch incompatible with its finality
-        for (block, _) in report.certified.changed_or_unfinalized() {
+        for (block, _) in report.derivation_entries() {
             named.insert((AccountSlot::new(block.account, block.height), block.hash));
         }
-        for (block, _, _) in report.residual.entries() {
+        for (block, _, _) in report.residual_entries() {
             named.insert((AccountSlot::new(block.account, block.height), block.hash));
         }
     }
@@ -1224,6 +1394,15 @@ impl<'a> BypassCache<'a> {
 pub fn witness_claims(
     previous: &EpochLedger,
     selection: &[SelectedReport],
+    index: &dyn BlockIndex,
+) -> Vec<(ConsensusEpoch, BlockHash)> {
+    witness_claims_of(previous, selection, index)
+}
+
+/// `witness_claims` over any view of the selected reports
+pub fn witness_claims_of<R: ReportView>(
+    previous: &EpochLedger,
+    selection: &[R],
     index: &dyn BlockIndex,
 ) -> Vec<(ConsensusEpoch, BlockHash)> {
     let mut claims = BTreeSet::new();
