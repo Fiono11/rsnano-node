@@ -21,6 +21,7 @@ from pathlib import Path
 MAIN_RATES = [500, 1000, 1500, 2000, 2500, 3000]
 BYZ_RATES = [1000, 2000, 3000]
 RECONF_RATES = [500, 1000, 1500, 2000]
+PAPER_RATES = [1000, 2000]
 
 
 def rotation_schedule(members, standby, epochs=16):
@@ -57,15 +58,16 @@ SETS = {
         'fork5-grace': (['--fork-percentage', '5', '--fork-grace', '600'], [1000, 2000], None),
         'fork10-grace': (['--fork-percentage', '10', '--fork-grace', '600'], [1000, 2000], None),
     },
-    # The paper's figures: one load below saturation, the three systems in
+    # The paper's figures: half the host's capacity and the highest load all
+    # three sustain without forks, the three systems in
     # four scenarios; fork runs keep the nodes running until no forked
     # position is open (the fork-resolution trace)
     'paper': {
-        'nofork': ([], [1000], None),
-        'fork5-grace': (['--fork-percentage', '5', '--fork-grace', '600'], [1000], None),
-        'fork10-grace': (['--fork-percentage', '10', '--fork-grace', '600'], [1000], None),
+        'nofork': ([], PAPER_RATES, None),
+        'fork5-grace': (['--fork-percentage', '5', '--fork-grace', '600'], PAPER_RATES, None),
+        'fork10-grace': (['--fork-percentage', '10', '--fork-grace', '600'], PAPER_RATES, None),
         'fork5-byzlead-grace': (['--fork-percentage', '5', '--byzantine', '1', '--byzantine-leads-close',
-                                 '--fork-grace', '600'], [1000], None),
+                                 '--fork-grace', '600'], PAPER_RATES, None),
     },
     # Eight running representatives in both: six committee members and two
     # standby ones (PR6, PR7); the rotating variant replaces one member
@@ -97,6 +99,7 @@ def main():
     parser.add_argument('--wait-quiet', type=int, default=3600)
     parser.add_argument('--reps', type=int, default=1, help='repetitions at the high rates')
     parser.add_argument('--reps-from', type=int, default=1500, help='offered rate from which --reps applies')
+    parser.add_argument('--rate', type=int, action='append', help='run only these offered rates')
     parser.add_argument('--dry-run', action='store_true')
     args = parser.parse_args()
     arms = dict(parse_arm(spec) for spec in args.arm)
@@ -109,6 +112,8 @@ def main():
     for name in args.set:
         for variant, (flags, rates, only) in SETS[name].items():
             for rate in rates:
+                if args.rate and rate not in args.rate:
+                    continue
                 # the same workload choices for every system at this point
                 base_seed = 1000 * rate + sum(map(ord, variant))
                 reps = args.reps if rate >= args.reps_from else 1
