@@ -166,6 +166,21 @@ pub(crate) fn close_memo_enabled() -> bool {
     *ENABLED.get_or_init(|| std::env::var("RAI_CLOSE_MEMO").map_or(true, |value| value != "0"))
 }
 
+/// RAI evaluation: whether the certificates of an epoch's finalized blocks
+/// are looked up while it runs (`RAI_CERT_PREFILL=0` turns it off)
+pub(crate) fn certificate_prefill_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var("RAI_CERT_PREFILL").map_or(true, |value| value != "0"))
+}
+
+/// RAI evaluation: whether a close memo starts before its predecessor is
+/// decided (`RAI_MEMO_PROVISIONAL=0` turns it off)
+pub(crate) fn provisional_memo_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED
+        .get_or_init(|| std::env::var("RAI_MEMO_PROVISIONAL").map_or(true, |value| value != "0"))
+}
+
 /// RAI evaluation: whether every derivation made with the close memo is
 /// also made in full and compared (`RAI_CLOSE_MEMO_CHECK=1`)
 pub(crate) fn close_memo_check_enabled() -> bool {

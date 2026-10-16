@@ -17,10 +17,12 @@ use rsnano_utils::stats::{DetailType, Direction, StatType, Stats};
 use super::{
     ReportExchange,
     certificate_memo::CertificateMemo,
+    certificate_prefill_enabled,
     checkpoint_fetch::{CheckpointFetch, checkpoint_bytes},
     chunk_window::ChunkWindow,
     close_memo::{CloseMemo, MemoMiss, PreparedClose},
     close_memo_check_enabled, close_memo_enabled, delta_check_enabled, manifest_claims,
+    provisional_memo_enabled,
     report_service::inherited_from,
     unjustified,
 };
@@ -504,6 +506,11 @@ impl EpochDecisionService {
                         .filter(|(_, _, own_epoch)| *own_epoch)
                         .map(|(block, _, _)| block.hash)
                         .collect();
+                    let fresh = if certificate_prefill_enabled() {
+                        fresh
+                    } else {
+                        Vec::new()
+                    };
                     for batch in fresh.chunks(Self::CERTIFICATE_BATCH) {
                         CertificateMemo::kinds_of(
                             &self.certificates,
@@ -594,7 +601,7 @@ impl EpochDecisionService {
                 _ => Arc::new(CloseMemo::new(epoch, predecessor, previous, base, anchor)),
             });
         }
-        if held.is_some() {
+        if held.is_some() || !provisional_memo_enabled() {
             return held;
         }
         let before = ConsensusEpoch::new(epoch.as_u64().checked_sub(1)?);
