@@ -832,6 +832,35 @@ impl EpochLedger {
         }
     }
 
+    /// A digest of `account_part(account)`: two states whose parts for the
+    /// account are equal derive the account alike
+    pub fn account_digest(&self, account: Account) -> BlockHash {
+        let range = AccountSlot::new(account, 0)..=AccountSlot::new(account, u64::MAX);
+        let mut builder = Blake2HashBuilder::new().update(b"RAI account part");
+        for (slot, block) in self.finalized.range(range.clone()) {
+            builder = builder
+                .update(b"f")
+                .update(slot.height.to_le_bytes())
+                .update(block.hash.as_bytes())
+                .update(block.previous.as_bytes());
+        }
+        for (slot, blocks) in self.notarized.range(range) {
+            for block in blocks {
+                builder = builder
+                    .update(b"n")
+                    .update(slot.height.to_le_bytes())
+                    .update(block.hash.as_bytes())
+                    .update(block.previous.as_bytes());
+                for record in self.lock_records(&block.hash) {
+                    builder = builder
+                        .update([record.strength as u8])
+                        .update(record.origin.as_u64().to_le_bytes());
+                }
+            }
+        }
+        builder.build()
+    }
+
     /// What a derivation over an `account_part` left of the account: the
     /// positions it finalized beyond the part, in the order it finalized
     /// them, and the retained blocks and lock records it holds. None if the

@@ -226,6 +226,21 @@ impl Manifest {
         })
     }
 
+    /// Whether this manifest names, for every entry of `other`, at least
+    /// the voters `other` names, of every kind: every certificate, witness
+    /// and vote `other` shows is then shown here as well. The overlap marks
+    /// are not compared.
+    pub fn covers(&self, other: &Manifest) -> bool {
+        other.entries.iter().all(|(key, theirs)| {
+            self.entries.get(key).is_some_and(|ours| {
+                ours.first & theirs.first == theirs.first
+                    && ours.final_ & theirs.final_ == theirs.final_
+                    && ours.late & theirs.late == theirs.late
+                    && ours.settled & theirs.settled == theirs.settled
+            })
+        })
+    }
+
     /// Whether the manifest names a voter's vote of a kind for a block
     pub fn names_vote(
         &self,
@@ -345,6 +360,38 @@ mod tests {
             Committee::new(weights)
         };
         (committee, keys)
+    }
+
+    #[test]
+    fn a_manifest_covers_one_naming_no_voter_it_lacks() {
+        let epoch = ConsensusEpoch::new(2);
+        let entry = |hash: u64, first: u64, final_: u64| ManifestEntry {
+            epoch,
+            hash: BlockHash::from(hash),
+            first,
+            final_,
+            late: 0,
+            settled: 0,
+            overlap: false,
+        };
+        let mut wide = Manifest::new();
+        wide.insert(entry(1, 0b0111, 0b0011));
+        wide.insert(entry(2, 0b1111, 0b0000));
+        let mut narrow = Manifest::new();
+        narrow.insert(entry(1, 0b0101, 0b0001));
+        narrow.insert(entry(2, 0b0011, 0b0000));
+        assert!(wide.covers(&narrow));
+        assert!(!narrow.covers(&wide));
+
+        let mut other_voter = narrow.clone();
+        other_voter.insert(entry(2, 0b1_0000, 0b0000));
+        assert!(!wide.covers(&other_voter));
+        let mut other_block = narrow.clone();
+        other_block.insert(entry(3, 0b0001, 0b0000));
+        assert!(!wide.covers(&other_block));
+        let mut marked = narrow.clone();
+        marked.set_overlap(epoch, &BlockHash::from(1));
+        assert!(wide.covers(&marked));
     }
 
     #[test]

@@ -98,8 +98,12 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
             AecFact::LateBlocksDiscarded { epoch, hashes } => {
                 self.discard_late_blocks(epoch, hashes)
             }
-            AecFact::CheckpointFinalized { epoch, hashes } => {
-                self.install_checkpoint_blocks(epoch, hashes)
+            AecFact::CheckpointFinalized { epoch, hashes, won } => {
+                self.install_checkpoint_blocks(epoch, hashes);
+                #[cfg(feature = "rai_protocol")]
+                self.checkpoint_follower.add(won);
+                #[cfg(not(feature = "rai_protocol"))]
+                let _ = won;
             }
             AecFact::CheckpointRetained { epoch, retained } => {
                 self.follow_retained_branches(epoch, retained)
@@ -234,6 +238,7 @@ impl AecFactProcessor {
     /// one it does not hold at all is reported, and the finality stands in
     /// the decided state until the block arrives.
     fn install_checkpoint_blocks(&mut self, epoch: ConsensusEpoch, hashes: Vec<BlockHash>) {
+        let started = std::time::Instant::now();
         let mut cemented = 0;
         let mut queued = 0;
         let mut missing = 0;
@@ -262,12 +267,13 @@ impl AecFactProcessor {
         #[cfg(not(feature = "rai_protocol"))]
         let _ = follow;
         crate::utils::diagnostic!(
-            "EPOCH_INSTALLED epoch={} finalized={} cemented={} queued={} missing={}",
+            "EPOCH_INSTALLED epoch={} finalized={} cemented={} queued={} missing={} ms={}",
             epoch,
             hashes.len(),
             cemented,
             queued,
-            missing
+            missing,
+            started.elapsed().as_millis()
         );
     }
 

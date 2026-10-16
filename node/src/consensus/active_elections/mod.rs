@@ -154,10 +154,15 @@ pub enum AecFact {
 
     /// RAI: the decided checkpoint of an epoch finalized these blocks beyond
     /// its predecessor. Installed: cemented in the ledger, where they are
-    /// not already
+    /// not already. `hashes` are checked against the ledger at once; `won`,
+    /// the blocks an instance of this node finalized before the
+    /// checkpoint, are on their way to the ledger already and are left to
+    /// the checkpoint follower, which confirms them cemented on its own
+    /// thread.
     CheckpointFinalized {
         epoch: ConsensusEpoch,
         hashes: Vec<BlockHash>,
+        won: Vec<BlockHash>,
     },
 
     /// RAI: the retained blocks of a decided checkpoint the ledger follows,

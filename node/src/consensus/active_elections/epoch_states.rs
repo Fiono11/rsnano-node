@@ -108,6 +108,15 @@ impl EpochStates {
             .map(|instance| instance.as_ref())
     }
 
+    /// Whether an instance of any epoch finalized here with this block as
+    /// its winner: the block went the way of every confirmed winner, to be
+    /// cemented
+    pub fn won_anywhere(&self, hash: &BlockHash) -> bool {
+        self.instances
+            .get(hash)
+            .is_some_and(|instances| instances.iter().any(|i| i.winner == *hash))
+    }
+
     /// The finalized instance of the given epoch this block was a candidate in
     pub fn instance(&self, hash: &BlockHash, epoch: ConsensusEpoch) -> Option<&FinalizedInstance> {
         self.instances

@@ -446,27 +446,26 @@ impl EpochDecisionService {
         if !epochs.contains(&current) {
             epochs.push(current);
         }
+        // An epoch's provisional memo starts from the memo of the epoch
+        // before, which is brought up to date first
+        epochs.sort();
         for epoch in epochs {
             if self.active_elections.epoch_decided(epoch) {
                 continue;
             }
-            let (Some(previous), Some(predecessor), Some(base), Some(anchor)) = (
-                self.active_elections.epoch_previous_state(epoch),
-                self.active_elections.epoch_previous_hash(epoch),
-                self.active_elections.report_base(epoch),
-                self.overlap_anchor(epoch),
-            ) else {
-                continue;
-            };
             let held = self.memos.lock().unwrap().get(&epoch).cloned();
-            let mut memo = match held {
-                Some(memo) if memo.derives_against(predecessor, &base) => memo,
-                _ => Arc::new(CloseMemo::new(epoch, predecessor, previous, base, anchor)),
+            let Some(mut memo) = self.memo_basis(epoch, held) else {
+                continue;
             };
             if memo.is_frozen() {
                 continue;
             }
-            let own = self.exchange.lock().unwrap().own_certified(epoch);
+            let own = self
+                .exchange
+                .lock()
+                .unwrap()
+                .own_certified(epoch)
+                .filter(|_| !memo.is_provisional());
             let due = self
                 .memo_refreshed
                 .lock()
@@ -551,6 +550,65 @@ impl EpochDecisionService {
         }
     }
 
+    /// The memo an epoch's refresh works on: the held one while it derives
+    /// against the decided predecessor; the held provisional one moved onto
+    /// it once it is decided; a new one when nothing usable is held. Before
+    /// the predecessor is decided, a provisional memo deriving against what
+    /// the epoch before's memo would decide.
+    fn memo_basis(
+        &self,
+        epoch: ConsensusEpoch,
+        held: Option<Arc<CloseMemo>>,
+    ) -> Option<Arc<CloseMemo>> {
+        let decided = (
+            self.active_elections.epoch_previous_hash(epoch),
+            self.active_elections.report_base(epoch),
+        );
+        if let (Some(predecessor), Some(base)) = decided {
+            if let Some(memo) = held.as_ref()
+                && memo.derives_against(predecessor, &base)
+            {
+                return held;
+            }
+            let previous = self.active_elections.epoch_previous_state(epoch)?;
+            let anchor = self.overlap_anchor(epoch)?;
+            return Some(match held {
+                Some(mut memo) if memo.is_provisional() => {
+                    let started = std::time::Instant::now();
+                    let (kept, derived) =
+                        Arc::make_mut(&mut memo).rebase(predecessor, previous, base, anchor);
+                    diagnostic!(
+                        "EPOCH_MEMO_REBASE epoch={} kept={} derived={} ms={}",
+                        epoch,
+                        kept,
+                        derived,
+                        started.elapsed().as_millis()
+                    );
+                    memo
+                }
+                _ => Arc::new(CloseMemo::new(epoch, predecessor, previous, base, anchor)),
+            });
+        }
+        if held.is_some() {
+            return held;
+        }
+        let before = ConsensusEpoch::new(epoch.as_u64().checked_sub(1)?);
+        let basis = self.memos.lock().unwrap().get(&before).cloned()?;
+        let started = std::time::Instant::now();
+        let provisional = Arc::new(CloseMemo::provisional(
+            epoch,
+            Arc::new(basis.provisional_successor()),
+            basis.base().clone(),
+            Some(basis.previous().clone()),
+        ));
+        diagnostic!(
+            "EPOCH_MEMO_PROVISIONAL epoch={} ms={}",
+            epoch,
+            started.elapsed().as_millis()
+        );
+        Some(provisional)
+    }
+
     /// The close memo of an epoch, if it derives against this predecessor
     fn memo_for(&self, epoch: ConsensusEpoch, predecessor: BlockHash) -> Option<Arc<CloseMemo>> {
         if !close_memo_enabled() {
@@ -577,6 +635,7 @@ impl EpochDecisionService {
     ) -> Derivation<'m, 'r> {
         let prepared = match memo {
             Some(memo) => memo.prepare(states).map_err(|miss| match miss {
+                MemoMiss::Provisional => "provisional",
                 MemoMiss::OtherBase => "other_base",
                 MemoMiss::RepeatedReporter => "repeated_reporter",
                 MemoMiss::SharedHash => "shared_hash",
@@ -1237,7 +1296,45 @@ impl EpochDecisionService {
             );
             return Evidence::Refused;
         }
-        // Every claim, justified by the manifest's votes alone
+        // The votes this node holds made the reports usable, which is why a
+        // manifest equal to its own is committed to unchecked. A manifest
+        // naming at least those votes for every entry justifies every claim
+        // they justify: each check counts voters, and more voters never fail
+        // one. Only a manifest that names fewer anywhere is checked claim by
+        // claim.
+        if manifest.covers(&own) {
+            let full = close_memo_check_enabled()
+                .then(|| self.justified_by(&manifest, value, states, previous, &members));
+            diagnostic!(
+                "EPOCH_MANIFEST_COVERED epoch={} manifest={} full_check={:?}",
+                epoch,
+                value.manifest,
+                full
+            );
+            return match full {
+                Some(false) => Evidence::Refused,
+                _ => Evidence::Committed,
+            };
+        }
+        if self.justified_by(&manifest, value, states, previous, &members) {
+            Evidence::Committed
+        } else {
+            Evidence::Refused
+        }
+    }
+
+    /// Whether every claim of the selected reports is justified by a
+    /// manifest's votes alone: "A verifier must possess and validate the
+    /// material addressed by M."
+    fn justified_by(
+        &self,
+        manifest: &Manifest,
+        value: &EpochValue,
+        states: &[SelectedReport],
+        previous: &EpochLedger,
+        members: &EpochMembers,
+    ) -> bool {
+        let epoch = value.epoch;
         for report in states {
             let kinds = |kinds_epoch: ConsensusEpoch, hashes: &[BlockHash]| {
                 let (committee, order) = members.get(kinds_epoch)?;
@@ -1286,11 +1383,11 @@ impl EpochDecisionService {
                         value.manifest,
                         report.reporter
                     );
-                    return Evidence::Refused;
+                    return false;
                 }
             }
         }
-        Evidence::Committed
+        true
     }
 
     /// RAI: the last closed state an overlap admission in the epoch was

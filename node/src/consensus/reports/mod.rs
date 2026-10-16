@@ -2461,6 +2461,7 @@ mod tests {
         };
         let (mut compared, mut memoized, mut derived_here, mut misses) = (0, 0, 0, 0);
         let (mut both_failed, mut skipped, mut locked) = (0, 0, 0);
+        let (mut rebased_kept, mut rebased_derived) = (0, 0);
         for seed in 1..600u64 {
             let mut rng = Rng(seed.wrapping_mul(0x2545_f491_4f6c_dd1d));
             let tree = random_tree_sized(&mut rng, 12, 8);
@@ -2620,6 +2621,60 @@ mod tests {
                 })
                 .collect();
             let selection = selected(&reports);
+            // The same memo derived first against a provisional predecessor
+            // - the decided one with locks on other accounts - and moved
+            // onto the decided one derives exactly as one that never was
+            let mut provisional = (*previous).clone();
+            for account in 1..=12u64 {
+                if rng.below(4) != 0 {
+                    continue;
+                }
+                let account = Account::from(account);
+                let tip = provisional.finalized_depth(account).unwrap_or(0);
+                let parent = provisional
+                    .finalized(&AccountSlot::new(account, tip))
+                    .unwrap_or(BlockHash::ZERO);
+                if let Some((block, parent)) = tree.values().find(|(block, previous)| {
+                    block.account == account && block.height == tip + 1 && *previous == parent
+                }) {
+                    provisional.keep_for_test(
+                        AccountSlot::new(account, block.height),
+                        block.hash,
+                        *parent,
+                        RetainedKind::Recovery,
+                    );
+                }
+            }
+            let provisional = Arc::new(provisional);
+            let provisional_base = Arc::new(provisional.report_ledger().into_report_base().0);
+            let mut early =
+                CloseMemo::provisional(epoch2, provisional, provisional_base.clone(), None);
+            let mut early_view = CertifiedState::over(&provisional_base);
+            for (block, entry) in view.changed_entries() {
+                early_view.certify(*block, entry.previous, entry.status);
+            }
+            early.refresh(&early_view, false);
+            assert!(early.prepare(&selection).is_err());
+            let (kept, rederived) = early.rebase(
+                BlockHash::from(seed),
+                previous.clone(),
+                base.clone(),
+                anchor.clone(),
+            );
+            rebased_kept += kept;
+            rebased_derived += rederived;
+            let derivation = |memo: &CloseMemo| {
+                memo.prepare(&selection).map(|prepared| {
+                    let fresh = prepared.fresh();
+                    let claims = prepared.claims(&fresh);
+                    let state = prepared
+                        .build(&witness)
+                        .map(|state| state.map(|s| s.state_hash()));
+                    (fresh, claims, state)
+                })
+            };
+            assert_eq!(derivation(&early), derivation(&memo), "seed {seed}");
+
             let prepared = match memo.prepare(&selection) {
                 Ok(prepared) => prepared,
                 Err(_) => {
@@ -2685,6 +2740,14 @@ mod tests {
         );
         assert!(compared > 100, "only {compared} states compared");
         assert!(locked > 100, "only {locked} predecessors with locks");
+        assert!(
+            rebased_kept > 300,
+            "only {rebased_kept} accounts kept on rebase"
+        );
+        assert!(
+            rebased_derived > 100,
+            "only {rebased_derived} accounts derived on rebase"
+        );
         assert!(misses > 10, "only {misses} selections naming a block twice");
         assert!(
             memoized > 100,

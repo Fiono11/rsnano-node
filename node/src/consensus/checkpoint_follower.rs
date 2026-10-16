@@ -119,8 +119,33 @@ impl PendingCheckpointBlocks {
         is_held: impl Fn(&BlockHash) -> bool,
         position_cemented: impl Fn(&Account, u64) -> bool,
     ) -> CheckpointWork {
+        self.tick_known(now, |_| true, is_cemented, is_held, position_cemented)
+    }
+
+    /// The blocks pending, each with what it is followed for: what a tick
+    /// looks up in the ledger
+    pub fn goals(&self) -> Vec<(BlockHash, Goal)> {
+        self.pending
+            .iter()
+            .map(|(hash, pending)| (*hash, pending.goal))
+            .collect()
+    }
+
+    /// `tick` for the blocks `known` says were looked up; a block added
+    /// since waits for the next tick
+    pub fn tick_known(
+        &mut self,
+        now: Timestamp,
+        known: impl Fn(&BlockHash) -> bool,
+        is_cemented: impl Fn(&BlockHash) -> bool,
+        is_held: impl Fn(&BlockHash) -> bool,
+        position_cemented: impl Fn(&Account, u64) -> bool,
+    ) -> CheckpointWork {
         let mut work = CheckpointWork::default();
         self.pending.retain(|hash, pending| {
+            if !known(hash) {
+                return true;
+            }
             let held = || is_held(hash);
             let done = match pending.goal {
                 Goal::Cement => is_cemented(hash),
@@ -241,20 +266,38 @@ impl CheckpointFollower {
 
     fn tick(&self) {
         let now = self.clock.now();
-        let work = {
+        // The ledger is read without holding the pending blocks, which every
+        // arriving block is checked against: a decided checkpoint hands over
+        // tens of thousands at once
+        let goals = self.pending.lock().unwrap().goals();
+        let (looked_up, positions) = {
             let any = self.ledger.any();
             let confirmed = self.ledger.confirmed();
-            self.pending.lock().unwrap().tick(
-                now,
-                |hash| confirmed.block_exists(hash),
-                |hash| any.block_exists(hash),
-                |account, height| {
-                    confirmed
-                        .get_conf_info(account)
-                        .is_some_and(|info| info.height >= height)
-                },
-            )
+            let mut looked_up: HashMap<BlockHash, (bool, bool)> = HashMap::new();
+            let mut positions: HashMap<(Account, u64), bool> = HashMap::new();
+            for (hash, goal) in goals {
+                looked_up.insert(
+                    hash,
+                    (confirmed.block_exists(&hash), any.block_exists(&hash)),
+                );
+                if let Goal::Hold { account, height } = goal {
+                    positions.insert(
+                        (account, height),
+                        confirmed
+                            .get_conf_info(&account)
+                            .is_some_and(|info| info.height >= height),
+                    );
+                }
+            }
+            (looked_up, positions)
         };
+        let work = self.pending.lock().unwrap().tick_known(
+            now,
+            |hash| looked_up.contains_key(hash),
+            |hash| looked_up.get(hash).is_some_and(|(cemented, _)| *cemented),
+            |hash| looked_up.get(hash).is_some_and(|(_, held)| *held),
+            |account, height| positions.get(&(*account, height)).copied().unwrap_or(false),
+        );
         for hash in &work.cement {
             self.confirming_set.add_block(*hash);
         }
@@ -323,6 +366,24 @@ mod tests {
         assert_eq!(work.request, vec![hash(3)]);
         assert!(!pending.wants(&hash(1)));
         assert!(pending.wants(&hash(3)));
+    }
+
+    #[test]
+    fn a_block_added_after_the_lookup_waits_for_the_next_tick() {
+        let mut pending = PendingCheckpointBlocks::default();
+        let (looked_up, added) = (BlockHash::from(1), BlockHash::from(2));
+        pending.add([looked_up, added]);
+        let work = pending.tick_known(
+            now(0),
+            |hash| *hash == looked_up,
+            |_| false,
+            |_| false,
+            no_position,
+        );
+        assert_eq!(work.request, vec![looked_up]);
+        assert_eq!(pending.len(), 2);
+        let work = pending.tick(now(0), |_| false, |_| false, no_position);
+        assert_eq!(work.request, vec![added]);
     }
 
     #[test]

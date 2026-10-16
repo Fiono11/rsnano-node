@@ -36,11 +36,16 @@ use crate::consensus::election::{
 type Slice = Vec<(CertifiedBlock, Option<Certification>)>;
 
 /// The memoized derivation of the accounts an epoch's certified view names,
-/// against one predecessor checkpoint and report base
+/// against one predecessor checkpoint and report base. While the
+/// predecessor is not decided, the memo derives against a provisional one
+/// (`provisional`) and is checked against the decided one when it is
+/// (`rebase`); only a memo of the decided predecessor stands for a close.
 #[derive(Clone)]
 pub(crate) struct CloseMemo {
     epoch: ConsensusEpoch,
-    predecessor: BlockHash,
+    /// `d_{e-1}`; None while the memo derives against a provisional
+    /// predecessor
+    predecessor: Option<BlockHash>,
     previous: Arc<EpochLedger>,
     base: Arc<CertifiedState>,
     anchor: Option<Arc<EpochLedger>>,
@@ -62,6 +67,9 @@ pub(crate) struct CloseMemo {
 #[derive(Clone)]
 struct AccountMemo {
     slice: Slice,
+    /// The digest of the predecessor's part for the account the memo was
+    /// derived against (`EpochLedger::account_digest`)
+    part: BlockHash,
     /// Why the memo does not stand for the account, if it does not
     derived: Result<Derived, Unmemoized>,
 }
@@ -93,6 +101,8 @@ struct Derived {
 /// Why the memo could not stand for a selection
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum MemoMiss {
+    /// The memo still derives against a provisional predecessor
+    Provisional,
     OtherBase,
     RepeatedReporter,
     SharedHash,
@@ -102,6 +112,27 @@ impl CloseMemo {
     pub fn new(
         epoch: ConsensusEpoch,
         predecessor: BlockHash,
+        previous: Arc<EpochLedger>,
+        base: Arc<CertifiedState>,
+        anchor: Option<Arc<EpochLedger>>,
+    ) -> Self {
+        Self::with(epoch, Some(predecessor), previous, base, anchor)
+    }
+
+    /// A memo deriving against a provisional predecessor, `previous`, with
+    /// `base` and `anchor` standing in for the decided ones until `rebase`
+    pub fn provisional(
+        epoch: ConsensusEpoch,
+        previous: Arc<EpochLedger>,
+        base: Arc<CertifiedState>,
+        anchor: Option<Arc<EpochLedger>>,
+    ) -> Self {
+        Self::with(epoch, None, previous, base, anchor)
+    }
+
+    fn with(
+        epoch: ConsensusEpoch,
+        predecessor: Option<BlockHash>,
         previous: Arc<EpochLedger>,
         base: Arc<CertifiedState>,
         anchor: Option<Arc<EpochLedger>>,
@@ -123,7 +154,95 @@ impl CloseMemo {
 
     /// Whether the memo derives against this predecessor and base
     pub fn derives_against(&self, predecessor: BlockHash, base: &Arc<CertifiedState>) -> bool {
-        self.predecessor == predecessor && Arc::ptr_eq(&self.base, base)
+        self.predecessor == Some(predecessor) && Arc::ptr_eq(&self.base, base)
+    }
+
+    pub fn is_provisional(&self) -> bool {
+        self.predecessor.is_none()
+    }
+
+    /// The state this memo's epoch would decide if every report named its
+    /// accounts as the memo does: the predecessor with every memoized
+    /// account's part laid over it. What the next epoch's memo derives
+    /// against until this epoch is decided; an account the memo does not
+    /// stand for keeps the predecessor's part there, and is derived again
+    /// when the decided state arrives.
+    pub fn provisional_successor(&self) -> EpochLedger {
+        let mut state = self.previous.derivation_start();
+        let empty = EpochLedger::new();
+        for memo in self.accounts.values() {
+            if let Ok(derived) = &memo.derived {
+                state.apply_account_outcome(&empty, &derived.outcome);
+            }
+        }
+        state
+    }
+
+    /// The report base the memo's view is laid over
+    pub fn base(&self) -> &Arc<CertifiedState> {
+        &self.base
+    }
+
+    /// The predecessor the memo derives against
+    pub fn previous(&self) -> &Arc<EpochLedger> {
+        &self.previous
+    }
+
+    /// Moves the memo onto the decided predecessor, its report base and the
+    /// overlap anchor: the view is laid over the decided base, and an
+    /// account keeps its memo only if it names the same entries over it,
+    /// the decided predecessor's part for it is the one it was derived
+    /// against, and it still qualifies; every other account is derived
+    /// again. The accounts kept and derived.
+    pub fn rebase(
+        &mut self,
+        predecessor: BlockHash,
+        previous: Arc<EpochLedger>,
+        base: Arc<CertifiedState>,
+        anchor: Option<Arc<EpochLedger>>,
+    ) -> (usize, usize) {
+        let held = std::mem::replace(&mut self.view, CertifiedState::over(&base));
+        for (block, entry) in held.changed_entries() {
+            self.view.certify(*block, entry.previous, entry.status);
+        }
+        self.predecessor = Some(predecessor);
+        self.previous = previous;
+        self.base = base;
+        self.anchor = anchor;
+        let accounts: Vec<Account> = self.accounts.keys().copied().collect();
+        let (mut kept, mut derived) = (0, 0);
+        for account in accounts {
+            let slice: Slice = self
+                .view
+                .changes_in(account_range(account))
+                .map(|(block, entry)| (*block, entry.copied()))
+                .collect();
+            let stands = self.accounts.get(&account).is_some_and(|memo| {
+                memo.derived.is_ok()
+                    && memo.slice == slice
+                    && memo.part == self.previous.account_digest(account)
+                    && self
+                        .anchor
+                        .as_ref()
+                        .is_none_or(|anchor| anchor.retained_depth(account).is_none())
+                    && slice
+                        .iter()
+                        .all(|(block, _)| self.base.entry_of_hash(&block.hash).is_none())
+            });
+            if stands {
+                kept += 1;
+                continue;
+            }
+            if let Some(old) = self.accounts.remove(&account) {
+                self.forget_owners(account, &old.slice);
+            }
+            if !slice.is_empty() {
+                let memo = self.derive(account, slice);
+                self.accounts.insert(account, memo);
+            }
+            derived += 1;
+        }
+        (kept, derived)
     }
 
     pub fn is_frozen(&self) -> bool {
@@ -253,6 +372,8 @@ impl CloseMemo {
         }
         self.accounts = next;
         self.frozen = frozen;
+        // What the memo now follows, should it be moved onto another base
+        self.view = view.clone();
         derived
     }
 
@@ -303,7 +424,11 @@ impl CloseMemo {
         } else {
             self.derive_part(account, &slice).ok_or(Unmemoized::Failed)
         };
-        AccountMemo { slice, derived }
+        AccountMemo {
+            slice,
+            part: self.previous.account_digest(account),
+            derived,
+        }
     }
 
     fn derive_part(&self, account: Account, slice: &Slice) -> Option<Derived> {
@@ -348,6 +473,9 @@ impl CloseMemo {
         &'m self,
         selection: &[SelectedReport<'r>],
     ) -> Result<PreparedClose<'m, 'r>, MemoMiss> {
+        if self.is_provisional() {
+            return Err(MemoMiss::Provisional);
+        }
         if !selection.iter().all(|report| {
             report
                 .certified

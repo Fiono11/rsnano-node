@@ -961,7 +961,11 @@ impl ActiveElectionsContainer {
                     .closes
                     .get(&epoch)
                     .and_then(|close| close.info().closed),
-                state_hash: state.state_hash(),
+                // Hashed once, when the state was installed
+                state_hash: self
+                    .checkpoint_bases
+                    .before(epoch.next(), 1)
+                    .unwrap_or_else(|| state.state_hash()),
                 state: Some(state.clone()),
                 frontiers: frontiers.clone(),
             });
@@ -1443,8 +1447,14 @@ impl ActiveElectionsContainer {
         if epoch >= self.current_epoch || self.epoch_previous_state(epoch).is_none() {
             return;
         }
+        let started = std::time::Instant::now();
+        let mut steps: Vec<(&str, u128)> = Vec::new();
+        let step = |name: &'static str, steps: &mut Vec<(&str, u128)>| {
+            steps.push((name, started.elapsed().as_millis()));
+        };
         self.decided.insert(epoch, state.clone());
         self.checkpoint_bases.insert(epoch, state.state_hash());
+        step("hash", &mut steps);
         // Laid over the base of this epoch's reports when the state records
         // what it finalized beyond the predecessor; built afresh otherwise
         let next_base = match (
@@ -1478,16 +1488,19 @@ impl ActiveElectionsContainer {
         self.report_bases
             .retain(|held, _| held.as_u64() + Self::VOTE_RECORD_EPOCHS_KEPT > epoch.as_u64());
         self.stats.epochs_closed += 1;
+        step("base", &mut steps);
         // Installed before the committee is derived: a block the checkpoint
         // finalized delegates like any other, and its instance goes with
         // the installation
         self.install_checkpoint(epoch, &state, now);
+        step("install", &mut steps);
         #[cfg(feature = "rai_protocol")]
         self.log_late_notarization(epoch);
         // The next epoch's instances waited for this checkpoint only: they
         // are released before the bookkeeping below, which concerns this
         // epoch's slots and the committee two epochs on
         self.release_predecessor_gate(epoch.next(), now);
+        step("gate", &mut steps);
         if self.epoch_transition == EpochTransition::Pause && epoch.next() == self.current_epoch {
             // What the checkpoint retains is refused here and continued
             // below (`release_undecided_instances`); the rest is retried
@@ -1503,8 +1516,15 @@ impl ActiveElectionsContainer {
             .map(|election| (election.account(), election.height()))
             .collect();
         self.slots.remove_epoch_except(epoch, &live);
+        step("slots", &mut steps);
         self.derive_or_wait(epoch, state, now);
+        step("committee", &mut steps);
         self.release_undecided_instances(epoch, now);
+        step("release", &mut steps);
+        #[cfg(feature = "rai_protocol")]
+        diagnostic!("EPOCH_INSTALL_TIMING epoch={} steps={:?}", epoch, steps);
+        #[cfg(not(feature = "rai_protocol"))]
+        let _ = steps;
     }
 
     /// RAI, late notarization: how many blocks were notarized late in an
@@ -1929,6 +1949,17 @@ impl ActiveElectionsContainer {
                 .map(|(_, block)| block.hash)
                 .collect()
         });
+        // A block an instance of this node finalized before the checkpoint
+        // is on its way to the ledger as every confirmed winner is: it is
+        // left to the follower, which confirms it cemented off the fact
+        // thread. Only the others - the forks the checkpoint resolved, the
+        // instances it confirms below, the blocks this node never decided -
+        // are checked against the ledger at once. Checking them all there
+        // held up every confirmation behind them, ~28,000 at 2,000/s and
+        // 16 s epochs.
+        let (won, followed): (Vec<BlockHash>, Vec<BlockHash>) = hashes
+            .iter()
+            .partition(|hash| self.epoch_states.won_anywhere(hash));
         let mut confirmed = 0;
         for hash in &hashes {
             let Some(election) = self.roots.election_for_block_mut(hash) else {
@@ -1963,14 +1994,19 @@ impl ActiveElectionsContainer {
         #[cfg(feature = "rai_protocol")]
         {
             diagnostic!(
-                "EPOCH_INSTALL epoch={} finalized={} instances_confirmed={}",
+                "EPOCH_INSTALL epoch={} finalized={} instances_confirmed={} followed={}",
                 epoch,
                 hashes.len(),
-                confirmed
+                confirmed,
+                followed.len()
             );
         }
-        if !hashes.is_empty() {
-            self.notify(AecFact::CheckpointFinalized { epoch, hashes });
+        if !followed.is_empty() || !won.is_empty() {
+            self.notify(AecFact::CheckpointFinalized {
+                epoch,
+                hashes: followed,
+                won,
+            });
         }
         #[cfg(feature = "rai_protocol")]
         self.follow_retained(epoch, state);
@@ -5240,6 +5276,49 @@ mod tests {
                 .epoch_decided_state(ConsensusEpoch::new(2))
                 .is_none()
         );
+    }
+
+    /// RAI: a block the checkpoint itself confirms in a live instance is
+    /// followed until the ledger cements it, as is any block this node had
+    /// not finalized before the checkpoint
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn a_block_confirmed_by_the_checkpoint_is_followed_to_the_ledger() {
+        let now = Timestamp::new_test_instance();
+        let mut container = ActiveElectionsContainer::new(
+            ActiveElectionsConfig {
+                epoch_duration: Duration::from_secs(1),
+                ..Default::default()
+            },
+            Duration::from_millis(10),
+        );
+        let (sender, receiver) = rsnano_utils::sync::backpressure_channel::channel(64);
+        container.set_observer(sender);
+        let block = SavedBlock::new_test_instance_with_key(1);
+        container.set_genesis_committee(Vec::new());
+        container
+            .insert(
+                AecInsertRequest::new_priority(block.clone(), BlockPriority::default()),
+                now,
+            )
+            .unwrap();
+        container.start_epochs(now);
+        container.transition_time(now + Duration::from_secs(1));
+        let mut state = EpochLedger::new();
+        state.finalize_genesis(
+            AccountSlot::new(block.account(), block.height()),
+            block.hash(),
+        );
+        container.install_decided_checkpoint(ConsensusEpoch::ZERO, Arc::new(state), now);
+
+        let followed: Vec<BlockHash> = std::iter::from_fn(|| receiver.try_recv().ok())
+            .filter_map(|fact| match fact {
+                AecFact::CheckpointFinalized { hashes, .. } => Some(hashes),
+                _ => None,
+            })
+            .flatten()
+            .collect();
+        assert_eq!(followed, vec![block.hash()]);
     }
 
     /// RAI: an epoch whose frontier block this node does not hold derives
