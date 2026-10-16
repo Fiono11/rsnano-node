@@ -54,6 +54,10 @@ pub struct ReportService {
     /// Epochs left whose report is still to be signed, by the worker thread
     left: Mutex<LeftEpochs>,
     left_ready: Condvar,
+    /// Held while the reconciliations are driven, by the tick or the worker
+    reconciling: Mutex<()>,
+    /// When each epoch's live view was last rebuilt from the elections
+    live_refreshed: Mutex<HashMap<ConsensusEpoch, Timestamp>>,
     worker: Mutex<Option<JoinHandle<()>>>,
 }
 
@@ -61,11 +65,18 @@ pub struct ReportService {
 #[derive(Default)]
 struct LeftEpochs {
     queue: VecDeque<(ConsensusEpoch, Arc<EpochReport>)>,
+    /// A report arrived or was reconstructed: the reconciliations are
+    /// driven now rather than on the next tick
+    reconcile_due: bool,
     running: bool,
     stopped: bool,
 }
 
 impl ReportService {
+    /// How often an epoch's live view, which the reports are reconstructed
+    /// against, is rebuilt from the elections while the epoch closes
+    const LIVE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
+
     pub fn new(
         active_elections: Arc<AecService>,
         wallet_reps: Arc<Mutex<WalletRepresentatives>>,
@@ -87,6 +98,8 @@ impl ReportService {
             timings_logged: Mutex::new(None),
             left: Mutex::new(LeftEpochs::default()),
             left_ready: Condvar::new(),
+            reconciling: Mutex::new(()),
+            live_refreshed: Mutex::new(HashMap::new()),
             worker: Mutex::new(None),
         }
     }
@@ -127,13 +140,21 @@ impl ReportService {
         self.epoch_left(epoch, report);
     }
 
+    /// Signs the reports of the epochs left, and drives the reconciliations
+    /// as soon as a report arrives or is reconstructed: waiting for the
+    /// elections' tick, which takes seconds under load, held every close
+    /// back by two or three of them
     fn run_left_epochs(&self) {
         loop {
-            let (epoch, report) = {
+            let next = {
                 let mut left = self.left.lock().unwrap();
                 loop {
                     if let Some(item) = left.queue.pop_front() {
-                        break item;
+                        break Some(item);
+                    }
+                    if left.reconcile_due {
+                        left.reconcile_due = false;
+                        break None;
                     }
                     if left.stopped {
                         left.running = false;
@@ -142,7 +163,19 @@ impl ReportService {
                     left = self.left_ready.wait(left).unwrap();
                 }
             };
-            self.epoch_left(epoch, report);
+            match next {
+                Some((epoch, report)) => self.epoch_left(epoch, report),
+                None => self.drive_reconciliations(),
+            }
+        }
+    }
+
+    /// Wakes the worker to drive the reconciliations now
+    fn reconcile_soon(&self) {
+        let mut left = self.left.lock().unwrap();
+        if left.running && !left.stopped {
+            left.reconcile_due = true;
+            self.left_ready.notify_one();
         }
     }
 
@@ -327,6 +360,7 @@ impl ReportService {
         self.stats
             .inc_dir(StatType::Message, DetailType::Report, Direction::In);
         self.exchange.lock().unwrap().handle_report(report);
+        self.reconcile_soon();
     }
 
     /// RAI: a node rebuilding an inventory this node holds asks for its
@@ -362,10 +396,15 @@ impl ReportService {
         );
         let now = self.clock.now();
         let (messages, results) = self.exchange.lock().unwrap().handle_symbols(&reply, now);
+        // A report reconstructed has its residual derived and is checked next
+        let reconstructed = results.iter().any(|result| result.complete);
         for result in results {
             log_reconciled(Some(result));
         }
         self.send(messages, None);
+        if reconstructed {
+            self.reconcile_soon();
+        }
     }
 
     /// Accept a certified inventory at once when a locally held state has
@@ -486,10 +525,25 @@ impl ReportService {
             .unwrap()
             .repeat_reports(self.clock.now());
         self.send(repeated, None);
+        self.drive_reconciliations();
+    }
+
+    /// Reconstructs the reports of the epochs still closing, derives their
+    /// residual objects and checks them; by the tick, and by the worker as
+    /// soon as a report arrives or is reconstructed. One of them at a time:
+    /// the other has nothing left to do.
+    fn drive_reconciliations(&self) {
+        let Ok(_reconciling) = self.reconciling.try_lock() else {
+            return;
+        };
         // Until the epoch is decided here, not until its election closes: a
         // replica that learned the certificate before it could derive the
         // value still needs the reports that value names
         let epochs = self.exchange.lock().unwrap().pending_epochs();
+        self.live_refreshed
+            .lock()
+            .unwrap()
+            .retain(|epoch, _| epochs.contains(epoch));
         for epoch in epochs {
             let reporters: Vec<PublicKey> = {
                 let exchange = self.exchange.lock().unwrap();
@@ -508,8 +562,20 @@ impl ReportService {
             if reporters.is_empty() {
                 continue;
             }
-            let live = self.active_elections.epoch_certified(epoch);
-            self.exchange.lock().unwrap().refresh_live(epoch, live);
+            // Rebuilt at most once a second: a live view a little behind
+            // costs a few more symbols, a rebuild the whole epoch
+            let now = self.clock.now();
+            let due = self
+                .live_refreshed
+                .lock()
+                .unwrap()
+                .get(&epoch)
+                .is_none_or(|last| last.elapsed(now) >= Self::LIVE_INTERVAL);
+            if due {
+                let live = self.active_elections.epoch_certified(epoch);
+                self.exchange.lock().unwrap().refresh_live(epoch, live);
+                self.live_refreshed.lock().unwrap().insert(epoch, now);
+            }
             for reporter in reporters {
                 self.reconcile(epoch, reporter);
                 self.derive_residual(epoch, reporter);
