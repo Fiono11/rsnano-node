@@ -1303,25 +1303,32 @@ impl EpochDecisionService {
         }
         // The votes this node holds made the reports usable, which is why a
         // manifest equal to its own is committed to unchecked. A manifest
-        // naming at least those votes for every entry justifies every claim
-        // they justify: each check counts voters, and more voters never fail
-        // one. Only a manifest that names fewer anywhere is checked claim by
-        // claim.
-        if manifest.covers(&own) {
-            let full = close_memo_check_enabled()
-                .then(|| self.justified_by(&manifest, value, states, previous, &members));
-            diagnostic!(
-                "EPOCH_MANIFEST_COVERED epoch={} manifest={} full_check={:?}",
-                epoch,
-                value.manifest,
-                full
-            );
-            return match full {
-                Some(false) => Evidence::Refused,
-                _ => Evidence::Committed,
-            };
-        }
-        if self.justified_by(&manifest, value, states, previous, &members) {
+        // naming at least those votes for a block justifies every claim they
+        // justify for it: each check counts voters, and more voters never
+        // fail one. Only the blocks for which it names fewer are checked
+        // claim by claim; the claims of every other block are justified by
+        // the votes that justify them here, as a recheck counts the entries
+        // outside the hashes it rechecks.
+        let uncovered = manifest.uncovered(&own);
+        let justified = self.justified_by(
+            &manifest,
+            value,
+            states,
+            previous,
+            &members,
+            Some(&uncovered),
+        );
+        let full = close_memo_check_enabled()
+            .then(|| self.justified_by(&manifest, value, states, previous, &members, None));
+        diagnostic!(
+            "EPOCH_MANIFEST_UNCOVERED epoch={} manifest={} uncovered={} justified={} full_check={:?}",
+            epoch,
+            value.manifest,
+            uncovered.len(),
+            justified,
+            full
+        );
+        if full.unwrap_or(justified) {
             Evidence::Committed
         } else {
             Evidence::Refused
@@ -1338,6 +1345,7 @@ impl EpochDecisionService {
         states: &[SelectedReport],
         previous: &EpochLedger,
         members: &EpochMembers,
+        only: Option<&[BlockHash]>,
     ) -> bool {
         let epoch = value.epoch;
         for report in states {
@@ -1366,7 +1374,7 @@ impl EpochDecisionService {
                 epoch,
                 report.certified,
                 report.residual,
-                None,
+                only,
                 &kinds,
                 &|block, entry| inherited_from(previous, block, entry),
                 &reporter_votes,

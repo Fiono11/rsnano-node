@@ -231,14 +231,26 @@ impl Manifest {
     /// and vote `other` shows is then shown here as well. The overlap marks
     /// are not compared.
     pub fn covers(&self, other: &Manifest) -> bool {
-        other.entries.iter().all(|(key, theirs)| {
-            self.entries.get(key).is_some_and(|ours| {
-                ours.first & theirs.first == theirs.first
-                    && ours.final_ & theirs.final_ == theirs.final_
-                    && ours.late & theirs.late == theirs.late
-                    && ours.settled & theirs.settled == theirs.settled
+        self.uncovered(other).is_empty()
+    }
+
+    /// The blocks for which `other` names a voter this manifest does not,
+    /// in some epoch: where this manifest shows less than `other`
+    pub fn uncovered(&self, other: &Manifest) -> Vec<BlockHash> {
+        let hashes: std::collections::BTreeSet<BlockHash> = other
+            .entries
+            .iter()
+            .filter(|(key, theirs)| {
+                !self.entries.get(key).is_some_and(|ours| {
+                    ours.first & theirs.first == theirs.first
+                        && ours.final_ & theirs.final_ == theirs.final_
+                        && ours.late & theirs.late == theirs.late
+                        && ours.settled & theirs.settled == theirs.settled
+                })
             })
-        })
+            .map(|((_, hash), _)| *hash)
+            .collect();
+        hashes.into_iter().collect()
     }
 
     /// Whether the manifest names a voter's vote of a kind for a block
@@ -392,6 +404,12 @@ mod tests {
         let mut marked = narrow.clone();
         marked.set_overlap(epoch, &BlockHash::from(1));
         assert!(wide.covers(&marked));
+        assert_eq!(wide.uncovered(&other_voter), vec![BlockHash::from(2)]);
+        assert_eq!(wide.uncovered(&other_block), vec![BlockHash::from(3)]);
+        assert_eq!(
+            narrow.uncovered(&wide),
+            vec![BlockHash::from(1), BlockHash::from(2)]
+        );
     }
 
     #[test]
