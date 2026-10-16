@@ -103,6 +103,23 @@ impl MessageFlooder {
         flood_count
     }
 
+    /// Sends to one principal representative: the `pick`-th of those
+    /// peered, modulo their number. False if none is peered or the send
+    /// fails.
+    pub(crate) fn send_to_principal_rep(
+        &mut self,
+        message: &Message,
+        traffic_type: TrafficType,
+        pick: usize,
+    ) -> bool {
+        let peered = self.rep_tracker.peered_principal_reps();
+        if peered.is_empty() {
+            return false;
+        }
+        let rep = &peered[pick % peered.len()];
+        self.try_send_channel_id(rep.channel_id, message, traffic_type)
+    }
+
     pub fn channel(&self, channel_id: ChannelId) -> Option<Arc<Channel>> {
         self.network.read().unwrap().get(channel_id).cloned()
     }

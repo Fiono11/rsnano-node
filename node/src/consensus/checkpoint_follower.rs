@@ -185,6 +185,8 @@ impl PendingCheckpointBlocks {
 /// they are forced in, which rolls back an unconfirmed rival.
 pub struct CheckpointFollower {
     pending: Mutex<PendingCheckpointBlocks>,
+    /// Which representative the next request goes to
+    next_rep: std::sync::atomic::AtomicUsize,
     ledger: Arc<Ledger>,
     confirming_set: Arc<ConfirmingSet>,
     flooder: Mutex<MessageFlooder>,
@@ -202,6 +204,7 @@ impl CheckpointFollower {
     ) -> Self {
         Self {
             pending: Mutex::new(PendingCheckpointBlocks::default()),
+            next_rep: std::sync::atomic::AtomicUsize::new(0),
             ledger,
             confirming_set,
             flooder: Mutex::new(flooder),
@@ -314,13 +317,22 @@ impl CheckpointFollower {
             );
             self.stats
                 .inc_dir(StatType::Message, DetailType::BlocksReq, Direction::Out);
-            self.flooder.lock().unwrap().flood_prs_and_some_non_prs(
-                &Message::BlocksReq(BlocksReq {
-                    hashes: chunk.to_vec(),
-                }),
-                TrafficType::Generic,
-                1.0,
-            );
+            // One representative a request, the next one each round: every
+            // holder answers a flooded request with an evidence publish,
+            // which passes the duplicate filter, and a fork sibling is
+            // verified anew in each copy - five copies of a thousand blocks
+            // a second after an installation. A representative that lacks
+            // a block leaves it to the next round's.
+            let request = Message::BlocksReq(BlocksReq {
+                hashes: chunk.to_vec(),
+            });
+            let pick = self
+                .next_rep
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let mut flooder = self.flooder.lock().unwrap();
+            if !flooder.send_to_principal_rep(&request, TrafficType::Generic, pick) {
+                flooder.flood_prs_and_some_non_prs(&request, TrafficType::Generic, 1.0);
+            }
         }
         if !work.cement.is_empty() || !work.request.is_empty() || work.done > 0 {
             crate::utils::diagnostic!(
