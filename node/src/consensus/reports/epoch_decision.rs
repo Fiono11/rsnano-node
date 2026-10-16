@@ -454,9 +454,14 @@ impl EpochDecisionService {
                 continue;
             }
             let held = self.memos.lock().unwrap().get(&epoch).cloned();
-            let Some(mut memo) = self.memo_basis(epoch, held) else {
+            let Some(mut memo) = self.memo_basis(epoch, held.clone()) else {
                 continue;
             };
+            // A memo begun, or moved onto the decided predecessor, is kept
+            // whether or not a refresh is due: it is not made again
+            if !held.as_ref().is_some_and(|held| Arc::ptr_eq(held, &memo)) {
+                self.memos.lock().unwrap().insert(epoch, memo.clone());
+            }
             if memo.is_frozen() {
                 continue;
             }
