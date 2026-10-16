@@ -105,6 +105,12 @@ pub(crate) struct EpochProposalContext {
 pub(crate) struct ActiveElectionsContainer {
     roots: RootContainer,
     observer: Option<Sender<AecFact>>,
+    /// How many new elections the schedulers started, a second at a time
+    #[cfg(feature = "rai_protocol")]
+    started: RateMeter,
+    /// How many retained blocks were continued in the current second
+    #[cfg(feature = "rai_protocol")]
+    continued: RateMeter,
     stopped: bool,
     count_by_behavior: [usize; ElectionBehavior::COUNT],
     base_latency: Duration,
@@ -236,11 +242,25 @@ impl ActiveElectionsContainer {
     pub(crate) const VOTE_RECORD_EPOCHS_KEPT: u64 = 4;
     /// RAI: retained blocks given their open-epoch instance per tick
     const CONTINUED_PER_TICK: u64 = 128;
+    /// Payments come first: while new elections start faster than this a
+    /// second, the blocks a checkpoint retained are continued at
+    /// `CONTINUED_WHILE_BUSY` a second only, the rest once the payments
+    /// slow down. Every retained block still gets its instance - an older
+    /// checkpoint's locks are inherited - so a fork resolves later, never
+    /// not at all.
+    #[cfg(feature = "rai_protocol")]
+    const BUSY_ELECTIONS_PER_SECOND: u64 = 200;
+    #[cfg(feature = "rai_protocol")]
+    const CONTINUED_WHILE_BUSY: u64 = 100;
 
     pub fn new(config: ActiveElectionsConfig, base_latency: Duration) -> Self {
         Self {
             roots: RootContainer::new(config.max_elections),
             observer: None,
+            #[cfg(feature = "rai_protocol")]
+            started: RateMeter::default(),
+            #[cfg(feature = "rai_protocol")]
+            continued: RateMeter::default(),
             stopped: false,
             count_by_behavior: Default::default(),
             base_latency,
@@ -1742,7 +1762,7 @@ impl ActiveElectionsContainer {
         // own instances
         let mut continued = 0;
         for block in candidates {
-            if continued >= Self::CONTINUED_PER_TICK {
+            if continued >= Self::CONTINUED_PER_TICK || !self.may_continue(now) {
                 break;
             }
             if self.continue_kept_block(block, now) {
@@ -1823,18 +1843,34 @@ impl ActiveElectionsContainer {
     /// votes. Whether it was continued.
     #[cfg(feature = "rai_protocol")]
     pub fn continue_kept_block(&mut self, block: SavedBlock, now: Timestamp) -> bool {
+        if !self.may_continue(now) {
+            return false;
+        }
         let slot = AccountSlot::new(block.account(), block.height());
         if !self.lock_continuable(&slot, &block.hash()) {
             return false;
         }
         let open = self.current_epoch;
         let id = ElectionId::new(block.qualified_root(), open);
-        if self.roots.get(&id).is_some() {
+        let continued = if self.roots.get(&id).is_some() {
             self.try_add_fork_to(&id, &block, Amount::ZERO)
         } else {
             self.insert_for_vote(block, open, now);
             self.roots.get(&id).is_some()
+        };
+        if continued {
+            self.continued.record(now);
         }
+        continued
+    }
+
+    /// Whether another retained block may be continued now: at once while
+    /// the payments leave room, `CONTINUED_WHILE_BUSY` a second while they
+    /// do not
+    #[cfg(feature = "rai_protocol")]
+    fn may_continue(&self, now: Timestamp) -> bool {
+        self.started.rate(now) < Self::BUSY_ELECTIONS_PER_SECOND
+            || self.continued.in_current_second(now) < Self::CONTINUED_WHILE_BUSY
     }
 
     /// RAI, "Where a block may be voted on": the checkpoint the instances of
@@ -3256,6 +3292,8 @@ impl ActiveElectionsContainer {
         }
 
         self.insert_new_election(request, now);
+        #[cfg(feature = "rai_protocol")]
+        self.started.record(now);
         Ok(())
     }
 
@@ -4434,6 +4472,61 @@ impl ActiveElectionsContainer {
     }
 }
 
+/// RAI: events counted a second at a time: how many in the second under
+/// way, and how many in the last full one
+#[cfg(feature = "rai_protocol")]
+#[derive(Default)]
+struct RateMeter {
+    since: Option<Timestamp>,
+    current: u64,
+    last: u64,
+}
+
+#[cfg(feature = "rai_protocol")]
+impl RateMeter {
+    const SECOND: Duration = Duration::from_secs(1);
+
+    fn record(&mut self, now: Timestamp) {
+        self.roll(now);
+        self.current += 1;
+    }
+
+    fn roll(&mut self, now: Timestamp) {
+        match self.since {
+            Some(since) if since.elapsed(now) < Self::SECOND => {}
+            Some(since) => {
+                // A second without events in between counts as an idle one
+                self.last = if since.elapsed(now) < Self::SECOND * 2 {
+                    self.current
+                } else {
+                    0
+                };
+                self.current = 0;
+                self.since = Some(now);
+            }
+            None => self.since = Some(now),
+        }
+    }
+
+    /// Events in the second under way, or none if it is over
+    fn in_current_second(&self, now: Timestamp) -> u64 {
+        match self.since {
+            Some(since) if since.elapsed(now) < Self::SECOND => self.current,
+            _ => 0,
+        }
+    }
+
+    /// The events a second: the last full second's or the current one's,
+    /// whichever is more; none after a second without events
+    fn rate(&self, now: Timestamp) -> u64 {
+        match self.since {
+            Some(since) if since.elapsed(now) < Self::SECOND => self.current.max(self.last),
+            Some(since) if since.elapsed(now) < Self::SECOND * 2 => self.current,
+            _ => 0,
+        }
+    }
+}
+
 impl Default for ActiveElectionsContainer {
     fn default() -> Self {
         Self::new(ActiveElectionsConfig::default(), Duration::from_secs(1))
@@ -5276,6 +5369,27 @@ mod tests {
                 .epoch_decided_state(ConsensusEpoch::new(2))
                 .is_none()
         );
+    }
+
+    /// RAI: the rate meter that keeps payments ahead of continued forks
+    /// counts a second at a time, and forgets a rate after an idle second
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn the_rate_meter_counts_a_second_at_a_time() {
+        let start = Timestamp::new_test_instance();
+        let at = |ms: u64| start + Duration::from_millis(ms);
+        let mut meter = RateMeter::default();
+        for ms in [0, 100, 200] {
+            meter.record(at(ms));
+        }
+        assert_eq!(meter.rate(at(500)), 3);
+        assert_eq!(meter.in_current_second(at(500)), 3);
+        meter.record(at(1_100));
+        assert_eq!(meter.in_current_second(at(1_200)), 1);
+        assert_eq!(meter.rate(at(1_200)), 3);
+        assert_eq!(meter.rate(at(2_500)), 1);
+        assert_eq!(meter.rate(at(3_200)), 0);
+        assert_eq!(meter.in_current_second(at(3_200)), 0);
     }
 
     /// RAI: a block the checkpoint itself confirms in a live instance is
