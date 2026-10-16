@@ -105,6 +105,9 @@ pub(crate) struct EpochProposalContext {
 pub(crate) struct ActiveElectionsContainer {
     roots: RootContainer,
     observer: Option<Sender<AecFact>>,
+    /// The second retained blocks are being continued in, and how many
+    #[cfg(feature = "rai_protocol")]
+    continued_window: Option<(Timestamp, u64)>,
     stopped: bool,
     count_by_behavior: [usize; ElectionBehavior::COUNT],
     base_latency: Duration,
@@ -236,11 +239,18 @@ impl ActiveElectionsContainer {
     pub(crate) const VOTE_RECORD_EPOCHS_KEPT: u64 = 4;
     /// RAI: retained blocks given their open-epoch instance per tick
     const CONTINUED_PER_TICK: u64 = 128;
+    /// Retained blocks continued per second at most: a checkpoint keeps
+    /// thousands with 10% forks, and continuing them all at once, every
+    /// one an instance all validators vote on, starves the open epoch's
+    /// payments on a busy host
+    const CONTINUED_PER_SECOND: u64 = 400;
 
     pub fn new(config: ActiveElectionsConfig, base_latency: Duration) -> Self {
         Self {
             roots: RootContainer::new(config.max_elections),
             observer: None,
+            #[cfg(feature = "rai_protocol")]
+            continued_window: None,
             stopped: false,
             count_by_behavior: Default::default(),
             base_latency,
@@ -1732,6 +1742,18 @@ impl ActiveElectionsContainer {
         let Some(&decided) = self.decided.keys().next_back() else {
             return;
         };
+        let used = match self.continued_window {
+            Some((since, used)) if since.elapsed(now) < Duration::from_secs(1) => used,
+            _ => {
+                self.continued_window = Some((now, 0));
+                0
+            }
+        };
+        let allowance =
+            Self::CONTINUED_PER_TICK.min(Self::CONTINUED_PER_SECOND.saturating_sub(used));
+        if allowance == 0 {
+            return;
+        }
         let candidates: Vec<SavedBlock> = self
             .kept_blocks_to_continue()
             .into_iter()
@@ -1742,12 +1764,15 @@ impl ActiveElectionsContainer {
         // own instances
         let mut continued = 0;
         for block in candidates {
-            if continued >= Self::CONTINUED_PER_TICK {
+            if continued >= allowance {
                 break;
             }
             if self.continue_kept_block(block, now) {
                 continued += 1;
             }
+        }
+        if let Some((_, used)) = self.continued_window.as_mut() {
+            *used += continued;
         }
         if continued > 0 {
             self.stats.carried += continued;
