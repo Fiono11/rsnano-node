@@ -7,10 +7,7 @@ edition = "2024"
 [features]
 output_tracking = []
 # RAI single-support account voting and epoch handoffs
-rai_protocol = [
-	"rsnano_messages/rai_protocol",
-	"rsnano_network_protocol/rai_protocol",
-]
+rai_protocol = ["rsnano_messages/rai_protocol"]
 banano = [
 	"rsnano_types/banano",
 	"rsnano_store_lmdb/banano",
