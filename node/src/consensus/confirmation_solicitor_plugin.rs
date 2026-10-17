@@ -4,6 +4,7 @@ use std::{
 };
 
 use rsnano_nullable_clock::Timestamp;
+use rsnano_types::ConsensusEpoch;
 
 use super::{
     AecService, AecTickerPlugin, ConfirmationSolicitor,
@@ -51,37 +52,36 @@ impl AecTickerPlugin for ConfirmationSolicitorPlugin {
          */
         let now = aec.now();
         let current_epoch = aec.current_epoch();
-        let elections: Vec<_> = aec.round_robin(|elections_iter| {
-            elections_iter
-                .filter(|e| Self::should_solicit(e, now, e.epoch() < current_epoch))
-                .cloned()
-                .collect()
-        });
-
         let draining = aec.draining_epoch();
-        for election in &elections {
-            self.winner_block_broadcaster
-                .lock()
-                .unwrap()
-                .try_broadcast_winner(&election.winner().clone(), election.votes());
-            // RAI: the ending epoch is left once its instances have terminated,
-            // and its close waits for them to settle: the instances still
-            // waiting for a certificate are asked at every tick, those of an
-            // epoch left which are not settled every base latency
-            let urgency = if draining == Some(election.epoch()) && !election.state().is_terminated()
+        // Only what is due this tick is copied out of the elections: a
+        // request goes once per interval, a winner broadcast once per its
+        // own, and cloning every election at every tick - vote maps and all
+        // - was the ticker's largest cost with thousands of them open
+        let mut broadcaster = self.winner_block_broadcaster.lock().unwrap();
+        let confirm_req_sender = &self.confirm_req_sender;
+        let (winners, requests): (Vec<_>, Vec<_>) = aec.round_robin(|elections_iter| {
+            let mut winners = Vec::new();
+            let mut requests = Vec::new();
+            for election in
+                elections_iter.filter(|e| Self::should_solicit(e, now, e.epoch() < current_epoch))
             {
-                Urgency::Now
-            } else if election.epoch() < current_epoch {
-                if election.state() == ElectionState::Settled {
-                    Urgency::Slow
-                } else {
-                    Urgency::Soon
+                if broadcaster.broadcast_due(&election.winner().hash()) {
+                    winners.push((election.winner().clone(), election.votes().clone()));
                 }
-            } else {
-                Urgency::Normal
-            };
+                let urgency = Self::urgency(election, draining, current_epoch);
+                if confirm_req_sender.should_send_confirm_req(election, urgency) {
+                    requests.push((election.clone(), urgency));
+                }
+            }
+            (winners, requests)
+        });
+        for (winner, votes) in &winners {
+            broadcaster.try_broadcast_winner(winner, votes);
+        }
+        drop(broadcaster);
+        for (election, urgency) in &requests {
             self.confirm_req_sender
-                .send_confirm_req(&mut solicitor, election, urgency);
+                .send_confirm_req(&mut solicitor, election, *urgency);
         }
         // RAI: the rounds of the close elections collect their evidence too
         #[cfg(feature = "rai_protocol")]
@@ -98,6 +98,28 @@ impl AecTickerPlugin for ConfirmationSolicitorPlugin {
 }
 
 impl ConfirmationSolicitorPlugin {
+    /// RAI: the ending epoch is left once its instances have terminated,
+    /// and its close waits for them to settle: the instances still waiting
+    /// for a certificate are asked at every tick, those of an epoch left
+    /// which are not settled every base latency
+    fn urgency(
+        election: &Election,
+        draining: Option<ConsensusEpoch>,
+        current_epoch: ConsensusEpoch,
+    ) -> Urgency {
+        if draining == Some(election.epoch()) && !election.state().is_terminated() {
+            Urgency::Now
+        } else if election.epoch() < current_epoch {
+            if election.state() == ElectionState::Settled {
+                Urgency::Slow
+            } else {
+                Urgency::Soon
+            }
+        } else {
+            Urgency::Normal
+        }
+    }
+
     fn should_solicit(election: &Election, now: Timestamp, epoch_left: bool) -> bool {
         match election.state() {
             ElectionState::Active => true,

@@ -66,6 +66,12 @@ impl WinnerBlockBroadcaster {
         self.broadcast_listener.track()
     }
 
+    /// Whether the winner is due for a broadcast now
+    pub(crate) fn broadcast_due(&self, winner_hash: &BlockHash) -> bool {
+        self.broadcast_tracker
+            .should_broadcast(self.clock.now(), winner_hash)
+    }
+
     pub fn try_broadcast_winner(
         &mut self,
         winner_block: &Block,

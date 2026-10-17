@@ -59,7 +59,7 @@ impl ConfirmReqSender {
         }
     }
 
-    fn should_send_confirm_req(&self, election: &Election, urgency: Urgency) -> bool {
+    pub(crate) fn should_send_confirm_req(&self, election: &Election, urgency: Urgency) -> bool {
         if let Some(last_req) = self.last_requests.get(&election.id()) {
             last_req.elapsed(self.clock.now()) >= Self::confirm_req_interval(election, urgency)
         } else {
