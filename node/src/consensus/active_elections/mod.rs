@@ -171,6 +171,9 @@ pub enum AecFact {
     CheckpointRetained {
         epoch: ConsensusEpoch,
         retained: Vec<(Account, u64, BlockHash)>,
+        /// The retained blocks the elections hold as fork candidates the
+        /// ledger has not taken
+        bodies: Vec<Block>,
     },
 
     BlockAddedToElection(BlockHash),

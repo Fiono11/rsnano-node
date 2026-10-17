@@ -1,4 +1,7 @@
-use std::sync::{Arc, Mutex, mpsc::SyncSender};
+use std::{
+    collections::HashSet,
+    sync::{Arc, Mutex, mpsc::SyncSender},
+};
 
 use tracing::debug;
 
@@ -105,9 +108,11 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
                 #[cfg(not(feature = "rai_protocol"))]
                 let _ = won;
             }
-            AecFact::CheckpointRetained { epoch, retained } => {
-                self.follow_retained_branches(epoch, retained)
-            }
+            AecFact::CheckpointRetained {
+                epoch,
+                retained,
+                bodies,
+            } => self.follow_retained_branches(epoch, retained, bodies),
             AecFact::ElectionEnded(election) => {
                 self.election_schedulers.notify();
 
@@ -284,6 +289,7 @@ impl AecFactProcessor {
         &mut self,
         epoch: ConsensusEpoch,
         retained: Vec<(rsnano_types::Account, u64, BlockHash)>,
+        bodies: Vec<Block>,
     ) {
         let (held, absent): (Vec<_>, Vec<_>) = {
             let any = self.ledger.any();
@@ -292,16 +298,36 @@ impl AecFactProcessor {
                 .partition(|(_, _, hash)| any.block_exists(hash))
         };
         let missing = absent.len();
+        // The bodies the elections hold are forced in now; the follower asks
+        // the network only for those still absent a retry later
+        let absent_hashes: HashSet<BlockHash> = absent.iter().map(|(_, _, hash)| *hash).collect();
+        let mut supplied = Vec::new();
+        for block in bodies {
+            let hash = block.hash();
+            if absent_hashes.contains(&hash)
+                && self.block_processor_queue.push(BlockContext::new(
+                    block,
+                    BlockSource::Forced,
+                    ChannelId::LOOPBACK,
+                ))
+            {
+                supplied.push(hash);
+            }
+        }
         #[cfg(feature = "rai_protocol")]
-        self.checkpoint_follower.hold(absent);
+        {
+            self.checkpoint_follower.hold(absent);
+            self.checkpoint_follower.supplied(&supplied);
+        }
         #[cfg(not(feature = "rai_protocol"))]
         let _ = absent;
         crate::utils::diagnostic!(
-            "EPOCH_RETAINED epoch={} retained={} held={} missing={}",
+            "EPOCH_RETAINED epoch={} retained={} held={} missing={} supplied={}",
             epoch,
             held.len() + missing,
             held.len(),
-            missing
+            missing,
+            supplied.len()
         );
     }
 

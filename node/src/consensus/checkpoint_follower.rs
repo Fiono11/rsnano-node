@@ -97,6 +97,16 @@ impl PendingCheckpointBlocks {
         }
     }
 
+    /// Blocks handed to the block processor from this node's own elections:
+    /// asked for only if still absent a retry later
+    pub fn supplied(&mut self, hashes: &[BlockHash], now: Timestamp) {
+        for hash in hashes {
+            if let Some(pending) = self.pending.get_mut(hash) {
+                pending.last = Some(now);
+            }
+        }
+    }
+
     fn wait(requests: u32) -> Duration {
         Self::RETRY * (1 << requests.min(Self::MAX_DOUBLINGS))
     }
@@ -232,6 +242,16 @@ impl CheckpointFollower {
     /// arrival they are forced in, which rolls back an unconfirmed rival
     pub fn hold(&self, blocks: impl IntoIterator<Item = (Account, u64, BlockHash)>) {
         self.pending.lock().unwrap().hold(blocks);
+    }
+
+    /// Retained blocks this node's elections held and handed to the block
+    /// processor: asked for only if still absent a retry later
+    pub fn supplied(&self, hashes: &[BlockHash]) {
+        if hashes.is_empty() {
+            return;
+        }
+        let now = self.clock.now();
+        self.pending.lock().unwrap().supplied(hashes, now);
     }
 
     /// A block arriving that a checkpoint finalized: it is forced in
@@ -472,6 +492,17 @@ mod tests {
             }
         }
         assert_eq!(asked, vec![0, 1, 3, 7, 15]);
+    }
+
+    #[test]
+    fn a_retained_block_supplied_locally_is_asked_for_only_a_retry_later() {
+        let mut pending = PendingCheckpointBlocks::default();
+        pending.hold([(Account::from(1), 2, hash(1))]);
+        pending.supplied(&[hash(1)], now(0));
+        let work = pending.tick(now(0), |_| false, |_| false, no_position);
+        assert!(work.request.is_empty());
+        let work = pending.tick(now(1), |_| false, |_| false, no_position);
+        assert_eq!(work.request, vec![hash(1)]);
     }
 
     #[test]
