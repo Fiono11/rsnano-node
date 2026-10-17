@@ -39,12 +39,30 @@ pub struct InboundMessageQueue {
 /// at a full queue, the request waits for its retry; a node short of a
 /// checkpoint's blocks can not derive the next committee, and counts no
 /// close vote meanwhile.
+///
+/// The messages of the epoch close itself go in it as well - reports, their
+/// reconciliation, proposals, manifests, evidence and block requests,
+/// installation acknowledgements: a few per member and epoch, and the close
+/// waits for each. Behind a peer's votes and blocks in the fair queue they
+/// arrived ~2 s late under load (12 s epochs, 10% forks).
 const PRIORITY_LANE_MAX: usize = 4096;
 
 fn is_priority(message: &Message) -> bool {
     match message {
         Message::ConfirmAck(ack) => ack.vote().epoch.is_close_round(),
         Message::Publish(publish) => publish.is_evidence,
+        #[cfg(feature = "rai_protocol")]
+        Message::Report(_)
+        | Message::EpochProp(_)
+        | Message::ReportSymbolsReq(_)
+        | Message::ReportSymbolsReply(_)
+        | Message::BlocksReq(_)
+        | Message::EvidenceReq(_)
+        | Message::ManifestReq(_)
+        | Message::ManifestReply(_)
+        | Message::CheckpointReq(_)
+        | Message::CheckpointReply(_)
+        | Message::EpochInstalled(_) => true,
         _ => false,
     }
 }
@@ -281,6 +299,25 @@ mod tests {
         ));
         let batch = queue.next_batch(10);
         assert!(matches!(&batch[0].1.0, Message::Publish(publish) if publish.is_evidence));
+    }
+
+    /// RAI: a close message waits for no vote or block a peer sent before it
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn close_messages_bypass_a_full_queue() {
+        use rsnano_messages::BlocksReq;
+        use rsnano_types::BlockHash;
+
+        let queue = InboundMessageQueue::new(1);
+        let channel = Arc::new(Channel::new_test_instance());
+        assert!(queue.put(Message::BulkPush, channel.clone()));
+        let request = Message::BlocksReq(BlocksReq {
+            hashes: vec![BlockHash::from(1)],
+        });
+        assert!(queue.put(request, channel));
+        let batch = queue.next_batch(10);
+        assert!(matches!(&batch[0].1.0, Message::BlocksReq(_)));
+        assert!(matches!(&batch[1].1.0, Message::BulkPush));
     }
 
     #[test]
