@@ -2,7 +2,9 @@ use rsnano_nullable_lmdb::{
     DatabaseFlags, LmdbDatabase, LmdbEnvironment, Transaction, WriteFlags, WriteTransaction,
 };
 
-use crate::iterator::LmdbIterator;
+use std::ops::Bound;
+
+use crate::iterator::LmdbRangeIterator;
 
 /// RAI, durable signing records: what a validator signed, persisted before
 /// the signature leaves the process, so that a restart never signs what it
@@ -46,9 +48,16 @@ impl LmdbSigningStore {
         let cursor = txn
             .open_ro_cursor(self.database)
             .expect("Could not read the signing store");
-        LmdbIterator::new(cursor, |k, v| (k.to_vec(), v.to_vec()))
-            .filter(|(key, _)| key.starts_with(prefix))
-            .collect()
+        // From the first key at or after the prefix to the last one with it:
+        // the records are ordered by key, so no other one is read
+        LmdbRangeIterator::new(
+            cursor,
+            Bound::Included(prefix.to_vec()),
+            Bound::Unbounded,
+            |k, v| (k.to_vec(), v.to_vec()),
+        )
+        .take_while(|(key, _)| key.starts_with(prefix))
+        .collect()
     }
 }
 
@@ -65,13 +74,21 @@ mod tests {
             store.put(&mut txn, b"S1", b"one");
             store.put(&mut txn, b"S2", b"two");
             store.put(&mut txn, b"P1", b"parent");
+            store.put(&mut txn, b"T1", b"after");
             txn.commit();
         }
         let txn = env.begin_read();
         assert_eq!(store.get(&txn, b"S1"), Some(b"one".to_vec()));
         assert_eq!(store.get(&txn, b"S9"), None);
         let slots = store.with_prefix(&txn, b"S");
-        assert_eq!(slots.len(), 2);
-        assert_eq!(store.count(&txn), 3);
+        assert_eq!(
+            slots,
+            vec![
+                (b"S1".to_vec(), b"one".to_vec()),
+                (b"S2".to_vec(), b"two".to_vec())
+            ]
+        );
+        assert!(store.with_prefix(&txn, b"R").is_empty());
+        assert_eq!(store.count(&txn), 4);
     }
 }

@@ -217,6 +217,20 @@ impl ReportService {
     pub fn epoch_left(&self, epoch: ConsensusEpoch, report: Arc<EpochReport>) {
         // Persisted first: a restart signs nothing new in the epoch left
         self.signing.write_frozen(epoch);
+        match self.predecessor_of(epoch) {
+            Some(predecessor) => self.sign_report(epoch, report, predecessor),
+            None => {
+                crate::utils::diagnostic!("EPOCH_REPORT_DEFERRED epoch={}", epoch);
+                self.pending.lock().unwrap().insert(epoch, report);
+            }
+        }
+        // Housekeeping after the report has left: the close waits for it
+        self.forget_old_records(epoch);
+    }
+
+    /// Drops the signing records and the retained evidence of the epochs
+    /// no vote record is kept for any more
+    fn forget_old_records(&self, epoch: ConsensusEpoch) {
         let kept_from = ConsensusEpoch::new(
             epoch
                 .as_u64()
@@ -232,12 +246,6 @@ impl ReportService {
                     .as_ref()
                     .is_some_and(|state| state.carries_recovery_record(slot, origin))
             });
-        let Some(predecessor) = self.predecessor_of(epoch) else {
-            crate::utils::diagnostic!("EPOCH_REPORT_DEFERRED epoch={}", epoch);
-            self.pending.lock().unwrap().insert(epoch, report);
-            return;
-        };
-        self.sign_report(epoch, report, predecessor);
     }
 
     /// d_{e-1}: the hash of the decided predecessor checkpoint, if this node
