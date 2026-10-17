@@ -8,7 +8,7 @@ use std::{
 use rsnano_ledger::{AnySet, Ledger, LedgerSet};
 use rsnano_messages::{ConfirmAck, Message, Publish};
 use rsnano_network::{Channel, ChannelEvent, ChannelId, TrafficType};
-use rsnano_types::{Block, BlockHash, ConsensusEpoch, Root, Vote, VoteKind};
+use rsnano_types::{Block, BlockHash, ConsensusEpoch, Root, SavedBlock, Vote, VoteKind};
 use rsnano_utils::{
     EventHandler,
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -16,9 +16,11 @@ use rsnano_utils::{
     stats::{DetailType, Direction, StatType, Stats},
 };
 
+#[cfg(not(feature = "rai_protocol"))]
+use super::request_aggregator_impl::AggregateResult;
 use super::{
     VoteGenerators,
-    request_aggregator_impl::{AggregateResult, RequestAggregatorImpl, search_for_block},
+    request_aggregator_impl::{RequestAggregatorImpl, search_for_block},
 };
 use crate::{
     consensus::{
@@ -291,14 +293,29 @@ impl RequestAggregatorLoop {
     }
 
     fn process(&self, any: &dyn AnySet, request: &AggregatorRequest) {
+        // RAI: what the ledger holds for each requested block, looked up
+        // once for the three steps below
+        #[cfg(feature = "rai_protocol")]
+        let found: Vec<Option<SavedBlock>> = request
+            .roots_hashes
+            .iter()
+            .map(|(hash, root)| search_for_block(any, hash, root))
+            .collect();
         #[cfg(feature = "rai_protocol")]
         let served = {
-            self.reply_with_fork_candidates(any, request);
+            self.reply_with_fork_candidates(request, &found);
             let served = self.reply_with_certificates(request);
-            self.join_requested_instances(any, request, &served);
+            self.join_requested_instances(any, request, &found, &served);
             served
         };
 
+        #[cfg(feature = "rai_protocol")]
+        let mut remaining = {
+            let mut aggregator = RequestAggregatorImpl::new(&self.stats, any);
+            aggregator.add_found(found);
+            aggregator.get_result()
+        };
+        #[cfg(not(feature = "rai_protocol"))]
         let mut remaining = self.aggregate(any, request);
         // RAI: an epoch this node left gets its retained statements only
         // (served above); a fresh signature there would change the vote set
@@ -388,20 +405,21 @@ impl RequestAggregatorLoop {
         &self,
         any: &dyn AnySet,
         request: &AggregatorRequest,
+        found: &[Option<SavedBlock>],
         served: &HashSet<BlockHash>,
     ) {
         if request.epoch > self.active_elections.current_epoch() {
             return;
         }
-        for (hash, root) in &request.roots_hashes {
+        for ((hash, _), block) in request.roots_hashes.iter().zip(found) {
             if served.contains(hash) {
                 continue;
             }
-            let Some(block) = search_for_block(any, hash, root) else {
+            let Some(block) = block.clone() else {
                 continue;
             };
             let id = ElectionId::new(block.qualified_root(), request.epoch);
-            if self.active_elections.election(&id).is_some()
+            if self.active_elections.election_exists(&id)
                 || self
                     .active_elections
                     .finalized_in_epoch(&block.hash(), request.epoch)
@@ -431,23 +449,26 @@ impl RequestAggregatorLoop {
     /// block we do not hold, for a root where our ledger has a different
     /// successor, tells us that the requester lacks our fork candidate: it is
     /// published to the requester so that it can take its second look.
-    fn reply_with_fork_candidates(&self, any: &dyn AnySet, request: &AggregatorRequest) {
+    fn reply_with_fork_candidates(
+        &self,
+        request: &AggregatorRequest,
+        found: &[Option<SavedBlock>],
+    ) {
         // A request names every candidate the requester holds (see
         // `ConfirmationSolicitor::add`): a candidate among them is not
         // lacking, and sending it every round only fills the requester's
         // queues with blocks it drops
         let named: HashSet<BlockHash> =
             request.roots_hashes.iter().map(|(hash, _)| *hash).collect();
-        for (hash, root) in &request.roots_hashes {
-            if any.block_exists(hash) {
-                continue;
-            }
-            let Some(block) = search_for_block(any, hash, root) else {
+        for ((hash, _), block) in request.roots_hashes.iter().zip(found) {
+            // The requested block itself is held, or nothing for its root
+            let Some(block) = block.as_ref().filter(|block| block.hash() != *hash) else {
                 continue;
             };
             if named.contains(&block.hash()) {
                 continue;
             }
+            let block = block.clone();
             // RAI: the requester holds a candidate of this slot which this
             // node does not; it is asked for below
             let mut sender = self.message_sender.lock().unwrap();
@@ -580,6 +601,7 @@ impl RequestAggregatorLoop {
 
     /// Aggregate requests and send cached votes to channel.
     /// Return the remaining hashes that need vote generation for each block for regular & final vote generators
+    #[cfg(not(feature = "rai_protocol"))]
     fn aggregate(&self, any: &dyn AnySet, requests: &AggregatorRequest) -> AggregateResult {
         let mut aggregator = RequestAggregatorImpl::new(&self.stats, any);
         aggregator.add_votes(&requests.roots_hashes);

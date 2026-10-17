@@ -70,6 +70,11 @@ impl AecService {
         self.aec.read().unwrap().election(id).cloned()
     }
 
+    /// `election(id).is_some()` without copying the election
+    pub fn election_exists(&self, id: &ElectionId) -> bool {
+        self.aec.read().unwrap().election(id).is_some()
+    }
+
     /// The elections of all epochs for this root, ascending by epoch
     pub fn elections_for_root(&self, root: &QualifiedRoot) -> Vec<Election> {
         self.aec

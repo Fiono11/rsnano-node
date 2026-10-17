@@ -21,9 +21,16 @@ impl<'a> RequestAggregatorImpl<'a> {
     }
 
     pub fn add_votes(&mut self, requests: &[(BlockHash, Root)]) {
-        for (hash, root) in requests {
-            let block = search_for_block(self.any, hash, root);
+        self.add_found(
+            requests
+                .iter()
+                .map(|(hash, root)| search_for_block(self.any, hash, root)),
+        );
+    }
 
+    /// `add_votes` for the blocks `search_for_block` found for the requests
+    pub fn add_found(&mut self, found: impl IntoIterator<Item = Option<SavedBlock>>) {
+        for block in found {
             let should_generate_final_vote = |block: &Block| {
                 // Check if final vote is set for this block
                 if let Some(final_hash) = self.any.get_final_vote(&block.qualified_root()) {
