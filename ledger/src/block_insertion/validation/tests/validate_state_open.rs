@@ -79,3 +79,18 @@ fn fails_with_bad_signature_if_signature_is_invalid() {
         })
         .assert_validation_fails_with(BlockError::BadSignature);
 }
+
+#[test]
+fn a_signature_verified_before_is_not_checked_again() {
+    BlockValidationTest::for_unopened_account()
+        .with_pending_receive(Amount::raw(10), Epoch::Epoch2)
+        .block_to_validate(|chain| {
+            chain
+                .new_open_block()
+                .balance(10)
+                .key(&PrivateKey::from(42))
+                .build()
+        })
+        .signature_already_verified()
+        .assert_is_valid();
+}

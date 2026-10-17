@@ -29,6 +29,9 @@ pub(crate) struct BlockValidator<'a> {
     pub any_pending_exists: bool,
     pub source_block_exists: bool,
     pub now: UnixMillisTimestamp,
+    /// The signature was verified with this block's account and hash
+    /// before: the check is not repeated
+    pub signature_verified: bool,
 }
 
 impl<'a> BlockValidator<'a> {

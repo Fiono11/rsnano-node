@@ -29,6 +29,7 @@ pub(crate) struct BlockValidationTest {
     source_block_missing: bool,
     previous_block_missing: bool,
     is_work_valid: bool,
+    signature_verified: bool,
 }
 
 impl BlockValidationTest {
@@ -65,6 +66,7 @@ impl BlockValidationTest {
             source_block_missing: false,
             previous_block_missing: false,
             is_work_valid: true,
+            signature_verified: false,
         }
     }
 
@@ -93,6 +95,11 @@ impl BlockValidationTest {
 
     pub fn source_block_is_missing(mut self) -> Self {
         self.source_block_missing = true;
+        self
+    }
+
+    pub fn signature_already_verified(mut self) -> Self {
+        self.signature_verified = true;
         self
     }
 
@@ -132,6 +139,7 @@ impl BlockValidationTest {
             }
         };
         validator.now = self.now;
+        validator.signature_verified = self.signature_verified;
         if self.pending_receive.is_some() {
             validator.any_pending_exists = true;
             validator.source_block_exists = true;
@@ -168,5 +176,6 @@ fn new_test_validator<'a>(
         any_pending_exists: false,
         source_block_exists: false,
         now: UnixMillisTimestamp::new(123456),
+        signature_verified: false,
     }
 }
