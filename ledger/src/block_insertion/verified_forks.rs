@@ -38,6 +38,7 @@ impl VerifiedForks {
         }
     }
 
+    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.keys.len()
     }

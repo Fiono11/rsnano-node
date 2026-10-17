@@ -18,10 +18,9 @@ use rsnano_utils::{
 
 #[cfg(not(feature = "rai_protocol"))]
 use super::request_aggregator_impl::AggregateResult;
-use super::{
-    VoteGenerators,
-    request_aggregator_impl::{RequestAggregatorImpl, search_for_block},
-};
+#[cfg(feature = "rai_protocol")]
+use super::request_aggregator_impl::search_for_block;
+use super::{VoteGenerators, request_aggregator_impl::RequestAggregatorImpl};
 use crate::{
     consensus::{
         AecService,
