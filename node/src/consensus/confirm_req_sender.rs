@@ -52,16 +52,23 @@ impl ConfirmReqSender {
         election: &Election,
         urgency: Urgency,
     ) {
-        if self.should_send_confirm_req(election, urgency) && solicitor.add(election) {
+        if self.should_send_confirm_req(election, urgency, self.clock.now())
+            && solicitor.add(election)
+        {
             self.last_requests.insert(election.id(), self.clock.now());
             self.stats
                 .inc(StatType::Election, DetailType::ConfirmationRequest);
         }
     }
 
-    pub(crate) fn should_send_confirm_req(&self, election: &Election, urgency: Urgency) -> bool {
+    pub(crate) fn should_send_confirm_req(
+        &self,
+        election: &Election,
+        urgency: Urgency,
+        now: Timestamp,
+    ) -> bool {
         if let Some(last_req) = self.last_requests.get(&election.id()) {
-            last_req.elapsed(self.clock.now()) >= Self::confirm_req_interval(election, urgency)
+            last_req.elapsed(now) >= Self::confirm_req_interval(election, urgency)
         } else {
             true
         }

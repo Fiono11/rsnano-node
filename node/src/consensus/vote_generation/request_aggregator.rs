@@ -308,10 +308,20 @@ impl RequestAggregatorLoop {
             served
         };
 
+        // RAI: once the epochs run, a final vote goes out again only for a
+        // block this node final-voted in the requested epoch (see below):
+        // the ledger is not read for the others
+        #[cfg(feature = "rai_protocol")]
+        let epochs_started = self.active_elections.epochs_started();
         #[cfg(feature = "rai_protocol")]
         let mut remaining = {
             let mut aggregator = RequestAggregatorImpl::new(&self.stats, any);
-            aggregator.add_found(found);
+            aggregator.add_found_where(found, |block| {
+                !epochs_started
+                    || self
+                        .active_elections
+                        .final_voted_in_epoch(&block.hash(), request.epoch)
+            });
             aggregator.get_result()
         };
         #[cfg(not(feature = "rai_protocol"))]
@@ -339,7 +349,6 @@ impl RequestAggregatorLoop {
         // instance of the same slot could later final-vote another block.
         #[cfg(feature = "rai_protocol")]
         {
-            let epochs_started = self.active_elections.epochs_started();
             remaining.remaining_final.retain(|block| {
                 let hash = block.hash();
                 !served.contains(&hash)

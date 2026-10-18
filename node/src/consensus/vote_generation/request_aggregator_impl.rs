@@ -20,6 +20,7 @@ impl<'a> RequestAggregatorImpl<'a> {
         }
     }
 
+    #[cfg(any(test, not(feature = "rai_protocol")))]
     pub fn add_votes(&mut self, requests: &[(BlockHash, Root)]) {
         self.add_found(
             requests
@@ -29,7 +30,18 @@ impl<'a> RequestAggregatorImpl<'a> {
     }
 
     /// `add_votes` for the blocks `search_for_block` found for the requests
+    #[cfg(any(test, not(feature = "rai_protocol")))]
     pub fn add_found(&mut self, found: impl IntoIterator<Item = Option<SavedBlock>>) {
+        self.add_found_where(found, |_| true);
+    }
+
+    /// `add_found`, where a block `may_vote_final` rejects is counted as
+    /// non-final without reading the ledger for it
+    pub fn add_found_where(
+        &mut self,
+        found: impl IntoIterator<Item = Option<SavedBlock>>,
+        may_vote_final: impl Fn(&SavedBlock) -> bool,
+    ) {
         for block in found {
             let should_generate_final_vote = |block: &Block| {
                 // Check if final vote is set for this block
@@ -42,7 +54,7 @@ impl<'a> RequestAggregatorImpl<'a> {
             };
 
             if let Some(block) = block {
-                if should_generate_final_vote(&block) {
+                if may_vote_final(&block) && should_generate_final_vote(&block) {
                     self.to_generate_final.push(block);
                     self.stats
                         .inc(StatType::Requests, DetailType::RequestsFinal);

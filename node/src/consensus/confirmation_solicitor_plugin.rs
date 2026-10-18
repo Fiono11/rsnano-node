@@ -65,11 +65,11 @@ impl AecTickerPlugin for ConfirmationSolicitorPlugin {
             for election in
                 elections_iter.filter(|e| Self::should_solicit(e, now, e.epoch() < current_epoch))
             {
-                if broadcaster.broadcast_due(&election.winner().hash()) {
+                if broadcaster.broadcast_due(&election.winner().hash(), now) {
                     winners.push((election.winner().clone(), election.votes().clone()));
                 }
                 let urgency = Self::urgency(election, draining, current_epoch);
-                if confirm_req_sender.should_send_confirm_req(election, urgency) {
+                if confirm_req_sender.should_send_confirm_req(election, urgency, now) {
                     requests.push((election.clone(), urgency));
                 }
             }
