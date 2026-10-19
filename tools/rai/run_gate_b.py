@@ -89,10 +89,13 @@ def settlement(counts, states, min_closed):
     # everywhere
     all_cemented = len(cemented) == 1 and len(held) == 1
     closes = [closes_of(s) for s in states]
-    decided = [{e for e, c in node.items() if c.get('value')} for node in closes]
+    # Decided: the close finalized a value here. `value` is the candidate
+    # this node derived or validated itself, absent on a node that took the
+    # decided state from another replica (checkpoint catch-up)
+    decided = [{e for e, c in node.items() if c.get('closed_value')} for node in closes]
     every = set.intersection(*decided) if decided else set()
     any_ = set.union(*decided) if decided else set()
-    values = {e: {node[e].get('closed_value') for node in closes if e in node and node[e].get('value')}
+    values = {e: {node[e].get('closed_value') for node in closes if e in node and node[e].get('closed_value')}
               for e in any_}
     agree = all(len(v) == 1 for v in values.values())
     return dict(all_cemented=all_cemented, cemented=sorted(cemented), held=sorted(held),
@@ -374,11 +377,17 @@ def main():
                     grace_end = started + args.fork_grace
                     lowest, dropped_at, outcome = max(before), started, 'cap'
                     trace = [[0.0, lowest]]
+                    resolved_at = None
                     while True:
+                        # Resolved; the replicas still deciding an epoch
+                        # (a lagging one catching up) get up to
+                        # --fork-grace-stall seconds more to agree
                         if max(settled['uncemented']) == 0:
                             outcome = 'resolved'
-                            break
-                        if time.monotonic() - dropped_at > args.fork_grace_stall:
+                            resolved_at = resolved_at or time.monotonic()
+                            if settled['settled'] or time.monotonic() - resolved_at > args.fork_grace_stall:
+                                break
+                        elif time.monotonic() - dropped_at > args.fork_grace_stall:
                             outcome = 'stalled'
                             break
                         if time.monotonic() >= grace_end:
