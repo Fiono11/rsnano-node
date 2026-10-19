@@ -10,6 +10,7 @@ use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
 use crate::consensus::election::{Election, VoteType};
 
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct VoteTarget {
     pub root: QualifiedRoot,
     pub winner: BlockHash,

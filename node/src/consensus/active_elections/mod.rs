@@ -29,6 +29,9 @@ pub struct ActiveElectionsConfig {
     pub max_elections: usize,
     /// Maximum cache size for recently_confirmed
     pub confirmation_cache: usize,
+    /// RAI evaluation, a Byzantine representative (`rai_byzantine` builds):
+    /// it votes for every block of a fork
+    pub byzantine_equivocate: bool,
 }
 
 impl Default for ActiveElectionsConfig {
@@ -36,6 +39,7 @@ impl Default for ActiveElectionsConfig {
         Self {
             max_elections: 5000,
             confirmation_cache: 65536,
+            byzantine_equivocate: false,
         }
     }
 }

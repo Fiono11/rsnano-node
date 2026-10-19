@@ -150,6 +150,15 @@ impl VoteGenerators {
         }
     }
 
+    /// RAI evaluation, a Byzantine representative: see `VoteGenerator::sign_now`
+    #[cfg(feature = "rai_byzantine")]
+    pub(crate) fn sign_now(&self, root: &Root, hash: &BlockHash, vote_type: VoteType) {
+        match vote_type {
+            VoteType::NonFinal => self.non_final_vote_generator.sign_now(root, hash),
+            VoteType::Final => self.final_vote_generator.sign_now(root, hash),
+        }
+    }
+
     pub(crate) fn generate_votes(
         &self,
         blocks: &[SavedBlock],

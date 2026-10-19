@@ -9,6 +9,9 @@ pub struct ActiveElectionsToml {
     pub optimistic_limit_percentage: Option<usize>,
     pub size: Option<usize>,
     pub bootstrap_stale_threshold: Option<usize>,
+    /// RAI evaluation, a Byzantine representative: "equivocate" votes for
+    /// every block of a fork
+    pub byzantine_votes: Option<String>,
 }
 
 impl From<&NodeConfig> for ActiveElectionsToml {
@@ -22,6 +25,7 @@ impl From<&NodeConfig> for ActiveElectionsToml {
             confirmation_history_size: Some(config.confirmation_history_size),
             confirmation_cache: Some(config.active_elections.confirmation_cache),
             bootstrap_stale_threshold: Some(config.bootstrap_stale_threshold.as_secs() as usize),
+            byzantine_votes: None,
         }
     }
 }

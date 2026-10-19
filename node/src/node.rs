@@ -1166,13 +1166,16 @@ impl Node {
             vote_cache: vote_cache.clone(),
         });
 
-        let aec_voter = Arc::new(Mutex::new(AecVoter::new(
+        let aec_voter = AecVoter::new(
             active_elections.clone(),
             vote_generators.clone(),
             steady_clock.clone(),
             current_network,
             cps_limiter,
-        )));
+        );
+        #[cfg(feature = "rai_byzantine")]
+        let aec_voter = aec_voter.with_equivocation(config.active_elections.byzantine_equivocate);
+        let aec_voter = Arc::new(Mutex::new(aec_voter));
 
         // With ledger_snapshots we never vote for forked blocks!
         #[cfg(not(feature = "ledger_snapshots"))]

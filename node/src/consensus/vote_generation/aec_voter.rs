@@ -23,6 +23,10 @@ pub(crate) struct AecVoter {
     clock: Arc<SteadyClock>,
     cps_limiter: CpsLimiter,
     scheduler: VotingScheduler,
+    /// RAI evaluation, a Byzantine representative voting for every block of
+    /// a fork (`ActiveElectionsConfig::byzantine_equivocate`)
+    #[cfg(feature = "rai_byzantine")]
+    equivocations: Option<super::equivocations::Equivocations>,
 }
 
 impl AecVoter {
@@ -43,6 +47,37 @@ impl AecVoter {
             clock,
             cps_limiter,
             scheduler: VotingScheduler::new(vote_broadcast_interval),
+            #[cfg(feature = "rai_byzantine")]
+            equivocations: None,
+        }
+    }
+
+    /// RAI evaluation: this representative votes for every block of a fork
+    #[cfg(feature = "rai_byzantine")]
+    pub(crate) fn with_equivocation(mut self, equivocate: bool) -> Self {
+        self.equivocations = equivocate.then(Default::default);
+        self
+    }
+
+    /// RAI evaluation, an equivocating representative: the votes just
+    /// released are watched, and every fork sibling of their blocks gets the
+    /// same vote, signed now
+    #[cfg(feature = "rai_byzantine")]
+    fn equivocate(&mut self, released: &[VoteTarget], now: rsnano_nullable_clock::Timestamp) {
+        let Some(equivocations) = self.equivocations.as_mut() else {
+            return;
+        };
+        for target in released {
+            equivocations.voted(now, target.clone());
+        }
+        let aec = &self.aec;
+        let due = equivocations.due(now, |root| aec.candidate_hashes(root));
+        for (target, sibling) in &due {
+            self.vote_generators
+                .sign_now(&target.root.root, sibling, target.vote_type);
+        }
+        if !due.is_empty() {
+            eprintln!("BYZ_EQUIVOCATED votes={}", due.len());
         }
     }
 
@@ -106,6 +141,10 @@ impl Tickable for AecVoter {
         }
 
         self.scheduler.cleanup(now);
+        #[cfg(feature = "rai_byzantine")]
+        let released = vote_queue.clone();
         self.flush(&mut vote_queue);
+        #[cfg(feature = "rai_byzantine")]
+        self.equivocate(&released, now);
     }
 }

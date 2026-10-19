@@ -52,6 +52,16 @@ impl AecService {
         self.aec.read().unwrap().election_for_root(root).cloned()
     }
 
+    /// The blocks the election of a root holds as candidates
+    pub fn candidate_hashes(&self, root: &QualifiedRoot) -> Vec<BlockHash> {
+        self.aec
+            .read()
+            .unwrap()
+            .election_for_root(root)
+            .map(|election| election.candidate_blocks().keys().copied().collect())
+            .unwrap_or_default()
+    }
+
     pub fn election_for_block(&self, block_hash: &BlockHash) -> Option<Election> {
         self.aec
             .read()

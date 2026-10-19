@@ -6,6 +6,8 @@ edition = "2024"
 
 [features]
 output_tracking = []
+# RAI evaluation: a representative that votes for every block of a fork
+rai_byzantine = []
 banano = [
 	"rsnano_types/banano",
 	"rsnano_store_lmdb/banano",

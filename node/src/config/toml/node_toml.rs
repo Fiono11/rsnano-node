@@ -366,6 +366,9 @@ impl NodeConfig {
             if let Some(size) = i.size {
                 self.active_elections.max_elections = size
             };
+            if let Some(votes) = &i.byzantine_votes {
+                self.active_elections.byzantine_equivocate = votes == "equivocate";
+            }
             if let Some(percentage) = i.hinted_limit_percentage {
                 self.hinted_scheduler.hinted_limit_percentage = percentage;
             };
