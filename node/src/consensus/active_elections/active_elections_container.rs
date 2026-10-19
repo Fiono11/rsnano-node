@@ -134,6 +134,14 @@ pub(crate) struct ActiveElectionsContainer {
     close_first_leader: Option<PublicKey>,
     /// RAI evaluation: see `ActiveElectionsConfig::byzantine`
     byzantine: crate::consensus::byzantine::ByzantineConfig,
+    /// When the retained positions that do not finalize were last described
+    stuck_logged: Option<Timestamp>,
+    /// RAI: see `ActiveElectionsConfig::epoch_vote_window`
+    epoch_vote_window: Duration,
+    /// RAI: when each decided checkpoint was installed here
+    installed_at: BTreeMap<ConsensusEpoch, Timestamp>,
+    /// The epoch whose leave was last held for the vote window, said once
+    leave_held_logged: Option<ConsensusEpoch>,
     /// RAI, Algorithm 1 line 8: the epochs this node stopped signing in, at
     /// their boundary. Their instances still collect the votes of the other
     /// replicas and construct certificates; this node issues no vote in them.
@@ -259,6 +267,10 @@ impl ActiveElectionsContainer {
             epoch_transition: config.epoch_transition,
             close_first_leader: config.close_first_leader,
             byzantine: config.byzantine,
+            stuck_logged: None,
+            epoch_vote_window: config.epoch_vote_window,
+            installed_at: BTreeMap::new(),
+            leave_held_logged: None,
             frozen: BTreeSet::new(),
             vote_records: VoteRecords::default(),
             checkpoint_delegations: BTreeMap::new(),
@@ -474,8 +486,33 @@ impl ActiveElectionsContainer {
         if !self.draining || !self.previous_epoch_closed(self.current_epoch) {
             return;
         }
+        if !self.vote_window_passed(now) {
+            if self.leave_held_logged != Some(self.current_epoch) {
+                self.leave_held_logged = Some(self.current_epoch);
+                #[cfg(feature = "rai_protocol")]
+                diagnostic!(
+                    "EPOCH_LEAVE_HELD epoch={} window_ms={} : the checkpoint before it was installed late",
+                    self.current_epoch,
+                    self.epoch_vote_window.as_millis()
+                );
+            }
+            return;
+        }
         self.draining = false;
         self.advance_epoch(now);
+    }
+
+    /// RAI: whether the current epoch has been open for the vote window since
+    /// the checkpoint before it was installed here (see
+    /// `ActiveElectionsConfig::epoch_vote_window`). A predecessor closed
+    /// without an installation here waits for nothing.
+    fn vote_window_passed(&self, now: Timestamp) -> bool {
+        let Some(previous) = self.current_epoch.as_u64().checked_sub(1) else {
+            return true;
+        };
+        self.installed_at
+            .get(&ConsensusEpoch::new(previous))
+            .is_none_or(|installed| installed.elapsed(now) >= self.epoch_vote_window)
     }
 
     /// RAI: whether the close election of the epoch before this one has
@@ -951,9 +988,10 @@ impl ActiveElectionsContainer {
             let (frontiers, missing) = self.decided_frontiers(epoch, &state);
             if !missing.is_empty() {
                 diagnostic!(
-                    "EPOCH_FRONTIER_MISSING epoch={} accounts={} : the committee waits for their blocks",
+                    "EPOCH_FRONTIER_MISSING epoch={} accounts={} first={} : the committee waits for their blocks",
                     epoch,
-                    missing.len()
+                    missing.len(),
+                    missing[0]
                 );
                 return;
             }
@@ -1430,6 +1468,8 @@ impl ActiveElectionsContainer {
         self.closes.retain(|epoch, _| epoch.as_u64() >= first);
         self.decided
             .retain(|epoch, _| epoch.as_u64() >= first.saturating_sub(1));
+        self.installed_at
+            .retain(|epoch, _| epoch.as_u64() >= first.saturating_sub(1));
     }
 
     /// RAI: the epoch's joint election finalized a value this node derived
@@ -1456,6 +1496,7 @@ impl ActiveElectionsContainer {
             steps.push((name, started.elapsed().as_millis()));
         };
         self.decided.insert(epoch, state.clone());
+        self.installed_at.insert(epoch, now);
         self.checkpoint_bases.insert(epoch, state.state_hash());
         step("hash", &mut steps);
         // Laid over the base of this epoch's reports when the state records
@@ -3502,9 +3543,146 @@ impl ActiveElectionsContainer {
         self.recently_confirmed.clear();
     }
 
+    /// RAI diagnostic: every 10 s, a few positions the latest checkpoint
+    /// retains whose instance in the open epoch has run 10 s without
+    /// finalizing: each candidate's voters by kind, the certificates, and
+    /// what this node voted there
+    #[cfg(feature = "rai_protocol")]
+    fn log_stuck_positions(&mut self, now: Timestamp) {
+        const EVERY: Duration = Duration::from_secs(10);
+        const OLDER_THAN: Duration = Duration::from_secs(10);
+        if self
+            .stuck_logged
+            .is_some_and(|last| last.elapsed(now) < EVERY)
+        {
+            return;
+        }
+        self.stuck_logged = Some(now);
+        let Some(state) = self.decided.values().next_back().cloned() else {
+            return;
+        };
+        let open = self.current_epoch;
+        let short = |hash: &BlockHash| hash.to_string()[..8].to_string();
+        let mut stuck = 0;
+        for election in self.roots.iter().map(|entry| &entry.election) {
+            if election.epoch() != open
+                || election.is_confirmed()
+                || election.start().elapsed(now) < OLDER_THAN
+            {
+                continue;
+            }
+            let slot = AccountSlot::new(election.account(), election.height());
+            if !state.retains(&slot) {
+                continue;
+            }
+            stuck += 1;
+            if stuck > 5 {
+                continue;
+            }
+            let mut by_block: BTreeMap<BlockHash, (Vec<String>, Vec<String>, Vec<String>)> =
+                BTreeMap::new();
+            for hash in election.candidate_blocks().keys() {
+                by_block.entry(*hash).or_default();
+            }
+            for (voter, votes) in election.kudzu_votes().reps() {
+                let who = voter.to_string()[..4].to_string();
+                let mut add = |kind: VoteKind, hash: &BlockHash| {
+                    let entry = by_block.entry(*hash).or_default();
+                    match kind {
+                        VoteKind::First => entry.0.push(who.clone()),
+                        VoteKind::Final => entry.2.push(who.clone()),
+                        _ => entry.1.push(who.clone()),
+                    }
+                };
+                if let Some(first) = &votes.first {
+                    add(VoteKind::First, first);
+                }
+                for notar in &votes.notar {
+                    add(VoteKind::Notar, notar);
+                }
+                if let Some(final_) = &votes.final_ {
+                    add(VoteKind::Final, final_);
+                }
+                for (kind, hash) in &votes.also {
+                    add(*kind, hash);
+                }
+            }
+            let tallies: Vec<String> = by_block
+                .iter()
+                .map(|(hash, (first, notar, final_))| {
+                    format!(
+                        "{}{}:first={:?},notar={:?},final={:?}",
+                        short(hash),
+                        if state.is_locked(&slot, hash) {
+                            "*"
+                        } else {
+                            ""
+                        },
+                        first,
+                        notar,
+                        final_
+                    )
+                })
+                .collect();
+            let local = self.slots.get(&EpochSlot {
+                account: slot.account,
+                height: slot.height,
+                epoch: open,
+            });
+            // Why this node does not vote for the kept block: its parent
+            // in the decided state and the rules that withhold the vote
+            let parent_slot = AccountSlot::new(slot.account, slot.height.saturating_sub(1));
+            let kept: Vec<String> = election
+                .candidate_blocks()
+                .iter()
+                .filter(|(hash, _)| state.is_locked(&slot, hash))
+                .map(|(hash, block)| {
+                    let previous = block.previous();
+                    format!(
+                        "{}:prev={} prev_final={:?} prev_locked={} prev_finalized_here={} cross_locked={} closed_lock={} withheld_early={} parent_complete={} gate={}",
+                        short(hash),
+                        short(&previous),
+                        state.finalized(&parent_slot).map(|h| short(&h)),
+                        state.is_locked(&parent_slot, &previous),
+                        self.epoch_states.is_finalized(&previous),
+                        self.cross_epoch_locked(election, hash),
+                        self.at_closed_lock(election, hash),
+                        self.withholds_early_first_vote(election),
+                        self.parent_complete_in_epoch(election),
+                        election.predecessor_decided()
+                    )
+                })
+                .collect();
+            diagnostic!(
+                "EPOCH_STUCK epoch={} account={} height={} age_s={} state={:?} certs=notar{:?},timeout={} local_first={:?} local_final={:?} kept=[{}] candidates=[{}]",
+                open,
+                &slot.account.to_string()[..8],
+                slot.height,
+                election.start().elapsed(now).as_secs(),
+                election.state(),
+                election
+                    .certificates()
+                    .notar
+                    .iter()
+                    .map(short)
+                    .collect::<Vec<_>>(),
+                election.certificates().timeout,
+                local.and_then(|l| l.first_voted.as_ref()).map(short),
+                local.and_then(|l| l.final_voted.as_ref()).map(short),
+                kept.join(" "),
+                tallies.join(" ")
+            );
+        }
+        if stuck > 0 {
+            diagnostic!("EPOCH_STUCK_COUNT epoch={} positions={}", open, stuck);
+        }
+    }
+
     /// Returns the current active elections after transitioning
     pub fn transition_time(&mut self, now: Timestamp) {
         self.stats.ticked += 1;
+        #[cfg(feature = "rai_protocol")]
+        self.log_stuck_positions(now);
         for entry in self.roots.iter_mut() {
             entry.election.transition_time(now);
         }
@@ -4805,8 +4983,9 @@ mod tests {
     }
 
     /// RAI: the epochs close one after the other. An ended epoch is not left
-    /// while the close of the epoch before it is open, and its close starts
-    /// once that one closed.
+    /// while the close of the epoch before it is open, nor before it has had
+    /// the vote window since that close, and its close starts once that one
+    /// closed.
     #[test]
     #[cfg(feature = "rai_protocol")]
     fn the_close_of_an_epoch_waits_for_the_epoch_before_to_close() {
@@ -4844,9 +5023,14 @@ mod tests {
         });
         assert!(container.epoch_closes()[0].closed.is_some());
 
-        // Closing epoch 0 lets epoch 1 be left, and its close starts once
-        // this node can derive a value there
+        // Closing epoch 0 lets epoch 1 be left once epoch 1 has had the vote
+        // window since that checkpoint was installed - its contested
+        // positions may be voted only now - and its close starts once this
+        // node can derive a value there
         container.transition_time(at(2));
+        assert_eq!(container.current_epoch(), ConsensusEpoch::new(1));
+        assert!(container.is_draining());
+        container.transition_time(at(2) + container.epoch_vote_window);
         assert_eq!(container.current_epoch(), ConsensusEpoch::new(2));
         assert!(!container.is_draining());
         let closes = container.epoch_closes();

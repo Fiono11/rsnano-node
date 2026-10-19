@@ -650,6 +650,11 @@ impl SlotVotes {
         self.reps.get(voter)
     }
 
+    /// Every representative's votes in the slot
+    pub fn reps(&self) -> impl Iterator<Item = (&PublicKey, &RepSlotVotes)> {
+        self.reps.iter()
+    }
+
     pub fn has_voted_for(&self, voter: &PublicKey, hash: &BlockHash) -> bool {
         self.reps.get(voter).is_some_and(|r| r.has_voted_for(hash))
     }

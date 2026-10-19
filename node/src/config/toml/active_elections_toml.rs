@@ -105,6 +105,9 @@ pub struct ActiveElectionsToml {
     /// votes ("honest", "equivocate"), its report ("honest", "withhold",
     /// "conflicting") and its close leadership ("honest", "silent",
     /// "equivocate")
+    /// RAI: how long an ended epoch stays open after the checkpoint before
+    /// it was installed (see `ActiveElectionsConfig::epoch_vote_window`)
+    pub epoch_vote_window_ms: Option<u64>,
     pub byzantine_votes: Option<String>,
     pub byzantine_reports: Option<String>,
     pub byzantine_leader: Option<String>,
@@ -155,6 +158,7 @@ impl From<&NodeConfig> for ActiveElectionsToml {
                 .active_elections
                 .close_first_leader
                 .map(|key| key.encode_hex()),
+            epoch_vote_window_ms: Some(config.active_elections.epoch_vote_window.as_millis() as u64),
             byzantine_votes: None,
             byzantine_reports: None,
             byzantine_leader: None,

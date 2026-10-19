@@ -70,6 +70,15 @@ pub struct ActiveElectionsConfig {
     /// RAI evaluation, not the protocol: what this node does as a Byzantine
     /// member; acted on in a `rai_byzantine` build only
     pub byzantine: crate::consensus::byzantine::ByzantineConfig,
+    /// RAI: an ended epoch is left only once the checkpoint before it has
+    /// been installed here for this long. A contested position takes no
+    /// early first vote, and a left epoch signs nothing: were every close
+    /// slower than an epoch - an equivocating member can make it so - no
+    /// epoch would get a moment in which its contested positions may be
+    /// voted, and they would never resolve. With closes faster than an
+    /// epoch the predecessor is installed long before the epoch ends and
+    /// nothing waits.
+    pub epoch_vote_window: Duration,
 }
 
 /// RAI evaluation: how a validator moves from one epoch to the next.
@@ -119,6 +128,7 @@ impl Default for ActiveElectionsConfig {
             epoch_transition: EpochTransition::default(),
             close_first_leader: None,
             byzantine: Default::default(),
+            epoch_vote_window: Duration::from_secs(2),
         }
     }
 }

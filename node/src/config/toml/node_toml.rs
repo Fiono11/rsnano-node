@@ -420,6 +420,9 @@ impl NodeConfig {
             if let Some(leader) = &i.close_first_leader {
                 self.active_elections.close_first_leader = PublicKey::decode_hex(leader);
             }
+            if let Some(window) = i.epoch_vote_window_ms {
+                self.active_elections.epoch_vote_window = Duration::from_millis(window);
+            }
             let byzantine = &mut self.active_elections.byzantine;
             if let Some(votes) = i.byzantine_votes.as_deref().and_then(|v| v.parse().ok()) {
                 byzantine.votes = votes;
