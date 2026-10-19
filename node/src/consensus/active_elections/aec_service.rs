@@ -70,6 +70,21 @@ impl AecService {
         self.aec.read().unwrap().election(id).cloned()
     }
 
+    /// RAI: the root every round of an epoch's close election votes on
+    pub fn close_root(&self, epoch: ConsensusEpoch) -> QualifiedRoot {
+        super::epoch_close::EpochClose::root_of(epoch)
+    }
+
+    /// RAI evaluation: what this node does as a Byzantine member
+    pub fn byzantine(&self) -> crate::consensus::byzantine::ByzantineConfig {
+        self.aec.read().unwrap().byzantine()
+    }
+
+    /// The blocks an election holds as candidates
+    pub fn candidate_hashes(&self, id: &ElectionId) -> Vec<BlockHash> {
+        self.aec.read().unwrap().candidate_hashes(id)
+    }
+
     /// `election(id).is_some()` without copying the election
     pub fn election_exists(&self, id: &ElectionId) -> bool {
         self.aec.read().unwrap().election(id).is_some()

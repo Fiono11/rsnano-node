@@ -101,6 +101,13 @@ pub struct ActiveElectionsToml {
     /// RAI evaluation: the public key (hex) of the member that leads the
     /// first round of every close; not the protocol
     pub close_first_leader: Option<String>,
+    /// RAI evaluation, a Byzantine member (`rai_byzantine` builds): its
+    /// votes ("honest", "equivocate"), its report ("honest", "withhold",
+    /// "conflicting") and its close leadership ("honest", "silent",
+    /// "equivocate")
+    pub byzantine_votes: Option<String>,
+    pub byzantine_reports: Option<String>,
+    pub byzantine_leader: Option<String>,
 }
 
 impl From<&NodeConfig> for ActiveElectionsToml {
@@ -148,6 +155,9 @@ impl From<&NodeConfig> for ActiveElectionsToml {
                 .active_elections
                 .close_first_leader
                 .map(|key| key.encode_hex()),
+            byzantine_votes: None,
+            byzantine_reports: None,
+            byzantine_leader: None,
         }
     }
 }
@@ -233,6 +243,28 @@ mod tests {
             EpochTransition::Pause
         );
         assert!(toml::from_str::<ActiveElectionsToml>("epoch_transition = 'stop'").is_err());
+    }
+
+    #[test]
+    fn byzantine_behaviours_are_read_per_phase() {
+        use crate::consensus::byzantine::{LeaderAttack, ReportAttack, VoteAttack};
+        let mut config = NodeConfig::new_test_instance();
+        assert!(config.active_elections.byzantine.is_honest());
+        config.merge_toml(&crate::config::toml::NodeToml {
+            active_elections: Some(
+                toml::from_str(
+                    "byzantine_votes = 'equivocate'\n\
+                     byzantine_reports = 'conflicting'\n\
+                     byzantine_leader = 'silent'",
+                )
+                .unwrap(),
+            ),
+            ..Default::default()
+        });
+        let byzantine = config.active_elections.byzantine;
+        assert_eq!(byzantine.votes, VoteAttack::Equivocate);
+        assert_eq!(byzantine.reports, ReportAttack::Conflicting);
+        assert_eq!(byzantine.leader, LeaderAttack::Silent);
     }
 
     #[test]

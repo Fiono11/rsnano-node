@@ -182,6 +182,18 @@ impl VoteGenerators {
         self.generator(vote_type).add(root, hash, epoch);
     }
 
+    /// RAI evaluation, a Byzantine member: see `VoteGenerator::sign_now`
+    #[cfg(feature = "rai_byzantine")]
+    pub(crate) fn sign_now(
+        &self,
+        root: &Root,
+        hash: &BlockHash,
+        epoch: ConsensusEpoch,
+        vote_type: VoteType,
+    ) {
+        self.generator(vote_type).sign_now(root, hash, epoch);
+    }
+
     /// Reply to a request for votes in the given epoch
     pub(crate) fn generate_votes(
         &self,

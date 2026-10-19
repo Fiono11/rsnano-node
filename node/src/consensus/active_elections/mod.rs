@@ -67,6 +67,9 @@ pub struct ActiveElectionsConfig {
     /// member, every close starts with a faulty leader, the worst case of
     /// the round-robin schedule. Every node must use the same value.
     pub close_first_leader: Option<PublicKey>,
+    /// RAI evaluation, not the protocol: what this node does as a Byzantine
+    /// member; acted on in a `rai_byzantine` build only
+    pub byzantine: crate::consensus::byzantine::ByzantineConfig,
 }
 
 /// RAI evaluation: how a validator moves from one epoch to the next.
@@ -115,6 +118,7 @@ impl Default for ActiveElectionsConfig {
             signing_sync: SigningSync::default(),
             epoch_transition: EpochTransition::default(),
             close_first_leader: None,
+            byzantine: Default::default(),
         }
     }
 }

@@ -69,7 +69,11 @@ pub(crate) fn node_command(args: &CliArgs, data_dir: &Path, i: usize) -> Command
             .stderr(Stdio::null());
         cmd
     } else {
-        let mut cmd = Command::new("rsnano");
+        let program = match (args.byzantine_node_index(), &args.byzantine_node_bin) {
+            (Some(index), Some(binary)) if index == i => binary.clone(),
+            _ => "rsnano".into(),
+        };
+        let mut cmd = Command::new(program);
         cmd.env("NANO_TEST_GENESIS_BLOCK", GENESIS_BLOCK)
             .env("NANO_TEST_GENESIS_PRV ", GENESIS_PRV)
             .env(NODE_TAG_VAR, format!("pr{i}"))

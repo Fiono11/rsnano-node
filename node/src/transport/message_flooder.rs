@@ -103,6 +103,26 @@ impl MessageFlooder {
         flood_count
     }
 
+    /// RAI evaluation, a Byzantine member: `first` to one half of the peered
+    /// principal representatives and `second` to the other
+    #[cfg(feature = "rai_byzantine")]
+    pub(crate) fn send_split_to_principal_reps(
+        &mut self,
+        first: &Message,
+        second: &Message,
+        traffic_type: TrafficType,
+    ) {
+        let peered = self.rep_tracker.peered_principal_reps();
+        for (position, rep) in peered.iter().enumerate() {
+            let message = if crate::consensus::byzantine::second_group(position) {
+                second
+            } else {
+                first
+            };
+            self.try_send_channel_id(rep.channel_id, message, traffic_type);
+        }
+    }
+
     /// Sends to one principal representative: the `pick`-th of those
     /// peered, modulo their number. False if none is peered or the send
     /// fails.

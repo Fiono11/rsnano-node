@@ -235,6 +235,9 @@ def main():
     parser.add_argument('--fork-grace', type=int, default=0, help='after settling, keep the nodes running until no forked position is open on any node, up to this many seconds')
     parser.add_argument('--fork-grace-stall', type=int, default=45, help='end the fork grace once the open positions have not dropped for this many seconds')
     parser.add_argument('--byzantine-leads-close', action='store_true', help='the first Byzantine representative leads round 0 of every close (nanospam --byzantine-leads-close)')
+    parser.add_argument('--byzantine-node', default=None, metavar='VOTES,REPORTS,LEADER',
+                        help='the last running representative is a Byzantine member running a full node with these behaviours '
+                             '(nanospam --byzantine-node); its binary is BIN_DIR/rsnano-byzantine, a rai_byzantine build')
     parser.add_argument('--no-epochs', action='store_true',
                         help='the unmodified-node baseline: no epochs, no checkpoints, no committee model; settled means identical cemented state')
     args = parser.parse_args()
@@ -290,6 +293,9 @@ def main():
             command += ['--seed', str(args.seed)]
         if args.byzantine_leads_close:
             command += ['--byzantine-leads-close']
+        if args.byzantine_node:
+            command += ['--byzantine-node', args.byzantine_node,
+                        '--byzantine-node-bin', str(binary_dir / 'rsnano-byzantine')]
         if args.standby:
             command += ['--standby', str(args.standby)]
         if args.rotation:

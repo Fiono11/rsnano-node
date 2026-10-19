@@ -19,6 +19,8 @@ rai_protocol = [
 	"rsnano_daemon/rai_protocol",
 	"rsnano_rpc_server/rai_protocol",
 ]
+# RAI evaluation: a node that can play a Byzantine member
+rai_byzantine = ["rai_protocol", "rsnano_node/rai_byzantine"]
 ledger_snapshots = ["rsnano_node/ledger_snapshots", "rsnano_rpc_server/ledger_snapshots"]
 banano = [
 	"rsnano_types/banano",

@@ -984,6 +984,8 @@ impl Node {
             steady_clock.clone(),
             stats.clone(),
         ));
+        #[cfg(feature = "rai_byzantine")]
+        epoch_decision.set_vote_generators(vote_generators.clone());
 
         let mut aec_ticker = AecTicker::new(active_elections.clone(), steady_clock.clone());
 

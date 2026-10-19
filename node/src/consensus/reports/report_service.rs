@@ -800,7 +800,69 @@ impl ReportService {
         self.certificates.clone()
     }
 
+    /// RAI evaluation, a Byzantine member: its own report headers - at the
+    /// signing and at every repeat - are sent to no one, or in two versions
+    /// to the two halves of the representatives: the true one and one with
+    /// another residual root, signed alike. A receiver keeps the first header
+    /// it gets from a reporter, so the halves stay split. The other messages
+    /// pass unchanged.
+    #[cfg(feature = "rai_byzantine")]
+    fn byzantine_reports(&self, messages: Vec<ReportMessage>) -> Vec<ReportMessage> {
+        use crate::consensus::{byzantine::ReportAttack, election::ReportCommitment};
+        let attack = self.active_elections.byzantine().reports;
+        if attack == ReportAttack::Honest {
+            return messages;
+        }
+        let mut keys = Vec::new();
+        self.wallet_reps.lock().unwrap().rep_priv_keys(&mut keys);
+        let mut rest = Vec::new();
+        for message in messages {
+            let ReportMessage::Broadcast(report) = &message else {
+                rest.push(message);
+                continue;
+            };
+            let Some(key) = keys.iter().find(|key| key.public_key() == report.reporter) else {
+                rest.push(message);
+                continue;
+            };
+            if attack == ReportAttack::Conflicting {
+                let mut bytes = *report.residual.as_bytes();
+                bytes[0] ^= 0xff;
+                let residual = BlockHash::from_bytes(bytes);
+                let payload = ReportCommitment {
+                    epoch: report.epoch,
+                    committee: report.committee,
+                    predecessor: report.predecessor,
+                    certified: report.certified,
+                    residual,
+                    reporter: report.reporter,
+                }
+                .payload();
+                let other = Report::new(
+                    key,
+                    report.epoch,
+                    report.committee,
+                    report.predecessor,
+                    report.certified,
+                    residual,
+                    payload,
+                );
+                self.flooder.lock().unwrap().send_split_to_principal_reps(
+                    &Message::Report(report.clone()),
+                    &Message::Report(other),
+                    TrafficType::Generic,
+                );
+                crate::utils::diagnostic!("BYZ_REPORT_CONFLICT epoch={}", report.epoch);
+            } else {
+                crate::utils::diagnostic!("BYZ_REPORT_WITHHELD epoch={}", report.epoch);
+            }
+        }
+        rest
+    }
+
     fn send(&self, messages: Vec<ReportMessage>, _channel: Option<&Arc<Channel>>) {
+        #[cfg(feature = "rai_byzantine")]
+        let messages = self.byzantine_reports(messages);
         for message in messages {
             match message {
                 ReportMessage::Broadcast(report) => {

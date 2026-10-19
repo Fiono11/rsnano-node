@@ -7,6 +7,7 @@ mod bootstrap_election_activator;
 mod bootstrap_stale_elections;
 mod bootstrap_weights;
 mod bounded_hash_map;
+pub mod byzantine;
 mod checkpoint_bases;
 #[cfg(feature = "rai_protocol")]
 mod checkpoint_follower;

@@ -11,6 +11,8 @@ use rsnano_messages::{
 };
 use rsnano_network::{Channel, TrafficType};
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
+#[cfg(feature = "rai_byzantine")]
+use rsnano_types::PrivateKey;
 use rsnano_types::{Amount, BlockHash, ConsensusEpoch, PublicKey};
 use rsnano_utils::stats::{DetailType, Direction, StatType, Stats};
 
@@ -208,6 +210,10 @@ pub struct EpochDecisionService {
     /// The encoding of the state this node served last: a fetch asks for
     /// many chunks of the same state
     served_checkpoint: Mutex<Option<(ConsensusEpoch, BlockHash, Arc<Vec<u8>>)>>,
+    /// RAI evaluation, an equivocating Byzantine leader: signs its first
+    /// vote for the second value at once
+    #[cfg(feature = "rai_byzantine")]
+    vote_generators: Mutex<Option<Arc<crate::consensus::VoteGenerators>>>,
     /// Held for a derivation or a proposal check: they run one at a time
     /// and queue in arrival order, as they did on the report exchange, but
     /// without holding it, which every report message needs
@@ -279,6 +285,8 @@ impl EpochDecisionService {
             closed_undecided: Mutex::new(HashMap::new()),
             checkpoint_fetches: Mutex::new(HashMap::new()),
             served_checkpoint: Mutex::new(None),
+            #[cfg(feature = "rai_byzantine")]
+            vote_generators: Mutex::new(None),
             checking: Mutex::new(()),
             unchecked: Mutex::new(ProposalQueue::default()),
             proposal_ready: Condvar::new(),
@@ -861,6 +869,13 @@ impl EpochDecisionService {
         );
     }
 
+    /// RAI evaluation: the vote generators an equivocating Byzantine leader
+    /// signs its second first vote with
+    #[cfg(feature = "rai_byzantine")]
+    pub fn set_vote_generators(&self, generators: Arc<crate::consensus::VoteGenerators>) {
+        *self.vote_generators.lock().unwrap() = Some(generators);
+    }
+
     /// RAI, "Leader behavior": propose into the round this node leads. With
     /// a joint-complete parent it copies that parent's `(Q_e, d_e)`; with
     /// none it extends election genesis and selects `N - f` usable reports
@@ -877,6 +892,13 @@ impl EpochDecisionService {
         let Some((value, state)) = built else {
             return;
         };
+        #[cfg(feature = "rai_byzantine")]
+        if self.active_elections.byzantine().leader
+            == crate::consensus::byzantine::LeaderAttack::Silent
+        {
+            diagnostic!("BYZ_LEADER_SILENT epoch={} round={}", epoch, round);
+            return;
+        }
         let hash = value.hash();
         let mut keys = Vec::new();
         self.wallet_reps.lock().unwrap().rep_priv_keys(&mut keys);
@@ -912,7 +934,71 @@ impl EpochDecisionService {
             .lock()
             .unwrap()
             .insert((epoch, round), prop.clone());
+        #[cfg(feature = "rai_byzantine")]
+        if self.active_elections.byzantine().leader
+            == crate::consensus::byzantine::LeaderAttack::Equivocate
+            && self.equivocate_proposal(epoch, round, &key, &prop, hash)
+        {
+            return;
+        }
         self.broadcast(prop);
+    }
+
+    /// RAI evaluation, an equivocating Byzantine leader: a second value from
+    /// the reverse report selection goes to half of the representatives and
+    /// `honest` to the others, and the leader votes first for the second one
+    /// at once - a replica keeps the first first vote it receives from the
+    /// leader. Whether it equivocated: it can not without a second selection.
+    #[cfg(feature = "rai_byzantine")]
+    fn equivocate_proposal(
+        &self,
+        epoch: ConsensusEpoch,
+        round: u32,
+        key: &PrivateKey,
+        honest: &EpochProp,
+        honest_hash: BlockHash,
+    ) -> bool {
+        let Some((value, state)) = self.derive_fresh_ordered(epoch, round, true) else {
+            return false;
+        };
+        let hash = value.hash();
+        if hash == honest_hash {
+            return false;
+        }
+        let other = EpochProp::new(
+            key,
+            epoch,
+            round,
+            value.parent,
+            value.manifest,
+            value.state,
+            value.reports().iter().map(selection_of).collect(),
+            hash,
+        );
+        self.active_elections.accept_epoch_value(value, state);
+        self.stats
+            .inc_dir(StatType::Message, DetailType::EpochProp, Direction::Out);
+        self.flooder.lock().unwrap().send_split_to_principal_reps(
+            &Message::EpochProp(honest.clone()),
+            &Message::EpochProp(other),
+            TrafficType::Generic,
+        );
+        if let Some(generators) = self.vote_generators.lock().unwrap().as_ref() {
+            generators.sign_now(
+                &self.active_elections.close_root(epoch).root,
+                &hash,
+                ConsensusEpoch::close_round(epoch, round),
+                crate::consensus::election::VoteType::NonFinal,
+            );
+        }
+        diagnostic!(
+            "BYZ_LEADER_EQUIVOCATED epoch={} round={} values={},{}",
+            epoch,
+            round,
+            honest_hash,
+            hash
+        );
+        true
     }
 
     /// RAI, leader behaviour: a child of election genesis this node checked
@@ -960,6 +1046,18 @@ impl EpochDecisionService {
         epoch: ConsensusEpoch,
         round: u32,
     ) -> Option<(EpochValue, Arc<EpochLedger>)> {
+        self.derive_fresh_ordered(epoch, round, false)
+    }
+
+    /// `derive_fresh`, the prefix taken in canonical reporter order or, with
+    /// `reverse`, in the reverse order: a selection as valid as the canonical
+    /// one, which an equivocating Byzantine leader proposes beside it
+    fn derive_fresh_ordered(
+        &self,
+        epoch: ConsensusEpoch,
+        round: u32,
+        reverse: bool,
+    ) -> Option<(EpochValue, Arc<EpochLedger>)> {
         let previous = self.active_elections.epoch_previous_state(epoch)?;
         let committee = self.active_elections.epoch_committee(epoch)?;
         let predecessor = self.active_elections.epoch_previous_hash(epoch)?;
@@ -976,6 +1074,9 @@ impl EpochDecisionService {
             .filter(|reporter| !committee.weight(reporter).is_zero())
             .collect();
         usable.sort();
+        if reverse {
+            usable.reverse();
+        }
         let mut selected: Vec<ReportRef> = Vec::new();
         let mut weight = Amount::ZERO;
         for reporter in usable {

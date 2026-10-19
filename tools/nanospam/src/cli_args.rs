@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{path::PathBuf, time::Duration};
 
 use anyhow::anyhow;
 use clap::Parser;
@@ -124,6 +124,15 @@ pub(crate) struct CliArgs {
     /// case of the round-robin leader schedule; needs --byzantine
     #[arg(long)]
     pub byzantine_leads_close: bool,
+    /// RAI evaluation: the last running representative is a Byzantine member
+    /// that runs a full node, its behaviour in each phase given as
+    /// VOTES,REPORTS,LEADER - e.g. "equivocate,conflicting,equivocate"; with
+    /// --byzantine-leads-close it leads the first round of every close. Its
+    /// node is --byzantine-node-bin, a `rai_byzantine` build.
+    #[arg(long)]
+    pub byzantine_node: Option<String>,
+    #[arg(long)]
+    pub byzantine_node_bin: Option<PathBuf>,
 
     /// RAI: p, the weight the fast path may do without. This many principal
     /// representatives do not run a node and never vote; they still hold
@@ -223,6 +232,11 @@ impl CliArgs {
     /// `byzantine` are Byzantine, the `offline` before them are offline.
     pub(crate) fn honest_prs(&self) -> usize {
         self.prs - self.byzantine - self.offline
+    }
+
+    /// RAI evaluation: the running representative that is the Byzantine node
+    pub(crate) fn byzantine_node_index(&self) -> Option<usize> {
+        self.byzantine_node.as_ref().map(|_| self.honest_prs() - 1)
     }
 
     /// RAI: whether a running representative starts outside the committee

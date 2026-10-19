@@ -27,6 +27,10 @@ pub(crate) struct AecVoter {
     ledger: Arc<Ledger>,
     /// RAI: the signing records persisted before votes are released
     signing: Arc<SigningRecords>,
+    /// RAI evaluation, an equivocating Byzantine member: its votes on
+    /// account slots, whose fork siblings it votes for too
+    #[cfg(feature = "rai_byzantine")]
+    equivocations: crate::consensus::byzantine::Equivocations,
 }
 
 impl AecVoter {
@@ -51,6 +55,41 @@ impl AecVoter {
             scheduler: VotingScheduler::new(vote_broadcast_interval),
             ledger,
             signing,
+            #[cfg(feature = "rai_byzantine")]
+            equivocations: Default::default(),
+        }
+    }
+
+    /// RAI evaluation, an equivocating Byzantine member: the first and final
+    /// votes just released on account slots are watched, and every fork
+    /// sibling of their blocks gets the same vote, signed now
+    #[cfg(feature = "rai_byzantine")]
+    fn equivocate(&mut self, released: &[VoteTarget], now: Timestamp) {
+        use crate::consensus::{byzantine::VoteAttack, election::VoteType};
+        if self.aec.byzantine().votes != VoteAttack::Equivocate {
+            return;
+        }
+        for target in released {
+            if !target.election.epoch.is_close_round()
+                && matches!(target.vote_type, VoteType::NonFinal | VoteType::Final)
+            {
+                self.equivocations.voted(now, target.clone());
+            }
+        }
+        let aec = &self.aec;
+        let due = self
+            .equivocations
+            .due(now, |election| aec.candidate_hashes(election));
+        for (target, sibling) in &due {
+            self.vote_generators.sign_now(
+                &target.election.root.root,
+                sibling,
+                target.election.epoch,
+                target.vote_type,
+            );
+        }
+        if !due.is_empty() {
+            crate::utils::diagnostic!("BYZ_EQUIVOCATED votes={}", due.len());
         }
     }
 
@@ -161,6 +200,10 @@ impl Tickable for AecVoter {
             let (slots, closes) = self.aec.take_signing_batch();
             self.signing.write_signing(&slots, &closes);
         }
+        #[cfg(feature = "rai_byzantine")]
+        let released = vote_queue.clone();
         self.flush(&mut vote_queue);
+        #[cfg(feature = "rai_byzantine")]
+        self.equivocate(&released, now);
     }
 }

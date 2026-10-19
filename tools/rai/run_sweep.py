@@ -46,6 +46,16 @@ SETS = {
         'fork5': (['--fork-percentage', '5'], MAIN_RATES, None),
         'fork10': (['--fork-percentage', '10'], MAIN_RATES, None),
     },
+    # A Byzantine member that runs a full node (all six representatives run
+    # one), the worst behaviour in every phase: it votes for both blocks of
+    # every fork, sends two reports, and leads every close's first round with
+    # two proposals. Its arm's binary directory holds rsnano-byzantine.
+    'byznode': {
+        f'{v}-byznode': (flags + ['--byzantine-node', 'equivocate,conflicting,equivocate', '--byzantine-leads-close'],
+                         [1000, 2000], None)
+        for v, flags in [('nofork', []), ('fork5-grace', ['--fork-percentage', '5', '--fork-grace', '600']),
+                         ('fork10-grace', ['--fork-percentage', '10', '--fork-grace', '600'])]
+    },
     'byz': {
         'nofork-byzlead': (['--byzantine', '1', '--byzantine-leads-close'], BYZ_RATES, None),
         'fork5-byzlead': (['--fork-percentage', '5', '--byzantine', '1', '--byzantine-leads-close'], BYZ_RATES, None),
@@ -115,7 +125,8 @@ def main():
                 if args.rate and rate not in args.rate:
                     continue
                 # the same workload choices for every system at this point
-                base_seed = 1000 * rate + sum(map(ord, variant))
+                # (a Byzantine-node variant takes the seed of its honest one)
+                base_seed = 1000 * rate + sum(map(ord, variant.removesuffix('-byznode')))
                 reps = args.reps if rate >= args.reps_from else 1
                 for k, (arm, spec) in [(k, a) for k in range(1, reps + 1) for a in arms.items()]:
                     if only and arm not in only:

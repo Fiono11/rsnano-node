@@ -132,6 +132,8 @@ pub(crate) struct ActiveElectionsContainer {
     epoch_transition: EpochTransition,
     /// RAI evaluation: see `ActiveElectionsConfig::close_first_leader`
     close_first_leader: Option<PublicKey>,
+    /// RAI evaluation: see `ActiveElectionsConfig::byzantine`
+    byzantine: crate::consensus::byzantine::ByzantineConfig,
     /// RAI, Algorithm 1 line 8: the epochs this node stopped signing in, at
     /// their boundary. Their instances still collect the votes of the other
     /// replicas and construct certificates; this node issues no vote in them.
@@ -256,6 +258,7 @@ impl ActiveElectionsContainer {
             account_voting: config.account_voting,
             epoch_transition: config.epoch_transition,
             close_first_leader: config.close_first_leader,
+            byzantine: config.byzantine,
             frozen: BTreeSet::new(),
             vote_records: VoteRecords::default(),
             checkpoint_delegations: BTreeMap::new(),
@@ -1898,6 +1901,19 @@ impl ActiveElectionsContainer {
             return SettledBase::Any;
         }
         self.checkpoint_bases.settled_base(epoch)
+    }
+
+    /// RAI evaluation: what this node does as a Byzantine member
+    pub fn byzantine(&self) -> crate::consensus::byzantine::ByzantineConfig {
+        self.byzantine
+    }
+
+    /// The blocks an election holds as candidates
+    pub fn candidate_hashes(&self, id: &ElectionId) -> Vec<BlockHash> {
+        self.roots
+            .election(id)
+            .map(|election| election.candidate_blocks().keys().copied().collect())
+            .unwrap_or_default()
     }
 
     /// RAI: the checkpoint bases this node's vote generators read

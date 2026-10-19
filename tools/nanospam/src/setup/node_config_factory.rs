@@ -138,7 +138,14 @@ pub(crate) fn configure_nodes(args: &CliArgs, data_dir: &Path) {
                 .replace("SIGNED_VOTE_LOG", &args.audit_votes.to_string())
                 .replace("SIGNING_SYNC", &args.signing_sync)
                 .replace("EPOCH_TRANSITION", &args.epoch_transition)
-                .replace("CLOSE_FIRST_LEADER", &close_first_leader(args))
+                .replace(
+                    "CLOSE_FIRST_LEADER",
+                    &format!(
+                        "{}\n{}",
+                        close_first_leader(args),
+                        byzantine_settings(args, i)
+                    ),
+                )
                 .replace("NETWORK_DELAY_MS", &args.network_delay_ms.to_string())
                 .replace(
                     "ONLINE_WEIGHT_MINIMUM",
@@ -203,10 +210,34 @@ pub(crate) fn get_genesis_hash() -> BlockHash {
 /// RAI evaluation: the `close_first_leader` line of the node config, set to
 /// the first Byzantine representative with `--byzantine-leads-close`
 fn close_first_leader(args: &CliArgs) -> String {
-    match crate::byzantine::byzantine_keys(args.prs, args.byzantine).first() {
+    let leader = match args.byzantine_node_index() {
+        Some(index) => Some(pr_key(index)),
+        None => crate::byzantine::byzantine_keys(args.prs, args.byzantine)
+            .first()
+            .cloned(),
+    };
+    match leader {
         Some(key) if args.byzantine_leads_close => {
             format!("close_first_leader = \"{}\"", key.public_key().encode_hex())
         }
         _ => String::new(),
     }
+}
+
+/// RAI evaluation: the behaviour lines of the Byzantine node's config,
+/// nothing for the others
+fn byzantine_settings(args: &CliArgs, i: usize) -> String {
+    let (Some(spec), Some(index)) = (&args.byzantine_node, args.byzantine_node_index()) else {
+        return String::new();
+    };
+    if i != index {
+        return String::new();
+    }
+    let parts: Vec<&str> = spec.split(',').collect();
+    let [votes, reports, leader] = parts.as_slice() else {
+        panic!("--byzantine-node takes VOTES,REPORTS,LEADER, not {spec}");
+    };
+    format!(
+        "byzantine_votes = \"{votes}\"\n    byzantine_reports = \"{reports}\"\n    byzantine_leader = \"{leader}\""
+    )
 }

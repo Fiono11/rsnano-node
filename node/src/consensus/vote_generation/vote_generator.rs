@@ -153,6 +153,15 @@ impl VoteGenerator {
         }
     }
 
+    /// RAI evaluation, a Byzantine member: signs and broadcasts a vote now,
+    /// bypassing the queue, whose batches take one block per root
+    #[cfg(feature = "rai_byzantine")]
+    pub(crate) fn sign_now(&self, root: &Root, hash: &BlockHash, epoch: ConsensusEpoch) {
+        self.shared_state.vote(&[*hash], &[*root], epoch, |vote| {
+            self.shared_state.vote_broadcaster.broadcast(vote)
+        });
+    }
+
     /// Queue items for vote generation, or broadcast votes already in cache
     pub(crate) fn add(&self, root: &Root, hash: &BlockHash, epoch: ConsensusEpoch) {
         self.vote_generation_queue.add(VoteCandidate {
