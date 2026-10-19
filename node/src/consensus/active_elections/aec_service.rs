@@ -111,12 +111,18 @@ impl AecService {
     }
 
     /// RAI: the frontier blocks the committees wait for, by epoch
-    pub fn missing_frontier_blocks(&self) -> Vec<(ConsensusEpoch, BlockHash)> {
+    pub fn missing_frontier_blocks(&self) -> Vec<(ConsensusEpoch, BlockHash, Account, u64)> {
         self.aec.read().unwrap().missing_frontier_blocks()
     }
 
     /// RAI: what the frontier blocks delegate, as (hash, representative,
     /// balance), read from the ledger
+    /// RAI: see `ActiveElectionsContainer::retry_pending_committees`
+    pub fn retry_pending_committees(&self) {
+        let now = self.clock.now();
+        self.aec.write().unwrap().retry_pending_committees(now);
+    }
+
     pub fn provide_delegations(
         &self,
         epoch: ConsensusEpoch,

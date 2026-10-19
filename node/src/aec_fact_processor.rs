@@ -247,6 +247,7 @@ impl AecFactProcessor {
         let mut cemented = 0;
         let mut queued = 0;
         let mut missing = 0;
+        let mut absent = Vec::new();
         let mut follow = Vec::new();
         {
             let any = self.ledger.any();
@@ -260,6 +261,7 @@ impl AecFactProcessor {
                     follow.push(*hash);
                 } else {
                     missing += 1;
+                    absent.push(hash.to_string()[..8].to_string());
                     follow.push(*hash);
                 }
             }
@@ -272,13 +274,14 @@ impl AecFactProcessor {
         #[cfg(not(feature = "rai_protocol"))]
         let _ = follow;
         crate::utils::diagnostic!(
-            "EPOCH_INSTALLED epoch={} finalized={} cemented={} queued={} missing={} ms={}",
+            "EPOCH_INSTALLED epoch={} finalized={} cemented={} queued={} missing={} ms={} absent={:?}",
             epoch,
             hashes.len(),
             cemented,
             queued,
             missing,
-            started.elapsed().as_millis()
+            started.elapsed().as_millis(),
+            absent.iter().take(8).collect::<Vec<_>>()
         );
     }
 

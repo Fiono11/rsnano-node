@@ -98,6 +98,8 @@ pub(crate) struct FrontierDelegationsSync {
     ledger: Arc<rsnano_ledger::Ledger>,
     /// The frontier blocks found absent from the ledger, said once each
     absent_logged: HashSet<rsnano_types::BlockHash>,
+    /// When the frontier blocks still missing were last described
+    status_logged: Option<std::time::Instant>,
 }
 
 #[cfg(feature = "rai_protocol")]
@@ -107,6 +109,7 @@ impl FrontierDelegationsSync {
             aec,
             ledger,
             absent_logged: HashSet::new(),
+            status_logged: None,
         }
     }
 }
@@ -114,14 +117,44 @@ impl FrontierDelegationsSync {
 #[cfg(feature = "rai_protocol")]
 impl Tickable for FrontierDelegationsSync {
     fn tick(&mut self, _: &CancellationToken) {
+        use rsnano_ledger::{ConfirmedSet, LedgerSet};
         let missing = self.aec.missing_frontier_blocks();
         if missing.is_empty() {
+            // A committee may still wait though nothing is missing any more
+            self.aec.retry_pending_committees();
             return;
         }
         let mut by_epoch: std::collections::BTreeMap<_, Vec<_>> = Default::default();
         {
             let any = self.ledger.any();
-            for (epoch, hash) in missing {
+            let status_due = self
+                .status_logged
+                .is_none_or(|last| last.elapsed() >= std::time::Duration::from_secs(5));
+            if status_due {
+                self.status_logged = Some(std::time::Instant::now());
+                let confirmed = self.ledger.confirmed();
+                for (epoch, hash, account, height) in missing.iter().take(8) {
+                    let info = any.get_account(account);
+                    crate::utils::diagnostic!(
+                        "EPOCH_FRONTIER_STATUS epoch={} hash={} account={} height={} held={} cemented={} account_blocks={} head={} conf_height={}",
+                        epoch,
+                        &hash.to_string()[..8],
+                        &account.to_string()[..8],
+                        height,
+                        any.block_exists(hash),
+                        confirmed.block_exists(hash),
+                        info.as_ref().map(|i| i.block_count).unwrap_or(0),
+                        info.as_ref()
+                            .map(|i| i.head.to_string()[..8].to_string())
+                            .unwrap_or_default(),
+                        confirmed
+                            .get_conf_info(account)
+                            .map(|c| c.height)
+                            .unwrap_or(0)
+                    );
+                }
+            }
+            for (epoch, hash, _, _) in missing {
                 let Some(block) = any.get_block(&hash) else {
                     if self.absent_logged.insert(hash) {
                         crate::utils::diagnostic!(
