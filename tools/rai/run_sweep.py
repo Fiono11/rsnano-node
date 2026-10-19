@@ -56,6 +56,19 @@ SETS = {
         for v, flags in [('nofork', []), ('fork5-grace', ['--fork-percentage', '5', '--fork-grace', '600']),
                          ('fork10-grace', ['--fork-percentage', '10', '--fork-grace', '600'])]
     },
+    # The paper matrix: honest and with a Byzantine member that runs a full
+    # node (worst behaviour in every phase), no forks, 5% and 10%. The
+    # unmodified-node baseline has no Byzantine node: it runs the honest
+    # variants only.
+    'final': {
+        'nofork': ([], [2000], None),
+        'fork5-grace': (['--fork-percentage', '5', '--fork-grace', '600'], [2000], None),
+        'fork10-grace': (['--fork-percentage', '10', '--fork-grace', '600'], [2000], None),
+        **{f'{v}-byznode': (flags + ['--byzantine-node', 'equivocate,conflicting,equivocate',
+                                     '--byzantine-leads-close'], [2000], {'rai', 'rai-nomemo', 'pause'})
+           for v, flags in [('nofork', []), ('fork5-grace', ['--fork-percentage', '5', '--fork-grace', '600']),
+                            ('fork10-grace', ['--fork-percentage', '10', '--fork-grace', '600'])]},
+    },
     'byz': {
         'nofork-byzlead': (['--byzantine', '1', '--byzantine-leads-close'], BYZ_RATES, None),
         'fork5-byzlead': (['--fork-percentage', '5', '--byzantine', '1', '--byzantine-leads-close'], BYZ_RATES, None),
