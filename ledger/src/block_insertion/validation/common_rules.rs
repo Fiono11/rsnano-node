@@ -12,6 +12,9 @@ impl<'a> BlockValidator<'a> {
     }
 
     pub(crate) fn ensure_valid_signature(&self) -> Result<(), BlockError> {
+        if self.signature_verified && !self.is_epoch_block() {
+            return Ok(());
+        }
         let result = if self.is_epoch_block() {
             self.epochs.validate_epoch_signature(self.block)
         } else {

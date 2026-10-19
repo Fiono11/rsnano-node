@@ -50,6 +50,7 @@ impl<'a> BlockValidatorFactory<'a> {
             source_block_exists,
             previous_block,
             now: UnixMillisTimestamp::now(),
+            signature_verified: false,
         }
     }
 

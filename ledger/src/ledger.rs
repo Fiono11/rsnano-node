@@ -37,7 +37,7 @@ use crate::{
     LedgerConstants, LedgerEvent, LedgerSet, OwningAnySet, OwningConfirmedSet,
     OwningUnconfirmedSet, ProcessResult, RepWeightCache, RepWeightsUpdater, RollbackError,
     block_cementer::BlockCementer,
-    block_insertion::{BlockInserter, BlockValidatorFactory},
+    block_insertion::{BlockInserter, BlockValidatorFactory, VerifiedForks},
     vote_verifier::VoteVerifier,
 };
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
@@ -105,6 +105,7 @@ pub struct Ledger {
     store_version: u32,
     pub(crate) publish: RwLock<Option<Box<dyn Fn(LedgerEvent) + Send + Sync>>>,
     can_roll_back: RwLock<Box<dyn Fn(&BlockHash) -> bool + Send + Sync>>,
+    verified_forks: Mutex<VerifiedForks>,
 }
 
 pub struct NullLedgerBuilder {
@@ -298,6 +299,7 @@ impl Ledger {
             store_version: 0,
             publish: RwLock::new(None),
             can_roll_back: RwLock::new(Box::new(|_| true)),
+            verified_forks: Mutex::new(VerifiedForks::default()),
         };
 
         ledger.initialize(thread_count, consistency_check)?;
@@ -637,9 +639,25 @@ impl Ledger {
                     store: &self.store,
                     tx: &tx,
                 };
-                let validator =
+                let mut validator =
                     BlockValidatorFactory::new(&any, &self.constants, block).create_validator();
+                let hash = block.hash();
+                let memoizable = !validator.is_epoch_block();
+                validator.signature_verified = memoizable
+                    && self.verified_forks.lock().unwrap().contains(
+                        &validator.account,
+                        &hash,
+                        block.signature(),
+                    );
                 let result = validator.validate();
+                // A fork is found after the signature check: it passed
+                if memoizable && matches!(result, Err(BlockError::Fork)) {
+                    self.verified_forks.lock().unwrap().insert(
+                        validator.account,
+                        hash,
+                        block.signature().clone(),
+                    );
+                }
                 validation_results.push((result, block, source));
             }
         }
