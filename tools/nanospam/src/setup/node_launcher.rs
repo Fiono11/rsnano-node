@@ -77,6 +77,7 @@ pub(crate) fn node_command(args: &CliArgs, data_dir: &Path, i: usize) -> Command
         cmd.env("NANO_TEST_GENESIS_BLOCK", GENESIS_BLOCK)
             .env("NANO_TEST_GENESIS_PRV ", GENESIS_PRV)
             .env(NODE_TAG_VAR, format!("pr{i}"))
+            .env(DIAG_FILE_VAR, node_dir.join("diagnostics.log"))
             .arg("--network")
             .arg("test")
             .arg("--data-path")
@@ -101,3 +102,6 @@ pub(crate) fn write_node_pids(data_dir: &Path, children: &[Child]) -> std::io::R
 
 /// Names the node in its diagnostic lines (read by the rsnano node)
 const NODE_TAG_VAR: &str = "RSNANO_NODE_TAG";
+/// Where the node appends its diagnostic lines too, in its data directory:
+/// they outlive nanospam's own log (read by the rsnano node)
+const DIAG_FILE_VAR: &str = "RSNANO_DIAG_FILE";

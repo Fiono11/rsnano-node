@@ -1,7 +1,14 @@
-use std::{io::Write, sync::OnceLock};
+use std::{
+    fs::{File, OpenOptions},
+    io::Write,
+    sync::{Mutex, OnceLock},
+};
 
 /// Names the node in its diagnostics: nanospam sets it to `pr<i>`
 const NODE_TAG_VAR: &str = "RSNANO_NODE_TAG";
+/// A file the diagnostics are appended to as well: nanospam collects the
+/// nodes' stderr only while it runs, the nodes outlive it
+const DIAG_FILE_VAR: &str = "RSNANO_DIAG_FILE";
 
 /// A diagnostic line for a benchmark run, written to stderr in one call.
 /// nanospam collects the stderr of six nodes into one log, and a line
@@ -10,6 +17,25 @@ const NODE_TAG_VAR: &str = "RSNANO_NODE_TAG";
 pub(crate) fn emit_diagnostic(line: &str) {
     let out = diagnostic_line(line, node_tag(), unix_ms());
     let _ = std::io::stderr().write_all(out.as_bytes());
+    if let Some(file) = diag_file() {
+        let _ = file.lock().unwrap().write_all(out.as_bytes());
+    }
+}
+
+fn diag_file() -> Option<&'static Mutex<File>> {
+    static FILE: OnceLock<Option<Mutex<File>>> = OnceLock::new();
+    FILE.get_or_init(|| {
+        let path = std::env::var(DIAG_FILE_VAR)
+            .ok()
+            .filter(|p| !p.is_empty())?;
+        OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .ok()
+            .map(Mutex::new)
+    })
+    .as_ref()
 }
 
 fn node_tag() -> Option<&'static str> {

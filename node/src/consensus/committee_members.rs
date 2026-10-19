@@ -96,12 +96,18 @@ impl Tickable for CommitteeMembersSync {
 pub(crate) struct FrontierDelegationsSync {
     aec: Arc<AecService>,
     ledger: Arc<rsnano_ledger::Ledger>,
+    /// The frontier blocks found absent from the ledger, said once each
+    absent_logged: HashSet<rsnano_types::BlockHash>,
 }
 
 #[cfg(feature = "rai_protocol")]
 impl FrontierDelegationsSync {
     pub fn new(aec: Arc<AecService>, ledger: Arc<rsnano_ledger::Ledger>) -> Self {
-        Self { aec, ledger }
+        Self {
+            aec,
+            ledger,
+            absent_logged: HashSet::new(),
+        }
     }
 }
 
@@ -117,11 +123,25 @@ impl Tickable for FrontierDelegationsSync {
             let any = self.ledger.any();
             for (epoch, hash) in missing {
                 let Some(block) = any.get_block(&hash) else {
+                    if self.absent_logged.insert(hash) {
+                        crate::utils::diagnostic!(
+                            "EPOCH_FRONTIER_ABSENT epoch={} hash={} : not in the ledger",
+                            epoch,
+                            hash
+                        );
+                    }
                     continue;
                 };
                 let (Some(representative), Some(balance)) =
                     (block.representative_field(), block.balance_field())
                 else {
+                    if self.absent_logged.insert(hash) {
+                        crate::utils::diagnostic!(
+                            "EPOCH_FRONTIER_ABSENT epoch={} hash={} : no delegation fields",
+                            epoch,
+                            hash
+                        );
+                    }
                     continue;
                 };
                 by_epoch

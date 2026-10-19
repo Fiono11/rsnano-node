@@ -460,6 +460,10 @@ def main():
                     saved.mkdir()
                     for config in (data / f'pr{i}').glob('config-*'):
                         shutil.copy2(config, saved / config.name)
+                    # The node's own diagnostics, also those after nanospam ended
+                    diagnostics = data / f'pr{i}' / 'diagnostics.log'
+                    if diagnostics.exists():
+                        shutil.copy2(diagnostics, saved / diagnostics.name)
         except Exception as error:
             result['status'] = 'failed'
             result['error'] = repr(error)
