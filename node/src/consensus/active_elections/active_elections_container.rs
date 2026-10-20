@@ -2135,19 +2135,20 @@ impl ActiveElectionsContainer {
             // as the fork candidate the ledger refused for its rival: handed
             // over with the positions, it is forced in at once instead of
             // asked for. Half the validators lack each kept fork sibling,
-            // ~2,000 of them at 12 s epochs and 10% forks.
+            // ~2,000 of them at 12 s epochs and 10% forks. A candidate the
+            // election still holds as saved goes too: a late instance's
+            // discard rolls it back without changing it, and when every
+            // validator rolled it back no ledger serves it to the others.
+            // The ledger side forces in only the blocks it lacks.
             let bodies: Vec<Block> = retained
                 .iter()
                 .filter_map(|(_, _, hash)| {
-                    match self
+                    let candidate = self
                         .roots
                         .election_for_block(hash)?
                         .candidate_blocks()
-                        .get(hash)?
-                    {
-                        rsnano_types::MaybeSavedBlock::Unsaved(block) => Some(block.clone()),
-                        rsnano_types::MaybeSavedBlock::Saved(_) => None,
-                    }
+                        .get(hash)?;
+                    Some(Block::clone(candidate))
                 })
                 .collect();
             self.notify(AecFact::CheckpointRetained {
@@ -5584,6 +5585,52 @@ mod tests {
             )
             .unwrap();
         assert!(container.try_add_fork(&kept, Amount::raw(1)));
+        container.start_epochs(now);
+        container.transition_time(now + Duration::from_secs(1));
+        let mut state = EpochLedger::new();
+        state.retain_for_test(
+            AccountSlot::new(kept.account(), kept.height()),
+            kept.hash(),
+            kept.previous(),
+        );
+        container.install_decided_checkpoint(ConsensusEpoch::ZERO, Arc::new(state), now);
+
+        let bodies: Vec<BlockHash> = std::iter::from_fn(|| receiver.try_recv().ok())
+            .filter_map(|fact| match fact {
+                AecFact::CheckpointRetained { bodies, .. } => Some(bodies),
+                _ => None,
+            })
+            .flatten()
+            .map(|block| block.hash())
+            .collect();
+        assert_eq!(bodies, vec![kept.hash()]);
+    }
+
+    /// RAI: a retained block the election holds as saved is handed over
+    /// with its body too: when a late instance's discard rolled it back on
+    /// every validator, no ledger could serve it, and its position never
+    /// resolved
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn a_retained_block_held_as_saved_is_handed_over_with_its_body() {
+        let now = Timestamp::new_test_instance();
+        let mut container = ActiveElectionsContainer::new(
+            ActiveElectionsConfig {
+                epoch_duration: Duration::from_secs(1),
+                ..Default::default()
+            },
+            Duration::from_millis(10),
+        );
+        let (sender, receiver) = rsnano_utils::sync::backpressure_channel::channel(64);
+        container.set_observer(sender);
+        let kept = SavedBlock::new_test_instance_with_key(2);
+        container.set_genesis_committee(Vec::new());
+        container
+            .insert(
+                AecInsertRequest::new_priority(kept.clone(), BlockPriority::default()),
+                now,
+            )
+            .unwrap();
         container.start_epochs(now);
         container.transition_time(now + Duration::from_secs(1));
         let mut state = EpochLedger::new();
