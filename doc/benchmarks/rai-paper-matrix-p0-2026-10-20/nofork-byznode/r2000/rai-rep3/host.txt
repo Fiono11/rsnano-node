@@ -1,44 +1,44 @@
-Processes: 500 total, 2 running, 498 sleeping, 1942 threads 
-2026/10/20 10:31:32
-Load Avg: 10.58, 7.97, 7.40 
+Processes: 501 total, 2 running, 499 sleeping, 1989 threads 
+2026/10/20 12:04:54
+Load Avg: 12.74, 6.85, 4.69 
 CPU usage: 0.0% user, 11.36% sys, 88.63% idle 
-SharedLibs: 604M resident, 107M data, 73M linkedit.
-MemRegions: 43493 total, 1838M resident, 190M private, 673M shared.
-PhysMem: 7759M used (1287M wired, 1711M compressor), 8063M unused.
+SharedLibs: 634M resident, 112M data, 76M linkedit.
+MemRegions: 44043 total, 2083M resident, 242M private, 714M shared.
+PhysMem: 8628M used (1341M wired, 1615M compressor), 7194M unused.
 VM: 191T vsize, 4915M framework vsize, 1486(0) swapins, 1496(0) swapouts.
-Networks: packets: 348031377/323G in, 347912008/323G out.
-Disks: 1904995/42G read, 96695929/2566G written.
+Networks: packets: 376674073/342G in, 376570038/342G out.
+Disks: 2122177/49G read, 103105009/2751G written.
+
+PID    %CPU COMMAND   
+46754  0.0  top       
+46752  0.0  Python    
+46745  0.0  caffeinate
+46654  0.0  Python    
+46649  0.0  2.1.302   
+46648  0.0  tail      
+46646  0.0  zsh       
+46645  0.0  caffeinate
+46644  0.0  zsh       
+46643  0.0  zsh       
+Processes: 501 total, 2 running, 499 sleeping, 1967 threads 
+2026/10/20 12:04:55
+Load Avg: 12.74, 6.85, 4.69 
+CPU usage: 0.71% user, 0.83% sys, 98.45% idle 
+SharedLibs: 634M resident, 112M data, 76M linkedit.
+MemRegions: 44043 total, 2083M resident, 242M private, 714M shared.
+PhysMem: 8627M used (1341M wired, 1615M compressor), 7194M unused.
+VM: 191T vsize, 4915M framework vsize, 1486(0) swapins, 1496(0) swapouts.
+Networks: packets: 376674075/342G in, 376570039/342G out.
+Disks: 2122177/49G read, 103105009/2751G written.
 
 PID    %CPU COMMAND        
-44324  0.0  top            
-44322  0.0  Python         
-44321  0.0  mdworker_shared
-44320  0.0  mdworker_shared
-44210  0.0  2.1.302        
-44209  0.0  tail           
-44208  0.0  zsh            
-43558  0.0  Python         
-43552  0.0  caffeinate     
-43551  0.0  zsh            
-Processes: 500 total, 2 running, 498 sleeping, 1944 threads 
-2026/10/20 10:31:33
-Load Avg: 10.58, 7.97, 7.40 
-CPU usage: 0.47% user, 0.94% sys, 98.58% idle 
-SharedLibs: 604M resident, 107M data, 73M linkedit.
-MemRegions: 43493 total, 1838M resident, 190M private, 673M shared.
-PhysMem: 7760M used (1287M wired, 1711M compressor), 8061M unused.
-VM: 191T vsize, 4915M framework vsize, 1486(0) swapins, 1496(0) swapouts.
-Networks: packets: 348031377/323G in, 347912008/323G out.
-Disks: 1904995/42G read, 96695929/2566G written.
-
-PID    %CPU COMMAND        
-44324  5.3  top            
-1552   1.7  2.1.303        
-0      1.4  kernel_task    
-325    0.6  fseventsd      
-1411   0.6  2.1.302        
-388    0.3  WindowServer   
+46754  4.5  top            
+1411   2.7  2.1.302        
+0      1.7  kernel_task    
+325    0.5  fseventsd      
+388    0.4  WindowServer   
+1552   0.2  2.1.303        
 1325   0.2  2.1.302        
-551    0.2  distnoted      
-372    0.1  distnoted      
+394    0.1  contextstored  
 384    0.1  corebrightnessd
+46649  0.1  2.1.302        

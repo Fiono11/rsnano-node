@@ -1,340 +1,263 @@
-SIGNING_WRITES decided=1/0ms/0ms evidence=1/0ms/0ms signing=1/0ms/0ms node=pr3 t=1792488556457
-SIGNING_WRITES decided=17/0ms/0ms evidence=17/0ms/0ms signing=219/0ms/0ms node=pr3 t=1792488561620
-SIGNING_WRITES decided=17/0ms/0ms evidence=17/0ms/0ms signing=218/0ms/0ms node=pr3 t=1792488566786
-SIGNING_WRITES decided=17/0ms/0ms evidence=17/0ms/0ms signing=218/0ms/0ms node=pr3 t=1792488571938
-SIGNING_WRITES decided=17/0ms/0ms evidence=17/0ms/0ms signing=219/5ms/1ms node=pr3 t=1792488577099
-SIGNING_WRITES decided=17/0ms/0ms evidence=17/0ms/0ms signing=221/1ms/0ms node=pr3 t=1792488582255
-SIGNING_WRITES decided=17/0ms/0ms evidence=17/0ms/0ms signing=218/0ms/0ms node=pr3 t=1792488587410
-SIGNING_WRITES decided=17/0ms/0ms evidence=17/0ms/0ms signing=221/0ms/0ms node=pr3 t=1792488592561
-SIGNING_WRITES decided=17/0ms/0ms evidence=17/0ms/0ms signing=221/21ms/1ms node=pr3 t=1792488597699
-SIGNING_WRITES decided=17/0ms/0ms evidence=17/0ms/0ms signing=219/16ms/1ms node=pr3 t=1792488602866
-SIGNING_WRITES decided=17/0ms/0ms evidence=17/0ms/0ms signing=218/0ms/0ms node=pr3 t=1792488608014
-SIGNING_WRITES decided=17/0ms/0ms evidence=17/0ms/0ms signing=222/0ms/0ms node=pr3 t=1792488613188
-SIGNING_WRITES decided=17/0ms/0ms evidence=17/0ms/0ms signing=220/0ms/0ms node=pr3 t=1792488618351
-SIGNING_WRITES decided=17/0ms/0ms evidence=17/0ms/0ms signing=216/0ms/0ms node=pr3 t=1792488623511
-SIGNING_WRITES decided=17/0ms/0ms evidence=17/0ms/0ms signing=218/0ms/0ms node=pr3 t=1792488628661
-SIGNING_WRITES decided=17/0ms/0ms evidence=17/0ms/0ms signing=218/0ms/0ms node=pr3 t=1792488633820
-EPOCH_COMMITTEE derived_by=genesis members=6 accounts=33 n=6 digest=EBA8B9E90CFA0F73BC0715EDD148E081BDC1D1DB6C0A7F5E6C13D09F6EEE3145 shares=["A353E45E:16.7%", "65A90023:16.7%", "D315857C:16.7%", "911999B2:16.7%", "633D9D61:16.7%", "735FE217:16.7%"] node=pr3 t=1792488634189
-EPOCH_START epoch=0 elections=0 node=pr3 t=1792488634190
-EPOCH_MEMO_REFRESH epoch=0 frozen=false derived=33 accounts=33 memoized=33 unmemoized={} certificates=64 view_ms=0 ms=0 node=pr3 t=1792488634238
-COMMITTEE_MEMBERS members=6 voting_keys=65A90023 node=pr3 t=1792488635016
-EPOCH_MEMO_REFRESH epoch=0 frozen=false derived=35 accounts=61 memoized=61 unmemoized={} certificates=141 view_ms=0 ms=0 node=pr3 t=1792488635254
-EPOCH_MEMO_REFRESH epoch=0 frozen=false derived=385 accounts=411 memoized=411 unmemoized={} certificates=1058 view_ms=0 ms=2 node=pr3 t=1792488636273
-EPOCH_MEMO_REFRESH epoch=0 frozen=false derived=1766 accounts=1792 memoized=1792 unmemoized={} certificates=4479 view_ms=0 ms=10 node=pr3 t=1792488637300
-EPOCH_MEMO_REFRESH epoch=0 frozen=false derived=2130 accounts=3185 memoized=3185 unmemoized={} certificates=6900 view_ms=0 ms=11 node=pr3 t=1792488638326
-SIGNING_WRITES decided=17/0ms/0ms epochs=1/0ms/0ms evidence=17/0ms/0ms signing=224/133ms/6ms node=pr3 t=1792488638981
-EPOCH_MEMO_REFRESH epoch=0 frozen=false derived=1689 accounts=4107 memoized=4107 unmemoized={} certificates=8743 view_ms=0 ms=14 node=pr3 t=1792488639353
-EPOCH_MEMO_REFRESH epoch=0 frozen=false derived=1826 accounts=5000 memoized=5000 unmemoized={} certificates=10741 view_ms=0 ms=18 node=pr3 t=1792488640387
-EPOCH_MEMO_REFRESH epoch=0 frozen=false derived=1929 accounts=5920 memoized=5920 unmemoized={} certificates=12808 view_ms=0 ms=14 node=pr3 t=1792488641421
-EPOCH_ENDED epoch=0 elections=335 active=219 node=pr3 t=1792488642197
-EPOCH_ADVANCED epoch=1 elections=335 active=219 vote_records=170867 node=pr3 t=1792488642225
-EPOCH_REPORT epoch=0 certified=14399 residual=180 root=D5812598B07261D6E6CA233647E9F4A94B4FAD10A49418EBD7E2A93D2E367DCA reports=1 node=pr3 t=1792488642314
-EPOCH_RECONCILED epoch=0 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=false entries=0 total=14399 symbols=0 dropped=false node=pr3 t=1792488642354
-EPOCH_RECONCILED epoch=0 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=true entries=200 total=200 symbols=0 dropped=false node=pr3 t=1792488642366
-EPOCH_RECONCILED epoch=0 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=false entries=0 total=14399 symbols=0 dropped=false node=pr3 t=1792488642381
-EPOCH_RECONCILED epoch=0 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=true entries=180 total=180 symbols=0 dropped=false node=pr3 t=1792488642409
-EPOCH_CLOSE_UNREADY epoch=0 short_of=reports usable=3 weight=3 required=5 held=5 theirs=["A353E45E:D5812598:4716413D", "D315857C:F483AFED:B78FD315", "735FE217:D5812598:A8A7AF12", "633D9D61:D5812598:A8A7AF12", "911999B2:D5812598:692E3219"] node=pr3 t=1792488642433
-EPOCH_RECONCILED epoch=0 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=false entries=0 total=14399 symbols=0 dropped=false node=pr3 t=1792488642449
-EPOCH_RECONCILED epoch=0 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=true entries=179 total=179 symbols=0 dropped=false node=pr3 t=1792488642457
-EPOCH_RECONCILED epoch=0 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=0 total=14399 symbols=0 dropped=false node=pr3 t=1792488642458
-EPOCH_MEMO_REFRESH epoch=0 frozen=true derived=1523 accounts=6564 memoized=6564 unmemoized={} certificates=14398 view_ms=0 ms=11 node=pr3 t=1792488642460
-EPOCH_RECONCILED epoch=0 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=true entries=200 total=200 symbols=0 dropped=false node=pr3 t=1792488642463
-EPOCH_MEMO_PROVISIONAL epoch=1 ms=1 node=pr3 t=1792488642464
-EPOCH_MEMO_REFRESH epoch=1 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=14398 view_ms=0 ms=1 node=pr3 t=1792488642466
-EPOCH_RECONCILED epoch=0 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=false entries=395 total=14382 symbols=819 dropped=false node=pr3 t=1792488642607
-EPOCH_RECONCILED epoch=0 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=true entries=198 total=198 symbols=0 dropped=false node=pr3 t=1792488642626
-EPOCH_CLOSE_READY epoch=0 node=pr3 t=1792488642628
-EPOCH_VALIDATE_TIMING epoch=0 evidence_ms=25 build_ms=6 memo=6460/200 node=pr3 t=1792488642677
-EPOCH_VALUE epoch=0 value=9FA8DD561777CA70FEAB45A04456A7504DAC3B0E9342655845C98482128476AA state=E3FA4D9EBE7B6B4C21C3548424347AC7617A620261FEE0C7EF118AA77A5F563A node=pr3 t=1792488642678
-EPOCH_CLOSE_VOTE epoch=0 round=0 voter=735FE217 kind=First value=9FA8DD56 result=Ok(()) node=pr3 t=1792488642920
-EPOCH_CLOSE_ROUND epoch=0 round=0 leader=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F leads=false node=pr3 t=1792488642922
-EPOCH_CLOSE_MARK epoch=0 round=0 kind=First value=9FA8DD56 node=pr3 t=1792488642941
-EPOCH_CLOSE_VOTE epoch=0 round=0 voter=65A90023 kind=First value=9FA8DD56 result=Ok(()) node=pr3 t=1792488643018
-EPOCH_CLOSE_VOTE epoch=0 round=0 voter=633D9D61 kind=First value=9FA8DD56 result=Ok(()) node=pr3 t=1792488643163
-EPOCH_CLOSE_VOTE epoch=0 round=0 voter=D315857C kind=First value=9FA8DD56 result=Ok(()) node=pr3 t=1792488643180
-EPOCH_CLOSE_TALLY epoch=0 round=0 tc=false votes=[633D9D61:f=9FA8DD56,n=9FA8DD56 65A90023:f=9FA8DD56,n=9FA8DD56 735FE217:f=9FA8DD56,n=9FA8DD56 D315857C:f=9FA8DD56,n=9FA8DD56] node=pr3 t=1792488643524
-EPOCH_MEMO_REFRESH epoch=1 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=14398 view_ms=0 ms=0 node=pr3 t=1792488643684
-SIGNING_WRITES decided=17/0ms/0ms evidence=17/0ms/0ms forget=1/2ms/2ms forget_evidence=1/0ms/0ms frozen=1/0ms/0ms report=1/3ms/3ms signing=230/206ms/4ms node=pr3 t=1792488644125
-EPOCH_MEMO_REFRESH epoch=1 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=14398 view_ms=0 ms=0 node=pr3 t=1792488644690
-EPOCH_CLOSE_TALLY epoch=0 round=0 tc=false votes=[633D9D61:f=9FA8DD56,n=9FA8DD56 65A90023:f=9FA8DD56,n=9FA8DD56 735FE217:f=9FA8DD56,n=9FA8DD56 D315857C:f=9FA8DD56,n=9FA8DD56] node=pr3 t=1792488645630
-EPOCH_MEMO_REFRESH epoch=1 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=14398 view_ms=0 ms=0 node=pr3 t=1792488645700
-EPOCH_MEMO_REFRESH epoch=1 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=14398 view_ms=0 ms=0 node=pr3 t=1792488646714
-EPOCH_MEMO_REFRESH epoch=1 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=14398 view_ms=0 ms=0 node=pr3 t=1792488647729
-EPOCH_CLOSE_TALLY epoch=0 round=0 tc=false votes=[633D9D61:f=9FA8DD56,n=9FA8DD56 65A90023:f=9FA8DD56,n=9FA8DD56 735FE217:f=9FA8DD56,n=9FA8DD56 D315857C:f=9FA8DD56,n=9FA8DD56] node=pr3 t=1792488647757
-EPOCH_MEMO_REFRESH epoch=1 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=14398 view_ms=0 ms=0 node=pr3 t=1792488648739
-EPOCH_CLOSE_VOTE epoch=0 round=0 voter=A353E45E kind=Abstain value=FFFFFFFF result=Ok(()) node=pr3 t=1792488649134
-EPOCH_CLOSE_VOTE epoch=0 round=0 voter=911999B2 kind=Abstain value=FFFFFFFF result=Ok(()) node=pr3 t=1792488649239
-EPOCH_CLOSE_MARK epoch=0 round=0 kind=Timeout value=9FA8DD56 node=pr3 t=1792488649244
-EPOCH_CLOSE_VOTE epoch=0 round=0 voter=735FE217 kind=Timeout value=9FA8DD56 result=Ok(()) node=pr3 t=1792488649261
-SIGNING_WRITES decided=17/0ms/0ms evidence=17/0ms/0ms signing=226/0ms/0ms node=pr3 t=1792488649268
-EPOCH_CLOSE_VOTE epoch=0 round=0 voter=65A90023 kind=Timeout value=9FA8DD56 result=Ok(()) node=pr3 t=1792488649268
-EPOCH_CLOSE_VOTE epoch=0 round=0 voter=633D9D61 kind=Timeout value=9FA8DD56 result=Ok(()) node=pr3 t=1792488649268
-EPOCH_CLOSE_VOTE epoch=0 round=0 voter=D315857C kind=Timeout value=9FA8DD56 result=Ok(()) node=pr3 t=1792488649268
-EPOCH_CLOSE_ROUND epoch=0 round=1 leader=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 leads=false node=pr3 t=1792488649581
-EPOCH_CLOSE_VOTE epoch=0 round=1 voter=911999B2 kind=First value=66536CBA result=Ok(()) node=pr3 t=1792488649589
-EPOCH_VALIDATE_TIMING epoch=0 evidence_ms=25 build_ms=5 memo=6443/217 node=pr3 t=1792488649591
-EPOCH_VALUE epoch=0 value=66536CBAEF048ACB7BB4DEF2AAB4246EB91D7AF08788C87A06B98067AEC7EF22 state=E3FA4D9EBE7B6B4C21C3548424347AC7617A620261FEE0C7EF118AA77A5F563A node=pr3 t=1792488649591
-EPOCH_CLOSE_MARK epoch=0 round=1 kind=First value=66536CBA node=pr3 t=1792488649592
-EPOCH_CLOSE_VOTE epoch=0 round=1 voter=65A90023 kind=First value=66536CBA result=Ok(()) node=pr3 t=1792488649676
-EPOCH_CLOSE_VOTE epoch=0 round=1 voter=735FE217 kind=First value=66536CBA result=Ok(()) node=pr3 t=1792488649697
-EPOCH_CLOSE_VOTE epoch=0 round=1 voter=A353E45E kind=First value=66536CBA result=Ok(()) node=pr3 t=1792488649712
-EPOCH_CLOSE_VOTE epoch=0 round=1 voter=633D9D61 kind=First value=66536CBA result=Ok(()) node=pr3 t=1792488649744
-EPOCH_CLOSE_MARK epoch=0 round=1 kind=Final value=66536CBA node=pr3 t=1792488649748
-EPOCH_CLOSE_VOTE epoch=0 round=1 voter=D315857C kind=First value=66536CBA result=Ok(()) node=pr3 t=1792488649756
-EPOCH_CLOSE_VOTE epoch=0 round=1 voter=A353E45E kind=Final value=66536CBA result=Ok(()) node=pr3 t=1792488649764
-EPOCH_CLOSE_VOTE epoch=0 round=1 voter=633D9D61 kind=Final value=66536CBA result=Ok(()) node=pr3 t=1792488649764
-EPOCH_CLOSE_VOTE epoch=0 round=1 voter=911999B2 kind=Final value=66536CBA result=Ok(()) node=pr3 t=1792488649770
-EPOCH_CLOSE_VOTE epoch=0 round=1 voter=735FE217 kind=Final value=66536CBA result=Ok(()) node=pr3 t=1792488649800
-EPOCH_CLOSE_VOTE epoch=0 round=1 voter=65A90023 kind=Final value=66536CBA result=Ok(()) node=pr3 t=1792488649810
-EPOCH_INSTALL epoch=0 finalized=14334 instances_confirmed=17 followed=17 node=pr3 t=1792488649847
-EPOCH_CARRIED epoch=0 instances=220 split=0 node=pr3 t=1792488649849
-EPOCH_COMMITTEE derived_by=0 members=6 accounts=6590 n=6 digest=EBA8B9E90CFA0F73BC0715EDD148E081BDC1D1DB6C0A7F5E6C13D09F6EEE3145 shares=["65A90023:16.7%", "A353E45E:16.7%", "D315857C:16.7%", "911999B2:16.7%", "633D9D61:16.7%", "735FE217:16.7%"] node=pr3 t=1792488649872
-EPOCH_LOCKS epoch=0 continued=0 kinds={"locks=1 kind=Some(Recovery) nc_here=false saved=true": 20, "locks=1 kind=Some(Recovery) nc_here=true saved=true": 180} node=pr3 t=1792488649873
-EPOCH_OMITTED epoch=0 instances=20 retained=200 node=pr3 t=1792488649873
-EPOCH_INSTALL_TIMING epoch=0 steps=[("hash", 4), ("base", 30), ("install", 37), ("gate", 37), ("slots", 47), ("committee", 61), ("release", 62)] node=pr3 t=1792488649873
-EPOCH_CLOSED epoch=0 round=1 value=66536CBAEF048ACB7BB4DEF2AAB4246EB91D7AF08788C87A06B98067AEC7EF22 state=E3FA4D9EBE7B6B4C21C3548424347AC7617A620261FEE0C7EF118AA77A5F563A node=pr3 t=1792488649873
-EPOCH_CLOSE_VOTE epoch=0 round=1 voter=65A90023 kind=Final value=66536CBA result=Err(Late) node=pr3 t=1792488649875
-EPOCH_MEMO_REBASE epoch=1 kept=0 derived=0 ms=0 node=pr3 t=1792488649875
-EPOCH_MEMO_REFRESH epoch=1 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=14398 view_ms=0 ms=0 node=pr3 t=1792488649875
-EPOCH_CLOSE_VOTE epoch=0 round=1 voter=D315857C kind=Final value=66536CBA result=Err(Late) node=pr3 t=1792488649911
-EPOCH_INSTALLED epoch=0 finalized=17 cemented=5 queued=12 missing=0 ms=0 absent=[] node=pr3 t=1792488650011
-EPOCH_RETAINED epoch=0 retained=200 held=200 missing=0 supplied=0 node=pr3 t=1792488650015
-EPOCH_ENDED epoch=1 elections=6933 active=5258 node=pr3 t=1792488650189
-EPOCH_LEAVE_HELD epoch=1 window_ms=2000 : the checkpoint before it was installed late node=pr3 t=1792488650189
-EPOCH_EVIDENCE_RELEASED epoch=0 node=pr3 t=1792488650264
-EPOCH_DRAIN_WAIT epoch=1 unterminated=3963 previous_closed=true first=["0F867A346D54118D89787A7316CA7D77E8F3E5332551249907478925F8256CD7:active:1:4", "3134F84521781996431638317FBAA9566BCAF5446B3A77CEE9723CAAED58680E:active:1:4", "D8E6ED9B6069CE8A8088310F60833EE9186EAD46D00108FFBA7045D9A7875DA5:active:1:4"] node=pr3 t=1792488650308
-EPOCH_FOLLOW cemented=14329 cementing=0 requested=0 pending=0 node=pr3 t=1792488650501
-EPOCH_MEMO_REFRESH epoch=1 frozen=false derived=1789 accounts=1789 memoized=1589 unmemoized={Retained: 200} certificates=16187 view_ms=0 ms=21 node=pr3 t=1792488650986
-EPOCH_DRAIN_WAIT epoch=1 unterminated=0 previous_closed=true first=[] node=pr3 t=1792488651520
-EPOCH_ADVANCED epoch=2 elections=200 active=20 vote_records=253009 node=pr3 t=1792488651840
-EPOCH_CLOSE_UNREADY epoch=1 short_of=reports usable=0 weight=0 required=5 held=0 theirs=[] node=pr3 t=1792488651841
-EPOCH_REPORT epoch=1 certified=21132 residual=0 root=92646CC39E2D6534E46F0CD611018B4A9E528851071B7B51E9C0D688064FE3AA reports=1 node=pr3 t=1792488651855
-EPOCH_RECONCILED epoch=1 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=true entries=0 total=21132 symbols=0 dropped=false node=pr3 t=1792488651878
-EPOCH_RECONCILED epoch=1 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=true entries=0 total=21132 symbols=0 dropped=false node=pr3 t=1792488651883
-EPOCH_RECONCILED epoch=1 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=true entries=0 total=21132 symbols=0 dropped=false node=pr3 t=1792488651992
-EPOCH_MEMO_REFRESH epoch=1 frozen=true derived=4944 accounts=6733 memoized=6533 unmemoized={Retained: 200} certificates=21131 view_ms=0 ms=13 node=pr3 t=1792488652029
-EPOCH_MEMO_PROVISIONAL epoch=2 ms=1 node=pr3 t=1792488652030
-EPOCH_MEMO_REFRESH epoch=2 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=21131 view_ms=0 ms=0 node=pr3 t=1792488652030
-EPOCH_RECONCILED epoch=1 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=true entries=0 total=21132 symbols=0 dropped=false node=pr3 t=1792488652118
-EPOCH_RECONCILED epoch=1 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=0 total=21132 symbols=0 dropped=false node=pr3 t=1792488652124
-EPOCH_CLOSE_TALLY epoch=1 round=0 tc=false votes=[] node=pr3 t=1792488652124
-EPOCH_RECONCILED epoch=1 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=0 total=0 symbols=0 dropped=false node=pr3 t=1792488652126
-EPOCH_CLOSE_READY epoch=1 node=pr3 t=1792488652126
-EPOCH_CLOSE_ROUND epoch=1 round=0 leader=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F leads=false node=pr3 t=1792488652429
-EPOCH_CLOSE_VOTE epoch=1 round=0 voter=735FE217 kind=First value=0C2800D6 result=Ok(()) node=pr3 t=1792488652432
-EPOCH_RECONCILED epoch=1 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=0 total=0 symbols=0 dropped=false node=pr3 t=1792488652433
-EPOCH_RECONCILED epoch=1 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=0 total=0 symbols=0 dropped=false node=pr3 t=1792488653139
-EPOCH_MEMO_REFRESH epoch=2 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=21131 view_ms=0 ms=0 node=pr3 t=1792488653254
-EPOCH_RECONCILED epoch=1 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=0 total=0 symbols=0 dropped=false node=pr3 t=1792488653481
-EPOCH_RECONCILED epoch=1 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=0 total=0 symbols=0 dropped=false node=pr3 t=1792488653948
-EPOCH_CLOSE_TALLY epoch=1 round=0 tc=false votes=[735FE217:f=0C2800D6,n=0C2800D6] node=pr3 t=1792488654252
-EPOCH_RECONCILED epoch=1 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=0 total=0 symbols=0 dropped=false node=pr3 t=1792488654267
-EPOCH_MEMO_REFRESH epoch=2 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=21131 view_ms=0 ms=0 node=pr3 t=1792488654470
-SIGNING_WRITES decided=17/1ms/1ms evidence=17/0ms/0ms forget=1/3ms/3ms forget_evidence=1/0ms/0ms frozen=1/0ms/0ms report=1/1ms/1ms signing=178/54ms/18ms sync_bulk=1/0ms/0ms node=pr3 t=1792488654558
-EPOCH_RECONCILED epoch=1 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=0 total=0 symbols=0 dropped=false node=pr3 t=1792488654576
-EPOCH_CLOSE_VOTE epoch=1 round=0 voter=D315857C kind=Abstain value=7FD9CBF9 result=Ok(()) node=pr3 t=1792488654753
-EPOCH_CLOSE_VOTE epoch=1 round=0 voter=A353E45E kind=Abstain value=7FD9CBF9 result=Ok(()) node=pr3 t=1792488654863
-EPOCH_CLOSE_VOTE epoch=1 round=0 voter=735FE217 kind=Timeout value=0C2800D6 result=Ok(()) node=pr3 t=1792488655016
-EPOCH_RECONCILED epoch=1 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=0 total=0 symbols=0 dropped=false node=pr3 t=1792488655167
-EPOCH_RECONCILED epoch=1 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=0 total=0 symbols=0 dropped=false node=pr3 t=1792488655486
-EPOCH_MEMO_REFRESH epoch=2 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=21131 view_ms=0 ms=0 node=pr3 t=1792488655676
-EPOCH_RECONCILED epoch=1 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=0 total=0 symbols=0 dropped=false node=pr3 t=1792488655903
-EPOCH_CLOSE_TALLY epoch=1 round=0 tc=false votes=[735FE217:f=0C2800D6,n=0C2800D6,t A353E45E:f=T,n=T,t D315857C:f=T,n=T,t] node=pr3 t=1792488656379
-EPOCH_RECONCILED epoch=1 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=0 total=0 symbols=0 dropped=false node=pr3 t=1792488656380
-EPOCH_RECONCILED epoch=1 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=0 total=0 symbols=0 dropped=false node=pr3 t=1792488656701
-EPOCH_MEMO_REFRESH epoch=2 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=21131 view_ms=0 ms=0 node=pr3 t=1792488656891
-EPOCH_RECONCILED epoch=1 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=0 total=0 symbols=0 dropped=false node=pr3 t=1792488657115
-EPOCH_RECONCILED epoch=1 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=0 total=0 symbols=0 dropped=false node=pr3 t=1792488657590
-EPOCH_RECONCILED epoch=1 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=0 total=0 symbols=0 dropped=false node=pr3 t=1792488657908
-EPOCH_MEMO_REFRESH epoch=2 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=21131 view_ms=0 ms=0 node=pr3 t=1792488658099
-EPOCH_RECONCILED epoch=1 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=0 total=0 symbols=0 dropped=false node=pr3 t=1792488658330
-EPOCH_CLOSE_TALLY epoch=1 round=0 tc=false votes=[735FE217:f=0C2800D6,n=0C2800D6,t A353E45E:f=T,n=T,t D315857C:f=T,n=T,t] node=pr3 t=1792488658499
-EPOCH_CLOSE_VOTE epoch=1 round=0 voter=911999B2 kind=Abstain value=FFFFFFFF result=Ok(()) node=pr3 t=1792488658502
-EPOCH_CLOSE_MARK epoch=1 round=0 kind=Abstain value=FFFFFFFF node=pr3 t=1792488658512
-EPOCH_CLOSE_VOTE epoch=1 round=0 voter=633D9D61 kind=Abstain value=FFFFFFFF result=Ok(()) node=pr3 t=1792488658538
-EPOCH_CLOSE_VOTE epoch=1 round=0 voter=65A90023 kind=Abstain value=FFFFFFFF result=Ok(()) node=pr3 t=1792488658594
-EPOCH_CLOSE_ROUND epoch=1 round=1 leader=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 leads=false node=pr3 t=1792488658804
-EPOCH_RECONCILED epoch=1 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=0 total=0 symbols=0 dropped=false node=pr3 t=1792488658806
-EPOCH_CLOSE_VOTE epoch=1 round=1 voter=911999B2 kind=First value=CB9FCADF result=Ok(()) node=pr3 t=1792488658835
-EPOCH_VALIDATE_TIMING epoch=1 evidence_ms=17 build_ms=7 memo=6533/200 node=pr3 t=1792488658837
-EPOCH_VALUE epoch=1 value=CB9FCADF6F05C8C0E21B506C889A487C919B296BBD983FA1AC447EF81F65CDD1 state=72311E04CF5058BB55515FC48D23360CB1DDE0C521C650A69CF4903CFD878282 node=pr3 t=1792488658837
-EPOCH_CLOSE_MARK epoch=1 round=1 kind=First value=CB9FCADF node=pr3 t=1792488658841
-EPOCH_CLOSE_VOTE epoch=1 round=1 voter=65A90023 kind=First value=CB9FCADF result=Ok(()) node=pr3 t=1792488658892
-EPOCH_CLOSE_VOTE epoch=1 round=1 voter=633D9D61 kind=First value=CB9FCADF result=Ok(()) node=pr3 t=1792488658906
-EPOCH_CLOSE_VOTE epoch=1 round=1 voter=D315857C kind=First value=CB9FCADF result=Ok(()) node=pr3 t=1792488658906
-EPOCH_CLOSE_VOTE epoch=1 round=1 voter=A353E45E kind=First value=CB9FCADF result=Ok(()) node=pr3 t=1792488658924
-EPOCH_CLOSE_VOTE epoch=1 round=1 voter=735FE217 kind=First value=CB9FCADF result=Ok(()) node=pr3 t=1792488658937
-EPOCH_CLOSE_MARK epoch=1 round=1 kind=Final value=CB9FCADF node=pr3 t=1792488658938
-EPOCH_CLOSE_VOTE epoch=1 round=1 voter=65A90023 kind=Final value=CB9FCADF result=Ok(()) node=pr3 t=1792488658956
-EPOCH_CLOSE_VOTE epoch=1 round=1 voter=735FE217 kind=Final value=CB9FCADF result=Ok(()) node=pr3 t=1792488658966
-EPOCH_CLOSE_VOTE epoch=1 round=1 voter=911999B2 kind=Final value=CB9FCADF result=Ok(()) node=pr3 t=1792488658996
-EPOCH_CLOSE_VOTE epoch=1 round=1 voter=633D9D61 kind=Final value=CB9FCADF result=Ok(()) node=pr3 t=1792488659002
-EPOCH_CLOSE_VOTE epoch=1 round=1 voter=A353E45E kind=Final value=CB9FCADF result=Ok(()) node=pr3 t=1792488659006
-EPOCH_INSTALL epoch=1 finalized=6733 instances_confirmed=200 followed=0 node=pr3 t=1792488659033
-EPOCH_COMMITTEE derived_by=1 members=6 accounts=6759 n=6 digest=EBA8B9E90CFA0F73BC0715EDD148E081BDC1D1DB6C0A7F5E6C13D09F6EEE3145 shares=["735FE217:16.7%", "65A90023:16.7%", "D315857C:16.7%", "911999B2:16.7%", "633D9D61:16.7%", "A353E45E:16.7%"] node=pr3 t=1792488659044
-EPOCH_INSTALL_TIMING epoch=1 steps=[("hash", 3), ("base", 18), ("install", 26), ("gate", 27), ("slots", 32), ("committee", 38), ("release", 38)] node=pr3 t=1792488659044
-EPOCH_CLOSED epoch=1 round=1 value=CB9FCADF6F05C8C0E21B506C889A487C919B296BBD983FA1AC447EF81F65CDD1 state=72311E04CF5058BB55515FC48D23360CB1DDE0C521C650A69CF4903CFD878282 node=pr3 t=1792488659044
-EPOCH_INSTALLED epoch=1 finalized=0 cemented=0 queued=0 missing=0 ms=0 absent=[] node=pr3 t=1792488659074
-EPOCH_MEMO_REBASE epoch=2 kept=0 derived=0 ms=0 node=pr3 t=1792488659280
-EPOCH_CLOSE_VOTE epoch=1 round=1 voter=D315857C kind=Final value=CB9FCADF result=Err(Late) node=pr3 t=1792488659284
-EPOCH_MEMO_REFRESH epoch=2 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=21131 view_ms=0 ms=0 node=pr3 t=1792488659547
-EPOCH_EVIDENCE_RELEASED epoch=1 node=pr3 t=1792488659597
-EPOCH_FOLLOW cemented=6733 cementing=0 requested=0 pending=0 node=pr3 t=1792488659785
-SIGNING_WRITES decided=16/2ms/2ms evidence=16/0ms/0ms signing=196/132ms/78ms sync_bulk=1/0ms/0ms node=pr3 t=1792488660455
-EPOCH_MEMO_REFRESH epoch=2 frozen=false derived=132 accounts=132 memoized=14 unmemoized={Anchored: 118} certificates=21263 view_ms=0 ms=0 node=pr3 t=1792488660723
-EPOCH_MEMO_REFRESH epoch=2 frozen=false derived=6841 accounts=6973 memoized=6773 unmemoized={Anchored: 200} certificates=28104 view_ms=0 ms=43 node=pr3 t=1792488661836
-EPOCH_MEMO_REFRESH epoch=2 frozen=false derived=1781 accounts=8733 memoized=8533 unmemoized={Anchored: 200} certificates=29885 view_ms=0 ms=13 node=pr3 t=1792488662953
-EPOCH_MEMO_REFRESH epoch=2 frozen=false derived=1334 accounts=8814 memoized=8614 unmemoized={Anchored: 200} certificates=31219 view_ms=0 ms=19 node=pr3 t=1792488664053
-EPOCH_MEMO_REFRESH epoch=2 frozen=false derived=1639 accounts=8878 memoized=8678 unmemoized={Anchored: 200} certificates=32876 view_ms=0 ms=81 node=pr3 t=1792488665214
-SIGNING_WRITES decided=14/0ms/0ms evidence=14/0ms/0ms signing=21/950ms/135ms node=pr3 t=1792488665480
-EPOCH_ENDED epoch=2 elections=11382 active=3047 node=pr3 t=1792488666213
-EPOCH_ADVANCED epoch=3 elections=11382 active=3047 vote_records=496175 node=pr3 t=1792488666303
-EPOCH_MEMO_REFRESH epoch=2 frozen=false derived=3303 accounts=9658 memoized=9433 unmemoized={Anchored: 200, Failed: 25} certificates=36215 view_ms=1 ms=204 node=pr3 t=1792488666603
-EPOCH_REPORT epoch=2 certified=43606 residual=2626 root=22650FD1F76F29CB0C764E89A0338FB991A8F1F3AAA6C366BCC09EE5D23148B9 reports=1 node=pr3 t=1792488666637
-EPOCH_MEMO_PROVISIONAL epoch=3 ms=4 node=pr3 t=1792488666640
-EPOCH_MEMO_REFRESH epoch=3 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=36215 view_ms=186 ms=186 node=pr3 t=1792488666826
-EPOCH_MEMO_REFRESH epoch=2 frozen=true derived=7507 accounts=10216 memoized=10016 unmemoized={Anchored: 200} certificates=36215 view_ms=0 ms=59 node=pr3 t=1792488667430
-EPOCH_CLOSE_UNREADY epoch=2 short_of=reports usable=1 weight=1 required=5 held=5 theirs=["A353E45E:4654F2B5:A8479475", "633D9D61:F2954507:BD66A7F6", "911999B2:8FF4E384:FEF6A714", "735FE217:20F86D35:7C55D517", "D315857C:D6380067:A2BC087C"] node=pr3 t=1792488667634
-EPOCH_CLOSE_TALLY epoch=2 round=0 tc=false votes=[] node=pr3 t=1792488667645
-EPOCH_RECONCILED epoch=2 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=9451 total=44106 symbols=13228 dropped=false node=pr3 t=1792488667898
-EPOCH_RECONCILED epoch=2 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=false entries=10620 total=42557 symbols=14728 dropped=false node=pr3 t=1792488667970
-EPOCH_MEMO_REFRESH epoch=3 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=36215 view_ms=0 ms=0 node=pr3 t=1792488668040
-EPOCH_RECONCILED epoch=2 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=false entries=9941 total=43908 symbols=13728 dropped=false node=pr3 t=1792488668194
-EPOCH_RECONCILED epoch=2 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=true entries=2291 total=2291 symbols=0 dropped=false node=pr3 t=1792488668265
-EPOCH_RECONCILED epoch=2 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=true entries=2343 total=2343 symbols=0 dropped=false node=pr3 t=1792488668289
-EPOCH_RECONCILED epoch=2 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=true entries=3631 total=3631 symbols=0 dropped=false node=pr3 t=1792488668307
-EPOCH_RECONCILED epoch=2 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=false entries=12409 total=42588 symbols=17228 dropped=false node=pr3 t=1792488668376
-EPOCH_RECONCILED epoch=2 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=true entries=3900 total=3900 symbols=0 dropped=false node=pr3 t=1792488668429
-EPOCH_RECONCILED epoch=2 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=false entries=12581 total=42872 symbols=17228 dropped=false node=pr3 t=1792488668515
-EPOCH_RECONCILED epoch=2 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=true entries=3541 total=3541 symbols=0 dropped=false node=pr3 t=1792488668573
-EPOCH_CLOSE_READY epoch=2 node=pr3 t=1792488668581
-EPOCH_CLOSE_VOTE epoch=2 round=0 voter=735FE217 kind=First value=BB0615E9 result=Ok(()) node=pr3 t=1792488668857
-EPOCH_CLOSE_ROUND epoch=2 round=0 leader=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F leads=false node=pr3 t=1792488668862
-EPOCH_VALIDATE_TIMING epoch=2 evidence_ms=95 build_ms=60 memo=2146/8184 node=pr3 t=1792488669012
-EPOCH_VALUE epoch=2 value=FEDD5C7B411F278C812E08D6F4BD3DE2D4F371A59DC4B2B6072D746C68D00818 state=B3FB28AB3530142A7A22153E26D7B9E8F03A0BE6F5D40AB13F70B928CDB7B758 node=pr3 t=1792488669016
-EPOCH_MEMO_REFRESH epoch=3 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=44646 view_ms=0 ms=0 node=pr3 t=1792488669271
-EPOCH_CLOSE_TALLY epoch=2 round=0 tc=false votes=[735FE217:f=BB0615E9,n=BB0615E9] node=pr3 t=1792488669772
-EPOCH_MEMO_REFRESH epoch=3 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=44646 view_ms=0 ms=0 node=pr3 t=1792488670286
-SIGNING_WRITES decided=14/0ms/0ms evidence=14/0ms/0ms forget=1/154ms/154ms forget_evidence=1/0ms/0ms frozen=1/0ms/0ms report=1/4ms/4ms signing=167/79ms/31ms node=pr3 t=1792488670686
-EPOCH_CLOSE_VOTE epoch=2 round=0 voter=A353E45E kind=Abstain value=FEDD5C7B result=Ok(()) node=pr3 t=1792488670922
-EPOCH_CLOSE_MARK epoch=2 round=0 kind=Abstain value=FEDD5C7B node=pr3 t=1792488671002
-EPOCH_CLOSE_VOTE epoch=2 round=0 voter=65A90023 kind=Abstain value=FEDD5C7B result=Ok(()) node=pr3 t=1792488671088
-EPOCH_CLOSE_VOTE epoch=2 round=0 voter=735FE217 kind=Timeout value=BB0615E9 result=Ok(()) node=pr3 t=1792488671198
-EPOCH_CLOSE_VOTE epoch=2 round=0 voter=911999B2 kind=Abstain value=FEDD5C7B result=Ok(()) node=pr3 t=1792488671219
-EPOCH_MEMO_REFRESH epoch=3 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=44646 view_ms=0 ms=0 node=pr3 t=1792488671297
-EPOCH_CLOSE_TALLY epoch=2 round=0 tc=false votes=[65A90023:f=T,n=T,t 735FE217:f=BB0615E9,n=BB0615E9,t 911999B2:f=T,n=T,t A353E45E:f=T,n=T,t] node=pr3 t=1792488671890
-EPOCH_MEMO_REFRESH epoch=3 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=44646 view_ms=0 ms=0 node=pr3 t=1792488672310
-EPOCH_MEMO_REFRESH epoch=3 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=44646 view_ms=0 ms=0 node=pr3 t=1792488673322
-EPOCH_CLOSE_TALLY epoch=2 round=0 tc=false votes=[65A90023:f=T,n=T,t 735FE217:f=BB0615E9,n=BB0615E9,t 911999B2:f=T,n=T,t A353E45E:f=T,n=T,t] node=pr3 t=1792488674015
-EPOCH_MEMO_REFRESH epoch=3 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=44646 view_ms=0 ms=0 node=pr3 t=1792488674334
-EPOCH_CLOSE_VOTE epoch=2 round=0 voter=633D9D61 kind=Abstain value=FFFFFFFF result=Ok(()) node=pr3 t=1792488674950
-EPOCH_VALUE_REUSED epoch=2 slot=1 value=2E280144FFD9945B005536380745C7326EDD5ABA3AFEF4B76676A338A52AFC99 node=pr3 t=1792488675091
-EPOCH_VALUE epoch=2 value=2E280144FFD9945B005536380745C7326EDD5ABA3AFEF4B76676A338A52AFC99 state=B3FB28AB3530142A7A22153E26D7B9E8F03A0BE6F5D40AB13F70B928CDB7B758 node=pr3 t=1792488675091
-EPOCH_CLOSE_VOTE epoch=2 round=1 voter=911999B2 kind=First value=2E280144 result=Ok(()) node=pr3 t=1792488675176
-EPOCH_CLOSE_VOTE epoch=2 round=1 voter=A353E45E kind=First value=2E280144 result=Ok(()) node=pr3 t=1792488675228
-EPOCH_CLOSE_ROUND epoch=2 round=1 leader=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 leads=false node=pr3 t=1792488675233
-EPOCH_CLOSE_MARK epoch=2 round=1 kind=First value=2E280144 node=pr3 t=1792488675243
-EPOCH_CLOSE_VOTE epoch=2 round=1 voter=65A90023 kind=First value=2E280144 result=Ok(()) node=pr3 t=1792488675249
-EPOCH_CLOSE_VOTE epoch=2 round=1 voter=735FE217 kind=First value=2E280144 result=Ok(()) node=pr3 t=1792488675255
-EPOCH_MEMO_REFRESH epoch=3 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=44646 view_ms=0 ms=0 node=pr3 t=1792488675342
-SIGNING_WRITES decided=17/0ms/0ms evidence=17/0ms/0ms signing=221/1ms/0ms node=pr3 t=1792488675859
-EPOCH_CLOSE_TALLY epoch=2 round=0 tc=true votes=[633D9D61:f=T,n=T,t 65A90023:f=T,n=T,t 735FE217:f=BB0615E9,n=BB0615E9,t 911999B2:f=T,n=T,t A353E45E:f=T,n=T,t] node=pr3 t=1792488676151
-EPOCH_CLOSE_TALLY epoch=2 round=1 tc=false votes=[65A90023:f=2E280144,n=2E280144 735FE217:f=2E280144,n=2E280144 911999B2:f=2E280144,n=2E280144 A353E45E:f=2E280144,n=2E280144] node=pr3 t=1792488676151
-EPOCH_MEMO_REFRESH epoch=3 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=44646 view_ms=0 ms=0 node=pr3 t=1792488676357
-EPOCH_MEMO_REFRESH epoch=3 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=44646 view_ms=0 ms=0 node=pr3 t=1792488677373
-EPOCH_CLOSE_TALLY epoch=2 round=0 tc=true votes=[633D9D61:f=T,n=T,t 65A90023:f=T,n=T,t 735FE217:f=BB0615E9,n=BB0615E9,t 911999B2:f=T,n=T,t A353E45E:f=T,n=T,t] node=pr3 t=1792488678277
-EPOCH_CLOSE_TALLY epoch=2 round=1 tc=false votes=[65A90023:f=2E280144,n=2E280144 735FE217:f=2E280144,n=2E280144 911999B2:f=2E280144,n=2E280144 A353E45E:f=2E280144,n=2E280144] node=pr3 t=1792488678277
-EPOCH_MEMO_REFRESH epoch=3 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=44646 view_ms=0 ms=0 node=pr3 t=1792488678390
-EPOCH_MEMO_REFRESH epoch=3 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=44646 view_ms=0 ms=0 node=pr3 t=1792488679409
-EPOCH_CLOSE_TALLY epoch=2 round=0 tc=true votes=[633D9D61:f=T,n=T,t 65A90023:f=T,n=T,t 735FE217:f=BB0615E9,n=BB0615E9,t 911999B2:f=T,n=T,t A353E45E:f=T,n=T,t] node=pr3 t=1792488680394
-EPOCH_CLOSE_TALLY epoch=2 round=1 tc=false votes=[65A90023:f=2E280144,n=2E280144 735FE217:f=2E280144,n=2E280144 911999B2:f=2E280144,n=2E280144 A353E45E:f=2E280144,n=2E280144] node=pr3 t=1792488680394
-EPOCH_MEMO_REFRESH epoch=3 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=44646 view_ms=0 ms=0 node=pr3 t=1792488680416
-SIGNING_WRITES decided=17/0ms/0ms evidence=17/0ms/0ms signing=220/0ms/0ms node=pr3 t=1792488681013
-EPOCH_CLOSE_VOTE epoch=2 round=1 voter=D315857C kind=Abstain value=FFFFFFFF result=Ok(()) node=pr3 t=1792488681189
-EPOCH_CLOSE_VOTE epoch=2 round=1 voter=633D9D61 kind=Abstain value=FFFFFFFF result=Ok(()) node=pr3 t=1792488681294
-EPOCH_CLOSE_MARK epoch=2 round=1 kind=Timeout value=2E280144 node=pr3 t=1792488681299
-EPOCH_CLOSE_VOTE epoch=2 round=1 voter=65A90023 kind=Timeout value=2E280144 result=Ok(()) node=pr3 t=1792488681314
-EPOCH_CLOSE_VOTE epoch=2 round=1 voter=911999B2 kind=Timeout value=2E280144 result=Ok(()) node=pr3 t=1792488681314
-EPOCH_CLOSE_VOTE epoch=2 round=1 voter=735FE217 kind=Timeout value=2E280144 result=Ok(()) node=pr3 t=1792488681314
-EPOCH_CLOSE_VOTE epoch=2 round=1 voter=A353E45E kind=Timeout value=2E280144 result=Ok(()) node=pr3 t=1792488681417
-EPOCH_MEMO_REFRESH epoch=3 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=44646 view_ms=0 ms=0 node=pr3 t=1792488681427
-EPOCH_VALUE_REUSED epoch=2 slot=2 value=ACE0D741EEB33B4F85B454EF858DEE7933004627988CD07EB66554078BC149FD node=pr3 t=1792488681510
-EPOCH_VALUE epoch=2 value=ACE0D741EEB33B4F85B454EF858DEE7933004627988CD07EB66554078BC149FD state=B3FB28AB3530142A7A22153E26D7B9E8F03A0BE6F5D40AB13F70B928CDB7B758 node=pr3 t=1792488681511
-EPOCH_CLOSE_VOTE epoch=2 round=2 voter=A353E45E kind=First value=ACE0D741 result=Ok(()) node=pr3 t=1792488681534
-EPOCH_CLOSE_VOTE epoch=2 round=2 voter=911999B2 kind=First value=ACE0D741 result=Ok(()) node=pr3 t=1792488681575
-EPOCH_CLOSE_ROUND epoch=2 round=2 leader=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 leads=false node=pr3 t=1792488681610
-EPOCH_CLOSE_VOTE epoch=2 round=2 voter=735FE217 kind=First value=ACE0D741 result=Ok(()) node=pr3 t=1792488681619
-EPOCH_CLOSE_MARK epoch=2 round=2 kind=First value=ACE0D741 node=pr3 t=1792488681621
-EPOCH_CLOSE_VOTE epoch=2 round=2 voter=65A90023 kind=First value=ACE0D741 result=Ok(()) node=pr3 t=1792488681703
-EPOCH_CLOSE_TALLY epoch=2 round=0 tc=true votes=[633D9D61:f=T,n=T,t 65A90023:f=T,n=T,t 735FE217:f=BB0615E9,n=BB0615E9,t 911999B2:f=T,n=T,t A353E45E:f=T,n=T,t] node=pr3 t=1792488682518
-EPOCH_CLOSE_TALLY epoch=2 round=1 tc=true votes=[633D9D61:f=T,n=T,t 65A90023:f=2E280144,n=2E280144,t 735FE217:f=2E280144,n=2E280144,t 911999B2:f=2E280144,n=2E280144,t A353E45E:f=2E280144,n=2E280144,t D315857C:f=T,n=T,t] node=pr3 t=1792488682518
-EPOCH_CLOSE_TALLY epoch=2 round=2 tc=false votes=[65A90023:f=ACE0D741,n=ACE0D741 735FE217:f=ACE0D741,n=ACE0D741 911999B2:f=ACE0D741,n=ACE0D741 A353E45E:f=ACE0D741,n=ACE0D741] node=pr3 t=1792488682518
-EPOCH_MEMO_REFRESH epoch=3 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=44646 view_ms=0 ms=0 node=pr3 t=1792488682528
-EPOCH_MEMO_REFRESH epoch=3 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=44646 view_ms=0 ms=0 node=pr3 t=1792488683547
-EPOCH_MEMO_REFRESH epoch=3 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=44646 view_ms=0 ms=0 node=pr3 t=1792488684564
-EPOCH_CLOSE_TALLY epoch=2 round=0 tc=true votes=[633D9D61:f=T,n=T,t 65A90023:f=T,n=T,t 735FE217:f=BB0615E9,n=BB0615E9,t 911999B2:f=T,n=T,t A353E45E:f=T,n=T,t] node=pr3 t=1792488684644
-EPOCH_CLOSE_TALLY epoch=2 round=1 tc=true votes=[633D9D61:f=T,n=T,t 65A90023:f=2E280144,n=2E280144,t 735FE217:f=2E280144,n=2E280144,t 911999B2:f=2E280144,n=2E280144,t A353E45E:f=2E280144,n=2E280144,t D315857C:f=T,n=T,t] node=pr3 t=1792488684644
-EPOCH_CLOSE_TALLY epoch=2 round=2 tc=false votes=[65A90023:f=ACE0D741,n=ACE0D741 735FE217:f=ACE0D741,n=ACE0D741 911999B2:f=ACE0D741,n=ACE0D741 A353E45E:f=ACE0D741,n=ACE0D741] node=pr3 t=1792488684644
-EPOCH_MEMO_REFRESH epoch=3 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=44646 view_ms=0 ms=0 node=pr3 t=1792488685583
-SIGNING_WRITES decided=17/0ms/0ms evidence=17/0ms/0ms signing=220/0ms/0ms node=pr3 t=1792488686175
-EPOCH_MEMO_REFRESH epoch=3 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=44646 view_ms=0 ms=0 node=pr3 t=1792488686598
-EPOCH_CLOSE_TALLY epoch=2 round=0 tc=true votes=[633D9D61:f=T,n=T,t 65A90023:f=T,n=T,t 735FE217:f=BB0615E9,n=BB0615E9,t 911999B2:f=T,n=T,t A353E45E:f=T,n=T,t] node=pr3 t=1792488686772
-EPOCH_CLOSE_TALLY epoch=2 round=1 tc=true votes=[633D9D61:f=T,n=T,t 65A90023:f=2E280144,n=2E280144,t 735FE217:f=2E280144,n=2E280144,t 911999B2:f=2E280144,n=2E280144,t A353E45E:f=2E280144,n=2E280144,t D315857C:f=T,n=T,t] node=pr3 t=1792488686772
-EPOCH_CLOSE_TALLY epoch=2 round=2 tc=false votes=[65A90023:f=ACE0D741,n=ACE0D741 735FE217:f=ACE0D741,n=ACE0D741 911999B2:f=ACE0D741,n=ACE0D741 A353E45E:f=ACE0D741,n=ACE0D741] node=pr3 t=1792488686772
-EPOCH_CLOSE_VOTE epoch=2 round=2 voter=D315857C kind=Abstain value=FFFFFFFF result=Ok(()) node=pr3 t=1792488687586
-EPOCH_MEMO_REFRESH epoch=3 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=44646 view_ms=0 ms=0 node=pr3 t=1792488687615
-EPOCH_CLOSE_VOTE epoch=2 round=2 voter=633D9D61 kind=Abstain value=FFFFFFFF result=Ok(()) node=pr3 t=1792488687699
-EPOCH_CLOSE_MARK epoch=2 round=2 kind=Timeout value=ACE0D741 node=pr3 t=1792488687708
-EPOCH_CLOSE_VOTE epoch=2 round=2 voter=65A90023 kind=Timeout value=ACE0D741 result=Ok(()) node=pr3 t=1792488687764
-EPOCH_CLOSE_VOTE epoch=2 round=2 voter=911999B2 kind=Timeout value=ACE0D741 result=Ok(()) node=pr3 t=1792488687786
-EPOCH_CLOSE_VOTE epoch=2 round=2 voter=735FE217 kind=Timeout value=ACE0D741 result=Ok(()) node=pr3 t=1792488687801
-EPOCH_CLOSE_VOTE epoch=2 round=2 voter=A353E45E kind=Timeout value=ACE0D741 result=Ok(()) node=pr3 t=1792488687807
-EPOCH_CLOSE_ROUND epoch=2 round=3 leader=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 leads=false node=pr3 t=1792488687987
-EPOCH_CLOSE_VOTE epoch=2 round=3 voter=D315857C kind=First value=C64CF9BD result=Ok(()) node=pr3 t=1792488688050
-EPOCH_VALIDATE_TIMING epoch=2 evidence_ms=102 build_ms=82 memo=793/9537 node=pr3 t=1792488688191
-EPOCH_VALUE epoch=2 value=C64CF9BD87AE7BE01211BC298F39068FBFEC963368D244A9DBB53347ED5E13AE state=7E2A4BAAAEB0D531F231507A13DCC1762A16FD5010C7356AE2DF61697EFE7158 node=pr3 t=1792488688196
-EPOCH_CLOSE_MARK epoch=2 round=3 kind=First value=C64CF9BD node=pr3 t=1792488688209
-EPOCH_CLOSE_VOTE epoch=2 round=3 voter=65A90023 kind=First value=C64CF9BD result=Ok(()) node=pr3 t=1792488688223
-EPOCH_CLOSE_VOTE epoch=2 round=3 voter=A353E45E kind=First value=C64CF9BD result=Ok(()) node=pr3 t=1792488688244
-EPOCH_CLOSE_VOTE epoch=2 round=3 voter=735FE217 kind=First value=C64CF9BD result=Ok(()) node=pr3 t=1792488688263
-EPOCH_CLOSE_VOTE epoch=2 round=3 voter=633D9D61 kind=First value=C64CF9BD result=Ok(()) node=pr3 t=1792488688300
-EPOCH_CLOSE_VOTE epoch=2 round=3 voter=911999B2 kind=First value=C64CF9BD result=Ok(()) node=pr3 t=1792488688313
-EPOCH_CLOSE_MARK epoch=2 round=3 kind=Final value=C64CF9BD node=pr3 t=1792488688323
-EPOCH_CLOSE_VOTE epoch=2 round=3 voter=D315857C kind=Final value=C64CF9BD result=Ok(()) node=pr3 t=1792488688331
-EPOCH_CLOSE_VOTE epoch=2 round=3 voter=65A90023 kind=Final value=C64CF9BD result=Ok(()) node=pr3 t=1792488688342
-EPOCH_CLOSE_VOTE epoch=2 round=3 voter=A353E45E kind=Final value=C64CF9BD result=Ok(()) node=pr3 t=1792488688357
-EPOCH_CLOSE_VOTE epoch=2 round=3 voter=911999B2 kind=Final value=C64CF9BD result=Ok(()) node=pr3 t=1792488688381
-EPOCH_CLOSE_VOTE epoch=2 round=3 voter=633D9D61 kind=Final value=C64CF9BD result=Ok(()) node=pr3 t=1792488688412
-EPOCH_INSTALL epoch=2 finalized=23641 instances_confirmed=3481 followed=3481 node=pr3 t=1792488688514
-EPOCH_CARRIED epoch=2 instances=2785 split=0 node=pr3 t=1792488688530
-EPOCH_COMMITTEE derived_by=2 members=6 accounts=10356 n=6 digest=EBA8B9E90CFA0F73BC0715EDD148E081BDC1D1DB6C0A7F5E6C13D09F6EEE3145 shares=["735FE217:16.7%", "65A90023:16.7%", "D315857C:16.7%", "911999B2:16.7%", "633D9D61:16.7%", "A353E45E:16.7%"] node=pr3 t=1792488688565
-EPOCH_LOCKS epoch=2 continued=0 kinds={"locks=1 kind=Some(Recovery) nc_here=false saved=true": 569, "locks=1 kind=Some(Recovery) nc_here=true saved=true": 1354} node=pr3 t=1792488688573
-EPOCH_OMITTED epoch=2 instances=862 retained=1923 node=pr3 t=1792488688573
-EPOCH_INSTALL_TIMING epoch=2 steps=[("hash", 13), ("base", 71), ("install", 104), ("gate", 104), ("slots", 127), ("committee", 153), ("release", 161)] node=pr3 t=1792488688573
-EPOCH_CLOSED epoch=2 round=3 value=C64CF9BD87AE7BE01211BC298F39068FBFEC963368D244A9DBB53347ED5E13AE state=7E2A4BAAAEB0D531F231507A13DCC1762A16FD5010C7356AE2DF61697EFE7158 node=pr3 t=1792488688573
-EPOCH_CLOSE_VOTE epoch=2 round=3 voter=735FE217 kind=Final value=C64CF9BD result=Err(Late) node=pr3 t=1792488688592
-EPOCH_MEMO_REBASE epoch=3 kept=0 derived=0 ms=0 node=pr3 t=1792488688592
-EPOCH_EVIDENCE_RELEASED epoch=2 node=pr3 t=1792488688902
-EPOCH_MEMO_REFRESH epoch=3 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=44646 view_ms=21 ms=21 node=pr3 t=1792488688924
-EPOCH_INSTALLED epoch=2 finalized=3481 cemented=3448 queued=33 missing=0 ms=10 absent=[] node=pr3 t=1792488688959
-EPOCH_RETAINED epoch=2 retained=1923 held=1923 missing=0 supplied=0 node=pr3 t=1792488688963
-EPOCH_FOLLOW cemented=20193 cementing=0 requested=0 pending=0 node=pr3 t=1792488689709
-EPOCH_MEMO_REFRESH epoch=3 frozen=false derived=3260 accounts=3260 memoized=1337 unmemoized={Retained: 1923} certificates=47938 view_ms=0 ms=15 node=pr3 t=1792488689950
-EPOCH_ENDED epoch=3 elections=1923 active=569 node=pr3 t=1792488690196
-EPOCH_LEAVE_HELD epoch=3 window_ms=2000 : the checkpoint before it was installed late node=pr3 t=1792488690196
-EPOCH_DRAIN_WAIT epoch=3 unterminated=0 previous_closed=true first=[] node=pr3 t=1792488690198
-EPOCH_ADVANCED epoch=4 elections=1923 active=569 vote_records=573213 node=pr3 t=1792488690519
-EPOCH_CLOSE_UNREADY epoch=3 short_of=reports usable=0 weight=0 required=5 held=0 theirs=[] node=pr3 t=1792488690526
-EPOCH_REPORT epoch=3 certified=48065 residual=0 root=E9420B08C589028F62198F9921E633CB91404418B402DFB7F0CBE36615249AC3 reports=1 node=pr3 t=1792488690545
-EPOCH_RECONCILED epoch=3 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=true entries=0 total=48065 symbols=0 dropped=false node=pr3 t=1792488690564
-EPOCH_RECONCILED epoch=3 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=true entries=0 total=48065 symbols=0 dropped=false node=pr3 t=1792488690564
-EPOCH_RECONCILED epoch=3 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=true entries=0 total=48065 symbols=0 dropped=false node=pr3 t=1792488690581
-EPOCH_RECONCILED epoch=3 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=true entries=0 total=48065 symbols=0 dropped=false node=pr3 t=1792488690684
-EPOCH_RECONCILED epoch=3 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=true entries=0 total=48065 symbols=0 dropped=false node=pr3 t=1792488690707
-EPOCH_MEMO_REFRESH epoch=3 frozen=true derived=0 accounts=3260 memoized=1337 unmemoized={Retained: 1923} certificates=47938 view_ms=0 ms=1 node=pr3 t=1792488690712
-EPOCH_MEMO_PROVISIONAL epoch=4 ms=2 node=pr3 t=1792488690715
-EPOCH_MEMO_REFRESH epoch=4 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=47938 view_ms=0 ms=0 node=pr3 t=1792488690715
-EPOCH_CLOSE_READY epoch=3 node=pr3 t=1792488690806
-EPOCH_CLOSE_VOTE epoch=3 round=0 voter=735FE217 kind=First value=633BCBB2 result=Ok(()) node=pr3 t=1792488690886
-EPOCH_VALIDATE_TIMING epoch=3 evidence_ms=22 build_ms=22 memo=1337/1923 node=pr3 t=1792488690931
-EPOCH_VALUE epoch=3 value=8E62C92D14A0BA9994AD1B020A06DA37108E15BAB5A33801EE7651ADBD0A9326 state=CB3E6A110BF7912E00FEDACBB9754144CECB7D773B3F0F3A18F6312A6E264B85 node=pr3 t=1792488690931
+SIGNING_WRITES decided=1/0ms/0ms evidence=1/0ms/0ms signing=1/0ms/0ms node=pr3 t=1792494185140
+SIGNING_WRITES decided=17/0ms/0ms evidence=17/0ms/0ms signing=196/0ms/0ms node=pr3 t=1792494190345
+SIGNING_WRITES decided=17/0ms/0ms evidence=17/0ms/0ms signing=196/0ms/0ms node=pr3 t=1792494195543
+SIGNING_WRITES decided=17/0ms/0ms evidence=17/0ms/0ms signing=198/2ms/1ms node=pr3 t=1792494200745
+SIGNING_WRITES decided=17/0ms/0ms evidence=17/0ms/0ms signing=197/0ms/0ms node=pr3 t=1792494205952
+SIGNING_WRITES decided=17/0ms/0ms evidence=17/0ms/0ms signing=197/0ms/0ms node=pr3 t=1792494211155
+SIGNING_WRITES decided=17/0ms/0ms evidence=17/0ms/0ms signing=196/0ms/0ms node=pr3 t=1792494216350
+SIGNING_WRITES decided=17/0ms/0ms evidence=17/0ms/0ms signing=196/3ms/0ms node=pr3 t=1792494221567
+SIGNING_WRITES decided=17/0ms/0ms evidence=17/0ms/0ms signing=197/0ms/0ms node=pr3 t=1792494226761
+SIGNING_WRITES decided=17/0ms/0ms evidence=17/0ms/0ms signing=220/0ms/0ms node=pr3 t=1792494231917
+SIGNING_WRITES decided=17/0ms/0ms evidence=17/0ms/0ms signing=220/20ms/1ms node=pr3 t=1792494237078
+SIGNING_WRITES decided=17/0ms/0ms evidence=17/0ms/0ms signing=220/8ms/0ms node=pr3 t=1792494242238
+SIGNING_WRITES decided=17/0ms/0ms evidence=17/0ms/0ms signing=219/0ms/0ms node=pr3 t=1792494247389
+SIGNING_WRITES decided=17/0ms/0ms evidence=17/0ms/0ms signing=218/0ms/0ms node=pr3 t=1792494252548
+SIGNING_WRITES decided=17/0ms/0ms evidence=17/0ms/0ms signing=218/0ms/0ms node=pr3 t=1792494257709
+SIGNING_WRITES decided=17/0ms/0ms evidence=17/0ms/0ms signing=219/0ms/0ms node=pr3 t=1792494262866
+EPOCH_COMMITTEE derived_by=genesis members=6 accounts=33 n=6 digest=EBA8B9E90CFA0F73BC0715EDD148E081BDC1D1DB6C0A7F5E6C13D09F6EEE3145 shares=["A353E45E:16.7%", "65A90023:16.7%", "D315857C:16.7%", "911999B2:16.7%", "633D9D61:16.7%", "735FE217:16.7%"] node=pr3 t=1792494263029
+EPOCH_START epoch=0 elections=0 node=pr3 t=1792494263029
+EPOCH_MEMO_REFRESH epoch=0 frozen=false derived=33 accounts=33 memoized=33 unmemoized={} certificates=64 view_ms=0 ms=0 node=pr3 t=1792494263159
+COMMITTEE_MEMBERS members=6 voting_keys=65A90023 node=pr3 t=1792494263831
+EPOCH_MEMO_REFRESH epoch=0 frozen=false derived=56 accounts=82 memoized=82 unmemoized={} certificates=197 view_ms=0 ms=0 node=pr3 t=1792494264173
+EPOCH_MEMO_REFRESH epoch=0 frozen=false derived=620 accounts=646 memoized=646 unmemoized={} certificates=1673 view_ms=0 ms=8 node=pr3 t=1792494265193
+EPOCH_MEMO_REFRESH epoch=0 frozen=false derived=2152 accounts=2178 memoized=2178 unmemoized={} certificates=4753 view_ms=0 ms=12 node=pr3 t=1792494266223
+EPOCH_MEMO_REFRESH epoch=0 frozen=false derived=2228 accounts=3403 memoized=3403 unmemoized={} certificates=7298 view_ms=0 ms=13 node=pr3 t=1792494267253
+SIGNING_WRITES decided=17/0ms/0ms epochs=1/0ms/0ms evidence=17/0ms/0ms signing=222/148ms/4ms node=pr3 t=1792494268028
+EPOCH_MEMO_REFRESH epoch=0 frozen=false derived=1773 accounts=4296 memoized=4296 unmemoized={} certificates=9249 view_ms=0 ms=12 node=pr3 t=1792494268279
+EPOCH_MEMO_REFRESH epoch=0 frozen=false derived=1837 accounts=5172 memoized=5172 unmemoized={} certificates=11244 view_ms=0 ms=11 node=pr3 t=1792494269300
+EPOCH_MEMO_REFRESH epoch=0 frozen=false derived=1796 accounts=6046 memoized=6046 unmemoized={} certificates=13158 view_ms=0 ms=40 node=pr3 t=1792494270352
+EPOCH_ENDED epoch=0 elections=268 active=155 node=pr3 t=1792494271034
+EPOCH_ADVANCED epoch=1 elections=268 active=155 vote_records=173472 node=pr3 t=1792494271055
+EPOCH_CLOSE_UNREADY epoch=0 short_of=reports usable=0 weight=0 required=5 held=0 theirs=[] node=pr3 t=1792494271062
+EPOCH_REPORT epoch=0 certified=14599 residual=151 root=DDAAE517965E438FF0ABC9AC8F7BBD6F5D0428A924784B5393E70C9009B72559 reports=1 node=pr3 t=1792494271085
+EPOCH_RECONCILED epoch=0 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=false entries=0 total=14599 symbols=0 dropped=false node=pr3 t=1792494271132
+EPOCH_MEMO_REFRESH epoch=0 frozen=true derived=1380 accounts=6625 memoized=6625 unmemoized={} certificates=13158 view_ms=0 ms=12 node=pr3 t=1792494271144
+EPOCH_RECONCILED epoch=0 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=true entries=149 total=149 symbols=0 dropped=false node=pr3 t=1792494271148
+EPOCH_MEMO_PROVISIONAL epoch=1 ms=1 node=pr3 t=1792494271148
+EPOCH_RECONCILED epoch=0 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=0 total=14599 symbols=0 dropped=false node=pr3 t=1792494271148
+EPOCH_MEMO_REFRESH epoch=1 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=13158 view_ms=0 ms=0 node=pr3 t=1792494271149
+EPOCH_RECONCILED epoch=0 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=172 total=172 symbols=0 dropped=false node=pr3 t=1792494271152
+EPOCH_RECONCILED epoch=0 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=false entries=0 total=14599 symbols=0 dropped=false node=pr3 t=1792494271153
+EPOCH_RECONCILED epoch=0 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=true entries=154 total=154 symbols=0 dropped=false node=pr3 t=1792494271276
+EPOCH_RECONCILED epoch=0 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=false entries=0 total=14599 symbols=0 dropped=false node=pr3 t=1792494271305
+EPOCH_RECONCILED epoch=0 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=true entries=145 total=145 symbols=0 dropped=false node=pr3 t=1792494271311
+EPOCH_RECONCILED epoch=0 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=false entries=0 total=14599 symbols=0 dropped=false node=pr3 t=1792494271314
+EPOCH_RECONCILED epoch=0 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=true entries=148 total=148 symbols=0 dropped=false node=pr3 t=1792494271320
+EPOCH_CLOSE_READY epoch=0 node=pr3 t=1792494271361
+EPOCH_REPORT_NAMED epoch=0 reporter=735FE217 certified=DDAAE517 residual=19628252 node=pr3 t=1792494271436
+EPOCH_CLOSE_VOTE epoch=0 round=0 voter=735FE217 kind=First value=CA95266A result=Ok(()) node=pr3 t=1792494271436
+EPOCH_CLOSE_ROUND epoch=0 round=0 leader=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F leads=false node=pr3 t=1792494271663
+EPOCH_RECONCILED epoch=0 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=0 total=14599 symbols=0 dropped=false node=pr3 t=1792494271664
+EPOCH_RECONCILED epoch=0 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=172 total=172 symbols=0 dropped=false node=pr3 t=1792494271670
+EPOCH_VALIDATE_TIMING epoch=0 evidence_ms=25 build_ms=6 memo=6516/173 node=pr3 t=1792494271716
+EPOCH_VALUE epoch=0 value=2C3CE4882F838827EDE9DEAA963C704750B5CDBC7AECDDFDACF693DDC208AA34 state=3318CF19B15903B890F100B7EF1956B75088C2F6E2CA12F116B7BC4D7F0FBAA1 node=pr3 t=1792494271716
+EPOCH_RECONCILED epoch=0 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=172 total=172 symbols=0 dropped=false node=pr3 t=1792494271969
+EPOCH_MEMO_REFRESH epoch=1 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=14598 view_ms=0 ms=0 node=pr3 t=1792494272226
+EPOCH_RECONCILED epoch=0 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=172 total=172 symbols=0 dropped=false node=pr3 t=1792494272289
+EPOCH_CLOSE_TALLY epoch=0 round=0 tc=false votes=[735FE217:f=CA95266A,n=CA95266A] node=pr3 t=1792494272572
+EPOCH_RECONCILED epoch=0 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=172 total=172 symbols=0 dropped=false node=pr3 t=1792494272631
+SIGNING_WRITES decided=17/0ms/0ms evidence=17/0ms/0ms forget=1/2ms/2ms forget_evidence=1/0ms/0ms frozen=1/0ms/0ms report=1/2ms/2ms signing=224/253ms/16ms node=pr3 t=1792494273182
+EPOCH_RECONCILED epoch=0 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=172 total=172 symbols=0 dropped=false node=pr3 t=1792494273186
+EPOCH_MEMO_REFRESH epoch=1 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=14598 view_ms=0 ms=0 node=pr3 t=1792494273237
+EPOCH_RECONCILED epoch=0 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=172 total=172 symbols=0 dropped=false node=pr3 t=1792494273504
+EPOCH_CLOSE_MARK epoch=0 round=0 kind=Abstain value=2C3CE488 node=pr3 t=1792494273795
+EPOCH_CLOSE_VOTE epoch=0 round=0 voter=65A90023 kind=Abstain value=2C3CE488 result=Ok(()) node=pr3 t=1792494273831
+EPOCH_RECONCILED epoch=0 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=172 total=172 symbols=0 dropped=false node=pr3 t=1792494273844
+EPOCH_CLOSE_VOTE epoch=0 round=0 voter=D315857C kind=Abstain value=2C3CE488 result=Ok(()) node=pr3 t=1792494273899
+EPOCH_CLOSE_VOTE epoch=0 round=0 voter=735FE217 kind=Timeout value=CA95266A result=Ok(()) node=pr3 t=1792494273933
+EPOCH_CLOSE_VOTE epoch=0 round=0 voter=633D9D61 kind=Abstain value=2C3CE488 result=Ok(()) node=pr3 t=1792494274003
+EPOCH_CLOSE_VOTE epoch=0 round=0 voter=A353E45E kind=Abstain value=2C3CE488 result=Ok(()) node=pr3 t=1792494274018
+EPOCH_VALUE_REUSED epoch=0 slot=1 value=2398811F8397950DB44CAEAF56702DD632F90962BC417C8622324A192A926CEE node=pr3 t=1792494274036
+EPOCH_VALUE epoch=0 value=2398811F8397950DB44CAEAF56702DD632F90962BC417C8622324A192A926CEE state=3318CF19B15903B890F100B7EF1956B75088C2F6E2CA12F116B7BC4D7F0FBAA1 node=pr3 t=1792494274036
+EPOCH_CLOSE_ROUND epoch=0 round=1 leader=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 leads=false node=pr3 t=1792494274089
+EPOCH_CLOSE_VOTE epoch=0 round=1 voter=911999B2 kind=First value=2398811F result=Ok(()) node=pr3 t=1792494274090
+EPOCH_CLOSE_MARK epoch=0 round=1 kind=First value=2398811F node=pr3 t=1792494274110
+EPOCH_CLOSE_VOTE epoch=0 round=1 voter=65A90023 kind=First value=2398811F result=Ok(()) node=pr3 t=1792494274172
+EPOCH_CLOSE_VOTE epoch=0 round=1 voter=735FE217 kind=First value=2398811F result=Ok(()) node=pr3 t=1792494274180
+EPOCH_CLOSE_VOTE epoch=0 round=1 voter=D315857C kind=First value=2398811F result=Ok(()) node=pr3 t=1792494274220
+EPOCH_CLOSE_VOTE epoch=0 round=1 voter=633D9D61 kind=First value=2398811F result=Ok(()) node=pr3 t=1792494274256
+EPOCH_CLOSE_MARK epoch=0 round=1 kind=Final value=2398811F node=pr3 t=1792494274265
+EPOCH_MEMO_REFRESH epoch=1 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=14598 view_ms=0 ms=0 node=pr3 t=1792494274287
+EPOCH_CLOSE_VOTE epoch=0 round=1 voter=D315857C kind=Final value=2398811F result=Ok(()) node=pr3 t=1792494274291
+EPOCH_CLOSE_VOTE epoch=0 round=1 voter=A353E45E kind=Final value=2398811F result=Ok(()) node=pr3 t=1792494274291
+EPOCH_CLOSE_VOTE epoch=0 round=1 voter=911999B2 kind=Final value=2398811F result=Ok(()) node=pr3 t=1792494274292
+EPOCH_CLOSE_VOTE epoch=0 round=1 voter=633D9D61 kind=Final value=2398811F result=Ok(()) node=pr3 t=1792494274309
+EPOCH_CLOSE_VOTE epoch=0 round=1 voter=65A90023 kind=Final value=2398811F result=Ok(()) node=pr3 t=1792494274313
+EPOCH_INSTALL epoch=0 finalized=14534 instances_confirmed=47 followed=47 node=pr3 t=1792494274342
+EPOCH_CARRIED epoch=0 instances=182 split=0 node=pr3 t=1792494274343
+EPOCH_COMMITTEE derived_by=0 members=6 accounts=6651 n=6 digest=EBA8B9E90CFA0F73BC0715EDD148E081BDC1D1DB6C0A7F5E6C13D09F6EEE3145 shares=["735FE217:16.7%", "65A90023:16.7%", "D315857C:16.7%", "911999B2:16.7%", "633D9D61:16.7%", "A353E45E:16.7%"] node=pr3 t=1792494274374
+EPOCH_LOCKS epoch=0 continued=0 kinds={"locks=1 kind=Some(Recovery) nc_here=false saved=true": 25, "locks=1 kind=Some(Recovery) nc_here=true saved=true": 148} node=pr3 t=1792494274376
+EPOCH_OMITTED epoch=0 instances=9 retained=173 node=pr3 t=1792494274376
+EPOCH_INSTALL_TIMING epoch=0 steps=[("hash", 2), ("base", 24), ("install", 29), ("gate", 29), ("slots", 43), ("committee", 61), ("release", 62)] node=pr3 t=1792494274376
+EPOCH_CLOSED epoch=0 round=1 value=2398811F8397950DB44CAEAF56702DD632F90962BC417C8622324A192A926CEE state=3318CF19B15903B890F100B7EF1956B75088C2F6E2CA12F116B7BC4D7F0FBAA1 node=pr3 t=1792494274376
+EPOCH_CLOSE_VOTE epoch=0 round=1 voter=65A90023 kind=Final value=2398811F result=Err(Late) node=pr3 t=1792494274378
+EPOCH_CLOSE_VOTE epoch=0 round=1 voter=A353E45E kind=First value=2398811F result=Err(Late) node=pr3 t=1792494274384
+EPOCH_INSTALLED epoch=0 finalized=47 cemented=30 queued=17 missing=0 ms=0 absent=[] node=pr3 t=1792494274406
+EPOCH_RETAINED epoch=0 retained=173 held=173 missing=0 supplied=0 node=pr3 t=1792494274412
+EPOCH_CLOSE_VOTE epoch=0 round=1 voter=735FE217 kind=Final value=2398811F result=Err(Late) node=pr3 t=1792494274461
+EPOCH_RECONCILED epoch=0 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=172 total=172 symbols=0 dropped=false node=pr3 t=1792494274490
+EPOCH_MEMO_REBASE epoch=1 kept=0 derived=0 ms=0 node=pr3 t=1792494274625
+EPOCH_EVIDENCE_RELEASED epoch=0 node=pr3 t=1792494274719
+EPOCH_FOLLOW cemented=14504 cementing=0 requested=0 pending=0 node=pr3 t=1792494275343
+EPOCH_MEMO_REFRESH epoch=1 frozen=false derived=1613 accounts=1613 memoized=1613 unmemoized={} certificates=16211 view_ms=0 ms=8 node=pr3 t=1792494275427
+EPOCH_MEMO_REFRESH epoch=1 frozen=false derived=5594 accounts=7185 memoized=7012 unmemoized={Retained: 173} certificates=21810 view_ms=2 ms=78 node=pr3 t=1792494276533
+EPOCH_MEMO_REFRESH epoch=1 frozen=false derived=3378 accounts=9224 memoized=9051 unmemoized={Retained: 173} certificates=25188 view_ms=0 ms=69 node=pr3 t=1792494277771
+SIGNING_WRITES decided=17/3ms/3ms evidence=17/0ms/0ms signing=106/489ms/97ms sync_bulk=1/1ms/1ms node=pr3 t=1792494278387
+EPOCH_MEMO_REFRESH epoch=1 frozen=false derived=3743 accounts=11012 memoized=10839 unmemoized={Retained: 173} certificates=28946 view_ms=0 ms=113 node=pr3 t=1792494278988
+EPOCH_ENDED epoch=1 elections=1186 active=611 node=pr3 t=1792494279044
+EPOCH_ADVANCED epoch=2 elections=1186 active=611 vote_records=352811 node=pr3 t=1792494279098
+EPOCH_REPORT epoch=1 certified=29655 residual=503 root=9C7461C1623CEBB8552361641502BF1DA80C9032249A936A936373058FF1A5E0 reports=1 node=pr3 t=1792494279134
+EPOCH_RECONCILED epoch=1 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=false entries=0 total=29655 symbols=0 dropped=false node=pr3 t=1792494279219
+EPOCH_RECONCILED epoch=1 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=true entries=168 total=168 symbols=0 dropped=false node=pr3 t=1792494279323
+EPOCH_CLOSE_UNREADY epoch=1 short_of=reports usable=1 weight=1 required=5 held=3 theirs=["D315857C:9C7461C1:D2701DB8", "A353E45E:9C7461C1:E34ADCA1", "911999B2:9C7461C1:154EAC4C"] node=pr3 t=1792494279323
+EPOCH_MEMO_REFRESH epoch=1 frozen=true derived=708 accounts=11206 memoized=11033 unmemoized={Retained: 173} certificates=29654 view_ms=0 ms=15 node=pr3 t=1792494279339
+EPOCH_MEMO_PROVISIONAL epoch=2 ms=3 node=pr3 t=1792494279345
+EPOCH_RECONCILED epoch=1 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=false entries=0 total=29655 symbols=0 dropped=false node=pr3 t=1792494279353
+EPOCH_MEMO_REFRESH epoch=2 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=29654 view_ms=0 ms=0 node=pr3 t=1792494279353
+EPOCH_RECONCILED epoch=1 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=true entries=365 total=365 symbols=0 dropped=false node=pr3 t=1792494279356
+EPOCH_RECONCILED epoch=1 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=false entries=0 total=29655 symbols=0 dropped=false node=pr3 t=1792494279360
+EPOCH_RECONCILED epoch=1 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=true entries=323 total=323 symbols=0 dropped=false node=pr3 t=1792494279388
+EPOCH_RECONCILED epoch=1 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=0 total=29655 symbols=0 dropped=false node=pr3 t=1792494279399
+EPOCH_RECONCILED epoch=1 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=31 total=31 symbols=0 dropped=false node=pr3 t=1792494279402
+EPOCH_RECONCILED epoch=1 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=false entries=676 total=29652 symbols=1228 dropped=false node=pr3 t=1792494279535
+EPOCH_RECONCILED epoch=1 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=true entries=70 total=70 symbols=0 dropped=false node=pr3 t=1792494279570
+EPOCH_CLOSE_READY epoch=1 node=pr3 t=1792494279576
+EPOCH_REPORT_NAMED epoch=1 reporter=735FE217 certified=9C7461C1 residual=D8B01CB0 node=pr3 t=1792494279709
+EPOCH_CLOSE_VOTE epoch=1 round=0 voter=735FE217 kind=First value=5DE5DCF2 result=Ok(()) node=pr3 t=1792494279717
+EPOCH_CLOSE_ROUND epoch=1 round=0 leader=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F leads=false node=pr3 t=1792494279855
+EPOCH_CLOSE_VOTE epoch=1 round=0 voter=911999B2 kind=First value=5DE5DCF2 result=Ok(()) node=pr3 t=1792494279857
+EPOCH_RECONCILED epoch=1 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=0 total=29655 symbols=0 dropped=false node=pr3 t=1792494279857
+EPOCH_RECONCILED epoch=1 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=31 total=31 symbols=0 dropped=false node=pr3 t=1792494279863
+EPOCH_RECONCILED epoch=1 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=31 total=31 symbols=0 dropped=false node=pr3 t=1792494280195
+EPOCH_VALIDATE_TIMING epoch=1 evidence_ms=35 build_ms=13 memo=10540/953 node=pr3 t=1792494280241
+EPOCH_VALUE epoch=1 value=2D32A439D1816C30A2D49E074E4E68695AC5DB3F3B0780C69EE27CA5DAC5AE3C state=A18A7F2427ABBF25822D0FA914FE72B9C6A56148466ABFD8223DEA29F6721403 node=pr3 t=1792494280241
+EPOCH_MEMO_REFRESH epoch=2 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=29654 view_ms=0 ms=0 node=pr3 t=1792494280491
+EPOCH_RECONCILED epoch=1 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=31 total=31 symbols=0 dropped=false node=pr3 t=1792494280525
+EPOCH_CLOSE_TALLY epoch=1 round=0 tc=false votes=[735FE217:f=5DE5DCF2,n=5DE5DCF2 911999B2:f=5DE5DCF2,n=5DE5DCF2] node=pr3 t=1792494281065
+EPOCH_RECONCILED epoch=1 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=31 total=31 symbols=0 dropped=false node=pr3 t=1792494281071
+EPOCH_RECONCILED epoch=1 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=31 total=31 symbols=0 dropped=false node=pr3 t=1792494281423
+EPOCH_MEMO_REFRESH epoch=2 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=29654 view_ms=0 ms=0 node=pr3 t=1792494281502
+EPOCH_RECONCILED epoch=1 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=31 total=31 symbols=0 dropped=false node=pr3 t=1792494281736
+EPOCH_CLOSE_VOTE epoch=1 round=0 voter=633D9D61 kind=Abstain value=2D32A439 result=Ok(()) node=pr3 t=1792494281934
+EPOCH_CLOSE_MARK epoch=1 round=0 kind=Abstain value=2D32A439 node=pr3 t=1792494281991
+EPOCH_CLOSE_VOTE epoch=1 round=0 voter=65A90023 kind=Abstain value=2D32A439 result=Ok(()) node=pr3 t=1792494282073
+EPOCH_CLOSE_VOTE epoch=1 round=0 voter=A353E45E kind=Abstain value=2D32A439 result=Ok(()) node=pr3 t=1792494282073
+EPOCH_CLOSE_VOTE epoch=1 round=0 voter=D315857C kind=Abstain value=2D32A439 result=Ok(()) node=pr3 t=1792494282137
+EPOCH_CLOSE_VOTE epoch=1 round=0 voter=911999B2 kind=Timeout value=5DE5DCF2 result=Ok(()) node=pr3 t=1792494282152
+EPOCH_CLOSE_VOTE epoch=1 round=0 voter=735FE217 kind=Timeout value=5DE5DCF2 result=Ok(()) node=pr3 t=1792494282174
+EPOCH_VALUE_REUSED epoch=1 slot=1 value=D0145D568CBB76ACA73C1D2C83E3D7991DA4131DB058A5CC0EA83DFD16FCAAE9 node=pr3 t=1792494282203
+EPOCH_VALUE epoch=1 value=D0145D568CBB76ACA73C1D2C83E3D7991DA4131DB058A5CC0EA83DFD16FCAAE9 state=A18A7F2427ABBF25822D0FA914FE72B9C6A56148466ABFD8223DEA29F6721403 node=pr3 t=1792494282203
+EPOCH_CLOSE_VOTE epoch=1 round=1 voter=911999B2 kind=First value=D0145D56 result=Ok(()) node=pr3 t=1792494282252
+EPOCH_CLOSE_ROUND epoch=1 round=1 leader=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 leads=false node=pr3 t=1792494282280
+EPOCH_RECONCILED epoch=1 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=31 total=31 symbols=0 dropped=false node=pr3 t=1792494282285
+EPOCH_CLOSE_MARK epoch=1 round=1 kind=First value=D0145D56 node=pr3 t=1792494282287
+EPOCH_CLOSE_VOTE epoch=1 round=1 voter=65A90023 kind=First value=D0145D56 result=Ok(()) node=pr3 t=1792494282326
+EPOCH_CLOSE_VOTE epoch=1 round=1 voter=D315857C kind=First value=D0145D56 result=Ok(()) node=pr3 t=1792494282396
+EPOCH_CLOSE_VOTE epoch=1 round=1 voter=A353E45E kind=First value=D0145D56 result=Ok(()) node=pr3 t=1792494282400
+EPOCH_CLOSE_VOTE epoch=1 round=1 voter=735FE217 kind=First value=D0145D56 result=Ok(()) node=pr3 t=1792494282406
+EPOCH_CLOSE_MARK epoch=1 round=1 kind=Final value=D0145D56 node=pr3 t=1792494282414
+EPOCH_CLOSE_VOTE epoch=1 round=1 voter=911999B2 kind=Final value=D0145D56 result=Ok(()) node=pr3 t=1792494282430
+EPOCH_CLOSE_VOTE epoch=1 round=1 voter=D315857C kind=Final value=D0145D56 result=Ok(()) node=pr3 t=1792494282452
+EPOCH_CLOSE_VOTE epoch=1 round=1 voter=735FE217 kind=Final value=D0145D56 result=Ok(()) node=pr3 t=1792494282501
+EPOCH_CLOSE_VOTE epoch=1 round=1 voter=65A90023 kind=Final value=D0145D56 result=Ok(()) node=pr3 t=1792494282507
+EPOCH_CLOSE_VOTE epoch=1 round=1 voter=A353E45E kind=Final value=D0145D56 result=Ok(()) node=pr3 t=1792494282508
+EPOCH_INSTALL epoch=1 finalized=15056 instances_confirmed=578 followed=405 node=pr3 t=1792494282556
+EPOCH_CARRIED epoch=1 instances=586 split=0 node=pr3 t=1792494282561
+EPOCH_COMMITTEE derived_by=1 members=6 accounts=11232 n=6 digest=EBA8B9E90CFA0F73BC0715EDD148E081BDC1D1DB6C0A7F5E6C13D09F6EEE3145 shares=["A353E45E:16.7%", "65A90023:16.7%", "D315857C:16.7%", "911999B2:16.7%", "633D9D61:16.7%", "735FE217:16.7%"] node=pr3 t=1792494282600
+EPOCH_LOCKS epoch=1 continued=0 kinds={"locks=1 kind=Some(Recovery) nc_here=false saved=true": 436, "locks=1 kind=Some(Recovery) nc_here=true saved=true": 67} node=pr3 t=1792494282602
+EPOCH_OMITTED epoch=1 instances=83 retained=503 node=pr3 t=1792494282602
+EPOCH_INSTALL_TIMING epoch=1 steps=[("hash", 5), ("base", 38), ("install", 49), ("gate", 50), ("slots", 66), ("committee", 92), ("release", 93)] node=pr3 t=1792494282602
+EPOCH_CLOSED epoch=1 round=1 value=D0145D568CBB76ACA73C1D2C83E3D7991DA4131DB058A5CC0EA83DFD16FCAAE9 state=A18A7F2427ABBF25822D0FA914FE72B9C6A56148466ABFD8223DEA29F6721403 node=pr3 t=1792494282602
+EPOCH_CLOSE_VOTE epoch=1 round=1 voter=633D9D61 kind=Final value=D0145D56 result=Err(Late) node=pr3 t=1792494282664
+EPOCH_INSTALLED epoch=1 finalized=405 cemented=1 queued=404 missing=0 ms=1 absent=[] node=pr3 t=1792494282670
+EPOCH_RETAINED epoch=1 retained=503 held=503 missing=0 supplied=0 node=pr3 t=1792494282672
+EPOCH_MEMO_REBASE epoch=2 kept=0 derived=0 ms=0 node=pr3 t=1792494282753
+EPOCH_MEMO_REFRESH epoch=2 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=29654 view_ms=0 ms=0 node=pr3 t=1792494282753
+EPOCH_RECONCILED epoch=1 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=31 total=31 symbols=0 dropped=false node=pr3 t=1792494283013
+EPOCH_EVIDENCE_RELEASED epoch=1 node=pr3 t=1792494283354
+EPOCH_FOLLOW cemented=15055 cementing=0 requested=0 pending=0 node=pr3 t=1792494283562
+SIGNING_WRITES decided=15/11ms/11ms evidence=15/0ms/0ms forget=1/4ms/4ms forget_evidence=1/0ms/0ms frozen=1/0ms/0ms report=1/3ms/3ms signing=166/489ms/257ms sync_bulk=1/1ms/1ms node=pr3 t=1792494283632
+EPOCH_MEMO_REFRESH epoch=2 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=29654 view_ms=0 ms=0 node=pr3 t=1792494283891
+EPOCH_MEMO_REFRESH epoch=2 frozen=false derived=2143 accounts=2143 memoized=1595 unmemoized={Retained: 503, Anchored: 45} certificates=31797 view_ms=0 ms=11 node=pr3 t=1792494284929
+EPOCH_MEMO_REFRESH epoch=2 frozen=false derived=6602 accounts=8745 memoized=8157 unmemoized={Retained: 503, Anchored: 85} certificates=38399 view_ms=1 ms=82 node=pr3 t=1792494286173
+EPOCH_MEMO_REFRESH epoch=2 frozen=false derived=890 accounts=9592 memoized=8989 unmemoized={Retained: 503, Anchored: 100} certificates=39289 view_ms=0 ms=8 node=pr3 t=1792494287024
+EPOCH_ENDED epoch=2 elections=6008 active=2417 node=pr3 t=1792494287042
+EPOCH_ADVANCED epoch=3 elections=6008 active=2417 vote_records=502537 node=pr3 t=1792494287120
+EPOCH_CLOSE_UNREADY epoch=2 short_of=reports usable=0 weight=0 required=5 held=1 theirs=["D315857C:67FA30A3:2B3A9128"] node=pr3 t=1792494287193
+EPOCH_MEMO_PROVISIONAL epoch=3 ms=2 node=pr3 t=1792494287453
+EPOCH_MEMO_REFRESH epoch=3 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=39289 view_ms=0 ms=0 node=pr3 t=1792494287453
+EPOCH_RECONCILED epoch=2 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=false entries=3500 total=43641 symbols=4728 dropped=false node=pr3 t=1792494287661
+EPOCH_RECONCILED epoch=2 reporter=D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532 complete=true entries=957 total=957 symbols=0 dropped=false node=pr3 t=1792494287767
+EPOCH_REPORT epoch=2 certified=42814 residual=1900 root=5AE2C8419181F12AABC52E05BFEAF48854F13DDABA974C67E999C785382F89DF reports=1 node=pr3 t=1792494287920
+EPOCH_MEMO_REFRESH epoch=2 frozen=true derived=3524 accounts=11992 memoized=11356 unmemoized={Retained: 503, Anchored: 133} certificates=43640 view_ms=0 ms=24 node=pr3 t=1792494288014
+EPOCH_CLOSE_TALLY epoch=2 round=0 tc=false votes=[] node=pr3 t=1792494288039
+EPOCH_RECONCILED epoch=2 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=false entries=3767 total=44132 symbols=5228 dropped=false node=pr3 t=1792494288065
+EPOCH_RECONCILED epoch=2 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=4218 total=43867 symbols=5728 dropped=false node=pr3 t=1792494288083
+EPOCH_RECONCILED epoch=2 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=false entries=2796 total=41247 symbols=4228 dropped=false node=pr3 t=1792494288230
+EPOCH_RECONCILED epoch=2 reporter=633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0 complete=true entries=1313 total=1313 symbols=0 dropped=false node=pr3 t=1792494288334
+EPOCH_MEMO_REFRESH epoch=3 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=43640 view_ms=0 ms=0 node=pr3 t=1792494288334
+EPOCH_RECONCILED epoch=2 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=1317 total=1317 symbols=0 dropped=false node=pr3 t=1792494288341
+EPOCH_RECONCILED epoch=2 reporter=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 complete=true entries=3193 total=3193 symbols=0 dropped=false node=pr3 t=1792494288346
+EPOCH_RECONCILED epoch=2 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=false entries=0 total=44132 symbols=0 dropped=false node=pr3 t=1792494288346
+EPOCH_RECONCILED epoch=2 reporter=A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04 complete=true entries=1139 total=1139 symbols=0 dropped=false node=pr3 t=1792494288351
+EPOCH_CLOSE_READY epoch=2 node=pr3 t=1792494288474
+EPOCH_CLOSE_ROUND epoch=2 round=0 leader=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F leads=false node=pr3 t=1792494288476
+EPOCH_RECONCILED epoch=2 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=1317 total=1317 symbols=0 dropped=false node=pr3 t=1792494288710
+SIGNING_WRITES decided=16/0ms/0ms evidence=16/0ms/0ms forget=1/6ms/6ms forget_evidence=1/0ms/0ms frozen=1/1ms/1ms report=1/25ms/25ms signing=77/715ms/153ms node=pr3 t=1792494288789
+EPOCH_REPORT_NAMED epoch=2 reporter=735FE217 certified=9CF1F0DE residual=578DD7FF node=pr3 t=1792494288803
+EPOCH_CLOSE_VOTE epoch=2 round=0 voter=735FE217 kind=First value=9474FF39 result=Ok(()) node=pr3 t=1792494288803
+EPOCH_RECONCILED epoch=2 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=0 total=43867 symbols=0 dropped=false node=pr3 t=1792494288925
+EPOCH_RECONCILED epoch=2 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=1317 total=1317 symbols=0 dropped=false node=pr3 t=1792494288933
+EPOCH_CLOSE_VOTE epoch=2 round=0 voter=911999B2 kind=First value=9474FF39 result=Ok(()) node=pr3 t=1792494289079
+EPOCH_VALIDATE_TIMING epoch=2 evidence_ms=53 build_ms=40 memo=7293/6397 node=pr3 t=1792494289314
+EPOCH_VALUE epoch=2 value=09DD8CADA95BEB61C065E13C23F54DDE3166FE8995E6CCEC840190D1F23388AD state=ACB2D189E544EFCEFD9BC4A83FD7073CD9317AFDC383F26E36B70BC4F45487E6 node=pr3 t=1792494289317
+EPOCH_RECONCILED epoch=2 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=1317 total=1317 symbols=0 dropped=false node=pr3 t=1792494289347
+EPOCH_MEMO_REFRESH epoch=3 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=44131 view_ms=0 ms=0 node=pr3 t=1792494289568
+EPOCH_RECONCILED epoch=2 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=1317 total=1317 symbols=0 dropped=false node=pr3 t=1792494289736
+EPOCH_RECONCILED epoch=2 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=1317 total=1317 symbols=0 dropped=false node=pr3 t=1792494290138
+EPOCH_CLOSE_TALLY epoch=2 round=0 tc=false votes=[735FE217:f=9474FF39,n=9474FF39 911999B2:f=9474FF39,n=9474FF39] node=pr3 t=1792494290299
+EPOCH_RECONCILED epoch=2 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=1317 total=1317 symbols=0 dropped=false node=pr3 t=1792494290562
+EPOCH_MEMO_REFRESH epoch=3 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=44131 view_ms=0 ms=0 node=pr3 t=1792494290583
+EPOCH_CLOSE_MARK epoch=2 round=0 kind=Abstain value=09DD8CAD node=pr3 t=1792494290620
+EPOCH_CLOSE_VOTE epoch=2 round=0 voter=65A90023 kind=Abstain value=09DD8CAD result=Ok(()) node=pr3 t=1792494290627
+EPOCH_RECONCILED epoch=2 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=1317 total=1317 symbols=0 dropped=false node=pr3 t=1792494290951
+EPOCH_CLOSE_VOTE epoch=2 round=0 voter=D315857C kind=Abstain value=09DD8CAD result=Ok(()) node=pr3 t=1792494290993
+EPOCH_CLOSE_VOTE epoch=2 round=0 voter=911999B2 kind=Timeout value=9474FF39 result=Ok(()) node=pr3 t=1792494291033
+EPOCH_CLOSE_VOTE epoch=2 round=0 voter=735FE217 kind=Timeout value=9474FF39 result=Ok(()) node=pr3 t=1792494291071
+EPOCH_CLOSE_VOTE epoch=2 round=0 voter=633D9D61 kind=Abstain value=09DD8CAD result=Ok(()) node=pr3 t=1792494291185
+EPOCH_CLOSE_ROUND epoch=2 round=1 leader=911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07 leads=false node=pr3 t=1792494291211
+EPOCH_CLOSE_VOTE epoch=2 round=0 voter=A353E45E kind=Abstain value=09DD8CAD result=Ok(()) node=pr3 t=1792494291272
+EPOCH_RECONCILED epoch=2 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=1317 total=1317 symbols=0 dropped=false node=pr3 t=1792494291355
+EPOCH_CLOSE_VOTE epoch=2 round=1 voter=911999B2 kind=First value=1BC80409 result=Ok(()) node=pr3 t=1792494291524
+EPOCH_VALIDATE_TIMING epoch=2 evidence_ms=64 build_ms=44 memo=7359/6242 node=pr3 t=1792494291575
+EPOCH_VALUE epoch=2 value=1BC80409EDE9B3B95CA59E4F87E679563E71DD0D8ADE171FEA9D6CAE144B857F state=07708A21A3F628BDF83DCB4BACC3E7F90FE0350AC6D7B8203F64BEAA6B11713A node=pr3 t=1792494291578
+EPOCH_CLOSE_MARK epoch=2 round=1 kind=First value=1BC80409 node=pr3 t=1792494291589
+EPOCH_CLOSE_VOTE epoch=2 round=1 voter=633D9D61 kind=First value=1BC80409 result=Ok(()) node=pr3 t=1792494291637
+EPOCH_CLOSE_VOTE epoch=2 round=1 voter=A353E45E kind=First value=1BC80409 result=Ok(()) node=pr3 t=1792494291641
+EPOCH_CLOSE_VOTE epoch=2 round=1 voter=735FE217 kind=First value=1BC80409 result=Ok(()) node=pr3 t=1792494291677
+EPOCH_CLOSE_VOTE epoch=2 round=1 voter=65A90023 kind=First value=1BC80409 result=Ok(()) node=pr3 t=1792494291689
+EPOCH_CLOSE_VOTE epoch=2 round=1 voter=D315857C kind=First value=1BC80409 result=Ok(()) node=pr3 t=1792494291701
+EPOCH_CLOSE_MARK epoch=2 round=1 kind=Final value=1BC80409 node=pr3 t=1792494291710
+EPOCH_CLOSE_VOTE epoch=2 round=1 voter=D315857C kind=Final value=1BC80409 result=Ok(()) node=pr3 t=1792494291726
+EPOCH_CLOSE_VOTE epoch=2 round=1 voter=A353E45E kind=Final value=1BC80409 result=Ok(()) node=pr3 t=1792494291739
+EPOCH_CLOSE_VOTE epoch=2 round=1 voter=633D9D61 kind=Final value=1BC80409 result=Ok(()) node=pr3 t=1792494291750
+EPOCH_CLOSE_VOTE epoch=2 round=1 voter=735FE217 kind=Final value=1BC80409 result=Ok(()) node=pr3 t=1792494291758
+EPOCH_RECONCILED epoch=2 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=1317 total=1317 symbols=0 dropped=false node=pr3 t=1792494291778
+EPOCH_CLOSE_VOTE epoch=2 round=1 voter=65A90023 kind=Final value=1BC80409 result=Ok(()) node=pr3 t=1792494291793
+EPOCH_INSTALL epoch=2 finalized=14477 instances_confirmed=2258 followed=1755 node=pr3 t=1792494291866
+EPOCH_CARRIED epoch=2 instances=1356 split=0 node=pr3 t=1792494291874
+EPOCH_COMMITTEE derived_by=2 members=6 accounts=14375 n=6 digest=EBA8B9E90CFA0F73BC0715EDD148E081BDC1D1DB6C0A7F5E6C13D09F6EEE3145 shares=["65A90023:16.7%", "735FE217:16.7%", "D315857C:16.7%", "911999B2:16.7%", "633D9D61:16.7%", "A353E45E:16.7%"] node=pr3 t=1792494291901
+EPOCH_LOCKS epoch=2 continued=0 kinds={"locks=1 kind=Some(Recovery) nc_here=false saved=true": 684, "locks=1 kind=Some(Recovery) nc_here=true saved=true": 455} node=pr3 t=1792494291905
+EPOCH_OMITTED epoch=2 instances=217 retained=1139 node=pr3 t=1792494291905
+EPOCH_INSTALL_TIMING epoch=2 steps=[("hash", 8), ("base", 52), ("install", 74), ("gate", 74), ("slots", 92), ("committee", 108), ("release", 112)] node=pr3 t=1792494291905
+EPOCH_CLOSED epoch=2 round=1 value=1BC80409EDE9B3B95CA59E4F87E679563E71DD0D8ADE171FEA9D6CAE144B857F state=07708A21A3F628BDF83DCB4BACC3E7F90FE0350AC6D7B8203F64BEAA6B11713A node=pr3 t=1792494291905
+EPOCH_CLOSE_VOTE epoch=2 round=1 voter=65A90023 kind=Final value=1BC80409 result=Err(Late) node=pr3 t=1792494291915
+EPOCH_CLOSE_VOTE epoch=2 round=1 voter=911999B2 kind=Final value=1BC80409 result=Err(Late) node=pr3 t=1792494291915
+EPOCH_MEMO_REBASE epoch=3 kept=0 derived=0 ms=0 node=pr3 t=1792494291918
+EPOCH_MEMO_REFRESH epoch=3 frozen=false derived=0 accounts=0 memoized=0 unmemoized={} certificates=44131 view_ms=0 ms=0 node=pr3 t=1792494291918
+EPOCH_INSTALLED epoch=2 finalized=1755 cemented=1083 queued=672 missing=0 ms=3 absent=[] node=pr3 t=1792494292108
+EPOCH_RETAINED epoch=2 retained=1139 held=1139 missing=0 supplied=0 node=pr3 t=1792494292109
+EPOCH_RECONCILED epoch=2 reporter=735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F complete=false entries=1317 total=1317 symbols=0 dropped=false node=pr3 t=1792494292145
+EPOCH_EVIDENCE_RELEASED epoch=2 node=pr3 t=1792494292225
+EPOCH_FOLLOW cemented=13394 cementing=0 requested=0 pending=0 node=pr3 t=1792494292703
+EPOCH_MEMO_REFRESH epoch=3 frozen=false derived=3933 accounts=3933 memoized=2712 unmemoized={Retained: 1139, Anchored: 82} certificates=48064 view_ms=0 ms=17 node=pr3 t=1792494293010

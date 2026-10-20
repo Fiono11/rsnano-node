@@ -3,33 +3,33 @@
     "final"
   ],
   "arms": {
-    "rai-nofast": {
-      "bin_dir": "/Users/ruimorais/.claude/jobs/06dfbc78/tmp/sweep/final2/bin-nofast",
+    "rai": {
+      "bin_dir": "/Users/ruimorais/.claude/jobs/06dfbc78/tmp/sweep/final2/bin-fix3-p1",
       "flags": [
         "--epoch-ms=8000",
         "--min-closed=3",
         "--timeout=400"
       ]
     },
-    "pause-nofast": {
-      "bin_dir": "/Users/ruimorais/.claude/jobs/06dfbc78/tmp/sweep/final2/bin-nofast",
+    "rai-nomemo": {
+      "bin_dir": "/Users/ruimorais/.claude/jobs/06dfbc78/tmp/sweep/final2/bin-fix3-nomemo",
+      "flags": [
+        "--epoch-ms=8000",
+        "--min-closed=3",
+        "--timeout=400"
+      ]
+    },
+    "pause": {
+      "bin_dir": "/Users/ruimorais/.claude/jobs/06dfbc78/tmp/sweep/final2/bin-fix3-p1",
       "flags": [
         "--epoch-ms=8000",
         "--min-closed=3",
         "--timeout=400",
         "--epoch-transition=pause"
       ]
-    },
-    "develop": {
-      "bin_dir": "/Users/ruimorais/.claude/jobs/06dfbc78/tmp/sweep/final2/bin-develop",
-      "flags": [
-        "--no-epochs",
-        "--timeout=400",
-        "--settle-timeout=45"
-      ]
     }
   },
-  "started": 1792484714.329099,
+  "started": 1792499383.028529,
   "runs": [
     {
       "variant": "nofork",
@@ -590,6 +590,230 @@
       "rep": 1,
       "status": "settled",
       "seconds": 117
+    },
+    {
+      "variant": "nofork-byznode",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 122
+    },
+    {
+      "variant": "nofork-byznode",
+      "rate": 2000,
+      "arm": "rai-nomemo",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 113
+    },
+    {
+      "variant": "nofork-byznode",
+      "rate": 2000,
+      "arm": "pause",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 110
+    },
+    {
+      "variant": "nofork-byznode",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 2,
+      "status": "settled",
+      "seconds": 108
+    },
+    {
+      "variant": "nofork-byznode",
+      "rate": 2000,
+      "arm": "rai-nomemo",
+      "rep": 2,
+      "status": "settled",
+      "seconds": 113
+    },
+    {
+      "variant": "nofork-byznode",
+      "rate": 2000,
+      "arm": "pause",
+      "rep": 2,
+      "status": "settled",
+      "seconds": 107
+    },
+    {
+      "variant": "nofork-byznode",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 3,
+      "status": "settled",
+      "seconds": 110
+    },
+    {
+      "variant": "nofork-byznode",
+      "rate": 2000,
+      "arm": "rai-nomemo",
+      "rep": 3,
+      "status": "settled",
+      "seconds": 109
+    },
+    {
+      "variant": "nofork-byznode",
+      "rate": 2000,
+      "arm": "pause",
+      "rep": 3,
+      "status": "settled",
+      "seconds": 106
+    },
+    {
+      "variant": "fork5-grace-byznode",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 120
+    },
+    {
+      "variant": "fork5-grace-byznode",
+      "rate": 2000,
+      "arm": "rai-nomemo",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 120
+    },
+    {
+      "variant": "fork5-grace-byznode",
+      "rate": 2000,
+      "arm": "pause",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 119
+    },
+    {
+      "variant": "fork5-grace-byznode",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 2,
+      "status": "settled",
+      "seconds": 126
+    },
+    {
+      "variant": "fork5-grace-byznode",
+      "rate": 2000,
+      "arm": "rai-nomemo",
+      "rep": 2,
+      "status": "settled",
+      "seconds": 125
+    },
+    {
+      "variant": "fork5-grace-byznode",
+      "rate": 2000,
+      "arm": "pause",
+      "rep": 2,
+      "status": "settled",
+      "seconds": 117
+    },
+    {
+      "variant": "fork5-grace-byznode",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 3,
+      "status": "settled",
+      "seconds": 119
+    },
+    {
+      "variant": "fork5-grace-byznode",
+      "rate": 2000,
+      "arm": "rai-nomemo",
+      "rep": 3,
+      "status": "settled",
+      "seconds": 108
+    },
+    {
+      "variant": "fork5-grace-byznode",
+      "rate": 2000,
+      "arm": "pause",
+      "rep": 3,
+      "status": "settled",
+      "seconds": 118
+    },
+    {
+      "variant": "fork10-grace-byznode",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 123
+    },
+    {
+      "variant": "fork10-grace-byznode",
+      "rate": 2000,
+      "arm": "rai-nomemo",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 124
+    },
+    {
+      "variant": "fork10-grace-byznode",
+      "rate": 2000,
+      "arm": "pause",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 124
+    },
+    {
+      "variant": "fork10-grace-byznode",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 2,
+      "status": "settled",
+      "seconds": 126
+    },
+    {
+      "variant": "fork10-grace-byznode",
+      "rate": 2000,
+      "arm": "rai-nomemo",
+      "rep": 2,
+      "status": "settled",
+      "seconds": 152
+    },
+    {
+      "variant": "fork10-grace-byznode",
+      "rate": 2000,
+      "arm": "pause",
+      "rep": 2,
+      "status": "settled",
+      "seconds": 118
+    },
+    {
+      "variant": "fork10-grace-byznode",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 3,
+      "status": "failed",
+      "seconds": 202
+    },
+    {
+      "variant": "fork10-grace-byznode",
+      "rate": 2000,
+      "arm": "rai-nomemo",
+      "rep": 3,
+      "status": "settled",
+      "seconds": 227
+    },
+    {
+      "variant": "fork10-grace-byznode",
+      "rate": 2000,
+      "arm": "pause",
+      "rep": 3,
+      "status": "settled",
+      "seconds": 126
+    },
+    {
+      "variant": "fork10-grace-byznode",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 3,
+      "status": "failed",
+      "seconds": 202
     }
   ]
 }

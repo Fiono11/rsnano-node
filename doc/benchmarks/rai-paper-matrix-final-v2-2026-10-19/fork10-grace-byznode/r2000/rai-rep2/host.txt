@@ -1,44 +1,44 @@
-Processes: 502 total, 2 running, 500 sleeping, 1994 threads 
-2026/10/20 08:43:51
-Load Avg: 1.36, 2.70, 4.15 
-CPU usage: 4.16% user, 9.72% sys, 86.11% idle 
-SharedLibs: 594M resident, 99M data, 63M linkedit.
-MemRegions: 43461 total, 1675M resident, 237M private, 656M shared.
-PhysMem: 7957M used (1433M wired, 1737M compressor), 7864M unused.
+Processes: 501 total, 2 running, 499 sleeping, 1957 threads 
+2026/10/20 13:13:48
+Load Avg: 8.03, 8.47, 7.66 
+CPU usage: 2.43% user, 9.75% sys, 87.80% idle 
+SharedLibs: 635M resident, 112M data, 76M linkedit.
+MemRegions: 44003 total, 1312M resident, 153M private, 690M shared.
+PhysMem: 7535M used (1302M wired, 1933M compressor), 8287M unused.
 VM: 191T vsize, 4915M framework vsize, 1486(0) swapins, 1496(0) swapouts.
-Networks: packets: 305151867/290G in, 305033507/290G out.
-Disks: 1699575/35G read, 84674672/2246G written.
+Networks: packets: 411096044/367G in, 410992905/366G out.
+Disks: 2175980/50G read, 113159516/3024G written.
 
 PID    %CPU COMMAND         
-41498  0.0  top             
-41483  0.0  mdworker_shared 
-41482  0.0  mediaanalysisd  
-41476  0.0  caffeinate      
-41473  0.0  Python          
-41472  0.0  mdworker_shared 
-41471  0.0  mdworker_shared 
-41468  0.0  com.apple.iCloud
-41466  0.0  mdworker_shared 
-41453  0.0  parsec-fbf      
-Processes: 501 total, 2 running, 499 sleeping, 1985 threads 
-2026/10/20 08:43:52
-Load Avg: 1.36, 2.70, 4.15 
-CPU usage: 0.47% user, 1.17% sys, 98.35% idle 
-SharedLibs: 594M resident, 99M data, 63M linkedit.
-MemRegions: 43407 total, 1673M resident, 237M private, 656M shared.
-PhysMem: 7951M used (1433M wired, 1737M compressor), 7868M unused.
+47547  0.0  top             
+47545  0.0  Python          
+47523  0.0  caffeinate      
+47381  0.0  2.1.302         
+47380  0.0  tail            
+47379  0.0  zsh             
+47160  0.0  XProtectPluginSe
+47090  0.0  Python          
+46645  0.0  caffeinate      
+46644  0.0  zsh             
+Processes: 501 total, 2 running, 499 sleeping, 1957 threads 
+2026/10/20 13:13:49
+Load Avg: 7.46, 8.34, 7.62 
+CPU usage: 0.23% user, 1.6% sys, 98.70% idle 
+SharedLibs: 635M resident, 112M data, 76M linkedit.
+MemRegions: 44003 total, 1312M resident, 153M private, 690M shared.
+PhysMem: 7534M used (1302M wired, 1933M compressor), 8287M unused.
 VM: 191T vsize, 4915M framework vsize, 1486(0) swapins, 1496(0) swapouts.
-Networks: packets: 305151869/290G in, 305033509/290G out.
-Disks: 1699575/35G read, 84674672/2246G written.
+Networks: packets: 411096046/367G in, 410992907/366G out.
+Disks: 2175980/50G read, 113159516/3024G written.
 
 PID    %CPU COMMAND         
-41498  4.8  top             
-1411   1.9  2.1.302         
-0      1.7  kernel_task     
+47547  5.2  top             
+0      1.5  kernel_task     
+325    0.6  fseventsd       
 1552   0.4  2.1.303         
+1411   0.4  2.1.302         
 388    0.3  WindowServer    
 1325   0.3  2.1.302         
-1      0.2  launchd         
-320    0.2  logd            
+359    0.2  thermalmonitord 
 384    0.1  corebrightnessd 
-657    0.1  imagent         
+47381  0.1  2.1.302         
