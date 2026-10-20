@@ -161,7 +161,7 @@ def main():
                     summary = run.with_suffix('.summary.json')
                     if summary.exists():
                         continue
-                    if run.exists():
+                    if run.exists() and not args.dry_run:
                         run.rename(run.with_name(run.name + f'.aborted-{int(time.time())}'))
                     run.parent.mkdir(parents=True, exist_ok=True)
                     # longer runs at low rates: the load alone lasts blocks / rate seconds
