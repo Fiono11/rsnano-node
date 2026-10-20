@@ -63,7 +63,7 @@ pub(crate) fn holder_key(shift: &WeightShift) -> PrivateKey {
 
 /// Applies a shift every `period`, the first at once, until cancelled
 pub(crate) async fn run_weight_shifts(
-    rpc_client: &NanoRpcClient,
+    rpc_clients: &[NanoRpcClient],
     mut shifts: WeightShifts,
     period: Duration,
     cancel: CancellationToken,
@@ -77,7 +77,7 @@ pub(crate) async fn run_weight_shifts(
         let shift = shifts.next_shift();
         select! {
             _ = cancel.cancelled() => return,
-            result = apply(rpc_client, &shifts, &shift) => {
+            result = apply(rpc_clients, &shifts, &shift) => {
                 if let Err(error) = result {
                     warn!(?shift, "Weight shift failed: {error:?}");
                 }
@@ -90,12 +90,12 @@ pub(crate) async fn run_weight_shifts(
 /// which opens delegating to the target representative once the send is
 /// confirmed
 async fn apply(
-    rpc_client: &NanoRpcClient,
+    rpc_clients: &[NanoRpcClient],
     shifts: &WeightShifts,
     shift: &WeightShift,
 ) -> anyhow::Result<()> {
     let amount = move_weight(
-        rpc_client,
+        rpc_clients,
         shift.from,
         shift.to,
         &holder_key(shift),
@@ -115,14 +115,17 @@ async fn apply(
 /// PR`from` sends part of its balance - `amount_of` its balance - to
 /// `holder`, a fresh account that opens delegating to PR`to` once the send
 /// is confirmed: that weight moves from one representative to the other.
-/// Returns the amount moved.
+/// Returns the amount moved. The blocks go to every PR, as the spam's do:
+/// the first PR's flood can miss a node, and the unmodified node, which
+/// follows no checkpoint, would never get them otherwise.
 pub(crate) async fn move_weight(
-    rpc_client: &NanoRpcClient,
+    rpc_clients: &[NanoRpcClient],
     from: usize,
     to: usize,
     holder: &PrivateKey,
     amount_of: impl FnOnce(Amount) -> Amount,
 ) -> anyhow::Result<Amount> {
+    let rpc_client = &rpc_clients[0];
     let from = pr_key(from);
     let to = pr_key(to);
     let info = rpc_client.account_info(from.account()).await?;
@@ -138,7 +141,8 @@ pub(crate) async fn move_weight(
     }
     .into();
     let send_hash = send.hash();
-    rpc_client.process(JsonBlock::from(send)).await?;
+    rpc_client.process(JsonBlock::from(send.clone())).await?;
+    publish_to_others(rpc_clients, &send).await;
     wait_until_confirmed(rpc_client, send_hash).await;
 
     let open: Block = StateBlockArgs {
@@ -150,8 +154,17 @@ pub(crate) async fn move_weight(
         work: 0.into(),
     }
     .into();
-    rpc_client.process(JsonBlock::from(open)).await?;
+    rpc_client.process(JsonBlock::from(open.clone())).await?;
+    publish_to_others(rpc_clients, &open).await;
     Ok(amount)
+}
+
+/// Hands a block the first PR processed to the other PRs; one they hold
+/// already is ignored as old
+async fn publish_to_others(rpc_clients: &[NanoRpcClient], block: &Block) {
+    for client in &rpc_clients[1..] {
+        let _ = client.process(JsonBlock::from(block.clone())).await;
+    }
 }
 
 #[cfg(test)]

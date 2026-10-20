@@ -243,7 +243,7 @@ impl NanoSpamApp {
 
                 if let Some(schedule) = &self.args.rotation {
                     scope.spawn(run_rotations(
-                        genesis_rpc,
+                        &self.rpc_clients,
                         schedule.clone(),
                         epochs_started,
                         Duration::from_millis(self.args.rotation_period_ms()),
@@ -252,7 +252,7 @@ impl NanoSpamApp {
 
                 if self.args.weight_shift_percent > 0 {
                     scope.spawn(run_weight_shifts(
-                        genesis_rpc,
+                        &self.rpc_clients,
                         WeightShifts::new(self.args.prs, self.args.weight_shift_percent),
                         self.args.weight_shift_period(),
                         cancel_nanospam.clone(),

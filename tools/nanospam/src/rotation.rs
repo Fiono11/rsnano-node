@@ -78,7 +78,7 @@ const INTO_EPOCH: Duration = Duration::from_millis(500);
 /// Applies the rotations, each at the start of its epoch counted from the
 /// start of the epochs. They run past the end of the spam: the epochs go on.
 pub(crate) async fn run_rotations(
-    rpc_client: &NanoRpcClient,
+    rpc_clients: &[NanoRpcClient],
     schedule: RotationSchedule,
     epochs_started: Instant,
     epoch_duration: Duration,
@@ -90,7 +90,7 @@ pub(crate) async fn run_rotations(
         for (from, to) in rotation.moves {
             let holder = holder_key(index);
             index += 1;
-            match move_weight(rpc_client, from, to, &holder, |balance| balance).await {
+            match move_weight(rpc_clients, from, to, &holder, |balance| balance).await {
                 Ok(amount) => info!(
                     "ROTATION epoch={} from=PR{} to=PR{} amount=Ӿ{}",
                     rotation.epoch,
