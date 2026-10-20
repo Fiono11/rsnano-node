@@ -39,11 +39,16 @@ pub struct InboundMessageQueue {
 /// at a full queue, the request waits for its retry; a node short of a
 /// checkpoint's blocks can not derive the next committee, and counts no
 /// close vote meanwhile.
+///
+/// So do the requests for a close round's statements: a replica that missed
+/// one vote of a round the others decided asks for it again, and the channel
+/// it asks over is full of its account-vote requests while it lags.
 const PRIORITY_LANE_MAX: usize = 4096;
 
 fn is_priority(message: &Message) -> bool {
     match message {
         Message::ConfirmAck(ack) => ack.vote().epoch.is_close_round(),
+        Message::ConfirmReq(req) => req.epoch.is_close_round(),
         Message::Publish(publish) => publish.is_evidence,
         _ => false,
     }
@@ -259,6 +264,31 @@ mod tests {
         assert_eq!(batch.len(), 2);
         assert!(matches!(batch[0].1.0, Message::ConfirmAck(_)));
         assert_eq!(queue.size(), 0);
+    }
+
+    /// RAI: a request for a close round's statements is taken in past a full
+    /// channel queue; an account-vote request is dropped like any other
+    #[test]
+    fn close_election_requests_bypass_a_full_queue() {
+        use rsnano_messages::ConfirmReq;
+        use rsnano_types::{BlockHash, ConsensusEpoch, Root};
+
+        let queue = InboundMessageQueue::new(1);
+        let channel = Arc::new(Channel::new_test_instance());
+        let request_in = |epoch| {
+            Message::ConfirmReq(ConfirmReq::new_in_epoch(
+                vec![(BlockHash::from(7), Root::from(8))],
+                epoch,
+            ))
+        };
+        assert!(queue.put(Message::BulkPush, channel.clone()));
+        assert!(!queue.put(request_in(ConsensusEpoch::ZERO), channel.clone()));
+        assert!(queue.put(
+            request_in(ConsensusEpoch::close_round(ConsensusEpoch::new(1), 2)),
+            channel
+        ));
+        let batch = queue.next_batch(10);
+        assert!(matches!(batch[0].1.0, Message::ConfirmReq(_)));
     }
 
     /// RAI: an evidence block, the answer to a request, is taken in past a

@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     sync::{Arc, Condvar, Mutex, MutexGuard},
     thread::JoinHandle,
     time::{Duration, Instant},
@@ -87,6 +87,7 @@ impl RequestAggregator {
             condition: Arc::new(Condvar::new()),
             state: Arc::new(Mutex::new(RequestAggregatorState {
                 queue: FairQueue::new(move |_| max_queue, |_| 1),
+                close_lane: VecDeque::new(),
                 stopped: false,
             })),
             threads: Mutex::new(Vec::new()),
@@ -136,11 +137,13 @@ impl RequestAggregator {
         let request_len = request.roots_hashes.len();
 
         let added = {
-            self.state
-                .lock()
-                .unwrap()
-                .queue
-                .push(request.channel.channel_id(), request)
+            let mut state = self.state.lock().unwrap();
+            if request.epoch.is_close_round() && state.close_lane.len() < CLOSE_LANE_MAX {
+                state.close_lane.push_back(request);
+                true
+            } else {
+                state.queue.push(request.channel.channel_id(), request)
+            }
         };
 
         if added {
@@ -190,7 +193,8 @@ impl RequestAggregator {
 
     /// Returns the number of currently queued request pools
     pub fn len(&self) -> usize {
-        self.state.lock().unwrap().queue.len()
+        let state = self.state.lock().unwrap();
+        state.queue.len() + state.close_lane.len()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -216,7 +220,11 @@ impl ContainerInfoProvider for RequestAggregator {
 impl EventHandler<ChannelEvent> for RequestAggregator {
     fn handle(&self, event: &ChannelEvent) {
         if let ChannelEvent::Removed(id) = event {
-            self.state.lock().unwrap().queue.remove(id);
+            let mut state = self.state.lock().unwrap();
+            state.queue.remove(id);
+            state
+                .close_lane
+                .retain(|request| request.channel.channel_id() != *id);
         }
     }
 }
@@ -229,9 +237,37 @@ pub struct AggregatorRequest {
     pub epoch: ConsensusEpoch,
 }
 
+/// RAI: the bound of the lane for requests of close-round statements.
+/// They are few - a replica asks for the recent rounds of a close not
+/// decided yet - and each may be the one that brings a lagging replica the
+/// certificate the others decided with; behind a channel queue full of its
+/// account-vote requests it would never be answered.
+const CLOSE_LANE_MAX: usize = 1024;
+
 pub(crate) struct RequestAggregatorState {
     queue: FairQueue<ChannelId, AggregatorRequest>,
+    /// Close-round requests, served before the fair queue
+    close_lane: VecDeque<AggregatorRequest>,
     stopped: bool,
+}
+
+impl RequestAggregatorState {
+    fn is_empty(&self) -> bool {
+        self.queue.is_empty() && self.close_lane.is_empty()
+    }
+
+    /// The close-round requests first, then a batch of the fair queue
+    fn next_batch(&mut self, batch_size: usize) -> Vec<AggregatorRequest> {
+        let mut batch: Vec<AggregatorRequest> = self.close_lane.drain(..).collect();
+        let rest = batch_size.saturating_sub(batch.len()).max(1);
+        batch.extend(
+            self.queue
+                .next_batch(rest)
+                .into_iter()
+                .map(|(_, request)| request),
+        );
+        batch
+    }
 }
 
 struct RequestAggregatorLoop {
@@ -250,12 +286,12 @@ impl RequestAggregatorLoop {
     fn run(&self) {
         let mut guard = self.mutex.lock().unwrap();
         while !guard.stopped {
-            if !guard.queue.is_empty() {
+            if !guard.is_empty() {
                 guard = self.run_batch(guard);
             } else {
                 guard = self
                     .condition
-                    .wait_while(guard, |g| !g.stopped && g.queue.is_empty())
+                    .wait_while(guard, |g| !g.stopped && g.is_empty())
                     .unwrap();
             }
         }
@@ -265,12 +301,12 @@ impl RequestAggregatorLoop {
         &'a self,
         mut state: MutexGuard<'a, RequestAggregatorState>,
     ) -> MutexGuard<'a, RequestAggregatorState> {
-        let batch = state.queue.next_batch(self.config.batch_size);
+        let batch = state.next_batch(self.config.batch_size);
         drop(state);
 
         let mut any = self.ledger.any();
 
-        for (_, request) in &batch {
+        for request in &batch {
             if any.should_refresh() {
                 any = self.ledger.any();
             }
@@ -688,5 +724,42 @@ mod evidence_reply_cache_tests {
         assert!(cache.should_send(key.clone(), now));
         cache.forget(&key);
         assert!(cache.should_send(key.clone(), now));
+    }
+}
+
+#[cfg(test)]
+mod close_lane_tests {
+    use super::*;
+
+    /// RAI: a request for a close round's statements is queued past a
+    /// channel whose queue is full of account-vote requests, and is served
+    /// first
+    #[test]
+    fn close_round_requests_bypass_a_full_channel_queue() {
+        let aggregator = RequestAggregator::new(
+            RequestAggregatorConfig {
+                max_queue: 1,
+                ..RequestAggregatorConfig::new(1)
+            },
+            Stats::default().into(),
+            VoteGenerators::new_null().into(),
+            Ledger::new_null().into(),
+            AecService::new_null().into(),
+            MessageSender::new_null(),
+        );
+        let channel = Arc::new(Channel::new_test_instance());
+        let request = |epoch| AggregatorRequest {
+            channel: channel.clone(),
+            roots_hashes: vec![(BlockHash::from(7), Root::from(8))],
+            epoch,
+        };
+        assert!(aggregator.request(request(ConsensusEpoch::ZERO)));
+        assert!(!aggregator.request(request(ConsensusEpoch::ZERO)));
+        let close = ConsensusEpoch::close_round(ConsensusEpoch::new(1), 2);
+        assert!(aggregator.request(request(close)));
+        assert_eq!(aggregator.len(), 2);
+        let batch = aggregator.state.lock().unwrap().next_batch(10);
+        assert_eq!(batch[0].epoch, close);
+        assert_eq!(batch.len(), 2);
     }
 }
