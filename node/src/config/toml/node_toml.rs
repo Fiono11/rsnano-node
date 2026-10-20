@@ -394,10 +394,15 @@ impl NodeConfig {
                 use crate::consensus::election::CommitteeModel;
                 self.active_elections.committee_model = match model {
                     CommitteeModelToml::Weighted => CommitteeModel::Weighted,
-                    CommitteeModelToml::EqualWeight => CommitteeModel::EqualWeight {
-                        f: i.committee_f.unwrap_or(1),
-                        p: i.committee_p.unwrap_or(1),
-                    },
+                    CommitteeModelToml::EqualWeight => {
+                        let f = i.committee_f.unwrap_or(1);
+                        let p = i.committee_p.unwrap_or(1);
+                        CommitteeModel::EqualWeight {
+                            n: i.committee_seats.unwrap_or(3 * f + 2 * p + 1),
+                            f,
+                            p,
+                        }
+                    }
                     CommitteeModelToml::BoundedWeight => CommitteeModel::BoundedWeight {
                         f: i.committee_f.unwrap_or(1),
                         p: i.committee_p.unwrap_or(1),

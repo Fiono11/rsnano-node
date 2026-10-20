@@ -191,8 +191,7 @@ pub(crate) fn live_committees(rep_weights: &RepWeights, quorum: &QuorumSnapshot)
 mod tests {
     #[test]
     fn equal_membership_follows_finalized_delegation_with_two_epoch_lag() {
-        let mut committees =
-            EpochCommittees::with_model(CommitteeModel::EqualWeight { f: 0, p: 0 });
+        let mut committees = EpochCommittees::with_model(CommitteeModel::equal_weight(0, 0));
         let genesis = committees.start(vec![frontier(1, 1, 1, 100), frontier(2, 1, 2, 90)]);
         assert_eq!(genesis.weight(&rep(1)), Amount::raw(1));
         committees.derive(ConsensusEpoch::ZERO, vec![frontier(1, 2, 2, 100)]);

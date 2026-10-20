@@ -4871,10 +4871,7 @@ mod tests {
     fn committee_configuration_only_changes_feature_on_epochs() {
         let mut container = ActiveElectionsContainer::new(
             ActiveElectionsConfig {
-                committee_model: crate::consensus::election::CommitteeModel::EqualWeight {
-                    f: 0,
-                    p: 0,
-                },
+                committee_model: crate::consensus::election::CommitteeModel::equal_weight(0, 0),
                 ..Default::default()
             },
             Duration::from_millis(10),

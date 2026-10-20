@@ -10,18 +10,13 @@ use super::KudzuThresholds;
 pub enum CommitteeModel {
     #[default]
     Weighted,
-    EqualWeight {
-        f: u32,
-        p: u32,
-    },
+    /// n members of one unit each; n is at least 3f + 2p + 1, and more
+    /// raises the thresholds with it (n = 6, f = 1, p = 0: five of six)
+    EqualWeight { n: u32, f: u32, p: u32 },
     /// The N = 3f + 2p + 1 members of the genesis committee throughout,
     /// each weighted by the balance delegated to it, but never further than
     /// `drift` permille from the equal share
-    BoundedWeight {
-        f: u32,
-        p: u32,
-        drift: u32,
-    },
+    BoundedWeight { f: u32, p: u32, drift: u32 },
 }
 
 impl CommitteeModel {
@@ -30,12 +25,21 @@ impl CommitteeModel {
     /// finalize fast and select reports are the same as with equal weights.
     pub const DEFAULT_DRIFT: u32 = 100;
 
+    /// The equal-weight committee of the fewest members f and p allow,
+    /// N = 3f + 2p + 1
+    pub fn equal_weight(f: u32, p: u32) -> Self {
+        Self::EqualWeight {
+            n: 3 * f + 2 * p + 1,
+            f,
+            p,
+        }
+    }
+
     pub fn expected_members(self) -> Option<u64> {
         match self {
             Self::Weighted => None,
-            Self::EqualWeight { f, p } | Self::BoundedWeight { f, p, .. } => {
-                Some(3 * u64::from(f) + 2 * u64::from(p) + 1)
-            }
+            Self::EqualWeight { n, .. } => Some(u64::from(n)),
+            Self::BoundedWeight { f, p, .. } => Some(3 * u64::from(f) + 2 * u64::from(p) + 1),
         }
     }
 }
@@ -75,23 +79,36 @@ impl Committee {
         }
     }
 
-    /// Require exactly N distinct members; duplicates cannot inflate membership.
+    /// Require exactly N = 3f + 2p + 1 distinct members; duplicates cannot
+    /// inflate membership.
     pub fn equal_weight(
         members: impl IntoIterator<Item = PublicKey>,
         f: u32,
         p: u32,
     ) -> Option<Self> {
+        Self::equal_weight_of(members, CommitteeModel::equal_weight(f, p))
+    }
+
+    /// Exactly the n distinct members of an equal-weight `model`; None for
+    /// another model or n below 3f + 2p + 1
+    pub fn equal_weight_of(
+        members: impl IntoIterator<Item = PublicKey>,
+        model: CommitteeModel,
+    ) -> Option<Self> {
+        let CommitteeModel::EqualWeight { n, f, p } = model else {
+            return None;
+        };
         let weights: FxHashMap<_, _> = members
             .into_iter()
             .map(|key| (key, Amount::raw(1)))
             .collect();
-        if Some(weights.len() as u64) != (CommitteeModel::EqualWeight { f, p }).expected_members() {
+        if weights.len() as u64 != u64::from(n) {
             return None;
         }
         Some(Self {
             weights,
-            thresholds: KudzuThresholds::equal_weight(f, p),
-            model: CommitteeModel::EqualWeight { f, p },
+            thresholds: KudzuThresholds::equal_weight_of(n, f, p)?,
+            model,
         })
     }
 
@@ -121,7 +138,9 @@ impl Committee {
     fn inert(model: CommitteeModel) -> Self {
         let thresholds = match model {
             CommitteeModel::Weighted => KudzuThresholds::new(Amount::ZERO),
-            CommitteeModel::EqualWeight { f, p } => KudzuThresholds::equal_weight(f, p),
+            CommitteeModel::EqualWeight { n, f, p } => {
+                KudzuThresholds::equal_weight_of(n, f, p).expect("n holds 3f + 2p + 1")
+            }
             CommitteeModel::BoundedWeight { f, p, .. } => {
                 let nominal = (0..3 * f + 2 * p + 1).map(|_| Amount::raw(NOMINAL_WEIGHT));
                 KudzuThresholds::bounded(nominal, f, p).expect("equal weights are bounded")
@@ -169,9 +188,10 @@ impl Committee {
         // Keep the existing weighted digest unchanged for the baseline.
         match self.model {
             CommitteeModel::Weighted => {}
-            CommitteeModel::EqualWeight { f, p } => {
+            CommitteeModel::EqualWeight { n, f, p } => {
                 builder = builder
                     .update(b"equal_weight")
+                    .update(n.to_le_bytes())
                     .update(f.to_le_bytes())
                     .update(p.to_le_bytes());
             }
@@ -318,9 +338,8 @@ impl CommitteeWeights {
         };
         match model {
             CommitteeModel::Weighted => unreachable!("a weighted committee has no fixed size"),
-            CommitteeModel::EqualWeight { f, p } => {
-                Committee::equal_weight(members, f, p).expect("selected exactly N distinct holders")
-            }
+            CommitteeModel::EqualWeight { .. } => Committee::equal_weight_of(members, model)
+                .expect("selected exactly N distinct holders"),
             CommitteeModel::BoundedWeight { f, p, drift } => {
                 self.bounded_committee(&members, f, p, drift)
             }
@@ -463,8 +482,28 @@ mod tests {
     }
 
     #[test]
+    fn more_members_than_f_and_p_need_raise_the_thresholds() {
+        let model = CommitteeModel::EqualWeight { n: 6, f: 1, p: 0 };
+        let committee = Committee::equal_weight_of((1..=6).map(rep), model).unwrap();
+        let t = committee.thresholds();
+        assert_eq!(
+            (
+                t.online.number(),
+                t.certificate.number(),
+                t.fast.number(),
+                t.many.number(),
+                t.report.number()
+            ),
+            (6, 5, 6, 2, 5)
+        );
+        assert!(Committee::equal_weight_of((1..=5).map(rep), model).is_none());
+        let too_few = CommitteeModel::EqualWeight { n: 5, f: 1, p: 1 };
+        assert!(Committee::equal_weight_of((1..=5).map(rep), too_few).is_none());
+    }
+
+    #[test]
     fn largest_holders_and_ties_are_selected_deterministically() {
-        let model = CommitteeModel::EqualWeight { f: 1, p: 1 };
+        let model = CommitteeModel::equal_weight(1, 1);
         let frontiers: Vec<_> = (1..=8)
             .map(|i| {
                 frontier(
@@ -492,7 +531,7 @@ mod tests {
         assert_eq!(committee.weight(&rep(8)), Amount::ZERO);
         assert!(committee.weights().values().all(|w| *w == Amount::raw(1)));
         // With equal balances the smallest public key wins a one-member seat.
-        let one = a.committee_under(CommitteeModel::EqualWeight { f: 0, p: 0 });
+        let one = a.committee_under(CommitteeModel::equal_weight(0, 0));
         assert_eq!(one.weight(&(1..=6).map(rep).min().unwrap()), Amount::raw(1));
         assert_eq!(a.committee().weight(&rep(1)), Amount::raw(100));
     }
@@ -501,7 +540,7 @@ mod tests {
     fn insufficient_holders_disable_voting_without_lowering_thresholds() {
         let mut weights = CommitteeWeights::default();
         weights.count(frontier(Account::from(1), 1, 1, 100));
-        let committee = weights.committee_under(CommitteeModel::EqualWeight { f: 1, p: 1 });
+        let committee = weights.committee_under(CommitteeModel::equal_weight(1, 1));
         assert!(committee.is_empty());
         assert_eq!(committee.weight(&rep(1)), Amount::ZERO);
         assert_eq!(committee.thresholds().certificate, Amount::raw(4));

@@ -89,6 +89,8 @@ pub struct ActiveElectionsToml {
     pub committee_model: Option<CommitteeModelToml>,
     pub committee_f: Option<u32>,
     pub committee_p: Option<u32>,
+    /// RAI equal_weight: the members n, from 3f + 2p + 1 (the default) on
+    pub committee_seats: Option<u32>,
     /// RAI bounded_weight: how far a member's weight may move from the equal
     /// share, in permille of it
     pub committee_drift: Option<u32>,
@@ -147,6 +149,10 @@ impl From<&NodeConfig> for ActiveElectionsToml {
                 }
                 CommitteeModel::Weighted => None,
             },
+            committee_seats: match model {
+                CommitteeModel::EqualWeight { n, .. } => Some(n),
+                _ => None,
+            },
             committee_drift: match model {
                 CommitteeModel::BoundedWeight { drift, .. } => Some(drift),
                 _ => None,
@@ -174,7 +180,7 @@ mod tests {
     #[test]
     fn equal_weight_config_round_trip_and_unknown_model_rejection() {
         let mut config = NodeConfig::new_test_instance();
-        config.active_elections.committee_model = CommitteeModel::EqualWeight { f: 2, p: 1 };
+        config.active_elections.committee_model = CommitteeModel::EqualWeight { n: 9, f: 2, p: 1 };
         let encoded = toml::to_string(&ActiveElectionsToml::from(&config)).unwrap();
         let decoded: ActiveElectionsToml = toml::from_str(&encoded).unwrap();
         let mut restored = NodeConfig::new_test_instance();

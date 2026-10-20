@@ -153,6 +153,11 @@ pub(crate) struct CliArgs {
     pub committee_f: u32,
     #[arg(long, default_value_t = 1)]
     pub committee_p: u32,
+    /// RAI equal_weight: committee members n, from 3f + 2p + 1 (the default)
+    /// on; more raises the thresholds with n (6 with f = 1, p = 0: five of
+    /// six certify, as Nano's 67% quorum on six representatives)
+    #[arg(long)]
+    pub committee_seats: Option<u32>,
     /// RAI bounded_weight: how far a member's weight may move from the equal
     /// share, in permille of it
     #[arg(long, default_value_t = 100)]
@@ -234,6 +239,16 @@ impl CliArgs {
         self.prs - self.byzantine - self.offline
     }
 
+    /// RAI: N = 3f + 2p + 1, the fewest committee members f and p allow
+    fn fewest_seats(&self) -> u32 {
+        3 * self.committee_f + 2 * self.committee_p + 1
+    }
+
+    /// RAI: the committee members, `--committee-seats` or the fewest
+    pub(crate) fn seats(&self) -> u32 {
+        self.committee_seats.unwrap_or_else(|| self.fewest_seats())
+    }
+
     /// RAI evaluation: the running representative that is the Byzantine node
     pub(crate) fn byzantine_node_index(&self) -> Option<usize> {
         self.byzantine_node.as_ref().map(|_| self.honest_prs() - 1)
@@ -264,9 +279,15 @@ impl CliArgs {
 
     pub(crate) fn validate(&self) -> anyhow::Result<()> {
         if self.committee_model != "weighted" {
+            let fewest = self.fewest_seats();
+            if self.committee_seats.is_some_and(|seats| seats < fewest) {
+                return Err(anyhow!(
+                    "--committee-seats must be at least 3f + 2p + 1 = {fewest}"
+                ));
+            }
             // More representatives than seats leaves the lightest ones (ties
             // by key) outside the committee
-            let n = 3 * u64::from(self.committee_f) + 2 * u64::from(self.committee_p) + 1;
+            let n = u64::from(self.seats());
             if (self.prs as u64) < n {
                 return Err(anyhow!(
                     "{} requires at least {n} representatives (3f + 2p + 1), got {}",
@@ -402,6 +423,23 @@ mod tests {
         ])
         .unwrap();
         assert!(bad.validate().is_err());
+        let wide = |prs: &str, seats: &str| {
+            CliArgs::try_parse_from([
+                "nanospam",
+                "--prs",
+                prs,
+                "--committee-model",
+                "equal_weight",
+                "--committee-p",
+                "0",
+                "--committee-seats",
+                seats,
+            ])
+            .unwrap()
+        };
+        assert!(wide("6", "6").validate().is_ok());
+        assert!(wide("5", "6").validate().is_err());
+        assert!(wide("6", "3").validate().is_err());
         let bounded = CliArgs::try_parse_from([
             "nanospam",
             "--prs",

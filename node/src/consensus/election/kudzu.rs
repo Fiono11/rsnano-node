@@ -49,16 +49,24 @@ impl KudzuThresholds {
 
     /// Integer account/report thresholds for N = 3f + 2p + 1 identities.
     pub fn equal_weight(f: u32, p: u32) -> Self {
-        let (f, p) = (u128::from(f), u128::from(p));
-        let n = 3 * f + 2 * p + 1;
-        Self {
+        Self::equal_weight_of(3 * f + 2 * p + 1, f, p).expect("N is 3f + 2p + 1")
+    }
+
+    /// Integer thresholds for n identities, which f and p allow from
+    /// 3f + 2p + 1 on: n − f − p certify, n − p finalize fast. None below.
+    pub fn equal_weight_of(n: u32, f: u32, p: u32) -> Option<Self> {
+        let (n, f, p) = (u128::from(n), u128::from(f), u128::from(p));
+        if n < 3 * f + 2 * p + 1 {
+            return None;
+        }
+        Some(Self {
             online: Amount::raw(n),
             f: Amount::raw(f),
             certificate: Amount::raw(n - f - p),
             fast: Amount::raw(n - p),
             many: Amount::raw(f + p + 1),
             report: Amount::raw(n - f),
-        }
+        })
     }
 
     /// RAI: thresholds for N = 3f + 2p + 1 members of unequal weight. f and
