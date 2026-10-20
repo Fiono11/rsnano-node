@@ -204,7 +204,7 @@ impl Manifest {
             notarization: order.weight(committee, voters.first | voters.final_)
                 >= thresholds.certificate,
             finalization: order.weight(committee, voters.final_) >= thresholds.certificate,
-            fast: order.weight(committee, voters.settled) >= thresholds.fast,
+            fast: thresholds.reaches_fast(order.weight(committee, voters.settled)),
         }
     }
 

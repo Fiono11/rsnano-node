@@ -4407,8 +4407,9 @@ impl ActiveElectionsContainer {
             finalization: weight(&mut support.final_.iter()) >= thresholds.certificate,
             // "An FF_e(B) is a set of N − p settled first votes", naming the
             // predecessor checkpoint as their base
-            fast: weight(&mut support.settled_on(self.checkpoint_bases.before(epoch, 1)))
-                >= thresholds.fast,
+            fast: thresholds.reaches_fast(weight(
+                &mut support.settled_on(self.checkpoint_bases.before(epoch, 1)),
+            )),
         })
     }
 

@@ -91,6 +91,20 @@ impl KudzuThresholds {
     pub fn from_quorum(quorum: &QuorumSnapshot) -> Self {
         Self::new(max(quorum.online_weight, quorum.trended_or_min_weight))
     }
+
+    /// Whether `weight` of settled first votes makes a fast finalization
+    /// certificate; never with the fast path switched off
+    pub fn reaches_fast(&self, weight: Amount) -> bool {
+        fast_path_enabled() && weight >= self.fast
+    }
+}
+
+/// RAI evaluation: whether fast finalization certificates count; on unless
+/// `RAI_FAST_PATH=0`, which leaves every block to the notarization and
+/// finalization rounds with N, f and p unchanged
+fn fast_path_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var("RAI_FAST_PATH").map_or(true, |value| value != "0"))
 }
 
 fn percent_of(amount: Amount, percent: u128) -> Amount {
@@ -495,7 +509,8 @@ impl CommitteeTallies {
 
     /// RAI: "An FF_e(B) is a set of N − p settled first votes"
     fn fast_finalizes(&self, hash: &BlockHash) -> bool {
-        self.settled_first_tallies.get(hash) >= self.thresholds().fast
+        self.thresholds()
+            .reaches_fast(self.settled_first_tallies.get(hash))
     }
 
     fn finalizes(&self, hash: &BlockHash) -> bool {
