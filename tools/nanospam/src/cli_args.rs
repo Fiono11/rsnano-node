@@ -210,6 +210,13 @@ pub(crate) struct CliArgs {
     /// account delegating to TO; the committee two epochs on has TO instead
     #[arg(long)]
     pub rotation: Option<RotationSchedule>,
+
+    /// RAI evaluation: the epoch length the rotations are timed by, for the
+    /// unmodified-node baseline, which runs no epochs: the same balances
+    /// move at the same times as in the RAI runs. Defaults to
+    /// --epoch-duration-ms.
+    #[arg(long)]
+    pub rotation_epoch_ms: Option<u64>,
 }
 
 impl CliArgs {
@@ -247,6 +254,11 @@ impl CliArgs {
     /// RAI: the committee members, `--committee-seats` or the fewest
     pub(crate) fn seats(&self) -> u32 {
         self.committee_seats.unwrap_or_else(|| self.fewest_seats())
+    }
+
+    /// RAI: the epoch length rotations are timed by
+    pub(crate) fn rotation_period_ms(&self) -> u64 {
+        self.rotation_epoch_ms.unwrap_or(self.epoch_duration_ms)
     }
 
     /// RAI evaluation: the running representative that is the Byzantine node
@@ -337,8 +349,10 @@ impl CliArgs {
             ));
         }
         if let Some(schedule) = &self.rotation {
-            if self.epoch_duration_ms == 0 {
-                return Err(anyhow!("rotations need --epoch-duration-ms"));
+            if self.rotation_period_ms() == 0 {
+                return Err(anyhow!(
+                    "rotations need --epoch-duration-ms or --rotation-epoch-ms"
+                ));
             }
             if let Some(pr) = schedule.representatives().find(|pr| *pr >= self.prs) {
                 return Err(anyhow!(
@@ -402,6 +416,31 @@ impl CliArgs {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rotations_without_epochs_are_timed_by_their_own_epoch_length() {
+        let args = |extra: &[&str]| {
+            let mut all = vec![
+                "nanospam",
+                "--prs",
+                "6",
+                "--standby",
+                "2",
+                "--rotation",
+                "0:2>4",
+            ];
+            all.extend_from_slice(extra);
+            CliArgs::try_parse_from(all).unwrap()
+        };
+        assert!(args(&[]).validate().is_err());
+        let timed = args(&["--rotation-epoch-ms", "8000"]);
+        assert!(timed.validate().is_ok());
+        assert_eq!(timed.rotation_period_ms(), 8000);
+        assert_eq!(
+            args(&["--epoch-duration-ms", "4000"]).rotation_period_ms(),
+            4000
+        );
+    }
 
     #[test]
     fn equal_weight_requires_the_configured_population() {

@@ -245,6 +245,9 @@ def main():
     parser.add_argument('--no-epochs', action='store_true',
                         help='the unmodified-node baseline: no epochs, no checkpoints, no committee model; settled means identical cemented state')
     args = parser.parse_args()
+    # The unmodified-node baseline runs no epochs; its rotations are timed by
+    # the epoch length the RAI arms use
+    rotation_epoch_ms = args.epoch_ms
     if args.no_epochs:
         args.epoch_ms, args.min_closed, args.weighted = 0, 0, True
     args.audit_votes = args.audit_votes or bool(args.restart)
@@ -304,6 +307,8 @@ def main():
             command += ['--standby', str(args.standby)]
         if args.rotation:
             command += ['--rotation', args.rotation]
+            if args.no_epochs:
+                command += ['--rotation-epoch-ms', str(rotation_epoch_ms)]
         if args.vote_delay_ms is not None:
             command += ['--vote-generator-delay-ms', str(args.vote_delay_ms)]
         if args.weight_shift:

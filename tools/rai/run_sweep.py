@@ -93,6 +93,17 @@ SETS = {
         'fork5-byzlead-grace': (['--fork-percentage', '5', '--byzantine', '1', '--byzantine-leads-close',
                                  '--fork-grace', '600'], PAPER_RATES, None),
     },
+    # Committee rotation at the p = 0 matrix's quorum: six representatives,
+    # two standby with an eighth of a share, four seats (f = 1, p = 0). PR2
+    # and PR3 hand their weight to the standby PR4 and PR5 in epoch 0, so
+    # epoch 2 runs with {PR0, PR1, PR4, PR5}; the unmodified node moves the
+    # same balances at the same times.
+    'rotation': {
+        f'{v}-rot': (flags + ['--prs', '6', '--standby', '2', '--committee-p', '0',
+                              '--rotation', '0:2>4,3>5'], [2000], None)
+        for v, flags in [('nofork', []), ('fork5-grace', ['--fork-percentage', '5', '--fork-grace', '600']),
+                         ('fork10-grace', ['--fork-percentage', '10', '--fork-grace', '600'])]
+    },
     # Eight running representatives in both: six committee members and two
     # standby ones (PR6, PR7); the rotating variant replaces one member
     # every epoch. With the Byzantine leader: PR7 is Byzantine (no node),

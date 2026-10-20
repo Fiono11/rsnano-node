@@ -246,7 +246,7 @@ impl NanoSpamApp {
                         genesis_rpc,
                         schedule.clone(),
                         epochs_started,
-                        Duration::from_millis(self.args.epoch_duration_ms),
+                        Duration::from_millis(self.args.rotation_period_ms()),
                     ));
                 }
 
