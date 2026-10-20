@@ -35,6 +35,34 @@ impl ReportSelection {
     }
 }
 
+/// RAI: the signed commitment behind a selected report. A replica holding
+/// another version of the reporter's report, as a Byzantine reporter sends
+/// different ones to different replicas, or none, authenticates the version
+/// selected with it and rebuilds that one; without it the proposal could
+/// never be checked there.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReportEndorsement {
+    /// H(O_e) as the reporter signed it
+    pub committee: BlockHash,
+    pub signature: Signature,
+}
+
+impl ReportEndorsement {
+    pub const SERIALIZED_SIZE: usize = BlockHash::SERIALIZED_SIZE + Signature::SERIALIZED_SIZE;
+
+    fn serialize<T: std::io::Write>(&self, writer: &mut T) -> std::io::Result<()> {
+        self.committee.serialize(writer)?;
+        self.signature.serialize(writer)
+    }
+
+    fn deserialize(bytes: &mut &[u8]) -> Result<Self, DeserializationError> {
+        Ok(Self {
+            committee: BlockHash::deserialize(bytes)?,
+            signature: Signature::deserialize(bytes)?,
+        })
+    }
+}
+
 /// RAI, "The joint epoch election": the leader's proposal of an epoch value
 /// `X = (h_p, Q_e, d_e)` in one election slot. The value itself is small
 /// however large the epoch state is: it names the reports it selects and the
@@ -57,6 +85,8 @@ pub struct EpochProp {
     pub state: BlockHash,
     /// Q_e, in canonical order
     pub reports: Vec<ReportSelection>,
+    /// The signed commitment of each selected report, in the same order
+    pub endorsements: Vec<ReportEndorsement>,
     pub leader: PublicKey,
     pub signature: Signature,
 }
@@ -75,6 +105,7 @@ impl EpochProp {
         manifest: BlockHash,
         state: BlockHash,
         reports: Vec<ReportSelection>,
+        endorsements: Vec<ReportEndorsement>,
         payload: BlockHash,
     ) -> Self {
         Self {
@@ -84,6 +115,7 @@ impl EpochProp {
             manifest,
             state,
             reports,
+            endorsements,
             leader: key.public_key(),
             signature: key.sign(payload.as_bytes()),
         }
@@ -100,6 +132,10 @@ impl EpochProp {
                 reporter: PublicKey::from(5),
                 certified: BlockHash::from(6),
                 residual: BlockHash::from(7),
+            }],
+            endorsements: vec![ReportEndorsement {
+                committee: BlockHash::from(11),
+                signature: Signature::from_bytes([12; 64]),
             }],
             leader: PublicKey::from(8),
             signature: Signature::from_bytes([9; 64]),
@@ -125,8 +161,9 @@ impl EpochProp {
         self.state.serialize(writer)?;
         self.leader.serialize(writer)?;
         self.signature.serialize(writer)?;
-        for report in &self.reports {
+        for (report, endorsement) in self.reports.iter().zip(&self.endorsements) {
             report.serialize(writer)?;
+            endorsement.serialize(writer)?;
         }
         Ok(())
     }
@@ -146,11 +183,13 @@ impl EpochProp {
         let leader = PublicKey::deserialize(bytes)?;
         let signature = Signature::deserialize(bytes)?;
         let mut reports = Vec::new();
+        let mut endorsements = Vec::new();
         while !bytes.is_empty() {
             if reports.len() >= Self::MAX_REPORTS {
                 return Err(DeserializationError::InvalidData);
             }
             reports.push(ReportSelection::deserialize(bytes)?);
+            endorsements.push(ReportEndorsement::deserialize(bytes)?);
         }
         Ok(Self {
             epoch,
@@ -159,6 +198,7 @@ impl EpochProp {
             manifest,
             state,
             reports,
+            endorsements,
             leader,
             signature,
         })
@@ -201,6 +241,12 @@ mod tests {
                 residual: BlockHash::from(i + 30),
             })
             .collect();
+        prop.endorsements = (0..5)
+            .map(|i| ReportEndorsement {
+                committee: BlockHash::from(i + 40),
+                signature: Signature::from_bytes([i as u8; 64]),
+            })
+            .collect();
         assert_deserializable(&Message::EpochProp(prop));
     }
 
@@ -215,6 +261,7 @@ mod tests {
             BlockHash::from(1),
             BlockHash::from(11),
             BlockHash::from(2),
+            Vec::new(),
             Vec::new(),
             payload,
         );

@@ -553,20 +553,7 @@ impl ReportService {
             .unwrap()
             .retain(|epoch, _| epochs.contains(epoch));
         for epoch in epochs {
-            let reporters: Vec<PublicKey> = {
-                let exchange = self.exchange.lock().unwrap();
-                let usable: Vec<PublicKey> = exchange
-                    .usable(epoch)
-                    .iter()
-                    .map(|(report, _, _)| report.reporter)
-                    .collect();
-                exchange
-                    .reports(epoch)
-                    .iter()
-                    .map(|report| report.reporter)
-                    .filter(|reporter| !usable.contains(reporter))
-                    .collect()
-            };
+            let reporters = self.exchange.lock().unwrap().incomplete_reporters(epoch);
             if reporters.is_empty() {
                 continue;
             }

@@ -7,7 +7,7 @@ use std::{
 
 use rsnano_messages::{
     CheckpointReply, CheckpointReq, EpochProp, EvidenceReq, ManifestReply, ManifestReq, Message,
-    ReportSelection,
+    Report, ReportEndorsement, ReportSelection,
 };
 use rsnano_network::{Channel, TrafficType};
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
@@ -338,7 +338,7 @@ impl EpochDecisionService {
     pub fn handle_proposal(&self, prop: EpochProp, _channel: &Arc<Channel>) {
         self.stats
             .inc_dir(StatType::Message, DetailType::EpochProp, Direction::In);
-        if prop.reports.is_empty() {
+        if prop.reports.is_empty() || prop.endorsements.len() != prop.reports.len() {
             return;
         }
         let value = EpochValue::from_parts(
@@ -363,7 +363,58 @@ impl EpochDecisionService {
         {
             return;
         }
+        self.add_selected_reports(&prop);
         self.queue_check(value, _channel);
+    }
+
+    /// RAI: the selected reports, authenticated by the endorsements the
+    /// proposal carries. A version this node lacks, of a reporter that sent
+    /// it another or nothing, is rebuilt next to what it holds, and the
+    /// check of the proposal goes on once it is: otherwise a Byzantine
+    /// reporter that signs one report for half of the replicas and another
+    /// for the rest fails every round whose proposal selects it.
+    fn add_selected_reports(&self, prop: &EpochProp) {
+        let Some(predecessor) = self.active_elections.epoch_previous_hash(prop.epoch) else {
+            return;
+        };
+        let mut exchange = self.exchange.lock().unwrap();
+        for (selection, endorsement) in prop.reports.iter().zip(&prop.endorsements) {
+            if exchange.handle_named_report(Report {
+                epoch: prop.epoch,
+                committee: endorsement.committee,
+                predecessor,
+                certified: selection.certified,
+                residual: selection.residual,
+                reporter: selection.reporter,
+                signature: endorsement.signature.clone(),
+            }) {
+                diagnostic!(
+                    "EPOCH_REPORT_NAMED epoch={} reporter={} certified={} residual={}",
+                    prop.epoch,
+                    &selection.reporter.to_string()[..8],
+                    &selection.certified.to_string()[..8],
+                    &selection.residual.to_string()[..8]
+                );
+            }
+        }
+    }
+
+    /// The signed commitments of a value's selected reports, as held here;
+    /// None when one is missing, which a proposal can not go out without
+    fn endorsements(&self, value: &EpochValue) -> Option<Vec<ReportEndorsement>> {
+        let exchange = self.exchange.lock().unwrap();
+        value
+            .reports()
+            .iter()
+            .map(|report| {
+                exchange.endorsement(
+                    value.epoch,
+                    &report.reporter,
+                    report.certified,
+                    report.residual,
+                )
+            })
+            .collect()
     }
 
     /// Checks proposals on a thread of their own: a check derives a state and
@@ -909,6 +960,14 @@ impl EpochDecisionService {
         else {
             return;
         };
+        let Some(endorsements) = self.endorsements(&value) else {
+            diagnostic!(
+                "EPOCH_PROPOSAL_UNENDORSED epoch={} round={} : a selected report is not held",
+                epoch,
+                round
+            );
+            return;
+        };
         diagnostic!(
             "EPOCH_PROPOSED epoch={} round={} value={} state={} reports={}",
             epoch,
@@ -925,6 +984,7 @@ impl EpochDecisionService {
             value.manifest,
             value.state,
             value.reports().iter().map(selection_of).collect(),
+            endorsements,
             hash,
         );
         self.active_elections.accept_epoch_value(value, state);
@@ -965,6 +1025,9 @@ impl EpochDecisionService {
         if hash == honest_hash {
             return false;
         }
+        let Some(endorsements) = self.endorsements(&value) else {
+            return false;
+        };
         let other = EpochProp::new(
             key,
             epoch,
@@ -973,6 +1036,7 @@ impl EpochDecisionService {
             value.manifest,
             value.state,
             value.reports().iter().map(selection_of).collect(),
+            endorsements,
             hash,
         );
         self.active_elections.accept_epoch_value(value, state);

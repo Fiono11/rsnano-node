@@ -13,7 +13,7 @@ use crate::consensus::election::{
 pub use epoch_decision::EpochDecisionService;
 pub(crate) use report_plugin::{ReportPlugin, ReportTicker};
 pub use report_service::ReportService;
-use rsnano_messages::{Report, ReportSet, ReportSymbolsReply, ReportSymbolsReq};
+use rsnano_messages::{Report, ReportEndorsement, ReportSet, ReportSymbolsReply, ReportSymbolsReq};
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{BlockHash, ConsensusEpoch, PrivateKey, PublicKey};
 use std::{
@@ -40,13 +40,36 @@ struct EpochReports {
     snapshots: BTreeMap<BlockHash, Arc<CertifiedState>>,
     residuals: HashMap<BlockHash, Arc<ResidualVotes>>,
     signed: Vec<Report>,
-    theirs: HashMap<PublicKey, TheirReport>,
+    theirs: HashMap<ReportKey, TheirReport>,
     repeated: Option<Timestamp>,
     /// The symbol streams this node serves, by inventory and root
     encoders: HashMap<(ReportSet, BlockHash), Encoder>,
 }
+/// RAI: one version of a reporter's report. A correct reporter signs one per
+/// epoch; a Byzantine one may sign several and send each to other replicas,
+/// and a proposal may select any of them
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct ReportKey {
+    reporter: PublicKey,
+    certified: BlockHash,
+    residual: BlockHash,
+}
+
+impl ReportKey {
+    fn of(report: &Report) -> Self {
+        Self {
+            reporter: report.reporter,
+            certified: report.certified,
+            residual: report.residual,
+        }
+    }
+}
+
 struct TheirReport {
     report: Report,
+    /// Added because a proposal selected it, after another version of the
+    /// reporter's report arrived here
+    named: bool,
     reconstructed: Option<Arc<CertifiedState>>,
     residual: Option<Arc<ResidualVotes>>,
     derived: Option<Timestamp>,
@@ -147,6 +170,42 @@ impl TheirReport {
     fn is_usable(&self) -> bool {
         self.is_complete() && self.verified
     }
+
+    /// Derives the residual object from the reporter's votes held here once
+    /// the certified state is rebuilt; a stream fetches what they lack
+    fn derive_residual(
+        &mut self,
+        epoch: ConsensusEpoch,
+        votes: &[(CertifiedBlock, ResidualKind, BlockHash)],
+        now: Timestamp,
+    ) -> Option<ReconcileResult> {
+        let certified = self.reconstructed.as_ref()?;
+        if self.residual.is_some() {
+            return None;
+        }
+        self.derived = Some(now);
+        let derived = ResidualVotes::derive(certified, votes.iter().copied());
+        let total = derived.len();
+        let complete = derived.root() == self.report.residual;
+        if complete {
+            // Votes that arrived since make a running stream unnecessary
+            self.residual = Some(Arc::new(derived));
+            self.residual_stream = None;
+        } else if self.residual_stream.is_none() {
+            // A running stream keeps its base: it must not move under it
+            let decoder = Decoder::new(derived.items());
+            self.residual_stream = Some(Stream::new(ReportSet::Residual, derived, decoder));
+        }
+        Some(ReconcileResult {
+            epoch,
+            reporter: self.report.reporter,
+            complete,
+            entries: total,
+            total,
+            symbols: 0,
+            dropped: false,
+        })
+    }
 }
 
 /// RAI evaluation, `RAI_DELTA_CHECK=1`: whether the paths that read only
@@ -236,7 +295,7 @@ pub(crate) fn entry_claims(
 /// RAI: a reconstructed report due a check against the evidence held here,
 /// taken out of the exchange so that the check runs without holding it
 pub(crate) struct VerifyJob {
-    reporter: PublicKey,
+    key: ReportKey,
     certified: Arc<CertifiedState>,
     residual: Arc<ResidualVotes>,
     /// The hashes found missing before; None for the first check
@@ -256,7 +315,7 @@ impl VerifyJob {
         ) -> Option<Verification>,
     ) -> Option<Verification> {
         check(
-            &self.reporter,
+            &self.key.reporter,
             &self.certified,
             &self.residual,
             self.only.as_deref(),
@@ -611,6 +670,53 @@ impl ReportExchange {
         }
         messages
     }
+    /// RAI: the signed commitment of a report held here, this node's own or
+    /// another's, for a proposal that selects it
+    pub fn endorsement(
+        &self,
+        epoch: ConsensusEpoch,
+        reporter: &PublicKey,
+        certified: BlockHash,
+        residual: BlockHash,
+    ) -> Option<ReportEndorsement> {
+        let held = self.epochs.get(&epoch)?;
+        let report = held
+            .signed
+            .iter()
+            .find(|own| {
+                &own.reporter == reporter && own.certified == certified && own.residual == residual
+            })
+            .or_else(|| {
+                held.theirs
+                    .get(&ReportKey {
+                        reporter: *reporter,
+                        certified,
+                        residual,
+                    })
+                    .map(|their| &their.report)
+            })?;
+        Some(ReportEndorsement {
+            committee: report.committee,
+            signature: report.signature.clone(),
+        })
+    }
+    /// RAI: the reporters with a version of their report not usable yet,
+    /// to rebuild: a version a proposal named may lack its contents while
+    /// the reporter's first one is usable
+    pub fn incomplete_reporters(&self, epoch: ConsensusEpoch) -> Vec<PublicKey> {
+        let Some(held) = self.epochs.get(&epoch) else {
+            return Vec::new();
+        };
+        let mut reporters: Vec<PublicKey> = held
+            .theirs
+            .iter()
+            .filter(|(_, their)| !their.is_usable())
+            .map(|(key, _)| key.reporter)
+            .collect();
+        reporters.sort();
+        reporters.dedup();
+        reporters
+    }
     pub fn reports(&self, epoch: ConsensusEpoch) -> Vec<&Report> {
         self.epochs
             .get(&epoch)
@@ -647,12 +753,12 @@ impl ReportExchange {
                 held.residuals.get(&residual)?.as_ref(),
             ));
         }
-        let their = held.theirs.get(reporter)?;
-        if their.report.certified != certified
-            || their.report.residual != residual
-            || their.report.predecessor != predecessor
-            || !their.verified
-        {
+        let their = held.theirs.get(&ReportKey {
+            reporter: *reporter,
+            certified,
+            residual,
+        })?;
+        if their.report.predecessor != predecessor || !their.verified {
             return None;
         }
         Some((their.reconstructed.as_deref()?, their.residual.as_deref()?))
@@ -678,7 +784,11 @@ impl ReportExchange {
                 held.residuals.get(&residual)?.clone(),
             ));
         }
-        let their = held.theirs.get(reporter)?;
+        let their = held.theirs.get(&ReportKey {
+            reporter: *reporter,
+            certified,
+            residual,
+        })?;
         Some((their.reconstructed.clone()?, their.residual.clone()?))
     }
 
@@ -693,10 +803,18 @@ impl ReportExchange {
                 held.residuals.get(&report.residual)?.as_ref(),
             ))
         });
-        let theirs = held
+        // One version per reporter, the one that arrived first before one a
+        // proposal named: a selection counts a reporter's weight once
+        let mut versions: Vec<&TheirReport> = held
             .theirs
             .values()
             .filter(|their| their.verified)
+            .collect();
+        versions.sort_by_key(|their| their.named);
+        let mut counted = HashSet::new();
+        let theirs = versions
+            .into_iter()
+            .filter(|their| counted.insert(their.report.reporter))
             .filter_map(|their| {
                 Some((
                     &their.report,
@@ -721,33 +839,44 @@ impl ReportExchange {
         }
         let held = self.epochs.entry(report.epoch).or_default();
         // A reporter signs one report per epoch; a second one changes nothing
-        if held.theirs.contains_key(&report.reporter)
-            || held
-                .signed
-                .iter()
-                .any(|own| own.reporter == report.reporter)
+        // unless a proposal selects it (`handle_named_report`)
+        if held.versions(&report.reporter).next().is_some() || held.signed_by(&report.reporter) {
+            return false;
+        }
+        held.insert(report, false);
+        true
+    }
+
+    /// RAI: a report a proposal selected, authenticated by the endorsement
+    /// the proposal carries. A reporter with another version held here is
+    /// Byzantine, and the selected version is rebuilt next to it: a replica
+    /// that kept only the first version it received could never check the
+    /// proposal, which then fails its round however correct its leader.
+    pub fn handle_named_report(&mut self, report: Report) -> bool {
+        if self.released.contains(&report.epoch) {
+            return false;
+        }
+        let held = self.epochs.entry(report.epoch).or_default();
+        let versions = held.versions(&report.reporter).count();
+        if held.signed_by(&report.reporter)
+            || held.theirs.contains_key(&ReportKey::of(&report))
+            || versions >= EpochReports::MAX_VERSIONS
         {
             return false;
         }
-        // An empty residual object is settled by its signed root alone:
-        // every replica knows the root of the empty object
-        let residual = (report.residual == ResidualVotes::new().root())
-            .then(|| Arc::new(ResidualVotes::new()));
-        held.theirs.insert(
-            report.reporter,
-            TheirReport {
-                report,
-                reconstructed: None,
-                residual,
-                derived: None,
-                certified_stream: None,
-                residual_stream: None,
-                verified: false,
-                missing: Vec::new(),
-                verified_at: None,
-                malformed: false,
-            },
-        );
+        let payload = ReportCommitment {
+            epoch: report.epoch,
+            committee: report.committee,
+            predecessor: report.predecessor,
+            certified: report.certified,
+            residual: report.residual,
+            reporter: report.reporter,
+        }
+        .payload();
+        if !report.verify(payload) {
+            return false;
+        }
+        held.insert(report, versions > 0);
         true
     }
     pub fn needs_residual(
@@ -756,17 +885,18 @@ impl ReportExchange {
         reporter: &PublicKey,
         now: Timestamp,
     ) -> bool {
-        self.epochs
-            .get(&epoch)
-            .and_then(|held| held.theirs.get(reporter))
-            .is_some_and(|their| {
+        self.epochs.get(&epoch).is_some_and(|held| {
+            held.versions(reporter).any(|their| {
                 their.reconstructed.is_some()
                     && their.residual.is_none()
                     && their
                         .derived
                         .is_none_or(|last| last.elapsed(now) >= Self::RETRY_INTERVAL)
             })
+        })
     }
+    /// Derives the residual object of each version of the reporter's report
+    /// whose certified state is rebuilt; the result of the first one
     pub fn derive_residual(
         &mut self,
         epoch: ConsensusEpoch,
@@ -775,33 +905,16 @@ impl ReportExchange {
         now: Timestamp,
     ) -> Option<ReconcileResult> {
         let held = self.epochs.get_mut(&epoch)?;
-        let their = held.theirs.get_mut(&reporter)?;
-        let certified = their.reconstructed.as_ref()?;
-        if their.residual.is_some() {
-            return None;
+        let votes: Vec<_> = votes.into_iter().collect();
+        let mut first = None;
+        for key in held.version_keys(&reporter) {
+            let Some(their) = held.theirs.get_mut(&key) else {
+                continue;
+            };
+            let result = their.derive_residual(epoch, &votes, now);
+            first = first.or(result);
         }
-        their.derived = Some(now);
-        let derived = ResidualVotes::derive(certified, votes);
-        let total = derived.len();
-        let complete = derived.root() == their.report.residual;
-        if complete {
-            // Votes that arrived since make a running stream unnecessary
-            their.residual = Some(Arc::new(derived));
-            their.residual_stream = None;
-        } else if their.residual_stream.is_none() {
-            // A running stream keeps its base: it must not move under it
-            let decoder = Decoder::new(derived.items());
-            their.residual_stream = Some(Stream::new(ReportSet::Residual, derived, decoder));
-        }
-        Some(ReconcileResult {
-            epoch,
-            reporter,
-            complete,
-            entries: total,
-            total,
-            symbols: 0,
-            dropped: false,
-        })
+        first
     }
 
     /// RAI: checks the reconstructed reports not yet verified, at most once
@@ -848,9 +961,9 @@ impl ReportExchange {
                         .verified_at
                         .is_none_or(|at| at.elapsed(now) >= Self::RETRY_INTERVAL)
             })
-            .filter_map(|(reporter, their)| {
+            .filter_map(|(key, their)| {
                 Some(VerifyJob {
-                    reporter: *reporter,
+                    key: *key,
                     certified: their.reconstructed.clone()?,
                     residual: their.residual.clone()?,
                     only: their.verified_at.is_some().then(|| their.missing.clone()),
@@ -874,7 +987,7 @@ impl ReportExchange {
             return requests;
         };
         for (job, found) in checked {
-            let Some(their) = held.theirs.get_mut(&job.reporter) else {
+            let Some(their) = held.theirs.get_mut(&job.key) else {
                 continue;
             };
             if !job.still_due(their) {
@@ -891,7 +1004,7 @@ impl ReportExchange {
             their.verified_at = Some(now);
             their.verified = missing.is_empty();
             if !missing.is_empty() {
-                requests.push((job.reporter, missing.clone()));
+                requests.push((job.key.reporter, missing.clone()));
             }
             their.missing = missing;
         }
@@ -990,7 +1103,8 @@ impl ReportExchange {
         let Some(held) = self.epochs.get_mut(&reply.epoch) else {
             return (messages, results);
         };
-        for (reporter, their) in &mut held.theirs {
+        for (key, their) in &mut held.theirs {
+            let reporter = &key.reporter;
             match reply.set {
                 ReportSet::Certified | ReportSet::CertifiedChanges => {
                     if their.report.certified != reply.target {
@@ -1135,11 +1249,11 @@ impl ReportExchange {
         reporter: &PublicKey,
         hashes: &[BlockHash],
     ) -> Vec<(CertifiedBlock, Certification)> {
-        let Some(their) = self
-            .epochs
-            .get(&epoch)
-            .and_then(|held| held.theirs.get(reporter))
-        else {
+        let Some(their) = self.epochs.get(&epoch).and_then(|held| {
+            held.version_keys(reporter)
+                .first()
+                .and_then(|key| held.theirs.get(key))
+        }) else {
             return Vec::new();
         };
         let Some(certified) = their.reconstructed.as_ref() else {
@@ -1162,6 +1276,8 @@ impl ReportExchange {
         let held = self.epochs.entry(epoch).or_default();
         held.live.certify_all(&live);
     }
+    /// Starts rebuilding each version of the reporter's report whose
+    /// certified state is not rebuilt yet; the outcome for the first one
     pub fn reconcile(
         &mut self,
         epoch: ConsensusEpoch,
@@ -1169,13 +1285,27 @@ impl ReportExchange {
         now: Timestamp,
     ) -> Option<(Vec<ReportMessage>, Option<ReconcileResult>)> {
         let held = self.epochs.get_mut(&epoch)?;
-        let their = held.theirs.get(&reporter)?;
+        let mut first = None;
+        for key in held.version_keys(&reporter) {
+            let outcome = Self::reconcile_version(held, epoch, key);
+            first = first.or(outcome);
+        }
+        first
+    }
+
+    fn reconcile_version(
+        held: &mut EpochReports,
+        epoch: ConsensusEpoch,
+        key: ReportKey,
+    ) -> Option<(Vec<ReportMessage>, Option<ReconcileResult>)> {
+        let reporter = key.reporter;
+        let their = held.theirs.get(&key)?;
         if their.is_complete() || their.reconstructed.is_some() {
             return None;
         }
         let state = held.state(their.report.certified).cloned();
         let held_live = &held.live;
-        let their = held.theirs.get_mut(&reporter)?;
+        let their = held.theirs.get_mut(&key)?;
         if let Some(state) = state {
             let total = state.len();
             their.reconstructed = Some(Arc::new(state));
@@ -1230,6 +1360,56 @@ impl EpochReports {
     /// Symbol streams served per epoch; a request for another root rebuilds
     /// its encoder
     const MAX_ENCODERS: usize = 16;
+    /// Versions of one reporter's report held at most: the first that
+    /// arrived and those proposals named. Only a Byzantine reporter signs a
+    /// second one; the bound keeps it from filling the exchange.
+    const MAX_VERSIONS: usize = 4;
+
+    fn signed_by(&self, reporter: &PublicKey) -> bool {
+        self.signed.iter().any(|own| &own.reporter == reporter)
+    }
+
+    fn versions<'a>(&'a self, reporter: &'a PublicKey) -> impl Iterator<Item = &'a TheirReport> {
+        self.theirs
+            .iter()
+            .filter(move |(key, _)| &key.reporter == reporter)
+            .map(|(_, their)| their)
+    }
+
+    /// The versions of a reporter's report, the first that arrived first
+    fn version_keys(&self, reporter: &PublicKey) -> Vec<ReportKey> {
+        let mut keys: Vec<(bool, ReportKey)> = self
+            .theirs
+            .iter()
+            .filter(|(key, _)| &key.reporter == reporter)
+            .map(|(key, their)| (their.named, *key))
+            .collect();
+        keys.sort_by_key(|(named, key)| (*named, key.certified, key.residual));
+        keys.into_iter().map(|(_, key)| key).collect()
+    }
+
+    fn insert(&mut self, report: Report, named: bool) {
+        // An empty residual object is settled by its signed root alone:
+        // every replica knows the root of the empty object
+        let residual = (report.residual == ResidualVotes::new().root())
+            .then(|| Arc::new(ResidualVotes::new()));
+        self.theirs.insert(
+            ReportKey::of(&report),
+            TheirReport {
+                report,
+                named,
+                reconstructed: None,
+                residual,
+                derived: None,
+                certified_stream: None,
+                residual_stream: None,
+                verified: false,
+                missing: Vec::new(),
+                verified_at: None,
+                malformed: false,
+            },
+        );
+    }
 
     fn residual(&self, root: BlockHash) -> Option<&ResidualVotes> {
         if let Some(residual) = self.residuals.get(&root) {
@@ -1373,6 +1553,79 @@ mod tests {
         assert!(!exchange.handle_report(altered));
         assert!(exchange.handle_report(report.clone()));
         assert!(!exchange.handle_report(report));
+    }
+
+    #[test]
+    fn a_second_version_of_a_report_is_rebuilt_once_a_proposal_names_it() {
+        let mut state = CertifiedState::new();
+        state.certify(block(), BlockHash::ZERO, CertifiedStatus::Notarized);
+        let first = report(CertifiedState::new(), ResidualVotes::new());
+        let second = report(state.clone(), ResidualVotes::new());
+        let (epoch, reporter) = (first.epoch, first.reporter);
+        let now = Timestamp::new_test_instance();
+        let mut exchange = ReportExchange::new();
+        assert!(exchange.handle_report(first.clone()));
+        assert!(!exchange.handle_report(second.clone()));
+        assert!(exchange.handle_named_report(second.clone()));
+        assert!(!exchange.handle_named_report(second.clone()));
+        exchange.reconcile(epoch, reporter, now);
+        exchange.refresh_live(epoch, state);
+        exchange.reconcile(epoch, reporter, now);
+        trust_all(&mut exchange, epoch);
+        for version in [&first, &second] {
+            assert!(
+                exchange
+                    .usable_report(
+                        epoch,
+                        &reporter,
+                        version.certified,
+                        version.residual,
+                        version.predecessor
+                    )
+                    .is_some()
+            );
+        }
+        // A selection counts the reporter once, with the version that came first
+        let usable = exchange.usable(epoch);
+        assert_eq!(usable.len(), 1);
+        assert_eq!(usable[0].0.certified, first.certified);
+    }
+
+    #[test]
+    fn a_named_report_needs_the_reporters_signature() {
+        let mut exchange = ReportExchange::new();
+        let mut forged = report(CertifiedState::new(), ResidualVotes::new());
+        forged.residual = BlockHash::from(98);
+        assert!(!exchange.handle_named_report(forged));
+        assert!(exchange.reports(ConsensusEpoch::ZERO).is_empty());
+    }
+
+    #[test]
+    fn a_held_report_endorses_a_proposal_that_selects_it() {
+        let theirs = report(CertifiedState::new(), ResidualVotes::new());
+        let mut exchange = ReportExchange::new();
+        exchange.handle_report(theirs.clone());
+        assert_eq!(
+            exchange.endorsement(
+                theirs.epoch,
+                &theirs.reporter,
+                theirs.certified,
+                theirs.residual
+            ),
+            Some(ReportEndorsement {
+                committee: theirs.committee,
+                signature: theirs.signature.clone(),
+            })
+        );
+        assert_eq!(
+            exchange.endorsement(
+                theirs.epoch,
+                &theirs.reporter,
+                BlockHash::from(97),
+                theirs.residual
+            ),
+            None
+        );
     }
 
     #[test]
