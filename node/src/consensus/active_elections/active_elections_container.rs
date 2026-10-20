@@ -504,15 +504,43 @@ impl ActiveElectionsContainer {
 
     /// RAI: whether the current epoch has been open for the vote window since
     /// the checkpoint before it was installed here (see
-    /// `ActiveElectionsConfig::epoch_vote_window`). A predecessor closed
-    /// without an installation here waits for nothing.
+    /// `ActiveElectionsConfig::epoch_vote_window`), and the positions that
+    /// checkpoint carried in have terminated. A contested position is voted
+    /// in this epoch only once that checkpoint is installed; when the closes
+    /// lag behind the epochs, the window alone was all a carried fork got
+    /// before the epoch was left, it did not terminate, and the next
+    /// checkpoint carried it again, with every close re-checking it. They
+    /// get up to one epoch duration. A predecessor closed without an
+    /// installation here waits for nothing.
     fn vote_window_passed(&self, now: Timestamp) -> bool {
         let Some(previous) = self.current_epoch.as_u64().checked_sub(1) else {
             return true;
         };
-        self.installed_at
-            .get(&ConsensusEpoch::new(previous))
-            .is_none_or(|installed| installed.elapsed(now) >= self.epoch_vote_window)
+        let previous = ConsensusEpoch::new(previous);
+        let Some(installed) = self.installed_at.get(&previous) else {
+            return true;
+        };
+        let open = installed.elapsed(now);
+        open >= self.epoch_vote_window
+            && (open >= self.epoch_duration.max(self.epoch_vote_window)
+                || self.carried_unterminated(previous) == 0)
+    }
+
+    /// RAI: the positions the decided checkpoint of `previous` retains whose
+    /// instance in the current epoch has not terminated
+    fn carried_unterminated(&self, previous: ConsensusEpoch) -> usize {
+        let Some(state) = self.decided.get(&previous) else {
+            return 0;
+        };
+        state
+            .retained_blocks()
+            .iter()
+            .filter(|(_, block)| {
+                self.roots
+                    .election_for_block_in_epoch(&block.hash, self.current_epoch)
+                    .is_some_and(|election| !election.state().is_terminated())
+            })
+            .count()
     }
 
     /// RAI: whether the close election of the epoch before this one has
@@ -5604,6 +5632,52 @@ mod tests {
             .map(|block| block.hash())
             .collect();
         assert_eq!(bodies, vec![kept.hash()]);
+    }
+
+    /// RAI: an epoch whose predecessor was installed late stays open past
+    /// the vote window while a position that checkpoint carried in is still
+    /// open, up to one epoch duration; without one it is left after the
+    /// window
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn an_epoch_waits_for_the_positions_its_predecessor_carried() {
+        for (carried, left_at) in [(true, 3000), (false, 2100)] {
+            let now = Timestamp::new_test_instance();
+            let at = |ms: u64| now + Duration::from_millis(ms);
+            let mut container = ActiveElectionsContainer::new(
+                ActiveElectionsConfig {
+                    epoch_duration: Duration::from_secs(1),
+                    epoch_vote_window: Duration::from_millis(100),
+                    ..Default::default()
+                },
+                Duration::from_millis(10),
+            );
+            let kept = SavedBlock::new_test_instance_with_key(2);
+            container.set_genesis_committee(Vec::new());
+            container.start_epochs(now);
+            container
+                .insert(
+                    AecInsertRequest::new_priority(kept.clone(), BlockPriority::default()),
+                    at(10),
+                )
+                .unwrap();
+            container.transition_time(at(1000));
+            container.transition_time(at(2000));
+            assert!(container.is_draining());
+            let mut state = EpochLedger::new();
+            if carried {
+                state.retain_for_test(
+                    AccountSlot::new(kept.account(), kept.height()),
+                    kept.hash(),
+                    kept.previous(),
+                );
+            }
+            container.install_decided_checkpoint(ConsensusEpoch::ZERO, Arc::new(state), at(2000));
+            container.transition_time(at(left_at - 10));
+            assert_eq!(container.current_epoch(), ConsensusEpoch::new(1));
+            container.transition_time(at(left_at));
+            assert_eq!(container.current_epoch(), ConsensusEpoch::new(2));
+        }
     }
 
     /// RAI: a retained block the election holds as saved is handed over
