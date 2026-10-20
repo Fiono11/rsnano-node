@@ -810,7 +810,7 @@ impl ReportExchange {
             .values()
             .filter(|their| their.verified)
             .collect();
-        versions.sort_by_key(|their| their.named);
+        versions.sort_by_key(|their| (their.named, their.report.certified, their.report.residual));
         let mut counted = HashSet::new();
         let theirs = versions
             .into_iter()
@@ -857,11 +857,7 @@ impl ReportExchange {
             return false;
         }
         let held = self.epochs.entry(report.epoch).or_default();
-        let versions = held.versions(&report.reporter).count();
-        if held.signed_by(&report.reporter)
-            || held.theirs.contains_key(&ReportKey::of(&report))
-            || versions >= EpochReports::MAX_VERSIONS
-        {
+        if held.signed_by(&report.reporter) || held.theirs.contains_key(&ReportKey::of(&report)) {
             return false;
         }
         let payload = ReportCommitment {
@@ -876,7 +872,26 @@ impl ReportExchange {
         if !report.verify(payload) {
             return false;
         }
-        held.insert(report, versions > 0);
+        // A full set gives up a named version not usable yet: versions a
+        // Byzantine reporter signed and a Byzantine leader named must not
+        // keep out the one a correct leader selects, which it repeats
+        if held.versions(&report.reporter).count() >= EpochReports::MAX_VERSIONS {
+            let Some(evicted) = held
+                .version_keys(&report.reporter)
+                .into_iter()
+                .rev()
+                .find(|key| {
+                    held.theirs
+                        .get(key)
+                        .is_some_and(|their| their.named && !their.is_usable())
+                })
+            else {
+                return false;
+            };
+            held.theirs.remove(&evicted);
+        }
+        let named = held.versions(&report.reporter).next().is_some();
+        held.insert(report, named);
         true
     }
     pub fn needs_residual(
@@ -1589,6 +1604,42 @@ mod tests {
         let usable = exchange.usable(epoch);
         assert_eq!(usable.len(), 1);
         assert_eq!(usable[0].0.certified, first.certified);
+    }
+
+    #[test]
+    fn a_named_version_replaces_one_not_usable_once_the_versions_are_full() {
+        let versions: Vec<Report> = (1..=EpochReports::MAX_VERSIONS as u64 + 1)
+            .map(|i| {
+                let mut state = CertifiedState::new();
+                state.certify(
+                    CertifiedBlock::new(Account::from(i), 1, BlockHash::from(i)),
+                    BlockHash::ZERO,
+                    CertifiedStatus::Notarized,
+                );
+                report(state, ResidualVotes::new())
+            })
+            .collect();
+        let (epoch, reporter) = (versions[0].epoch, versions[0].reporter);
+        let mut exchange = ReportExchange::new();
+        assert!(exchange.handle_report(versions[0].clone()));
+        for version in &versions[1..] {
+            assert!(exchange.handle_named_report(version.clone()));
+        }
+        let held: Vec<BlockHash> = exchange
+            .reports(epoch)
+            .iter()
+            .map(|report| report.certified)
+            .collect();
+        assert_eq!(held.len(), EpochReports::MAX_VERSIONS);
+        // The version that arrived first is kept, and so is the last named
+        assert!(held.contains(&versions[0].certified));
+        assert!(held.contains(&versions[EpochReports::MAX_VERSIONS].certified));
+        assert!(
+            exchange
+                .reports(epoch)
+                .iter()
+                .all(|r| r.reporter == reporter)
+        );
     }
 
     #[test]
