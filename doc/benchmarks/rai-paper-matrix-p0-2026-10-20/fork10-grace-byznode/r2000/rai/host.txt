@@ -1,44 +1,44 @@
-Processes: 500 total, 2 running, 498 sleeping, 1948 threads 
-2026/10/20 12:20:38
-Load Avg: 9.73, 7.12, 5.97 
-CPU usage: 2.22% user, 11.11% sys, 86.66% idle 
-SharedLibs: 635M resident, 112M data, 76M linkedit.
-MemRegions: 43946 total, 2065M resident, 233M private, 649M shared.
-PhysMem: 7767M used (1299M wired, 1684M compressor), 8054M unused.
-VM: 191T vsize, 4915M framework vsize, 1486(0) swapins, 1496(0) swapouts.
-Networks: packets: 384433446/347G in, 384329532/347G out.
-Disks: 2136938/49G read, 105166325/2808G written.
+Processes: 484 total, 2 running, 482 sleeping, 1934 threads 
+2026/10/21 15:12:07
+Load Avg: 6.88, 5.91, 6.01 
+CPU usage: 2.27% user, 11.36% sys, 86.36% idle 
+SharedLibs: 607M resident, 105M data, 54M linkedit.
+MemRegions: 44136 total, 1726M resident, 242M private, 752M shared.
+PhysMem: 7690M used (1390M wired, 1664M compressor), 8130M unused.
+VM: 184T vsize, 4915M framework vsize, 1486(0) swapins, 1496(0) swapouts.
+Networks: packets: 561102108/496G in, 560968301/496G out.
+Disks: 2975011/70G read, 160078825/4250G written.
 
 PID    %CPU COMMAND       
-46964  0.0  top           
-46962  0.0  Python        
-46946  0.0  mediaanalysisd
-46654  0.0  Python        
-46649  0.0  2.1.302       
-46648  0.0  tail          
-46646  0.0  zsh           
-46645  0.0  caffeinate    
-46644  0.0  zsh           
-46643  0.0  zsh           
-Processes: 500 total, 2 running, 498 sleeping, 1951 threads 
-2026/10/20 12:20:39
-Load Avg: 9.03, 7.01, 5.94 
-CPU usage: 0.70% user, 1.17% sys, 98.12% idle 
-SharedLibs: 635M resident, 112M data, 76M linkedit.
-MemRegions: 43946 total, 2065M resident, 233M private, 649M shared.
-PhysMem: 7768M used (1299M wired, 1684M compressor), 8054M unused.
-VM: 191T vsize, 4915M framework vsize, 1486(0) swapins, 1496(0) swapouts.
-Networks: packets: 384433446/347G in, 384329532/347G out.
-Disks: 2136938/49G read, 105166325/2808G written.
+57524  0.0  top           
+57522  0.0  Python        
+57521  0.0  sleep         
+57508  0.0  mediaanalysisd
+57401  0.0  caffeinate    
+57399  0.0  zsh           
+57238  0.0  2.1.302       
+57237  0.0  tail          
+57236  0.0  zsh           
+56953  0.0  uncd          
+Processes: 484 total, 2 running, 482 sleeping, 1931 threads 
+2026/10/21 15:12:08
+Load Avg: 6.88, 5.91, 6.01 
+CPU usage: 0.81% user, 1.5% sys, 98.13% idle 
+SharedLibs: 607M resident, 105M data, 54M linkedit.
+MemRegions: 44136 total, 1726M resident, 242M private, 752M shared.
+PhysMem: 7690M used (1389M wired, 1664M compressor), 8131M unused.
+VM: 184T vsize, 4915M framework vsize, 1486(0) swapins, 1496(0) swapouts.
+Networks: packets: 561102109/496G in, 560968302/496G out.
+Disks: 2975011/70G read, 160078825/4250G written.
 
-PID    %CPU COMMAND        
-46964  5.3  top            
-1325   2.8  2.1.302        
-0      1.5  kernel_task    
-1411   0.9  2.1.302        
-325    0.5  fseventsd      
-388    0.4  WindowServer   
-1552   0.3  2.1.303        
-406    0.3  airportd       
-359    0.3  thermalmonitord
-384    0.1  corebrightnessd
+PID    %CPU COMMAND         
+57524  5.2  top             
+1325   2.5  2.1.302         
+0      1.6  kernel_task     
+1411   0.7  2.1.302         
+1552   0.3  2.1.303         
+325    0.3  fseventsd       
+57508  0.1  mediaanalysisd  
+57238  0.1  2.1.302         
+473    0.1  audioclocksyncd 
+2073   0.1  UserNotification

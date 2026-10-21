@@ -1,44 +1,44 @@
-Processes: 501 total, 2 running, 499 sleeping, 1982 threads 
-2026/10/20 12:59:55
-Load Avg: 13.12, 8.16, 6.99 
-CPU usage: 2.32% user, 9.30% sys, 88.37% idle 
-SharedLibs: 635M resident, 112M data, 76M linkedit.
-MemRegions: 44113 total, 1378M resident, 148M private, 692M shared.
-PhysMem: 7516M used (1270M wired, 1957M compressor), 8305M unused.
-VM: 191T vsize, 4915M framework vsize, 1486(0) swapins, 1496(0) swapouts.
-Networks: packets: 404127279/362G in, 404024106/362G out.
-Disks: 2168378/50G read, 111389970/2972G written.
+Processes: 485 total, 2 running, 483 sleeping, 1911 threads 
+2026/10/21 16:16:43
+Load Avg: 14.24, 8.36, 7.11 
+CPU usage: 2.27% user, 11.36% sys, 86.36% idle 
+SharedLibs: 625M resident, 107M data, 55M linkedit.
+MemRegions: 44132 total, 1638M resident, 213M private, 755M shared.
+PhysMem: 7391M used (1406M wired, 1732M compressor), 8431M unused.
+VM: 185T vsize, 4915M framework vsize, 1486(0) swapins, 1496(0) swapouts.
+Networks: packets: 592543321/517G in, 592411129/517G out.
+Disks: 2992609/71G read, 171664323/4540G written.
 
 PID    %CPU COMMAND         
-47397  0.0  top             
-47395  0.0  Python          
-47387  0.0  mediaanalysisd  
-47381  0.0  2.1.302         
-47380  0.0  tail            
-47379  0.0  zsh             
-47160  0.0  XProtectPluginSe
-47090  0.0  Python          
-46645  0.0  caffeinate      
-46644  0.0  zsh             
-Processes: 501 total, 2 running, 499 sleeping, 1956 threads 
-2026/10/20 12:59:57
-Load Avg: 13.12, 8.16, 6.99 
-CPU usage: 0.0% user, 1.16% sys, 98.83% idle 
-SharedLibs: 635M resident, 112M data, 76M linkedit.
-MemRegions: 44113 total, 1378M resident, 148M private, 692M shared.
-PhysMem: 7516M used (1270M wired, 1957M compressor), 8305M unused.
-VM: 191T vsize, 4915M framework vsize, 1486(0) swapins, 1496(0) swapouts.
-Networks: packets: 404127280/362G in, 404024107/362G out.
-Disks: 2168378/50G read, 111389970/2972G written.
+58589  0.0  top             
+58587  0.0  Python          
+58586  0.0  sleep           
+58577  0.0  mdworker_shared 
+58575  0.0  mediaanalysisd  
+58214  0.0  2.1.302         
+58213  0.0  tail            
+58212  0.0  zsh             
+57888  0.0  PerfPowerService
+57766  0.0  Python          
+Processes: 485 total, 2 running, 483 sleeping, 1914 threads 
+2026/10/21 16:16:44
+Load Avg: 13.18, 8.24, 7.07 
+CPU usage: 1.30% user, 0.94% sys, 97.74% idle 
+SharedLibs: 625M resident, 107M data, 55M linkedit.
+MemRegions: 44132 total, 1638M resident, 213M private, 755M shared.
+PhysMem: 7392M used (1389M wired, 1732M compressor), 8430M unused.
+VM: 185T vsize, 4915M framework vsize, 1486(0) swapins, 1496(0) swapouts.
+Networks: packets: 592543322/517G in, 592411130/517G out.
+Disks: 2992609/71G read, 171664323/4540G written.
 
 PID    %CPU COMMAND         
-47397  5.8  top             
-0      1.4  kernel_task     
-1411   0.6  2.1.302         
-325    0.5  fseventsd       
-1325   0.3  2.1.302         
+1411   5.0  2.1.302         
+58589  4.6  top             
+0      2.6  kernel_task     
+1325   2.3  2.1.302         
+388    1.0  WindowServer    
+384    0.4  corebrightnessd 
 1552   0.3  2.1.303         
-388    0.2  WindowServer    
-47381  0.1  2.1.302         
-473    0.1  audioclocksyncd 
-384    0.0  corebrightnessd 
+325    0.3  fseventsd       
+57888  0.2  PerfPowerService
+551    0.2  distnoted       
