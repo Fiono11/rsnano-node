@@ -1,102 +1,142 @@
-% The evaluation's figures; data in sections/eval-data/paper
-% (tools/paper_figures.py from the 'paper' set of tools/rai/run_sweep.py,
-% offered load 2,000 blocks/s).
+% The evaluation's figures; data in sections/eval-data/matrix
+% (tools/matrix_figures.py from the paper matrices of tools/rai/run_sweep.py,
+% offered load 2,000 blocks/s, 8 s epochs).
 \pgfplotsset{
   paperaxis/.style={tick label style={font=\scriptsize},label style={font=\scriptsize},title style={font=\scriptsize,yshift=-1.5mm},
     ymajorgrids,grid style={gray!25},unbounded coords=jump,every axis plot/.append style={line width=0.6pt}},
-  timeaxis/.style={paperaxis,xmin=0,xmax=36,ymin=0,ymax=4000,ytick={0,2000,4000},yticklabels={0,2k,4k},
+  timeaxis/.style={paperaxis,xmin=0,ymin=0,ymax=4000,ytick={0,2000,4000},yticklabels={0,2k,4k},
     restrict y to domain*=0:4000,no markers},
+  scenarioticks/.style={xmin=-0.5,xmax=5.5,xtick={0,...,5},
+    xticklabels={no forks,5\%,10\%,{no forks,\\ Byz.},{5\%,\\ Byz.},{10\%,\\ Byz.}},x tick label style={align=center}},
+  rotticks/.style={xmin=-0.5,xmax=2.5,xtick={0,1,2},xticklabels={no forks,5\%,10\%}},
+  latencyaxis/.style={paperaxis,log origin=infty,ymin=80,ymax=30000,
+    ytick={100,300,1000,3000,10000,30000},yticklabels={100,300,1k,3k,10k,30k},ylabel={latency (ms)}},
+  goodputaxis/.style={paperaxis,ymin=0,ymax=2100,ytick={0,500,1000,1500,2000},yticklabels={0,500,1k,1.5k,2k},
+    ylabel={confirmed/s}},
 }
-\newcommand{\paperdata}[1]{sections/eval-data/paper/#1.dat}
-% One timeline panel: #1 scenario, #2 system, #3 color. The close windows
-% are shaded, the system's non-fork confirmations per second drawn on top,
-% the end of the load dashed
-\newcommand{\timeline}[3]{%
-  \addplot[fill=#3!18,draw=none] table[x=t,y expr=\thisrow{y}*4000] {\paperdata{closes-#1-#2}} \closedcycle;
-  \addplot[color=#3,line width=0.7pt] table[x=t,y=confirmed] {\paperdata{timeline-#1-#2}};
-  \addplot[black!55,densely dashed,line width=0.5pt] table[x=t,y expr=\thisrow{y}*4000] {\paperdata{loadend-#1-#2}};
+\colorlet{cRaiLight}{cRai!45}
+\newcommand{\matrixdata}[1]{sections/eval-data/matrix/#1.dat}
+% Latency bars of one system: #1 data file, #2 color, #3 shift, #4 bar
+% width; p95 outlined, p50 filled, each with the range over the reps
+\newcommand{\latbars}[4]{%
+  \addplot[ybar,bar width=#4,bar shift=#3,draw=#2,fill=white,line width=0.5pt,forget plot,
+    error bars/.cd,y dir=both,y explicit,error bar style={#2,line width=0.4pt}]
+    table[x=x,y=p95,y error plus expr=\thisrow{p95hi}-\thisrow{p95},y error minus expr=\thisrow{p95}-\thisrow{p95lo}] {\matrixdata{#1}};
+  \addplot[ybar,bar width=#4,bar shift=#3,draw=#2,fill=#2,line width=0.5pt,area legend,
+    error bars/.cd,y dir=both,y explicit,error bar style={black!60,line width=0.4pt}]
+    table[x=x,y=p50,y error plus expr=\thisrow{p50hi}-\thisrow{p50},y error minus expr=\thisrow{p50}-\thisrow{p50lo}] {\matrixdata{#1}};
+}
+% Goodput bars of one system, with the range over the reps
+\newcommand{\gputbars}[4]{%
+  \addplot[ybar,bar width=#4,bar shift=#3,draw=#2,fill=#2!70,line width=0.5pt,
+    error bars/.cd,y dir=both,y explicit,error bar style={black!70,line width=0.4pt}]
+    table[x=x,y=gput,y error plus expr=\thisrow{gputhi}-\thisrow{gput},y error minus expr=\thisrow{gput}-\thisrow{gputlo}] {\matrixdata{#1}};
+}
+% One timeline panel: #1 run name, #2 color. The close windows are shaded,
+% the non-fork confirmations per second drawn on top, the end of the load
+% dashed
+\newcommand{\timeline}[2]{%
+  \addplot[fill=#2!18,draw=none] table[x=t,y expr=\thisrow{y}*4000] {\matrixdata{closes-#1}} \closedcycle;
+  \addplot[color=#2,line width=0.7pt] table[x=t,y=confirmed] {\matrixdata{timeline-#1}};
+  \addplot[black!55,densely dashed,line width=0.5pt] table[x=t,y expr=\thisrow{y}*4000] {\matrixdata{loadend-#1}};
 }
 
-\begin{figure*}[t]
+\begin{figure}[t]
 \centering
 \begin{tikzpicture}
-\begin{groupplot}[group style={group size=2 by 3,horizontal sep=5mm,vertical sep=3mm,xticklabels at=edge bottom,yticklabels at=edge left},
-  timeaxis,width=0.52\textwidth,height=2.7cm]
-\nextgroupplot[title={10\% forks},ylabel={RAI\\ confirmed/s},ylabel style={align=center}]
-\timeline{fork10-grace}{rai}{cRai}
-\nextgroupplot[title={5\% forks, Byzantine leader in every close}]
-\timeline{fork5-byzlead-grace}{rai}{cRai}
-\nextgroupplot[ylabel={pause\\ confirmed/s},ylabel style={align=center}]
-\timeline{fork10-grace}{pause}{cPause}
-\nextgroupplot
-\timeline{fork5-byzlead-grace}{pause}{cPause}
-\nextgroupplot[ylabel={Nano\\ confirmed/s},ylabel style={align=center},xlabel={time since the first block was published (s)}]
-\timeline{fork10-grace}{develop}{cNano}
-\nextgroupplot[xlabel={time since the first block was published (s)}]
-\timeline{fork5-byzlead-grace}{develop}{cNano}
+\begin{groupplot}[group style={group size=1 by 2,vertical sep=3mm,xticklabels at=edge bottom},
+  width=\columnwidth,scenarioticks]
+\nextgroupplot[ymode=log,latencyaxis,height=4.2cm,legend style={font=\scriptsize,draw=none,fill=none,at={(0.02,0.98)},anchor=north west},legend columns=3]
+\latbars{bars-p0-rai}{cRai}{-6pt}{5pt}
+\latbars{bars-p0-pause}{cPause}{0pt}{5pt}
+\latbars{bars-p0-develop}{cNano}{6pt}{5pt}
+\legend{RAI,pause,Nano}
+\nextgroupplot[goodputaxis,height=3.3cm]
+\gputbars{bars-p0-rai}{cRai}{-6pt}{5pt}
+\gputbars{bars-p0-pause}{cPause}{0pt}{5pt}
+\gputbars{bars-p0-develop}{cNano}{6pt}{5pt}
 \end{groupplot}
 \end{tikzpicture}
-\caption{Non-fork blocks confirmed per second at an offered load of 2{,}000 blocks/s, with 8\,s epochs; shaded: an epoch is closing (from the first validator leaving it to the last one seeing its checkpoint decided); dashed: the end of the load, after which there is little left to confirm. Pause confirms nothing until the checkpoint is decided, then catches up in a burst (bursts above 4{,}000/s are cut off); RAI keeps confirming through every close. A Byzantine validator that leads the first round of every close and stays silent makes each close wait for the round timeout, which stops pause for longer and does not stop RAI. Nano has no epochs and never stops, but with 10\% forks it confirms below the offered load and finishes its backlog in a trickle after the load ends. One run each.}
-\label{fig:eval-timeline}
-\end{figure*}
-
-% Bars of two values per system: #1 data file prefix, #2 system, #3 color,
-% #4 shift, #5 the larger value (outline), #6 the smaller one (filled)
-\newcommand{\pairbars}[6]{%
-  \addplot[ybar,bar width=7pt,bar shift=#4,draw=#3,fill=white,line width=0.6pt,forget plot] table[x=x,y=#5] {\paperdata{#1-#2}};
-  \addplot[ybar,bar width=7pt,bar shift=#4,draw=#3,fill=#3,line width=0.6pt,area legend] table[x=x,y=#6] {\paperdata{#1-#2}};
-}
-\pgfplotsset{scenarioticks/.style={xmin=-0.5,xmax=3.5,xtick={0,1,2,3},
-  xticklabels={no forks,5\% forks,10\% forks,{5\% forks,\\ Byz.\ leader}},x tick label style={align=center}}}
-
-\begin{figure}[t]
-\centering
-\begin{tikzpicture}
-\begin{axis}[paperaxis,width=\columnwidth,height=4.6cm,ymin=0,ymax=2600,
-  ytick={0,500,1000,1500,2000,2500},yticklabels={0,500,1k,1.5k,2k,2.5k},
-  ylabel={non-fork blocks confirmed/s},scenarioticks,
-  legend style={font=\scriptsize,draw=none,fill=none,at={(0.98,0.98)},anchor=north east},legend columns=3]
-\pairbars{rate}{rai}{cRai}{-8pt}{mean}{low}
-\pairbars{rate}{pause}{cPause}{0pt}{mean}{low}
-\pairbars{rate}{develop}{cNano}{8pt}{mean}{low}
-\legend{RAI,pause,Nano}
-\end{axis}
-\end{tikzpicture}
-\caption{Non-fork confirmation rate during the load of 2{,}000 blocks/s: the average over the seconds of the load (outline) and the lowest second (filled). Pause's lowest second is zero in every scenario. One run each.}
-\label{fig:eval-rate}
+\caption{RAI, pause, and Nano at the same quorum (five of six validators; RAI with $f=1$, $p=0$ and no fast path), at an offered load of 2{,}000 blocks/s with 5\% and 10\% forks and with one Byzantine validator. Top: median (filled) and 95th-percentile (outline) latency of non-fork blocks. Bottom: non-fork blocks confirmed per second over the run. Bars are medians over three runs, whiskers their range.}
+\label{fig:eval-matrix}
 \end{figure}
 
 \begin{figure}[t]
 \centering
 \begin{tikzpicture}
-\begin{axis}[paperaxis,width=\columnwidth,height=4.6cm,ymode=log,log origin=infty,ymin=50,ymax=20000,
-  ytick={50,100,200,500,1000,2000,5000,10000,20000},yticklabels={50,100,200,500,1k,2k,5k,10k,20k},
-  ylabel={non-fork latency (ms)},scenarioticks,
-  legend style={font=\scriptsize,draw=none,fill=none,at={(0.02,0.98)},anchor=north west},legend columns=3]
-\pairbars{latency}{rai}{cRai}{-8pt}{p95}{p50}
-\pairbars{latency}{pause}{cPause}{0pt}{p95}{p50}
-\pairbars{latency}{develop}{cNano}{8pt}{p95}{p50}
+\begin{groupplot}[group style={group size=2 by 1,horizontal sep=4mm,yticklabels at=edge left},
+  paperaxis,width=0.58\columnwidth,height=4.0cm,xmode=log,xmin=1,xmax=500,ymin=0,ymax=3500,
+  xtick={1,10,100},xticklabels={1,10,100},ytick={0,1000,2000,3000},yticklabels={0,1k,2k,3k},xmajorgrids,no markers,
+  xlabel={time since the load ended (s)}]
+\nextgroupplot[title={10\% forks},ylabel={blocks not final},
+  legend style={font=\scriptsize,draw=none,fill=none},legend pos=north east]
+\addplot[color=cRai,line width=0.8pt] table[x=t,y=open] {\matrixdata{forks-fork10-grace-rai}};
+\addplot[color=cPause,line width=0.8pt,densely dashed] table[x=t,y=open] {\matrixdata{forks-fork10-grace-pause}};
+\addplot[color=cNano,line width=0.8pt] table[x=t,y=open] {\matrixdata{forks-fork10-grace-develop}};
 \legend{RAI,pause,Nano}
-\end{axis}
+\nextgroupplot[title={10\% forks, one Byzantine validator}]
+\addplot[color=cRai,line width=0.8pt] table[x=t,y=open] {\matrixdata{forks-fork10-grace-byznode-rai}};
+\addplot[color=cPause,line width=0.8pt,densely dashed] table[x=t,y=open] {\matrixdata{forks-fork10-grace-byznode-pause}};
+\addplot[color=cNano,line width=0.8pt] table[x=t,y=open] {\matrixdata{forks-fork10-grace-byznode-develop}};
+\end{groupplot}
 \end{tikzpicture}
-\caption{Median (filled) and 95th-percentile (outline) latency of non-fork blocks at 2{,}000 blocks/s, one run each.}
-\label{fig:eval-latency}
-\end{figure}
-
-\begin{figure}[t]
-\centering
-\begin{tikzpicture}
-\begin{axis}[paperaxis,width=\columnwidth,height=4.2cm,xmode=log,xmin=1,xmax=200,ymin=0,ymax=3500,
-  xtick={1,2,5,10,20,50,100,200},xticklabels={1,2,5,10,20,50,100,200},
-  ytick={0,1000,2000,3000},yticklabels={0,1k,2k,3k},xmajorgrids,
-  xlabel={time since the load ended (s, log scale)},ylabel={blocks not yet final},
-  legend style={font=\scriptsize,draw=none,fill=none},legend pos=north east,no markers]
-\addplot[color=cRai,line width=0.8pt] table[x=t,y=open] {\paperdata{forks-rai}};
-\addplot[color=cPause,line width=0.8pt,densely dashed] table[x=t,y=open] {\paperdata{forks-pause}};
-\addplot[color=cNano,line width=0.8pt] table[x=t,y=open] {\paperdata{forks-develop}};
-\legend{RAI,pause,Nano}
-\end{axis}
-\end{tikzpicture}
-\caption{Blocks not yet final on the validator with the most of them, after the load of 10\% forks at 2{,}000 blocks/s ended (one run each): forked positions and the blocks behind them. RAI and pause finalize all of them within 16\,s, identically on every validator. Nano stops making progress with 6 still open on every validator.}
+\caption{Blocks not yet final on the validator with the most of them, after the load ended: forked positions and the blocks behind them (one run each, sampled from the first check after the load). RAI and pause finalize all of them, identically on every validator; Nano stops making progress with blocks still open.}
 \label{fig:eval-forks}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{groupplot}[group style={group size=1 by 2,vertical sep=2mm,xticklabels at=edge bottom},
+  timeaxis,xmax=60,width=\columnwidth,height=2.7cm]
+\nextgroupplot[ylabel={RAI\\ confirmed/s},ylabel style={align=center}]
+\timeline{p0-fork10-byz-rai}{cRai}
+\nextgroupplot[ylabel={pause\\ confirmed/s},ylabel style={align=center},xlabel={time since the first block was published (s)}]
+\timeline{p0-fork10-byz-pause}{cPause}
+\end{groupplot}
+\end{tikzpicture}
+\caption{Non-fork blocks confirmed per second with 10\% forks and one Byzantine validator, at Nano's quorum (one run each). Shaded: an epoch is closing, from the first validator leaving it to the last one seeing its checkpoint decided; dashed: the end of the load. Pause confirms nothing until each checkpoint is decided, then catches up in bursts (cut off at 4{,}000/s); RAI keeps confirming through every close.}
+\label{fig:eval-timeline}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{groupplot}[group style={group size=1 by 3,vertical sep=10mm},width=\columnwidth]
+\nextgroupplot[timeaxis,xmax=40,height=2.7cm,ylabel={RAI\\ confirmed/s},ylabel style={align=center},
+  xlabel={time since the first block was published (s)}]
+\timeline{rot-fork10-rai}{cRai}
+\addplot[black,line width=0.8pt] table[x=t,y expr=\thisrow{y}*4000] {\matrixdata{handoff-rot-fork10-rai}};
+\nextgroupplot[ymode=log,latencyaxis,rotticks,xticklabels={},height=3.2cm,ymax=10000,ytick={100,300,1000,3000,10000},yticklabels={100,300,1k,3k,10k},
+  legend style={font=\scriptsize,draw=none,fill=none,at={(0.02,0.98)},anchor=north west},legend columns=3]
+\latbars{bars-rot-rai}{cRai}{-8pt}{7pt}
+\latbars{bars-rot-pause}{cPause}{0pt}{7pt}
+\latbars{bars-rot-develop}{cNano}{8pt}{7pt}
+\legend{RAI,pause,Nano}
+\nextgroupplot[goodputaxis,rotticks,height=2.8cm]
+\gputbars{bars-rot-rai}{cRai}{-8pt}{7pt}
+\gputbars{bars-rot-pause}{cPause}{0pt}{7pt}
+\gputbars{bars-rot-develop}{cNano}{8pt}{7pt}
+\end{groupplot}
+\end{tikzpicture}
+\caption{A committee change under load: four seats ($f=1$, $p=0$), two members hand their weight to standby validators in epoch~0, so the committee of epoch~2 replaces them. Top: RAI with 10\% forks, the solid line marking the first validator entering epoch~2 (one run). Below: latency and confirmation rate as in Figure~\ref{fig:eval-matrix}, three runs each.}
+\label{fig:eval-rotation}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{groupplot}[group style={group size=1 by 2,vertical sep=3mm,xticklabels at=edge bottom},
+  width=\columnwidth,scenarioticks]
+\nextgroupplot[ymode=log,latencyaxis,height=4.0cm,ymax=20000,legend style={font=\scriptsize,draw=none,fill=none,at={(0.02,0.98)},anchor=north west},legend columns=2]
+\latbars{bars-fast-p1}{cRai}{-4pt}{6pt}
+\latbars{bars-fast-p0}{cRaiLight}{4pt}{6pt}
+\legend{{$f=p=1$, fast path},{$f=1$, $p=0$}}
+\nextgroupplot[goodputaxis,height=3.1cm]
+\gputbars{bars-fast-p1}{cRai}{-4pt}{6pt}
+\gputbars{bars-fast-p0}{cRaiLight}{4pt}{6pt}
+\end{groupplot}
+\end{tikzpicture}
+\caption{RAI with $f=p=1$ (four of six certify, five finalize on the fast path) against $f=1$, $p=0$ (five of six, no fast path), as in Figure~\ref{fig:eval-matrix}. The 10\% Byzantine cell with $f=p=1$ is at saturation and pools eight runs.}
+\label{fig:eval-fast}
 \end{figure}
