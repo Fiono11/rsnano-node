@@ -228,14 +228,46 @@ pub struct EpochDecisionService {
     memo_refreshed: Mutex<HashMap<ConsensusEpoch, Timestamp>>,
 }
 
-/// RAI: the proposals waiting for a check, in arrival order, each value
-/// once: a copy of one already waiting adds nothing
+/// RAI: the proposals waiting for a check, each value once: a copy of one
+/// already waiting adds nothing
 #[derive(Default)]
 struct ProposalQueue {
     order: VecDeque<BlockHash>,
     waiting: HashMap<BlockHash, (EpochValue, Arc<Channel>)>,
     running: bool,
     stopped: bool,
+}
+
+impl ProposalQueue {
+    /// Whether the value was not waiting yet
+    fn push(&mut self, value: EpochValue, channel: &Arc<Channel>) -> bool {
+        let hash = value.hash();
+        if self.waiting.contains_key(&hash) {
+            return false;
+        }
+        self.order.push_back(hash);
+        self.waiting.insert(hash, (value, channel.clone()));
+        true
+    }
+
+    /// The proposal of the latest round first, in arrival order within a
+    /// round: a close's current round waits for its leader's proposal to be
+    /// checked, while the proposals of rounds it left - a Byzantine
+    /// leader's second value, repeats - only matter if no later round
+    /// decides
+    fn pop_latest(&mut self) -> Option<(EpochValue, Arc<Channel>)> {
+        let (index, _) = self
+            .order
+            .iter()
+            .enumerate()
+            .filter_map(|(index, hash)| {
+                let (value, _) = self.waiting.get(hash)?;
+                Some((index, (value.epoch, value.slot)))
+            })
+            .max_by(|(a_index, a), (b_index, b)| a.cmp(b).then(b_index.cmp(a_index)))?;
+        let hash = self.order.remove(index)?;
+        self.waiting.remove(&hash)
+    }
 }
 
 impl EpochDecisionService {
@@ -444,21 +476,26 @@ impl EpochDecisionService {
         {
             let mut queue = self.unchecked.lock().unwrap();
             if queue.running && !queue.stopped {
-                let hash = value.hash();
-                if !queue.waiting.contains_key(&hash) {
-                    queue.order.push_back(hash);
-                    queue.waiting.insert(hash, (value, channel.clone()));
+                let (epoch, slot, hash) = (value.epoch, value.slot, value.hash());
+                if queue.push(value, channel) {
                     self.proposal_ready.notify_one();
                 }
+                drop(queue);
+                // The round waits for the check from now on, not only once
+                // the check found something to fetch: a proposal queued
+                // behind others would otherwise see its round time out
+                // before it is checked, and the close needs another round
+                self.active_elections
+                    .mark_epoch_proposal_checking(epoch, slot, hash);
                 return;
             }
         }
         self.check_proposal(value, channel);
     }
 
-    /// Checks the proposals in arrival order. While none is waiting, the
-    /// thread brings the close memos up to date: the derivation work of a
-    /// close, done while its epoch runs.
+    /// Checks the proposals, the latest round's first. While none is
+    /// waiting, the thread brings the close memos up to date: the
+    /// derivation work of a close, done while its epoch runs.
     fn run_checks(&self) {
         loop {
             let next = {
@@ -467,8 +504,8 @@ impl EpochDecisionService {
                     queue.running = false;
                     return;
                 }
-                match queue.order.pop_front() {
-                    Some(hash) => queue.waiting.remove(&hash),
+                match queue.pop_latest() {
+                    Some(next) => Some(next),
                     None => {
                         let (queue, _) = self
                             .proposal_ready
@@ -2181,6 +2218,38 @@ mod tests {
         let queue = service.unchecked.lock().unwrap();
         assert_eq!(queue.waiting.len(), 2);
         assert_eq!(queue.order.len(), 2);
+    }
+
+    /// The proposal of the latest round is checked first, in arrival order
+    /// within a round
+    #[test]
+    fn the_latest_rounds_proposal_is_checked_first() {
+        let channel = Arc::new(Channel::new_test_instance());
+        let mut queue = ProposalQueue::default();
+        for slot in [0, 2, 1, 2] {
+            let mut value = test_value(slot);
+            if slot == 2 && queue.order.len() == 3 {
+                value = EpochValue::from_parts(
+                    value.epoch,
+                    slot,
+                    BlockHash::from(99),
+                    value.reports().to_vec(),
+                    value.manifest,
+                    value.state,
+                );
+            }
+            assert!(queue.push(value, &channel));
+        }
+        let slots: Vec<(u32, BlockHash)> = std::iter::from_fn(|| queue.pop_latest())
+            .map(|(value, _)| (value.slot, value.parent))
+            .collect();
+        assert_eq!(
+            slots.iter().map(|(slot, _)| *slot).collect::<Vec<_>>(),
+            vec![2, 2, 1, 0]
+        );
+        // The first value of round 2 to arrive goes first
+        assert_ne!(slots[0].1, BlockHash::from(99));
+        assert_eq!(slots[1].1, BlockHash::from(99));
     }
 
     /// The checking thread waits for proposals and ends when stopped
