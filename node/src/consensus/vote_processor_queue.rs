@@ -31,6 +31,7 @@ impl VoteProcessorQueue {
             data: Mutex::new(VoteProcessorQueueData {
                 stopped: false,
                 close_lane: VecDeque::new(),
+                evidence_lane: VecDeque::new(),
                 rep_tiers: Default::default(),
                 queue: FairQueue::new(
                     move |(tier, channel)| {
@@ -81,15 +82,20 @@ impl VoteProcessorQueue {
     /// the round's certificate until the voter repeats it, while the others
     /// have closed the epoch.
     const CLOSE_LANE_MAX: usize = 4096;
+    /// RAI: the bound of the lane for votes handed over as certificate
+    /// evidence, the answers to this node's own requests. A node that lags
+    /// is flooded with live votes; behind them the evidence it asked for is
+    /// dropped, and its reports stay unusable while the closes wait for it.
+    const EVIDENCE_LANE_MAX: usize = 8192;
 
     pub fn len(&self) -> usize {
         let guard = self.data.lock().unwrap();
-        guard.queue.len() + guard.close_lane.len()
+        guard.queue.len() + guard.close_lane.len() + guard.evidence_lane.len()
     }
 
     pub fn is_empty(&self) -> bool {
         let guard = self.data.lock().unwrap();
-        guard.queue.is_empty() && guard.close_lane.is_empty()
+        guard.queue.is_empty() && guard.close_lane.is_empty() && guard.evidence_lane.is_empty()
     }
 
     /// Queue vote for processing. @returns true if the vote was queued
@@ -112,6 +118,13 @@ impl VoteProcessorQueue {
             if vote.epoch.is_close_round() && guard.close_lane.len() < Self::CLOSE_LANE_MAX {
                 guard
                     .close_lane
+                    .push_back(((tier, channel_id), (vote, source, channel, filter)));
+                true
+            } else if source == VoteDelivery::Evidence
+                && guard.evidence_lane.len() < Self::EVIDENCE_LANE_MAX
+            {
+                guard
+                    .evidence_lane
                     .push_back(((tier, channel_id), (vote, source, channel, filter)));
                 true
             } else {
@@ -152,9 +165,14 @@ impl VoteProcessorQueue {
                 return VecDeque::new();
             }
 
-            if !guard.close_lane.is_empty() || !guard.queue.is_empty() {
+            if !guard.close_lane.is_empty()
+                || !guard.evidence_lane.is_empty()
+                || !guard.queue.is_empty()
+            {
                 let first = max_batch_size.min(guard.close_lane.len());
                 let mut batch: VecDeque<QueuedVote> = guard.close_lane.drain(..first).collect();
+                let evidence = (max_batch_size - batch.len()).min(guard.evidence_lane.len());
+                batch.extend(guard.evidence_lane.drain(..evidence));
                 if batch.len() < max_batch_size {
                     let rest = max_batch_size - batch.len();
                     batch.extend(guard.queue.next_batch(rest));
@@ -171,6 +189,7 @@ impl VoteProcessorQueue {
             let mut guard = self.data.lock().unwrap();
             guard.queue.clear();
             guard.close_lane.clear();
+            guard.evidence_lane.clear();
         }
         self.condition.notify_all();
     }
@@ -243,6 +262,9 @@ struct VoteProcessorQueueData {
     /// RAI: the votes of the epoch close elections, taken past a full fair
     /// queue and drained before it (see `CLOSE_LANE_MAX`)
     close_lane: VecDeque<QueuedVote>,
+    /// RAI: the votes handed over as certificate evidence, drained after the
+    /// close lane (see `EVIDENCE_LANE_MAX`)
+    evidence_lane: VecDeque<QueuedVote>,
     queue: FairQueue<
         (RepTier, ChannelId),
         (
@@ -288,5 +310,31 @@ mod tests {
         assert_eq!(batch.len(), 2);
         assert!(Arc::ptr_eq(&(batch[0].1).0, &close));
         assert!(queue.is_empty());
+    }
+
+    /// RAI: a vote handed over as certificate evidence is taken in past a
+    /// full vote queue, after the close votes
+    #[test]
+    fn evidence_votes_bypass_a_full_queue() {
+        let mut config = VoteProcessorConfig::new(1);
+        config.max_pr_queue = 1;
+        config.max_non_pr_queue = 1;
+        let queue = VoteProcessorQueue::new(config, Arc::new(Stats::default()));
+        let channel = Some(Arc::new(Channel::new_test_instance()));
+        let vote = || {
+            Arc::new(Vote::new_in_epoch(
+                &PrivateKey::from(1),
+                VoteKind::Final,
+                ConsensusEpoch::ZERO,
+                vec![BlockHash::from(7)],
+            ))
+        };
+        assert!(queue.enqueue(vote(), channel.clone(), VoteDelivery::Direct, None));
+        assert!(!queue.enqueue(vote(), channel.clone(), VoteDelivery::Direct, None));
+        let evidence = vote();
+        assert!(queue.enqueue(evidence.clone(), channel, VoteDelivery::Evidence, None));
+        let batch = queue.wait_for_votes(10);
+        assert_eq!(batch.len(), 2);
+        assert!(Arc::ptr_eq(&(batch[0].1).0, &evidence));
     }
 }
