@@ -1,7 +1,7 @@
 # RAI at Nano's quorum: n = 6, f = 1, p = 0, fast path off
 
-RAI and pause on c722b5b02 (report endorsements, retained-block bodies, close-request lanes; the
-epoch hold of 325f6361b reverted), `sweep-c722b5b02.log`. Nano unchanged. 2000 blocks/s, 48k blocks, 8 s epochs, 3 reps per cell.
+RAI and pause on c534df908 (report endorsements, retained-block bodies, close-request lanes, a
+close round waiting for its queued proposal), `sweep-c534df908.log`. Nano unchanged. 2000 blocks/s, 48k blocks, 8 s epochs, 3 reps per cell.
 
 - `rai`, `pause`: `--committee-p 0 --committee-seats 6` with `RAI_FAST_PATH=0` set for every node.
   A certificate needs n − f = 5 of 6, the same as Nano's 67% quorum on six equal representatives.

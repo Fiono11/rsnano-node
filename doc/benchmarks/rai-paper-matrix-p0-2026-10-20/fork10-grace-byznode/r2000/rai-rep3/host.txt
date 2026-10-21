@@ -1,44 +1,44 @@
-Processes: 488 total, 2 running, 486 sleeping, 1934 threads 
-2026/10/21 15:21:30
-Load Avg: 11.86, 9.98, 8.17 
-CPU usage: 2.32% user, 9.30% sys, 88.37% idle 
-SharedLibs: 612M resident, 106M data, 54M linkedit.
-MemRegions: 44326 total, 1188M resident, 132M private, 646M shared.
-PhysMem: 6597M used (1386M wired, 1984M compressor), 9224M unused.
-VM: 186T vsize, 4915M framework vsize, 1486(0) swapins, 1496(0) swapouts.
-Networks: packets: 566926326/502G in, 566792411/502G out.
-Disks: 2979829/71G read, 161016891/4279G written.
+Processes: 486 total, 2 running, 484 sleeping, 1910 threads 
+2026/10/21 19:22:19
+Load Avg: 17.14, 10.19, 8.28 
+CPU usage: 2.27% user, 9.9% sys, 88.63% idle 
+SharedLibs: 589M resident, 70M data, 20M linkedit.
+MemRegions: 44304 total, 1480M resident, 196M private, 602M shared.
+PhysMem: 6395M used (1296M wired, 1715M compressor), 9426M unused.
+VM: 185T vsize, 4915M framework vsize, 1486(0) swapins, 1496(0) swapouts.
+Networks: packets: 667991183/605G in, 667881894/605G out.
+Disks: 3244537/77G read, 189851143/5060G written.
 
 PID    %CPU COMMAND         
-57676  0.0  top             
-57674  0.0  Python          
-57673  0.0  sleep           
-57669  0.0  mdworker_shared 
-57668  0.0  mdworker_shared 
-57667  0.0  mdworker_shared 
-57666  0.0  mediaanalysisd  
-57639  0.0  com.apple.iCloud
-57401  0.0  caffeinate      
-57399  0.0  zsh             
-Processes: 488 total, 2 running, 486 sleeping, 1934 threads 
-2026/10/21 15:21:31
-Load Avg: 11.86, 9.98, 8.17 
-CPU usage: 1.5% user, 1.5% sys, 97.88% idle 
-SharedLibs: 612M resident, 106M data, 54M linkedit.
-MemRegions: 44326 total, 1188M resident, 132M private, 646M shared.
-PhysMem: 6597M used (1386M wired, 1984M compressor), 9224M unused.
-VM: 186T vsize, 4915M framework vsize, 1486(0) swapins, 1496(0) swapouts.
-Networks: packets: 566926326/502G in, 566792411/502G out.
-Disks: 2979829/71G read, 161016891/4279G written.
+64188  0.0  top             
+64186  0.0  Python          
+64185  0.0  sleep           
+64184  0.0  sleep           
+64091  0.0  com.apple.iCloud
+64052  0.0  2.1.302         
+64051  0.0  tail            
+64050  0.0  zsh             
+63568  0.0  caffeinate      
+63566  0.0  zsh             
+Processes: 486 total, 2 running, 484 sleeping, 1914 threads 
+2026/10/21 19:22:20
+Load Avg: 17.14, 10.19, 8.28 
+CPU usage: 0.47% user, 1.17% sys, 98.35% idle 
+SharedLibs: 589M resident, 70M data, 20M linkedit.
+MemRegions: 44304 total, 1480M resident, 196M private, 602M shared.
+PhysMem: 6395M used (1296M wired, 1715M compressor), 9427M unused.
+VM: 185T vsize, 4915M framework vsize, 1486(0) swapins, 1496(0) swapouts.
+Networks: packets: 667991184/605G in, 667881895/605G out.
+Disks: 3244537/77G read, 189851143/5060G written.
 
 PID    %CPU COMMAND         
-57676  5.0  top             
-1411   2.7  2.1.302         
-1325   2.2  2.1.302         
+64188  4.6  top             
+1552   1.6  2.1.303         
 0      1.5  kernel_task     
-325    0.6  fseventsd       
-1552   0.3  2.1.303         
-406    0.2  airportd        
-393    0.2  runningboardd   
-57666  0.1  mediaanalysisd  
-2073   0.1  UserNotification
+1411   1.0  2.1.302         
+325    0.5  fseventsd       
+1325   0.2  2.1.302         
+359    0.1  thermalmonitord 
+786    0.1  searchpartyusera
+64052  0.1  2.1.302         
+473    0.0  audioclocksyncd 

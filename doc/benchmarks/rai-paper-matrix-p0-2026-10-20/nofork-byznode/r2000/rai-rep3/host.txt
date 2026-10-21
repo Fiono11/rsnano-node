@@ -1,44 +1,44 @@
-Processes: 483 total, 2 running, 481 sleeping, 1930 threads 
-2026/10/21 14:54:34
-Load Avg: 10.39, 8.22, 7.40 
-CPU usage: 4.44% user, 8.88% sys, 86.66% idle 
-SharedLibs: 611M resident, 105M data, 55M linkedit.
-MemRegions: 44156 total, 1701M resident, 243M private, 773M shared.
-PhysMem: 7454M used (1405M wired, 1679M compressor), 8367M unused.
-VM: 184T vsize, 4915M framework vsize, 1486(0) swapins, 1496(0) swapouts.
-Networks: packets: 554415288/491G in, 554280325/491G out.
-Disks: 2940568/70G read, 158092570/4195G written.
+Processes: 487 total, 2 running, 485 sleeping, 1966 threads 
+2026/10/21 21:09:51
+Load Avg: 8.41, 7.94, 7.66 
+CPU usage: 18.75% user, 22.91% sys, 58.33% idle 
+SharedLibs: 600M resident, 79M data, 24M linkedit.
+MemRegions: 44706 total, 1468M resident, 183M private, 603M shared.
+PhysMem: 7271M used (1345M wired, 1770M compressor), 8551M unused.
+VM: 185T vsize, 4915M framework vsize, 1486(0) swapins, 1496(0) swapouts.
+Networks: packets: 720524029/641G in, 720418548/641G out.
+Disks: 3348773/79G read, 209318043/5553G written.
 
-PID    %CPU COMMAND         
-57267  0.0  top             
-57265  0.0  Python          
-57264  0.0  mdworker_shared 
-57263  0.0  mdworker_shared 
-57254  0.0  mediaanalysisd  
-57238  0.0  2.1.302         
-57237  0.0  tail            
-57236  0.0  zsh             
-56953  0.0  uncd            
-56653  0.0  com.apple.siri-d
-Processes: 483 total, 2 running, 481 sleeping, 1935 threads 
-2026/10/21 14:54:35
-Load Avg: 10.39, 8.22, 7.40 
-CPU usage: 0.35% user, 1.16% sys, 98.48% idle 
-SharedLibs: 611M resident, 105M data, 55M linkedit.
-MemRegions: 44156 total, 1701M resident, 243M private, 773M shared.
-PhysMem: 7455M used (1405M wired, 1679M compressor), 8367M unused.
-VM: 184T vsize, 4915M framework vsize, 1486(0) swapins, 1496(0) swapouts.
-Networks: packets: 554415290/491G in, 554280327/491G out.
-Disks: 2940568/70G read, 158092570/4195G written.
+PID    %CPU COMMAND        
+67228  0.0  top            
+67227  0.0  zsh            
+67225  0.0  Python         
+67224  0.0  Python         
+67222  0.0  mdworker_shared
+67221  0.0  sleep          
+67212  0.0  caffeinate     
+67192  0.0  mediaanalysisd 
+66639  0.0  2.1.302        
+66638  0.0  tail           
+Processes: 488 total, 2 running, 486 sleeping, 1970 threads 
+2026/10/21 21:09:52
+Load Avg: 8.41, 7.94, 7.66 
+CPU usage: 8.25% user, 9.43% sys, 82.31% idle 
+SharedLibs: 600M resident, 79M data, 24M linkedit.
+MemRegions: 44734 total, 1469M resident, 183M private, 603M shared.
+PhysMem: 7293M used (1347M wired, 1770M compressor), 8529M unused.
+VM: 186T vsize, 4915M framework vsize, 1486(0) swapins, 1496(0) swapouts.
+Networks: packets: 720524040/641G in, 720418566/641G out.
+Disks: 3349687/79G read, 209318279/5553G written.
 
-PID    %CPU COMMAND         
-57267  5.8  top             
-0      2.3  kernel_task     
-325    0.6  fseventsd       
-1411   0.4  2.1.302         
-359    0.2  thermalmonitord 
-1552   0.2  2.1.303         
-1325   0.2  2.1.302         
-551    0.1  distnoted       
-391    0.1  loginwindow     
-372    0.1  distnoted       
+PID    %CPU COMMAND        
+1411   20.2 2.1.302        
+325    5.5  fseventsd      
+67228  4.7  top            
+586    4.2  Finder         
+388    3.9  WindowServer   
+0      3.5  kernel_task    
+349    3.0  mds            
+959    2.9  Terminal       
+544    2.1  mds_stores     
+360    0.8  opendirectoryd 

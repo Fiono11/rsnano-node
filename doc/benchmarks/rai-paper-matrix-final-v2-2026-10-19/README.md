@@ -2,8 +2,8 @@
 
 2000 blocks/s, 48k blocks, 8 s epochs, 3 reps per cell.
 
-- RAI and pause, all cases: c722b5b02 (report endorsements, retained-block bodies, close-request
-  lanes; the epoch hold of 325f6361b reverted), `sweep-c722b5b02.log`.
+- RAI and pause, all cases: c534df908 (report endorsements, retained-block bodies, close-request
+  lanes, a close round waiting for its queued proposal), `sweep-c534df908.log`.
 - `*-byznode` cases: one equivocating Byzantine representative (votes, reports, first close leader).
 - `develop` (Nano): the develop-fork-memo build (afe63ab1c) with the fork-signature memo; in the
   Byzantine cases the Byzantine node votes for every block of a fork. `fork5-grace-byznode/r2000/develop`
