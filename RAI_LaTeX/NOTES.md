@@ -7,8 +7,8 @@ Points to work into the manuscript. Remove an entry once the text carries it.
 - Protocol changes (advantage over Nano): in the conclusion, as a property of the design.
 - Proposals carry the selected reports' signed commitments: a sentence in Section VI.
 - Latency claim in Section X: rewritten from the c534df908 matrices (`tools/matrix_figures.py`).
+- Supplement: departures nine and ten, defects (23)-(28), reproduction commands for the new matrices.
 
 ## Open
 
 - Rotation with a Byzantine validator is not evaluated (nanospam puts the Byzantine node in a standby slot).
-- The supplement's departures/defects lists predate the Oct 20-21 fixes (report endorsements, retained Saved bodies, close-request lanes, queued-check rounds).
