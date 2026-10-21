@@ -45,18 +45,6 @@ pub struct InboundMessageQueue {
 /// it asks over is full of its account-vote requests while it lags.
 const PRIORITY_LANE_MAX: usize = 4096;
 
-/// RAI: the lane for the certificate evidence this node asked for: votes
-/// handed over on request, for the instances its solicitations and its
-/// reports' evidence requests name. A node that lags behind is flooded with
-/// live votes; dropped behind them, the answers it asked for never arrive,
-/// and its reports stay unusable while the others' closes wait for it. The
-/// lane is drained after the priority lane and before the fair queue.
-const EVIDENCE_LANE_MAX: usize = 8192;
-
-fn is_evidence_reply(message: &Message) -> bool {
-    matches!(message, Message::ConfirmAck(ack) if ack.is_evidence())
-}
-
 fn is_priority(message: &Message) -> bool {
     match message {
         Message::ConfirmAck(ack) => ack.vote().epoch.is_close_round(),
@@ -72,7 +60,6 @@ impl InboundMessageQueue {
             state: Mutex::new(State {
                 queue: FairQueue::new(move |_| max_queue, |_| 1),
                 priority: VecDeque::new(),
-                evidence: VecDeque::new(),
                 stopped: false,
             }),
             condition: Condvar::new(),
@@ -97,11 +84,6 @@ impl InboundMessageQueue {
             if is_priority(&message) && state.priority.len() < PRIORITY_LANE_MAX {
                 state
                     .priority
-                    .push_back((channel.channel_id(), (message.clone(), channel.clone())));
-                true
-            } else if is_evidence_reply(&message) && state.evidence.len() < EVIDENCE_LANE_MAX {
-                state
-                    .evidence
                     .push_back((channel.channel_id(), (message.clone(), channel.clone())));
                 true
             } else {
@@ -136,8 +118,6 @@ impl InboundMessageQueue {
         let mut state = self.state.lock().unwrap();
         let first = max_batch_size.min(state.priority.len());
         let mut batch: VecDeque<_> = state.priority.drain(..first).collect();
-        let evidence = (max_batch_size - batch.len()).min(state.evidence.len());
-        batch.extend(state.evidence.drain(..evidence));
         if batch.len() < max_batch_size {
             batch.extend(state.queue.next_batch(max_batch_size - batch.len()));
         }
@@ -157,7 +137,7 @@ impl InboundMessageQueue {
 
     pub fn size(&self) -> usize {
         let state = self.state.lock().unwrap();
-        state.queue.len() + state.priority.len() + state.evidence.len()
+        state.queue.len() + state.priority.len()
     }
 
     /// Stop container and notify waiting threads
@@ -190,7 +170,6 @@ impl EventHandler<ChannelEvent> for InboundMessageQueue {
         if let ChannelEvent::Removed(id) = event {
             let mut guard = self.state.lock().unwrap();
             guard.queue.remove(id);
-            guard.evidence.retain(|(channel, _)| channel != id);
         }
     }
 }
@@ -199,14 +178,12 @@ struct State {
     queue: FairQueue<ChannelId, (Message, Arc<Channel>)>,
     /// The close-election votes, ahead of everything else
     priority: VecDeque<(ChannelId, (Message, Arc<Channel>))>,
-    /// The certificate evidence asked for, after them (see `EVIDENCE_LANE_MAX`)
-    evidence: VecDeque<(ChannelId, (Message, Arc<Channel>))>,
     stopped: bool,
 }
 
 impl State {
     fn is_empty(&self) -> bool {
-        self.queue.is_empty() && self.priority.is_empty() && self.evidence.is_empty()
+        self.queue.is_empty() && self.priority.is_empty()
     }
 }
 
@@ -312,46 +289,6 @@ mod tests {
         ));
         let batch = queue.next_batch(10);
         assert!(matches!(batch[0].1.0, Message::ConfirmReq(_)));
-    }
-
-    /// RAI: a vote handed over as certificate evidence is taken in past a
-    /// full channel queue, after the close-election lane
-    #[test]
-    fn evidence_votes_bypass_a_full_queue() {
-        use rsnano_messages::ConfirmAck;
-        use rsnano_types::{BlockHash, ConsensusEpoch, PrivateKey, Vote, VoteKind};
-
-        let queue = InboundMessageQueue::new(1);
-        let channel = Arc::new(Channel::new_test_instance());
-        let vote = |epoch| {
-            Vote::new_in_epoch(
-                &PrivateKey::from(1),
-                VoteKind::Final,
-                epoch,
-                vec![BlockHash::from(7)],
-            )
-        };
-        let evidence = ConfirmAck::new_with_certificate_evidence(vote(ConsensusEpoch::ZERO));
-        // The evidence flag exists on the wire under the rai_protocol feature only
-        if !evidence.is_evidence() {
-            return;
-        }
-        assert!(queue.put(Message::BulkPush, channel.clone()));
-        assert!(!queue.put(
-            Message::ConfirmAck(ConfirmAck::new_with_own_vote(vote(ConsensusEpoch::ZERO))),
-            channel.clone()
-        ));
-        assert!(queue.put(Message::ConfirmAck(evidence), channel.clone()));
-        assert!(queue.put(
-            Message::ConfirmAck(ConfirmAck::new_with_own_vote(vote(
-                ConsensusEpoch::close_round(ConsensusEpoch::new(1), 0)
-            ))),
-            channel
-        ));
-        let batch = queue.next_batch(10);
-        assert_eq!(batch.len(), 3);
-        assert!(matches!(&batch[0].1.0, Message::ConfirmAck(ack) if !ack.is_evidence()));
-        assert!(matches!(&batch[1].1.0, Message::ConfirmAck(ack) if ack.is_evidence()));
     }
 
     /// RAI: an evidence block, the answer to a request, is taken in past a
