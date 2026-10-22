@@ -1441,6 +1441,8 @@ impl Node {
             active_elections: active_elections.clone(),
             block_processor_queue: block_processor_queue.clone(),
             fork_cache_updater,
+            #[cfg(feature = "rai_protocol")]
+            checkpoint_follower: checkpoint_follower.clone(),
             plugins: ledger_event_handlers,
             backpressure_plugins: backpressure_handlers,
         };

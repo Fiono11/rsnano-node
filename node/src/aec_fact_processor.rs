@@ -304,6 +304,20 @@ impl AecFactProcessor {
         // The bodies the elections hold are forced in now; the follower asks
         // the network only for those still absent a retry later
         let absent_hashes: HashSet<BlockHash> = absent.iter().map(|(_, _, hash)| *hash).collect();
+        // A block every node rolled back is often held by no election: its
+        // body was kept at the rollback
+        #[cfg(feature = "rai_protocol")]
+        let bodies = {
+            let mut bodies = bodies;
+            let from_elections: HashSet<BlockHash> = bodies.iter().map(|b| b.hash()).collect();
+            bodies.extend(
+                absent_hashes
+                    .iter()
+                    .filter(|hash| !from_elections.contains(hash))
+                    .filter_map(|hash| self.checkpoint_follower.rolled_back_body(hash)),
+            );
+            bodies
+        };
         let mut supplied = Vec::new();
         for block in bodies {
             let hash = block.hash();
@@ -324,13 +338,21 @@ impl AecFactProcessor {
         }
         #[cfg(not(feature = "rai_protocol"))]
         let _ = absent;
+        let supplied_set: HashSet<&BlockHash> = supplied.iter().collect();
+        let unsupplied: Vec<String> = absent_hashes
+            .iter()
+            .filter(|hash| !supplied_set.contains(hash))
+            .take(40)
+            .map(|hash| hash.to_string()[..8].to_string())
+            .collect();
         crate::utils::diagnostic!(
-            "EPOCH_RETAINED epoch={} retained={} held={} missing={} supplied={}",
+            "EPOCH_RETAINED epoch={} retained={} held={} missing={} supplied={} unsupplied={:?}",
             epoch,
             held.len() + missing,
             held.len(),
             missing,
-            supplied.len()
+            supplied.len(),
+            unsupplied
         );
     }
 

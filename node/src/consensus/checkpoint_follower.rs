@@ -8,13 +8,14 @@ use rsnano_ledger::{AnySet, ConfirmedSet, Ledger, LedgerSet};
 use rsnano_messages::{BlocksReq, Message, Publish};
 use rsnano_network::{Channel, TrafficType};
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
-use rsnano_types::{Account, BlockHash};
+use rsnano_types::{Account, Block, BlockHash};
 use rsnano_utils::{
     CancellationToken,
     stats::{DetailType, Direction, StatType, Stats},
     ticker::Tickable,
 };
 
+use super::bounded_hash_map::BoundedHashMap;
 use crate::{cementation::ConfirmingSet, transport::MessageFlooder};
 
 /// RAI: the blocks a decided checkpoint finalized that this node has not
@@ -195,6 +196,11 @@ impl PendingCheckpointBlocks {
 /// they are forced in, which rolls back an unconfirmed rival.
 pub struct CheckpointFollower {
     pending: Mutex<PendingCheckpointBlocks>,
+    /// The blocks rolled back from the ledger. A later checkpoint can retain
+    /// one whose election is gone - a late instance's discard, a rolled-back
+    /// dependent - and when every node rolled it back no ledger serves it:
+    /// the body forces it in again and answers the requests of the others.
+    rolled_back: Mutex<BoundedHashMap<BlockHash, Block>>,
     /// Which representative the next request goes to
     next_rep: std::sync::atomic::AtomicUsize,
     ledger: Arc<Ledger>,
@@ -205,6 +211,9 @@ pub struct CheckpointFollower {
 }
 
 impl CheckpointFollower {
+    /// Several epochs of fork switches and late discards
+    const MAX_ROLLED_BACK: usize = 64 * 1024;
+
     pub fn new(
         ledger: Arc<Ledger>,
         confirming_set: Arc<ConfirmingSet>,
@@ -214,6 +223,7 @@ impl CheckpointFollower {
     ) -> Self {
         Self {
             pending: Mutex::new(PendingCheckpointBlocks::default()),
+            rolled_back: Mutex::new(BoundedHashMap::new(Self::MAX_ROLLED_BACK)),
             next_rep: std::sync::atomic::AtomicUsize::new(0),
             ledger,
             confirming_set,
@@ -254,6 +264,19 @@ impl CheckpointFollower {
         self.pending.lock().unwrap().supplied(hashes, now);
     }
 
+    /// Blocks rolled back from the ledger
+    pub fn rolled_back(&self, blocks: impl IntoIterator<Item = Block>) {
+        let mut rolled_back = self.rolled_back.lock().unwrap();
+        for block in blocks {
+            rolled_back.insert(block.hash(), block);
+        }
+    }
+
+    /// The body of a block rolled back from the ledger
+    pub fn rolled_back_body(&self, hash: &BlockHash) -> Option<Block> {
+        self.rolled_back.lock().unwrap().get(hash).cloned()
+    }
+
     /// A block arriving that a checkpoint finalized: it is forced in
     pub fn wants(&self, hash: &BlockHash) -> bool {
         self.pending.lock().unwrap().wants(hash)
@@ -268,20 +291,25 @@ impl CheckpointFollower {
     pub fn handle_request(&self, request: BlocksReq, channel: &Arc<Channel>) {
         self.stats
             .inc_dir(StatType::Message, DetailType::BlocksReq, Direction::In);
-        let blocks: Vec<_> = {
+        let blocks: Vec<Block> = {
             let any = self.ledger.any();
+            let rolled_back = self.rolled_back.lock().unwrap();
             request
                 .hashes
                 .iter()
                 .take(BlocksReq::MAX_HASHES)
-                .filter_map(|hash| any.get_block(hash))
+                .filter_map(|hash| {
+                    any.get_block(hash)
+                        .map(Block::from)
+                        .or_else(|| rolled_back.get(hash).cloned())
+                })
                 .collect()
         };
         let mut flooder = self.flooder.lock().unwrap();
         for block in blocks {
             flooder.try_send(
                 channel,
-                &Message::Publish(Publish::new_evidence(block.into())),
+                &Message::Publish(Publish::new_evidence(block)),
                 TrafficType::VoteReply,
             );
         }
@@ -540,6 +568,15 @@ mod tests {
         pending.add([hash(1)]);
         let work = pending.tick(now(0), |_| false, |_| true, no_position);
         assert_eq!(work.cement, vec![hash(1)]);
+    }
+
+    #[test]
+    fn a_rolled_back_block_keeps_its_body() {
+        let follower = CheckpointFollower::new_null();
+        let block = Block::new_test_instance_with_key(1);
+        assert_eq!(follower.rolled_back_body(&block.hash()), None);
+        follower.rolled_back([block.clone()]);
+        assert_eq!(follower.rolled_back_body(&block.hash()), Some(block));
     }
 
     /*
