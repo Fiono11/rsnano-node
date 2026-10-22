@@ -104,6 +104,17 @@ SETS = {
         for v, flags in [('nofork', []), ('fork5-grace', ['--fork-percentage', '5', '--fork-grace', '600']),
                          ('fork10-grace', ['--fork-percentage', '10', '--fork-grace', '600'])]
     },
+    # The same rotation with the Byzantine node, which holds the last seat
+    # (PR3) and keeps it: PR1 and PR2 hand their weight to the standby PR4
+    # and PR5, so epoch 2 runs with {PR0, PR3, PR4, PR5}
+    'rotation-byz': {
+        f'{v}-rot-byznode': (flags + ['--prs', '6', '--standby', '2', '--committee-p', '0',
+                                      '--rotation', '0:1>4,2>5',
+                                      '--byzantine-node', 'equivocate,conflicting,equivocate',
+                                      '--byzantine-leads-close'], [2000], None)
+        for v, flags in [('nofork', []), ('fork5-grace', ['--fork-percentage', '5', '--fork-grace', '600']),
+                         ('fork10-grace', ['--fork-percentage', '10', '--fork-grace', '600'])]
+    },
     # Eight running representatives in both: six committee members and two
     # standby ones (PR6, PR7); the rotating variant replaces one member
     # every epoch. With the Byzantine leader: PR7 is Byzantine (no node),

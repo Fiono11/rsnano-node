@@ -261,9 +261,13 @@ impl CliArgs {
         self.rotation_epoch_ms.unwrap_or(self.epoch_duration_ms)
     }
 
-    /// RAI evaluation: the running representative that is the Byzantine node
+    /// RAI evaluation: the running representative that is the Byzantine
+    /// node: the last committee member, before the standby representatives,
+    /// so that it holds a seat from the start
     pub(crate) fn byzantine_node_index(&self) -> Option<usize> {
-        self.byzantine_node.as_ref().map(|_| self.honest_prs() - 1)
+        self.byzantine_node
+            .as_ref()
+            .map(|_| self.honest_prs() - 1 - self.standby)
     }
 
     /// RAI: whether a running representative starts outside the committee
@@ -360,6 +364,12 @@ impl CliArgs {
                     self.prs
                 ));
             }
+            // The Byzantine node keeps its seat: it never moves its weight
+            if let Some(byzantine) = self.byzantine_node_index()
+                && schedule.representatives().any(|pr| pr == byzantine)
+            {
+                return Err(anyhow!("rotation moves PR{byzantine}, the Byzantine node"));
+            }
         }
         if self.silent >= self.honest_prs() {
             return Err(anyhow!(
@@ -416,6 +426,31 @@ impl CliArgs {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_byzantine_node_holds_a_seat_and_keeps_it() {
+        let args = |rotation: &str| {
+            CliArgs::try_parse_from([
+                "nanospam",
+                "--prs",
+                "6",
+                "--standby",
+                "2",
+                "--epoch-duration-ms",
+                "8000",
+                "--byzantine-node",
+                "equivocate,conflicting,equivocate",
+                "--rotation",
+                rotation,
+            ])
+            .unwrap()
+        };
+        let rotating = args("0:1>4,2>5");
+        assert_eq!(rotating.byzantine_node_index(), Some(3));
+        assert!(!rotating.is_standby(3));
+        assert!(rotating.validate().is_ok());
+        assert!(args("0:2>4,3>5").validate().is_err());
+    }
 
     #[test]
     fn rotations_without_epochs_are_timed_by_their_own_epoch_length() {
