@@ -7,8 +7,6 @@ use std::{
     time::Instant,
 };
 
-#[cfg(feature = "rai_protocol")]
-use rsnano_types::Block;
 use rsnano_types::NetworkType;
 use rsnano_utils::{
     BackpressureHandlerRegistry, EventHandlerMut, EventHandlerRegistry,
@@ -36,10 +34,6 @@ pub(crate) struct LedgerEventProcessor {
     pub(crate) active_elections: Arc<AecService>,
     pub(crate) block_processor_queue: Arc<BlockProcessorQueue>,
     pub(crate) fork_cache_updater: ForkCacheUpdater,
-    /// RAI: keeps the bodies of rolled-back blocks for the retained
-    /// branches of a later checkpoint
-    #[cfg(feature = "rai_protocol")]
-    pub(crate) checkpoint_follower: Arc<crate::consensus::CheckpointFollower>,
     pub(crate) plugins: EventHandlerRegistry<LedgerPipelineEvent>,
     pub(crate) backpressure_plugins: BackpressureHandlerRegistry,
 }
@@ -56,8 +50,6 @@ impl LedgerEventProcessor {
             active_elections: Arc::new(AecService::new_null()),
             block_processor_queue: Arc::new(BlockProcessorQueue::default()),
             fork_cache_updater: ForkCacheUpdater::new(Arc::new(RwLock::new(ForkCache::default()))),
-            #[cfg(feature = "rai_protocol")]
-            checkpoint_follower: Arc::new(crate::consensus::CheckpointFollower::new_null()),
             plugins: EventHandlerRegistry::default(),
             backpressure_plugins: BackpressureHandlerRegistry::default(),
         }
@@ -155,16 +147,6 @@ impl BackpressureEventProcessor<LedgerPipelineEvent> for LedgerEventProcessor {
                             }
                         }
                     }
-                    // A later checkpoint can retain a rolled-back block whose
-                    // election is gone: a dependent's, erased above, or a
-                    // late instance's, discarded
-                    #[cfg(feature = "rai_protocol")]
-                    self.checkpoint_follower.rolled_back(
-                        rolled_back
-                            .iter()
-                            .flat_map(|result| result.rolled_back.iter())
-                            .map(|block| Block::clone(block)),
-                    );
 
                     self.vote_history.erase_batch(rolled_back.roots());
                 }
@@ -322,42 +304,6 @@ impl StatsSource for LedgerEventProcessorStats {
             DUR_KEY,
             "dur_activate_backlog",
             self.dur_activate_backlog.load(Ordering::Relaxed),
-        );
-    }
-}
-
-#[cfg(all(test, feature = "rai_protocol"))]
-mod tests {
-    use rsnano_ledger::{RollbackResult, RollbackResults};
-    use rsnano_types::SavedBlock;
-
-    use super::*;
-
-    #[test]
-    fn keeps_the_bodies_of_rolled_back_blocks() {
-        let mut processor = LedgerEventProcessor::new_null();
-        let target = SavedBlock::new_test_instance_with_key(1);
-        let dependent = SavedBlock::new_test_instance_with_key(2);
-        let mut results = RollbackResults::new();
-        results.push(RollbackResult {
-            target_hash: target.hash(),
-            target_root: target.qualified_root(),
-            rolled_back: vec![target.clone(), dependent.clone()],
-            error: None,
-        });
-
-        processor.process(LedgerPipelineEvent::Ledger(LedgerEvent::BlocksRolledBack(
-            results,
-        )));
-
-        let follower = &processor.checkpoint_follower;
-        assert_eq!(
-            follower.rolled_back_body(&target.hash()),
-            Some(Block::clone(&target))
-        );
-        assert_eq!(
-            follower.rolled_back_body(&dependent.hash()),
-            Some(Block::clone(&dependent))
         );
     }
 }

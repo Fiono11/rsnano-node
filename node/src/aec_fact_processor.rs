@@ -215,6 +215,11 @@ impl AecFactProcessor {
             let results = self.ledger.roll_back_batch_unchecked(chunk, usize::MAX);
             for result in results.iter() {
                 rolled_back += result.rolled_back.len();
+                // A later checkpoint can retain a discarded block, and no
+                // election holds it any more
+                #[cfg(feature = "rai_protocol")]
+                self.checkpoint_follower
+                    .discarded(result.rolled_back.iter().map(|block| Block::clone(block)));
                 match &result.error {
                     None => {}
                     Some(RollbackError::BlockNotFound) => not_held += 1,
@@ -304,8 +309,8 @@ impl AecFactProcessor {
         // The bodies the elections hold are forced in now; the follower asks
         // the network only for those still absent a retry later
         let absent_hashes: HashSet<BlockHash> = absent.iter().map(|(_, _, hash)| *hash).collect();
-        // A block every node rolled back is often held by no election: its
-        // body was kept at the rollback
+        // A block every node rolled back as late is held by no election: its
+        // body was kept at the discard
         #[cfg(feature = "rai_protocol")]
         let bodies = {
             let mut bodies = bodies;
@@ -314,7 +319,7 @@ impl AecFactProcessor {
                 absent_hashes
                     .iter()
                     .filter(|hash| !from_elections.contains(hash))
-                    .filter_map(|hash| self.checkpoint_follower.rolled_back_body(hash)),
+                    .filter_map(|hash| self.checkpoint_follower.discarded_body(hash)),
             );
             bodies
         };

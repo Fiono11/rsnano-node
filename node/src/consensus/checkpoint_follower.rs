@@ -196,11 +196,12 @@ impl PendingCheckpointBlocks {
 /// they are forced in, which rolls back an unconfirmed rival.
 pub struct CheckpointFollower {
     pending: Mutex<PendingCheckpointBlocks>,
-    /// The blocks rolled back from the ledger. A later checkpoint can retain
-    /// one whose election is gone - a late instance's discard, a rolled-back
-    /// dependent - and when every node rolled it back no ledger serves it:
-    /// the body forces it in again and answers the requests of the others.
-    rolled_back: Mutex<BoundedHashMap<BlockHash, Block>>,
+    /// The blocks a late instance's discard rolled back. A later checkpoint
+    /// can retain one of them, and when every node rolled it back no ledger
+    /// serves it: the body forces it in again and answers the requests of
+    /// the others. Only these: a fork loser forced in again from here would
+    /// fight the live instance resolving its position.
+    discarded: Mutex<BoundedHashMap<BlockHash, Block>>,
     /// Which representative the next request goes to
     next_rep: std::sync::atomic::AtomicUsize,
     ledger: Arc<Ledger>,
@@ -211,8 +212,8 @@ pub struct CheckpointFollower {
 }
 
 impl CheckpointFollower {
-    /// Several epochs of fork switches and late discards
-    const MAX_ROLLED_BACK: usize = 64 * 1024;
+    /// Several epochs of late discards with what was built on them
+    const MAX_DISCARDED: usize = 16 * 1024;
 
     pub fn new(
         ledger: Arc<Ledger>,
@@ -223,7 +224,7 @@ impl CheckpointFollower {
     ) -> Self {
         Self {
             pending: Mutex::new(PendingCheckpointBlocks::default()),
-            rolled_back: Mutex::new(BoundedHashMap::new(Self::MAX_ROLLED_BACK)),
+            discarded: Mutex::new(BoundedHashMap::new(Self::MAX_DISCARDED)),
             next_rep: std::sync::atomic::AtomicUsize::new(0),
             ledger,
             confirming_set,
@@ -264,17 +265,17 @@ impl CheckpointFollower {
         self.pending.lock().unwrap().supplied(hashes, now);
     }
 
-    /// Blocks rolled back from the ledger
-    pub fn rolled_back(&self, blocks: impl IntoIterator<Item = Block>) {
-        let mut rolled_back = self.rolled_back.lock().unwrap();
+    /// Blocks a late instance's discard rolled back from the ledger
+    pub fn discarded(&self, blocks: impl IntoIterator<Item = Block>) {
+        let mut discarded = self.discarded.lock().unwrap();
         for block in blocks {
-            rolled_back.insert(block.hash(), block);
+            discarded.insert(block.hash(), block);
         }
     }
 
-    /// The body of a block rolled back from the ledger
-    pub fn rolled_back_body(&self, hash: &BlockHash) -> Option<Block> {
-        self.rolled_back.lock().unwrap().get(hash).cloned()
+    /// The body of a block a late instance's discard rolled back
+    pub fn discarded_body(&self, hash: &BlockHash) -> Option<Block> {
+        self.discarded.lock().unwrap().get(hash).cloned()
     }
 
     /// A block arriving that a checkpoint finalized: it is forced in
@@ -293,7 +294,7 @@ impl CheckpointFollower {
             .inc_dir(StatType::Message, DetailType::BlocksReq, Direction::In);
         let blocks: Vec<Block> = {
             let any = self.ledger.any();
-            let rolled_back = self.rolled_back.lock().unwrap();
+            let discarded = self.discarded.lock().unwrap();
             request
                 .hashes
                 .iter()
@@ -301,7 +302,7 @@ impl CheckpointFollower {
                 .filter_map(|hash| {
                     any.get_block(hash)
                         .map(Block::from)
-                        .or_else(|| rolled_back.get(hash).cloned())
+                        .or_else(|| discarded.get(hash).cloned())
                 })
                 .collect()
         };
@@ -571,12 +572,12 @@ mod tests {
     }
 
     #[test]
-    fn a_rolled_back_block_keeps_its_body() {
+    fn a_discarded_block_keeps_its_body() {
         let follower = CheckpointFollower::new_null();
         let block = Block::new_test_instance_with_key(1);
-        assert_eq!(follower.rolled_back_body(&block.hash()), None);
-        follower.rolled_back([block.clone()]);
-        assert_eq!(follower.rolled_back_body(&block.hash()), Some(block));
+        assert_eq!(follower.discarded_body(&block.hash()), None);
+        follower.discarded([block.clone()]);
+        assert_eq!(follower.discarded_body(&block.hash()), Some(block));
     }
 
     /*
