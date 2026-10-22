@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 """Data for the evaluation's figures from the paper matrices
-(tools/rai/run_sweep.py --set final and --set rotation): every rep of every
-cell, the pooled ones included.
+(tools/rai/run_sweep.py --set final, --set rotation and --set rotation-byz):
+every rep of every cell, the pooled ones included.
 
-  matrix_figures.py --p0 <dir> --p1 <dir> --rotation <dir> <out dir>
+  matrix_figures.py --p0 <dir> --p1 <dir> --rotation <dir> --rotation-byz <dir> <out dir>
 
 Writes to <out dir>:
   bars-p0-<arm>.dat     one row per scenario of the p = 0 matrix (Nano's
       quorum): x p50 p50lo p50hi p95 p95lo p95hi gput gputlo gputhi, the
       median over the reps and its range
   bars-fast-<cfg>.dat   the same for RAI alone, cfg p0 or p1 (f = p = 1)
-  bars-rot-<arm>.dat    the same for the rotation cells
+  bars-rot-<arm>.dat    the same for the rotation cells, the Byzantine ones
+      after the honest ones
   forks-<scenario>-<arm>.dat  blocks not final after the load (rep 1): t open
   timeline-, closes-, loadend-<name>.dat  per-second confirmations, close
       windows and the end of the load of one run (see paper_figures.py)
@@ -30,6 +31,7 @@ from sweep_figures import fmt
 SCENARIOS = ['nofork', 'fork5-grace', 'fork10-grace',
              'nofork-byznode', 'fork5-grace-byznode', 'fork10-grace-byznode']
 ROTATION = ['nofork-rot', 'fork5-grace-rot', 'fork10-grace-rot']
+ROTATION_BYZ = ['nofork-rot-byznode', 'fork5-grace-rot-byznode', 'fork10-grace-rot-byznode']
 ARMS = ['rai', 'pause', 'develop']
 BLOCKS = 48000
 # The epoch the rotated committee runs: C(0), derived from epoch 0's state
@@ -123,6 +125,7 @@ def main():
     parser.add_argument('--p0', type=Path, required=True)
     parser.add_argument('--p1', type=Path, required=True)
     parser.add_argument('--rotation', type=Path, required=True)
+    parser.add_argument('--rotation-byz', type=Path, required=True)
     parser.add_argument('out', type=Path)
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
@@ -136,10 +139,12 @@ def main():
     header = 'x p50 p50lo p50hi p95 p95lo p95hi gput gputlo gputhi'
 
     def matrix_cells(matrix, cells, arms, prefix, tag):
+        """cells: names in `matrix`, or (matrix, name) pairs"""
         rows = {arm: [header] for arm in arms}
         for x, cell in enumerate(cells):
+            source, cell = cell if isinstance(cell, tuple) else (matrix, cell)
             for arm in arms:
-                runs = reps(matrix, cell, arm)
+                runs = reps(source, cell, arm)
                 stats = cell_stats(runs)
                 rows[arm].append(bars_row(x, stats))
                 key = f'{tag}-{cell}-{arm}'
@@ -162,7 +167,8 @@ def main():
 
     matrix_cells(args.p0, SCENARIOS, ARMS, 'bars-p0', 'p0')
     matrix_cells(args.p1, SCENARIOS, ARMS, 'bars-p1', 'p1')
-    matrix_cells(args.rotation, ROTATION, ARMS, 'bars-rot', 'rot')
+    matrix_cells(None, [(args.rotation, c) for c in ROTATION] + [(args.rotation_byz, c) for c in ROTATION_BYZ],
+                 ARMS, 'bars-rot', 'rot')
     # The fast-path comparison: RAI in both configurations
     for cfg, matrix in (('p0', args.p0), ('p1', args.p1)):
         lines = [header]

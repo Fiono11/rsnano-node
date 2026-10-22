@@ -8,7 +8,6 @@
     restrict y to domain*=0:4000,no markers},
   scenarioticks/.style={xmin=-0.5,xmax=5.5,xtick={0,...,5},
     xticklabels={no forks,5\%,10\%,{no forks,\\ Byz.},{5\%,\\ Byz.},{10\%,\\ Byz.}},x tick label style={align=center}},
-  rotticks/.style={xmin=-0.5,xmax=2.5,xtick={0,1,2},xticklabels={no forks,5\%,10\%}},
   latencyaxis/.style={paperaxis,log origin=infty,ymin=80,ymax=30000,
     ytick={100,300,1000,3000,10000,30000},yticklabels={100,300,1k,3k,10k,30k},ylabel={latency (ms)}},
   goodputaxis/.style={paperaxis,ymin=0,ymax=2100,ytick={0,500,1000,1500,2000},yticklabels={0,500,1k,1.5k,2k},
@@ -107,19 +106,19 @@
   xlabel={time since the first block was published (s)}]
 \timeline{rot-fork10-rai}{cRai}
 \addplot[black,line width=0.8pt] table[x=t,y expr=\thisrow{y}*4000] {\matrixdata{handoff-rot-fork10-rai}};
-\nextgroupplot[ymode=log,latencyaxis,rotticks,xticklabels={},height=3.2cm,ymax=10000,ytick={100,300,1000,3000,10000},yticklabels={100,300,1k,3k,10k},
+\nextgroupplot[ymode=log,latencyaxis,scenarioticks,xticklabels={},height=3.2cm,ymax=30000,
   legend style={font=\scriptsize,draw=none,fill=none,at={(0.02,0.98)},anchor=north west},legend columns=3]
-\latbars{bars-rot-rai}{cRai}{-8pt}{7pt}
-\latbars{bars-rot-pause}{cPause}{0pt}{7pt}
-\latbars{bars-rot-develop}{cNano}{8pt}{7pt}
+\latbars{bars-rot-rai}{cRai}{-6pt}{5pt}
+\latbars{bars-rot-pause}{cPause}{0pt}{5pt}
+\latbars{bars-rot-develop}{cNano}{6pt}{5pt}
 \legend{RAI,pause,Nano}
-\nextgroupplot[goodputaxis,rotticks,height=2.8cm]
-\gputbars{bars-rot-rai}{cRai}{-8pt}{7pt}
-\gputbars{bars-rot-pause}{cPause}{0pt}{7pt}
-\gputbars{bars-rot-develop}{cNano}{8pt}{7pt}
+\nextgroupplot[goodputaxis,scenarioticks,height=3.1cm]
+\gputbars{bars-rot-rai}{cRai}{-6pt}{5pt}
+\gputbars{bars-rot-pause}{cPause}{0pt}{5pt}
+\gputbars{bars-rot-develop}{cNano}{6pt}{5pt}
 \end{groupplot}
 \end{tikzpicture}
-\caption{A committee change under load: four seats ($f=1$, $p=0$), two members hand their weight to standby validators in epoch~0, so the committee of epoch~2 replaces them. Top: RAI with 10\% forks, the solid line marking the first validator entering epoch~2 (one run). Below: latency and confirmation rate as in Figure~\ref{fig:eval-matrix}, three runs each.}
+\caption{A committee change under load: four seats ($f=1$, $p=0$), two members hand their weight to standby validators in epoch~0, so the committee of epoch~2 replaces them. Top: RAI with 10\% forks, the solid line marking the first validator entering epoch~2 (one run). Below: latency and confirmation rate as in Figure~\ref{fig:eval-matrix}, three runs each, without and with a Byzantine member that keeps its seat.}
 \label{fig:eval-rotation}
 \end{figure}
 
