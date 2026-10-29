@@ -446,7 +446,11 @@ impl CloseMemo {
         let views = std::slice::from_ref(&view);
         let part = self.previous.account_part(account);
         let index = AccountIndex::new(&self.base, views);
-        let rules = BuildRules { epoch: self.epoch };
+        // The view lists no residual vote, so Rule 2 has nothing to count
+        let rules = BuildRules {
+            epoch: self.epoch,
+            many: Amount::MAX,
+        };
         let state = build_state_of(&part, views, &index, rules, &|_, _| false).ok()?;
         let outcome = state.account_outcome()?;
         let mut claims = Vec::new();
@@ -680,10 +684,10 @@ impl PreparedClose<'_, '_> {
     /// an account's derivation did not record what it finalized.
     pub fn build(
         &self,
+        rules: BuildRules,
         witness: &dyn Fn(ConsensusEpoch, &BlockHash) -> bool,
     ) -> Result<Option<EpochLedger>, BuildStateError> {
         let memo = self.memo;
-        let rules = BuildRules { epoch: memo.epoch };
         let mut ledger = memo.previous.derivation_start();
         let empty = EpochLedger::new();
         for (account, views) in &self.dirty {

@@ -220,7 +220,7 @@ impl VoteRecords {
         kind: ResidualKind,
     ) -> bool {
         self.support(epoch, hash).is_some_and(|support| match kind {
-            ResidualKind::First => support.first.contains(voter),
+            ResidualKind::First | ResidualKind::EarlyFirst => support.first.contains(voter),
             ResidualKind::Final => support.final_.contains(voter),
         })
     }

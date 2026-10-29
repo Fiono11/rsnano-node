@@ -695,10 +695,15 @@ pub struct CertificateKinds {
 /// Vote kinds retained in a reporter's residual evidence.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ResidualKind {
-    /// A first vote, for a block with no notarization certificate in the
-    /// certified state. First votes can stand for a hidden fast finalization
-    /// certificate in the checkpoint recovery rule.
+    /// A settled first vote, cast after installing the epoch's predecessor
+    /// checkpoint, for a block with no notarization certificate in the
+    /// certified state. Settled first votes can stand for a hidden fast
+    /// finalization certificate, and are what Rule 2 counts.
     First,
+    /// An early first vote, cast before installing the predecessor. It is
+    /// listed, as every first vote is, but Rule 2 does not count it: its
+    /// signer may have voted a block the predecessor dropped.
+    EarlyFirst,
     /// A final vote for a block the certified state holds as notarized only
     Final,
 }
@@ -708,6 +713,7 @@ impl ResidualKind {
     pub fn from_byte(byte: u8) -> Option<Self> {
         match byte {
             0 => Some(ResidualKind::First),
+            1 => Some(ResidualKind::EarlyFirst),
             2 => Some(ResidualKind::Final),
             _ => None,
         }
@@ -716,6 +722,7 @@ impl ResidualKind {
     pub fn as_byte(self) -> u8 {
         match self {
             ResidualKind::First => 0,
+            ResidualKind::EarlyFirst => 1,
             ResidualKind::Final => 2,
         }
     }
@@ -780,12 +787,13 @@ impl ResidualVotes {
     pub fn supported(&self) -> impl Iterator<Item = &CertifiedBlock> {
         self.entries
             .keys()
-            .filter(|(_, kind)| matches!(kind, ResidualKind::First))
+            .filter(|(_, kind)| matches!(kind, ResidualKind::First | ResidualKind::EarlyFirst))
             .map(|(block, _)| block)
     }
 
-    /// The blocks this reporter first voted: what `FirstCount_Q` counts, and
-    /// the only votes a hidden fast finalization certificate can rest on
+    /// The blocks this reporter first voted after installing the
+    /// predecessor: what `FirstCount_Q` counts, and the only votes a hidden
+    /// fast finalization certificate can rest on
     pub fn first_votes(&self) -> impl Iterator<Item = &CertifiedBlock> {
         self.entries
             .keys()

@@ -269,7 +269,7 @@ impl Manifest {
             return false;
         };
         match kind {
-            ResidualKind::First => voters.first & bit != 0,
+            ResidualKind::First | ResidualKind::EarlyFirst => voters.first & bit != 0,
             ResidualKind::Final => voters.final_ & bit != 0,
         }
     }

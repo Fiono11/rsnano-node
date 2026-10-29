@@ -1469,8 +1469,8 @@ impl EpochReports {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::consensus::election::{BlockIndex, CertifiedStatus};
-    use rsnano_types::Account;
+    use crate::consensus::election::{BlockIndex, BuildRules, CertifiedStatus};
+    use rsnano_types::{Account, Amount};
 
     fn block() -> CertifiedBlock {
         CertifiedBlock::new(Account::from(1), 1, BlockHash::from(2))
@@ -2423,7 +2423,7 @@ mod tests {
     #[test]
     fn reports_over_the_inherited_base_derive_as_flat_reports() {
         use crate::consensus::election::{
-            BuildRules, ReportIndex, SelectedReport, build_state, fresh_finalized, witness_claims,
+            ReportIndex, SelectedReport, build_state, fresh_finalized, witness_claims,
         };
         let (mut compared, mut locked) = (0, 0);
         for seed in 1..400u64 {
@@ -2445,7 +2445,7 @@ mod tests {
                 &EpochLedger::new(),
                 &selection,
                 &index,
-                BuildRules { epoch: epoch1 },
+                rules_of(epoch1),
                 &witness,
             ) else {
                 continue;
@@ -2477,17 +2477,11 @@ mod tests {
                 &previous,
                 &over_selection,
                 &base_index,
-                BuildRules { epoch: epoch2 },
+                rules_of(epoch2),
                 &witness,
             );
             let derive = |selection: &[SelectedReport], index: &ReportIndex| {
-                build_state(
-                    &previous,
-                    selection,
-                    index,
-                    BuildRules { epoch: epoch2 },
-                    &witness,
-                )
+                build_state(&previous, selection, index, rules_of(epoch2), &witness)
             };
             let derived = derive(&over_selection, &over_index);
             assert_eq!(derived, derive(&flat_selection, &flat_index), "seed {seed}");
@@ -2673,9 +2667,7 @@ mod tests {
     #[test]
     #[ignore]
     fn checkpoint_cost_against_history() {
-        use crate::consensus::election::{
-            AccountSlot, BuildRules, ReportIndex, SelectedReport, build_state,
-        };
+        use crate::consensus::election::{AccountSlot, ReportIndex, SelectedReport, build_state};
         use std::time::Instant;
         let changes = 15_000u64;
         let ms = |started: Instant| started.elapsed().as_secs_f64() * 1000.0;
@@ -2717,13 +2709,9 @@ mod tests {
             let index = ReportIndex::new(&previous, &selection);
             steps.push(("place the blocks", ms(started)));
             let started = Instant::now();
-            let state = build_state(
-                &previous,
-                &selection,
-                &index,
-                BuildRules { epoch: EPOCH },
-                &|_, _| false,
-            )
+            let state = build_state(&previous, &selection, &index, rules_of(EPOCH), &|_, _| {
+                false
+            })
             .unwrap();
             steps.push(("build state (with clone)", ms(started)));
             let started = Instant::now();
@@ -2741,13 +2729,9 @@ mod tests {
             let index = ReportIndex::over_base(&base, &selection);
             steps.push(("  place the blocks (base)", ms(started)));
             let started = Instant::now();
-            let state = build_state(
-                &previous,
-                &selection,
-                &index,
-                BuildRules { epoch: EPOCH },
-                &|_, _| false,
-            )
+            let state = build_state(&previous, &selection, &index, rules_of(EPOCH), &|_, _| {
+                false
+            })
             .unwrap();
             steps.push(("  build state (base index)", ms(started)));
             let started = Instant::now();
@@ -2775,8 +2759,8 @@ mod tests {
     fn the_close_memo_derives_what_the_whole_derivation_derives() {
         use super::close_memo::CloseMemo;
         use crate::consensus::election::{
-            AccountSlot, BuildRules, ReportIndex, RetainedKind, build_state, fresh_finalized,
-            overlap_claims, witness_claims,
+            AccountSlot, ReportIndex, RetainedKind, build_state, fresh_finalized, overlap_claims,
+            witness_claims,
         };
         let (mut compared, mut memoized, mut derived_here, mut misses) = (0, 0, 0, 0);
         let (mut both_failed, mut skipped, mut locked) = (0, 0, 0);
@@ -2816,7 +2800,7 @@ mod tests {
                 &EpochLedger::new(),
                 &selection,
                 &index,
-                BuildRules { epoch: epoch1 },
+                rules_of(epoch1),
                 &witness,
             ) else {
                 skipped += 1;
@@ -2987,7 +2971,7 @@ mod tests {
                     let fresh = prepared.fresh();
                     let claims = prepared.claims(&fresh);
                     let state = prepared
-                        .build(&witness)
+                        .build(rules_of(epoch2), &witness)
                         .map(|state| state.map(|s| s.state_hash()));
                     (fresh, claims, state)
                 })
@@ -3024,10 +3008,10 @@ mod tests {
                 &previous,
                 &selection,
                 &base_index,
-                BuildRules { epoch: epoch2 },
+                rules_of(epoch2),
                 &witness,
             );
-            match (whole, prepared.build(&witness)) {
+            match (whole, prepared.build(rules_of(epoch2), &witness)) {
                 (Ok(whole), Ok(Some(built))) => {
                     assert_eq!(built, whole, "seed {seed}");
                     assert_eq!(built.state_hash(), whole.state_hash(), "seed {seed}");
@@ -3133,7 +3117,10 @@ mod tests {
             let prepared = memo.prepare(&selection).unwrap();
             let fresh = prepared.fresh();
             let claims = prepared.claims(&fresh);
-            let state = prepared.build(&|_, _| false).unwrap().unwrap();
+            let state = prepared
+                .build(rules_of(epoch), &|_, _| false)
+                .unwrap()
+                .unwrap();
             (prepared.counts(), fresh, claims, state)
         };
         let (counts, fresh, claims, state) = derive(&absorbed);
@@ -3149,7 +3136,7 @@ mod tests {
     #[ignore]
     fn close_derivation_cost() {
         use crate::consensus::election::{
-            AccountSlot, BuildRules, PlacedBlock, ReportIndex, build_state, witness_claims,
+            AccountSlot, PlacedBlock, ReportIndex, build_state, witness_claims,
         };
         use std::time::Instant;
         let history = 48_000u64;
@@ -3199,9 +3186,7 @@ mod tests {
                 &previous,
                 &selection,
                 &index,
-                BuildRules {
-                    epoch: ConsensusEpoch::new(3),
-                },
+                rules_of(ConsensusEpoch::new(3)),
                 &|_, _| false,
             )
             .unwrap();
@@ -3246,7 +3231,10 @@ mod tests {
             let claims = prepared.claims(&fresh);
             m[0] += s.elapsed().as_secs_f64();
             let s = Instant::now();
-            let state = prepared.build(&|_, _| false).unwrap().unwrap();
+            let state = prepared
+                .build(rules_of(ConsensusEpoch::new(3)), &|_, _| false)
+                .unwrap()
+                .unwrap();
             m[1] += s.elapsed().as_secs_f64();
             let s = Instant::now();
             let hash = state.state_hash();
@@ -3289,9 +3277,7 @@ mod tests {
                 &previous,
                 &selection,
                 &index,
-                BuildRules {
-                    epoch: ConsensusEpoch::new(3),
-                },
+                rules_of(ConsensusEpoch::new(3)),
                 &|_, _| false,
             )
             .unwrap();
@@ -3302,7 +3288,10 @@ mod tests {
             let memo_claims = prepared.claims(&fresh);
             f[1] += s.elapsed().as_secs_f64();
             let s = Instant::now();
-            let built = prepared.build(&|_, _| false).unwrap().unwrap();
+            let built = prepared
+                .build(rules_of(ConsensusEpoch::new(3)), &|_, _| false)
+                .unwrap()
+                .unwrap();
             f[2] += s.elapsed().as_secs_f64();
             assert_eq!(built, state);
             std::hint::black_box((claims, witnesses, memo_claims));
@@ -3325,6 +3314,14 @@ mod tests {
     /* Test helpers */
 
     const EPOCH: ConsensusEpoch = ConsensusEpoch::new(1);
+
+    /// The rules of an epoch's closure; r is three reporters of weight 10
+    fn rules_of(epoch: ConsensusEpoch) -> BuildRules {
+        BuildRules {
+            epoch,
+            many: Amount::raw(25),
+        }
+    }
 
     /// A deterministic xorshift generator
     struct Rng(u64);

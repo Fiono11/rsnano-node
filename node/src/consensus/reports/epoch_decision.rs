@@ -802,12 +802,12 @@ impl EpochDecisionService {
     fn build(
         &self,
         derivation: &Derivation,
-        epoch: ConsensusEpoch,
+        rules: BuildRules,
         states: &[SelectedReport],
         previous: &EpochLedger,
         witness: &dyn Fn(ConsensusEpoch, &BlockHash) -> bool,
     ) -> Result<EpochLedger, BuildStateError> {
-        let rules = BuildRules { epoch };
+        let epoch = rules.epoch;
         let full = || {
             let index = self.report_index(epoch, previous, states);
             build_state(previous, states, &index, rules, witness)
@@ -815,7 +815,7 @@ impl EpochDecisionService {
         let Some(prepared) = &derivation.prepared else {
             return full();
         };
-        let built = prepared.build(witness);
+        let built = prepared.build(rules, witness);
         if close_memo_check_enabled() {
             let whole = full();
             let agrees = match (&built, &whole) {
@@ -1245,7 +1245,16 @@ impl EpochDecisionService {
             manifest_witness(&manifest, &members, origin, hash)
         };
         let built = self
-            .build(&derivation, epoch, &states, &previous, &witness)
+            .build(
+                &derivation,
+                BuildRules {
+                    epoch,
+                    many: committee.thresholds().many,
+                },
+                &states,
+                &previous,
+                &witness,
+            )
             .map(|ledger| {
                 EpochValue::propose_built(epoch, round, BlockHash::ZERO, &resolved, digest, ledger)
             });
@@ -1380,9 +1389,12 @@ impl EpochDecisionService {
         let witness = |origin: ConsensusEpoch, hash: &BlockHash| {
             manifest_witness(&manifest, &members, origin, hash)
         };
-        let rules = BuildRules { epoch: value.epoch };
+        let rules = BuildRules {
+            epoch: value.epoch,
+            many: committee.thresholds().many,
+        };
         match value.validate_with(&source, committee.thresholds().report, |states| {
-            self.build(&derivation, value.epoch, states, &previous, &witness)
+            self.build(&derivation, rules, states, &previous, &witness)
         }) {
             Ok(ledger) => {
                 diagnostic!(

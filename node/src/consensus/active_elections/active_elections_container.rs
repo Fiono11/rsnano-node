@@ -39,7 +39,7 @@ use crate::{
 };
 
 use crate::consensus::election::{
-    AccountSlot, CertifiedBlock, EpochLedger, EpochValue, ResidualKind, SettledBase,
+    AccountSlot, CertifiedBlock, EpochLedger, EpochValue, ResidualKind, SettledBase, discharged,
 };
 
 use super::{
@@ -1746,18 +1746,36 @@ impl ActiveElectionsContainer {
     /// (`position_retained`, the overlap check); it no longer earns a new
     /// vote, so that every validator that installed the checkpoint votes
     /// the block it keeps.
+    /// The rule holds at later positions of the account too: a descendant
+    /// of a bypassing block is not voted either, however far above the kept
+    /// position it sits, so its branch is followed down through the
+    /// instances held here.
     fn at_closed_lock(&self, election: &Election, hash: &BlockHash) -> bool {
         let Some(state) = self.decided.values().next_back() else {
             return false;
         };
         let slot = AccountSlot::new(election.account(), election.height());
-        state.finalized(&slot).is_none()
-            && !state.admits(
-                slot,
-                *hash,
-                election.qualified_root().previous,
-                &|_, target| self.is_finalized(target),
-            )
+        if state.finalized(&slot).is_some() || state.retained_depth(slot.account).is_none() {
+            return false;
+        }
+        let previous = election.qualified_root().previous;
+        let mut branch = state.branch_of(slot, *hash, previous);
+        let (mut height, mut parent) = (slot.height.saturating_sub(1), previous);
+        while height > 1 {
+            let at = AccountSlot::new(slot.account, height);
+            if state.finalized(&at).is_some() || state.is_locked(&at, &parent) {
+                break;
+            }
+            let Some((_, _, grandparent)) = self.placement(&parent) else {
+                break;
+            };
+            branch.insert(height - 1, grandparent);
+            (height, parent) = (height - 1, grandparent);
+        }
+        state
+            .bypassed_records(slot.account, &branch)
+            .iter()
+            .any(|bypassed| !discharged(bypassed, &|_, target| self.is_finalized(target)))
     }
 
     /// RAI, "no early votes at a contested position": a new first vote
@@ -2375,7 +2393,12 @@ impl ActiveElectionsContainer {
                 ));
             };
             if let Some(hash) = slot.first_voted {
-                voted(hash, ResidualKind::First);
+                let kind = if slot.first_early {
+                    ResidualKind::EarlyFirst
+                } else {
+                    ResidualKind::First
+                };
+                voted(hash, kind);
             }
 
             if let Some(hash) = slot.final_voted {
@@ -4283,6 +4306,10 @@ impl ActiveElectionsContainer {
     fn record_votes(&mut self, args: &ApplyVoteArgs) {
         let vote = &args.vote;
         let kind = match vote.kind() {
+            // The base a first vote names is part of its signature: a
+            // reporter lists an early first vote apart, as its own report
+            // does
+            VoteKind::First if vote.vote.vote.is_early() => Some(ResidualKind::EarlyFirst),
             VoteKind::First => Some(ResidualKind::First),
             VoteKind::Final => Some(ResidualKind::Final),
             // Late notarization: support for a closing-epoch exclusion
@@ -4297,22 +4324,7 @@ impl ActiveElectionsContainer {
         self.vote_records
             .support_vote(&vote.vote.vote, vote.filtered_blocks().copied());
         for hash in vote.filtered_blocks() {
-            let placed = self
-                .roots
-                .election_for_block(hash)
-                .map(|election| {
-                    (
-                        election.account(),
-                        election.height(),
-                        election.qualified_root().previous,
-                    )
-                })
-                .or_else(|| {
-                    self.epoch_states
-                        .any_instance(hash)
-                        .map(|instance| (instance.account, instance.height, instance.root.previous))
-                });
-            let Some((account, height, previous)) = placed else {
+            let Some((account, height, previous)) = self.placement(hash) else {
                 continue;
             };
             self.vote_records
@@ -4328,6 +4340,27 @@ impl ActiveElectionsContainer {
                 previous,
             );
         }
+    }
+
+    /// RAI: where a block sits and the parent it names, read from whatever
+    /// instance holds the block here, this epoch's or another's: two
+    /// replicas that switched epochs at different moments hold the same
+    /// block in different epochs' instances
+    fn placement(&self, hash: &BlockHash) -> Option<(Account, u64, BlockHash)> {
+        self.roots
+            .election_for_block(hash)
+            .map(|election| {
+                (
+                    election.account(),
+                    election.height(),
+                    election.qualified_root().previous,
+                )
+            })
+            .or_else(|| {
+                self.epoch_states
+                    .any_instance(hash)
+                    .map(|instance| (instance.account, instance.height, instance.root.previous))
+            })
     }
 
     /// RAI: a report taken at the boundary, completed with the inherited
@@ -7554,6 +7587,59 @@ mod tests {
         assert!(first_votes.contains(&kept.hash()));
     }
 
+    /// RAI, "checkpoints decide" at later positions: the rival of a kept
+    /// block, whose exclusion witness admits its instances, earns no vote,
+    /// and neither do its child and grandchild, which bypass the kept
+    /// block's record as well
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn descendants_of_a_rival_of_a_kept_block_earn_no_vote() {
+        let (mut container, reps, rep_weights, start) = committee_fixture(|_| {});
+        let kept = SavedBlock::new_test_instance_with_key(2);
+        let rival = sibling_of(&kept);
+        let child = child_of(&rival);
+        let grandchild = child_of(&child);
+        let mut state = EpochLedger::new();
+        state.retain_recovery_for_test(
+            AccountSlot::new(kept.account(), kept.height()),
+            kept.hash(),
+            kept.previous(),
+        );
+        container
+            .decided
+            .insert(ConsensusEpoch::ZERO, Arc::new(state));
+        for (rep, kind) in reps[..3]
+            .iter()
+            .zip([VoteKind::First, VoteKind::First, VoteKind::Notar])
+        {
+            vote_in(
+                &mut container,
+                rep,
+                kind,
+                ConsensusEpoch::ZERO,
+                rival.hash(),
+                &rep_weights,
+                start,
+            );
+        }
+        for block in [&rival, &child, &grandchild] {
+            container
+                .insert(
+                    AecInsertRequest::new_priority(
+                        block.clone(),
+                        BlockPriority::new_test_instance(),
+                    ),
+                    start,
+                )
+                .unwrap();
+        }
+
+        for block in [&rival, &child, &grandchild] {
+            let election = container.roots.election_for_block(&block.hash()).unwrap();
+            assert!(container.at_closed_lock(election, &block.hash()));
+        }
+    }
+
     /// RAI, "checkpoints decide": the open epoch's instance at a position
     /// was carried at the boundary with this node's block; the checkpoint
     /// keeps the rival, which the ledger takes in later. Continued, the kept
@@ -8249,6 +8335,34 @@ mod tests {
             quorum_snapshot: &QuorumSnapshot::new_test_instance(),
             now,
         });
+    }
+
+    /// An owner-signed block on top of `block`
+    #[cfg(feature = "rai_protocol")]
+    fn child_of(block: &SavedBlock) -> SavedBlock {
+        use rsnano_types::{BlockDetails, BlockSideband, Epoch, StateBlockArgs};
+        let key = PrivateKey::from(2);
+        assert_eq!(block.account(), key.account());
+        let child: Block = StateBlockArgs {
+            key: &key,
+            previous: block.hash(),
+            representative: 790.into(),
+            balance: block.balance(),
+            link: 0.into(),
+            work: 69420.into(),
+        }
+        .into();
+        SavedBlock::new(
+            child,
+            BlockSideband {
+                height: block.height() + 1,
+                timestamp: 222222.into(),
+                account: block.account(),
+                balance: block.balance(),
+                details: BlockDetails::new(Epoch::Epoch2, false, false, false),
+                source_epoch: Epoch::Epoch0,
+            },
+        )
     }
 
     /// A conflicting owner-signed block at the same position: the same

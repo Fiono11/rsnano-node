@@ -588,6 +588,7 @@ mod tests {
     fn rules() -> BuildRules {
         BuildRules {
             epoch: ConsensusEpoch::new(1),
+            many: Amount::raw(25),
         }
     }
     /// q_report for three reporters of `REPORTER_WEIGHT` each
