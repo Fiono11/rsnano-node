@@ -1,0 +1,171 @@
+{
+  "sets": [
+    "rotation"
+  ],
+  "arms": {
+    "rai": {
+      "bin_dir": "/private/tmp/claude-501/-Users-ruimorais-rsnano-node/50201086-985b-43b4-9bff-ad62837235d3/scratchpad/rule2bin/p0",
+      "flags": [
+        "--epoch-ms=8000",
+        "--min-closed=3",
+        "--timeout=400"
+      ]
+    },
+    "pause": {
+      "bin_dir": "/private/tmp/claude-501/-Users-ruimorais-rsnano-node/50201086-985b-43b4-9bff-ad62837235d3/scratchpad/rule2bin/p0",
+      "flags": [
+        "--epoch-ms=8000",
+        "--min-closed=3",
+        "--timeout=400",
+        "--epoch-transition=pause"
+      ]
+    }
+  },
+  "started": 1793297506.6052768,
+  "runs": [
+    {
+      "variant": "nofork-rot",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 103
+    },
+    {
+      "variant": "nofork-rot",
+      "rate": 2000,
+      "arm": "pause",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 78
+    },
+    {
+      "variant": "nofork-rot",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 2,
+      "status": "settled",
+      "seconds": 104
+    },
+    {
+      "variant": "nofork-rot",
+      "rate": 2000,
+      "arm": "pause",
+      "rep": 2,
+      "status": "settled",
+      "seconds": 102
+    },
+    {
+      "variant": "nofork-rot",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 3,
+      "status": "settled",
+      "seconds": 102
+    },
+    {
+      "variant": "nofork-rot",
+      "rate": 2000,
+      "arm": "pause",
+      "rep": 3,
+      "status": "settled",
+      "seconds": 103
+    },
+    {
+      "variant": "fork5-grace-rot",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 118
+    },
+    {
+      "variant": "fork5-grace-rot",
+      "rate": 2000,
+      "arm": "pause",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 111
+    },
+    {
+      "variant": "fork5-grace-rot",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 2,
+      "status": "settled",
+      "seconds": 120
+    },
+    {
+      "variant": "fork5-grace-rot",
+      "rate": 2000,
+      "arm": "pause",
+      "rep": 2,
+      "status": "settled",
+      "seconds": 110
+    },
+    {
+      "variant": "fork5-grace-rot",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 3,
+      "status": "settled",
+      "seconds": 118
+    },
+    {
+      "variant": "fork5-grace-rot",
+      "rate": 2000,
+      "arm": "pause",
+      "rep": 3,
+      "status": "settled",
+      "seconds": 122
+    },
+    {
+      "variant": "fork10-grace-rot",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 119
+    },
+    {
+      "variant": "fork10-grace-rot",
+      "rate": 2000,
+      "arm": "pause",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 110
+    },
+    {
+      "variant": "fork10-grace-rot",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 2,
+      "status": "settled",
+      "seconds": 121
+    },
+    {
+      "variant": "fork10-grace-rot",
+      "rate": 2000,
+      "arm": "pause",
+      "rep": 2,
+      "status": "settled",
+      "seconds": 112
+    },
+    {
+      "variant": "fork10-grace-rot",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 3,
+      "status": "settled",
+      "seconds": 119
+    },
+    {
+      "variant": "fork10-grace-rot",
+      "rate": 2000,
+      "arm": "pause",
+      "rep": 3,
+      "status": "settled",
+      "seconds": 112
+    }
+  ]
+}

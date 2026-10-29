@@ -1,0 +1,1049 @@
+diff --git a/node/src/consensus/active_elections/active_elections_container.rs b/node/src/consensus/active_elections/active_elections_container.rs
+index 3ebe2c65c..f97faba6d 100644
+--- a/node/src/consensus/active_elections/active_elections_container.rs
++++ b/node/src/consensus/active_elections/active_elections_container.rs
+@@ -39,7 +39,7 @@ use crate::{
+ };
+ 
+ use crate::consensus::election::{
+-    AccountSlot, CertifiedBlock, EpochLedger, EpochValue, ResidualKind, SettledBase,
++    AccountSlot, CertifiedBlock, EpochLedger, EpochValue, ResidualKind, SettledBase, discharged,
+ };
+ 
+ use super::{
+@@ -1746,18 +1746,36 @@ impl ActiveElectionsContainer {
+     /// (`position_retained`, the overlap check); it no longer earns a new
+     /// vote, so that every validator that installed the checkpoint votes
+     /// the block it keeps.
++    /// The rule holds at later positions of the account too: a descendant
++    /// of a bypassing block is not voted either, however far above the kept
++    /// position it sits, so its branch is followed down through the
++    /// instances held here.
+     fn at_closed_lock(&self, election: &Election, hash: &BlockHash) -> bool {
+         let Some(state) = self.decided.values().next_back() else {
+             return false;
+         };
+         let slot = AccountSlot::new(election.account(), election.height());
+-        state.finalized(&slot).is_none()
+-            && !state.admits(
+-                slot,
+-                *hash,
+-                election.qualified_root().previous,
+-                &|_, target| self.is_finalized(target),
+-            )
++        if state.finalized(&slot).is_some() || state.retained_depth(slot.account).is_none() {
++            return false;
++        }
++        let previous = election.qualified_root().previous;
++        let mut branch = state.branch_of(slot, *hash, previous);
++        let (mut height, mut parent) = (slot.height.saturating_sub(1), previous);
++        while height > 1 {
++            let at = AccountSlot::new(slot.account, height);
++            if state.finalized(&at).is_some() || state.is_locked(&at, &parent) {
++                break;
++            }
++            let Some((_, _, grandparent)) = self.placement(&parent) else {
++                break;
++            };
++            branch.insert(height - 1, grandparent);
++            (height, parent) = (height - 1, grandparent);
++        }
++        state
++            .bypassed_records(slot.account, &branch)
++            .iter()
++            .any(|bypassed| !discharged(bypassed, &|_, target| self.is_finalized(target)))
+     }
+ 
+     /// RAI, "no early votes at a contested position": a new first vote
+@@ -2375,7 +2393,12 @@ impl ActiveElectionsContainer {
+                 ));
+             };
+             if let Some(hash) = slot.first_voted {
+-                voted(hash, ResidualKind::First);
++                let kind = if slot.first_early {
++                    ResidualKind::EarlyFirst
++                } else {
++                    ResidualKind::First
++                };
++                voted(hash, kind);
+             }
+ 
+             if let Some(hash) = slot.final_voted {
+@@ -4283,6 +4306,10 @@ impl ActiveElectionsContainer {
+     fn record_votes(&mut self, args: &ApplyVoteArgs) {
+         let vote = &args.vote;
+         let kind = match vote.kind() {
++            // The base a first vote names is part of its signature: a
++            // reporter lists an early first vote apart, as its own report
++            // does
++            VoteKind::First if vote.vote.vote.is_early() => Some(ResidualKind::EarlyFirst),
+             VoteKind::First => Some(ResidualKind::First),
+             VoteKind::Final => Some(ResidualKind::Final),
+             // Late notarization: support for a closing-epoch exclusion
+@@ -4297,22 +4324,7 @@ impl ActiveElectionsContainer {
+         self.vote_records
+             .support_vote(&vote.vote.vote, vote.filtered_blocks().copied());
+         for hash in vote.filtered_blocks() {
+-            let placed = self
+-                .roots
+-                .election_for_block(hash)
+-                .map(|election| {
+-                    (
+-                        election.account(),
+-                        election.height(),
+-                        election.qualified_root().previous,
+-                    )
+-                })
+-                .or_else(|| {
+-                    self.epoch_states
+-                        .any_instance(hash)
+-                        .map(|instance| (instance.account, instance.height, instance.root.previous))
+-                });
+-            let Some((account, height, previous)) = placed else {
++            let Some((account, height, previous)) = self.placement(hash) else {
+                 continue;
+             };
+             self.vote_records
+@@ -4330,6 +4342,27 @@ impl ActiveElectionsContainer {
+         }
+     }
+ 
++    /// RAI: where a block sits and the parent it names, read from whatever
++    /// instance holds the block here, this epoch's or another's: two
++    /// replicas that switched epochs at different moments hold the same
++    /// block in different epochs' instances
++    fn placement(&self, hash: &BlockHash) -> Option<(Account, u64, BlockHash)> {
++        self.roots
++            .election_for_block(hash)
++            .map(|election| {
++                (
++                    election.account(),
++                    election.height(),
++                    election.qualified_root().previous,
++                )
++            })
++            .or_else(|| {
++                self.epoch_states
++                    .any_instance(hash)
++                    .map(|instance| (instance.account, instance.height, instance.root.previous))
++            })
++    }
++
+     /// RAI: a report taken at the boundary, completed with the inherited
+     /// base of its epoch once the predecessor is decided: the base's entries
+     /// under the strongest tag, finality projected onto the prefixes, and G
+@@ -7554,6 +7587,59 @@ mod tests {
+         assert!(first_votes.contains(&kept.hash()));
+     }
+ 
++    /// RAI, "checkpoints decide" at later positions: the rival of a kept
++    /// block, whose exclusion witness admits its instances, earns no vote,
++    /// and neither do its child and grandchild, which bypass the kept
++    /// block's record as well
++    #[cfg(feature = "rai_protocol")]
++    #[test]
++    fn descendants_of_a_rival_of_a_kept_block_earn_no_vote() {
++        let (mut container, reps, rep_weights, start) = committee_fixture(|_| {});
++        let kept = SavedBlock::new_test_instance_with_key(2);
++        let rival = sibling_of(&kept);
++        let child = child_of(&rival);
++        let grandchild = child_of(&child);
++        let mut state = EpochLedger::new();
++        state.retain_recovery_for_test(
++            AccountSlot::new(kept.account(), kept.height()),
++            kept.hash(),
++            kept.previous(),
++        );
++        container
++            .decided
++            .insert(ConsensusEpoch::ZERO, Arc::new(state));
++        for (rep, kind) in reps[..3]
++            .iter()
++            .zip([VoteKind::First, VoteKind::First, VoteKind::Notar])
++        {
++            vote_in(
++                &mut container,
++                rep,
++                kind,
++                ConsensusEpoch::ZERO,
++                rival.hash(),
++                &rep_weights,
++                start,
++            );
++        }
++        for block in [&rival, &child, &grandchild] {
++            container
++                .insert(
++                    AecInsertRequest::new_priority(
++                        block.clone(),
++                        BlockPriority::new_test_instance(),
++                    ),
++                    start,
++                )
++                .unwrap();
++        }
++
++        for block in [&rival, &child, &grandchild] {
++            let election = container.roots.election_for_block(&block.hash()).unwrap();
++            assert!(container.at_closed_lock(election, &block.hash()));
++        }
++    }
++
+     /// RAI, "checkpoints decide": the open epoch's instance at a position
+     /// was carried at the boundary with this node's block; the checkpoint
+     /// keeps the rival, which the ledger takes in later. Continued, the kept
+@@ -8251,6 +8337,34 @@ mod tests {
+         });
+     }
+ 
++    /// An owner-signed block on top of `block`
++    #[cfg(feature = "rai_protocol")]
++    fn child_of(block: &SavedBlock) -> SavedBlock {
++        use rsnano_types::{BlockDetails, BlockSideband, Epoch, StateBlockArgs};
++        let key = PrivateKey::from(2);
++        assert_eq!(block.account(), key.account());
++        let child: Block = StateBlockArgs {
++            key: &key,
++            previous: block.hash(),
++            representative: 790.into(),
++            balance: block.balance(),
++            link: 0.into(),
++            work: 69420.into(),
++        }
++        .into();
++        SavedBlock::new(
++            child,
++            BlockSideband {
++                height: block.height() + 1,
++                timestamp: 222222.into(),
++                account: block.account(),
++                balance: block.balance(),
++                details: BlockDetails::new(Epoch::Epoch2, false, false, false),
++                source_epoch: Epoch::Epoch0,
++            },
++        )
++    }
++
+     /// A conflicting owner-signed block at the same position: the same
+     /// account and parent, another representative
+     #[cfg(feature = "rai_protocol")]
+diff --git a/node/src/consensus/active_elections/vote_records.rs b/node/src/consensus/active_elections/vote_records.rs
+index f582984db..8a4aa2e8e 100644
+--- a/node/src/consensus/active_elections/vote_records.rs
++++ b/node/src/consensus/active_elections/vote_records.rs
+@@ -220,7 +220,7 @@ impl VoteRecords {
+         kind: ResidualKind,
+     ) -> bool {
+         self.support(epoch, hash).is_some_and(|support| match kind {
+-            ResidualKind::First => support.first.contains(voter),
++            ResidualKind::First | ResidualKind::EarlyFirst => support.first.contains(voter),
+             ResidualKind::Final => support.final_.contains(voter),
+         })
+     }
+diff --git a/node/src/consensus/election/certified_state.rs b/node/src/consensus/election/certified_state.rs
+index 88580b923..747e97cf6 100644
+--- a/node/src/consensus/election/certified_state.rs
++++ b/node/src/consensus/election/certified_state.rs
+@@ -695,10 +695,15 @@ pub struct CertificateKinds {
+ /// Vote kinds retained in a reporter's residual evidence.
+ #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+ pub enum ResidualKind {
+-    /// A first vote, for a block with no notarization certificate in the
+-    /// certified state. First votes can stand for a hidden fast finalization
+-    /// certificate in the checkpoint recovery rule.
++    /// A settled first vote, cast after installing the epoch's predecessor
++    /// checkpoint, for a block with no notarization certificate in the
++    /// certified state. Settled first votes can stand for a hidden fast
++    /// finalization certificate, and are what Rule 2 counts.
+     First,
++    /// An early first vote, cast before installing the predecessor. It is
++    /// listed, as every first vote is, but Rule 2 does not count it: its
++    /// signer may have voted a block the predecessor dropped.
++    EarlyFirst,
+     /// A final vote for a block the certified state holds as notarized only
+     Final,
+ }
+@@ -708,6 +713,7 @@ impl ResidualKind {
+     pub fn from_byte(byte: u8) -> Option<Self> {
+         match byte {
+             0 => Some(ResidualKind::First),
++            1 => Some(ResidualKind::EarlyFirst),
+             2 => Some(ResidualKind::Final),
+             _ => None,
+         }
+@@ -716,6 +722,7 @@ impl ResidualKind {
+     pub fn as_byte(self) -> u8 {
+         match self {
+             ResidualKind::First => 0,
++            ResidualKind::EarlyFirst => 1,
+             ResidualKind::Final => 2,
+         }
+     }
+@@ -780,12 +787,13 @@ impl ResidualVotes {
+     pub fn supported(&self) -> impl Iterator<Item = &CertifiedBlock> {
+         self.entries
+             .keys()
+-            .filter(|(_, kind)| matches!(kind, ResidualKind::First))
++            .filter(|(_, kind)| matches!(kind, ResidualKind::First | ResidualKind::EarlyFirst))
+             .map(|(block, _)| block)
+     }
+ 
+-    /// The blocks this reporter first voted: what `FirstCount_Q` counts, and
+-    /// the only votes a hidden fast finalization certificate can rest on
++    /// The blocks this reporter first voted after installing the
++    /// predecessor: what `FirstCount_Q` counts, and the only votes a hidden
++    /// fast finalization certificate can rest on
+     pub fn first_votes(&self) -> impl Iterator<Item = &CertifiedBlock> {
+         self.entries
+             .keys()
+diff --git a/node/src/consensus/election/epoch_ledger.rs b/node/src/consensus/election/epoch_ledger.rs
+index 8c2bd81d2..792638739 100644
+--- a/node/src/consensus/election/epoch_ledger.rs
++++ b/node/src/consensus/election/epoch_ledger.rs
+@@ -1044,6 +1044,9 @@ pub enum BuildStateError {
+ pub struct BuildRules {
+     /// The closing epoch: the origin of every lock record Rules 1 and 2 add
+     pub epoch: ConsensusEpoch,
++    /// r = f + p + 1 as weight: the settled reporter first votes with which
++    /// Rule 2's threshold pass keeps a block
++    pub many: Amount,
+ }
+ 
+ /// Revised BuildState: explicit F entries extend finality, and so does Rule 3
+@@ -1154,10 +1157,11 @@ pub fn build_state_of<R: ReportView>(
+                 }
+             }
+         }
+-        // A reporter is counted only for its own first vote that T_i does
+-        // not tag N or F (Fix B): an R tag exposes no vote, so a first vote
+-        // for an R-tagged block counts. The residual set is canonical, and
+-        // the identity is counted once.
++        // A reporter is counted only for its own settled first vote that
++        // T_i does not tag N or F (Fix B): an R tag exposes no vote, so a
++        // first vote for an R-tagged block counts. An early first vote is
++        // listed but not counted. The residual set is canonical, and the
++        // identity is counted once.
+         let first_votes = report
+             .residual_entries()
+             .filter(|(_, kind, _)| *kind == ResidualKind::First)
+@@ -1180,58 +1184,103 @@ pub fn build_state_of<R: ReportView>(
+             }
+         }
+     }
++    // Rule 1 at every position before Rule 2: the unique represented NC.
++    // "Inherited state and discharge": a represented NC for a block that
++    // bypasses a surviving record is ineligible early work and was left out
++    // above; the inherited lock is retained
++    let origin = rules.epoch;
++    let mut placed: BTreeSet<(AccountSlot, BlockHash)> = BTreeSet::new();
+     for (slot, at) in &evidence {
+         if ledger.finalized(slot).is_some() {
+             continue;
+         }
+-        let represented: Vec<_> = at.notarized.iter().copied().collect();
+-        let target = match represented.as_slice() {
+-            [hash] => Some((*hash, LockStrength::Notarization)),
+-            // Rule 2, "always pick a side": the eligible block with the
+-            // most reporter first-vote weight, ties broken by the smallest
+-            // hash. A block that may be fast-final has at least r of it and
+-            // every rival less, so it is the unique maximum; keeping a side
+-            // where the old rule kept nothing lets the next epoch converge
+-            [] => at
+-                .first
+-                .iter()
+-                .filter(|(_, weight)| !weight.is_zero())
+-                .max_by(|(a, weight_a), (b, weight_b)| weight_a.cmp(weight_b).then(b.cmp(a)))
+-                .map(|(hash, _)| (*hash, LockStrength::Recovery)),
++        let hash = match at.notarized.iter().copied().collect::<Vec<_>>()[..] {
++            [] => continue,
++            [hash] => hash,
+             _ => return Err(BuildStateError::ConflictingNotarizations),
+         };
+-        // "Inherited state and discharge": a represented NC for a block that
+-        // bypasses a surviving record is ineligible early work and was left
+-        // out above; the inherited lock is retained
+-        if let Some((hash, strength)) = target {
+-            match selected_path(&ledger, index, *slot, hash) {
+-                Ok(path) => {
+-                    for (slot, block) in path.into_iter().rev() {
+-                        ledger.keep(slot, block);
+-                    }
+-                    // Rules 1 and 2 stamp the closing epoch. A recovery
+-                    // record is added whether or not the block already
+-                    // carries records of earlier origins, which are kept as
+-                    // they are. An inherited notarization lock is re-tagged N
+-                    // by every report and keeps its own record.
+-                    let inherited_notarization = strength == LockStrength::Notarization
+-                        && previous.retained_kind(&hash) == RetainedKind::Notarized;
+-                    if inherited_notarization {
+-                        continue;
+-                    }
+-                    ledger.add_lock(
+-                        hash,
+-                        LockRecord {
+-                            strength,
+-                            origin: rules.epoch,
+-                        },
+-                    );
++        let Some(path) = finality_compatible(selected_path(&ledger, index, *slot, hash))? else {
++            continue;
++        };
++        // Rule 1 stamps the closing epoch. An inherited notarization lock is
++        // re-tagged N by every report and keeps its own record
++        let record = (previous.retained_kind(&hash) != RetainedKind::Notarized)
++            .then(|| LockRecord::notarization(origin));
++        placed.extend(keep_path(&mut ledger, &path, hash, record));
++    }
++    // Rule 2, threshold pass, from each account's highest position down:
++    // the one eligible block with r of settled reporter first-vote weight,
++    // where no NC is represented and no record placed by Rule 1 or by this
++    // pass holds a block. A block that may be fast-final, or a descendant
++    // of it, is kept here; going up instead lets a rival of its parent with
++    // r votes take the position first (Theorem 1, supplement Appendix
++    // "Rule 2 from the lowest position"). A record of an earlier origin
++    // does not stop the pass: the block gets one of origin e as well.
++    for (slot, at) in evidence.iter().rev() {
++        let held = |slot: &AccountSlot| {
++            placed
++                .range((*slot, BlockHash::ZERO)..)
++                .next()
++                .is_some_and(|(at, _)| at == slot)
++        };
++        if ledger.finalized(slot).is_some() || !at.notarized.is_empty() || held(slot) {
++            continue;
++        }
++        let mut reached = Vec::new();
++        for (hash, weight) in &at.first {
++            if *weight < rules.many {
++                continue;
++            }
++            if let Some(path) = keepable(&ledger, selected_path(&ledger, index, *slot, *hash))? {
++                reached.push((*hash, path));
++            }
++        }
++        if let [(hash, path)] = &reached[..] {
++            let record = LockRecord::recovery(origin);
++            placed.extend(keep_path(&mut ledger, path, *hash, Some(record)));
++        }
++    }
++    // Rule 2, keep pass, from each account's lowest position up: where
++    // nothing is final or retained, the block the predecessor retained there
++    // if it is still eligible, otherwise the eligible block with the most
++    // settled reporter first-vote weight, ties broken by the smallest hash.
++    // Keeping a side even below r lets the next epoch converge, and keeping
++    // the predecessor's side keeps it from changing more than once.
++    let positions: BTreeSet<AccountSlot> = evidence
++        .keys()
++        .chain(previous.notarized.keys())
++        .copied()
++        .collect();
++    for slot in positions {
++        if ledger.finalized(&slot).is_some() || ledger.retains(&slot) {
++            continue;
++        }
++        let mut kept = None;
++        for block in previous.notarized.get(&slot).into_iter().flatten() {
++            let path = retained_path(&ledger, previous, slot, *block);
++            if let Some(path) = keepable(&ledger, path)? {
++                kept = Some((block.hash, path));
++                break;
++            }
++        }
++        if kept.is_none() {
++            let mut voted: Vec<_> = evidence
++                .get(&slot)
++                .into_iter()
++                .flat_map(|at| at.first.iter())
++                .filter(|(_, weight)| !weight.is_zero())
++                .collect();
++            voted.sort_by(|(a, weight_a), (b, weight_b)| weight_b.cmp(weight_a).then(a.cmp(b)));
++            for (hash, _) in voted {
++                if let Some(path) = keepable(&ledger, selected_path(&ledger, index, slot, *hash))? {
++                    kept = Some((*hash, path));
++                    break;
+                 }
+-                // Explicit finality excludes an incompatible nonfinal branch.
+-                Err(BuildStateError::ConflictingFinality) => {}
+-                Err(error) => return Err(error),
+             }
+         }
++        if let Some((hash, path)) = kept {
++            keep_path(&mut ledger, &path, hash, Some(LockRecord::recovery(origin)));
++        }
+     }
+     // Prune the full incompatible branch, including descendants several
+     // positions beyond the finalized fork; checking only its parent is unsafe.
+@@ -1532,6 +1581,97 @@ fn selected_path(
+     }
+ }
+ 
++/// A selected path, or None where explicit finality excludes the block's
++/// branch: an incompatible nonfinal branch is not kept
++fn finality_compatible(
++    path: Result<Vec<(AccountSlot, PlacedBlock)>, BuildStateError>,
++) -> Result<Option<Vec<(AccountSlot, PlacedBlock)>>, BuildStateError> {
++    match path {
++        Ok(path) => Ok(Some(path)),
++        Err(BuildStateError::ConflictingFinality) => Ok(None),
++        Err(error) => Err(error),
++    }
++}
++
++/// Rule 2 eligibility: a path compatible with explicit finality whose
++/// branch bypasses no record the state holds, inherited or placed by this
++/// derivation
++fn keepable(
++    ledger: &EpochLedger,
++    path: Result<Vec<(AccountSlot, PlacedBlock)>, BuildStateError>,
++) -> Result<Option<Vec<(AccountSlot, PlacedBlock)>>, BuildStateError> {
++    let Some(path) = finality_compatible(path)? else {
++        return Ok(None);
++    };
++    let Some((slot, _)) = path.first() else {
++        return Ok(Some(path));
++    };
++    let branch: Branch = path
++        .iter()
++        .map(|(slot, block)| (slot.height, block.hash))
++        .collect();
++    if ledger.bypassed_records(slot.account, &branch).is_empty() {
++        Ok(Some(path))
++    } else {
++        Ok(None)
++    }
++}
++
++/// Keeps a path, adding `record` to the block at its top; returns the
++/// positions and blocks it holds
++fn keep_path(
++    ledger: &mut EpochLedger,
++    path: &[(AccountSlot, PlacedBlock)],
++    hash: BlockHash,
++    record: Option<LockRecord>,
++) -> Vec<(AccountSlot, BlockHash)> {
++    for (slot, block) in path.iter().rev() {
++        ledger.keep(*slot, *block);
++    }
++    if let Some(record) = record {
++        ledger.add_lock(hash, record);
++    }
++    path.iter()
++        .map(|(slot, block)| (*slot, block.hash))
++        .collect()
++}
++
++/// The path of a block the predecessor retained, read from its retained
++/// ancestry down to the state's finalized history
++fn retained_path(
++    ledger: &EpochLedger,
++    previous: &EpochLedger,
++    slot: AccountSlot,
++    block: PlacedBlock,
++) -> Result<Vec<(AccountSlot, PlacedBlock)>, BuildStateError> {
++    let mut path = Vec::new();
++    let (mut at, mut hash, mut placed) = (slot, block.hash, Some(block));
++    loop {
++        if let Some(finalized) = ledger.finalized(&at) {
++            return if finalized == hash {
++                Ok(path)
++            } else {
++                Err(BuildStateError::ConflictingFinality)
++            };
++        }
++        let block = match placed.take() {
++            Some(block) => block,
++            None => previous
++                .notarized
++                .get(&at)
++                .and_then(|blocks| blocks.iter().find(|held| held.hash == hash))
++                .copied()
++                .ok_or(BuildStateError::MissingAncestry(at, hash))?,
++        };
++        path.push((at, block));
++        if at.height <= 1 || block.previous.is_zero() {
++            return Ok(path);
++        }
++        at = AccountSlot::new(at.account, at.height - 1);
++        hash = block.previous;
++    }
++}
++
+ /// Reads the fixed-size fields of `EpochLedger::to_bytes`
+ struct ByteReader<'a>(&'a [u8]);
+ 
+@@ -1621,8 +1761,11 @@ mod tests {
+         assert_eq!(ledger.finalized_count(), 2);
+     }
+ 
+-    /// RAI, Rule 3: promotion stops at the first fork, at a recovery-only
+-    /// lock, and at a block that does not continue the finalized tip
++    /// RAI, Rule 3: promotion stops at the first fork, at a block that is
++    /// not notarization-locked, and at a block that does not continue the
++    /// finalized tip. The notarized grandchild holds `recovered` from above,
++    /// so Rule 2's threshold pass, working down, skips its position and
++    /// `recovered` is kept as an ancestor only.
+     #[test]
+     fn promotion_stops_at_a_fork_a_recovery_lock_or_a_gap() {
+         let mut index = StubIndex::default();
+@@ -1646,7 +1789,7 @@ mod tests {
+         let ledger = derive(&EpochLedger::new(), &selected, &index);
+ 
+         assert_eq!(ledger.finalized(&slot(1, 1)), Some(block));
+-        assert_eq!(ledger.retained_kind(&recovered), RetainedKind::Recovery);
++        assert_eq!(ledger.retained_kind(&recovered), RetainedKind::Ancestor);
+         assert_eq!(ledger.notarized(&slot(1, 2)), vec![recovered]);
+         // Notarized, but above an unpromoted block: not promoted
+         assert_eq!(ledger.notarized(&slot(1, 3)), vec![grandchild]);
+@@ -1821,6 +1964,107 @@ mod tests {
+         assert_eq!(ledger.notarized(&slot(1, 1)), vec![one.min(other)]);
+     }
+ 
++    /// RAI, Rule 2, threshold pass from the highest position down (Case 7):
++    /// the child `child` of `notarized` has r settled reporter votes, and so
++    /// has `rival`, a rival of its parent. Going up, Rule 2 kept `rival` and
++    /// dropped the child, which may be fast-final; going down, the child is
++    /// kept with its parent and Rule 2 skips the parent's position
++    #[test]
++    fn the_threshold_pass_keeps_a_child_before_a_rival_of_its_parent() {
++        let mut index = StubIndex::default();
++        let notarized = index.add(1, 1, BlockHash::ZERO);
++        let rival = index.add(1, 1, BlockHash::ZERO);
++        let child = index.add(1, 2, notarized);
++        let certified = CertifiedState::new();
++        let votes_for = |hashes: &[BlockHash]| {
++            let mut votes = ResidualVotes::new();
++            for hash in hashes {
++                record(&mut votes, &index, *hash, ResidualKind::First);
++            }
++            votes
++        };
++        let both = votes_for(&[rival, child]);
++        let parent_and_child = votes_for(&[notarized, child]);
++        let parent_only = votes_for(&[notarized]);
++
++        let ledger = derive(
++            &EpochLedger::new(),
++            &[
++                reported_by(1, &certified, &both),
++                reported_by(2, &certified, &parent_and_child),
++                reported_by(3, &certified, &parent_only),
++                reported_by(5, &certified, &both),
++                reported_by(6, &certified, &both),
++            ],
++            &index,
++        );
++
++        assert_eq!(ledger.notarized(&slot(1, 2)), vec![child]);
++        assert_eq!(ledger.notarized(&slot(1, 1)), vec![notarized]);
++        assert_eq!(ledger.retained_kind(&child), RetainedKind::Recovery);
++        assert_eq!(ledger.retained_kind(&notarized), RetainedKind::Ancestor);
++    }
++
++    /// RAI, Rule 2 counts settled first votes only: three early first votes
++    /// for one block lose to one settled vote for its rival
++    #[test]
++    fn early_first_votes_are_listed_but_not_counted() {
++        let mut index = StubIndex::default();
++        let early = index.add(1, 1, BlockHash::ZERO);
++        let settled = index.add(1, 1, BlockHash::ZERO);
++        let certified = CertifiedState::new();
++        let mut for_early = ResidualVotes::new();
++        record(&mut for_early, &index, early, ResidualKind::EarlyFirst);
++        let mut for_settled = ResidualVotes::new();
++        record(&mut for_settled, &index, settled, ResidualKind::First);
++
++        let ledger = derive(
++            &EpochLedger::new(),
++            &[
++                reported_by(1, &certified, &for_early),
++                reported_by(2, &certified, &for_early),
++                reported_by(3, &certified, &for_early),
++                reported_by(4, &certified, &for_settled),
++            ],
++            &index,
++        );
++
++        assert_eq!(ledger.notarized(&slot(1, 1)), vec![settled]);
++        assert_eq!(ledger.retained_kind(&settled), RetainedKind::Recovery);
++    }
++
++    /// RAI, Rule 2, keep pass: where an exclusion witness of its origin
++    /// discharged the predecessor's record, the predecessor's block is kept
++    /// again, under a record of the closing epoch, though its rival has
++    /// more settled reporter votes
++    #[test]
++    fn the_keep_pass_prefers_the_predecessors_block() {
++        let mut index = StubIndex::default();
++        let kept = index.add(1, 1, BlockHash::ZERO);
++        let rival = index.add(1, 1, BlockHash::ZERO);
++        let mut previous = EpochLedger::new();
++        previous.keep(slot(1, 1), placed(&index, kept));
++        previous.add_lock(kept, LockRecord::recovery(ConsensusEpoch::new(1)));
++        let certified = CertifiedState::new();
++        let mut for_rival = ResidualVotes::new();
++        record(&mut for_rival, &index, rival, ResidualKind::First);
++        let reports = [
++            reported_by(1, &certified, &for_rival),
++            reported_by(2, &certified, &for_rival),
++        ];
++        let witness = |origin: ConsensusEpoch, hash: &BlockHash| {
++            origin == ConsensusEpoch::new(1) && *hash == rival
++        };
++
++        let ledger = build_state(&previous, &reports, &index, rules_of(2), &witness).unwrap();
++
++        assert_eq!(ledger.notarized(&slot(1, 1)), vec![kept]);
++        assert_eq!(
++            ledger.lock_records(&kept).collect::<Vec<_>>(),
++            vec![LockRecord::recovery(ConsensusEpoch::new(2))]
++        );
++    }
++
+     /// Rule 3: a block the reports show finalized is finalized, and the
+     /// conflicting sibling is excluded rather than kept
+     #[test]
+@@ -2568,6 +2812,7 @@ mod tests {
+     fn rules_of(epoch: u64) -> BuildRules {
+         BuildRules {
+             epoch: ConsensusEpoch::new(epoch),
++            many: MANY,
+         }
+     }
+ 
+diff --git a/node/src/consensus/election/epoch_value.rs b/node/src/consensus/election/epoch_value.rs
+index e35529fa0..32688f42a 100644
+--- a/node/src/consensus/election/epoch_value.rs
++++ b/node/src/consensus/election/epoch_value.rs
+@@ -588,6 +588,7 @@ mod tests {
+     fn rules() -> BuildRules {
+         BuildRules {
+             epoch: ConsensusEpoch::new(1),
++            many: Amount::raw(25),
+         }
+     }
+     /// q_report for three reporters of `REPORTER_WEIGHT` each
+diff --git a/node/src/consensus/election/manifest.rs b/node/src/consensus/election/manifest.rs
+index b5b370897..8064634c2 100644
+--- a/node/src/consensus/election/manifest.rs
++++ b/node/src/consensus/election/manifest.rs
+@@ -269,7 +269,7 @@ impl Manifest {
+             return false;
+         };
+         match kind {
+-            ResidualKind::First => voters.first & bit != 0,
++            ResidualKind::First | ResidualKind::EarlyFirst => voters.first & bit != 0,
+             ResidualKind::Final => voters.final_ & bit != 0,
+         }
+     }
+diff --git a/node/src/consensus/reports/close_memo.rs b/node/src/consensus/reports/close_memo.rs
+index 2162c74c3..73c39f525 100644
+--- a/node/src/consensus/reports/close_memo.rs
++++ b/node/src/consensus/reports/close_memo.rs
+@@ -446,7 +446,11 @@ impl CloseMemo {
+         let views = std::slice::from_ref(&view);
+         let part = self.previous.account_part(account);
+         let index = AccountIndex::new(&self.base, views);
+-        let rules = BuildRules { epoch: self.epoch };
++        // The view lists no residual vote, so Rule 2 has nothing to count
++        let rules = BuildRules {
++            epoch: self.epoch,
++            many: Amount::MAX,
++        };
+         let state = build_state_of(&part, views, &index, rules, &|_, _| false).ok()?;
+         let outcome = state.account_outcome()?;
+         let mut claims = Vec::new();
+@@ -680,10 +684,10 @@ impl PreparedClose<'_, '_> {
+     /// an account's derivation did not record what it finalized.
+     pub fn build(
+         &self,
++        rules: BuildRules,
+         witness: &dyn Fn(ConsensusEpoch, &BlockHash) -> bool,
+     ) -> Result<Option<EpochLedger>, BuildStateError> {
+         let memo = self.memo;
+-        let rules = BuildRules { epoch: memo.epoch };
+         let mut ledger = memo.previous.derivation_start();
+         let empty = EpochLedger::new();
+         for (account, views) in &self.dirty {
+diff --git a/node/src/consensus/reports/epoch_decision.rs b/node/src/consensus/reports/epoch_decision.rs
+index a13c3faa0..c44a8a2d6 100644
+--- a/node/src/consensus/reports/epoch_decision.rs
++++ b/node/src/consensus/reports/epoch_decision.rs
+@@ -802,12 +802,12 @@ impl EpochDecisionService {
+     fn build(
+         &self,
+         derivation: &Derivation,
+-        epoch: ConsensusEpoch,
++        rules: BuildRules,
+         states: &[SelectedReport],
+         previous: &EpochLedger,
+         witness: &dyn Fn(ConsensusEpoch, &BlockHash) -> bool,
+     ) -> Result<EpochLedger, BuildStateError> {
+-        let rules = BuildRules { epoch };
++        let epoch = rules.epoch;
+         let full = || {
+             let index = self.report_index(epoch, previous, states);
+             build_state(previous, states, &index, rules, witness)
+@@ -815,7 +815,7 @@ impl EpochDecisionService {
+         let Some(prepared) = &derivation.prepared else {
+             return full();
+         };
+-        let built = prepared.build(witness);
++        let built = prepared.build(rules, witness);
+         if close_memo_check_enabled() {
+             let whole = full();
+             let agrees = match (&built, &whole) {
+@@ -1245,7 +1245,16 @@ impl EpochDecisionService {
+             manifest_witness(&manifest, &members, origin, hash)
+         };
+         let built = self
+-            .build(&derivation, epoch, &states, &previous, &witness)
++            .build(
++                &derivation,
++                BuildRules {
++                    epoch,
++                    many: committee.thresholds().many,
++                },
++                &states,
++                &previous,
++                &witness,
++            )
+             .map(|ledger| {
+                 EpochValue::propose_built(epoch, round, BlockHash::ZERO, &resolved, digest, ledger)
+             });
+@@ -1380,9 +1389,12 @@ impl EpochDecisionService {
+         let witness = |origin: ConsensusEpoch, hash: &BlockHash| {
+             manifest_witness(&manifest, &members, origin, hash)
+         };
+-        let rules = BuildRules { epoch: value.epoch };
++        let rules = BuildRules {
++            epoch: value.epoch,
++            many: committee.thresholds().many,
++        };
+         match value.validate_with(&source, committee.thresholds().report, |states| {
+-            self.build(&derivation, value.epoch, states, &previous, &witness)
++            self.build(&derivation, rules, states, &previous, &witness)
+         }) {
+             Ok(ledger) => {
+                 diagnostic!(
+diff --git a/node/src/consensus/reports/mod.rs b/node/src/consensus/reports/mod.rs
+index 8bed6e7e2..eb5a365a3 100644
+--- a/node/src/consensus/reports/mod.rs
++++ b/node/src/consensus/reports/mod.rs
+@@ -1469,8 +1469,8 @@ impl EpochReports {
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+-    use crate::consensus::election::{BlockIndex, CertifiedStatus};
+-    use rsnano_types::Account;
++    use crate::consensus::election::{BlockIndex, BuildRules, CertifiedStatus};
++    use rsnano_types::{Account, Amount};
+ 
+     fn block() -> CertifiedBlock {
+         CertifiedBlock::new(Account::from(1), 1, BlockHash::from(2))
+@@ -2423,7 +2423,7 @@ mod tests {
+     #[test]
+     fn reports_over_the_inherited_base_derive_as_flat_reports() {
+         use crate::consensus::election::{
+-            BuildRules, ReportIndex, SelectedReport, build_state, fresh_finalized, witness_claims,
++            ReportIndex, SelectedReport, build_state, fresh_finalized, witness_claims,
+         };
+         let (mut compared, mut locked) = (0, 0);
+         for seed in 1..400u64 {
+@@ -2445,7 +2445,7 @@ mod tests {
+                 &EpochLedger::new(),
+                 &selection,
+                 &index,
+-                BuildRules { epoch: epoch1 },
++                rules_of(epoch1),
+                 &witness,
+             ) else {
+                 continue;
+@@ -2477,17 +2477,11 @@ mod tests {
+                 &previous,
+                 &over_selection,
+                 &base_index,
+-                BuildRules { epoch: epoch2 },
++                rules_of(epoch2),
+                 &witness,
+             );
+             let derive = |selection: &[SelectedReport], index: &ReportIndex| {
+-                build_state(
+-                    &previous,
+-                    selection,
+-                    index,
+-                    BuildRules { epoch: epoch2 },
+-                    &witness,
+-                )
++                build_state(&previous, selection, index, rules_of(epoch2), &witness)
+             };
+             let derived = derive(&over_selection, &over_index);
+             assert_eq!(derived, derive(&flat_selection, &flat_index), "seed {seed}");
+@@ -2673,9 +2667,7 @@ mod tests {
+     #[test]
+     #[ignore]
+     fn checkpoint_cost_against_history() {
+-        use crate::consensus::election::{
+-            AccountSlot, BuildRules, ReportIndex, SelectedReport, build_state,
+-        };
++        use crate::consensus::election::{AccountSlot, ReportIndex, SelectedReport, build_state};
+         use std::time::Instant;
+         let changes = 15_000u64;
+         let ms = |started: Instant| started.elapsed().as_secs_f64() * 1000.0;
+@@ -2717,13 +2709,9 @@ mod tests {
+             let index = ReportIndex::new(&previous, &selection);
+             steps.push(("place the blocks", ms(started)));
+             let started = Instant::now();
+-            let state = build_state(
+-                &previous,
+-                &selection,
+-                &index,
+-                BuildRules { epoch: EPOCH },
+-                &|_, _| false,
+-            )
++            let state = build_state(&previous, &selection, &index, rules_of(EPOCH), &|_, _| {
++                false
++            })
+             .unwrap();
+             steps.push(("build state (with clone)", ms(started)));
+             let started = Instant::now();
+@@ -2741,13 +2729,9 @@ mod tests {
+             let index = ReportIndex::over_base(&base, &selection);
+             steps.push(("  place the blocks (base)", ms(started)));
+             let started = Instant::now();
+-            let state = build_state(
+-                &previous,
+-                &selection,
+-                &index,
+-                BuildRules { epoch: EPOCH },
+-                &|_, _| false,
+-            )
++            let state = build_state(&previous, &selection, &index, rules_of(EPOCH), &|_, _| {
++                false
++            })
+             .unwrap();
+             steps.push(("  build state (base index)", ms(started)));
+             let started = Instant::now();
+@@ -2775,8 +2759,8 @@ mod tests {
+     fn the_close_memo_derives_what_the_whole_derivation_derives() {
+         use super::close_memo::CloseMemo;
+         use crate::consensus::election::{
+-            AccountSlot, BuildRules, ReportIndex, RetainedKind, build_state, fresh_finalized,
+-            overlap_claims, witness_claims,
++            AccountSlot, ReportIndex, RetainedKind, build_state, fresh_finalized, overlap_claims,
++            witness_claims,
+         };
+         let (mut compared, mut memoized, mut derived_here, mut misses) = (0, 0, 0, 0);
+         let (mut both_failed, mut skipped, mut locked) = (0, 0, 0);
+@@ -2816,7 +2800,7 @@ mod tests {
+                 &EpochLedger::new(),
+                 &selection,
+                 &index,
+-                BuildRules { epoch: epoch1 },
++                rules_of(epoch1),
+                 &witness,
+             ) else {
+                 skipped += 1;
+@@ -2987,7 +2971,7 @@ mod tests {
+                     let fresh = prepared.fresh();
+                     let claims = prepared.claims(&fresh);
+                     let state = prepared
+-                        .build(&witness)
++                        .build(rules_of(epoch2), &witness)
+                         .map(|state| state.map(|s| s.state_hash()));
+                     (fresh, claims, state)
+                 })
+@@ -3024,10 +3008,10 @@ mod tests {
+                 &previous,
+                 &selection,
+                 &base_index,
+-                BuildRules { epoch: epoch2 },
++                rules_of(epoch2),
+                 &witness,
+             );
+-            match (whole, prepared.build(&witness)) {
++            match (whole, prepared.build(rules_of(epoch2), &witness)) {
+                 (Ok(whole), Ok(Some(built))) => {
+                     assert_eq!(built, whole, "seed {seed}");
+                     assert_eq!(built.state_hash(), whole.state_hash(), "seed {seed}");
+@@ -3133,7 +3117,10 @@ mod tests {
+             let prepared = memo.prepare(&selection).unwrap();
+             let fresh = prepared.fresh();
+             let claims = prepared.claims(&fresh);
+-            let state = prepared.build(&|_, _| false).unwrap().unwrap();
++            let state = prepared
++                .build(rules_of(epoch), &|_, _| false)
++                .unwrap()
++                .unwrap();
+             (prepared.counts(), fresh, claims, state)
+         };
+         let (counts, fresh, claims, state) = derive(&absorbed);
+@@ -3149,7 +3136,7 @@ mod tests {
+     #[ignore]
+     fn close_derivation_cost() {
+         use crate::consensus::election::{
+-            AccountSlot, BuildRules, PlacedBlock, ReportIndex, build_state, witness_claims,
++            AccountSlot, PlacedBlock, ReportIndex, build_state, witness_claims,
+         };
+         use std::time::Instant;
+         let history = 48_000u64;
+@@ -3199,9 +3186,7 @@ mod tests {
+                 &previous,
+                 &selection,
+                 &index,
+-                BuildRules {
+-                    epoch: ConsensusEpoch::new(3),
+-                },
++                rules_of(ConsensusEpoch::new(3)),
+                 &|_, _| false,
+             )
+             .unwrap();
+@@ -3246,7 +3231,10 @@ mod tests {
+             let claims = prepared.claims(&fresh);
+             m[0] += s.elapsed().as_secs_f64();
+             let s = Instant::now();
+-            let state = prepared.build(&|_, _| false).unwrap().unwrap();
++            let state = prepared
++                .build(rules_of(ConsensusEpoch::new(3)), &|_, _| false)
++                .unwrap()
++                .unwrap();
+             m[1] += s.elapsed().as_secs_f64();
+             let s = Instant::now();
+             let hash = state.state_hash();
+@@ -3289,9 +3277,7 @@ mod tests {
+                 &previous,
+                 &selection,
+                 &index,
+-                BuildRules {
+-                    epoch: ConsensusEpoch::new(3),
+-                },
++                rules_of(ConsensusEpoch::new(3)),
+                 &|_, _| false,
+             )
+             .unwrap();
+@@ -3302,7 +3288,10 @@ mod tests {
+             let memo_claims = prepared.claims(&fresh);
+             f[1] += s.elapsed().as_secs_f64();
+             let s = Instant::now();
+-            let built = prepared.build(&|_, _| false).unwrap().unwrap();
++            let built = prepared
++                .build(rules_of(ConsensusEpoch::new(3)), &|_, _| false)
++                .unwrap()
++                .unwrap();
+             f[2] += s.elapsed().as_secs_f64();
+             assert_eq!(built, state);
+             std::hint::black_box((claims, witnesses, memo_claims));
+@@ -3326,6 +3315,14 @@ mod tests {
+ 
+     const EPOCH: ConsensusEpoch = ConsensusEpoch::new(1);
+ 
++    /// The rules of an epoch's closure; r is three reporters of weight 10
++    fn rules_of(epoch: ConsensusEpoch) -> BuildRules {
++        BuildRules {
++            epoch,
++            many: Amount::raw(25),
++        }
++    }
++
+     /// A deterministic xorshift generator
+     struct Rng(u64);
+ 
