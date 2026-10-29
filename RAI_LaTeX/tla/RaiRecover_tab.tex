@@ -1,0 +1,28 @@
+% Rows of Table~\ref{tab:tlc-recover} (supplement), now inserted there; kept for reference.
+% All runs are random simulation (sim.) or breadth-first search stopped at a
+% time cap; none is exhaustive.  Times: four runs of two workers on eight cores.
+\midrule
+\texttt{Recover4\_off\_\{patch,base\}\_safe} & \texttt{NoConflict} violated after 44 / 57 steps (sim.) & $<5$\,s\\
+\texttt{Scen4\_trace1}, \texttt{\_trace1\_exact} (BFS) & \texttt{NoConflict} violated after 20 / 26 steps & 2\,min\\
+\texttt{Recover4\_off\_renot\_safe} & no violation in 29{,}129 traces (sim.) & 20\,min\\
+\texttt{Recover4\_committed\_\{safe,flip,fork\}} & no violation (sim.) & 10--25\,min\\
+\texttt{Recover3\_committed\_safe}, \texttt{Recover3\_all\_prev\_safe} (BFS) & no violation to depth 19; 9.2\,M, 8.8\,M states (cap) & 30\,min\\
+\texttt{Recover4\_all\_unsettled\_flip}, \texttt{Scen4\_trace3\_flip} & \texttt{FlipBound} violated after 43 / 36 steps (sim.) & $<10$\,s\\
+\texttt{Recover4\_all\_hash\_flip} & \texttt{FlipBound} violated after 45 steps (sim.) & 3\,s\\
+\texttt{Scen4\_\{unsettled,hash,perm\}\_fork} & \texttt{Recovered} violated after 59 / 60 / 65 steps (sim.) & $<20$\,s\\
+\texttt{Recover4\_all\_prev\_\{safe,flip,fork,two,two23\}} & no violation (sim.) & 5--25\,min\\
+\texttt{Recover4\_all\_prev\_fork} (BFS) & no violation to depth 19; 2.2\,M states (cap) & 30\,min\\
+\texttt{Scen4\_novotes\_live} & \texttt{Recovered} violated after 49 steps: one good epoch is not enough & 2\,s\\
+\midrule
+\texttt{Many2\_none\_live} & \texttt{RecoveredMany} violated after 60 steps (sim.) & 8\,s\\
+\texttt{Many2\_patch\_\{safe,flip,live,two23,early\}} & no violation (sim.) & 10\,min\\
+\texttt{Many2\_hash\_flip}, \texttt{\_hash\_kof} & \texttt{FlipBound}, \texttt{KeptOrFinal} violated after 41 / 24 steps (sim.) & $<10$\,s\\
+\texttt{Many2\_perm\_live} & \texttt{RecoveredMany} violated after 76 steps (sim.) & 53\,s\\
+\texttt{Many\{2,3\}\_paper\_safe}, \texttt{\_paper\_nc} & $B{=}2$: \texttt{ClosureThm1} after 32, \texttt{NoConflict} after 57 steps; $B{=}3$: none found (sim.) & 3--10\,min\\
+\texttt{Many2\_paper\_hole\_tight} (scripted) & \texttt{NoConflict} violated after 40 steps & 1\,min\\
+\texttt{Many\{2,3\}\_\{paper,routeA\}\_any\_up\_safe} & \texttt{ClosureThm1} violated after 20--32 steps (sim.) & $<5$\,min\\
+\texttt{Many\{2,3\}\_\{paper,routeA\}\_any\_down\_safe} & no violation (sim.) & 10\,min\\
+\texttt{Many\{2,3\}\_routeA\_\{safe,flip,kof,early\}} & no violation (sim.) & 10\,min\\
+\texttt{Many\{2,3\}\_routeA\{,\_down\}\_\{live,two23\}}, \texttt{\_routeA\_gap24} & no violation (sim.) & 10\,min\\
+\texttt{Many\{2,3\}\_paper\_flip}, \texttt{\_paper\_kof} & \texttt{FlipBound}, \texttt{KeptOrFinal} violated (sim.) & $<1$\,min\\
+\texttt{Many*\_probe*}, \texttt{Recover4\_all\_prev\_probe*} & probes violated, as intended & $<10$\,s\\

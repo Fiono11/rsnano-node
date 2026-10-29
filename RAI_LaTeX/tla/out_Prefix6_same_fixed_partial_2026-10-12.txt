@@ -1,0 +1,38 @@
+TLC2 Version 2.20 of Day Month 20?? (rev: 2cf8424)
+Running breadth-first search Model-Checking with fp 62 and seed -7431956114597104663 with 8 workers on 8 cores with 9102MB heap and 64MB offheap memory [pid: 49567] (Mac OS X 14.6.1 aarch64, Eclipse Adoptium 17.0.7 x86_64, MSBDiskFPSet, DiskStateQueue).
+Parsing file /Users/ruimorais/rsnano-node/.claude/worktrees/rai-eval-harness/RAI_LaTeX/tla/RaiPrefix.tla
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-7848050885757940980/Naturals.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-7848050885757940980/FiniteSets.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-7848050885757940980/TLC.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-7848050885757940980/_TLCTrace.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-7848050885757940980/Sequences.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-7848050885757940980/TLCExt.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-7848050885757940980/Integers.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module Integers
+Semantic processing of module TLCExt
+Semantic processing of module _TLCTrace
+Semantic processing of module RaiPrefix
+Linting of module TLCExt
+Linting of module _TLCTrace
+Linting of module RaiPrefix
+Starting... (2026-10-12 21:13:40)
+Computing initial states...
+Finished computing initial states: 1 distinct state generated at 2026-10-12 21:13:40.
+Progress(13) at 2026-10-12 21:13:43: 491 387 states generated (491 387 s/min), 98 575 distinct states found (98 575 ds/min), 58 062 states left on queue.
+Progress(17) at 2026-10-12 21:14:43: 12 092 966 states generated (11 601 579 s/min), 2 285 795 distinct states found (2 187 220 ds/min), 1 085 622 states left on queue.
+Progress(18) at 2026-10-12 21:15:43: 21 822 394 states generated (9 729 428 s/min), 4 064 486 distinct states found (1 778 691 ds/min), 1 847 302 states left on queue.
+Progress(18) at 2026-10-12 21:16:43: 31 220 890 states generated (9 398 496 s/min), 5 681 910 distinct states found (1 617 424 ds/min), 2 530 351 states left on queue.
+Progress(19) at 2026-10-12 21:17:43: 39 789 284 states generated (8 568 394 s/min), 7 247 821 distinct states found (1 565 911 ds/min), 3 134 236 states left on queue.
+Progress(19) at 2026-10-12 21:18:43: 46 838 564 states generated (7 049 280 s/min), 8 322 731 distinct states found (1 074 910 ds/min), 3 522 213 states left on queue.
+Progress(19) at 2026-10-12 21:19:43: 55 118 900 states generated (8 280 336 s/min), 9 786 808 distinct states found (1 464 077 ds/min), 4 131 265 states left on queue.
+Progress(20) at 2026-10-12 21:20:43: 63 691 987 states generated (8 573 087 s/min), 11 263 248 distinct states found (1 476 440 ds/min), 4 643 214 states left on queue.
+Progress(20) at 2026-10-12 21:21:43: 72 286 271 states generated (8 594 284 s/min), 12 731 205 distinct states found (1 467 957 ds/min), 5 183 374 states left on queue.
+Progress(20) at 2026-10-12 21:22:43: 81 089 455 states generated (8 803 184 s/min), 13 993 544 distinct states found (1 262 339 ds/min), 5 607 435 states left on queue.
+Progress(20) at 2026-10-12 21:23:43: 89 167 342 states generated (8 077 887 s/min), 15 366 666 distinct states found (1 373 122 ds/min), 6 138 621 states left on queue.
+Progress(21) at 2026-10-12 21:24:43: 96 875 027 states generated (7 707 685 s/min), 16 637 273 distinct states found (1 270 607 ds/min), 6 581 523 states left on queue.
+Progress(21) at 2026-10-12 21:25:43: 105 184 746 states generated (8 309 719 s/min), 17 952 637 distinct states found (1 315 364 ds/min), 6 974 938 states left on queue.
+Progress(21) at 2026-10-12 21:26:43: 112 688 849 states generated (7 504 103 s/min), 19 374 961 distinct states found (1 422 324 ds/min), 7 480 494 states left on queue.

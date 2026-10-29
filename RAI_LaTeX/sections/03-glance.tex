@@ -27,7 +27,7 @@ RAI is a set of rules. We state them here informally, with the thresholds of the
 \para{At the boundary (Section~\ref{sec:close}).}
 \begin{enumerate}[resume,label=\rulename{R\arabic*},ref=R\arabic*]
 \item\label{r:report} At its local boundary a validator stops voting in epoch $e$, signs one immutable \emph{report} naming what it holds final or notarized and what else it first-voted, and opens epoch $e+1$.
-\item\label{r:build} The outgoing committee agrees on a checkpoint built from $N-f$ (5) reports by a fixed recipe: keep what any report shows final; \emph{lock} a block that a report shows notarized; \emph{lock for recovery} the block most reporters first-voted; promote a notarized block that is the only one kept at its position; carry every older lock forward unless evidence of its own origin epoch releases it.
+\item\label{r:build} The outgoing committee agrees on a checkpoint built from $N-f$ (5) reports by a fixed recipe: keep what any report shows final; \emph{lock} a block that a report shows notarized; from the highest position down, \emph{lock for recovery} a block $r$ (3) reporters first-voted after installing the previous checkpoint, and keep a side where nothing is kept; promote a notarized block that is the only one kept at its position; carry every older lock forward unless evidence of its own origin epoch releases it.
 \item\label{r:install} The next committee installs the decided checkpoint without voting on it. From then on a validator votes at a kept position only the kept block, and builds on a block kept only for recovery once it is notarized again.
 \end{enumerate}
 \para{While the previous epoch closes (Section~\ref{sec:pipeline}).}

@@ -1,0 +1,5913 @@
+TLC2 Version 2.20 of Day Month 20?? (rev: 2cf8424)
+Running Random Simulation with seed 6851315240419360877 with 2 workers on 8 cores with 2731MB heap and 64MB offheap memory [pid: 8442] (Mac OS X 14.6.1 aarch64, Eclipse Adoptium 17.0.7 x86_64).
+Parsing file /Users/ruimorais/rsnano-node/.claude/worktrees/rai-eval-harness/RAI_LaTeX/tla/RaiRecover.tla
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-11711211906226475210/Naturals.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-11711211906226475210/FiniteSets.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-11711211906226475210/Sequences.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-11711211906226475210/TLC.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-11711211906226475210/_JsonTrace.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/_JsonTrace.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-11711211906226475210/_TLCTrace.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-11711211906226475210/TLCExt.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-11711211906226475210/Json.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/Json.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-11711211906226475210/Integers.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module Integers
+Semantic processing of module TLCExt
+Semantic processing of module Json
+Semantic processing of module _JsonTrace
+Semantic processing of module _TLCTrace
+Semantic processing of module RaiRecover
+Linting of module TLCExt
+Linting of module Json
+Linting of module _JsonTrace
+Linting of module _TLCTrace
+Linting of module RaiRecover
+Starting... (2026-10-28 13:58:43)
+Computed 1 initial states...
+Finished computing initial states: 1 distinct state generated at 2026-10-28 13:58:43.
+Error: Invariant Recovered is violated.
+Error: The behavior up to this point is:
+State 1: <Init line 419, col 3 to line 425, col 33 of module RaiRecover>
+/\ cur = (c1 :> 1 @@ c2 :> 1 @@ c3 :> 1 @@ c4 :> 1 @@ c5 :> 1)
+/\ bf = <<{}, {}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 0 @@ c2 :> 0 @@ c3 :> 0 @@ c4 :> 0 @@ c5 :> 0)
+
+State 2: <Vote(c3,"A2") line 268, col 3 to line 271, col 39 of module RaiRecover>
+/\ cur = (c1 :> 1 @@ c2 :> 1 @@ c3 :> 1 @@ c4 :> 1 @@ c5 :> 1)
+/\ bf = <<{}, {}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 0 @@ c2 :> 0 @@ c3 :> 0 @@ c4 :> 0 @@ c5 :> 0)
+
+State 3: <Leave(c3) line 280, col 3 to line 282, col 42 of module RaiRecover>
+/\ cur = (c1 :> 1 @@ c2 :> 1 @@ c3 :> 2 @@ c4 :> 1 @@ c5 :> 1)
+/\ bf = <<{}, {}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 0 @@ c2 :> 0 @@ c3 :> 0 @@ c4 :> 0 @@ c5 :> 0)
+
+State 4: <Vote(c4,"A") line 268, col 3 to line 271, col 39 of module RaiRecover>
+/\ cur = (c1 :> 1 @@ c2 :> 1 @@ c3 :> 2 @@ c4 :> 1 @@ c5 :> 1)
+/\ bf = <<{}, {}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"-", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 0 @@ c2 :> 0 @@ c3 :> 0 @@ c4 :> 0 @@ c5 :> 0)
+
+State 5: <Vote(c5,"A") line 268, col 3 to line 271, col 39 of module RaiRecover>
+/\ cur = (c1 :> 1 @@ c2 :> 1 @@ c3 :> 2 @@ c4 :> 1 @@ c5 :> 1)
+/\ bf = <<{}, {}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 0 @@ c2 :> 0 @@ c3 :> 0 @@ c4 :> 0 @@ c5 :> 0)
+
+State 6: <Leave(c5) line 280, col 3 to line 282, col 42 of module RaiRecover>
+/\ cur = (c1 :> 1 @@ c2 :> 1 @@ c3 :> 2 @@ c4 :> 1 @@ c5 :> 2)
+/\ bf = <<{}, {}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 0 @@ c2 :> 0 @@ c3 :> 0 @@ c4 :> 0 @@ c5 :> 0)
+
+State 7: <ByzRelease(2,"A") line 297, col 3 to line 300, col 43 of module RaiRecover>
+/\ cur = (c1 :> 1 @@ c2 :> 1 @@ c3 :> 2 @@ c4 :> 1 @@ c5 :> 2)
+/\ bf = <<{}, {"A"}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 0 @@ c2 :> 0 @@ c3 :> 0 @@ c4 :> 0 @@ c5 :> 0)
+
+State 8: <Vote(c1,"A2") line 268, col 3 to line 271, col 39 of module RaiRecover>
+/\ cur = (c1 :> 1 @@ c2 :> 1 @@ c3 :> 2 @@ c4 :> 1 @@ c5 :> 2)
+/\ bf = <<{}, {"A"}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 0 @@ c2 :> 0 @@ c3 :> 0 @@ c4 :> 0 @@ c5 :> 0)
+
+State 9: <Leave(c4) line 280, col 3 to line 282, col 42 of module RaiRecover>
+/\ cur = (c1 :> 1 @@ c2 :> 1 @@ c3 :> 2 @@ c4 :> 2 @@ c5 :> 2)
+/\ bf = <<{}, {"A"}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 0 @@ c2 :> 0 @@ c3 :> 0 @@ c4 :> 0 @@ c5 :> 0)
+
+State 10: <Vote(c3,"A2") line 268, col 3 to line 271, col 39 of module RaiRecover>
+/\ cur = (c1 :> 1 @@ c2 :> 1 @@ c3 :> 2 @@ c4 :> 2 @@ c5 :> 2)
+/\ bf = <<{}, {"A"}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 0 @@ c2 :> 0 @@ c3 :> 0 @@ c4 :> 0 @@ c5 :> 0)
+
+State 11: <Vote(c4,"A") line 268, col 3 to line 271, col 39 of module RaiRecover>
+/\ cur = (c1 :> 1 @@ c2 :> 1 @@ c3 :> 2 @@ c4 :> 2 @@ c5 :> 2)
+/\ bf = <<{}, {"A"}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"-", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 0 @@ c2 :> 0 @@ c3 :> 0 @@ c4 :> 0 @@ c5 :> 0)
+
+State 12: <ByzRelease(1,"A") line 297, col 3 to line 300, col 43 of module RaiRecover>
+/\ cur = (c1 :> 1 @@ c2 :> 1 @@ c3 :> 2 @@ c4 :> 2 @@ c5 :> 2)
+/\ bf = <<{"A"}, {"A"}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"-", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 0 @@ c2 :> 0 @@ c3 :> 0 @@ c4 :> 0 @@ c5 :> 0)
+
+State 13: <Vote(c5,"A") line 268, col 3 to line 271, col 39 of module RaiRecover>
+/\ cur = (c1 :> 1 @@ c2 :> 1 @@ c3 :> 2 @@ c4 :> 2 @@ c5 :> 2)
+/\ bf = <<{"A"}, {"A"}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 0 @@ c2 :> 0 @@ c3 :> 0 @@ c4 :> 0 @@ c5 :> 0)
+
+State 14: <Vote(c2,"A2") line 268, col 3 to line 271, col 39 of module RaiRecover>
+/\ cur = (c1 :> 1 @@ c2 :> 1 @@ c3 :> 2 @@ c4 :> 2 @@ c5 :> 2)
+/\ bf = <<{"A"}, {"A"}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 0 @@ c2 :> 0 @@ c3 :> 0 @@ c4 :> 0 @@ c5 :> 0)
+
+State 15: <ByzRelease(2,"A2") line 297, col 3 to line 300, col 43 of module RaiRecover>
+/\ cur = (c1 :> 1 @@ c2 :> 1 @@ c3 :> 2 @@ c4 :> 2 @@ c5 :> 2)
+/\ bf = <<{"A"}, {"A", "A2"}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 0 @@ c2 :> 0 @@ c3 :> 0 @@ c4 :> 0 @@ c5 :> 0)
+
+State 16: <Leave(c2) line 280, col 3 to line 282, col 42 of module RaiRecover>
+/\ cur = (c1 :> 1 @@ c2 :> 2 @@ c3 :> 2 @@ c4 :> 2 @@ c5 :> 2)
+/\ bf = <<{"A"}, {"A", "A2"}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 0 @@ c2 :> 0 @@ c3 :> 0 @@ c4 :> 0 @@ c5 :> 0)
+
+State 17: <Vote(c2,"A2") line 268, col 3 to line 271, col 39 of module RaiRecover>
+/\ cur = (c1 :> 1 @@ c2 :> 2 @@ c3 :> 2 @@ c4 :> 2 @@ c5 :> 2)
+/\ bf = <<{"A"}, {"A", "A2"}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 0 @@ c2 :> 0 @@ c3 :> 0 @@ c4 :> 0 @@ c5 :> 0)
+
+State 18: <ByzRelease(1,"A2") line 297, col 3 to line 300, col 43 of module RaiRecover>
+/\ cur = (c1 :> 1 @@ c2 :> 2 @@ c3 :> 2 @@ c4 :> 2 @@ c5 :> 2)
+/\ bf = <<{"A", "A2"}, {"A", "A2"}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 0 @@ c2 :> 0 @@ c3 :> 0 @@ c4 :> 0 @@ c5 :> 0)
+
+State 19: <Close(1) line 403, col 3 to line 408, col 40 of module RaiRecover>
+/\ cur = (c1 :> 1 @@ c2 :> 2 @@ c3 :> 2 @@ c4 :> 2 @@ c5 :> 2)
+/\ bf = <<{"A", "A2"}, {"A", "A2"}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 0 @@ c2 :> 0 @@ c3 :> 0 @@ c4 :> 0 @@ c5 :> 0)
+
+State 20: <Catch(c2) line 285, col 3 to line 287, col 41 of module RaiRecover>
+/\ cur = (c1 :> 1 @@ c2 :> 2 @@ c3 :> 2 @@ c4 :> 2 @@ c5 :> 2)
+/\ bf = <<{"A", "A2"}, {"A", "A2"}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 0 @@ c2 :> 1 @@ c3 :> 0 @@ c4 :> 0 @@ c5 :> 0)
+
+State 21: <ByzRelease(2,"D") line 297, col 3 to line 300, col 43 of module RaiRecover>
+/\ cur = (c1 :> 1 @@ c2 :> 2 @@ c3 :> 2 @@ c4 :> 2 @@ c5 :> 2)
+/\ bf = <<{"A", "A2"}, {"D", "A", "A2"}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 0 @@ c2 :> 1 @@ c3 :> 0 @@ c4 :> 0 @@ c5 :> 0)
+
+State 22: <Catch(c5) line 285, col 3 to line 287, col 41 of module RaiRecover>
+/\ cur = (c1 :> 1 @@ c2 :> 2 @@ c3 :> 2 @@ c4 :> 2 @@ c5 :> 2)
+/\ bf = <<{"A", "A2"}, {"D", "A", "A2"}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 0 @@ c2 :> 1 @@ c3 :> 0 @@ c4 :> 0 @@ c5 :> 1)
+
+State 23: <Leave(c2) line 280, col 3 to line 282, col 42 of module RaiRecover>
+/\ cur = (c1 :> 1 @@ c2 :> 3 @@ c3 :> 2 @@ c4 :> 2 @@ c5 :> 2)
+/\ bf = <<{"A", "A2"}, {"D", "A", "A2"}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 0 @@ c2 :> 1 @@ c3 :> 0 @@ c4 :> 0 @@ c5 :> 1)
+
+State 24: <ByzRelease(1,"D") line 297, col 3 to line 300, col 43 of module RaiRecover>
+/\ cur = (c1 :> 1 @@ c2 :> 3 @@ c3 :> 2 @@ c4 :> 2 @@ c5 :> 2)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 0 @@ c2 :> 1 @@ c3 :> 0 @@ c4 :> 0 @@ c5 :> 1)
+
+State 25: <Vote(c2,"A2") line 268, col 3 to line 271, col 39 of module RaiRecover>
+/\ cur = (c1 :> 1 @@ c2 :> 3 @@ c3 :> 2 @@ c4 :> 2 @@ c5 :> 2)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 0 @@ c2 :> 1 @@ c3 :> 0 @@ c4 :> 0 @@ c5 :> 1)
+
+State 26: <Leave(c5) line 280, col 3 to line 282, col 42 of module RaiRecover>
+/\ cur = (c1 :> 1 @@ c2 :> 3 @@ c3 :> 2 @@ c4 :> 2 @@ c5 :> 3)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 0 @@ c2 :> 1 @@ c3 :> 0 @@ c4 :> 0 @@ c5 :> 1)
+
+State 27: <ByzRelease(3,"A2") line 297, col 3 to line 300, col 43 of module RaiRecover>
+/\ cur = (c1 :> 1 @@ c2 :> 3 @@ c3 :> 2 @@ c4 :> 2 @@ c5 :> 3)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"A2"}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 0 @@ c2 :> 1 @@ c3 :> 0 @@ c4 :> 0 @@ c5 :> 1)
+
+State 28: <Vote(c5,"A") line 268, col 3 to line 271, col 39 of module RaiRecover>
+/\ cur = (c1 :> 1 @@ c2 :> 3 @@ c3 :> 2 @@ c4 :> 2 @@ c5 :> 3)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"A2"}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 0 @@ c2 :> 1 @@ c3 :> 0 @@ c4 :> 0 @@ c5 :> 1)
+
+State 29: <Catch(c3) line 285, col 3 to line 287, col 41 of module RaiRecover>
+/\ cur = (c1 :> 1 @@ c2 :> 3 @@ c3 :> 2 @@ c4 :> 2 @@ c5 :> 3)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"A2"}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 0 @@ c2 :> 1 @@ c3 :> 1 @@ c4 :> 0 @@ c5 :> 1)
+
+State 30: <ByzRelease(3,"D") line 297, col 3 to line 300, col 43 of module RaiRecover>
+/\ cur = (c1 :> 1 @@ c2 :> 3 @@ c3 :> 2 @@ c4 :> 2 @@ c5 :> 3)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A2"}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 0 @@ c2 :> 1 @@ c3 :> 1 @@ c4 :> 0 @@ c5 :> 1)
+
+State 31: <Catch(c4) line 285, col 3 to line 287, col 41 of module RaiRecover>
+/\ cur = (c1 :> 1 @@ c2 :> 3 @@ c3 :> 2 @@ c4 :> 2 @@ c5 :> 3)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A2"}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 0 @@ c2 :> 1 @@ c3 :> 1 @@ c4 :> 1 @@ c5 :> 1)
+
+State 32: <ByzRelease(3,"A") line 297, col 3 to line 300, col 43 of module RaiRecover>
+/\ cur = (c1 :> 1 @@ c2 :> 3 @@ c3 :> 2 @@ c4 :> 2 @@ c5 :> 3)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 0 @@ c2 :> 1 @@ c3 :> 1 @@ c4 :> 1 @@ c5 :> 1)
+
+State 33: <Vote(c4,"D") line 268, col 3 to line 271, col 39 of module RaiRecover>
+/\ cur = (c1 :> 1 @@ c2 :> 3 @@ c3 :> 2 @@ c4 :> 2 @@ c5 :> 3)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 0 @@ c2 :> 1 @@ c3 :> 1 @@ c4 :> 1 @@ c5 :> 1)
+
+State 34: <Leave(c3) line 280, col 3 to line 282, col 42 of module RaiRecover>
+/\ cur = (c1 :> 1 @@ c2 :> 3 @@ c3 :> 3 @@ c4 :> 2 @@ c5 :> 3)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 0 @@ c2 :> 1 @@ c3 :> 1 @@ c4 :> 1 @@ c5 :> 1)
+
+State 35: <Vote(c3,"A2") line 268, col 3 to line 271, col 39 of module RaiRecover>
+/\ cur = (c1 :> 1 @@ c2 :> 3 @@ c3 :> 3 @@ c4 :> 2 @@ c5 :> 3)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 0 @@ c2 :> 1 @@ c3 :> 1 @@ c4 :> 1 @@ c5 :> 1)
+
+State 36: <Leave(c4) line 280, col 3 to line 282, col 42 of module RaiRecover>
+/\ cur = (c1 :> 1 @@ c2 :> 3 @@ c3 :> 3 @@ c4 :> 3 @@ c5 :> 3)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 0 @@ c2 :> 1 @@ c3 :> 1 @@ c4 :> 1 @@ c5 :> 1)
+
+State 37: <Vote(c4,"A") line 268, col 3 to line 271, col 39 of module RaiRecover>
+/\ cur = (c1 :> 1 @@ c2 :> 3 @@ c3 :> 3 @@ c4 :> 3 @@ c5 :> 3)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 0 @@ c2 :> 1 @@ c3 :> 1 @@ c4 :> 1 @@ c5 :> 1)
+
+State 38: <Close(2) line 403, col 3 to line 408, col 40 of module RaiRecover>
+/\ cur = (c1 :> 1 @@ c2 :> 3 @@ c3 :> 3 @@ c4 :> 3 @@ c5 :> 3)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 2],
+              [b |-> "A", k |-> "P", o |-> 2] } ] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 0 @@ c2 :> 1 @@ c3 :> 1 @@ c4 :> 1 @@ c5 :> 1)
+
+State 39: <Catch(c5) line 285, col 3 to line 287, col 41 of module RaiRecover>
+/\ cur = (c1 :> 1 @@ c2 :> 3 @@ c3 :> 3 @@ c4 :> 3 @@ c5 :> 3)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 2],
+              [b |-> "A", k |-> "P", o |-> 2] } ] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 0 @@ c2 :> 1 @@ c3 :> 1 @@ c4 :> 1 @@ c5 :> 2)
+
+State 40: <FinalVote(c1,1) line 274, col 3 to line 276, col 43 of module RaiRecover>
+/\ cur = (c1 :> 1 @@ c2 :> 3 @@ c3 :> 3 @@ c4 :> 3 @@ c5 :> 3)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 2],
+              [b |-> "A", k |-> "P", o |-> 2] } ] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 0 @@ c2 :> 1 @@ c3 :> 1 @@ c4 :> 1 @@ c5 :> 2)
+
+State 41: <Leave(c1) line 280, col 3 to line 282, col 42 of module RaiRecover>
+/\ cur = (c1 :> 2 @@ c2 :> 3 @@ c3 :> 3 @@ c4 :> 3 @@ c5 :> 3)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 2],
+              [b |-> "A", k |-> "P", o |-> 2] } ] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 0 @@ c2 :> 1 @@ c3 :> 1 @@ c4 :> 1 @@ c5 :> 2)
+
+State 42: <Vote(c5,"D") line 268, col 3 to line 271, col 39 of module RaiRecover>
+/\ cur = (c1 :> 2 @@ c2 :> 3 @@ c3 :> 3 @@ c4 :> 3 @@ c5 :> 3)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 2],
+              [b |-> "A", k |-> "P", o |-> 2] } ] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "D">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, TRUE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 0 @@ c2 :> 1 @@ c3 :> 1 @@ c4 :> 1 @@ c5 :> 2)
+
+State 43: <Vote(c1,"A2") line 268, col 3 to line 271, col 39 of module RaiRecover>
+/\ cur = (c1 :> 2 @@ c2 :> 3 @@ c3 :> 3 @@ c4 :> 3 @@ c5 :> 3)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 2],
+              [b |-> "A", k |-> "P", o |-> 2] } ] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "D">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, TRUE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 0 @@ c2 :> 1 @@ c3 :> 1 @@ c4 :> 1 @@ c5 :> 2)
+
+State 44: <Catch(c1) line 285, col 3 to line 287, col 41 of module RaiRecover>
+/\ cur = (c1 :> 2 @@ c2 :> 3 @@ c3 :> 3 @@ c4 :> 3 @@ c5 :> 3)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 2],
+              [b |-> "A", k |-> "P", o |-> 2] } ] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "D">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, TRUE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 1 @@ c2 :> 1 @@ c3 :> 1 @@ c4 :> 1 @@ c5 :> 2)
+
+State 45: <Leave(c5) line 280, col 3 to line 282, col 42 of module RaiRecover>
+/\ cur = (c1 :> 2 @@ c2 :> 3 @@ c3 :> 3 @@ c4 :> 3 @@ c5 :> 4)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 2],
+              [b |-> "A", k |-> "P", o |-> 2] } ] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "D">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, TRUE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 1 @@ c2 :> 1 @@ c3 :> 1 @@ c4 :> 1 @@ c5 :> 2)
+
+State 46: <Catch(c3) line 285, col 3 to line 287, col 41 of module RaiRecover>
+/\ cur = (c1 :> 2 @@ c2 :> 3 @@ c3 :> 3 @@ c4 :> 3 @@ c5 :> 4)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 2],
+              [b |-> "A", k |-> "P", o |-> 2] } ] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "D">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, TRUE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 1 @@ c2 :> 1 @@ c3 :> 2 @@ c4 :> 1 @@ c5 :> 2)
+
+State 47: <FinalVote(c1,1) line 274, col 3 to line 276, col 43 of module RaiRecover>
+/\ cur = (c1 :> 2 @@ c2 :> 3 @@ c3 :> 3 @@ c4 :> 3 @@ c5 :> 4)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 2],
+              [b |-> "A", k |-> "P", o |-> 2] } ] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "D">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, TRUE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 1 @@ c2 :> 1 @@ c3 :> 2 @@ c4 :> 1 @@ c5 :> 2)
+
+State 48: <ByzRelease(4,"A2") line 297, col 3 to line 300, col 43 of module RaiRecover>
+/\ cur = (c1 :> 2 @@ c2 :> 3 @@ c3 :> 3 @@ c4 :> 3 @@ c5 :> 4)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}, {"A2"}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 2],
+              [b |-> "A", k |-> "P", o |-> 2] } ] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "D">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, TRUE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 1 @@ c2 :> 1 @@ c3 :> 2 @@ c4 :> 1 @@ c5 :> 2)
+
+State 49: <ByzRelease(4,"A") line 297, col 3 to line 300, col 43 of module RaiRecover>
+/\ cur = (c1 :> 2 @@ c2 :> 3 @@ c3 :> 3 @@ c4 :> 3 @@ c5 :> 4)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}, {"A", "A2"}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 2],
+              [b |-> "A", k |-> "P", o |-> 2] } ] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "D">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, TRUE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 1 @@ c2 :> 1 @@ c3 :> 2 @@ c4 :> 1 @@ c5 :> 2)
+
+State 50: <ByzRelease(4,"D") line 297, col 3 to line 300, col 43 of module RaiRecover>
+/\ cur = (c1 :> 2 @@ c2 :> 3 @@ c3 :> 3 @@ c4 :> 3 @@ c5 :> 4)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 2],
+              [b |-> "A", k |-> "P", o |-> 2] } ] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "D">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, TRUE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 1 @@ c2 :> 1 @@ c3 :> 2 @@ c4 :> 1 @@ c5 :> 2)
+
+State 51: <Catch(c2) line 285, col 3 to line 287, col 41 of module RaiRecover>
+/\ cur = (c1 :> 2 @@ c2 :> 3 @@ c3 :> 3 @@ c4 :> 3 @@ c5 :> 4)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 2],
+              [b |-> "A", k |-> "P", o |-> 2] } ] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "D">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, TRUE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 1 @@ c2 :> 2 @@ c3 :> 2 @@ c4 :> 1 @@ c5 :> 2)
+
+State 52: <Leave(c3) line 280, col 3 to line 282, col 42 of module RaiRecover>
+/\ cur = (c1 :> 2 @@ c2 :> 3 @@ c3 :> 4 @@ c4 :> 3 @@ c5 :> 4)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 2],
+              [b |-> "A", k |-> "P", o |-> 2] } ] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "D">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, TRUE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 1 @@ c2 :> 2 @@ c3 :> 2 @@ c4 :> 1 @@ c5 :> 2)
+
+State 53: <Catch(c4) line 285, col 3 to line 287, col 41 of module RaiRecover>
+/\ cur = (c1 :> 2 @@ c2 :> 3 @@ c3 :> 4 @@ c4 :> 3 @@ c5 :> 4)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 2],
+              [b |-> "A", k |-> "P", o |-> 2] } ] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "D">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, TRUE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 1 @@ c2 :> 2 @@ c3 :> 2 @@ c4 :> 2 @@ c5 :> 2)
+
+State 54: <Leave(c2) line 280, col 3 to line 282, col 42 of module RaiRecover>
+/\ cur = (c1 :> 2 @@ c2 :> 4 @@ c3 :> 4 @@ c4 :> 3 @@ c5 :> 4)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 2],
+              [b |-> "A", k |-> "P", o |-> 2] } ] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "D">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, TRUE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 1 @@ c2 :> 2 @@ c3 :> 2 @@ c4 :> 2 @@ c5 :> 2)
+
+State 55: <Ahead(c1) line 291, col 3 to line 294, col 36 of module RaiRecover>
+/\ cur = (c1 :> 3 @@ c2 :> 4 @@ c3 :> 4 @@ c4 :> 3 @@ c5 :> 4)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 2],
+              [b |-> "A", k |-> "P", o |-> 2] } ] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "D">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, TRUE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 2 @@ c2 :> 2 @@ c3 :> 2 @@ c4 :> 2 @@ c5 :> 2)
+
+State 56: <Vote(c1,"A2") line 268, col 3 to line 271, col 39 of module RaiRecover>
+/\ cur = (c1 :> 3 @@ c2 :> 4 @@ c3 :> 4 @@ c4 :> 3 @@ c5 :> 4)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 2],
+              [b |-> "A", k |-> "P", o |-> 2] } ] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "D">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, TRUE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 2 @@ c2 :> 2 @@ c3 :> 2 @@ c4 :> 2 @@ c5 :> 2)
+
+State 57: <Leave(c1) line 280, col 3 to line 282, col 42 of module RaiRecover>
+/\ cur = (c1 :> 4 @@ c2 :> 4 @@ c3 :> 4 @@ c4 :> 3 @@ c5 :> 4)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 2],
+              [b |-> "A", k |-> "P", o |-> 2] } ] @@
+  3 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "D">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, TRUE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 2 @@ c2 :> 2 @@ c3 :> 2 @@ c4 :> 2 @@ c5 :> 2)
+
+State 58: <Close(3) line 403, col 3 to line 408, col 40 of module RaiRecover>
+/\ cur = (c1 :> 4 @@ c2 :> 4 @@ c3 :> 4 @@ c4 :> 3 @@ c5 :> 4)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 2],
+              [b |-> "A", k |-> "P", o |-> 2] } ] @@
+  3 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 3],
+              [b |-> "A", k |-> "P", o |-> 3] } ] )
+/\ fn = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "D">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, TRUE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 2 @@ c2 :> 2 @@ c3 :> 2 @@ c4 :> 2 @@ c5 :> 2)
+
+State 59: <Catch(c1) line 285, col 3 to line 287, col 41 of module RaiRecover>
+/\ cur = (c1 :> 4 @@ c2 :> 4 @@ c3 :> 4 @@ c4 :> 3 @@ c5 :> 4)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 2],
+              [b |-> "A", k |-> "P", o |-> 2] } ] @@
+  3 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 3],
+              [b |-> "A", k |-> "P", o |-> 3] } ] )
+/\ fn = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "D">> ),
+   ( c1 :> <<"-", "-">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, TRUE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 3 @@ c2 :> 2 @@ c3 :> 2 @@ c4 :> 2 @@ c5 :> 2)
+
+State 60: <Vote(c1,"D") line 268, col 3 to line 271, col 39 of module RaiRecover>
+/\ cur = (c1 :> 4 @@ c2 :> 4 @@ c3 :> 4 @@ c4 :> 3 @@ c5 :> 4)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 2],
+              [b |-> "A", k |-> "P", o |-> 2] } ] @@
+  3 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 3],
+              [b |-> "A", k |-> "P", o |-> 3] } ] )
+/\ fn = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "D">> ),
+   ( c1 :> <<"-", "D">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, TRUE>> ),
+   ( c1 :> <<FALSE, TRUE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 3 @@ c2 :> 2 @@ c3 :> 2 @@ c4 :> 2 @@ c5 :> 2)
+
+State 61: <Vote(c1,"A") line 268, col 3 to line 271, col 39 of module RaiRecover>
+/\ cur = (c1 :> 4 @@ c2 :> 4 @@ c3 :> 4 @@ c4 :> 3 @@ c5 :> 4)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 2],
+              [b |-> "A", k |-> "P", o |-> 2] } ] @@
+  3 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 3],
+              [b |-> "A", k |-> "P", o |-> 3] } ] )
+/\ fn = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "D">> ),
+   ( c1 :> <<"A", "D">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, TRUE>> ),
+   ( c1 :> <<TRUE, TRUE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 3 @@ c2 :> 2 @@ c3 :> 2 @@ c4 :> 2 @@ c5 :> 2)
+
+State 62: <Catch(c2) line 285, col 3 to line 287, col 41 of module RaiRecover>
+/\ cur = (c1 :> 4 @@ c2 :> 4 @@ c3 :> 4 @@ c4 :> 3 @@ c5 :> 4)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 2],
+              [b |-> "A", k |-> "P", o |-> 2] } ] @@
+  3 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 3],
+              [b |-> "A", k |-> "P", o |-> 3] } ] )
+/\ fn = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "D">> ),
+   ( c1 :> <<"A", "D">> @@
+     c2 :> <<"-", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, TRUE>> ),
+   ( c1 :> <<TRUE, TRUE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 3 @@ c2 :> 3 @@ c3 :> 2 @@ c4 :> 2 @@ c5 :> 2)
+
+State 63: <Vote(c2,"A2") line 268, col 3 to line 271, col 39 of module RaiRecover>
+/\ cur = (c1 :> 4 @@ c2 :> 4 @@ c3 :> 4 @@ c4 :> 3 @@ c5 :> 4)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 2],
+              [b |-> "A", k |-> "P", o |-> 2] } ] @@
+  3 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 3],
+              [b |-> "A", k |-> "P", o |-> 3] } ] )
+/\ fn = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "D">> ),
+   ( c1 :> <<"A", "D">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, TRUE>> ),
+   ( c1 :> <<TRUE, TRUE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 3 @@ c2 :> 3 @@ c3 :> 2 @@ c4 :> 2 @@ c5 :> 2)
+
+State 64: <Vote(c4,"D") line 268, col 3 to line 271, col 39 of module RaiRecover>
+/\ cur = (c1 :> 4 @@ c2 :> 4 @@ c3 :> 4 @@ c4 :> 3 @@ c5 :> 4)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 2],
+              [b |-> "A", k |-> "P", o |-> 2] } ] @@
+  3 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 3],
+              [b |-> "A", k |-> "P", o |-> 3] } ] )
+/\ fn = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "D">> ),
+   ( c1 :> <<"A", "D">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, TRUE>> ),
+   ( c1 :> <<TRUE, TRUE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 3 @@ c2 :> 3 @@ c3 :> 2 @@ c4 :> 2 @@ c5 :> 2)
+
+State 65: <Ahead(c4) line 291, col 3 to line 294, col 36 of module RaiRecover>
+/\ cur = (c1 :> 4 @@ c2 :> 4 @@ c3 :> 4 @@ c4 :> 4 @@ c5 :> 4)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 2],
+              [b |-> "A", k |-> "P", o |-> 2] } ] @@
+  3 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 3],
+              [b |-> "A", k |-> "P", o |-> 3] } ] )
+/\ fn = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "D">> ),
+   ( c1 :> <<"A", "D">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, TRUE>> ),
+   ( c1 :> <<TRUE, TRUE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 3 @@ c2 :> 3 @@ c3 :> 2 @@ c4 :> 3 @@ c5 :> 2)
+
+State 66: <Catch(c3) line 285, col 3 to line 287, col 41 of module RaiRecover>
+/\ cur = (c1 :> 4 @@ c2 :> 4 @@ c3 :> 4 @@ c4 :> 4 @@ c5 :> 4)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 2],
+              [b |-> "A", k |-> "P", o |-> 2] } ] @@
+  3 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 3],
+              [b |-> "A", k |-> "P", o |-> 3] } ] )
+/\ fn = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "D">> ),
+   ( c1 :> <<"A", "D">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"-", "-">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, TRUE>> ),
+   ( c1 :> <<TRUE, TRUE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 3 @@ c2 :> 3 @@ c3 :> 3 @@ c4 :> 3 @@ c5 :> 2)
+
+State 67: <Vote(c3,"D") line 268, col 3 to line 271, col 39 of module RaiRecover>
+/\ cur = (c1 :> 4 @@ c2 :> 4 @@ c3 :> 4 @@ c4 :> 4 @@ c5 :> 4)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 2],
+              [b |-> "A", k |-> "P", o |-> 2] } ] @@
+  3 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 3],
+              [b |-> "A", k |-> "P", o |-> 3] } ] )
+/\ fn = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "D">> ),
+   ( c1 :> <<"A", "D">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"-", "D">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, TRUE>> ),
+   ( c1 :> <<TRUE, TRUE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<FALSE, TRUE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 3 @@ c2 :> 3 @@ c3 :> 3 @@ c4 :> 3 @@ c5 :> 2)
+
+State 68: <Catch(c5) line 285, col 3 to line 287, col 41 of module RaiRecover>
+/\ cur = (c1 :> 4 @@ c2 :> 4 @@ c3 :> 4 @@ c4 :> 4 @@ c5 :> 4)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 2],
+              [b |-> "A", k |-> "P", o |-> 2] } ] @@
+  3 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 3],
+              [b |-> "A", k |-> "P", o |-> 3] } ] )
+/\ fn = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "D">> ),
+   ( c1 :> <<"A", "D">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"-", "D">> @@
+     c4 :> <<"-", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, TRUE>> ),
+   ( c1 :> <<TRUE, TRUE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<FALSE, TRUE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 3 @@ c2 :> 3 @@ c3 :> 3 @@ c4 :> 3 @@ c5 :> 3)
+
+State 69: <Vote(c4,"A2") line 268, col 3 to line 271, col 39 of module RaiRecover>
+/\ cur = (c1 :> 4 @@ c2 :> 4 @@ c3 :> 4 @@ c4 :> 4 @@ c5 :> 4)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 2],
+              [b |-> "A", k |-> "P", o |-> 2] } ] @@
+  3 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 3],
+              [b |-> "A", k |-> "P", o |-> 3] } ] )
+/\ fn = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "D">> ),
+   ( c1 :> <<"A", "D">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"-", "D">> @@
+     c4 :> <<"A2", "-">> @@
+     c5 :> <<"-", "-">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, TRUE>> ),
+   ( c1 :> <<TRUE, TRUE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<FALSE, TRUE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ inst = (c1 :> 3 @@ c2 :> 3 @@ c3 :> 3 @@ c4 :> 3 @@ c5 :> 3)
+
+State 70: <Vote(c5,"D") line 268, col 3 to line 271, col 39 of module RaiRecover>
+/\ cur = (c1 :> 4 @@ c2 :> 4 @@ c3 :> 4 @@ c4 :> 4 @@ c5 :> 4)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 2],
+              [b |-> "A", k |-> "P", o |-> 2] } ] @@
+  3 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 3],
+              [b |-> "A", k |-> "P", o |-> 3] } ] )
+/\ fn = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "D">> ),
+   ( c1 :> <<"A", "D">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"-", "D">> @@
+     c4 :> <<"A2", "-">> @@
+     c5 :> <<"-", "D">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, TRUE>> ),
+   ( c1 :> <<TRUE, TRUE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<FALSE, TRUE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<FALSE, TRUE>> ) >>
+/\ inst = (c1 :> 3 @@ c2 :> 3 @@ c3 :> 3 @@ c4 :> 3 @@ c5 :> 3)
+
+State 71: <FinalVote(c1,1) line 274, col 3 to line 276, col 43 of module RaiRecover>
+/\ cur = (c1 :> 4 @@ c2 :> 4 @@ c3 :> 4 @@ c4 :> 4 @@ c5 :> 4)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 2],
+              [b |-> "A", k |-> "P", o |-> 2] } ] @@
+  3 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 3],
+              [b |-> "A", k |-> "P", o |-> 3] } ] )
+/\ fn = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "D">> ),
+   ( c1 :> <<"A", "D">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"-", "D">> @@
+     c4 :> <<"A2", "-">> @@
+     c5 :> <<"-", "D">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, TRUE>> ),
+   ( c1 :> <<TRUE, TRUE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<FALSE, TRUE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<FALSE, TRUE>> ) >>
+/\ inst = (c1 :> 3 @@ c2 :> 3 @@ c3 :> 3 @@ c4 :> 3 @@ c5 :> 3)
+
+State 72: <FinalVote(c1,2) line 274, col 3 to line 276, col 43 of module RaiRecover>
+/\ cur = (c1 :> 4 @@ c2 :> 4 @@ c3 :> 4 @@ c4 :> 4 @@ c5 :> 4)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 2],
+              [b |-> "A", k |-> "P", o |-> 2] } ] @@
+  3 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 3],
+              [b |-> "A", k |-> "P", o |-> 3] } ] )
+/\ fn = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, TRUE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "D">> ),
+   ( c1 :> <<"A", "D">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"-", "D">> @@
+     c4 :> <<"A2", "-">> @@
+     c5 :> <<"-", "D">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, TRUE>> ),
+   ( c1 :> <<TRUE, TRUE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<FALSE, TRUE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<FALSE, TRUE>> ) >>
+/\ inst = (c1 :> 3 @@ c2 :> 3 @@ c3 :> 3 @@ c4 :> 3 @@ c5 :> 3)
+
+State 73: <Vote(c5,"A") line 268, col 3 to line 271, col 39 of module RaiRecover>
+/\ cur = (c1 :> 4 @@ c2 :> 4 @@ c3 :> 4 @@ c4 :> 4 @@ c5 :> 4)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 2],
+              [b |-> "A", k |-> "P", o |-> 2] } ] @@
+  3 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 3],
+              [b |-> "A", k |-> "P", o |-> 3] } ] )
+/\ fn = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, TRUE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "D">> ),
+   ( c1 :> <<"A", "D">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"-", "D">> @@
+     c4 :> <<"A2", "-">> @@
+     c5 :> <<"A", "D">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, TRUE>> ),
+   ( c1 :> <<TRUE, TRUE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<FALSE, TRUE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, TRUE>> ) >>
+/\ inst = (c1 :> 3 @@ c2 :> 3 @@ c3 :> 3 @@ c4 :> 3 @@ c5 :> 3)
+
+State 74: <FinalVote(c5,2) line 274, col 3 to line 276, col 43 of module RaiRecover>
+/\ cur = (c1 :> 4 @@ c2 :> 4 @@ c3 :> 4 @@ c4 :> 4 @@ c5 :> 4)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 2],
+              [b |-> "A", k |-> "P", o |-> 2] } ] @@
+  3 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 3],
+              [b |-> "A", k |-> "P", o |-> 3] } ] )
+/\ fn = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, TRUE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, TRUE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "D">> ),
+   ( c1 :> <<"A", "D">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"-", "D">> @@
+     c4 :> <<"A2", "-">> @@
+     c5 :> <<"A", "D">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, TRUE>> ),
+   ( c1 :> <<TRUE, TRUE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<FALSE, TRUE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, TRUE>> ) >>
+/\ inst = (c1 :> 3 @@ c2 :> 3 @@ c3 :> 3 @@ c4 :> 3 @@ c5 :> 3)
+
+State 75: <Vote(c3,"A") line 268, col 3 to line 271, col 39 of module RaiRecover>
+/\ cur = (c1 :> 4 @@ c2 :> 4 @@ c3 :> 4 @@ c4 :> 4 @@ c5 :> 4)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 2],
+              [b |-> "A", k |-> "P", o |-> 2] } ] @@
+  3 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 3],
+              [b |-> "A", k |-> "P", o |-> 3] } ] )
+/\ fn = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, TRUE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, TRUE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "D">> ),
+   ( c1 :> <<"A", "D">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A", "D">> @@
+     c4 :> <<"A2", "-">> @@
+     c5 :> <<"A", "D">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, TRUE>> ),
+   ( c1 :> <<TRUE, TRUE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, TRUE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, TRUE>> ) >>
+/\ inst = (c1 :> 3 @@ c2 :> 3 @@ c3 :> 3 @@ c4 :> 3 @@ c5 :> 3)
+
+State 76: <FinalVote(c3,1) line 274, col 3 to line 276, col 43 of module RaiRecover>
+/\ cur = (c1 :> 4 @@ c2 :> 4 @@ c3 :> 4 @@ c4 :> 4 @@ c5 :> 4)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 2],
+              [b |-> "A", k |-> "P", o |-> 2] } ] @@
+  3 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 3],
+              [b |-> "A", k |-> "P", o |-> 3] } ] )
+/\ fn = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, TRUE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, TRUE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "D">> ),
+   ( c1 :> <<"A", "D">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A", "D">> @@
+     c4 :> <<"A2", "-">> @@
+     c5 :> <<"A", "D">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, TRUE>> ),
+   ( c1 :> <<TRUE, TRUE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, TRUE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, TRUE>> ) >>
+/\ inst = (c1 :> 3 @@ c2 :> 3 @@ c3 :> 3 @@ c4 :> 3 @@ c5 :> 3)
+
+State 77: <FinalVote(c3,2) line 274, col 3 to line 276, col 43 of module RaiRecover>
+/\ cur = (c1 :> 4 @@ c2 :> 4 @@ c3 :> 4 @@ c4 :> 4 @@ c5 :> 4)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 2],
+              [b |-> "A", k |-> "P", o |-> 2] } ] @@
+  3 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 3],
+              [b |-> "A", k |-> "P", o |-> 3] } ] )
+/\ fn = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, TRUE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<TRUE, TRUE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, TRUE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "D">> ),
+   ( c1 :> <<"A", "D">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A", "D">> @@
+     c4 :> <<"A2", "-">> @@
+     c5 :> <<"A", "D">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, TRUE>> ),
+   ( c1 :> <<TRUE, TRUE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, TRUE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, TRUE>> ) >>
+/\ inst = (c1 :> 3 @@ c2 :> 3 @@ c3 :> 3 @@ c4 :> 3 @@ c5 :> 3)
+
+State 78: <FinalVote(c5,1) line 274, col 3 to line 276, col 43 of module RaiRecover>
+/\ cur = (c1 :> 4 @@ c2 :> 4 @@ c3 :> 4 @@ c4 :> 4 @@ c5 :> 4)
+/\ bf = <<{"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}, {"D", "A", "A2"}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[b |-> "A", k |-> "P", o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 2],
+              [b |-> "A", k |-> "P", o |-> 2] } ] @@
+  3 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |->
+            { [b |-> "D", k |-> "P", o |-> 3],
+              [b |-> "A", k |-> "P", o |-> 3] } ] )
+/\ fn = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, TRUE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<TRUE, TRUE>> @@
+     c4 :> <<FALSE, FALSE>> @@
+     c5 :> <<TRUE, TRUE>> ) >>
+/\ fv = << ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "-">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "-">> ),
+   ( c1 :> <<"A2", "-">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A2", "-">> @@
+     c4 :> <<"A", "D">> @@
+     c5 :> <<"A", "D">> ),
+   ( c1 :> <<"A", "D">> @@
+     c2 :> <<"A2", "-">> @@
+     c3 :> <<"A", "D">> @@
+     c4 :> <<"A2", "-">> @@
+     c5 :> <<"A", "D">> ) >>
+/\ sv = << ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, FALSE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, FALSE>> ),
+   ( c1 :> <<FALSE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, FALSE>> ),
+   ( c1 :> <<TRUE, FALSE>> @@
+     c2 :> <<FALSE, FALSE>> @@
+     c3 :> <<FALSE, FALSE>> @@
+     c4 :> <<FALSE, TRUE>> @@
+     c5 :> <<FALSE, TRUE>> ),
+   ( c1 :> <<TRUE, TRUE>> @@
+     c2 :> <<TRUE, FALSE>> @@
+     c3 :> <<TRUE, TRUE>> @@
+     c4 :> <<TRUE, FALSE>> @@
+     c5 :> <<TRUE, TRUE>> ) >>
+/\ inst = (c1 :> 3 @@ c2 :> 3 @@ c3 :> 3 @@ c4 :> 3 @@ c5 :> 3)
+
+The number of states generated: 31407
+Simulation using seed 6851315240419360877 and aril 0
+"CounterExample written: /private/tmp/claude-501/-Users-ruimorais-rsnano-node/50201086-985b-43b4-9bff-ad62837235d3/scratchpad/tlc/final/trace_Recover4_all_prev_perm_fork.json"
+Progress: 31480 states checked, 531 traces generated (trace length: mean=26, var(x)=231, sd=15)
+Finished in 11s at (2026-10-28 13:58:54)
+Trace exploration spec path: ./RaiRecover_TTrace_1793195922.tla
+real 11,54
+user 25,77
+sys 0,51

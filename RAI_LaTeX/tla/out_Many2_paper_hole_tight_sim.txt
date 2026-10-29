@@ -1,0 +1,2282 @@
+TLC2 Version 2.20 of Day Month 20?? (rev: 2cf8424)
+Running Random Simulation with seed -8352623074648646595 with 2 workers on 8 cores with 2731MB heap and 64MB offheap memory [pid: 14076] (Mac OS X 14.6.1 aarch64, Eclipse Adoptium 17.0.7 x86_64).
+Parsing file /Users/ruimorais/rsnano-node/.claude/worktrees/rai-eval-harness/RAI_LaTeX/tla/RaiRecoverManyScenarios.tla
+Parsing file /Users/ruimorais/rsnano-node/.claude/worktrees/rai-eval-harness/RAI_LaTeX/tla/RaiRecoverMany.tla
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-610983791295763636/_JsonTrace.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/_JsonTrace.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-610983791295763636/_TLCTrace.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-610983791295763636/Naturals.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-610983791295763636/FiniteSets.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-610983791295763636/Sequences.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-610983791295763636/TLC.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-610983791295763636/TLCExt.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-610983791295763636/Json.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/Json.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-610983791295763636/Integers.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module RaiRecoverMany
+Semantic processing of module Integers
+Semantic processing of module TLCExt
+Semantic processing of module Json
+Semantic processing of module _JsonTrace
+Semantic processing of module _TLCTrace
+Semantic processing of module RaiRecoverManyScenarios
+Linting of module RaiRecoverMany
+Linting of module TLCExt
+Linting of module Json
+Linting of module _JsonTrace
+Linting of module _TLCTrace
+Linting of module RaiRecoverManyScenarios
+Starting... (2026-10-29 00:35:49)
+Computed 1 initial states...
+Finished computing initial states: 1 distinct state generated at 2026-10-29 00:35:49.
+Progress: 206835 states checked, 1900 traces generated (trace length: mean=31, var(x)=65, sd=8)
+Error: Invariant NoConflict is violated.
+Error: The behavior up to this point is:
+State 1: <Init line 403, col 3 to line 409, col 33 of module RaiRecoverMany>
+/\ cur = <<1, 1, 1, 1, 1>>
+/\ bf = <<{}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ fv = << << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >> >>
+/\ sv = << << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ inst = <<0, 0, 0, 0, 0>>
+
+State 2: <Vote(2,<<1, 2>>) line 253, col 3 to line 256, col 39 of module RaiRecoverMany>
+/\ cur = <<1, 1, 1, 1, 1>>
+/\ bf = <<{}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ fv = << << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >> >>
+/\ sv = << << <<FALSE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ inst = <<0, 0, 0, 0, 0>>
+
+State 3: <Leave(4) line 265, col 3 to line 267, col 42 of module RaiRecoverMany>
+/\ cur = <<1, 1, 1, 2, 1>>
+/\ bf = <<{}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ fv = << << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >> >>
+/\ sv = << << <<FALSE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ inst = <<0, 0, 0, 0, 0>>
+
+State 4: <Leave(3) line 265, col 3 to line 267, col 42 of module RaiRecoverMany>
+/\ cur = <<1, 1, 2, 2, 1>>
+/\ bf = <<{}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ fv = << << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >> >>
+/\ sv = << << <<FALSE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ inst = <<0, 0, 0, 0, 0>>
+
+State 5: <Vote(4,<<1, 2>>) line 253, col 3 to line 256, col 39 of module RaiRecoverMany>
+/\ cur = <<1, 1, 2, 2, 1>>
+/\ bf = <<{}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ fv = << << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >> >>
+/\ sv = << << <<FALSE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ inst = <<0, 0, 0, 0, 0>>
+
+State 6: <Leave(2) line 265, col 3 to line 267, col 42 of module RaiRecoverMany>
+/\ cur = <<1, 2, 2, 2, 1>>
+/\ bf = <<{}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ fv = << << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >> >>
+/\ sv = << << <<FALSE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ inst = <<0, 0, 0, 0, 0>>
+
+State 7: <Vote(2,<<1, 2>>) line 253, col 3 to line 256, col 39 of module RaiRecoverMany>
+/\ cur = <<1, 2, 2, 2, 1>>
+/\ bf = <<{}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ fv = << << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >> >>
+/\ sv = << << <<FALSE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ inst = <<0, 0, 0, 0, 0>>
+
+State 8: <Vote(1,<<1, 1>>) line 253, col 3 to line 256, col 39 of module RaiRecoverMany>
+/\ cur = <<1, 2, 2, 2, 1>>
+/\ bf = <<{}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ fv = << << <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >> >>
+/\ sv = << << <<TRUE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ inst = <<0, 0, 0, 0, 0>>
+
+State 9: <Leave(5) line 265, col 3 to line 267, col 42 of module RaiRecoverMany>
+/\ cur = <<1, 2, 2, 2, 2>>
+/\ bf = <<{}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ fv = << << <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >> >>
+/\ sv = << << <<TRUE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ inst = <<0, 0, 0, 0, 0>>
+
+State 10: <Leave(1) line 265, col 3 to line 267, col 42 of module RaiRecoverMany>
+/\ cur = <<2, 2, 2, 2, 2>>
+/\ bf = <<{}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ fv = << << <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >> >>
+/\ sv = << << <<TRUE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ inst = <<0, 0, 0, 0, 0>>
+
+State 11: <Vote(3,<<1, 1>>) line 253, col 3 to line 256, col 39 of module RaiRecoverMany>
+/\ cur = <<2, 2, 2, 2, 2>>
+/\ bf = <<{}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ fv = << << <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >> >>
+/\ sv = << << <<TRUE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ inst = <<0, 0, 0, 0, 0>>
+
+State 12: <Vote(5,<<1, 1>>) line 253, col 3 to line 256, col 39 of module RaiRecoverMany>
+/\ cur = <<2, 2, 2, 2, 2>>
+/\ bf = <<{}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ fv = << << <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<1, 1>>, <<0, 0>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >> >>
+/\ sv = << << <<TRUE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ inst = <<0, 0, 0, 0, 0>>
+
+State 13: <Close(1) line 387, col 3 to line 392, col 40 of module RaiRecoverMany>
+/\ cur = <<2, 2, 2, 2, 2>>
+/\ bf = <<{}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[k |-> "P", b |-> <<1, 2>>, o |-> 1]} ] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ fv = << << <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<1, 1>>, <<0, 0>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >> >>
+/\ sv = << << <<TRUE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ inst = <<0, 0, 0, 0, 0>>
+
+State 14: <Catch(3) line 270, col 3 to line 272, col 41 of module RaiRecoverMany>
+/\ cur = <<2, 2, 2, 2, 2>>
+/\ bf = <<{}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[k |-> "P", b |-> <<1, 2>>, o |-> 1]} ] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ fv = << << <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<1, 1>>, <<0, 0>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >> >>
+/\ sv = << << <<TRUE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ inst = <<0, 0, 1, 0, 0>>
+
+State 15: <Catch(1) line 270, col 3 to line 272, col 41 of module RaiRecoverMany>
+/\ cur = <<2, 2, 2, 2, 2>>
+/\ bf = <<{}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[k |-> "P", b |-> <<1, 2>>, o |-> 1]} ] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ fv = << << <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<1, 1>>, <<0, 0>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >> >>
+/\ sv = << << <<TRUE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ inst = <<1, 0, 1, 0, 0>>
+
+State 16: <Catch(5) line 270, col 3 to line 272, col 41 of module RaiRecoverMany>
+/\ cur = <<2, 2, 2, 2, 2>>
+/\ bf = <<{}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[k |-> "P", b |-> <<1, 2>>, o |-> 1]} ] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ fv = << << <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<1, 1>>, <<0, 0>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >> >>
+/\ sv = << << <<TRUE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ inst = <<1, 0, 1, 0, 1>>
+
+State 17: <Vote(1,<<1, 2>>) line 253, col 3 to line 256, col 39 of module RaiRecoverMany>
+/\ cur = <<2, 2, 2, 2, 2>>
+/\ bf = <<{}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[k |-> "P", b |-> <<1, 2>>, o |-> 1]} ] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ fv = << << <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<1, 2>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<1, 1>>, <<0, 0>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >> >>
+/\ sv = << << <<TRUE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ inst = <<1, 0, 1, 0, 1>>
+
+State 18: <Vote(1,<<2, 2>>) line 253, col 3 to line 256, col 39 of module RaiRecoverMany>
+/\ cur = <<2, 2, 2, 2, 2>>
+/\ bf = <<{}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[k |-> "P", b |-> <<1, 2>>, o |-> 1]} ] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ fv = << << <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<1, 1>>, <<0, 0>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >> >>
+/\ sv = << << <<TRUE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<TRUE, TRUE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ inst = <<1, 0, 1, 0, 1>>
+
+State 19: <FinalVote(1,1) line 259, col 3 to line 261, col 43 of module RaiRecoverMany>
+/\ cur = <<2, 2, 2, 2, 2>>
+/\ bf = <<{}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[k |-> "P", b |-> <<1, 2>>, o |-> 1]} ] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ fv = << << <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<1, 1>>, <<0, 0>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >> >>
+/\ sv = << << <<TRUE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<TRUE, TRUE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ inst = <<1, 0, 1, 0, 1>>
+
+State 20: <Catch(4) line 270, col 3 to line 272, col 41 of module RaiRecoverMany>
+/\ cur = <<2, 2, 2, 2, 2>>
+/\ bf = <<{}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[k |-> "P", b |-> <<1, 2>>, o |-> 1]} ] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ fv = << << <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<1, 1>>, <<0, 0>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >> >>
+/\ sv = << << <<TRUE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<TRUE, TRUE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ inst = <<1, 0, 1, 1, 1>>
+
+State 21: <Vote(5,<<2, 2>>) line 253, col 3 to line 256, col 39 of module RaiRecoverMany>
+/\ cur = <<2, 2, 2, 2, 2>>
+/\ bf = <<{}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[k |-> "P", b |-> <<1, 2>>, o |-> 1]} ] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ fv = << << <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<1, 1>>, <<2, 2>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >> >>
+/\ sv = << << <<TRUE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<TRUE, TRUE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, TRUE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ inst = <<1, 0, 1, 1, 1>>
+
+State 22: <Vote(4,<<2, 2>>) line 253, col 3 to line 256, col 39 of module RaiRecoverMany>
+/\ cur = <<2, 2, 2, 2, 2>>
+/\ bf = <<{}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[k |-> "P", b |-> <<1, 2>>, o |-> 1]} ] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ fv = << << <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 1>>, <<2, 2>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >> >>
+/\ sv = << << <<TRUE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<TRUE, TRUE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, TRUE>>,
+      <<FALSE, TRUE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ inst = <<1, 0, 1, 1, 1>>
+
+State 23: <FinalVote(1,2) line 259, col 3 to line 261, col 43 of module RaiRecoverMany>
+/\ cur = <<2, 2, 2, 2, 2>>
+/\ bf = <<{}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[k |-> "P", b |-> <<1, 2>>, o |-> 1]} ] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<TRUE, TRUE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ fv = << << <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 1>>, <<2, 2>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >> >>
+/\ sv = << << <<TRUE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<TRUE, TRUE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, TRUE>>,
+      <<FALSE, TRUE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ inst = <<1, 0, 1, 1, 1>>
+
+State 24: <Leave(5) line 265, col 3 to line 267, col 42 of module RaiRecoverMany>
+/\ cur = <<2, 2, 2, 2, 3>>
+/\ bf = <<{}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[k |-> "P", b |-> <<1, 2>>, o |-> 1]} ] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<TRUE, TRUE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ fv = << << <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 1>>, <<2, 2>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >> >>
+/\ sv = << << <<TRUE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<TRUE, TRUE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, TRUE>>,
+      <<FALSE, TRUE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ inst = <<1, 0, 1, 1, 1>>
+
+State 25: <Leave(4) line 265, col 3 to line 267, col 42 of module RaiRecoverMany>
+/\ cur = <<2, 2, 2, 3, 3>>
+/\ bf = <<{}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[k |-> "P", b |-> <<1, 2>>, o |-> 1]} ] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<TRUE, TRUE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ fv = << << <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 1>>, <<2, 2>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >> >>
+/\ sv = << << <<TRUE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<TRUE, TRUE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, TRUE>>,
+      <<FALSE, TRUE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ inst = <<1, 0, 1, 1, 1>>
+
+State 26: <Leave(3) line 265, col 3 to line 267, col 42 of module RaiRecoverMany>
+/\ cur = <<2, 2, 3, 3, 3>>
+/\ bf = <<{}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[k |-> "P", b |-> <<1, 2>>, o |-> 1]} ] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<TRUE, TRUE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ fv = << << <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 1>>, <<2, 2>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >> >>
+/\ sv = << << <<TRUE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<TRUE, TRUE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, TRUE>>,
+      <<FALSE, TRUE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ inst = <<1, 0, 1, 1, 1>>
+
+State 27: <Catch(2) line 270, col 3 to line 272, col 41 of module RaiRecoverMany>
+/\ cur = <<2, 2, 3, 3, 3>>
+/\ bf = <<{}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[k |-> "P", b |-> <<1, 2>>, o |-> 1]} ] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<TRUE, TRUE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ fv = << << <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 1>>, <<2, 2>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >> >>
+/\ sv = << << <<TRUE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<TRUE, TRUE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, TRUE>>,
+      <<FALSE, TRUE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ inst = <<1, 1, 1, 1, 1>>
+
+State 28: <Vote(2,<<2, 2>>) line 253, col 3 to line 256, col 39 of module RaiRecoverMany>
+/\ cur = <<2, 2, 3, 3, 3>>
+/\ bf = <<{}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[k |-> "P", b |-> <<1, 2>>, o |-> 1]} ] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<TRUE, TRUE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ fv = << << <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 1>>, <<2, 2>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >> >>
+/\ sv = << << <<TRUE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<TRUE, TRUE>>,
+      <<FALSE, TRUE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, TRUE>>,
+      <<FALSE, TRUE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ inst = <<1, 1, 1, 1, 1>>
+
+State 29: <Leave(2) line 265, col 3 to line 267, col 42 of module RaiRecoverMany>
+/\ cur = <<2, 3, 3, 3, 3>>
+/\ bf = <<{}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[k |-> "P", b |-> <<1, 2>>, o |-> 1]} ] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ fn = << << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<TRUE, TRUE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ fv = << << <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 1>>, <<2, 2>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >> >>
+/\ sv = << << <<TRUE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<TRUE, TRUE>>,
+      <<FALSE, TRUE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, TRUE>>,
+      <<FALSE, TRUE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ inst = <<1, 1, 1, 1, 1>>
+
+State 30: <Close(2) line 387, col 3 to line 392, col 40 of module RaiRecoverMany>
+/\ cur = <<2, 3, 3, 3, 3>>
+/\ bf = <<{}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[k |-> "P", b |-> <<1, 2>>, o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[k |-> "R", b |-> <<1, 1>>, o |-> 2]} ] )
+/\ fn = << << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<TRUE, TRUE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ fv = << << <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 1>>, <<2, 2>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >> >>
+/\ sv = << << <<TRUE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<TRUE, TRUE>>,
+      <<FALSE, TRUE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, TRUE>>,
+      <<FALSE, TRUE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ inst = <<1, 1, 1, 1, 1>>
+
+State 31: <Leave(1) line 265, col 3 to line 267, col 42 of module RaiRecoverMany>
+/\ cur = <<3, 3, 3, 3, 3>>
+/\ bf = <<{}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[k |-> "P", b |-> <<1, 2>>, o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[k |-> "R", b |-> <<1, 1>>, o |-> 2]} ] )
+/\ fn = << << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<TRUE, TRUE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ fv = << << <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 1>>, <<2, 2>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >> >>
+/\ sv = << << <<TRUE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<TRUE, TRUE>>,
+      <<FALSE, TRUE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, TRUE>>,
+      <<FALSE, TRUE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ inst = <<1, 1, 1, 1, 1>>
+
+State 32: <Catch(1) line 270, col 3 to line 272, col 41 of module RaiRecoverMany>
+/\ cur = <<3, 3, 3, 3, 3>>
+/\ bf = <<{}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[k |-> "P", b |-> <<1, 2>>, o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[k |-> "R", b |-> <<1, 1>>, o |-> 2]} ] )
+/\ fn = << << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<TRUE, TRUE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ fv = << << <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 1>>, <<2, 2>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >> >>
+/\ sv = << << <<TRUE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<TRUE, TRUE>>,
+      <<FALSE, TRUE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, TRUE>>,
+      <<FALSE, TRUE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ inst = <<2, 1, 1, 1, 1>>
+
+State 33: <Catch(2) line 270, col 3 to line 272, col 41 of module RaiRecoverMany>
+/\ cur = <<3, 3, 3, 3, 3>>
+/\ bf = <<{}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[k |-> "P", b |-> <<1, 2>>, o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[k |-> "R", b |-> <<1, 1>>, o |-> 2]} ] )
+/\ fn = << << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<TRUE, TRUE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ fv = << << <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 1>>, <<2, 2>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >> >>
+/\ sv = << << <<TRUE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<TRUE, TRUE>>,
+      <<FALSE, TRUE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, TRUE>>,
+      <<FALSE, TRUE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ inst = <<2, 2, 1, 1, 1>>
+
+State 34: <Catch(4) line 270, col 3 to line 272, col 41 of module RaiRecoverMany>
+/\ cur = <<3, 3, 3, 3, 3>>
+/\ bf = <<{}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[k |-> "P", b |-> <<1, 2>>, o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[k |-> "R", b |-> <<1, 1>>, o |-> 2]} ] )
+/\ fn = << << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<TRUE, TRUE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ fv = << << <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 1>>, <<2, 2>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >> >>
+/\ sv = << << <<TRUE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<TRUE, TRUE>>,
+      <<FALSE, TRUE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, TRUE>>,
+      <<FALSE, TRUE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ inst = <<2, 2, 1, 2, 1>>
+
+State 35: <Vote(2,<<1, 1>>) line 253, col 3 to line 256, col 39 of module RaiRecoverMany>
+/\ cur = <<3, 3, 3, 3, 3>>
+/\ bf = <<{}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[k |-> "P", b |-> <<1, 2>>, o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[k |-> "R", b |-> <<1, 1>>, o |-> 2]} ] )
+/\ fn = << << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<TRUE, TRUE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ fv = << << <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 1>>, <<2, 2>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<1, 1>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >> >>
+/\ sv = << << <<TRUE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<TRUE, TRUE>>,
+      <<FALSE, TRUE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, TRUE>>,
+      <<FALSE, TRUE>> >>,
+   << <<FALSE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ inst = <<2, 2, 1, 2, 1>>
+
+State 36: <Catch(5) line 270, col 3 to line 272, col 41 of module RaiRecoverMany>
+/\ cur = <<3, 3, 3, 3, 3>>
+/\ bf = <<{}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[k |-> "P", b |-> <<1, 2>>, o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[k |-> "R", b |-> <<1, 1>>, o |-> 2]} ] )
+/\ fn = << << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<TRUE, TRUE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ fv = << << <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 1>>, <<2, 2>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<1, 1>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >> >>
+/\ sv = << << <<TRUE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<TRUE, TRUE>>,
+      <<FALSE, TRUE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, TRUE>>,
+      <<FALSE, TRUE>> >>,
+   << <<FALSE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ inst = <<2, 2, 1, 2, 2>>
+
+State 37: <Catch(3) line 270, col 3 to line 272, col 41 of module RaiRecoverMany>
+/\ cur = <<3, 3, 3, 3, 3>>
+/\ bf = <<{}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[k |-> "P", b |-> <<1, 2>>, o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[k |-> "R", b |-> <<1, 1>>, o |-> 2]} ] )
+/\ fn = << << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<TRUE, TRUE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ fv = << << <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 1>>, <<2, 2>>>> >>,
+   << <<<<0, 0>>, <<0, 0>>>>,
+      <<<<1, 1>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >> >>
+/\ sv = << << <<TRUE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<TRUE, TRUE>>,
+      <<FALSE, TRUE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, TRUE>>,
+      <<FALSE, TRUE>> >>,
+   << <<FALSE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ inst = <<2, 2, 2, 2, 2>>
+
+State 38: <Vote(1,<<1, 1>>) line 253, col 3 to line 256, col 39 of module RaiRecoverMany>
+/\ cur = <<3, 3, 3, 3, 3>>
+/\ bf = <<{}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[k |-> "P", b |-> <<1, 2>>, o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[k |-> "R", b |-> <<1, 1>>, o |-> 2]} ] )
+/\ fn = << << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<TRUE, TRUE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ fv = << << <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 1>>, <<2, 2>>>> >>,
+   << <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 1>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >> >>
+/\ sv = << << <<TRUE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<TRUE, TRUE>>,
+      <<FALSE, TRUE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, TRUE>>,
+      <<FALSE, TRUE>> >>,
+   << <<TRUE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ inst = <<2, 2, 2, 2, 2>>
+
+State 39: <Vote(3,<<1, 1>>) line 253, col 3 to line 256, col 39 of module RaiRecoverMany>
+/\ cur = <<3, 3, 3, 3, 3>>
+/\ bf = <<{}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[k |-> "P", b |-> <<1, 2>>, o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[k |-> "R", b |-> <<1, 1>>, o |-> 2]} ] )
+/\ fn = << << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<TRUE, TRUE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ fv = << << <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 1>>, <<2, 2>>>> >>,
+   << <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 1>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >> >>
+/\ sv = << << <<TRUE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<TRUE, TRUE>>,
+      <<FALSE, TRUE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, TRUE>>,
+      <<FALSE, TRUE>> >>,
+   << <<TRUE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ inst = <<2, 2, 2, 2, 2>>
+
+State 40: <Vote(4,<<1, 1>>) line 253, col 3 to line 256, col 39 of module RaiRecoverMany>
+/\ cur = <<3, 3, 3, 3, 3>>
+/\ bf = <<{}, {}, {}>>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[k |-> "P", b |-> <<1, 2>>, o |-> 1]} ] @@
+  2 :>
+      [ done |-> TRUE,
+        fin |-> {},
+        locks |-> {[k |-> "R", b |-> <<1, 1>>, o |-> 2]} ] )
+/\ fn = << << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<TRUE, TRUE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ fv = << << <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >>,
+   << <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 2>>, <<2, 2>>>>,
+      <<<<1, 1>>, <<2, 2>>>> >>,
+   << <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 1>>, <<0, 0>>>>,
+      <<<<1, 1>>, <<0, 0>>>>,
+      <<<<0, 0>>, <<0, 0>>>> >> >>
+/\ sv = << << <<TRUE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, FALSE>> >>,
+   << <<TRUE, TRUE>>,
+      <<FALSE, TRUE>>,
+      <<FALSE, FALSE>>,
+      <<FALSE, TRUE>>,
+      <<FALSE, TRUE>> >>,
+   << <<TRUE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<TRUE, FALSE>>,
+      <<FALSE, FALSE>> >> >>
+/\ inst = <<2, 2, 2, 2, 2>>
+
+The number of states generated: 234957
+Simulation using seed -8352623074648646595 and aril 0
+"CounterExample written: /private/tmp/claude-501/-Users-ruimorais-rsnano-node/50201086-985b-43b4-9bff-ad62837235d3/scratchpad/tlc/hole/trace_Many2_paper_hole_tight.json"
+Progress: 235001 states checked, 2160 traces generated (trace length: mean=31, var(x)=65, sd=8)
+Finished in 01min 09s at (2026-10-29 00:36:58)
+Trace exploration spec path: ./RaiRecoverManyScenarios_TTrace_1793234148.tla
+real 69,50
+user 111,16
+sys 0,99
