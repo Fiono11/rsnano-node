@@ -9,7 +9,7 @@ Two sets of $q$ supporters share a correct validator, and a correct validator su
 A child is first-voted only on a parent that is final, under a notarization lock, or notarized in the child's epoch, never on one kept by a recovery lock alone. So two conflicting blocks final in epoch $e$, even only as ancestors, meet at one position where Lemma~1 or the lock excludes one.
 
 \para{Reports expose votes (Lemma~4).}
-A correct reporter's frozen report tags a block it final-voted as notarized or final, and lists every other block it first-voted in the second set, whatever the block inherited from the previous checkpoint. Late supports are never in a report. This is why the second set must list fresh votes for blocks the predecessor already kept (Fix~B in Section~\ref{sec:mc}): the earlier definition removed them, and a fresh vote vanished.
+A correct reporter's frozen report tags a block it final-voted as notarized or final, and lists every other block it first-voted in the second set, whatever the block inherited from the previous checkpoint. Late supports are never in a report. This is why the second set must list fresh votes for blocks the predecessor already kept: without them a fresh vote vanishes (Section~\ref{sec:mc}).
 
 \begin{theorem}[Closure preserves latent and late finality]
 \label{thm:closure}
@@ -22,7 +22,7 @@ If an epoch-$e$ final certificate for $B$ can be formed from released votes, eve
 \label{lem:verdict}
 A validator that finalizes $B$ under the overlap rule before installing $S_e$ accepts $B$ if and only if it would accept $B$ by re-checking after installing $S_e$; and a later checkpoint verifies a report that claims $B$ final.
 \end{lemma}
-\emph{Why.} The overlap rule asks for exactly the evidence that re-checking consults: the epoch-$e$ witness for $B$ rules out a final or notarized rival in $S_e$ and releases any origin-$e$ lock on a rival; the matching-origin witnesses release any older lock; and $S_{e-1}$ was already installed when the overlap began. Without matching-origin release (the second earlier rule) two correct validators reached different verdicts on the same evidence depending on arrival order.
+\emph{Why.} The overlap rule asks for exactly the evidence that re-checking consults: the epoch-$e$ witness for $B$ rules out a final or notarized rival in $S_e$ and releases any origin-$e$ lock on a rival; the matching-origin witnesses release any older lock; and $S_{e-1}$ was already installed when the overlap began. Without matching-origin release two correct validators can reach different verdicts on the same evidence, depending on arrival order (Section~\ref{sec:mc}).
 
 \begin{theorem}[Transfer safety across epochs]
 \label{thm:safety}
