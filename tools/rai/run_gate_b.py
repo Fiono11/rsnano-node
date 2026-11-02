@@ -218,7 +218,16 @@ def restart_events(text):
     return events
 
 
+def interrupt(signum, frame):
+    raise KeyboardInterrupt
+
+
 def main():
+    # A run started in the background of a non-interactive shell inherits
+    # SIGINT ignored; restore it, and treat SIGTERM alike, so that ending a run
+    # still runs the finally block: the record, the node logs, remote cleanup
+    signal.signal(signal.SIGINT, interrupt)
+    signal.signal(signal.SIGTERM, interrupt)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('output', type=Path)
     parser.add_argument('--bin-dir', type=Path, default=Path('target/release'))
