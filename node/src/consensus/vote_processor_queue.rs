@@ -31,6 +31,7 @@ impl VoteProcessorQueue {
             data: Mutex::new(VoteProcessorQueueData {
                 stopped: false,
                 close_lane: VecDeque::new(),
+                own_lane: VecDeque::new(),
                 rep_tiers: Default::default(),
                 queue: FairQueue::new(
                     move |(tier, channel)| {
@@ -82,14 +83,50 @@ impl VoteProcessorQueue {
     /// have closed the epoch.
     const CLOSE_LANE_MAX: usize = 4096;
 
+    /// RAI: the bound of the lane for this node's own votes. A signed vote
+    /// this node drops before recording it is held nowhere once the network
+    /// dropped its copies too, yet the node's report lists it: no evidence
+    /// request can bring it back, and the report stays unusable. The lane
+    /// holds what the generators sign, so the bound only caps a processor
+    /// that has stopped draining.
+    const OWN_LANE_MAX: usize = 1 << 20;
+
     pub fn len(&self) -> usize {
         let guard = self.data.lock().unwrap();
-        guard.queue.len() + guard.close_lane.len()
+        guard.queue.len() + guard.close_lane.len() + guard.own_lane.len()
     }
 
     pub fn is_empty(&self) -> bool {
         let guard = self.data.lock().unwrap();
-        guard.queue.is_empty() && guard.close_lane.is_empty()
+        guard.queue.is_empty() && guard.close_lane.is_empty() && guard.own_lane.is_empty()
+    }
+
+    /// RAI: queues a vote this node just signed, past a full fair queue,
+    /// whose loopback lane the vote cache's replays share. @returns true if
+    /// the vote was queued
+    pub fn enqueue_own(&self, vote: Arc<Vote>) -> bool {
+        let added = {
+            let mut guard = self.data.lock().unwrap();
+            if guard.own_lane.len() < Self::OWN_LANE_MAX {
+                let tier = guard.rep_tiers.tier(&vote.voter);
+                guard.own_lane.push_back((
+                    (tier, ChannelId::LOOPBACK),
+                    (vote, VoteDelivery::Direct, None, None),
+                ));
+                true
+            } else {
+                false
+            }
+        };
+        if added {
+            self.stats.inc(StatType::VoteProcessor, DetailType::Process);
+            self.condition.notify_one();
+        } else {
+            self.stats
+                .inc(StatType::VoteProcessor, DetailType::Overfill);
+            crate::utils::diagnostic!("VOTE_OWN_LANE_FULL max={}", Self::OWN_LANE_MAX);
+        }
+        added
     }
 
     /// Queue vote for processing. @returns true if the vote was queued
@@ -152,9 +189,12 @@ impl VoteProcessorQueue {
                 return VecDeque::new();
             }
 
-            if !guard.close_lane.is_empty() || !guard.queue.is_empty() {
+            if !guard.close_lane.is_empty() || !guard.own_lane.is_empty() || !guard.queue.is_empty()
+            {
                 let first = max_batch_size.min(guard.close_lane.len());
                 let mut batch: VecDeque<QueuedVote> = guard.close_lane.drain(..first).collect();
+                let own = (max_batch_size - batch.len()).min(guard.own_lane.len());
+                batch.extend(guard.own_lane.drain(..own));
                 if batch.len() < max_batch_size {
                     let rest = max_batch_size - batch.len();
                     batch.extend(guard.queue.next_batch(rest));
@@ -171,6 +211,7 @@ impl VoteProcessorQueue {
             let mut guard = self.data.lock().unwrap();
             guard.queue.clear();
             guard.close_lane.clear();
+            guard.own_lane.clear();
         }
         self.condition.notify_all();
     }
@@ -243,6 +284,9 @@ struct VoteProcessorQueueData {
     /// RAI: the votes of the epoch close elections, taken past a full fair
     /// queue and drained before it (see `CLOSE_LANE_MAX`)
     close_lane: VecDeque<QueuedVote>,
+    /// RAI: this node's own votes, taken past a full fair queue and drained
+    /// after the close lane (see `OWN_LANE_MAX`)
+    own_lane: VecDeque<QueuedVote>,
     queue: FairQueue<
         (RepTier, ChannelId),
         (
@@ -288,5 +332,34 @@ mod tests {
         assert_eq!(batch.len(), 2);
         assert!(Arc::ptr_eq(&(batch[0].1).0, &close));
         assert!(queue.is_empty());
+    }
+
+    /// RAI: a vote this node signed is taken in when the loopback lane it
+    /// shares with the vote cache's replays is full, and comes out before
+    /// the replays
+    #[test]
+    fn own_votes_bypass_a_full_loopback_lane() {
+        let mut config = VoteProcessorConfig::new(1);
+        config.max_pr_queue = 1;
+        config.max_non_pr_queue = 1;
+        let queue = VoteProcessorQueue::new(config, Arc::new(Stats::default()));
+        let vote = |hash: u64| {
+            Arc::new(Vote::new_in_epoch(
+                &PrivateKey::from(1),
+                VoteKind::First,
+                ConsensusEpoch::ZERO,
+                vec![BlockHash::from(hash)],
+            ))
+        };
+        let mut replays = 0;
+        while queue.enqueue(vote(replays), None, VoteDelivery::Replayed, None) {
+            replays += 1;
+        }
+        let own = vote(1_000_000);
+        assert!(queue.enqueue_own(own.clone()));
+        assert_eq!(queue.len(), replays as usize + 1);
+
+        let batch = queue.wait_for_votes(1);
+        assert!(Arc::ptr_eq(&(batch[0].1).0, &own));
     }
 }

@@ -5,7 +5,7 @@ use std::{
 
 use rsnano_messages::{ConfirmAck, Message};
 use rsnano_network::TrafficType;
-use rsnano_types::{Vote, VoteDelivery};
+use rsnano_types::Vote;
 use rsnano_utils::stats::{DetailType, StatType, Stats};
 
 use super::{VoteProcessorConfig, VoteProcessorQueue};
@@ -51,8 +51,7 @@ impl VoteBroadcaster {
             StatType::VoteGenerator
         };
 
-        self.vote_processor_queue
-            .enqueue(vote, None, VoteDelivery::Direct, None);
+        self.vote_processor_queue.enqueue_own(vote);
 
         let count = self
             .message_flooder
