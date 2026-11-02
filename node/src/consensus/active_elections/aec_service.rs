@@ -661,6 +661,11 @@ impl AecService {
         self.aec.read().unwrap().evidence_votes(epoch, hashes)
     }
 
+    /// RAI, diagnostic: where this node holds a voter's votes for a block
+    pub fn vote_whereabouts(&self, voter: &PublicKey, hash: &BlockHash) -> String {
+        self.aec.read().unwrap().vote_whereabouts(voter, hash)
+    }
+
     /// RAI: whether this node holds a voter's signed vote for a block
 
     /// RAI, durable signing records: the account slots and close rounds

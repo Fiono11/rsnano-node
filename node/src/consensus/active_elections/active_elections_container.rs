@@ -4610,6 +4610,30 @@ impl ActiveElectionsContainer {
         votes
     }
 
+    /// RAI, diagnostic: the epochs in which this node holds a voter's first
+    /// or final vote for a block, and whether an election holds the block
+    pub fn vote_whereabouts(&self, voter: &PublicKey, hash: &BlockHash) -> String {
+        let marks: Vec<String> = self
+            .vote_records
+            .voter_marks(voter, hash)
+            .into_iter()
+            .map(|(epoch, first, final_, voters)| {
+                format!(
+                    "e{}:{}{}/{}",
+                    epoch,
+                    if first { "F" } else { "-" },
+                    if final_ { "L" } else { "-" },
+                    voters
+                )
+            })
+            .collect();
+        format!(
+            "voter_marks=[{}] election_here={}",
+            marks.join(","),
+            self.roots.election_for_block(hash).is_some()
+        )
+    }
+
     /// RAI: how many first and final voters this node holds for a block
     pub fn support_counts(&self, epoch: ConsensusEpoch, hash: &BlockHash) -> (usize, usize) {
         self.vote_records

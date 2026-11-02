@@ -1281,6 +1281,29 @@ impl ReportExchange {
             .collect()
     }
 
+    /// RAI: the given records of a reporter's reconstructed residual
+    /// object, for a diagnostic
+    pub fn report_residuals(
+        &self,
+        epoch: ConsensusEpoch,
+        reporter: &PublicKey,
+        hashes: &[BlockHash],
+    ) -> Vec<(CertifiedBlock, ResidualKind)> {
+        let Some(residual) = self.epochs.get(&epoch).and_then(|held| {
+            held.version_keys(reporter)
+                .first()
+                .and_then(|key| held.theirs.get(key))
+                .and_then(|their| their.residual.clone())
+        }) else {
+            return Vec::new();
+        };
+        residual
+            .entries()
+            .filter(|(block, _, _)| hashes.contains(&block.hash))
+            .map(|(block, kind, _)| (block, kind))
+            .collect()
+    }
+
     pub fn pending_epochs(&self) -> Vec<ConsensusEpoch> {
         self.epochs.keys().copied().collect()
     }

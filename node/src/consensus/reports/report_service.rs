@@ -725,6 +725,22 @@ impl ReportService {
     /// finalized one every record of the predecessor checkpoint its block
     /// bypasses, with the witness support held for the record's origin
     fn explain_missing(&self, epoch: ConsensusEpoch, reporter: &PublicKey, missing: &[BlockHash]) {
+        let residuals = {
+            let exchange = self.exchange.lock().unwrap();
+            exchange.report_residuals(epoch, reporter, &missing[..missing.len().min(2)])
+        };
+        for (block, kind) in residuals {
+            crate::utils::diagnostic!(
+                "EPOCH_RESIDUAL_WHY epoch={} reporter={} block={} kind={:?} height={} {}",
+                epoch,
+                &reporter.to_string()[..8],
+                &block.hash.to_string()[..8],
+                kind,
+                block.height,
+                self.active_elections
+                    .vote_whereabouts(reporter, &block.hash)
+            );
+        }
         let Some(previous) = self.active_elections.epoch_previous_state(epoch) else {
             return;
         };
@@ -755,8 +771,19 @@ impl ReportService {
                     )
                 })
                 .collect();
+            let placed: Vec<String> = previous
+                .placed_at(&slot)
+                .iter()
+                .map(|b| {
+                    format!(
+                        "{}<-{}",
+                        &b.hash.to_string()[..8],
+                        &b.previous.to_string()[..8]
+                    )
+                })
+                .collect();
             crate::utils::diagnostic!(
-                "EPOCH_UNJUSTIFIED_WHY epoch={} reporter={} block={} status={:?} height={} retained_here={} finalized_here={} bypassed=[{}]",
+                "EPOCH_UNJUSTIFIED_WHY epoch={} reporter={} block={} status={:?} height={} retained_here={} finalized_here={} entry_previous={} placed=[{}] kind={:?} bypassed=[{}]",
                 epoch,
                 &reporter.to_string()[..8],
                 &block.hash.to_string()[..8],
@@ -764,6 +791,9 @@ impl ReportService {
                 block.height,
                 previous.is_locked(&slot, &block.hash),
                 previous.is_finalized(&slot, &block.hash),
+                &entry.previous.to_string()[..8],
+                placed.join(","),
+                previous.retained_kind(&block.hash),
                 bypassed.join("; ")
             );
         }

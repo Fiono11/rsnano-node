@@ -573,6 +573,15 @@ impl EpochLedger {
         self.finalized.len()
     }
 
+    /// The blocks retained at one position, with the parents they were
+    /// placed on
+    pub fn placed_at(&self, slot: &AccountSlot) -> Vec<PlacedBlock> {
+        self.notarized
+            .get(slot)
+            .map(|blocks| blocks.iter().copied().collect())
+            .unwrap_or_default()
+    }
+
     /// Every retained (unresolved) block with its position, parents before
     /// children: the branches a ledger must hold to follow this checkpoint
     pub fn retained_blocks(&self) -> Vec<(AccountSlot, PlacedBlock)> {

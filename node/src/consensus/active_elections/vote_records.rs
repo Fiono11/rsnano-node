@@ -210,6 +210,27 @@ impl VoteRecords {
             .filter_map(move |(_, support)| support.get(hash))
     }
 
+    /// RAI, diagnostic: per epoch with support for a block, whether a
+    /// voter's first and final votes are held, and how many first voters
+    pub fn voter_marks(
+        &self,
+        voter: &PublicKey,
+        hash: &BlockHash,
+    ) -> Vec<(ConsensusEpoch, bool, bool, usize)> {
+        self.support
+            .iter()
+            .filter_map(|(epoch, support)| {
+                let support = support.get(hash)?;
+                Some((
+                    *epoch,
+                    support.first.contains(voter),
+                    support.final_.contains(voter),
+                    support.first.len(),
+                ))
+            })
+            .collect()
+    }
+
     /// RAI: whether this node holds a voter's signed vote of a kind for a
     /// block in an epoch
     pub fn has_vote(
