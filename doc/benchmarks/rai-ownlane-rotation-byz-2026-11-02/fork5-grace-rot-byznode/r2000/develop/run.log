@@ -1,0 +1,813 @@
+2026-10-22T09:29:06.093897Z  INFO nanospam::setup::account_map_factory: Creating account keys file with 48000 keys: "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-4zuyev9o/account_keys.txt"
+2026-10-22T09:29:06.888668Z  INFO nanospam::setup::node_config_factory: ********************************************************************************
+2026-10-22T09:29:06.888678Z  INFO nanospam::setup::node_config_factory: Setting up node PR0...
+2026-10-22T09:29:06.888682Z  INFO nanospam::setup::node_config_factory: Creating directory "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-4zuyev9o/pr0"
+2026-10-22T09:29:06.888765Z  INFO nanospam::setup::node_config_factory: Creating node config file: "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-4zuyev9o/pr0/config-node.toml"
+2026-10-22T09:29:06.888904Z  INFO nanospam::setup::node_config_factory: Creating rpc config file: "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-4zuyev9o/pr0/config-rpc.toml"
+2026-10-22T09:29:06.888973Z  INFO nanospam::setup::node_config_factory: ********************************************************************************
+2026-10-22T09:29:06.888977Z  INFO nanospam::setup::node_config_factory: Setting up node PR1...
+2026-10-22T09:29:06.888980Z  INFO nanospam::setup::node_config_factory: Creating directory "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-4zuyev9o/pr1"
+2026-10-22T09:29:06.889029Z  INFO nanospam::setup::node_config_factory: Creating node config file: "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-4zuyev9o/pr1/config-node.toml"
+2026-10-22T09:29:06.889131Z  INFO nanospam::setup::node_config_factory: Creating rpc config file: "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-4zuyev9o/pr1/config-rpc.toml"
+2026-10-22T09:29:06.889198Z  INFO nanospam::setup::node_config_factory: ********************************************************************************
+2026-10-22T09:29:06.889202Z  INFO nanospam::setup::node_config_factory: Setting up node PR2...
+2026-10-22T09:29:06.889205Z  INFO nanospam::setup::node_config_factory: Creating directory "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-4zuyev9o/pr2"
+2026-10-22T09:29:06.889248Z  INFO nanospam::setup::node_config_factory: Creating node config file: "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-4zuyev9o/pr2/config-node.toml"
+2026-10-22T09:29:06.889336Z  INFO nanospam::setup::node_config_factory: Creating rpc config file: "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-4zuyev9o/pr2/config-rpc.toml"
+2026-10-22T09:29:06.889392Z  INFO nanospam::setup::node_config_factory: ********************************************************************************
+2026-10-22T09:29:06.889396Z  INFO nanospam::setup::node_config_factory: Setting up node PR3...
+2026-10-22T09:29:06.889399Z  INFO nanospam::setup::node_config_factory: Creating directory "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-4zuyev9o/pr3"
+2026-10-22T09:29:06.889443Z  INFO nanospam::setup::node_config_factory: Creating node config file: "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-4zuyev9o/pr3/config-node.toml"
+2026-10-22T09:29:06.889547Z  INFO nanospam::setup::node_config_factory: Creating rpc config file: "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-4zuyev9o/pr3/config-rpc.toml"
+2026-10-22T09:29:06.889608Z  INFO nanospam::setup::node_config_factory: ********************************************************************************
+2026-10-22T09:29:06.889612Z  INFO nanospam::setup::node_config_factory: Setting up node PR4...
+2026-10-22T09:29:06.889615Z  INFO nanospam::setup::node_config_factory: Creating directory "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-4zuyev9o/pr4"
+2026-10-22T09:29:06.889658Z  INFO nanospam::setup::node_config_factory: Creating node config file: "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-4zuyev9o/pr4/config-node.toml"
+2026-10-22T09:29:06.889749Z  INFO nanospam::setup::node_config_factory: Creating rpc config file: "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-4zuyev9o/pr4/config-rpc.toml"
+2026-10-22T09:29:06.889813Z  INFO nanospam::setup::node_config_factory: ********************************************************************************
+2026-10-22T09:29:06.889815Z  INFO nanospam::setup::node_config_factory: Setting up node PR5...
+2026-10-22T09:29:06.889818Z  INFO nanospam::setup::node_config_factory: Creating directory "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-4zuyev9o/pr5"
+2026-10-22T09:29:06.889855Z  INFO nanospam::setup::node_config_factory: Creating node config file: "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-4zuyev9o/pr5/config-node.toml"
+2026-10-22T09:29:06.889939Z  INFO nanospam::setup::node_config_factory: Creating rpc config file: "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-4zuyev9o/pr5/config-rpc.toml"
+2026-10-22T09:29:06.890163Z  INFO nanospam::setup::node_launcher: Starting node: NANO_TEST_GENESIS_BLOCK="{\n    \"type\": \"open\",\n    \"account\": \"nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne\",\n    \"source\": \"D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532\",\n    \"representative\": \"nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne\",\n    \"signature\": \"3F6792C2DC623DF2E8643777160AB983B66B337E2478E13D2C3448126A8F4CD8DCCD19803C158A057FA44060AE0EFC09B1C311CB4FBF42F8D240610B38F56E08\",\n    \"work\": \"70FEF01F7EC45DEC\"\n    }" NANO_TEST_GENESIS_PRV ="49643F9B10CA1AA34F9AF8ED4AABD29F436104CCC375974B108534A48EAE3FE1" RSNANO_DIAG_FILE="/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-4zuyev9o/pr0/diagnostics.log" RSNANO_NODE_TAG="pr0" "rsnano" "--network" "test" "--data-path" "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-4zuyev9o/pr0" "node" "run"
+2026-10-22T09:29:06.890704Z  INFO nanospam::setup::node_launcher: Waiting for RPC...
+2026-10-22T09:29:06.993662Z  INFO nanospam::setup::node_launcher: Starting node: NANO_TEST_GENESIS_BLOCK="{\n    \"type\": \"open\",\n    \"account\": \"nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne\",\n    \"source\": \"D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532\",\n    \"representative\": \"nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne\",\n    \"signature\": \"3F6792C2DC623DF2E8643777160AB983B66B337E2478E13D2C3448126A8F4CD8DCCD19803C158A057FA44060AE0EFC09B1C311CB4FBF42F8D240610B38F56E08\",\n    \"work\": \"70FEF01F7EC45DEC\"\n    }" NANO_TEST_GENESIS_PRV ="49643F9B10CA1AA34F9AF8ED4AABD29F436104CCC375974B108534A48EAE3FE1" RSNANO_DIAG_FILE="/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-4zuyev9o/pr1/diagnostics.log" RSNANO_NODE_TAG="pr1" "rsnano" "--network" "test" "--data-path" "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-4zuyev9o/pr1" "node" "run"
+2026-10-22T09:29:06.994157Z  INFO nanospam::setup::node_launcher: Waiting for RPC...
+2026-10-22T09:29:07.098176Z  INFO nanospam::setup::node_launcher: Starting node: NANO_TEST_GENESIS_BLOCK="{\n    \"type\": \"open\",\n    \"account\": \"nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne\",\n    \"source\": \"D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532\",\n    \"representative\": \"nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne\",\n    \"signature\": \"3F6792C2DC623DF2E8643777160AB983B66B337E2478E13D2C3448126A8F4CD8DCCD19803C158A057FA44060AE0EFC09B1C311CB4FBF42F8D240610B38F56E08\",\n    \"work\": \"70FEF01F7EC45DEC\"\n    }" NANO_TEST_GENESIS_PRV ="49643F9B10CA1AA34F9AF8ED4AABD29F436104CCC375974B108534A48EAE3FE1" RSNANO_DIAG_FILE="/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-4zuyev9o/pr2/diagnostics.log" RSNANO_NODE_TAG="pr2" "rsnano" "--network" "test" "--data-path" "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-4zuyev9o/pr2" "node" "run"
+2026-10-22T09:29:07.098884Z  INFO nanospam::setup::node_launcher: Waiting for RPC...
+2026-10-22T09:29:07.203167Z  INFO nanospam::setup::node_launcher: Starting node: NANO_TEST_GENESIS_BLOCK="{\n    \"type\": \"open\",\n    \"account\": \"nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne\",\n    \"source\": \"D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532\",\n    \"representative\": \"nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne\",\n    \"signature\": \"3F6792C2DC623DF2E8643777160AB983B66B337E2478E13D2C3448126A8F4CD8DCCD19803C158A057FA44060AE0EFC09B1C311CB4FBF42F8D240610B38F56E08\",\n    \"work\": \"70FEF01F7EC45DEC\"\n    }" NANO_TEST_GENESIS_PRV ="49643F9B10CA1AA34F9AF8ED4AABD29F436104CCC375974B108534A48EAE3FE1" RSNANO_DIAG_FILE="/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-4zuyev9o/pr3/diagnostics.log" RSNANO_NODE_TAG="pr3" "/Users/ruimorais/.claude/jobs/06dfbc78/tmp/sweep/final2/bin-rotbyz/develop/rsnano-byzantine" "--network" "test" "--data-path" "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-4zuyev9o/pr3" "node" "run"
+2026-10-22T09:29:07.204968Z  INFO nanospam::setup::node_launcher: Waiting for RPC...
+2026-10-22T09:29:07.310404Z  INFO nanospam::setup::node_launcher: Starting node: NANO_TEST_GENESIS_BLOCK="{\n    \"type\": \"open\",\n    \"account\": \"nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne\",\n    \"source\": \"D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532\",\n    \"representative\": \"nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne\",\n    \"signature\": \"3F6792C2DC623DF2E8643777160AB983B66B337E2478E13D2C3448126A8F4CD8DCCD19803C158A057FA44060AE0EFC09B1C311CB4FBF42F8D240610B38F56E08\",\n    \"work\": \"70FEF01F7EC45DEC\"\n    }" NANO_TEST_GENESIS_PRV ="49643F9B10CA1AA34F9AF8ED4AABD29F436104CCC375974B108534A48EAE3FE1" RSNANO_DIAG_FILE="/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-4zuyev9o/pr4/diagnostics.log" RSNANO_NODE_TAG="pr4" "rsnano" "--network" "test" "--data-path" "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-4zuyev9o/pr4" "node" "run"
+2026-10-22T09:29:07.311057Z  INFO nanospam::setup::node_launcher: Waiting for RPC...
+2026-10-22T09:29:07.415856Z  INFO nanospam::setup::node_launcher: Starting node: NANO_TEST_GENESIS_BLOCK="{\n    \"type\": \"open\",\n    \"account\": \"nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne\",\n    \"source\": \"D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532\",\n    \"representative\": \"nano_3nroioygg54nusrmyun4woimqex36sp3drnctdt5955uqu47fxbkrxk7n7ne\",\n    \"signature\": \"3F6792C2DC623DF2E8643777160AB983B66B337E2478E13D2C3448126A8F4CD8DCCD19803C158A057FA44060AE0EFC09B1C311CB4FBF42F8D240610B38F56E08\",\n    \"work\": \"70FEF01F7EC45DEC\"\n    }" NANO_TEST_GENESIS_PRV ="49643F9B10CA1AA34F9AF8ED4AABD29F436104CCC375974B108534A48EAE3FE1" RSNANO_DIAG_FILE="/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-4zuyev9o/pr5/diagnostics.log" RSNANO_NODE_TAG="pr5" "rsnano" "--network" "test" "--data-path" "/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/rai-gate-b-4zuyev9o/pr5" "node" "run"
+2026-10-22T09:29:07.417325Z  INFO nanospam::setup::node_launcher: Waiting for RPC...
+2026-10-22T09:29:07.522175Z  INFO nanospam::wallets_factory: Creating wallet...
+2026-10-22T09:29:07.601364Z  INFO nanospam::wallets_factory: Setting default representative...
+2026-10-22T09:29:07.601776Z  INFO nanospam::wallets_factory: Creating wallet...
+2026-10-22T09:29:07.646762Z  INFO nanospam::wallets_factory: Setting default representative...
+2026-10-22T09:29:07.647061Z  INFO nanospam::wallets_factory: Sending Ӿ56,547,061 to PR1 wallet nano_3atmwjh8t11psdqf3qx6xjfiei94oajch6zsyauowxzjogbbgz168g5mp8f1 ...
+2026-10-22T09:29:07.647599Z  INFO nanospam::wallets_factory: Waiting for confirmation for 70B574FB519B8DEA27D8F4952C2E7B0378B009608D6FC967984D3C83440C9C3D
+2026-10-22T09:29:22.754818Z  INFO nanospam::wallets_factory: Receiving...
+2026-10-22T09:29:22.756962Z  INFO nanospam::wallets_factory: Waiting for confirmation for 011C6AC2721054F46B03A50885AF48083A4A685154A55D85116DBCE413673F86
+2026-10-22T09:29:22.861218Z  INFO nanospam::wallets_factory: DONE
+2026-10-22T09:29:22.861333Z  INFO nanospam::wallets_factory: ********************************************************************************
+2026-10-22T09:29:22.861428Z  INFO nanospam::wallets_factory: Creating wallet...
+2026-10-22T09:29:22.940595Z  INFO nanospam::wallets_factory: Setting default representative...
+2026-10-22T09:29:22.940971Z  INFO nanospam::wallets_factory: Sending Ӿ56,547,061 to PR2 wallet nano_36asm8scxymtsjmgqp14per3zxpgaec1c65qb9en1buscq7qzqa93tfyyzs3 ...
+2026-10-22T09:29:22.941438Z  INFO nanospam::wallets_factory: Waiting for confirmation for 76B3937072C015B69E45D5458B47CF52A54A38F8ED441B0E21561A3048243E90
+2026-10-22T09:29:38.353347Z  INFO nanospam::wallets_factory: Receiving...
+2026-10-22T09:29:38.355547Z  INFO nanospam::wallets_factory: Waiting for confirmation for 402DCF4725254BECF5C5CB5F707C169725EE114819D289F8A5477C2FFF19BDC0
+2026-10-22T09:29:38.563412Z  INFO nanospam::wallets_factory: DONE
+2026-10-22T09:29:38.563523Z  INFO nanospam::wallets_factory: ********************************************************************************
+2026-10-22T09:29:38.563543Z  INFO nanospam::wallets_factory: Creating wallet...
+2026-10-22T09:29:38.644229Z  INFO nanospam::wallets_factory: Setting default representative...
+2026-10-22T09:29:38.644662Z  INFO nanospam::wallets_factory: Sending Ӿ56,547,061 to PR3 wallet nano_1sfb11jzfi8k51fcnrzi1qe3qh1e1jkic3h45oak9yfg5yhbkczzxfwtat7m ...
+2026-10-22T09:29:38.645187Z  INFO nanospam::wallets_factory: Waiting for confirmation for FF4589BE1759B38CC94ABA0AE4FE6644845FE957C02EA9CEA669A28C8D1ADE97
+2026-10-22T09:29:53.769666Z  INFO nanospam::wallets_factory: Receiving...
+2026-10-22T09:29:53.772262Z  INFO nanospam::wallets_factory: Waiting for confirmation for 1210B877FF188F4FF352C0EDE856AA702A1D6763EFA96EA84BB10519898BE6D0
+2026-10-22T09:29:53.978401Z  INFO nanospam::wallets_factory: DONE
+2026-10-22T09:29:53.978532Z  INFO nanospam::wallets_factory: ********************************************************************************
+2026-10-22T09:29:53.978557Z  INFO nanospam::wallets_factory: Creating wallet...
+2026-10-22T09:29:54.056676Z  INFO nanospam::wallets_factory: Setting default representative...
+2026-10-22T09:29:54.057072Z  INFO nanospam::wallets_factory: Sending Ӿ7,068,382 to PR4 wallet nano_1rsxmoinip7d4wafdp855194n43fs7s1jgne6tx8ruatiu6g89815pddzijp ...
+2026-10-22T09:29:54.057549Z  INFO nanospam::wallets_factory: Waiting for confirmation for 56B3F2DEA821DDB8E027141EC19CCDA73B1548E85931D9F44921DD24937CD83F
+2026-10-22T09:29:54.263596Z  INFO nanospam::wallets_factory: Receiving...
+2026-10-22T09:29:54.266158Z  INFO nanospam::wallets_factory: Waiting for confirmation for 3076683179E5C2FAAB37ABC0A6D9DD5316AB737D99FB01D7BEA5A351006FC9B8
+2026-10-22T09:29:54.474080Z  INFO nanospam::wallets_factory: DONE
+2026-10-22T09:29:54.474131Z  INFO nanospam::wallets_factory: ********************************************************************************
+2026-10-22T09:29:54.474146Z  INFO nanospam::wallets_factory: Creating wallet...
+2026-10-22T09:29:54.549393Z  INFO nanospam::wallets_factory: Setting default representative...
+2026-10-22T09:29:54.549782Z  INFO nanospam::wallets_factory: Sending Ӿ7,068,382 to PR5 wallet nano_1wtzwadxk9naxc356m4rienp93ht131w7ypadk39qck8uah3bg3zohsmj9th ...
+2026-10-22T09:29:54.550193Z  INFO nanospam::wallets_factory: Waiting for confirmation for C8EC6512F0405EB9905580C5746050D1BC141AC68B35FFA64E5A51AE30A557E5
+2026-10-22T09:29:54.757969Z  INFO nanospam::wallets_factory: Receiving...
+2026-10-22T09:29:54.760630Z  INFO nanospam::wallets_factory: Waiting for confirmation for 725191B4E2D34F8A8B2345A56B74226E736DB5EC9E171A65356519AE26090382
+2026-10-22T09:29:55.071457Z  INFO nanospam::wallets_factory: DONE
+2026-10-22T09:29:55.071598Z  INFO nanospam::wallets_factory: ********************************************************************************
+2026-10-22T09:29:55.071630Z  INFO nanospam::wallets_factory: Sending initial spam amount...
+2026-10-22T09:29:55.073379Z  INFO nanospam::wallets_factory: Waiting for confirmation for BB04540D4D7403E76BD13A4FFA451C6691CBFB86E4572E050554A0E0E26F1AB3
+2026-10-22T09:29:55.281832Z  INFO nanospam::wallets_factory: Receiving initial spam amount...
+2026-10-22T09:29:55.283497Z  INFO nanospam::wallets_factory: Waiting for confirmation for 74D80375A2F4C751648939F619BF83E7D2234DFB06B1E3691D0EB1EFE45270F0
+2026-10-22T09:29:55.595275Z  INFO nanospam::wallets_factory: Seeding Ӿ142,857 to nano_1yoenzqx1wm1hd69azmdg75iuoakwaxj6nhrqi3417abkkhwd69y53j16ww4 for representative D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532
+2026-10-22T09:29:55.596669Z  INFO nanospam::wallets_factory: Waiting for confirmation for CB9B5C56AF4BAFD44D832D1671AB5C54BFBDF5A12F4DACEBAB63DFE9D85E40FB
+2026-10-22T09:29:55.909227Z  INFO nanospam::wallets_factory: Waiting for confirmation for B96B7BB2DBC7AE8D7C589CB87ACB0DB5552BF49E71AFA44AAC5EBB567D63DB08
+2026-10-22T09:29:56.118518Z  INFO nanospam::wallets_factory: Seeding Ӿ142,857 to nano_3buas3ck6iue6so9juwgke6tamh7o8djmrhsu8ce4ifpduthf3xabmbfcugp for representative A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04
+2026-10-22T09:29:56.119866Z  INFO nanospam::wallets_factory: Waiting for confirmation for AEBEC4B188C9BA00AFDA2C63CB60D130BDC417415D14379DDF31DDBE3569C81A
+2026-10-22T09:29:56.329709Z  INFO nanospam::wallets_factory: Waiting for confirmation for 02D2DF42F3E877EE9D18E39617813F9FEA29F5F13912B8DBE7E6586B8B154108
+2026-10-22T09:29:56.536519Z  INFO nanospam::wallets_factory: Seeding Ӿ142,857 to nano_3s8g3ejk9js4i66xodyjy64a3sdz3fzdc9zswm3fs986uxmjaqfffr3mq68u for representative 911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07
+2026-10-22T09:29:56.537780Z  INFO nanospam::wallets_factory: Waiting for confirmation for 45C9B7C6225861CE4397C9961940C7F26C4C35EFDFB2DD59AD34C436B7C88E4E
+2026-10-22T09:29:56.747974Z  INFO nanospam::wallets_factory: Waiting for confirmation for 3CEC40FCD64795EA215337623309E2AC1E07D216D5E7250AFAE2C3F263BDBDBD
+2026-10-22T09:29:57.059104Z  INFO nanospam::wallets_factory: Seeding Ӿ142,857 to nano_1dgh3jkegy7b7348i7h3gcbqrjpfafx89xdwtqznpjkw81411pk95z7hu6gm for representative 65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF
+2026-10-22T09:29:57.059766Z  INFO nanospam::wallets_factory: Waiting for confirmation for A28E04132F3C126444FB86CF7393735F2092911010ACD8F4CC25E3C5FE9CE255
+2026-10-22T09:29:57.270427Z  INFO nanospam::wallets_factory: Waiting for confirmation for 59619F5393E9A27DDDBBC63375F07C8F8091FCC30EED15CBEE95CEACE133530A
+2026-10-22T09:29:57.479666Z  INFO nanospam::wallets_factory: Seeding Ӿ142,857 to nano_3m5ci7c37d81xffwsb3cxhr4mjq4uhpuxi16utwjhkkqw3w53tjzooiuxrih for representative 633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0
+2026-10-22T09:29:57.480905Z  INFO nanospam::wallets_factory: Waiting for confirmation for 167D99639E71CCA56FD460DA8B2A977C2F31299502A10CC2E7C15094B2553062
+2026-10-22T09:29:57.691381Z  INFO nanospam::wallets_factory: Waiting for confirmation for 51FE0448E96CC6D2C5628B481CC0C962C4E33432030B51A331207D0FDBF513A8
+2026-10-22T09:29:57.901813Z  INFO nanospam::wallets_factory: Seeding Ӿ142,857 to nano_31f3qdpx8mktax4jn39tsux7sfuqe7eq91nd5gaxzximy4au64bg5wni631x for representative 735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F
+2026-10-22T09:29:57.903109Z  INFO nanospam::wallets_factory: Waiting for confirmation for 9B5CB8A55D60747D350DEBEC694D4C7AB80EF9978E5387CDEAFF35E4046E6DC8
+2026-10-22T09:29:58.112940Z  INFO nanospam::wallets_factory: Waiting for confirmation for 068DDD0813017B116B66AA63B30D4C9C17B734EB9FB7AB24419E888B0C95724A
+2026-10-22T09:29:58.321431Z  INFO nanospam::high_prio_check: Creating high priority accounts...
+2026-10-22T09:29:58.348627Z  INFO nanospam::high_prio_check: Waiting for confirmations...
+2026-10-22T09:30:30.404448Z  INFO nanospam::app: Waiting for all PRs to see the full quorum...
+2026-10-22T09:30:30.408323Z  INFO nanospam::app: All PRs see the full quorum after 3.728375ms
+2026-10-22T09:30:30.408439Z  INFO nanospam::app: Connecting to node PR0... peer_addr=[::1]:17075
+2026-10-22T09:30:30.408911Z  INFO nanospam::app: Performing handshake...
+2026-10-22T09:30:30.410015Z  INFO nanospam::app: Performing handshake...
+2026-10-22T09:30:30.420962Z  INFO nanospam::app: Performing handshake...
+2026-10-22T09:30:30.431871Z  INFO nanospam::app: Performing handshake...
+2026-10-22T09:30:30.442636Z  INFO nanospam::app: Connecting to node PR1... peer_addr=[::1]:17085
+2026-10-22T09:30:30.442885Z  INFO nanospam::app: Performing handshake...
+2026-10-22T09:30:30.443604Z  INFO nanospam::app: Performing handshake...
+2026-10-22T09:30:30.455009Z  INFO nanospam::app: Performing handshake...
+2026-10-22T09:30:30.466192Z  INFO nanospam::app: Performing handshake...
+2026-10-22T09:30:30.477374Z  INFO nanospam::app: Connecting to node PR2... peer_addr=[::1]:17095
+2026-10-22T09:30:30.477672Z  INFO nanospam::app: Performing handshake...
+2026-10-22T09:30:30.478662Z  INFO nanospam::app: Performing handshake...
+2026-10-22T09:30:30.490103Z  INFO nanospam::app: Performing handshake...
+2026-10-22T09:30:30.501427Z  INFO nanospam::app: Performing handshake...
+2026-10-22T09:30:30.513687Z  INFO nanospam::app: Connecting to node PR3... peer_addr=[::1]:17105
+2026-10-22T09:30:30.514009Z  INFO nanospam::app: Performing handshake...
+2026-10-22T09:30:30.515025Z  INFO nanospam::app: Performing handshake...
+2026-10-22T09:30:30.527304Z  INFO nanospam::app: Performing handshake...
+2026-10-22T09:30:30.538604Z  INFO nanospam::app: Performing handshake...
+2026-10-22T09:30:30.549658Z  INFO nanospam::app: Connecting to node PR4... peer_addr=[::1]:17115
+2026-10-22T09:30:30.549948Z  INFO nanospam::app: Performing handshake...
+2026-10-22T09:30:30.550880Z  INFO nanospam::app: Performing handshake...
+2026-10-22T09:30:30.562108Z  INFO nanospam::app: Performing handshake...
+2026-10-22T09:30:30.574022Z  INFO nanospam::app: Performing handshake...
+2026-10-22T09:30:30.586314Z  INFO nanospam::app: Connecting to node PR5... peer_addr=[::1]:17125
+2026-10-22T09:30:30.586563Z  INFO nanospam::app: Performing handshake...
+2026-10-22T09:30:30.587543Z  INFO nanospam::app: Performing handshake...
+2026-10-22T09:30:30.600358Z  INFO nanospam::app: Performing handshake...
+2026-10-22T09:30:30.613015Z  INFO nanospam::app: Performing handshake...
+2026-10-22T09:30:30.624064Z  INFO nanospam::app: Connecting to websocket...
+2026-10-22T09:30:30.625281Z  INFO nanospam::app: Starting with 2000 BPS
+2026-10-22T09:30:30.912429Z  INFO nanospam::wallets_factory: Waiting for confirmation for 81551EF81B09952FDD2513CFB8793049404BFFF257B6D91C1E791A69537D7657
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+2026-10-22T09:30:31.220735Z  INFO nanospam::rotation: ROTATION epoch=0 from=PR1 to=PR4 amount=Ӿ56,547,061
+2026-10-22T09:30:31.222067Z  INFO nanospam::wallets_factory: Waiting for confirmation for 99A46B00D91D4FF6DF2B7129BCF0552FEB96F7E6E3B052824FBA38543FF5E261
+2026-10-22T09:30:31.430728Z  INFO nanospam::rotation: ROTATION epoch=0 from=PR2 to=PR5 amount=Ӿ56,547,061
+2026-10-22T09:30:31.629003Z  INFO nanospam::app: Confirmed 88 blocks | 2,000 bps | 105 cps | avg conf time: 196 ms
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=2
+2026-10-22T09:30:32.630255Z  INFO nanospam::app: Confirmed 511 blocks | 2,000 bps | 422 cps | avg conf time: 204 ms
+BYZ_EQUIVOCATED votes=2
+2026-10-22T09:30:33.631271Z  INFO nanospam::app: Confirmed 3,110 blocks | 2,000 bps | 2,596 cps | avg conf time: 186 ms
+2026-10-22T09:30:34.632245Z  INFO nanospam::app: Confirmed 5,905 blocks | 2,000 bps | 2,792 cps | avg conf time: 280 ms
+2026-10-22T09:30:35.633404Z  INFO nanospam::app: Confirmed 7,852 blocks | 2,000 bps | 1,944 cps | avg conf time: 166 ms
+2026-10-22T09:30:36.644156Z  INFO nanospam::app: Confirmed 9,653 blocks | 2,000 bps | 1,799 cps | avg conf time: 167 ms
+2026-10-22T09:30:37.645116Z  INFO nanospam::app: Confirmed 11,453 blocks | 2,000 bps | 1,780 cps | avg conf time: 188 ms
+2026-10-22T09:30:38.646685Z  INFO nanospam::app: Confirmed 13,447 blocks | 2,000 bps | 1,991 cps | avg conf time: 196 ms
+2026-10-22T09:30:39.647152Z  INFO nanospam::app: Confirmed 15,197 blocks | 2,000 bps | 1,748 cps | avg conf time: 190 ms
+2026-10-22T09:30:40.648930Z  INFO nanospam::app: Confirmed 17,167 blocks | 2,000 bps | 1,967 cps | avg conf time: 187 ms
+2026-10-22T09:30:41.650344Z  INFO nanospam::app: Confirmed 18,881 blocks | 2,000 bps | 1,710 cps | avg conf time: 181 ms
+2026-10-22T09:30:42.651386Z  INFO nanospam::app: Confirmed 20,871 blocks | 2,000 bps | 1,988 cps | avg conf time: 190 ms
+2026-10-22T09:30:43.652006Z  INFO nanospam::app: Confirmed 22,611 blocks | 2,000 bps | 1,738 cps | avg conf time: 186 ms
+2026-10-22T09:30:44.652845Z  INFO nanospam::app: Confirmed 24,530 blocks | 2,000 bps | 1,917 cps | avg conf time: 184 ms
+BYZ_EQUIVOCATED votes=1
+2026-10-22T09:30:45.653999Z  INFO nanospam::app: Confirmed 26,270 blocks | 2,000 bps | 1,737 cps | avg conf time: 197 ms
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=3
+2026-10-22T09:30:46.654733Z  INFO nanospam::app: Confirmed 28,232 blocks | 2,000 bps | 1,960 cps | avg conf time: 248 ms
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+2026-10-22T09:30:47.656113Z  INFO nanospam::app: Confirmed 30,033 blocks | 2,000 bps | 1,798 cps | avg conf time: 216 ms
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=2
+2026-10-22T09:30:48.657060Z  INFO nanospam::app: Confirmed 31,928 blocks | 2,000 bps | 1,893 cps | avg conf time: 221 ms
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+2026-10-22T09:30:49.657686Z  INFO nanospam::app: Confirmed 33,724 blocks | 2,000 bps | 1,794 cps | avg conf time: 196 ms
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=4
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+2026-10-22T09:30:50.658589Z  INFO nanospam::app: Confirmed 35,684 blocks | 2,000 bps | 1,958 cps | avg conf time: 172 ms
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=4
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+2026-10-22T09:30:51.659842Z  INFO nanospam::app: Confirmed 37,329 blocks | 2,000 bps | 1,642 cps | avg conf time: 176 ms
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+2026-10-22T09:30:52.660474Z  INFO nanospam::app: Confirmed 39,229 blocks | 2,000 bps | 1,898 cps | avg conf time: 175 ms
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+2026-10-22T09:30:53.661449Z  INFO nanospam::app: Confirmed 40,959 blocks | 2,000 bps | 1,728 cps | avg conf time: 185 ms
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=2
+2026-10-22T09:30:54.662501Z  INFO nanospam::app: Confirmed 42,794 blocks | 2,000 bps | 1,832 cps | avg conf time: 192 ms
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=3
+2026-10-22T09:30:55.663387Z  INFO nanospam::app: Confirmed 44,620 blocks | 2,000 bps | 1,824 cps | avg conf time: 227 ms
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=5
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=5
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+2026-10-22T09:30:56.228223Z  INFO nanospam::app: Confirming 48000 blocks took 25.60s
+2026-10-22T09:30:56.228308Z  INFO nanospam::app: Confirmation rate: 1874 cps
+2026-10-22T09:30:56.228319Z  INFO nanospam::app: Average conf time: 188 ms
+2026-10-22T09:30:56.228326Z  INFO nanospam::app: Non-fork confirmation rate: 1780 cps (45598 of 45598 non-fork blocks, 22 of 2402 forks)
+2026-10-22T09:30:56.229002Z  INFO nanospam::app: RAI_BENCH_METRICS {"created":48000,"confirmed":45620,"duration_secs":25.603903917,"confirmation_unit":"primary publication or its confirmed fork alternative","alternative_confirmed":22,"confirmation_histogram_ms":{"79":1,"81":1,"82":2,"83":1,"84":2,"85":2,"86":3,"87":5,"88":6,"89":4,"90":3,"91":8,"92":10,"93":5,"94":10,"95":9,"96":7,"97":8,"98":15,"99":10,"100":14,"101":18,"102":13,"103":17,"104":9,"105":16,"106":17,"107":17,"108":23,"109":25,"110":35,"111":28,"112":40,"113":47,"114":31,"115":45,"116":40,"117":44,"118":48,"119":58,"120":50,"121":58,"122":46,"123":65,"124":63,"125":87,"126":72,"127":69,"128":99,"129":96,"130":112,"131":106,"132":117,"133":136,"134":148,"135":157,"136":133,"137":170,"138":177,"139":173,"140":182,"141":214,"142":224,"143":251,"144":236,"145":252,"146":255,"147":279,"148":302,"149":336,"150":329,"151":332,"152":335,"153":381,"154":345,"155":349,"156":357,"157":379,"158":422,"159":422,"160":423,"161":426,"162":457,"163":442,"164":473,"165":454,"166":465,"167":462,"168":455,"169":465,"170":457,"171":499,"172":520,"173":476,"174":510,"175":521,"176":505,"177":529,"178":535,"179":527,"180":541,"181":510,"182":527,"183":498,"184":515,"185":503,"186":510,"187":507,"188":547,"189":479,"190":493,"191":521,"192":502,"193":552,"194":492,"195":519,"196":511,"197":518,"198":460,"199":517,"200":506,"201":492,"202":521,"203":498,"204":492,"205":498,"206":509,"207":480,"208":502,"209":454,"210":477,"211":448,"212":452,"213":433,"214":355,"215":395,"216":375,"217":350,"218":355,"219":317,"220":294,"221":293,"222":300,"223":304,"224":275,"225":269,"226":250,"227":260,"228":239,"229":257,"230":243,"231":222,"232":217,"233":200,"234":175,"235":191,"236":150,"237":160,"238":168,"239":145,"240":152,"241":153,"242":120,"243":112,"244":121,"245":114,"246":95,"247":91,"248":63,"249":72,"250":75,"251":62,"252":59,"253":70,"254":40,"255":34,"256":41,"257":30,"258":31,"259":38,"260":27,"261":21,"262":22,"263":17,"264":23,"265":22,"266":17,"267":3,"268":6,"269":9,"270":6,"271":13,"272":6,"273":8,"274":12,"275":9,"276":4,"277":11,"278":9,"279":13,"280":19,"281":18,"282":16,"283":10,"284":3,"285":4,"286":8,"287":15,"288":18,"289":8,"290":13,"291":17,"292":10,"293":6,"294":10,"295":11,"296":6,"297":7,"298":6,"299":12,"300":9,"301":8,"302":6,"303":4,"304":4,"305":10,"306":8,"307":19,"308":16,"309":13,"310":5,"311":13,"312":16,"313":7,"314":9,"315":3,"316":7,"317":6,"318":4,"319":4,"320":9,"321":5,"322":2,"323":4,"324":5,"325":5,"326":2,"327":1,"328":3,"331":3,"332":7,"333":1,"334":2,"335":2,"336":12,"337":17,"338":20,"339":34,"340":17,"341":7,"342":12,"343":10,"344":20,"345":15,"346":17,"347":4,"348":7,"349":10,"350":9,"351":5,"352":3,"354":3,"355":1,"356":1,"357":2,"358":2,"359":7,"360":2,"361":4,"362":3,"363":5,"364":1,"365":6,"366":2,"367":10,"368":17,"369":10,"370":6,"371":4,"372":1,"373":39,"374":17,"375":10,"376":24,"377":23,"378":24,"379":22,"380":25,"381":24,"382":11,"383":19,"384":30,"385":27,"386":16,"387":18,"388":8,"389":7,"390":4,"391":7,"392":10,"393":11,"394":21,"395":18,"396":13,"397":17,"398":15,"399":3,"401":5,"402":13,"403":7,"404":5,"405":4,"406":6,"407":4,"408":2,"409":2,"410":5,"411":13,"412":5,"413":12,"414":9,"415":3,"416":1,"417":5,"418":5,"419":9,"420":10,"421":1,"423":1,"424":3,"425":1,"426":5,"427":1,"428":1,"429":2,"430":8,"431":24,"432":15,"433":4,"434":2,"436":2,"442":2,"484":4,"485":3,"486":1,"2945":1,"15249":1,"15250":1,"15252":1,"15254":1,"15341":2,"15348":1,"15371":1,"15372":2,"15408":1,"15452":1,"15500":1,"15671":1,"15821":1,"17151":1,"20445":1,"21637":1},"nonfork_created":45598,"nonfork_confirmed":45598,"nonfork_histogram_ms":{"79":1,"81":1,"82":2,"83":1,"84":2,"85":2,"86":3,"87":5,"88":6,"89":4,"90":3,"91":8,"92":10,"93":5,"94":10,"95":9,"96":7,"97":8,"98":15,"99":10,"100":14,"101":18,"102":13,"103":17,"104":9,"105":16,"106":17,"107":17,"108":23,"109":25,"110":35,"111":28,"112":40,"113":47,"114":31,"115":45,"116":40,"117":44,"118":48,"119":58,"120":50,"121":58,"122":46,"123":65,"124":63,"125":87,"126":72,"127":69,"128":99,"129":96,"130":112,"131":106,"132":117,"133":136,"134":148,"135":157,"136":133,"137":170,"138":177,"139":173,"140":182,"141":214,"142":224,"143":251,"144":236,"145":252,"146":255,"147":279,"148":302,"149":336,"150":329,"151":332,"152":335,"153":381,"154":345,"155":349,"156":357,"157":379,"158":422,"159":422,"160":423,"161":426,"162":457,"163":442,"164":473,"165":454,"166":465,"167":462,"168":455,"169":465,"170":457,"171":499,"172":520,"173":476,"174":510,"175":521,"176":505,"177":529,"178":535,"179":527,"180":541,"181":510,"182":527,"183":498,"184":515,"185":503,"186":510,"187":507,"188":547,"189":479,"190":493,"191":521,"192":502,"193":552,"194":492,"195":519,"196":511,"197":518,"198":460,"199":517,"200":506,"201":492,"202":521,"203":498,"204":492,"205":498,"206":509,"207":480,"208":502,"209":454,"210":477,"211":448,"212":452,"213":433,"214":355,"215":395,"216":375,"217":350,"218":355,"219":317,"220":294,"221":293,"222":300,"223":304,"224":275,"225":269,"226":250,"227":260,"228":239,"229":257,"230":243,"231":222,"232":217,"233":200,"234":175,"235":191,"236":150,"237":160,"238":168,"239":145,"240":151,"241":153,"242":120,"243":112,"244":121,"245":114,"246":95,"247":91,"248":63,"249":72,"250":75,"251":62,"252":59,"253":70,"254":40,"255":34,"256":41,"257":30,"258":31,"259":38,"260":27,"261":21,"262":22,"263":17,"264":23,"265":22,"266":17,"267":3,"268":6,"269":9,"270":6,"271":13,"272":6,"273":8,"274":12,"275":9,"276":4,"277":11,"278":9,"279":13,"280":19,"281":18,"282":16,"283":10,"284":3,"285":4,"286":8,"287":15,"288":18,"289":8,"290":13,"291":17,"292":10,"293":6,"294":10,"295":11,"296":6,"297":7,"298":6,"299":12,"300":9,"301":7,"302":6,"303":4,"304":4,"305":9,"306":8,"307":19,"308":16,"309":13,"310":5,"311":13,"312":16,"313":7,"314":9,"315":3,"316":7,"317":6,"318":4,"319":4,"320":9,"321":5,"322":2,"323":4,"324":5,"325":5,"326":2,"327":1,"328":3,"331":3,"332":7,"333":1,"334":2,"335":2,"336":12,"337":17,"338":20,"339":34,"340":17,"341":7,"342":12,"343":10,"344":20,"345":15,"346":17,"347":4,"348":7,"349":10,"350":9,"351":5,"352":3,"354":3,"355":1,"356":1,"357":2,"358":2,"359":7,"360":2,"361":4,"362":3,"363":5,"364":1,"365":6,"366":2,"367":10,"368":17,"369":10,"370":6,"371":4,"372":1,"373":39,"374":17,"375":10,"376":24,"377":23,"378":24,"379":22,"380":25,"381":24,"382":11,"383":19,"384":30,"385":27,"386":16,"387":18,"388":8,"389":7,"390":4,"391":7,"392":10,"393":11,"394":21,"395":18,"396":13,"397":17,"398":15,"399":3,"401":5,"402":13,"403":7,"404":5,"405":4,"406":6,"407":4,"408":2,"409":2,"410":5,"411":13,"412":5,"413":12,"414":9,"415":3,"416":1,"417":5,"418":5,"419":9,"420":10,"421":1,"423":1,"424":3,"425":1,"426":5,"427":1,"428":1,"429":2,"430":8,"431":24,"432":15,"433":4,"434":2,"436":2,"442":2,"484":4,"485":3,"486":1},"fork_created":2402,"fork_confirmed":22,"fork_unresolved_at_end":2380,"series_start_unix_ms":1792661430626,"series_columns":["second","published","nonfork_confirmed","nonfork_p50_ms","nonfork_p95_ms"],"nonfork_series":[[0,150,88,197,212],[1,678,421,206,220],[2,2955,2599,184,247],[3,2868,2795,277,411],[4,1925,1947,166,223],[5,1947,1801,165,222],[6,1936,1800,184,242],[7,1954,1807,196,245],[8,1946,1937,190,235],[9,1946,1796,191,230],[10,1942,1888,182,222],[11,1942,1781,189,240],[12,1938,1921,186,234],[13,1949,1791,184,227],[14,1928,1896,196,244],[15,1928,1763,195,242],[16,1933,1930,192,240],[17,1945,1750,188,230],[18,1932,1996,197,247],[19,1913,1730,176,227],[20,1915,1874,167,206],[21,1911,1723,178,216],[22,1910,1864,184,223],[23,1928,1784,192,236],[24,1929,1917,196,242],[25,752,999,199,238]],"nonfork_by_publish":[[0,[[164,2],[165,1],[166,6],[167,5],[168,3],[191,3],[192,5],[193,4],[194,3],[195,5],[196,4],[197,3],[198,2],[199,4],[201,1],[202,7],[203,3],[204,4],[205,6],[206,5],[207,6],[208,9],[209,13],[210,11],[211,10],[212,8],[213,4]]],[1,[[133,1],[134,3],[135,2],[136,3],[137,3],[138,2],[139,2],[140,2],[141,2],[142,4],[143,3],[144,2],[146,2],[147,2],[148,3],[149,6],[150,5],[151,2],[152,6],[153,9],[154,5],[155,6],[156,3],[157,4],[158,8],[159,5],[160,10],[161,4],[162,8],[163,6],[164,9],[165,5],[166,4],[167,3],[168,4],[169,5],[170,5],[171,3],[172,10],[173,3],[174,9],[175,6],[176,4],[177,8],[178,8],[179,9],[180,5],[181,10],[182,12],[183,8],[184,3],[185,6],[186,11],[187,5],[188,5],[189,12],[190,5],[191,6],[192,7],[193,13],[194,4],[195,7],[196,12],[197,7],[198,8],[199,12],[200,5],[201,10],[202,6],[203,8],[204,17],[205,15],[206,16],[207,14],[208,17],[209,15],[210,17],[211,11],[212,18],[213,11],[214,9],[215,11],[216,10],[217,9],[218,3],[219,7],[220,4],[221,6],[222,2],[223,2],[224,4],[225,1],[226,1],[229,1],[232,1],[233,1],[234,2],[235,1],[237,1],[240,2],[241,4],[242,1],[243,1],[246,2],[248,1],[252,1]]],[2,[[87,1],[88,2],[89,3],[90,2],[91,3],[92,4],[94,1],[97,2],[98,2],[100,1],[101,2],[102,1],[105,1],[106,3],[107,1],[108,2],[109,4],[110,5],[111,6],[112,4],[113,15],[114,10],[115,8],[116,7],[117,10],[118,7],[119,8],[120,7],[121,6],[122,7],[123,9],[124,12],[125,9],[126,10],[127,9],[128,10],[129,7],[130,10],[131,8],[132,10],[133,10],[134,11],[135,9],[136,4],[137,13],[138,13],[139,7],[140,11],[141,10],[142,10],[143,9],[144,8],[145,11],[146,8],[147,6],[148,7],[149,9],[150,7],[151,14],[152,12],[153,14],[154,11],[155,13],[156,8],[157,17],[158,19],[159,21],[160,17],[161,24],[162,15],[163,22],[164,27],[165,18],[166,25],[167,26],[168,21],[169,22],[170,20],[171,21],[172,23],[173,23],[174,27],[175,25],[176,20],[177,27],[178,27],[179,23],[180,34],[181,16],[182,21],[183,15],[184,25],[185,21],[186,16],[187,23],[188,31],[189,27],[190,17],[191,22],[192,35],[193,18],[194,13],[195,28],[196,23],[197,20],[198,22],[199,21],[200,31],[201,36],[202,40],[203,22],[204,21],[205,22],[206,23],[207,23],[208,18],[209,16],[210,16],[211,29],[212,20],[213,25],[214,17],[215,16],[216,19],[217,22],[218,14],[219,22],[220,19],[221,25],[222,25],[223,25],[224,26],[225,23],[226,15],[227,24],[228,24],[229,27],[230,26],[231,23],[232,29],[233,21],[234,19],[235,25],[236,16],[237,26],[238,22],[239,12],[240,21],[241,27],[242,15],[243,17],[244,20],[245,21],[246,15],[247,14],[248,9],[249,16],[250,12],[251,12],[252,13],[253,11],[254,6],[255,5],[256,9],[257,6],[258,8],[259,13],[260,9],[261,5],[262,5],[263,5],[264,4],[265,3],[266,4],[267,2],[268,2],[269,5],[270,5],[271,6],[272,4],[273,4],[274,8],[275,5],[276,2],[277,1],[278,2],[279,3],[280,4],[281,2],[282,1],[283,1],[285,1],[286,4],[287,2],[288,4],[289,2],[290,2],[291,4],[292,2],[293,4],[294,3],[295,4],[296,4],[297,5],[298,3],[299,3],[300,1],[301,6],[302,3],[303,2],[305,3],[308,1],[310,3],[311,3],[312,1],[313,1],[314,3],[315,2],[316,2],[317,3],[318,2],[320,2],[321,1],[322,1],[323,1],[324,1],[325,1],[326,2],[331,1],[332,2],[334,2],[335,1],[337,1],[382,1],[384,2],[387,1],[389,1],[391,2],[393,2],[394,2],[396,2],[399,1],[401,3],[402,1],[404,3],[405,2],[406,1],[407,1]]],[3,[[110,1],[111,1],[112,1],[113,2],[115,2],[116,2],[117,1],[118,3],[119,4],[120,5],[121,1],[122,1],[123,3],[124,2],[125,3],[126,2],[127,1],[128,3],[129,2],[130,3],[131,1],[132,4],[133,1],[134,3],[135,1],[136,5],[137,3],[138,3],[139,4],[140,2],[141,1],[142,3],[143,7],[144,5],[145,3],[146,2],[147,4],[148,6],[149,4],[150,4],[151,2],[152,5],[153,6],[154,5],[155,10],[156,9],[157,10],[158,17],[159,7],[160,12],[161,14],[162,17],[163,14],[164,16],[165,14],[166,10],[167,13],[168,16],[169,14],[170,15],[171,15],[172,16],[173,13],[174,21],[175,17],[176,19],[177,15],[178,22],[179,26],[180,25],[181,31],[182,30],[183,26],[184,17],[185,19],[186,22],[187,18],[188,42],[189,15],[190,18],[191,21],[192,17],[193,20],[194,24],[195,16],[196,16],[197,21],[198,15],[199,25],[200,24],[201,12],[202,16],[203,19],[204,7],[205,12],[206,13],[207,16],[208,15],[209,16],[210,15],[211,16],[212,18],[213,6],[214,13],[215,9],[216,6],[217,5],[218,7],[219,11],[220,5],[221,7],[222,11],[223,8],[224,8],[225,7],[226,10],[227,6],[228,9],[229,14],[230,8],[231,9],[232,7],[233,7],[234,3],[235,7],[236,7],[237,5],[238,7],[239,6],[240,6],[241,6],[242,4],[243,4],[244,4],[245,1],[246,2],[247,2],[248,1],[249,3],[250,2],[251,3],[252,2],[253,9],[254,2],[255,1],[258,2],[259,1],[260,1],[261,2],[262,2],[263,3],[264,5],[265,10],[266,6],[267,1],[268,2],[271,4],[273,2],[274,1],[275,4],[276,2],[277,8],[278,7],[279,9],[280,14],[281,15],[282,14],[283,8],[285,2],[286,2],[287,12],[288,14],[289,6],[290,10],[291,11],[292,8],[293,2],[294,6],[295,7],[296,2],[297,2],[299,8],[300,8],[301,1],[302,2],[303,2],[304,4],[305,6],[306,8],[307,19],[308,15],[309,13],[310,2],[311,10],[312,15],[313,6],[314,6],[315,1],[316,5],[317,3],[318,2],[319,4],[320,7],[321,4],[322,1],[323,3],[324,4],[325,4],[327,1],[328,3],[331,2],[332,5],[333,1],[335,1],[336,12],[337,16],[338,20],[339,34],[340,17],[341,7],[342,12],[343,10],[344,20],[345,15],[346,17],[347,4],[348,7],[349,10],[350,9],[351,5],[352,3],[354,3],[355,1],[356,1],[357,2],[358,2],[359,7],[360,2],[361,4],[362,3],[363,5],[364,1],[365,6],[366,2],[367,10],[368,17],[369,10],[370,6],[371,4],[372,1],[373,39],[374,17],[375,10],[376,24],[377,23],[378,24],[379,22],[380,25],[381,24],[382,10],[383,19],[384,28],[385,27],[386,16],[387,17],[388,8],[389,6],[390,4],[391,5],[392,10],[393,9],[394,19],[395,18],[396,11],[397,17],[398,15],[399,2],[401,2],[402,12],[403,7],[404,2],[405,2],[406,5],[407,3],[408,2],[409,2],[410,5],[411,13],[412,5],[413,12],[414,9],[415,3],[416,1],[417,5],[418,5],[419,9],[420,10],[421,1],[423,1],[424,3],[425,1],[426,5],[427,1],[428,1],[429,2],[430,8],[431,24],[432,15],[433,4],[434,2],[436,2],[442,2],[484,4],[485,3],[486,1]]],[4,[[79,1],[81,1],[82,2],[83,1],[84,2],[85,2],[86,3],[87,4],[88,4],[89,1],[90,1],[91,3],[92,4],[93,3],[94,4],[95,5],[96,3],[97,3],[98,7],[99,4],[100,3],[101,7],[102,6],[103,7],[104,3],[105,7],[106,6],[107,6],[108,11],[109,9],[110,11],[111,11],[112,9],[113,7],[114,9],[115,6],[116,4],[117,11],[118,6],[119,7],[120,8],[121,13],[122,8],[123,11],[124,10],[125,14],[126,13],[127,6],[128,11],[129,4],[130,11],[131,3],[132,10],[133,6],[134,10],[135,12],[136,7],[137,7],[138,13],[139,14],[140,13],[141,18],[142,16],[143,19],[144,18],[145,14],[146,17],[147,31],[148,23],[149,25],[150,25],[151,29],[152,32],[153,30],[154,26],[155,26],[156,28],[157,19],[158,30],[159,28],[160,30],[161,33],[162,29],[163,31],[164,26],[165,27],[166,29],[167,32],[168,25],[169,20],[170,16],[171,29],[172,25],[173,17],[174,26],[175,24],[176,18],[177,18],[178,12],[179,9],[180,6],[181,12],[182,11],[183,13],[184,7],[185,12],[186,15],[187,14],[188,12],[189,17],[190,13],[191,9],[192,12],[193,18],[194,10],[195,12],[196,11],[197,9],[198,17],[199,16],[200,15],[201,3],[202,8],[203,6],[204,4],[205,7],[206,10],[207,8],[208,7],[209,8],[210,14],[211,12],[212,11],[213,10],[214,8],[215,6],[216,8],[217,8],[218,4],[219,4],[220,6],[221,4],[222,6],[223,5],[224,6],[225,3],[226,2],[227,5],[228,8],[229,6],[230,8],[231,4],[232,3],[233,4],[234,3],[235,2],[237,2],[240,2],[241,2],[244,1]]],[5,[[92,2],[93,2],[94,3],[95,2],[96,2],[97,1],[98,2],[99,2],[100,2],[101,4],[102,2],[103,4],[104,1],[105,3],[106,1],[107,2],[108,5],[109,4],[110,5],[111,3],[112,8],[113,6],[114,5],[115,11],[116,8],[117,12],[118,12],[119,8],[120,8],[121,3],[122,4],[123,16],[124,8],[125,13],[126,9],[127,9],[128,17],[129,14],[130,18],[131,6],[132,13],[133,14],[134,12],[135,14],[136,9],[137,14],[138,8],[139,12],[140,7],[141,12],[142,17],[143,21],[144,18],[145,21],[146,9],[147,27],[148,25],[149,22],[150,25],[151,25],[152,23],[153,36],[154,25],[155,29],[156,30],[157,21],[158,23],[159,25],[160,26],[161,29],[162,23],[163,28],[164,31],[165,30],[166,32],[167,28],[168,21],[169,22],[170,22],[171,26],[172,26],[173,22],[174,16],[175,28],[176,35],[177,24],[178,26],[179,21],[180,21],[181,13],[182,23],[183,16],[184,20],[185,11],[186,14],[187,12],[188,13],[189,17],[190,9],[191,14],[192,11],[193,4],[194,9],[195,4],[196,9],[197,6],[198,6],[199,10],[200,1],[201,9],[202,12],[203,5],[204,12],[205,10],[206,5],[207,8],[208,9],[209,11],[210,8],[211,10],[212,9],[213,11],[214,8],[215,10],[216,14],[217,13],[218,6],[219,12],[220,5],[221,9],[222,5],[223,8],[224,2],[225,5],[226,6],[227,11],[228,5],[229,5],[230,3],[231,5],[232,6],[233,7],[234,6],[235,5],[236,2],[237,1],[238,3],[239,4],[240,2],[241,3],[242,1],[243,1],[244,1],[245,1],[246,3],[249,1]]],[6,[[99,1],[100,1],[103,1],[104,1],[105,1],[106,2],[107,2],[109,1],[110,1],[111,2],[112,3],[113,1],[114,2],[118,2],[119,3],[121,2],[122,1],[123,2],[125,1],[126,1],[129,1],[131,1],[132,2],[133,3],[134,2],[135,7],[136,4],[137,5],[138,5],[139,5],[140,4],[141,4],[142,5],[143,8],[144,12],[145,7],[146,13],[147,17],[148,14],[149,15],[150,16],[151,12],[152,21],[153,10],[154,17],[155,12],[156,16],[157,8],[158,15],[159,17],[160,11],[161,15],[162,18],[163,16],[164,22],[165,17],[166,16],[167,26],[168,21],[169,15],[170,21],[171,25],[172,27],[173,13],[174,22],[175,20],[176,28],[177,20],[178,18],[179,21],[180,26],[181,18],[182,17],[183,24],[184,19],[185,17],[186,13],[187,30],[188,21],[189,20],[190,16],[191,18],[192,18],[193,16],[194,14],[195,21],[196,17],[197,23],[198,22],[199,18],[200,14],[201,12],[202,21],[203,21],[204,16],[205,20],[206,17],[207,15],[208,20],[209,16],[210,14],[211,19],[212,18],[213,9],[214,8],[215,10],[216,16],[217,15],[218,13],[219,17],[220,16],[221,15],[222,17],[223,17],[224,15],[225,13],[226,16],[227,16],[228,13],[229,20],[230,17],[231,16],[232,14],[233,17],[234,11],[235,9],[236,15],[237,15],[238,11],[239,14],[240,13],[241,9],[242,8],[243,9],[244,8],[245,12],[246,12],[247,8],[248,7],[249,6],[250,9],[251,4],[252,5],[253,8],[254,4],[255,4],[256,4],[257,4],[258,3],[259,2],[260,3],[261,1],[262,2],[263,2],[264,1],[265,1],[266,1]]],[7,[[141,1],[142,5],[143,7],[144,9],[145,6],[146,9],[147,11],[148,4],[149,11],[150,5],[151,11],[152,8],[153,14],[154,13],[155,16],[156,18],[157,16],[158,19],[159,12],[160,19],[161,22],[162,28],[163,19],[164,27],[165,13],[166,18],[167,14],[168,24],[169,22],[170,22],[171,24],[172,23],[173,17],[174,24],[175,25],[176,18],[177,14],[178,23],[179,17],[180,22],[181,17],[182,23],[183,14],[184,16],[185,18],[186,17],[187,20],[188,20],[189,19],[190,21],[191,19],[192,22],[193,21],[194,13],[195,27],[196,18],[197,16],[198,16],[199,19],[200,24],[201,23],[202,21],[203,16],[204,22],[205,16],[206,26],[207,16],[208,19],[209,14],[210,31],[211,15],[212,22],[213,17],[214,18],[215,16],[216,19],[217,11],[218,19],[219,15],[220,21],[221,23],[222,16],[223,22],[224,17],[225,23],[226,21],[227,21],[228,17],[229,19],[230,14],[231,13],[232,22],[233,16],[234,16],[235,17],[236,14],[237,8],[238,19],[239,8],[240,12],[241,13],[242,13],[243,8],[244,13],[245,10],[246,6],[247,12],[248,4],[249,5],[250,4],[251,3],[252,7],[253,7],[255,4],[256,4],[257,6],[258,1],[259,3],[260,2],[261,1]]],[8,[[126,2],[127,2],[128,2],[129,2],[130,2],[131,2],[132,2],[133,3],[134,5],[135,4],[136,10],[137,7],[138,10],[139,10],[140,14],[141,11],[142,14],[143,10],[144,13],[145,12],[146,14],[147,14],[148,17],[149,20],[150,16],[151,14],[152,15],[153,15],[154,12],[155,17],[156,13],[157,10],[158,17],[159,23],[160,14],[161,15],[162,18],[163,16],[164,13],[165,22],[166,17],[167,25],[168,17],[169,13],[170,23],[171,16],[172,17],[173,20],[174,22],[175,15],[176,12],[177,24],[178,19],[179,18],[180,16],[181,23],[182,22],[183,18],[184,20],[185,25],[186,12],[187,16],[188,24],[189,16],[190,19],[191,21],[192,18],[193,24],[194,20],[195,21],[196,23],[197,22],[198,21],[199,25],[200,26],[201,27],[202,19],[203,29],[204,21],[205,20],[206,29],[207,34],[208,23],[209,18],[210,33],[211,21],[212,31],[213,19],[214,20],[215,17],[216,26],[217,17],[218,27],[219,20],[220,20],[221,17],[222,13],[223,17],[224,18],[225,11],[226,9],[227,14],[228,12],[229,14],[230,12],[231,11],[232,8],[233,11],[234,8],[235,7],[236,4],[237,6],[238,9],[239,6],[240,3],[241,7],[242,3],[243,4],[244,3],[246,1],[247,2],[248,1],[249,2],[250,2],[251,1]]],[9,[[120,2],[121,2],[122,2],[123,3],[124,1],[125,2],[126,2],[127,2],[128,3],[129,1],[130,2],[131,4],[132,6],[133,4],[134,7],[135,7],[136,8],[137,9],[138,12],[139,10],[140,12],[141,11],[142,17],[143,15],[144,15],[145,19],[146,16],[147,11],[148,22],[149,16],[150,17],[151,14],[152,17],[153,12],[154,16],[155,19],[156,18],[157,17],[158,24],[159,20],[160,11],[161,18],[162,14],[163,13],[164,25],[165,22],[166,18],[167,17],[168,16],[169,19],[170,13],[171,26],[172,18],[173,19],[174,21],[175,18],[176,20],[177,11],[178,24],[179,23],[180,20],[181,17],[182,20],[183,22],[184,26],[185,16],[186,22],[187,25],[188,13],[189,14],[190,11],[191,20],[192,18],[193,19],[194,28],[195,34],[196,20],[197,24],[198,19],[199,21],[200,14],[201,22],[202,22],[203,15],[204,22],[205,23],[206,27],[207,15],[208,25],[209,21],[210,19],[211,23],[212,14],[213,16],[214,16],[215,23],[216,20],[217,17],[218,21],[219,15],[220,18],[221,21],[222,18],[223,21],[224,14],[225,17],[226,9],[227,16],[228,10],[229,11],[230,15],[231,10],[232,8],[233,9],[234,6],[235,4],[236,2],[237,2],[238,4],[239,2],[240,3],[241,3],[243,1],[244,5],[245,2],[246,3],[247,3],[248,4],[249,1],[250,2],[251,1],[253,1],[254,2],[255,1],[256,1],[257,1],[259,1],[260,1],[261,1],[262,1],[263,1],[264,4],[266,1]]],[10,[[121,1],[122,2],[123,1],[125,2],[126,1],[127,1],[128,7],[129,6],[130,6],[131,10],[132,6],[133,6],[134,5],[135,6],[136,7],[137,7],[138,19],[139,8],[140,12],[141,15],[142,11],[143,14],[144,12],[145,15],[146,13],[147,15],[148,13],[149,15],[150,24],[151,14],[152,20],[153,16],[154,15],[155,18],[156,13],[157,22],[158,25],[159,19],[160,21],[161,16],[162,19],[163,19],[164,12],[165,25],[166,15],[167,21],[168,17],[169,16],[170,15],[171,17],[172,28],[173,18],[174,17],[175,22],[176,16],[177,21],[178,18],[179,21],[180,11],[181,10],[182,22],[183,18],[184,15],[185,19],[186,28],[187,23],[188,16],[189,21],[190,29],[191,20],[192,24],[193,30],[194,24],[195,23],[196,25],[197,21],[198,18],[199,26],[200,17],[201,30],[202,35],[203,27],[204,35],[205,32],[206,25],[207,14],[208,22],[209,15],[210,15],[211,23],[212,21],[213,22],[214,17],[215,12],[216,12],[217,17],[218,18],[219,15],[220,10],[221,9],[222,12],[223,12],[224,14],[225,7],[226,7],[227,9],[228,12],[229,7],[230,6],[231,8],[232,4],[233,4],[234,7],[235,2],[236,6],[237,5],[238,4],[239,3],[240,5],[241,3],[242,5],[243,4],[244,4],[245,3],[246,2],[247,3],[248,4],[249,3],[250,7],[251,1],[252,4],[253,2],[254,2],[255,2],[256,2],[257,1]]],[11,[[119,1],[120,1],[121,3],[122,1],[123,3],[124,2],[125,2],[126,4],[127,1],[128,2],[129,2],[130,3],[131,4],[132,2],[133,5],[134,2],[135,3],[136,1],[137,5],[138,9],[139,11],[140,8],[141,12],[142,9],[143,11],[144,12],[145,15],[146,16],[147,10],[148,19],[149,15],[150,16],[151,14],[152,15],[153,21],[154,17],[155,19],[156,11],[157,18],[158,16],[159,17],[160,19],[161,15],[162,21],[163,21],[164,17],[165,20],[166,15],[167,16],[168,25],[169,20],[170,18],[171,20],[172,20],[173,30],[174,20],[175,22],[176,20],[177,19],[178,29],[179,13],[180,28],[181,22],[182,15],[183,24],[184,27],[185,20],[186,28],[187,25],[188,25],[189,23],[190,16],[191,16],[192,21],[193,19],[194,25],[195,12],[196,20],[197,21],[198,16],[199,22],[200,15],[201,14],[202,20],[203,14],[204,16],[205,16],[206,17],[207,18],[208,17],[209,16],[210,22],[211,22],[212,18],[213,18],[214,20],[215,21],[216,22],[217,16],[218,20],[219,14],[220,17],[221,14],[222,14],[223,13],[224,15],[225,7],[226,5],[227,9],[228,12],[229,11],[230,20],[231,9],[232,8],[233,10],[234,7],[235,17],[236,11],[237,14],[238,9],[239,16],[240,11],[241,7],[242,8],[243,5],[244,6],[245,13],[246,4],[247,7],[248,4],[249,4],[250,3],[251,2],[252,1],[253,1],[254,2],[256,1]]],[12,[[127,1],[128,5],[129,5],[130,3],[131,2],[132,2],[133,5],[134,5],[135,3],[136,5],[137,5],[138,5],[139,6],[140,5],[141,6],[142,8],[143,11],[144,9],[145,12],[146,7],[147,10],[148,11],[149,21],[150,17],[151,14],[152,12],[153,18],[154,18],[155,10],[156,21],[157,17],[158,23],[159,28],[160,12],[161,27],[162,23],[163,13],[164,32],[165,19],[166,27],[167,23],[168,26],[169,21],[170,25],[171,17],[172,26],[173,22],[174,28],[175,23],[176,21],[177,31],[178,30],[179,26],[180,18],[181,28],[182,23],[183,23],[184,27],[185,25],[186,27],[187,26],[188,40],[189,23],[190,27],[191,29],[192,25],[193,42],[194,30],[195,30],[196,32],[197,27],[198,31],[199,18],[200,24],[201,24],[202,19],[203,20],[204,23],[205,16],[206,18],[207,20],[208,17],[209,12],[210,14],[211,22],[212,17],[213,15],[214,15],[215,15],[216,12],[217,11],[218,11],[219,8],[220,12],[221,14],[222,8],[223,10],[224,5],[225,7],[226,11],[227,8],[228,9],[229,11],[230,6],[231,9],[232,6],[233,3],[234,5],[235,6],[236,4],[237,2],[238,4],[239,3],[240,4],[241,4],[242,2],[244,1]]],[13,[[125,1],[127,2],[128,1],[129,1],[130,2],[131,2],[132,5],[133,3],[134,7],[135,6],[136,6],[137,6],[138,11],[139,6],[140,9],[141,15],[142,9],[143,14],[144,8],[145,11],[146,12],[147,11],[148,8],[149,19],[150,20],[151,21],[152,16],[153,16],[154,24],[155,17],[156,20],[157,20],[158,14],[159,22],[160,26],[161,20],[162,25],[163,21],[164,18],[165,22],[166,25],[167,27],[168,20],[169,17],[170,14],[171,16],[172,22],[173,20],[174,26],[175,22],[176,28],[177,21],[178,24],[179,28],[180,28],[181,20],[182,18],[183,16],[184,29],[185,25],[186,30],[187,22],[188,33],[189,19],[190,21],[191,29],[192,19],[193,22],[194,19],[195,20],[196,14],[197,25],[198,16],[199,20],[200,24],[201,21],[202,19],[203,19],[204,21],[205,26],[206,29],[207,25],[208,20],[209,13],[210,28],[211,19],[212,20],[213,22],[214,20],[215,24],[216,20],[217,16],[218,17],[219,15],[220,12],[221,13],[222,16],[223,15],[224,8],[225,16],[226,5],[227,7],[228,10],[229,6],[230,3],[231,6],[232,7],[233,9],[234,7],[235,7],[236,6],[237,5],[238,5],[239,5],[240,7],[241,4],[242,3],[243,3],[244,3],[245,3],[246,1],[249,1]]],[14,[[132,4],[133,1],[134,2],[136,1],[137,3],[138,3],[139,1],[141,5],[142,3],[143,4],[144,3],[145,3],[146,5],[147,4],[148,8],[149,6],[150,10],[151,10],[152,6],[153,10],[154,11],[155,7],[156,15],[157,7],[158,9],[159,13],[160,17],[161,14],[162,17],[163,15],[164,14],[165,18],[166,22],[167,15],[168,21],[169,31],[170,15],[171,22],[172,18],[173,15],[174,19],[175,22],[176,19],[177,20],[178,18],[179,17],[180,26],[181,15],[182,19],[183,16],[184,22],[185,31],[186,22],[187,16],[188,25],[189,18],[190,23],[191,25],[192,23],[193,26],[194,17],[195,23],[196,25],[197,20],[198,28],[199,26],[200,27],[201,22],[202,33],[203,27],[204,22],[205,18],[206,30],[207,34],[208,25],[209,28],[210,17],[211,19],[212,24],[213,25],[214,11],[215,29],[216,20],[217,13],[218,25],[219,12],[220,16],[221,13],[222,20],[223,17],[224,18],[225,17],[226,15],[227,15],[228,11],[229,14],[230,12],[231,13],[232,11],[233,8],[234,13],[235,16],[236,10],[237,9],[238,9],[239,8],[240,9],[241,5],[242,10],[243,7],[244,6],[245,9],[246,9],[247,7],[248,8],[249,6],[250,8],[251,4],[252,10],[253,4],[254,5],[255,4],[256,1],[257,2],[259,2],[260,4],[262,5],[263,1],[264,2]]],[15,[[124,2],[125,1],[126,1],[127,2],[128,3],[129,6],[130,6],[131,4],[132,3],[133,7],[134,6],[135,8],[136,7],[137,8],[138,7],[139,9],[140,9],[141,6],[142,11],[143,7],[144,14],[145,14],[146,11],[147,8],[148,8],[149,10],[150,7],[151,9],[152,10],[153,12],[154,11],[155,14],[156,8],[157,13],[158,12],[159,12],[160,18],[161,12],[162,14],[163,16],[164,14],[165,17],[166,11],[167,12],[168,12],[169,13],[170,19],[171,20],[172,19],[173,20],[174,17],[175,14],[176,18],[177,14],[178,18],[179,13],[180,19],[181,14],[182,13],[183,12],[184,19],[185,16],[186,19],[187,16],[188,17],[189,21],[190,25],[191,27],[192,15],[193,16],[194,23],[195,20],[196,17],[197,25],[198,17],[199,23],[200,21],[201,31],[202,17],[203,26],[204,21],[205,22],[206,19],[207,29],[208,31],[209,30],[210,36],[211,16],[212,25],[213,23],[214,11],[215,23],[216,21],[217,9],[218,20],[219,14],[220,12],[221,12],[222,20],[223,15],[224,16],[225,17],[226,17],[227,13],[228,14],[229,20],[230,21],[231,17],[232,13],[233,14],[234,8],[235,8],[236,11],[237,8],[238,8],[239,11],[240,11],[241,9],[242,8],[243,12],[244,8],[245,11],[246,11],[247,4],[248,2],[249,4],[250,7],[251,3],[252,1],[253,2],[254,1],[255,1],[256,1],[257,2],[258,4],[259,2],[260,1],[261,5],[264,3],[265,3],[266,1],[268,1],[269,2],[271,1],[272,2],[273,1],[274,2],[277,2],[279,1],[280,1],[281,1],[282,1],[283,1],[284,3],[285,1],[286,2],[287,1],[290,1],[291,2],[294,1],[298,3],[299,1],[302,1]]],[16,[[121,1],[122,2],[125,1],[127,1],[128,1],[129,1],[131,6],[132,2],[133,4],[134,7],[135,8],[136,6],[137,3],[138,3],[139,3],[140,12],[141,9],[142,5],[143,7],[144,8],[145,6],[146,5],[147,11],[148,13],[149,18],[150,14],[151,14],[152,9],[153,12],[154,13],[155,12],[156,15],[157,14],[158,16],[159,19],[160,25],[161,18],[162,22],[163,23],[164,25],[165,21],[166,20],[167,23],[168,21],[169,32],[170,25],[171,16],[172,17],[173,19],[174,15],[175,21],[176,20],[177,23],[178,26],[179,24],[180,16],[181,21],[182,28],[183,26],[184,16],[185,17],[186,20],[187,24],[188,23],[189,19],[190,24],[191,26],[192,21],[193,26],[194,23],[195,18],[196,24],[197,25],[198,23],[199,29],[200,22],[201,23],[202,17],[203,9],[204,21],[205,21],[206,22],[207,21],[208,17],[209,19],[210,25],[211,15],[212,15],[213,20],[214,15],[215,18],[216,16],[217,20],[218,15],[219,18],[220,16],[221,11],[222,15],[223,14],[224,18],[225,15],[226,13],[227,11],[228,12],[229,13],[230,12],[231,13],[232,12],[233,9],[234,7],[235,10],[236,8],[237,11],[238,10],[239,5],[240,5],[241,5],[242,8],[243,3],[244,6],[245,2],[247,4],[248,2],[249,2],[251,1],[252,2],[253,4],[254,2],[255,1],[256,3],[257,1],[258,2],[259,1],[260,1],[263,1],[264,2],[265,1],[266,2]]],[17,[[130,3],[131,2],[132,1],[133,4],[134,3],[135,4],[136,3],[137,5],[138,4],[139,7],[140,6],[141,6],[142,7],[143,5],[144,6],[145,9],[146,12],[147,9],[148,14],[149,14],[150,11],[151,11],[152,15],[153,19],[154,16],[155,19],[156,13],[157,25],[158,22],[159,19],[160,21],[161,16],[162,15],[163,20],[164,21],[165,14],[166,28],[167,13],[168,20],[169,18],[170,25],[171,20],[172,25],[173,25],[174,16],[175,17],[176,21],[177,24],[178,19],[179,21],[180,27],[181,21],[182,25],[183,32],[184,22],[185,23],[186,23],[187,20],[188,25],[189,24],[190,22],[191,20],[192,21],[193,29],[194,21],[195,24],[196,33],[197,30],[198,13],[199,19],[200,20],[201,32],[202,21],[203,27],[204,21],[205,22],[206,24],[207,32],[208,18],[209,20],[210,18],[211,23],[212,22],[213,31],[214,15],[215,10],[216,15],[217,17],[218,19],[219,17],[220,13],[221,16],[222,9],[223,13],[224,14],[225,17],[226,18],[227,16],[228,16],[229,13],[230,10],[231,14],[232,11],[233,7],[234,12],[235,8],[236,1],[237,8],[238,7],[239,10],[240,3],[241,6],[242,3],[243,4],[244,2],[245,1],[246,1]]],[18,[[107,1],[109,2],[110,2],[111,1],[112,2],[113,1],[114,1],[115,1],[116,3],[117,1],[118,4],[119,6],[120,6],[121,3],[122,3],[123,3],[124,3],[125,7],[126,7],[127,4],[128,7],[129,5],[130,6],[131,7],[132,5],[133,7],[134,2],[135,8],[136,5],[137,5],[138,5],[139,7],[140,8],[141,8],[142,9],[143,6],[144,4],[145,7],[146,14],[147,10],[148,10],[149,14],[150,12],[151,12],[152,12],[153,12],[154,7],[155,14],[156,12],[157,14],[158,11],[159,14],[160,15],[161,11],[162,15],[163,13],[164,13],[165,13],[166,10],[167,15],[168,14],[169,10],[170,16],[171,15],[172,20],[173,19],[174,19],[175,15],[176,16],[177,18],[178,16],[179,17],[180,12],[181,21],[182,18],[183,16],[184,21],[185,14],[186,26],[187,15],[188,14],[189,13],[190,19],[191,18],[192,15],[193,17],[194,16],[195,17],[196,16],[197,19],[198,21],[199,17],[200,23],[201,17],[202,20],[203,28],[204,27],[205,25],[206,22],[207,20],[208,23],[209,27],[210,23],[211,22],[212,17],[213,18],[214,30],[215,22],[216,18],[217,24],[218,21],[219,19],[220,13],[221,15],[222,17],[223,14],[224,10],[225,19],[226,17],[227,14],[228,15],[229,13],[230,12],[231,6],[232,13],[233,14],[234,10],[235,9],[236,9],[237,11],[238,7],[239,7],[240,8],[241,10],[242,9],[243,7],[244,13],[245,7],[246,9],[247,10],[248,11],[249,4],[250,8],[251,7],[252,2],[253,10],[254,5],[255,7],[256,6],[257,6],[258,5],[259,8],[260,1],[261,3],[262,5],[263,2],[265,1],[271,2]]],[19,[[91,2],[94,1],[95,1],[96,1],[97,2],[98,4],[99,3],[100,7],[101,5],[102,4],[103,5],[104,3],[105,3],[106,5],[107,5],[108,4],[109,4],[110,9],[111,3],[112,8],[113,9],[114,2],[115,7],[116,5],[117,5],[118,5],[119,8],[120,4],[121,8],[122,7],[123,4],[124,8],[125,15],[126,6],[127,12],[128,6],[129,13],[130,11],[131,15],[132,8],[133,11],[134,13],[135,11],[136,11],[137,12],[138,8],[139,10],[140,8],[141,15],[142,13],[143,16],[144,15],[145,13],[146,13],[147,6],[148,17],[149,10],[150,9],[151,11],[152,14],[153,12],[154,18],[155,12],[156,17],[157,24],[158,22],[159,15],[160,16],[161,25],[162,26],[163,20],[164,29],[165,29],[166,27],[167,27],[168,21],[169,26],[170,23],[171,28],[172,32],[173,20],[174,20],[175,24],[176,22],[177,30],[178,29],[179,23],[180,18],[181,26],[182,22],[183,21],[184,24],[185,19],[186,18],[187,14],[188,18],[189,18],[190,10],[191,16],[192,19],[193,20],[194,18],[195,19],[196,18],[197,18],[198,17],[199,15],[200,19],[201,16],[202,18],[203,13],[204,14],[205,18],[206,12],[207,11],[208,15],[209,10],[210,9],[211,11],[212,13],[213,11],[214,8],[215,8],[216,6],[217,8],[218,8],[219,5],[220,8],[221,7],[222,5],[223,8],[224,1],[225,8],[226,8],[227,8],[228,2],[229,4],[230,3],[231,6],[232,2],[233,5],[234,7],[235,7],[236,4],[237,6],[238,4],[239,4],[240,2],[241,3],[242,4],[244,2],[245,3],[246,1],[247,2],[248,1],[249,1],[250,1],[251,2],[252,1],[253,2],[254,1],[255,1],[256,1]]],[20,[[94,1],[95,1],[96,1],[104,1],[105,1],[108,1],[109,1],[110,1],[111,1],[112,5],[113,4],[115,9],[116,7],[117,4],[118,7],[119,11],[120,9],[121,12],[122,6],[123,9],[124,11],[125,14],[126,9],[127,12],[128,13],[129,17],[130,15],[131,14],[132,14],[133,15],[134,25],[135,19],[136,14],[137,23],[138,18],[139,20],[140,11],[141,16],[142,17],[143,24],[144,11],[145,16],[146,20],[147,17],[148,17],[149,18],[150,21],[151,16],[152,19],[153,24],[154,16],[155,13],[156,16],[157,16],[158,17],[159,19],[160,19],[161,18],[162,19],[163,20],[164,20],[165,19],[166,25],[167,27],[168,24],[169,27],[170,26],[171,33],[172,25],[173,34],[174,30],[175,25],[176,24],[177,28],[178,24],[179,30],[180,35],[181,30],[182,28],[183,21],[184,16],[185,17],[186,21],[187,22],[188,16],[189,23],[190,24],[191,26],[192,23],[193,19],[194,21],[195,23],[196,17],[197,17],[198,16],[199,14],[200,21],[201,14],[202,12],[203,15],[204,21],[205,14],[206,18],[207,11],[208,17],[209,11],[210,7],[211,4],[212,11],[213,7],[214,2],[215,2],[216,2],[217,3],[219,1]]],[21,[[113,2],[114,2],[115,1],[116,4],[118,2],[119,2],[121,3],[122,2],[123,1],[124,4],[125,2],[126,5],[127,4],[128,8],[129,8],[130,6],[131,12],[132,12],[133,17],[134,13],[135,16],[136,11],[137,11],[138,11],[139,11],[140,17],[141,14],[142,17],[143,23],[144,20],[145,20],[146,16],[147,14],[148,16],[149,16],[150,13],[151,23],[152,16],[153,17],[154,20],[155,13],[156,15],[157,15],[158,21],[159,20],[160,19],[161,19],[162,20],[163,19],[164,16],[165,26],[166,18],[167,16],[168,14],[169,24],[170,28],[171,20],[172,22],[173,23],[174,22],[175,32],[176,27],[177,27],[178,33],[179,32],[180,36],[181,34],[182,29],[183,27],[184,28],[185,27],[186,21],[187,29],[188,27],[189,18],[190,23],[191,31],[192,23],[193,27],[194,24],[195,21],[196,18],[197,13],[198,19],[199,24],[200,17],[201,8],[202,25],[203,21],[204,15],[205,30],[206,25],[207,18],[208,14],[209,12],[210,11],[211,11],[212,6],[213,11],[214,8],[215,13],[216,19],[217,9],[218,13],[219,14],[220,8],[221,6],[222,5],[223,5],[224,6],[225,4],[226,8],[227,2],[228,3],[229,2],[230,1],[231,2],[232,1]]],[22,[[129,1],[130,2],[131,3],[132,3],[133,4],[134,2],[135,3],[136,4],[137,6],[138,2],[139,5],[140,6],[141,10],[142,8],[143,2],[144,2],[145,11],[146,8],[147,17],[148,10],[149,11],[150,14],[151,14],[152,12],[153,19],[154,5],[155,12],[156,15],[157,22],[158,19],[159,19],[160,16],[161,19],[162,16],[163,23],[164,14],[165,17],[166,10],[167,14],[168,24],[169,24],[170,16],[171,31],[172,23],[173,22],[174,26],[175,30],[176,23],[177,27],[178,23],[179,29],[180,24],[181,37],[182,27],[183,43],[184,28],[185,31],[186,25],[187,22],[188,29],[189,26],[190,42],[191,25],[192,33],[193,33],[194,37],[195,29],[196,26],[197,31],[198,24],[199,26],[200,25],[201,21],[202,28],[203,24],[204,22],[205,26],[206,16],[207,12],[208,23],[209,21],[210,16],[211,25],[212,22],[213,23],[214,11],[215,21],[216,11],[217,15],[218,17],[219,13],[220,7],[221,6],[222,5],[223,9],[224,9],[225,7],[226,10],[227,5],[228,2],[229,5],[230,4],[231,4],[232,2],[233,2],[234,2],[235,3],[238,1],[239,2],[240,2],[241,1],[242,1],[243,2],[245,2],[246,1],[247,2],[248,1],[249,1],[250,4],[251,1],[253,3],[254,2],[255,1],[256,3],[258,2],[259,1],[260,3]]],[23,[[130,2],[132,2],[133,1],[135,2],[136,2],[137,3],[138,1],[139,2],[141,3],[142,1],[143,1],[144,4],[145,1],[146,7],[147,9],[148,6],[149,9],[150,14],[151,18],[152,12],[153,15],[154,16],[155,13],[156,12],[157,21],[158,14],[159,15],[160,12],[161,9],[162,18],[163,19],[164,12],[165,16],[166,12],[167,10],[168,11],[169,12],[170,9],[171,17],[172,9],[173,13],[174,18],[175,19],[176,21],[177,27],[178,16],[179,31],[180,30],[181,24],[182,19],[183,23],[184,33],[185,31],[186,17],[187,28],[188,26],[189,21],[190,23],[191,28],[192,23],[193,32],[194,22],[195,28],[196,29],[197,39],[198,21],[199,24],[200,34],[201,34],[202,36],[203,45],[204,28],[205,30],[206,28],[207,28],[208,46],[209,35],[210,28],[211,20],[212,17],[213,31],[214,24],[215,23],[216,18],[217,18],[218,11],[219,10],[220,18],[221,11],[222,13],[223,13],[224,7],[225,12],[226,8],[227,14],[228,9],[229,7],[230,8],[231,10],[232,9],[233,5],[234,6],[235,2],[236,4],[237,7],[238,8],[239,7],[240,4],[241,8],[242,2],[243,5],[244,1],[245,4],[246,6],[247,2],[249,5],[250,1],[251,7],[252,3],[253,1],[254,1],[255,1],[258,1],[259,1],[260,1],[261,2],[262,1],[263,1],[264,2],[265,1],[266,2],[268,1],[269,2],[270,1],[273,1],[274,1]]],[24,[[133,2],[134,1],[135,2],[137,4],[138,3],[139,1],[140,3],[141,2],[142,4],[143,4],[144,5],[145,5],[146,4],[147,4],[148,10],[149,9],[150,6],[151,6],[152,7],[153,8],[154,6],[155,5],[156,9],[157,8],[158,6],[159,10],[160,11],[161,7],[162,13],[163,10],[164,10],[165,8],[166,16],[167,8],[168,9],[169,14],[170,20],[171,13],[172,20],[173,18],[174,24],[175,28],[176,25],[177,26],[178,23],[179,22],[180,24],[181,19],[182,31],[183,14],[184,25],[185,29],[186,36],[187,35],[188,26],[189,31],[190,27],[191,25],[192,24],[193,28],[194,25],[195,30],[196,36],[197,27],[198,26],[199,33],[200,34],[201,19],[202,24],[203,31],[204,32],[205,27],[206,27],[207,22],[208,26],[209,25],[210,25],[211,21],[212,27],[213,15],[214,22],[215,25],[216,20],[217,25],[218,16],[219,13],[220,11],[221,8],[222,19],[223,14],[224,13],[225,7],[226,12],[227,11],[228,10],[229,9],[230,14],[231,11],[232,12],[233,10],[234,7],[235,10],[236,10],[237,7],[238,13],[239,10],[240,13],[241,10],[242,7],[243,11],[244,9],[245,7],[246,3],[247,9],[248,3],[249,5],[250,4],[251,9],[252,7],[253,5],[254,5],[255,1],[256,5],[257,1],[258,3],[259,3],[261,1],[262,1],[263,1],[265,2]]],[25,[[130,1],[132,1],[133,2],[134,2],[135,2],[137,3],[138,2],[139,2],[140,3],[141,2],[142,1],[143,3],[144,3],[145,1],[146,2],[147,1],[148,1],[149,3],[150,1],[151,2],[152,1],[153,4],[154,2],[155,3],[156,2],[157,1],[158,3],[159,3],[160,6],[161,6],[162,4],[163,5],[164,8],[165,1],[166,9],[167,6],[168,8],[169,8],[170,6],[171,9],[172,9],[173,11],[174,5],[175,7],[176,10],[177,12],[178,10],[179,13],[180,14],[181,11],[182,11],[183,10],[184,10],[185,14],[186,7],[187,7],[188,6],[189,4],[190,9],[191,7],[192,10],[193,9],[194,9],[195,7],[196,8],[197,9],[198,6],[199,10],[200,9],[201,11],[202,5],[203,8],[204,7],[205,4],[206,6],[207,10],[208,9],[209,12],[210,5],[211,9],[212,8],[213,13],[214,9],[215,11],[216,5],[217,12],[218,10],[219,6],[220,7],[221,11],[222,9],[223,7],[224,11],[225,6],[226,7],[227,5],[228,4],[229,5],[230,8],[231,3],[232,8],[233,7],[234,3],[235,9],[236,6],[237,1],[238,4],[239,2],[240,3],[241,4],[242,5],[243,4],[244,5],[245,2],[246,3],[249,2],[250,1],[251,1]]]]}
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=5
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=4
+BYZ_EQUIVOCATED votes=5
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=5
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=6
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=5
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=4
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=5
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=4
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=6
+BYZ_EQUIVOCATED votes=5
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=4
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=4
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=5
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=5
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=4
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=4
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=4
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=7
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=4
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=4
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=4
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=4
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=7
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=6
+BYZ_EQUIVOCATED votes=4
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=4
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=5
+BYZ_EQUIVOCATED votes=7
+BYZ_EQUIVOCATED votes=7
+BYZ_EQUIVOCATED votes=9
+BYZ_EQUIVOCATED votes=7
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=5
+BYZ_EQUIVOCATED votes=10
+BYZ_EQUIVOCATED votes=5
+BYZ_EQUIVOCATED votes=4
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=7
+BYZ_EQUIVOCATED votes=5
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=11
+BYZ_EQUIVOCATED votes=4
+BYZ_EQUIVOCATED votes=5
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=13
+BYZ_EQUIVOCATED votes=6
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=9
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=6
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=11
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=5
+BYZ_EQUIVOCATED votes=5
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=4
+BYZ_EQUIVOCATED votes=7
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=7
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=10
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=5
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=4
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=10
+BYZ_EQUIVOCATED votes=4
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=9
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=4
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=4
+BYZ_EQUIVOCATED votes=5
+BYZ_EQUIVOCATED votes=7
+BYZ_EQUIVOCATED votes=5
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=4
+BYZ_EQUIVOCATED votes=8
+BYZ_EQUIVOCATED votes=6
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=10
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=4
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=5
+BYZ_EQUIVOCATED votes=15
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=7
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=8
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=17
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=16
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=9
+BYZ_EQUIVOCATED votes=6
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=8
+BYZ_EQUIVOCATED votes=5
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=11
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=18
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=7
+BYZ_EQUIVOCATED votes=5
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=16
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=11
+BYZ_EQUIVOCATED votes=5
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=19
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=16
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=8
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=14
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=11
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=16
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=16
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=22
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=18
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=18
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=21
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=14
+BYZ_EQUIVOCATED votes=6
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=17
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=20
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=21
+BYZ_EQUIVOCATED votes=19
+BYZ_EQUIVOCATED votes=17
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=20
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=18
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=20
+BYZ_EQUIVOCATED votes=19
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=17
+BYZ_EQUIVOCATED votes=19
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=20
+BYZ_EQUIVOCATED votes=20
+BYZ_EQUIVOCATED votes=20
+BYZ_EQUIVOCATED votes=20
+BYZ_EQUIVOCATED votes=20
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=15
+BYZ_EQUIVOCATED votes=20
+BYZ_EQUIVOCATED votes=22
+BYZ_EQUIVOCATED votes=19
+BYZ_EQUIVOCATED votes=20
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=20
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=14
+BYZ_EQUIVOCATED votes=22
+BYZ_EQUIVOCATED votes=18
+BYZ_EQUIVOCATED votes=18
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=4
+BYZ_EQUIVOCATED votes=15
+BYZ_EQUIVOCATED votes=8
+BYZ_EQUIVOCATED votes=5
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=25
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=17
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=22
+BYZ_EQUIVOCATED votes=9
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=4
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=4
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=4
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=5
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=5
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=5
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=5
+BYZ_EQUIVOCATED votes=5
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=4
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=4
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=3
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=2
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=1
+BYZ_EQUIVOCATED votes=5
+BYZ_EQUIVOCATED votes=1
