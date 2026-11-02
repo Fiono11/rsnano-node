@@ -198,6 +198,18 @@ def client_confirmed(path):
     return int(counts[-1].replace(',', '')) if counts else None
 
 
+def save_node_records(output, data, nodes):
+    """Copies each node's configs and its own diagnostics (also those after
+    nanospam ended) into the run record"""
+    for i in range(nodes):
+        node_dir = data / f'pr{i}'
+        saved = output / f'pr{i}'
+        saved.mkdir(exist_ok=True)
+        for path in [*node_dir.glob('config-*'), node_dir / 'diagnostics.log']:
+            if path.exists():
+                shutil.copy2(path, saved / path.name)
+
+
 def restart_events(text):
     """nanospam's RAI_RESTART_* lines: what each --restart did"""
     events = []
@@ -494,15 +506,6 @@ def main():
                     result['vote_audit'] = {k: v for k, v in vote_audit.items() if k != 'all_conflicts'}
                     result['correctness_passed'] = result['correctness_passed'] and vote_audit['conflicts'] == 0
                 result['status'] = 'settled' if result['correctness_passed'] else 'failed'
-                for i in range(nodes):
-                    saved = args.output / f'pr{i}'
-                    saved.mkdir()
-                    for config in (data / f'pr{i}').glob('config-*'):
-                        shutil.copy2(config, saved / config.name)
-                    # The node's own diagnostics, also those after nanospam ended
-                    diagnostics = data / f'pr{i}' / 'diagnostics.log'
-                    if diagnostics.exists():
-                        shutil.copy2(diagnostics, saved / diagnostics.name)
         except Exception as error:
             result['status'] = 'failed'
             result['error'] = repr(error)
@@ -510,6 +513,10 @@ def main():
         finally:
             # The record first: cleanup must not lose the reason a run ended.
             (args.output / 'result.json').write_text(json.dumps(result, indent=2, default=list) + '\n')
+            # Every node's config and diagnostics, of a failed or stalled run
+            # too: a remote node's are fetched before its data is deleted
+            fetch_node_files(HOSTS, data, ['diagnostics.log'])
+            save_node_records(args.output, data, nodes)
             # Only this run's process group; never signal unrelated node processes.
             if process is not None and args.keep:
                 result['kept'] = dict(pgid=process.pid, data=str(data))

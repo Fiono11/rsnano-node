@@ -33,7 +33,7 @@ use crate::{
     byzantine::{RecentBlocks, byzantine_keys, run_byzantine},
     cli_args::CliArgs,
     confirmation_receiver::ConfirmationReceiver,
-    domain::{BlockResult, Forks, spam_logic::SpamLogic},
+    domain::{BlockResult, Forks, RetrySchedule, spam_logic::SpamLogic},
     frontiers_sync::sync_frontiers,
     handshake::perform_handshake,
     high_prio_check::HighPrioCheck,
@@ -49,6 +49,10 @@ use crate::{
 };
 
 const MAX_BUFFERED_BLOCKS: usize = 1024;
+/// A setup wait first republishes and re-confirms after this long, then
+/// every SETUP_RECOVERY_EVERY
+const SETUP_RECOVERY_FIRST: Duration = Duration::from_secs(10);
+const SETUP_RECOVERY_EVERY: Duration = Duration::from_secs(5);
 const CONNECTIONS_PER_NODE: usize = 4;
 
 pub(crate) struct NanoSpamApp {
@@ -570,6 +574,7 @@ async fn republish_genesis_chain(rpc_clients: &[NanoRpcClient]) {
 async fn wait_for_equal_ledgers(rpc_clients: &[NanoRpcClient]) -> anyhow::Result<()> {
     info!("Waiting for all PRs to hold the same cemented ledger...");
     let started = Instant::now();
+    let mut recovery = RetrySchedule::new(SETUP_RECOVERY_FIRST, SETUP_RECOVERY_EVERY);
     loop {
         let mut counts = Vec::new();
         for rpc_client in rpc_clients {
@@ -588,8 +593,7 @@ async fn wait_for_equal_ledgers(rpc_clients: &[NanoRpcClient]) -> anyhow::Result
         }
         // A setup block lost on one node: the genesis chain, whose sends
         // fund every account of the setup, is handed to every node again
-        if started.elapsed() > Duration::from_secs(10) && started.elapsed().as_millis() % 5000 < 200
-        {
+        if recovery.due(started.elapsed()) {
             republish_genesis_chain(rpc_clients).await;
             // A node holding every block but never cementing one of them:
             // its election there missed the votes, which nothing sends again
@@ -632,6 +636,7 @@ async fn wait_for_full_quorum(
 ) -> anyhow::Result<()> {
     info!("Waiting for all PRs to see the full quorum...");
     let started = Instant::now();
+    let mut recovery = RetrySchedule::new(SETUP_RECOVERY_FIRST, SETUP_RECOVERY_EVERY);
     loop {
         let mut online = Vec::new();
         let mut missing = None;
@@ -658,9 +663,7 @@ async fn wait_for_full_quorum(
             // them; nothing else delivers it before the spam starts, so the
             // genesis chain, whose sends move the representative weight the
             // gate compares, is handed to every node again
-            _ if started.elapsed() > Duration::from_secs(10)
-                && started.elapsed().as_millis() % 5000 < 200 =>
-            {
+            _ if recovery.due(started.elapsed()) => {
                 republish_genesis_chain(rpc_clients).await;
             }
             _ if started.elapsed() > Duration::from_secs(120) => {
