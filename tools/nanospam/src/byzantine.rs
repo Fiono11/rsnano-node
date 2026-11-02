@@ -1,6 +1,5 @@
 use std::{
     collections::VecDeque,
-    net::{Ipv6Addr, SocketAddrV6},
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -16,7 +15,7 @@ use rsnano_types::{BlockHash, ConsensusEpoch, PrivateKey, ProtocolInfo, RawKey, 
 
 use crate::{
     handshake::perform_handshake,
-    setup::{peering_port, pr_key},
+    setup::{NodeHosts, peering_port, pr_key},
 };
 
 /// How many recently published hashes a Byzantine representative votes about
@@ -59,6 +58,7 @@ pub(crate) async fn run_byzantine(
     keys: Vec<PrivateKey>,
     epochs: Option<(Instant, Duration)>,
     honest_prs: usize,
+    hosts: &NodeHosts,
     protocol: ProtocolInfo,
     genesis_hash: BlockHash,
     recent: RecentBlocks,
@@ -70,7 +70,7 @@ pub(crate) async fn run_byzantine(
     }
     let mut writers = Vec::new();
     for node_index in 0..honest_prs {
-        let peer_addr = SocketAddrV6::new(Ipv6Addr::LOCALHOST, peering_port(node_index), 0, 0);
+        let peer_addr = hosts.socket(node_index, peering_port(node_index));
         let Ok(mut stream) = tcp_stream_factory.connect(peer_addr).await else {
             info!("Byzantine: could not connect to PR{node_index}");
             continue;

@@ -10,16 +10,17 @@ use rsnano_websocket_client::{
 };
 use rsnano_websocket_messages::MessageEnvelope;
 
-use crate::setup::websocket_port;
+use crate::setup::{NodeHosts, websocket_port};
 
 pub(crate) struct ConfirmationReceiver {
     ws_client: NanoWebSocketClient,
 }
 
 impl ConfirmationReceiver {
-    pub async fn connect() -> anyhow::Result<Self> {
+    /// Confirmations as PR0 sees them
+    pub async fn connect(hosts: &NodeHosts) -> anyhow::Result<Self> {
         let mut ws_client = NanoWebSocketClientFactory::default()
-            .connect(&format!("ws://[::1]:{}", websocket_port(0)))
+            .connect(&format!("ws://{}", hosts.socket(0, websocket_port(0))))
             .await?;
 
         ws_client

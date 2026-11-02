@@ -21,12 +21,17 @@ import time
 import traceback
 
 from audit_votes import audit, read_logs
+from remote_hosts import fetch_node_files, parse_hosts, push_binaries, rtt_matrix, stop_remote_nodes
+
+# --hosts: node i's address; without it every node is on this machine
+HOSTS = []
 
 
 def rpc(index, action, **fields):
     # A node in the middle of a close or an install can hold its locks for
     # seconds; the poll waits rather than failing the run.
-    connection = http.client.HTTPConnection('::1', 17076 + index * 10, timeout=60)
+    address = HOSTS[index]['address'] if index < len(HOSTS) else '::1'
+    connection = http.client.HTTPConnection(address, 17076 + index * 10, timeout=60)
     try:
         connection.request('POST', '/', json.dumps(dict(action=action, **fields)))
         result = json.loads(connection.getresponse().read())
@@ -244,6 +249,9 @@ def main():
                              '(nanospam --byzantine-node); its binary is BIN_DIR/rsnano-byzantine, a rai_byzantine build')
     parser.add_argument('--no-epochs', action='store_true',
                         help='the unmodified-node baseline: no epochs, no checkpoints, no committee model; settled means identical cemented state')
+    parser.add_argument('--hosts', type=Path, default=None,
+                        help='one line per running representative, ADDRESS or ADDRESS local (nanospam --hosts): '
+                             'remote nodes are started over ssh, the binaries copied to ~/rai-bin/<build> on their machines')
     args = parser.parse_args()
     # The unmodified-node baseline runs no epochs; its rotations are timed by
     # the epoch length the RAI arms use
@@ -255,6 +263,18 @@ def main():
     binary_dir = args.bin_dir.resolve()
     result = dict(gate='B', source_revision=subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
                   node_sha256=sha256(binary_dir / 'rsnano'), client_sha256=sha256(binary_dir / 'nanospam'))
+    nodes = args.prs - args.byzantine - args.offline
+    if args.hosts:
+        HOSTS.extend(parse_hosts(args.hosts.read_text()))
+        if len(HOSTS) < nodes:
+            raise SystemExit(f'--hosts lists {len(HOSTS)} nodes, the run has {nodes} running representatives')
+        del HOSTS[nodes:]
+        # Named after the build: every machine runs exactly the node binary here
+        remote_bin_dir = f"rai-bin/{result['node_sha256'][:16]}"
+        node_binaries = ['rsnano'] + (['rsnano-byzantine'] if args.byzantine_node else [])
+        push_binaries(HOSTS, binary_dir, node_binaries, remote_bin_dir)
+        result['hosts'] = HOSTS
+        result['rtt_ms'] = rtt_matrix(HOSTS)
     top_args = ['top', '-l', '2', '-n', '10', '-o', 'cpu', '-stats', 'pid,cpu,command'] if os.uname().sysname == 'Darwin' else ['top', '-b', '-n', '2', '-d', '1']
     waited_until = time.monotonic() + args.wait_quiet
     while True:
@@ -271,7 +291,6 @@ def main():
         (args.output / 'result.json').write_text(json.dumps(result, indent=2) + '\n')
         print(json.dumps(result, indent=2))
         return 7
-    nodes = args.prs - args.byzantine - args.offline
     result['nodes'] = nodes
     for i in range(args.prs):
         try:
@@ -320,6 +339,8 @@ def main():
             command += ['--committee-model', 'equal_weight', '--committee-f', '1', '--committee-p', str(args.committee_p)]
             if args.committee_seats is not None:
                 command += ['--committee-seats', str(args.committee_seats)]
+        if args.hosts:
+            command += ['--hosts', str(args.hosts.resolve()), '--remote-bin-dir', remote_bin_dir]
         result['command'] = command
         result['status'] = 'running'
         env = dict(os.environ, PATH=str(binary_dir) + os.pathsep + os.environ['PATH'], RUST_LOG='nanospam=info', NANO_LOG='noansi')
@@ -466,6 +487,7 @@ def main():
                     up = sum(e['event'] == 'up' for e in events)
                     result['restarts_completed'] = up == len(args.restart)
                     result['correctness_passed'] = result['correctness_passed'] and result['restarts_completed']
+                fetch_node_files(HOSTS, data, ['diagnostics.log', 'signed-votes.log'])
                 if args.audit_votes:
                     vote_audit = audit(read_logs(data))
                     (args.output / 'vote_audit.json').write_text(json.dumps(vote_audit, indent=2) + '\n')
@@ -492,6 +514,8 @@ def main():
             if process is not None and args.keep:
                 result['kept'] = dict(pgid=process.pid, data=str(data))
                 print(f'KEPT pgid={process.pid} data={data}', flush=True)
+                if HOSTS:
+                    print(f'KEPT remote nodes: same data path on {sorted({h["address"] for h in HOSTS if h["remote"]})}', flush=True)
             elif process is not None:
                 try:
                     os.killpg(process.pid, signal.SIGTERM)
@@ -503,6 +527,10 @@ def main():
                     os.killpg(process.pid, signal.SIGKILL)
                 except (ProcessLookupError, PermissionError):
                     pass
+            # Remote nodes outlive their ssh clients; they and their data go
+            # unless kept for a post-mortem
+            if HOSTS and not args.keep:
+                stop_remote_nodes(HOSTS, data, remove=True)
     summary = {k: v for k, v in result.items() if k not in ('stats', 'counters', 'final_states', 'block_counts', 'epoch_events')}
     if summary.get('client'):
         summary['client'] = {k: v for k, v in summary['client'].items()

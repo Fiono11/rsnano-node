@@ -1,5 +1,4 @@
 use std::{
-    net::{Ipv6Addr, SocketAddrV6},
     sync::{
         Mutex,
         atomic::{AtomicBool, Ordering},
@@ -42,8 +41,8 @@ use crate::{
     restart::Restarter,
     rotation::run_rotations,
     setup::{
-        configure_nodes, create_account_map, genesis_key, get_genesis_hash, peering_port, rpc_port,
-        start_nodes,
+        NodeHosts, configure_nodes, create_account_map, genesis_key, get_genesis_hash,
+        peering_port, remote_nodes, rpc_port, start_nodes,
     },
     wallets_factory::create_wallets,
     weight_shift::{WeightShifts, run_weight_shifts},
@@ -95,8 +94,11 @@ impl NanoSpamApp {
         // Only the representatives that run a node have an RPC; the offline and
         // Byzantine ones exist in the ledger only
         for i in 0..self.args.honest_prs() {
-            let rpc_client =
-                NanoRpcClient::new(format!("http://[::1]:{}", rpc_port(i)).parse().unwrap());
+            let rpc_client = NanoRpcClient::new(
+                format!("http://{}", self.args.hosts().socket(i, rpc_port(i)))
+                    .parse()
+                    .unwrap(),
+            );
             self.rpc_clients.push(rpc_client);
         }
 
@@ -104,7 +106,11 @@ impl NanoSpamApp {
 
         if !self.args.attach {
             let node_handles = start_nodes(&self.args, &data_dir, &self.rpc_clients).await;
-            self.node_lifetime = NodeLifetime::new(node_handles, self.args.kill_nodes());
+            self.node_lifetime = NodeLifetime::new(
+                node_handles,
+                remote_nodes(&self.args, &data_dir),
+                self.args.kill_nodes(),
+            );
         }
 
         let representatives = self.args.representatives();
@@ -172,7 +178,7 @@ impl NanoSpamApp {
 
         for node_index in 0..self.args.honest_prs() {
             let (node_readers, node_writers) =
-                connect_node(&self.tcp_stream_factory, node_index).await?;
+                connect_node(&self.tcp_stream_factory, self.args.hosts(), node_index).await?;
             tcp_writers.push(Some(node_writers));
             tcp_readers.push(node_readers);
         }
@@ -187,7 +193,7 @@ impl NanoSpamApp {
         let (tx_ws_msg, rx_ws_msg) = std::sync::mpsc::channel::<(MessageEnvelope, Timestamp)>();
 
         info!("Connecting to websocket...");
-        let mut conf_receiver = ConfirmationReceiver::connect().await?;
+        let mut conf_receiver = ConfirmationReceiver::connect(self.args.hosts()).await?;
 
         info!("Starting with {} BPS", logic.lock().unwrap().current_bps);
 
@@ -233,6 +239,7 @@ impl NanoSpamApp {
                             )
                         }),
                         self.args.honest_prs(),
+                        self.args.hosts(),
                         protocol,
                         genesis_hash,
                         recent_blocks.clone(),
@@ -677,10 +684,11 @@ async fn wait_for_full_quorum(
 /// Opens nanospam's publishing connections to node PR`node_index`
 pub(crate) async fn connect_node(
     tcp_stream_factory: &TcpStreamFactory,
+    hosts: &NodeHosts,
     node_index: usize,
 ) -> anyhow::Result<(Vec<ReadHalf<TcpStream>>, Vec<WriteHalf<TcpStream>>)> {
     let protocol = ProtocolInfo::default_for(NetworkType::NanoTestNetwork);
-    let peer_addr = SocketAddrV6::new(Ipv6Addr::LOCALHOST, peering_port(node_index), 0, 0);
+    let peer_addr = hosts.socket(node_index, peering_port(node_index));
     info!(?peer_addr, "Connecting to node PR{node_index}...");
     let mut readers = Vec::with_capacity(CONNECTIONS_PER_NODE);
     let mut writers = Vec::with_capacity(CONNECTIONS_PER_NODE);

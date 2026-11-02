@@ -9,7 +9,7 @@ use crate::{
     domain::{RateSpec, Representatives, SpamStrategy, spam_logic::SpamSpec},
     restart::{RestartSpec, RestartTrigger},
     rotation::RotationSchedule,
-    setup::pr_key,
+    setup::{NodeHosts, pr_key},
 };
 
 const DEFAULT_RATE: &str = "1+50@3s";
@@ -217,6 +217,25 @@ pub(crate) struct CliArgs {
     /// --epoch-duration-ms.
     #[arg(long)]
     pub rotation_epoch_ms: Option<u64>,
+
+    /// Evaluation across machines: a file with one line per running
+    /// representative, `ADDRESS` or `ADDRESS local`. PR`i` listens at line
+    /// i's address; a remote one is started over ssh (key-based, no prompt)
+    /// with the same data directory path there. Without it every node runs
+    /// here at [::1].
+    #[arg(long, value_parser = read_hosts_file)]
+    pub hosts: Option<NodeHosts>,
+
+    /// Evaluation across machines: where the node binaries are on the
+    /// remote machines (relative to the ssh login directory or absolute);
+    /// without it they are looked up on the remote PATH
+    #[arg(long)]
+    pub remote_bin_dir: Option<PathBuf>,
+}
+
+fn read_hosts_file(path: &str) -> Result<NodeHosts, String> {
+    let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
+    NodeHosts::parse(&text)
 }
 
 impl CliArgs {
@@ -244,6 +263,13 @@ impl CliArgs {
     /// `byzantine` are Byzantine, the `offline` before them are offline.
     pub(crate) fn honest_prs(&self) -> usize {
         self.prs - self.byzantine - self.offline
+    }
+
+    /// Where each running representative's node lives (all here without
+    /// `--hosts`)
+    pub(crate) fn hosts(&self) -> &NodeHosts {
+        static LOCAL: NodeHosts = NodeHosts::local();
+        self.hosts.as_ref().unwrap_or(&LOCAL)
     }
 
     /// RAI: N = 3f + 2p + 1, the fewest committee members f and p allow
@@ -294,6 +320,18 @@ impl CliArgs {
     }
 
     pub(crate) fn validate(&self) -> anyhow::Result<()> {
+        if let Some(hosts) = &self.hosts {
+            if hosts.len() < self.honest_prs() {
+                return Err(anyhow!(
+                    "--hosts lists {} nodes, the run has {} running representatives",
+                    hosts.len(),
+                    self.honest_prs()
+                ));
+            }
+            if self.cpp {
+                return Err(anyhow!("--hosts runs rsnano nodes only, not --cpp"));
+            }
+        }
         if self.committee_model != "weighted" {
             let fewest = self.fewest_seats();
             if self.committee_seats.is_some_and(|seats| seats < fewest) {

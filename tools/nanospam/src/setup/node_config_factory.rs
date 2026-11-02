@@ -123,7 +123,7 @@ pub(crate) fn configure_nodes(args: &CliArgs, data_dir: &Path) {
             let node_config = NODE_CONFIG
                 .replace("PEERING_PORT", &peering_port(i).to_string())
                 .replace("WS_PORT", &websocket_port(i).to_string())
-                .replace("PRECONF_PEERS", &preconfigured_peers(args.honest_prs(), i))
+                .replace("PRECONF_PEERS", &preconfigured_peers(args, i))
                 .replace("DB_BACKEND", if args.rocksdb { "rocksdb" } else { "lmdb" })
                 .replace("CPS_LIMIT", &args.cps_limit.to_string())
                 .replace(
@@ -166,15 +166,15 @@ pub(crate) fn configure_nodes(args: &CliArgs, data_dir: &Path) {
     }
 }
 
-fn preconfigured_peers(prs: usize, current_pr: usize) -> String {
+fn preconfigured_peers(args: &CliArgs, current_pr: usize) -> String {
     let mut result = String::new();
     result.push('[');
-    for i in 0..prs {
+    for i in 0..args.honest_prs() {
         if i == current_pr {
             continue;
         }
 
-        result.push_str(&format!("\"[::1]:{}\",", peering_port(i)));
+        result.push_str(&format!("\"{}\",", args.hosts().socket(i, peering_port(i))));
     }
     result.push(']');
     result

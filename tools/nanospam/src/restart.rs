@@ -176,7 +176,7 @@ impl Restarter<'_> {
         if cancel.is_cancelled() {
             return;
         }
-        match connect_node(self.tcp_stream_factory, pr).await {
+        match connect_node(self.tcp_stream_factory, self.args.hosts(), pr).await {
             Ok((readers, writers)) => {
                 for reader in readers {
                     tokio::spawn(drain_reader(reader));
