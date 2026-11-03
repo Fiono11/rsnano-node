@@ -250,6 +250,7 @@ def main():
     parser.add_argument('--keep', action='store_true', help='leave the nodes running and their data for a post-mortem; print the process group')
     parser.add_argument('--settle-timeout', type=int, default=90, help='seconds to wait for settlement after the client finished or timed out')
     parser.add_argument('--stall-abort', type=int, default=45, help='end the client phase or the settle wait after this many seconds without progress (0: never)')
+    parser.add_argument('--drain-limit', type=int, default=60, help='end the client phase as stalled once it is still waiting for confirmations this many seconds after the load (blocks / rate after its first progress line) should have ended (0: never)')
     parser.add_argument('--prs', type=int, default=6, help='representatives; more than the 3f + 2p + 1 seats leaves the lightest (ties by key) outside the committee')
     parser.add_argument('--restart', action='append', default=[], help='nanospam --restart PR:at:SECS or PR:close:EPOCH[:ROUND] (SIGKILL, then start again); repeatable')
     parser.add_argument('--restart-down-ms', type=int, default=0, help='how long a killed node stays down')
@@ -383,15 +384,26 @@ def main():
                 # A stalled run is ended, not waited out: no confirmation for
                 # --stall-abort seconds once the spam has started
                 last_count, last_progress = None, time.monotonic()
+                # A trickle of confirmations is not progress: once the load
+                # has had its time (blocks / rate from its first progress
+                # line), the client gets --drain-limit seconds more to see
+                # every confirmation, as healthy runs do within ~20 s
+                drain_deadline = None
                 while process.poll() is None and time.monotonic() < deadline:
                     time.sleep(1)
                     count = client_confirmed(args.output / 'run.log')
+                    if count is not None and drain_deadline is None and args.drain_limit:
+                        drain_deadline = time.monotonic() + args.blocks / args.rate + args.drain_limit
                     if count != last_count:
                         last_count, last_progress = count, time.monotonic()
                     elif (args.stall_abort and count is not None
                           and time.monotonic() - last_progress > args.stall_abort):
                         result['stalled'] = dict(phase='client', confirmed=count)
                         print(f'stall: client at {count} confirmed for {args.stall_abort}s', file=log, flush=True)
+                        break
+                    if drain_deadline is not None and time.monotonic() > drain_deadline:
+                        result['stalled'] = dict(phase='client', confirmed=count, reason='drain limit')
+                        print(f'stall: client at {count} confirmed {args.drain_limit}s after the load', file=log, flush=True)
                         break
                 # A fork run settles without every conflicting position
                 # finalizing: the client may still be waiting for some of
