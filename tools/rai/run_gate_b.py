@@ -390,7 +390,8 @@ def main():
                 if result['client_finished'] and process.returncode:
                     raise RuntimeError(f'nanospam exited with {process.returncode}')
                 result['client_finished_s'] = round(args.timeout - (deadline - time.monotonic()), 1)
-                deadline = time.monotonic() + args.settle_timeout
+                settle_start = time.monotonic()
+                deadline = settle_start + args.settle_timeout
                 last_view, last_progress = None, time.monotonic()
                 hard_deadline = deadline + 120
                 open_trace = []
@@ -417,7 +418,9 @@ def main():
                                                  decided=settled['decided_somewhere'])
                         break
                     time.sleep(1)
-                result['settled_after_s'] = round(args.timeout - (deadline - time.monotonic()), 1)
+                # seconds since the client phase began, like client_finished_s
+                # (the deadline now counts down the settle wait, not --timeout)
+                result['settled_after_s'] = round(result['client_finished_s'] + time.monotonic() - settle_start, 1)
                 # Forked positions resolve after the load: keep the nodes
                 # running until none is open anywhere, until none has resolved
                 # for --fork-grace-stall seconds, or until the cap
