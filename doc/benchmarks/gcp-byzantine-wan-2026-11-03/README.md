@@ -18,6 +18,7 @@ equivocate,conflicting,equivocate --byzantine-leads-close`). All logs, `host.txt
 | `cap-fork10-honest-2000` | 078063f88 | fork10, honest, 2000/s | settled; p50 407, p95 543, p99 735 ms; close max 4.6 s (no regression) |
 | `cap-fork5-byz-2000` | 078063f88 | fork5-byz, 2000/s | **not settled**: close max 90 s, median 9.5 s |
 | `cap-fork10-byz-1000` | 078063f88 | fork10-byz, 1000/s | **settled**; p50 421 ms, p95 2.26 s, p99 2.89 s; close median 8.6 s, max 33 s; forks resolved |
+| `cap-fork10-byz-1500` | 078063f88 | fork10-byz, 1500/s | **not settled** (drain limit at 40,104, ledgers 44,478 / 44,490); p50 408 ms but p95 118 s; close median 8.7 s, max 52.5 s |
 
 ## What the runs show
 
@@ -36,7 +37,7 @@ equivocate,conflicting,equivocate --byzantine-leads-close`). All logs, `host.txt
   instances live ~10x shorter and no node falls behind; across 32-313 ms round trips
   every repeat interval multiplies the load.
 - Capacity: with one equivocating member RAI settles across six regions at 1000/s
-  (10% forks) but not at 2000/s, even with 5% forks.
+  (10% forks) but not at 1500/s, nor at 2000/s even with 5% forks.
 
 ## Fixes made along the way (rai_multihost)
 
