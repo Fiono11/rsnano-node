@@ -445,8 +445,10 @@ def main():
                 result['settled_after_s'] = round(result['client_finished_s'] + time.monotonic() - settle_start, 1)
                 # Forked positions resolve after the load: keep the nodes
                 # running until none is open anywhere, until none has resolved
-                # for --fork-grace-stall seconds, or until the cap
-                if args.fork_grace and counts is not None:
+                # for --fork-grace-stall seconds, or until the cap. A run that
+                # did not settle has failed already: a trickle of resolutions
+                # would keep it waiting for the cap
+                if args.fork_grace and counts is not None and settled['settled']:
                     before = settled['uncemented']
                     started = time.monotonic()
                     grace_end = started + args.fork_grace
