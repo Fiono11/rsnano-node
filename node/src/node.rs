@@ -696,6 +696,7 @@ impl Node {
             message_flooder.clone(),
             rep_tracker.clone(),
             network.clone(),
+            config.active_elections.min_request_interval,
         )));
 
         let confirm_req_sender = ConfirmReqSender::new(
