@@ -395,6 +395,12 @@ async fn publish_blocks(
             fork_buffer = Some(fork_serializer.serialize(&publish_fork));
         }
 
+        // Marked published before it is sent: a node next to the client can
+        // confirm the block while the write to a distant node still blocks,
+        // and a confirmation that arrived before this mark was never counted
+        // TODO support delayed forks
+        let was_high_prio = logic.lock().unwrap().published(&hash, clock.now());
+
         let mut counter = 0;
         let failed: Vec<AtomicBool> = tcp_streams.iter().map(|_| AtomicBool::new(false)).collect();
         tokio_scoped::scope(|s| {
@@ -432,25 +438,16 @@ async fn publish_blocks(
             }
         }
 
-        let now = clock.now();
-
         writer_index += 1;
         if writer_index >= CONNECTIONS_PER_NODE {
             writer_index = 0;
         }
 
-        let was_high_prio = {
-            let mut l = logic.lock().unwrap();
-            // TODO support delayed forks
-            let prio = l.published(&hash, now);
-            if l.is_finished() {
-                break;
-            }
-            prio
-        };
-
         if was_high_prio {
             tracing::info!("High prio block published: {hash}");
+        }
+        if logic.lock().unwrap().is_finished() {
+            break;
         }
     }
     cancel_token.cancel();
