@@ -3,6 +3,7 @@ mod checkpoint_fetch;
 mod chunk_window;
 mod close_memo;
 mod epoch_decision;
+mod evidence_requests;
 mod report_plugin;
 mod report_service;
 use crate::consensus::election::{

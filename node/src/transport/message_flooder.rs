@@ -9,6 +9,7 @@ use rsnano_network::{
 };
 use rsnano_nullable_clock::Timestamp;
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
+use rsnano_types::PublicKey;
 use rsnano_utils::stats::Stats;
 
 use super::{MessageSender, try_send_serialized_message};
@@ -138,6 +139,27 @@ impl MessageFlooder {
         }
         let rep = &peered[pick % peered.len()];
         self.try_send_channel_id(rep.channel_id, message, traffic_type)
+    }
+
+    /// RAI: sends to the principal representative voting with `rep`, if it is
+    /// peered. False if it is not or the send fails.
+    #[cfg_attr(not(feature = "rai_protocol"), allow(dead_code))]
+    pub(crate) fn send_to_representative(
+        &mut self,
+        rep: &PublicKey,
+        message: &Message,
+        traffic_type: TrafficType,
+    ) -> bool {
+        let Some(channel_id) = self
+            .rep_tracker
+            .peered_principal_reps()
+            .into_iter()
+            .find(|peered| peered.rep_key == *rep)
+            .map(|peered| peered.channel_id)
+        else {
+            return false;
+        };
+        self.try_send_channel_id(channel_id, message, traffic_type)
     }
 
     pub fn channel(&self, channel_id: ChannelId) -> Option<Arc<Channel>> {

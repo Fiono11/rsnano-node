@@ -2,6 +2,7 @@ use std::{
     collections::{HashMap, VecDeque},
     sync::{Arc, Condvar, Mutex},
     thread::JoinHandle,
+    time::Duration,
 };
 
 use rsnano_messages::{
@@ -14,7 +15,8 @@ use rsnano_utils::stats::{DetailType, Direction, StatType, Stats};
 
 use super::{
     ReconcileResult, ReportExchange, ReportMessage, Verification,
-    certificate_memo::CertificateMemo, unjustified, well_formed,
+    certificate_memo::CertificateMemo, evidence_requests::EvidenceRequests, unjustified,
+    well_formed,
 };
 use crate::{
     consensus::{
@@ -42,6 +44,9 @@ pub struct ReportService {
     active_elections: Arc<AecService>,
     wallet_reps: Arc<Mutex<WalletRepresentatives>>,
     flooder: Mutex<MessageFlooder>,
+    /// The missing certificate evidence asked for, so that what is on its
+    /// way is not asked for again
+    evidence_requests: Mutex<EvidenceRequests>,
     clock: Arc<SteadyClock>,
     stats: Arc<Stats>,
     /// Reports taken at a boundary whose predecessor checkpoint was not
@@ -84,6 +89,7 @@ impl ReportService {
         clock: Arc<SteadyClock>,
         stats: Arc<Stats>,
         signing: Arc<SigningRecords>,
+        evidence_retry: Duration,
     ) -> Self {
         Self {
             exchange: Arc::new(Mutex::new(ReportExchange::new())),
@@ -91,6 +97,7 @@ impl ReportService {
             active_elections,
             wallet_reps,
             flooder: Mutex::new(flooder),
+            evidence_requests: Mutex::new(EvidenceRequests::new(evidence_retry)),
             clock,
             stats,
             pending: Mutex::new(HashMap::new()),
@@ -187,6 +194,7 @@ impl ReportService {
             Arc::new(SteadyClock::new_null()),
             Arc::new(Stats::default()),
             Arc::new(SigningRecords::new_null()),
+            Duration::from_millis(300),
         )
     }
 
@@ -683,19 +691,50 @@ impl ReportService {
                     missing.len(),
                     sample
                 );
-                for chunk in missing.chunks(EvidenceReq::MAX_HASHES) {
-                    self.stats
-                        .inc_dir(StatType::Message, DetailType::EvidenceReq, Direction::Out);
-                    self.flooder.lock().unwrap().flood_prs_and_some_non_prs(
-                        &Message::EvidenceReq(EvidenceReq {
-                            epoch,
-                            hashes: chunk.to_vec(),
-                        }),
-                        TrafficType::Generic,
-                        1.0,
-                    );
-                }
+                self.request_evidence(epoch, &reporter, &missing, now);
             }
+        }
+    }
+
+    /// RAI: asks for the missing evidence of a report's certificates that is
+    /// due a request (see `EvidenceRequests`): of the reporter first, of every
+    /// representative on a retry
+    fn request_evidence(
+        &self,
+        epoch: ConsensusEpoch,
+        reporter: &PublicKey,
+        missing: &[BlockHash],
+        now: Timestamp,
+    ) {
+        let due = {
+            let mut requests = self.evidence_requests.lock().unwrap();
+            requests.forget_before(ConsensusEpoch::new(epoch.as_u64().saturating_sub(4)));
+            requests.due(epoch, missing, now)
+        };
+        let mut flooder = self.flooder.lock().unwrap();
+        for chunk in due.reporter.chunks(EvidenceReq::MAX_HASHES) {
+            self.stats
+                .inc_dir(StatType::Message, DetailType::EvidenceReq, Direction::Out);
+            let request = Message::EvidenceReq(EvidenceReq {
+                epoch,
+                hashes: chunk.to_vec(),
+            });
+            // A reporter not peered here is asked through everyone
+            if !flooder.send_to_representative(reporter, &request, TrafficType::Generic) {
+                flooder.flood_prs_and_some_non_prs(&request, TrafficType::Generic, 1.0);
+            }
+        }
+        for chunk in due.everyone.chunks(EvidenceReq::MAX_HASHES) {
+            self.stats
+                .inc_dir(StatType::Message, DetailType::EvidenceReq, Direction::Out);
+            flooder.flood_prs_and_some_non_prs(
+                &Message::EvidenceReq(EvidenceReq {
+                    epoch,
+                    hashes: chunk.to_vec(),
+                }),
+                TrafficType::Generic,
+                1.0,
+            );
         }
     }
 

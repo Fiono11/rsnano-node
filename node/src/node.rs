@@ -939,6 +939,9 @@ impl Node {
             steady_clock.clone(),
             stats.clone(),
             signing.clone(),
+            // Evidence on its way is asked for again after a report check's
+            // retry interval, or a round trip across the links if longer
+            Duration::from_millis(300).max(config.active_elections.min_request_interval),
         ));
         #[cfg(feature = "rai_protocol")]
         {
