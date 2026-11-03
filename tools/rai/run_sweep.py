@@ -70,6 +70,19 @@ SETS = {
            for v, flags in [('nofork', []), ('fork5-grace', ['--fork-percentage', '5', '--fork-grace', '600']),
                             ('fork10-grace', ['--fork-percentage', '10', '--fork-grace', '600'])]},
     },
+    # The paper matrix across six regions: the honest cases at 2000/s; the
+    # Byzantine-member cases at 1000/s, the highest of 1000/1500/2000 at which
+    # RAI settles with an equivocating member across the wide-area links
+    # (doc/benchmarks/gcp-byzantine-wan-2026-11-03)
+    'final-wan': {
+        'nofork': ([], [2000], None),
+        'fork5-grace': (['--fork-percentage', '5', '--fork-grace', '600'], [2000], None),
+        'fork10-grace': (['--fork-percentage', '10', '--fork-grace', '600'], [2000], None),
+        **{f'{v}-byznode': (flags + ['--byzantine-node', 'equivocate,conflicting,equivocate',
+                                     '--byzantine-leads-close'], [1000], None)
+           for v, flags in [('nofork', []), ('fork5-grace', ['--fork-percentage', '5', '--fork-grace', '600']),
+                            ('fork10-grace', ['--fork-percentage', '10', '--fork-grace', '600'])]},
+    },
     'byz': {
         'nofork-byzlead': (['--byzantine', '1', '--byzantine-leads-close'], BYZ_RATES, None),
         'fork5-byzlead': (['--fork-percentage', '5', '--byzantine', '1', '--byzantine-leads-close'], BYZ_RATES, None),
