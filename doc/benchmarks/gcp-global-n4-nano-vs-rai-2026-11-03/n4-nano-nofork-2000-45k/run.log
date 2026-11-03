@@ -1,0 +1,286 @@
+2026-11-03T09:27:45.512712Z  INFO nanospam::setup::account_map_factory: Creating account keys file with 45000 keys: "/tmp/rai-gate-b-dfz2do3u/account_keys.txt"
+2026-11-03T09:27:46.341612Z  INFO nanospam::setup::node_config_factory: ********************************************************************************
+2026-11-03T09:27:46.341631Z  INFO nanospam::setup::node_config_factory: Setting up node PR0...
+2026-11-03T09:27:46.341633Z  INFO nanospam::setup::node_config_factory: Creating directory "/tmp/rai-gate-b-dfz2do3u/pr0"
+2026-11-03T09:27:46.341651Z  INFO nanospam::setup::node_config_factory: Creating node config file: "/tmp/rai-gate-b-dfz2do3u/pr0/config-node.toml"
+2026-11-03T09:27:46.341710Z  INFO nanospam::setup::node_config_factory: Creating rpc config file: "/tmp/rai-gate-b-dfz2do3u/pr0/config-rpc.toml"
+2026-11-03T09:27:46.341718Z  INFO nanospam::setup::node_config_factory: ********************************************************************************
+2026-11-03T09:27:46.341720Z  INFO nanospam::setup::node_config_factory: Setting up node PR1...
+2026-11-03T09:27:46.341722Z  INFO nanospam::setup::node_config_factory: Creating directory "/tmp/rai-gate-b-dfz2do3u/pr1"
+2026-11-03T09:27:46.341727Z  INFO nanospam::setup::node_config_factory: Creating node config file: "/tmp/rai-gate-b-dfz2do3u/pr1/config-node.toml"
+2026-11-03T09:27:46.341754Z  INFO nanospam::setup::node_config_factory: Creating rpc config file: "/tmp/rai-gate-b-dfz2do3u/pr1/config-rpc.toml"
+2026-11-03T09:27:46.341761Z  INFO nanospam::setup::node_config_factory: ********************************************************************************
+2026-11-03T09:27:46.341763Z  INFO nanospam::setup::node_config_factory: Setting up node PR2...
+2026-11-03T09:27:46.341764Z  INFO nanospam::setup::node_config_factory: Creating directory "/tmp/rai-gate-b-dfz2do3u/pr2"
+2026-11-03T09:27:46.341770Z  INFO nanospam::setup::node_config_factory: Creating node config file: "/tmp/rai-gate-b-dfz2do3u/pr2/config-node.toml"
+2026-11-03T09:27:46.341792Z  INFO nanospam::setup::node_config_factory: Creating rpc config file: "/tmp/rai-gate-b-dfz2do3u/pr2/config-rpc.toml"
+2026-11-03T09:27:46.341800Z  INFO nanospam::setup::node_config_factory: ********************************************************************************
+2026-11-03T09:27:46.341801Z  INFO nanospam::setup::node_config_factory: Setting up node PR3...
+2026-11-03T09:27:46.341802Z  INFO nanospam::setup::node_config_factory: Creating directory "/tmp/rai-gate-b-dfz2do3u/pr3"
+2026-11-03T09:27:46.341812Z  INFO nanospam::setup::node_config_factory: Creating node config file: "/tmp/rai-gate-b-dfz2do3u/pr3/config-node.toml"
+2026-11-03T09:27:46.341829Z  INFO nanospam::setup::node_config_factory: Creating rpc config file: "/tmp/rai-gate-b-dfz2do3u/pr3/config-rpc.toml"
+2026-11-03T09:27:46.341836Z  INFO nanospam::setup::node_config_factory: ********************************************************************************
+2026-11-03T09:27:46.341838Z  INFO nanospam::setup::node_config_factory: Setting up node PR4...
+2026-11-03T09:27:46.341839Z  INFO nanospam::setup::node_config_factory: Creating directory "/tmp/rai-gate-b-dfz2do3u/pr4"
+2026-11-03T09:27:46.341845Z  INFO nanospam::setup::node_config_factory: Creating node config file: "/tmp/rai-gate-b-dfz2do3u/pr4/config-node.toml"
+2026-11-03T09:27:46.341862Z  INFO nanospam::setup::node_config_factory: Creating rpc config file: "/tmp/rai-gate-b-dfz2do3u/pr4/config-rpc.toml"
+2026-11-03T09:27:46.341868Z  INFO nanospam::setup::node_config_factory: ********************************************************************************
+2026-11-03T09:27:46.341869Z  INFO nanospam::setup::node_config_factory: Setting up node PR5...
+2026-11-03T09:27:46.341871Z  INFO nanospam::setup::node_config_factory: Creating directory "/tmp/rai-gate-b-dfz2do3u/pr5"
+2026-11-03T09:27:46.341875Z  INFO nanospam::setup::node_config_factory: Creating node config file: "/tmp/rai-gate-b-dfz2do3u/pr5/config-node.toml"
+2026-11-03T09:27:46.341891Z  INFO nanospam::setup::node_config_factory: Creating rpc config file: "/tmp/rai-gate-b-dfz2do3u/pr5/config-rpc.toml"
+2026-11-03T09:27:46.341948Z  INFO nanospam::setup::node_launcher: Copying PR0's data directory to its machine...
+2026-11-03T09:27:46.728599Z  INFO nanospam::setup::node_launcher: Starting node: "ssh" "-n" "-o" "BatchMode=yes" "-o" "StrictHostKeyChecking=accept-new" "-o" "ServerAliveInterval=15" "10.186.0.3" "sh '/tmp/rai-gate-b-dfz2do3u/pr0/run-node.sh'"
+2026-11-03T09:27:46.728837Z  INFO nanospam::setup::node_launcher: Waiting for RPC...
+2026-11-03T09:27:46.933680Z  INFO nanospam::setup::node_launcher: Copying PR1's data directory to its machine...
+2026-11-03T09:27:52.376652Z  INFO nanospam::setup::node_launcher: Starting node: "ssh" "-n" "-o" "BatchMode=yes" "-o" "StrictHostKeyChecking=accept-new" "-o" "ServerAliveInterval=15" "10.128.0.3" "sh '/tmp/rai-gate-b-dfz2do3u/pr1/run-node.sh'"
+2026-11-03T09:27:52.376925Z  INFO nanospam::setup::node_launcher: Waiting for RPC...
+2026-11-03T09:27:54.238796Z  INFO nanospam::setup::node_launcher: Copying PR2's data directory to its machine...
+2026-11-03T09:27:58.757043Z  INFO nanospam::setup::node_launcher: Starting node: "ssh" "-n" "-o" "BatchMode=yes" "-o" "StrictHostKeyChecking=accept-new" "-o" "ServerAliveInterval=15" "10.162.0.2" "sh '/tmp/rai-gate-b-dfz2do3u/pr2/run-node.sh'"
+2026-11-03T09:27:58.757307Z  INFO nanospam::setup::node_launcher: Waiting for RPC...
+2026-11-03T09:28:00.208894Z  INFO nanospam::setup::node_launcher: Copying PR3's data directory to its machine...
+2026-11-03T09:28:06.997916Z  INFO nanospam::setup::node_launcher: Starting node: "ssh" "-n" "-o" "BatchMode=yes" "-o" "StrictHostKeyChecking=accept-new" "-o" "ServerAliveInterval=15" "10.182.0.2" "sh '/tmp/rai-gate-b-dfz2do3u/pr3/run-node.sh'"
+2026-11-03T09:28:06.998198Z  INFO nanospam::setup::node_launcher: Waiting for RPC...
+2026-11-03T09:28:09.164339Z  INFO nanospam::setup::node_launcher: Copying PR4's data directory to its machine...
+2026-11-03T09:28:20.736558Z  INFO nanospam::setup::node_launcher: Starting node: "ssh" "-n" "-o" "BatchMode=yes" "-o" "StrictHostKeyChecking=accept-new" "-o" "ServerAliveInterval=15" "10.140.0.2" "sh '/tmp/rai-gate-b-dfz2do3u/pr4/run-node.sh'"
+2026-11-03T09:28:20.736817Z  INFO nanospam::setup::node_launcher: Waiting for RPC...
+2026-11-03T09:28:24.330651Z  INFO nanospam::setup::node_launcher: Copying PR5's data directory to its machine...
+2026-11-03T09:28:37.646946Z  INFO nanospam::setup::node_launcher: Starting node: "ssh" "-n" "-o" "BatchMode=yes" "-o" "StrictHostKeyChecking=accept-new" "-o" "ServerAliveInterval=15" "10.192.0.2" "sh '/tmp/rai-gate-b-dfz2do3u/pr5/run-node.sh'"
+2026-11-03T09:28:37.647217Z  INFO nanospam::setup::node_launcher: Waiting for RPC...
+2026-11-03T09:28:41.774273Z  INFO nanospam::wallets_factory: Creating wallet...
+2026-11-03T09:28:41.845375Z  INFO nanospam::wallets_factory: Setting default representative...
+2026-11-03T09:28:41.845912Z  INFO nanospam::wallets_factory: Creating wallet...
+2026-11-03T09:28:42.184654Z  INFO nanospam::wallets_factory: Setting default representative...
+2026-11-03T09:28:42.313327Z  INFO nanospam::wallets_factory: Sending Ӿ56,547,061 to PR1 wallet nano_3atmwjh8t11psdqf3qx6xjfiei94oajch6zsyauowxzjogbbgz168g5mp8f1 ...
+2026-11-03T09:28:42.314419Z  INFO nanospam::wallets_factory: Waiting for confirmation for 70B574FB519B8DEA27D8F4952C2E7B0378B009608D6FC967984D3C83440C9C3D
+2026-11-03T09:28:57.843467Z  INFO nanospam::wallets_factory: Receiving...
+2026-11-03T09:28:58.101247Z  INFO nanospam::wallets_factory: Waiting for confirmation for 011C6AC2721054F46B03A50885AF48083A4A685154A55D85116DBCE413673F86
+2026-11-03T09:28:58.459868Z  INFO nanospam::wallets_factory: DONE
+2026-11-03T09:28:58.459889Z  INFO nanospam::wallets_factory: ********************************************************************************
+2026-11-03T09:28:58.459892Z  INFO nanospam::wallets_factory: Creating wallet...
+2026-11-03T09:28:58.739043Z  INFO nanospam::wallets_factory: Setting default representative...
+2026-11-03T09:28:58.844613Z  INFO nanospam::wallets_factory: Sending Ӿ56,547,061 to PR2 wallet nano_36asm8scxymtsjmgqp14per3zxpgaec1c65qb9en1buscq7qzqa93tfyyzs3 ...
+2026-11-03T09:28:58.845661Z  INFO nanospam::wallets_factory: Waiting for confirmation for 76B3937072C015B69E45D5458B47CF52A54A38F8ED441B0E21561A3048243E90
+2026-11-03T09:29:14.461443Z  INFO nanospam::wallets_factory: Receiving...
+2026-11-03T09:29:14.672901Z  INFO nanospam::wallets_factory: Waiting for confirmation for 402DCF4725254BECF5C5CB5F707C169725EE114819D289F8A5477C2FFF19BDC0
+2026-11-03T09:29:14.985480Z  INFO nanospam::wallets_factory: DONE
+2026-11-03T09:29:14.985499Z  INFO nanospam::wallets_factory: ********************************************************************************
+2026-11-03T09:29:14.985502Z  INFO nanospam::wallets_factory: Creating wallet...
+2026-11-03T09:29:15.371521Z  INFO nanospam::wallets_factory: Setting default representative...
+2026-11-03T09:29:15.531650Z  INFO nanospam::wallets_factory: Sending Ӿ56,547,061 to PR3 wallet nano_1sfb11jzfi8k51fcnrzi1qe3qh1e1jkic3h45oak9yfg5yhbkczzxfwtat7m ...
+2026-11-03T09:29:15.532884Z  INFO nanospam::wallets_factory: Waiting for confirmation for FF4589BE1759B38CC94ABA0AE4FE6644845FE957C02EA9CEA669A28C8D1ADE97
+2026-11-03T09:29:31.373713Z  INFO nanospam::wallets_factory: Receiving...
+2026-11-03T09:29:31.694098Z  INFO nanospam::wallets_factory: Waiting for confirmation for 1210B877FF188F4FF352C0EDE856AA702A1D6763EFA96EA84BB10519898BE6D0
+2026-11-03T09:29:32.114673Z  INFO nanospam::wallets_factory: DONE
+2026-11-03T09:29:32.114690Z  INFO nanospam::wallets_factory: ********************************************************************************
+2026-11-03T09:29:32.114693Z  INFO nanospam::wallets_factory: Creating wallet...
+2026-11-03T09:29:32.756732Z  INFO nanospam::wallets_factory: Setting default representative...
+2026-11-03T09:29:33.035452Z  INFO nanospam::wallets_factory: Sending Ӿ56,547,061 to PR4 wallet nano_1rsxmoinip7d4wafdp855194n43fs7s1jgne6tx8ruatiu6g89815pddzijp ...
+2026-11-03T09:29:33.036610Z  INFO nanospam::wallets_factory: Waiting for confirmation for 23D89F3531AC5EE2378D3606C70B24D2A7B9016B8ADB1A970E6B1D9E7576186D
+2026-11-03T09:29:48.886084Z  INFO nanospam::wallets_factory: Receiving...
+2026-11-03T09:29:49.443215Z  INFO nanospam::wallets_factory: Waiting for confirmation for 8D401F6072C9B3A9EFBA68DA33CC97FF1D15EEB9F09CE4731C1A7614578C3E56
+2026-11-03T09:29:50.101842Z  INFO nanospam::wallets_factory: DONE
+2026-11-03T09:29:50.101862Z  INFO nanospam::wallets_factory: ********************************************************************************
+2026-11-03T09:29:50.101865Z  INFO nanospam::wallets_factory: Creating wallet...
+2026-11-03T09:29:50.797777Z  INFO nanospam::wallets_factory: Setting default representative...
+2026-11-03T09:29:51.112874Z  INFO nanospam::wallets_factory: Sending Ӿ56,547,061 to PR5 wallet nano_1wtzwadxk9naxc356m4rienp93ht131w7ypadk39qck8uah3bg3zohsmj9th ...
+2026-11-03T09:29:51.113952Z  INFO nanospam::wallets_factory: Waiting for confirmation for A5666BC59C8DD98A7E52D6F61006629E4EDB37063C12A73BFB41D35538B371CA
+2026-11-03T09:30:07.246061Z  INFO nanospam::wallets_factory: Receiving...
+2026-11-03T09:30:07.876585Z  INFO nanospam::wallets_factory: Waiting for confirmation for 49EEF9EFFD843E7FE6FB8D0DE0A19E8B88DBE91F26F5FDDB0E8862DEF7553864
+2026-11-03T09:30:08.607905Z  INFO nanospam::wallets_factory: DONE
+2026-11-03T09:30:08.607925Z  INFO nanospam::wallets_factory: ********************************************************************************
+2026-11-03T09:30:08.607928Z  INFO nanospam::wallets_factory: Sending initial spam amount...
+2026-11-03T09:30:08.609018Z  INFO nanospam::wallets_factory: Waiting for confirmation for 418997C4DA17048F5BE4F9B9076F7160A17066D27AAA6B1807480D6AD138D55C
+2026-11-03T09:30:09.423149Z  INFO nanospam::wallets_factory: Receiving initial spam amount...
+2026-11-03T09:30:09.423855Z  INFO nanospam::wallets_factory: Waiting for confirmation for E86749C30D22EA600A038FDADA6417DEF6F7575A390F1666AB4B6F84A76F422D
+2026-11-03T09:30:10.444753Z  INFO nanospam::wallets_factory: Seeding Ӿ142,857 to nano_3c8kbeozo5betoscbpu43xhorcju8fimbupyfwkbri98qexo8w5irrk4p9cw for representative D315857CE70C54DE713F6E82E5613BB3A1266C15E28AD2F4338C7BBEC456F532
+2026-11-03T09:30:10.445471Z  INFO nanospam::wallets_factory: Waiting for confirmation for 97135EB8DFCCE039EC66B5A6AAF1096392C3F773FA739F5666E9787F195B9C58
+2026-11-03T09:30:11.262805Z  INFO nanospam::wallets_factory: Waiting for confirmation for 45F948F0404DECF4970B36D240D49E73AE78C3F6A70B4A1E588A34AD020B7EA7
+2026-11-03T09:30:12.079568Z  INFO nanospam::wallets_factory: Seeding Ӿ142,857 to nano_3hgpmuunj8fqmebmubr8kzbje4bkf77ua6n3p7wadaug85rnnbxaasbsy8tu for representative A353E45E6D0016CAEED0DFA4EC5B0640E2AA22A793F9F2375E77F1AB92977C04
+2026-11-03T09:30:12.080320Z  INFO nanospam::wallets_factory: Waiting for confirmation for 85D3DF70B1D647630F8952BA7AAB3F9F587C30D4919631AEF0AFFE17B4FE467B
+2026-11-03T09:30:12.897587Z  INFO nanospam::wallets_factory: Waiting for confirmation for B2193759C6FDC63B49A17E59CDEEF9E0CD77762983C5FE7D7A5B2E50E6021C0A
+2026-11-03T09:30:13.814036Z  INFO nanospam::wallets_factory: Seeding Ӿ142,857 to nano_3gk6am9sqp3j8stynkezfema1qqq78wyjqmm1gd78kec4hokufn8rsyff517 for representative 911999B2AEFA7ACC66EBD802B3301FF6CE431405107749D940277955CB7FDD07
+2026-11-03T09:30:13.814746Z  INFO nanospam::wallets_factory: Waiting for confirmation for A38A13A8E30193081C76DD89DF0C6C48FD7A98089409B45A362AA1F9CCA4458C
+2026-11-03T09:30:14.629130Z  INFO nanospam::wallets_factory: Waiting for confirmation for 4CDDBB3462D93A0E833EC71C16AD894F1255E3255D8CB1E5871911455AA2948F
+2026-11-03T09:30:15.547978Z  INFO nanospam::wallets_factory: Seeding Ӿ142,857 to nano_3exkh9hsyrin8uibith1gfmwieakbirqkh4d7tj4a3ky1jozjarziokwrsaf for representative 65A90023F6C0D2181AAA63F005D81BBC0C04650505E21D5123F9AE1F9E992BFF
+2026-11-03T09:30:15.548772Z  INFO nanospam::wallets_factory: Waiting for confirmation for 93391B39F32F3B8679301C9352FC5196D7F1370A33202B8E7FCB16CAF6E70F0E
+2026-11-03T09:30:16.363154Z  INFO nanospam::wallets_factory: Waiting for confirmation for FF47C4E0718B00A073EC8365CBBB030328ACE0C2D59A59BA0C748D6CF0138A7B
+2026-11-03T09:30:17.179639Z  INFO nanospam::wallets_factory: Seeding Ӿ142,857 to nano_3g7ay16rxi1uxdw9h1n3bi11j1wp839t6eygdphrb9y1ijgsmfbjoksqmzye for representative 633D9D614858AB1710D5D8C3180E2A082DC97208BA8C26BA6C6D1A86C8E31CC0
+2026-11-03T09:30:17.180310Z  INFO nanospam::wallets_factory: Waiting for confirmation for 8C5F13579352651A948382821692618863A5DE8BB84FC01329D19CD4EB574561
+2026-11-03T09:30:17.997680Z  INFO nanospam::wallets_factory: Waiting for confirmation for 57BD792BCEFA0D14C84A70B33418AA2DA9EDFF5F2CC0841BB85A76A7B9C374E6
+2026-11-03T09:30:18.811583Z  INFO nanospam::wallets_factory: Seeding Ӿ142,857 to nano_18bgqmdxfnpomc3tnetm9561j8k8cajpmk75n6mdkedwk8388ygthmqf31qa for representative 735FE217D91E88EA82324C5883296385FA0041C2FAC85C827BAA46DA1E14B83F
+2026-11-03T09:30:18.812237Z  INFO nanospam::wallets_factory: Waiting for confirmation for F88202A52FA83E8FDB920CADD36B3C0DFEF962830241C9C213D50611C4532ED1
+2026-11-03T09:30:19.629223Z  INFO nanospam::wallets_factory: Waiting for confirmation for C04CDC57B0774BE3FF8550DBA9F372BBC6D4EA1195D4F38DE27DF0302411D28B
+2026-11-03T09:30:20.548336Z  INFO nanospam::high_prio_check: Creating high priority accounts...
+2026-11-03T09:30:20.576106Z  INFO nanospam::high_prio_check: Waiting for confirmations...
+2026-11-03T09:30:52.714307Z  INFO nanospam::app: Waiting for all PRs to see the full quorum...
+2026-11-03T09:30:53.944141Z  INFO nanospam::app: All PRs see the full quorum after 1.229813181s
+2026-11-03T09:30:53.944164Z  INFO nanospam::app: Connecting to node PR0... peer_addr=10.186.0.3:17075
+2026-11-03T09:30:53.944579Z  INFO nanospam::app: Performing handshake...
+2026-11-03T09:30:53.945468Z  INFO nanospam::app: Performing handshake...
+2026-11-03T09:30:53.956848Z  INFO nanospam::app: Performing handshake...
+2026-11-03T09:30:53.968168Z  INFO nanospam::app: Performing handshake...
+2026-11-03T09:30:53.978308Z  INFO nanospam::app: Connecting to node PR1... peer_addr=10.128.0.3:17085
+2026-11-03T09:30:54.106605Z  INFO nanospam::app: Performing handshake...
+2026-11-03T09:30:54.363531Z  INFO nanospam::app: Performing handshake...
+2026-11-03T09:30:54.620192Z  INFO nanospam::app: Performing handshake...
+2026-11-03T09:30:54.872503Z  INFO nanospam::app: Performing handshake...
+2026-11-03T09:30:54.996617Z  INFO nanospam::app: Connecting to node PR2... peer_addr=10.162.0.2:17095
+2026-11-03T09:30:55.102336Z  INFO nanospam::app: Performing handshake...
+2026-11-03T09:30:55.313703Z  INFO nanospam::app: Performing handshake...
+2026-11-03T09:30:55.524999Z  INFO nanospam::app: Performing handshake...
+2026-11-03T09:30:55.737248Z  INFO nanospam::app: Performing handshake...
+2026-11-03T09:30:55.843699Z  INFO nanospam::app: Connecting to node PR3... peer_addr=10.182.0.2:17105
+2026-11-03T09:30:56.002383Z  INFO nanospam::app: Performing handshake...
+2026-11-03T09:30:56.321223Z  INFO nanospam::app: Performing handshake...
+2026-11-03T09:30:56.638815Z  INFO nanospam::app: Performing handshake...
+2026-11-03T09:30:56.959646Z  INFO nanospam::app: Performing handshake...
+2026-11-03T09:30:57.122940Z  INFO nanospam::app: Connecting to node PR4... peer_addr=10.140.0.2:17115
+2026-11-03T09:30:57.401115Z  INFO nanospam::app: Performing handshake...
+2026-11-03T09:30:57.957796Z  INFO nanospam::app: Performing handshake...
+2026-11-03T09:30:58.514290Z  INFO nanospam::app: Performing handshake...
+2026-11-03T09:30:59.071078Z  INFO nanospam::app: Performing handshake...
+2026-11-03T09:30:59.349707Z  INFO nanospam::app: Connecting to node PR5... peer_addr=10.192.0.2:17125
+2026-11-03T09:30:59.682704Z  INFO nanospam::app: Performing handshake...
+2026-11-03T09:31:00.329847Z  INFO nanospam::app: Performing handshake...
+2026-11-03T09:31:00.960992Z  INFO nanospam::app: Performing handshake...
+2026-11-03T09:31:01.611423Z  INFO nanospam::app: Performing handshake...
+2026-11-03T09:31:01.945031Z  INFO nanospam::app: Connecting to websocket...
+2026-11-03T09:31:01.946413Z  INFO nanospam::app: Starting with 2000 BPS
+2026-11-03T09:31:02.947389Z  INFO nanospam::app: Confirmed 7 blocks | 2,000 bps | 16 cps | avg conf time: 745 ms
+2026-11-03T09:31:03.949159Z  INFO nanospam::app: Confirmed 32 blocks | 2,000 bps | 24 cps | avg conf time: 673 ms
+2026-11-03T09:31:04.950286Z  INFO nanospam::app: Confirmed 69 blocks | 2,000 bps | 36 cps | avg conf time: 655 ms
+2026-11-03T09:31:05.951666Z  INFO nanospam::app: Confirmed 183 blocks | 2,000 bps | 113 cps | avg conf time: 614 ms
+2026-11-03T09:31:06.952923Z  INFO nanospam::app: Confirmed 470 blocks | 2,000 bps | 286 cps | avg conf time: 562 ms
+2026-11-03T09:31:07.953989Z  INFO nanospam::app: Confirmed 1,222 blocks | 2,000 bps | 751 cps | avg conf time: 526 ms
+2026-11-03T09:31:08.954748Z  INFO nanospam::app: Confirmed 2,998 blocks | 2,000 bps | 1,774 cps | avg conf time: 492 ms
+2026-11-03T09:31:09.955991Z  INFO nanospam::app: Confirmed 5,813 blocks | 2,000 bps | 2,811 cps | avg conf time: 484 ms
+2026-11-03T09:31:10.956381Z  INFO nanospam::app: Confirmed 5,813 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:31:11.958250Z  INFO nanospam::app: Confirmed 5,813 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:31:12.959300Z  INFO nanospam::app: Confirmed 5,813 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:31:13.960282Z  INFO nanospam::app: Confirmed 7,498 blocks | 2,000 bps | 1,683 cps | avg conf time: 936 ms
+2026-11-03T09:31:14.961481Z  INFO nanospam::app: Confirmed 12,157 blocks | 2,000 bps | 4,653 cps | avg conf time: 747 ms
+2026-11-03T09:31:15.962498Z  INFO nanospam::app: Confirmed 14,191 blocks | 2,000 bps | 2,031 cps | avg conf time: 532 ms
+2026-11-03T09:31:16.963392Z  INFO nanospam::app: Confirmed 16,048 blocks | 2,000 bps | 1,855 cps | avg conf time: 530 ms
+2026-11-03T09:31:17.964403Z  INFO nanospam::app: Confirmed 18,217 blocks | 2,000 bps | 2,166 cps | avg conf time: 527 ms
+2026-11-03T09:31:18.965301Z  INFO nanospam::app: Confirmed 20,208 blocks | 2,000 bps | 1,989 cps | avg conf time: 549 ms
+2026-11-03T09:31:19.966286Z  INFO nanospam::app: Confirmed 22,182 blocks | 2,000 bps | 1,972 cps | avg conf time: 535 ms
+2026-11-03T09:31:20.967384Z  INFO nanospam::app: Confirmed 24,217 blocks | 2,000 bps | 2,032 cps | avg conf time: 521 ms
+2026-11-03T09:31:21.968701Z  INFO nanospam::app: Confirmed 26,073 blocks | 2,000 bps | 1,853 cps | avg conf time: 520 ms
+2026-11-03T09:31:22.969686Z  INFO nanospam::app: Confirmed 28,129 blocks | 2,000 bps | 2,053 cps | avg conf time: 533 ms
+2026-11-03T09:31:23.970399Z  INFO nanospam::app: Confirmed 30,146 blocks | 2,000 bps | 2,015 cps | avg conf time: 529 ms
+2026-11-03T09:31:24.971514Z  INFO nanospam::app: Confirmed 32,088 blocks | 2,000 bps | 1,939 cps | avg conf time: 537 ms
+2026-11-03T09:31:25.972460Z  INFO nanospam::app: Confirmed 34,187 blocks | 2,000 bps | 2,097 cps | avg conf time: 534 ms
+2026-11-03T09:31:26.973439Z  INFO nanospam::app: Confirmed 36,209 blocks | 2,000 bps | 2,019 cps | avg conf time: 525 ms
+2026-11-03T09:31:27.974576Z  INFO nanospam::app: Confirmed 38,202 blocks | 2,000 bps | 1,990 cps | avg conf time: 539 ms
+2026-11-03T09:31:28.975623Z  INFO nanospam::app: Confirmed 40,160 blocks | 2,000 bps | 1,955 cps | avg conf time: 539 ms
+2026-11-03T09:31:29.976563Z  INFO nanospam::app: Confirmed 42,216 blocks | 2,000 bps | 2,054 cps | avg conf time: 536 ms
+2026-11-03T09:31:30.978082Z  INFO nanospam::app: Confirmed 44,200 blocks | 2,000 bps | 1,980 cps | avg conf time: 525 ms
+2026-11-03T09:31:31.979038Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 798 cps | avg conf time: 513 ms
+2026-11-03T09:31:32.979905Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:31:33.980805Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:31:34.981820Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:31:35.982989Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:31:36.983968Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:31:37.984974Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:31:38.986085Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:31:39.986532Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:31:40.987675Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:31:41.989062Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:31:42.990113Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:31:43.991199Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:31:44.992237Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:31:45.994159Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:31:46.995220Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:31:47.996326Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:31:48.997353Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:31:49.999321Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:31:51.000417Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:31:52.001325Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:31:53.002366Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:31:54.003861Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:31:55.005309Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:31:56.007150Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:31:57.007876Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:31:58.008942Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:31:59.010143Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:00.010498Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:01.011622Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:02.012798Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:03.013773Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:04.014713Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:05.016012Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:06.017052Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:07.017805Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:08.018716Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:09.019813Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:10.020346Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:11.021479Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:12.023288Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:13.024499Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:14.025330Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:15.026892Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:16.027696Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:17.029202Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+stall: client at 44999 confirmed for 45s
+2026-11-03T09:32:18.030088Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:19.030619Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:20.031880Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:21.033310Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:22.035250Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:23.037155Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:24.037864Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:25.039264Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:26.040631Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:27.041837Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:28.042933Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:29.044102Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:30.044544Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:31.045715Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:32.047187Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:33.048196Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:34.049125Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:35.050217Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:36.051154Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:37.052081Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:38.052898Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:39.053627Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:40.054903Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:41.055792Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:42.056838Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:43.057704Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:44.058678Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:45.060064Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:46.061209Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:47.061345Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:48.063318Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:49.065259Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:50.067248Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:51.069176Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:52.069913Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:53.070885Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:54.071638Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:55.072714Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:56.073618Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:57.074840Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:58.075691Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:32:59.076622Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:33:00.078031Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:33:01.078721Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:33:02.079384Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:33:03.080585Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:33:04.081865Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:33:05.083136Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:33:06.083352Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:33:07.085234Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:33:08.087112Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:33:09.087333Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:33:10.088845Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:33:11.089807Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:33:12.090878Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:33:13.091517Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:33:14.092462Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:33:15.093398Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:33:16.095157Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:33:17.096100Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
+2026-11-03T09:33:18.097140Z  INFO nanospam::app: Confirmed 44,999 blocks | 2,000 bps | 0 cps | avg conf time: 0 ms
