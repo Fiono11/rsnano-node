@@ -84,7 +84,12 @@ impl ConfirmationSolicitor {
             } else {
                 false
             };
-            if existing_vote.is_none() || !is_final || different_hash {
+            if asks_again(
+                existing_vote.is_some(),
+                is_final,
+                different_hash,
+                terminated,
+            ) {
                 if let Some(rep_channel) = self.message_flooder.channel(rep.channel_id) {
                     let should_drop = rep_channel.should_drop(TrafficType::ConfirmationRequests);
 
@@ -170,5 +175,39 @@ impl ConfirmationSolicitor {
             }
         }
         self.prepared = false;
+    }
+}
+
+/// Whether a representative is asked about an election again: when nothing
+/// or not all of its statements are held here, or - while the election is
+/// active - it voted for another block, which it may still change. Once a
+/// Kudzu instance terminated, a representative whose statements are all held
+/// would only send the same votes again: under a Byzantine member a contested
+/// fork collects evidence for minutes, and re-asking every representative of
+/// the other side at every interval multiplied the requests 25-40 times
+fn asks_again(has_vote: bool, holds_all: bool, voted_other: bool, terminated: bool) -> bool {
+    !has_vote || !holds_all || (voted_other && !terminated)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_representative_without_a_vote_or_with_statements_missing_is_asked() {
+        assert!(asks_again(false, false, false, true));
+        assert!(asks_again(true, false, false, true));
+        assert!(asks_again(true, false, true, true));
+    }
+
+    #[test]
+    fn an_active_election_asks_a_representative_that_voted_for_another_block() {
+        assert!(asks_again(true, true, true, false));
+    }
+
+    #[test]
+    fn a_terminated_instance_does_not_ask_again_for_statements_it_holds() {
+        assert!(!asks_again(true, true, true, true));
+        assert!(!asks_again(true, true, false, true));
     }
 }
