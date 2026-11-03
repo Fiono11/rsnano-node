@@ -177,6 +177,11 @@ pub(crate) struct ActiveElectionsContainer {
     /// RAI: when the current epoch ends by time: the next boundary after
     /// its first election; None while it has none
     epoch_ends_at: Option<Timestamp>,
+    /// RAI: the boundary the epoch ended last was due to end at. An epoch
+    /// ended before it - followed ahead, since the replicas' origins differ
+    /// by the time the start took to reach them - still owns that boundary,
+    /// so the next epoch ends at a later one
+    ended_epoch_due: Option<Timestamp>,
     /// RAI: when the drain was last reported
     drain_logged: Option<Timestamp>,
     /// RAI: what each epoch finalized explicitly
@@ -282,6 +287,7 @@ impl ActiveElectionsContainer {
             epochs_started: false,
             epoch_origin: None,
             epoch_ends_at: None,
+            ended_epoch_due: None,
             drain_logged: None,
             epoch_states: EpochStates::default(),
             decided: DecidedStates::new(),
@@ -464,6 +470,7 @@ impl ActiveElectionsContainer {
     /// `tick_closes`), which they do while the next epoch runs.
     fn end_epoch(&mut self, now: Timestamp) {
         self.draining = true;
+        self.ended_epoch_due = self.epoch_ends_at;
         self.stats.epochs_ended += 1;
         #[cfg(feature = "rai_protocol")]
         {
@@ -2872,6 +2879,7 @@ impl ActiveElectionsContainer {
             .next_back()
             .map_or(ConsensusEpoch::ZERO, |left| left.next());
         self.epoch_ends_at = None;
+        self.ended_epoch_due = None;
         self.decided_in_current_epoch = 0;
         let undecided: Vec<ConsensusEpoch> = self
             .frozen
@@ -3432,7 +3440,10 @@ impl ActiveElectionsContainer {
         let root = request.block.qualified_root();
         let hash = request.block.hash();
         if epoch == self.current_epoch && self.epoch_ends_at.is_none() {
-            self.epoch_ends_at = self.next_boundary(now);
+            // Never at the boundary the epoch before was due at: an epoch
+            // left ahead of it would otherwise end again at once
+            let from = self.ended_epoch_due.map_or(now, |due| due.max(now));
+            self.epoch_ends_at = self.next_boundary(from);
         }
         let mut election = Election::new(
             request.block,
@@ -5872,6 +5883,68 @@ mod tests {
         container.transition_time(now);
         assert_eq!(container.current_epoch(), ConsensusEpoch::new(1));
         assert_eq!(container.stats.epochs_followed, 1);
+    }
+
+    /// RAI: an epoch left just before its boundary - the members ahead
+    /// started a little earlier - still owns that boundary: the next epoch
+    /// runs to the boundary after it instead of ending at once
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn the_epoch_after_a_followed_one_ends_at_the_next_boundary() {
+        let now = Timestamp::new_test_instance();
+        let config = ActiveElectionsConfig {
+            epoch_duration: Duration::from_secs(1),
+            ..Default::default()
+        };
+        let mut container = ActiveElectionsContainer::new(config, Duration::from_millis(10));
+        let reps: Vec<PrivateKey> = (1..=6).map(PrivateKey::from).collect();
+        container.set_genesis_committee(
+            reps.iter()
+                .enumerate()
+                .map(|(i, rep)| AccountFrontier {
+                    account: PrivateKey::from(10 + i as u64).account(),
+                    height: 1,
+                    hash: BlockHash::from(70 + i as u64),
+                    representative: rep.public_key(),
+                    balance: Amount::raw(100),
+                })
+                .collect(),
+        );
+        container.start_epochs(now);
+        let followed_at = now + Duration::from_millis(900);
+        for rep in &reps[..2] {
+            let vote = Vote::new_in_epoch(
+                rep,
+                VoteKind::First,
+                ConsensusEpoch::new(1),
+                vec![BlockHash::from(5)],
+            );
+            container.apply_vote(ApplyVoteArgs {
+                vote: &ReceivedVote::new(Arc::new(vote), VoteDelivery::Direct, None).into(),
+                rep_weights: &RepWeights::default(),
+                quorum_snapshot: &QuorumSnapshot::new_test_instance(),
+                now: followed_at,
+            });
+        }
+        container.transition_time(followed_at);
+        assert_eq!(container.current_epoch(), ConsensusEpoch::new(1));
+
+        // The first election of epoch 1 starts before epoch 0's boundary
+        container
+            .insert(
+                AecInsertRequest::new_priority(
+                    SavedBlock::new_test_instance_with_key(1),
+                    BlockPriority::default(),
+                ),
+                followed_at,
+            )
+            .unwrap();
+        container.transition_time(now + Duration::from_millis(1500));
+        assert_eq!(container.current_epoch(), ConsensusEpoch::new(1));
+        assert!(!container.is_draining());
+
+        container.transition_time(now + Duration::from_secs(2));
+        assert!(container.is_draining());
     }
 
     /// RAI: a replica whose epoch has no election - it caught up after the
