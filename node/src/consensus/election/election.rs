@@ -409,6 +409,11 @@ impl Election {
         self.base_latency
     }
 
+    /// When the last vote reached this election (its start before any did)
+    pub fn last_vote(&self) -> Timestamp {
+        self.last_vote
+    }
+
     /// RAI: how long a settled instance keeps asking for the final votes it
     /// lacks after the last statement reached it. They may never come: the
     /// representatives made them in another epoch's instance.

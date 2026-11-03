@@ -24,9 +24,17 @@ pub(crate) enum Urgency {
     Now,
 }
 
+/// An election's last request, and how many requests in a row brought no
+/// new vote
+#[derive(Clone, Copy)]
+struct LastRequest {
+    at: Timestamp,
+    fruitless: u32,
+}
+
 pub(crate) struct ConfirmReqSender {
     stats: Arc<Stats>,
-    last_requests: BoundedHashMap<ElectionId, Timestamp>,
+    last_requests: BoundedHashMap<ElectionId, LastRequest>,
     clock: Arc<SteadyClock>,
     /// The earliest an election asks again, whatever its urgency (see
     /// `ActiveElectionsConfig::min_request_interval`)
@@ -56,10 +64,9 @@ impl ConfirmReqSender {
         election: &Election,
         urgency: Urgency,
     ) {
-        if self.should_send_confirm_req(election, urgency, self.clock.now())
-            && solicitor.add(election)
-        {
-            self.last_requests.insert(election.id(), self.clock.now());
+        let now = self.clock.now();
+        if self.should_send_confirm_req(election, urgency, now) && solicitor.add(election) {
+            self.record_request(election, now);
             self.stats
                 .inc(StatType::Election, DetailType::ConfirmationRequest);
         }
@@ -71,17 +78,46 @@ impl ConfirmReqSender {
         urgency: Urgency,
         now: Timestamp,
     ) -> bool {
-        if let Some(last_req) = self.last_requests.get(&election.id()) {
-            let interval = Self::confirm_req_interval(election, urgency).max(self.min_interval);
-            last_req.elapsed(now) >= interval
+        if let Some(last) = self.last_requests.get(&election.id()) {
+            let mut interval = Self::confirm_req_interval(election, urgency).max(self.min_interval);
+            if Self::backs_off(election, urgency) {
+                interval = interval
+                    .saturating_mul(1 << last.fruitless.min(Self::MAX_DOUBLINGS))
+                    .min(Self::LONGEST_BACKOFF.max(interval));
+            }
+            last.at.elapsed(now) >= interval
         } else {
             true
         }
     }
 
-    #[cfg(test)]
+    /// The longest wait a fruitless solicitation backs off to
+    const LONGEST_BACKOFF: Duration = Duration::from_secs(8);
+    const MAX_DOUBLINGS: u32 = 8;
+
+    /// RAI: an instance collecting evidence - terminated, or of an epoch this
+    /// node left - asks again after twice the wait once its last request
+    /// brought no new vote, and at its own pace again once one arrives. A
+    /// Byzantine member voting for both blocks of every fork leaves thousands
+    /// of instances that cannot finalize; asking each of them every few
+    /// hundred milliseconds for minutes overfilled every request aggregator
+    /// by tens of millions of hashes. Active elections and the instances the
+    /// ending epoch waits for keep their pace.
+    fn backs_off(election: &Election, urgency: Urgency) -> bool {
+        match urgency {
+            Urgency::Now => false,
+            Urgency::Soon | Urgency::Slow => true,
+            Urgency::Normal => election.state().is_terminated(),
+        }
+    }
+
     fn record_request(&mut self, election: &Election, now: Timestamp) {
-        self.last_requests.insert(election.id(), now);
+        let fruitless = match self.last_requests.get(&election.id()) {
+            Some(last) if election.last_vote() <= last.at => last.fruitless + 1,
+            _ => 0,
+        };
+        self.last_requests
+            .insert(election.id(), LastRequest { at: now, fruitless });
     }
 
     /// Calculates time delay between broadcasting confirmation requests
@@ -147,5 +183,67 @@ mod tests {
             Urgency::Now,
             now + Duration::from_millis(300)
         ));
+    }
+
+    /// An instance collecting evidence whose request brought no new vote
+    /// waits twice as long before the next one
+    #[test]
+    fn a_fruitless_request_doubles_the_wait_of_an_instance_collecting_evidence() {
+        let election = Election::new_test_instance_with(SavedBlock::new_test_instance());
+        let mut sender = ConfirmReqSender::new_null();
+        let start = Timestamp::new_test_instance();
+        sender.record_request(&election, start);
+        let second = start + Duration::from_secs(1);
+        sender.record_request(&election, second);
+        assert!(!sender.should_send_confirm_req(
+            &election,
+            Urgency::Soon,
+            second + Duration::from_millis(1999)
+        ));
+        assert!(sender.should_send_confirm_req(
+            &election,
+            Urgency::Soon,
+            second + Duration::from_secs(2)
+        ));
+    }
+
+    #[test]
+    fn a_new_vote_brings_the_pace_back() {
+        let block = SavedBlock::new_test_instance();
+        let start = Timestamp::new_test_instance();
+        let election = Election::new_test_instance_with(block.clone());
+        let mut sender = ConfirmReqSender::new_null();
+        sender.record_request(&election, start);
+        sender.record_request(&election, start + Duration::from_secs(1));
+        // The same instance, a vote having reached it after the last request
+        let voted = Election::new(
+            block,
+            election.epoch(),
+            election.behavior(),
+            election.base_latency(),
+            start + Duration::from_millis(1500),
+        );
+        let third = start + Duration::from_secs(2);
+        sender.record_request(&voted, third);
+        assert!(sender.should_send_confirm_req(
+            &voted,
+            Urgency::Soon,
+            third + Duration::from_secs(1)
+        ));
+    }
+
+    #[test]
+    fn active_elections_and_the_ending_epoch_keep_their_pace() {
+        let election = Election::new_test_instance_with(SavedBlock::new_test_instance());
+        let mut sender = ConfirmReqSender::new_null();
+        let start = Timestamp::new_test_instance();
+        let mut at = start;
+        for _ in 0..4 {
+            at = at + Duration::from_secs(10);
+            sender.record_request(&election, at);
+        }
+        let normal = ConfirmReqSender::confirm_req_interval(&election, Urgency::Normal);
+        assert!(sender.should_send_confirm_req(&election, Urgency::Normal, at + normal));
+        assert!(sender.should_send_confirm_req(&election, Urgency::Now, at));
     }
 }
