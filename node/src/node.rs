@@ -698,7 +698,11 @@ impl Node {
             network.clone(),
         )));
 
-        let confirm_req_sender = ConfirmReqSender::new(stats.clone(), steady_clock.clone());
+        let confirm_req_sender = ConfirmReqSender::new(
+            stats.clone(),
+            steady_clock.clone(),
+            config.active_elections.min_request_interval,
+        );
 
         let election_schedulers = Arc::new(ElectionSchedulers::new(
             config.clone(),

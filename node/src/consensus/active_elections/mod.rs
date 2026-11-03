@@ -79,6 +79,13 @@ pub struct ActiveElectionsConfig {
     /// epoch the predecessor is installed long before the epoch ends and
     /// nothing waits.
     pub epoch_vote_window: Duration,
+    /// How soon an election may ask a representative again at the earliest,
+    /// whatever its urgency. Zero (the default) keeps the urgency intervals,
+    /// tuned to the dev network's 25 ms base latency, which suit replicas on
+    /// one host; across wide-area links a request repeated before its reply
+    /// could arrive only multiplies the load (a six-region run with a
+    /// Byzantine member overfilled the request aggregators by 33 M hashes)
+    pub min_request_interval: Duration,
 }
 
 /// RAI evaluation: how a validator moves from one epoch to the next.
@@ -129,6 +136,7 @@ impl Default for ActiveElectionsConfig {
             close_first_leader: None,
             byzantine: Default::default(),
             epoch_vote_window: Duration::from_secs(2),
+            min_request_interval: Duration::ZERO,
         }
     }
 }

@@ -47,6 +47,7 @@ pub(crate) const NODE_CONFIG: &str = r#"
     signed_vote_log = SIGNED_VOTE_LOG
     signing_sync = "SIGNING_SYNC"
     epoch_transition = "EPOCH_TRANSITION"
+    min_request_interval_ms = MIN_REQUEST_INTERVAL_MS
     CLOSE_FIRST_LEADER
 
 [node.lmdb]
@@ -140,6 +141,10 @@ pub(crate) fn configure_nodes(args: &CliArgs, data_dir: &Path) {
                 .replace("SIGNED_VOTE_LOG", &args.audit_votes.to_string())
                 .replace("SIGNING_SYNC", &args.signing_sync)
                 .replace("EPOCH_TRANSITION", &args.epoch_transition)
+                .replace(
+                    "MIN_REQUEST_INTERVAL_MS",
+                    &args.min_request_interval_ms.to_string(),
+                )
                 .replace(
                     "CLOSE_FIRST_LEADER",
                     &format!(

@@ -1,6 +1,6 @@
 import unittest
 
-from remote_hosts import parse_hosts, ping_ms, remote_hosts, scp_target
+from remote_hosts import longest_round_trip_ms, parse_hosts, ping_ms, remote_hosts, scp_target
 
 
 class ParseHosts(unittest.TestCase):
@@ -28,6 +28,10 @@ class Helpers(unittest.TestCase):
                                  'rtt min/avg/max/mdev = 101.022/101.417/102.010/0.351 ms\n'), 101.417)
         self.assertEqual(ping_ms('round-trip min/avg/max/stddev = 0.040/0.081/0.130/0.031 ms\n'), 0.081)
         self.assertIsNone(ping_ms('5 packets transmitted, 0 received, 100% packet loss\n'))
+
+    def test_longest_round_trip_skips_lost_pings_and_rounds_up(self):
+        self.assertEqual(longest_round_trip_ms([[0.0, 124.2, None], [124.2, 0.0, 313.45], [None, 313.7, 0.0]]), 314)
+        self.assertEqual(longest_round_trip_ms([[0.0, None], [None, 0.0]]), 0)
 
 
 if __name__ == '__main__':

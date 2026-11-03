@@ -6,6 +6,7 @@ nanospam starts over ssh, or `ADDRESS local`, a node on this machine that the
 others reach at ADDRESS. Blank lines and `#` comments are skipped. A node's
 data directory has the same path on its machine as here."""
 import ipaddress
+import math
 import re
 import shlex
 import subprocess
@@ -82,6 +83,13 @@ def rtt_matrix(hosts):
             row.append(ping_ms(result.stdout))
         matrix.append(row)
     return matrix
+
+
+def longest_round_trip_ms(matrix):
+    """The longest measured round trip of an rtt_matrix, whole ms rounded up;
+    0 when nothing was measured"""
+    measured = [rtt for row in matrix for rtt in row if rtt]
+    return math.ceil(max(measured)) if measured else 0
 
 
 def fetch_node_files(hosts, data, names):

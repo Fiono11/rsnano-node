@@ -21,7 +21,7 @@ import time
 import traceback
 
 from audit_votes import audit, read_logs
-from remote_hosts import fetch_node_files, parse_hosts, push_binaries, rtt_matrix, stop_remote_nodes
+from remote_hosts import fetch_node_files, longest_round_trip_ms, parse_hosts, push_binaries, rtt_matrix, stop_remote_nodes
 
 # --hosts: node i's address; without it every node is on this machine
 HOSTS = []
@@ -242,6 +242,7 @@ def main():
     parser.add_argument('--bounded-drift', type=int, default=None, help='bounded-weight committees f = p = 1: the six genesis members re-weighted per epoch within this many permille of the equal share')
     parser.add_argument('--weight-shift', type=int, default=0, help='percent of one representative balance moved to the next one every epoch (nanospam --weight-shift-percent)')
     parser.add_argument('--vote-delay-ms', type=int, default=None, help='vote generator batching delay of every node (nanospam --vote-generator-delay-ms; node default 100)')
+    parser.add_argument('--min-request-interval-ms', type=int, default=None, help='the earliest an election asks a representative again (nanospam --min-request-interval-ms); default: the longest measured round trip with --hosts, the node default (0) otherwise')
     parser.add_argument('--byzantine', type=int, default=0, help='representatives played by the client with random votes, no node')
     parser.add_argument('--offline', type=int, default=0, help='representatives funded but never started')
     parser.add_argument('--allow-busy', action='store_true', help='Correctness run only; does not satisfy the performance gate')
@@ -351,6 +352,15 @@ def main():
                 command += ['--rotation-epoch-ms', str(rotation_epoch_ms)]
         if args.vote_delay_ms is not None:
             command += ['--vote-generator-delay-ms', str(args.vote_delay_ms)]
+        # Across wide-area links no request repeats before its reply could
+        # arrive: the dev network's 25 ms intervals assume one host. The
+        # unmodified node has no such setting
+        min_request_interval = None if args.no_epochs else args.min_request_interval_ms
+        if min_request_interval is None and args.hosts and not args.no_epochs:
+            min_request_interval = longest_round_trip_ms(result['rtt_ms'])
+        if min_request_interval:
+            command += ['--min-request-interval-ms', str(min_request_interval)]
+        result['min_request_interval_ms'] = min_request_interval or 0
         if args.weight_shift:
             command += ['--weight-shift-percent', str(args.weight_shift)]
         if args.bounded_drift is not None:
