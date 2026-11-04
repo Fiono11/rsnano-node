@@ -976,6 +976,7 @@ impl Node {
                 );
             }
             active_elections.restore_evidence(recovered.evidence);
+            active_elections.restore_notarizations(recovered.notarization_votes);
             reports.restore_reports(recovered.reports);
         }
         #[cfg(feature = "rai_protocol")]

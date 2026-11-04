@@ -1,6 +1,6 @@
 use std::{
     cmp::max,
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     mem::size_of,
     ops::Deref,
     sync::Arc,
@@ -160,6 +160,13 @@ pub(crate) struct ActiveElectionsContainer {
     /// RAI, durable signing records: the slots whose state changed since the
     /// voter last persisted them; persisted before the votes are released
     dirty_signing: Vec<EpochSlot>,
+    /// RAI: the blocks final-voted since the last signing batch
+    dirty_notarized: Vec<(ConsensusEpoch, BlockHash)>,
+    /// RAI: the signatures of the votes already durable behind final votes
+    durable_votes: BTreeMap<ConsensusEpoch, HashSet<[u8; 64]>>,
+    /// RAI: what a restart holds notarized from its durable votes, with the
+    /// parent each block names: no instance of the epoch is left to say so
+    restored_notarized: BTreeMap<ConsensusEpoch, Vec<(CertifiedBlock, BlockHash)>>,
     /// RAI, overlap certificates: the blocks, by epoch, whose signed votes
     /// this node relied on for overlap finality or an early final vote, to
     /// be persisted before the votes that rest on them are released
@@ -281,6 +288,9 @@ impl ActiveElectionsContainer {
             checkpoint_delegations: BTreeMap::new(),
             install_acks: BTreeMap::new(),
             dirty_signing: Vec::new(),
+            dirty_notarized: Vec::new(),
+            durable_votes: BTreeMap::new(),
+            restored_notarized: BTreeMap::new(),
             dirty_evidence: Vec::new(),
             decided_in_current_epoch: 0,
             epoch_duration: config.epoch_duration,
@@ -746,6 +756,10 @@ impl ActiveElectionsContainer {
                         .is_some_and(|state| state.carries_recovery_record(slot, origin))
                 });
             self.checkpoint_delegations
+                .retain(|epoch, _| epoch.as_u64() >= kept_from);
+            self.durable_votes
+                .retain(|epoch, _| epoch.as_u64() >= kept_from);
+            self.restored_notarized
                 .retain(|epoch, _| epoch.as_u64() >= kept_from);
         }
         self.pending_kudzu_votes
@@ -2355,6 +2369,9 @@ impl ActiveElectionsContainer {
                 live.push((at(hash), previous, CertifiedStatus::Finalized));
             }
         }
+        for (block, previous) in self.restored_notarized.get(&epoch).into_iter().flatten() {
+            live.push((*block, *previous, CertifiedStatus::Notarized));
+        }
         EpochCertifiedParts {
             base: base.cloned(),
             finalized,
@@ -2644,6 +2661,9 @@ impl ActiveElectionsContainer {
             slot.mark_voted(target.winner, kind);
             self.slots.record_parent(target.winner, previous);
             self.dirty_signing.push(election.epoch_slot());
+            if kind == VoteKind::Final {
+                self.dirty_notarized.push((election.epoch(), target.winner));
+            }
             #[cfg(feature = "rai_protocol")]
             let late = (kind == VoteKind::First)
                 .then(|| (election.account(), election.height()))
@@ -2766,6 +2786,122 @@ impl ActiveElectionsContainer {
             if let Some(close) = self.closes.get_mut(&record.epoch) {
                 close.restore_voted(record.round, record.state);
             }
+        }
+    }
+
+    /// RAI, "Participants, faults, and retained evidence": the signed votes
+    /// to persist with this batch, so that a final vote follows a durable
+    /// notarization. Each block needs votes reaching the certificate weight;
+    /// those already durable count first, and a vote shared by many blocks
+    /// is written once.
+    pub fn take_notarization_votes(&mut self) -> Vec<Arc<Vote>> {
+        let mut dirty = std::mem::take(&mut self.dirty_notarized);
+        dirty.sort();
+        dirty.dedup();
+        let mut new_votes = Vec::new();
+        for (epoch, hash) in dirty {
+            let Some(committee) = self.committees.committee(epoch) else {
+                continue;
+            };
+            let Some(support) = self.vote_records.support(epoch, &hash) else {
+                continue;
+            };
+            let certificate = committee.thresholds().certificate.number();
+            let durable = self.durable_votes.entry(epoch).or_default();
+            let notarizing = || {
+                support
+                    .votes()
+                    .iter()
+                    .filter(|vote| matches!(vote.kind(), VoteKind::First | VoteKind::Final))
+            };
+            let mut voters = BTreeSet::new();
+            let mut weight = 0u128;
+            let mut count = |vote: &Arc<Vote>| {
+                if weight < certificate && voters.insert(vote.voter) {
+                    weight = weight.saturating_add(committee.weight(&vote.voter).number());
+                    return true;
+                }
+                false
+            };
+            for vote in notarizing() {
+                if durable.contains(vote.signature.as_bytes()) {
+                    count(vote);
+                }
+            }
+            for vote in notarizing() {
+                if !durable.contains(vote.signature.as_bytes()) && count(vote) {
+                    durable.insert(*vote.signature.as_bytes());
+                    new_votes.push(vote.clone());
+                }
+            }
+        }
+        new_votes
+    }
+
+    /// RAI: a restarted node's durable votes back in the vote records, where
+    /// they are served and checked as before, and the notarizations they
+    /// prove back in its report. Call once the slots and the committees are
+    /// restored.
+    pub fn restore_notarizations(&mut self, votes: Vec<Arc<Vote>>) {
+        let restored = votes.len();
+        for vote in votes {
+            self.durable_votes
+                .entry(vote.epoch)
+                .or_default()
+                .insert(*vote.signature.as_bytes());
+            self.vote_records
+                .support_vote(&vote, vote.hashes.iter().copied());
+        }
+        let mut lacking = 0;
+        let epochs: Vec<ConsensusEpoch> = self.durable_votes.keys().copied().collect();
+        for epoch in epochs {
+            let voted: Vec<(Account, u64, BlockHash)> = self
+                .slots
+                .iter_epoch(epoch)
+                .filter_map(|(account, height, slot)| {
+                    slot.final_voted.map(|hash| (account, height, hash))
+                })
+                .collect();
+            let previous = self.epoch_previous_state(epoch);
+            for (account, height, hash) in voted {
+                let slot = AccountSlot::new(account, height);
+                let notarized = self
+                    .certificate_kinds(epoch, &hash)
+                    .is_some_and(|kinds| kinds.notarization);
+                if !notarized {
+                    // What the predecessor finalized its report inherits
+                    if !previous
+                        .as_ref()
+                        .is_some_and(|state| state.is_finalized(&slot, &hash))
+                    {
+                        lacking += 1;
+                        diagnostic!(
+                            "EPOCH_NOTARIZATION_LACKING epoch={} account={} height={} block={}",
+                            epoch,
+                            account,
+                            height,
+                            hash
+                        );
+                    }
+                    continue;
+                }
+                self.vote_records.place(epoch, &hash, slot);
+                self.restored_notarized.entry(epoch).or_default().push((
+                    CertifiedBlock::new(account, height, hash),
+                    self.slots.parent(&hash),
+                ));
+            }
+        }
+        if restored > 0 {
+            diagnostic!(
+                "EPOCH_NOTARIZATIONS_RESTORED votes={} blocks={} lacking={}",
+                restored,
+                self.restored_notarized
+                    .values()
+                    .map(Vec::len)
+                    .sum::<usize>(),
+                lacking
+            );
         }
     }
 
@@ -3259,6 +3395,9 @@ impl ActiveElectionsContainer {
                 slot.mark_voted(hash, kind);
                 self.slots.record_parent(hash, previous);
                 self.dirty_signing.push(election.epoch_slot());
+                if kind == VoteKind::Final {
+                    self.dirty_notarized.push((election.epoch(), hash));
+                }
                 self.pending_kudzu_votes.push(VoteTarget {
                     election: election.id(),
                     winner: hash,
@@ -8176,6 +8315,87 @@ mod tests {
             &block.hash(),
             ResidualKind::First
         ));
+    }
+
+    /// RAI: a final vote follows a durable notarization: the first votes
+    /// behind it go with the signing batch, each once, only as many as the
+    /// certificate needs, and a restart reports and serves the notarization
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn a_restart_keeps_the_notarization_behind_a_final_vote() {
+        let (mut container, reps, rep_weights, start) = committee_fixture(|_| {});
+        let epoch = ConsensusEpoch::ZERO;
+        let block = SavedBlock::new_test_instance_with_key(1);
+        container
+            .insert(
+                AecInsertRequest::new_priority(block.clone(), BlockPriority::new_test_instance()),
+                start,
+            )
+            .unwrap();
+        for rep in &reps[..3] {
+            vote_in(
+                &mut container,
+                rep,
+                VoteKind::First,
+                epoch,
+                block.hash(),
+                &rep_weights,
+                start,
+            );
+        }
+        let target = |vote_type| VoteTarget {
+            election: ElectionId::new(block.qualified_root(), epoch),
+            winner: block.hash(),
+            vote_type,
+        };
+        container.mark_kudzu_voted(vec![target(VoteType::NonFinal)]);
+        assert!(container.take_notarization_votes().is_empty());
+        container.mark_kudzu_voted(vec![target(VoteType::Final)]);
+        // One more vote than the certificate needs arrives before the batch
+        vote_in(
+            &mut container,
+            &reps[3],
+            VoteKind::First,
+            epoch,
+            block.hash(),
+            &rep_weights,
+            start,
+        );
+        let slots = container.take_signing_records();
+        let votes = container.take_notarization_votes();
+        let committee = container.committees.committee(epoch).unwrap();
+        let weight: u128 = votes
+            .iter()
+            .map(|vote| committee.weight(&vote.voter).number())
+            .sum();
+        assert!(weight >= committee.thresholds().certificate.number());
+        assert!(votes.len() < reps.len());
+
+        // Taken again, nothing new is written
+        assert!(container.take_notarization_votes().is_empty());
+
+        let (mut restarted, _, _, _) = committee_fixture(|_| {});
+        let at = CertifiedBlock::new(block.account(), block.height(), block.hash());
+        restarted.restore_signing(slots.clone(), vec![epoch]);
+        let without = restarted.epoch_report(epoch).unwrap();
+        assert_eq!(without.certified.status(&at), None);
+
+        restarted.restore_notarizations(votes.clone());
+        let report = restarted.epoch_report(epoch).unwrap();
+        assert_eq!(
+            report.certified.status(&at),
+            Some(crate::consensus::election::CertifiedStatus::Notarized)
+        );
+        assert!(
+            !report
+                .residual
+                .entries()
+                .any(|(b, _, _)| b.hash == block.hash())
+        );
+        assert_eq!(
+            restarted.evidence_votes(epoch, &[block.hash()]).len(),
+            votes.len()
+        );
     }
 
     /// RAI: a first vote read before its election was erased is not signed:

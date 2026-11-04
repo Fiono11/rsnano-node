@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+};
 
 use rsnano_messages::Report;
 use rsnano_nullable_lmdb::LmdbEnvironment;
@@ -96,6 +99,8 @@ pub struct Recovered {
     /// In epoch order
     pub decided: Vec<DecidedRecord>,
     pub closes: Vec<CloseRecord>,
+    /// The first votes behind this node's final votes
+    pub notarization_votes: Vec<Arc<Vote>>,
 }
 
 /// RAI, "Participants, faults, and retained evidence": "Correct validators
@@ -118,6 +123,8 @@ pub struct SigningRecords {
     bulk_env: LmdbEnvironment,
     bulk_store: LmdbSigningStore,
     drive_flush: DriveFlush,
+    /// The bytes of notarization votes written since the last call
+    notarization_bytes: AtomicU64,
     /// How long each kind of write took, waiting for the environment's one
     /// writer included, since the timings were last taken
     timings: std::sync::Mutex<std::collections::BTreeMap<&'static str, WriteTiming>>,
@@ -186,12 +193,16 @@ const EPOCHS: u8 = b'Z';
 const DECIDED: u8 = b'W';
 const DECIDED_STATE: u8 = b'D';
 const CLOSE: u8 = b'C';
+const NOTARIZATION_VOTE: u8 = b'N';
 /// How many of the latest decided states are kept: the predecessor of the
 /// oldest epoch still closing, and the one before it, which the overlap
 /// gate checks against
 const DECIDED_STATES_KEPT: u64 = 2;
 /// Records of old epochs deleted per transaction
 const FORGET_CHUNK: usize = 2000;
+/// RAI: how many epochs before the first one kept are looked at for durable
+/// votes to forget: the ones released since the last call
+const FORGET_VOTE_EPOCHS: u64 = 8;
 
 impl SigningRecords {
     pub fn new(env: LmdbEnvironment, bulk_env: LmdbEnvironment) -> anyhow::Result<Self> {
@@ -203,6 +214,7 @@ impl SigningRecords {
             bulk_env,
             bulk_store,
             drive_flush: DriveFlush::new_null(),
+            notarization_bytes: AtomicU64::new(0),
             timings: Default::default(),
         })
     }
@@ -239,12 +251,20 @@ impl SigningRecords {
 
     /// Persists the slot states of a batch of votes about to be released
     pub fn write_slots(&self, records: &[SlotRecord]) {
-        self.write_signing(records, &[]);
+        self.write_signing(records, &[], &[]);
     }
 
     /// Persists a batch of votes about to be released, account and close
-    /// votes alike, in one transaction: the group commit of the batch
-    pub fn write_signing(&self, records: &[SlotRecord], closes: &[CloseRecord]) {
+    /// votes alike, in one transaction: the group commit of the batch. A
+    /// final vote follows a durable notarization: `notarization_votes` are
+    /// the signed first votes behind the batch's final votes, each stored
+    /// once, so that a restart can still report and prove the notarization
+    pub fn write_signing(
+        &self,
+        records: &[SlotRecord],
+        closes: &[CloseRecord],
+        notarization_votes: &[Arc<Vote>],
+    ) {
         self.timed("signing", || {
             if records.is_empty() && closes.is_empty() {
                 return;
@@ -268,9 +288,22 @@ impl SigningRecords {
                     store.put(&mut txn, &parent_key(hash), parent.as_bytes());
                 }
             }
+            for vote in notarization_votes {
+                let mut bytes = Vec::new();
+                vote.serialize(&mut bytes)
+                    .expect("a vote serializes to memory");
+                self.notarization_bytes
+                    .fetch_add(bytes.len() as u64, Ordering::Relaxed);
+                store.put(&mut txn, &notarization_vote_key(vote), &bytes);
+            }
             txn.commit();
             self.drive_flush.flush();
         })
+    }
+
+    /// The bytes of notarization votes written since the last call
+    pub fn take_notarization_bytes(&self) -> u64 {
+        self.notarization_bytes.swap(0, Ordering::Relaxed)
     }
 
     /// Persists that this node left an epoch: it signs nothing new in it
@@ -476,6 +509,17 @@ impl SigningRecords {
                         .filter(|key| decode_close_key(key).is_some_and(|(held, _)| held < epoch)),
                 )
                 .collect();
+            // In epoch order on disk: only the epochs just released are read
+            let old_votes: Vec<Vec<u8>> = (1..=FORGET_VOTE_EPOCHS)
+                .filter_map(|back| epoch.as_u64().checked_sub(back))
+                .flat_map(|held| {
+                    let mut prefix = vec![NOTARIZATION_VOTE];
+                    prefix.extend_from_slice(&held.to_be_bytes());
+                    store.with_prefix(&txn, &prefix)
+                })
+                .map(|(key, _)| key)
+                .collect();
+            let old: Vec<Vec<u8>> = old.into_iter().chain(old_votes).collect();
             drop(txn);
             // In short transactions: the voter waits for the one writer
             for chunk in old.chunks(FORGET_CHUNK) {
@@ -598,6 +642,11 @@ impl SigningRecords {
                     })
                     .collect(),
             });
+        }
+        for (_, value) in store.with_prefix(&txn, &[NOTARIZATION_VOTE]) {
+            if let Ok(vote) = Vote::deserialize(&value) {
+                recovered.notarization_votes.push(Arc::new(vote));
+            }
         }
         for (key, value) in store.with_prefix(&txn, &[CLOSE]) {
             let (Some((epoch, round)), Some(state)) = (decode_close_key(&key), decode_slot(&value))
@@ -789,6 +838,15 @@ fn decode_evidence_key(key: &[u8]) -> Option<(ConsensusEpoch, BlockHash)> {
 /// A stored vote: epoch, then its signature
 fn evidence_vote_key(epoch: ConsensusEpoch, vote: &Vote) -> Vec<u8> {
     evidence_vote_key_of(epoch, vote.signature.as_bytes())
+}
+
+/// A vote behind a final vote: epoch, then its signature
+fn notarization_vote_key(vote: &Vote) -> Vec<u8> {
+    let mut key = Vec::with_capacity(73);
+    key.push(NOTARIZATION_VOTE);
+    key.extend_from_slice(&vote.epoch.as_u64().to_be_bytes());
+    key.extend_from_slice(vote.signature.as_bytes());
+    key
 }
 
 fn evidence_vote_key_of(epoch: ConsensusEpoch, signature: &[u8; 64]) -> Vec<u8> {
@@ -1026,29 +1084,66 @@ mod tests {
     /// RAI: the records survive closing the environment and opening it
     /// again from disk, as a restart does, with every sync of the default
     /// and the strictest mode on the way
+    /// A final vote's notarization votes come back on a restart, and go when
+    /// their epoch is forgotten
+    #[test]
+    fn notarization_votes_survive_a_restart_until_forgotten() {
+        let dir =
+            std::env::temp_dir().join(format!("rsnano-notarization-votes-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let open = || {
+            SigningRecords::new(
+                on_disk_env(dir.join("signing.ldb")),
+                on_disk_env(dir.join("epoch_records.ldb")),
+            )
+            .unwrap()
+        };
+        let vote = |epoch: u64, key: u64| {
+            Arc::new(Vote::new_in_epoch(
+                &rsnano_types::PrivateKey::from(key),
+                rsnano_types::VoteKind::First,
+                ConsensusEpoch::new(epoch),
+                vec![BlockHash::from(7)],
+            ))
+        };
+        let (old, kept) = (vote(1, 1), vote(5, 2));
+        let slot = SlotRecord {
+            slot: EpochSlot {
+                account: Account::from(1),
+                height: 1,
+                epoch: ConsensusEpoch::new(5),
+            },
+            state: LocalSlotState::default(),
+            parents: Vec::new(),
+        };
+        {
+            let records = open();
+            records.write_signing(&[slot], &[], &[old.clone(), kept.clone()]);
+            assert!(records.take_notarization_bytes() > 0);
+            assert_eq!(records.take_notarization_bytes(), 0);
+        }
+        let recovered = open().load();
+        assert_eq!(recovered.notarization_votes.len(), 2);
+
+        open().forget_before(ConsensusEpoch::new(2));
+        let recovered = open().load();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(recovered.notarization_votes.len(), 1);
+        assert_eq!(recovered.notarization_votes[0].signature, kept.signature);
+    }
+
     #[test]
     fn records_survive_reopening_the_environment_on_disk() {
         let dir = std::env::temp_dir().join(format!("rsnano-signing-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("signing.ldb");
-        let env = |path: std::path::PathBuf| {
-            let options = rsnano_nullable_lmdb::EnvironmentOptions {
-                path,
-                max_dbs: 1,
-                map_size: 64 * 1024 * 1024,
-                flags: rsnano_store_lmdb::get_lmdb_flags(&rsnano_store_lmdb::LmdbConfig {
-                    sync: rsnano_store_lmdb::SyncStrategy::Always,
-                    ..Default::default()
-                }),
-            };
-            rsnano_nullable_lmdb::LmdbEnvironmentFactory::default()
-                .create(options)
-                .unwrap()
-        };
         let open = || {
-            let records =
-                SigningRecords::new(env(path.clone()), env(dir.join("epoch_records.ldb"))).unwrap();
+            let records = SigningRecords::new(
+                on_disk_env(path.clone()),
+                on_disk_env(dir.join("epoch_records.ldb")),
+            )
+            .unwrap();
             records.with_drive_flush(DriveFlush::new(&path).unwrap())
         };
         let mut state = LocalSlotState::default();
@@ -1075,7 +1170,7 @@ mod tests {
 
         {
             let records = open();
-            records.write_signing(&[slot.clone()], &[close.clone()]);
+            records.write_signing(&[slot.clone()], &[close.clone()], &[]);
             records.write_frozen(ConsensusEpoch::new(2));
             records.write_epochs(&epochs);
         }
@@ -1100,7 +1195,7 @@ mod tests {
             state: state.clone(),
         };
 
-        records.write_signing(&[], &[close(1, 0), close(2, 3)]);
+        records.write_signing(&[], &[close(1, 0), close(2, 3)], &[]);
         assert_eq!(records.load().closes, vec![close(1, 0), close(2, 3)]);
 
         records.forget_before(ConsensusEpoch::new(2));
@@ -1341,6 +1436,21 @@ mod tests {
     /*
      * Test helpers
      */
+
+    fn on_disk_env(path: std::path::PathBuf) -> LmdbEnvironment {
+        let options = rsnano_nullable_lmdb::EnvironmentOptions {
+            path,
+            max_dbs: 1,
+            map_size: 64 * 1024 * 1024,
+            flags: rsnano_store_lmdb::get_lmdb_flags(&rsnano_store_lmdb::LmdbConfig {
+                sync: rsnano_store_lmdb::SyncStrategy::Always,
+                ..Default::default()
+            }),
+        };
+        rsnano_nullable_lmdb::LmdbEnvironmentFactory::default()
+            .create(options)
+            .unwrap()
+    }
 
     fn frontier(account: u64, height: u64) -> AccountFrontier {
         AccountFrontier {

@@ -477,6 +477,7 @@ impl ReportService {
         if timings.is_empty() {
             return;
         }
+        let notarization_bytes = self.signing.take_notarization_bytes();
         let summary: Vec<String> = timings
             .iter()
             .map(|(kind, t)| {
@@ -489,7 +490,11 @@ impl ReportService {
                 )
             })
             .collect();
-        crate::utils::diagnostic!("SIGNING_WRITES {}", summary.join(" "));
+        crate::utils::diagnostic!(
+            "SIGNING_WRITES {} notarization_bytes={}",
+            summary.join(" "),
+            notarization_bytes
+        );
     }
 
     /// Drives the reconciliations of the epochs still closing. The live

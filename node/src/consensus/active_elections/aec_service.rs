@@ -676,9 +676,20 @@ impl AecService {
     ) -> (
         Vec<crate::consensus::SlotRecord>,
         Vec<crate::consensus::CloseRecord>,
+        Vec<std::sync::Arc<rsnano_types::Vote>>,
     ) {
         let mut aec = self.aec.write().unwrap();
-        (aec.take_signing_records(), aec.take_close_records())
+        (
+            aec.take_signing_records(),
+            aec.take_close_records(),
+            aec.take_notarization_votes(),
+        )
+    }
+
+    /// RAI: a restarted node's durable votes behind its final votes
+    #[cfg(feature = "rai_protocol")]
+    pub fn restore_notarizations(&self, votes: Vec<std::sync::Arc<rsnano_types::Vote>>) {
+        self.aec.write().unwrap().restore_notarizations(votes)
     }
 
     /// RAI, durable signing records: a restarted node's close votes
