@@ -2465,6 +2465,20 @@ impl ActiveElectionsContainer {
             .is_some_and(|before| !self.decided.contains_key(&ConsensusEpoch::new(before)))
     }
 
+    /// RAI: an instance this node has not first voted in, of an epoch whose
+    /// predecessor checkpoint it has not installed. Its first vote waits for
+    /// the attachment or the checkpoint, and the other validators' do as well:
+    /// asking them yields nothing until the epoch before closes.
+    #[cfg(feature = "rai_protocol")]
+    pub fn held_at_gate(&self, election: &Election) -> bool {
+        !election.state().is_terminated()
+            && self.votes_early_in(election.epoch())
+            && self
+                .slots
+                .get(&election.epoch_slot())
+                .is_none_or(|slot| slot.first_voted.is_none())
+    }
+
     /// RAI: the epoch new elections are started in
     pub fn current_epoch(&self) -> ConsensusEpoch {
         self.current_epoch
@@ -8740,6 +8754,28 @@ mod tests {
         container.decided.insert(before, Arc::new(state));
         container.checkpoint_bases.insert(before, hash);
         hash
+    }
+
+    /// Solicits nothing while the epoch before is open, and solicits as
+    /// usual once its checkpoint is installed
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn an_instance_is_held_at_the_gate_until_the_checkpoint_before_it() {
+        for installed in [false, true] {
+            let block = SavedBlock::new_test_instance_with_key(2);
+            let (mut container, _, _, now) = overlap_fixture(|_| {});
+            if installed {
+                install_empty_predecessor(&mut container, ConsensusEpoch::new(1));
+            }
+            container
+                .insert(
+                    AecInsertRequest::new_priority(block, BlockPriority::new_test_instance()),
+                    now,
+                )
+                .unwrap();
+            let election = container.iter_round_robin().next().unwrap();
+            assert_eq!(container.held_at_gate(election), !installed);
+        }
     }
 
     /// An early first vote: its signer had not installed the predecessor

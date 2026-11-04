@@ -22,6 +22,11 @@ pub(crate) enum Urgency {
     Soon,
     /// RAI: an instance the ending epoch waits for
     Now,
+    /// RAI: held at the gate of its epoch: the validators withhold their first
+    /// votes until the epoch before closes, so there is nothing to ask for.
+    /// Thousands of them asking several times a second overfilled every
+    /// request aggregator and crowded out the close votes they wait for.
+    Held,
 }
 
 /// An election's last request, and how many requests in a row brought no
@@ -92,7 +97,7 @@ impl ConfirmReqSender {
             );
             last.at.elapsed(now) >= wait
         } else {
-            true
+            urgency != Urgency::Held
         }
     }
 
@@ -134,7 +139,7 @@ impl ConfirmReqSender {
     /// ending epoch waits for keep their pace.
     fn backs_off(election: &Election, urgency: Urgency) -> bool {
         match urgency {
-            Urgency::Now => false,
+            Urgency::Now | Urgency::Held => false,
             Urgency::Soon | Urgency::Slow => true,
             Urgency::Normal => election.state().is_terminated(),
         }
@@ -153,6 +158,7 @@ impl ConfirmReqSender {
     fn confirm_req_interval(election: &Election, urgency: Urgency) -> Duration {
         match urgency {
             Urgency::Now => Duration::ZERO,
+            Urgency::Held => Self::LONGEST_BACKOFF,
             Urgency::Soon => election.base_latency(),
             Urgency::Slow => election.base_latency() * 10,
             // Kudzu: an instance without a certificate yet is waiting for a
@@ -272,6 +278,34 @@ mod tests {
             &voted,
             Urgency::Soon,
             third + Duration::from_secs(1)
+        ));
+    }
+
+    #[test]
+    fn an_instance_held_at_the_gate_does_not_start_asking() {
+        let election = Election::new_test_instance_with(SavedBlock::new_test_instance());
+        let sender = ConfirmReqSender::new_null();
+        let now = Timestamp::new_test_instance();
+        assert!(!sender.should_send_confirm_req(&election, Urgency::Held, now));
+        // Released, it asks at once
+        assert!(sender.should_send_confirm_req(&election, Urgency::Normal, now));
+    }
+
+    #[test]
+    fn an_instance_held_after_asking_waits_the_longest() {
+        let election = Election::new_test_instance_with(SavedBlock::new_test_instance());
+        let mut sender = ConfirmReqSender::new_null();
+        let now = Timestamp::new_test_instance();
+        sender.record_request(&election, now);
+        assert!(!sender.should_send_confirm_req(
+            &election,
+            Urgency::Held,
+            now + Duration::from_millis(7999)
+        ));
+        assert!(sender.should_send_confirm_req(
+            &election,
+            Urgency::Held,
+            now + Duration::from_secs(8)
         ));
     }
 

@@ -331,6 +331,22 @@ impl AecService {
         f(&mut guard.iter_round_robin())
     }
 
+    /// The elections in round robin order, each with whether it is held at
+    /// the gate of its epoch (see `ActiveElectionsContainer::held_at_gate`)
+    pub fn round_robin_with_gate<F, T>(&self, f: F) -> T
+    where
+        F: FnOnce(&mut dyn Iterator<Item = (&Election, bool)>) -> T,
+    {
+        let guard = self.aec.read().unwrap();
+        #[cfg(feature = "rai_protocol")]
+        let held = |election: &Election| guard.held_at_gate(election);
+        #[cfg(not(feature = "rai_protocol"))]
+        let held = |_: &Election| false;
+        f(&mut guard
+            .iter_round_robin()
+            .map(|election| (election, held(election))))
+    }
+
     /// Kudzu: the votes to broadcast now, see Protocol 1; `proposal_valid`
     /// tells whether a block may be first voted
     pub(crate) fn kudzu_votes_due(
