@@ -105,14 +105,24 @@ impl VoteProcessorQueue {
     /// whose loopback lane the vote cache's replays share. @returns true if
     /// the vote was queued
     pub fn enqueue_own(&self, vote: Arc<Vote>) -> bool {
+        self.push_own(vote, VoteDelivery::Direct)
+    }
+
+    /// RAI: queues a recorded vote a restarted node signed again: it goes
+    /// into the node's vote records, to be served as evidence, and is not
+    /// gossip
+    pub fn enqueue_recorded(&self, vote: Arc<Vote>) -> bool {
+        self.push_own(vote, VoteDelivery::Evidence)
+    }
+
+    fn push_own(&self, vote: Arc<Vote>, delivery: VoteDelivery) -> bool {
         let added = {
             let mut guard = self.data.lock().unwrap();
             if guard.own_lane.len() < Self::OWN_LANE_MAX {
                 let tier = guard.rep_tiers.tier(&vote.voter);
-                guard.own_lane.push_back((
-                    (tier, ChannelId::LOOPBACK),
-                    (vote, VoteDelivery::Direct, None, None),
-                ));
+                guard
+                    .own_lane
+                    .push_back(((tier, ChannelId::LOOPBACK), (vote, delivery, None, None)));
                 true
             } else {
                 false
@@ -361,5 +371,23 @@ mod tests {
 
         let batch = queue.wait_for_votes(1);
         assert!(Arc::ptr_eq(&(batch[0].1).0, &own));
+    }
+
+    /// RAI: a recorded vote signed again on a restart takes the own lane and
+    /// is marked so that it is not rebroadcast
+    #[test]
+    fn recorded_votes_are_kept_as_evidence() {
+        let queue = VoteProcessorQueue::new_null();
+        let vote = Arc::new(Vote::new_in_epoch(
+            &PrivateKey::from(1),
+            VoteKind::First,
+            ConsensusEpoch::ZERO,
+            vec![BlockHash::from(7)],
+        ));
+        assert!(queue.enqueue_recorded(vote.clone()));
+
+        let batch = queue.wait_for_votes(1);
+        assert!(Arc::ptr_eq(&(batch[0].1).0, &vote));
+        assert_eq!((batch[0].1).1, VoteDelivery::Evidence);
     }
 }

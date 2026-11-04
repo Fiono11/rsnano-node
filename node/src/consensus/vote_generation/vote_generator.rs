@@ -54,7 +54,7 @@ pub(crate) struct VoteGenerator {
 
 impl VoteGenerator {
     const MAX_REQUESTS: usize = 2048;
-    const MAX_HASHES: usize = 255;
+    pub(crate) const MAX_HASHES: usize = 255;
 
     pub(crate) fn new(
         ledger: Arc<Ledger>,
@@ -159,6 +159,20 @@ impl VoteGenerator {
     pub(crate) fn sign_now(&self, root: &Root, hash: &BlockHash, epoch: ConsensusEpoch) {
         self.shared_state.vote(&[*hash], &[*root], epoch, |vote| {
             self.shared_state.vote_broadcaster.broadcast(vote)
+        });
+    }
+
+    /// RAI, durable signing records: signs votes a restarted node recorded
+    /// and keeps them here; `roots[i]` is the root `hashes[i]` was voted at
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn sign_recorded(
+        &self,
+        roots: &[Root],
+        hashes: &[BlockHash],
+        epoch: ConsensusEpoch,
+    ) {
+        self.shared_state.vote(hashes, roots, epoch, |vote| {
+            self.shared_state.vote_broadcaster.keep_recorded(vote)
         });
     }
 

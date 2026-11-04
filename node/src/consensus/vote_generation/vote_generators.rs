@@ -38,6 +38,9 @@ pub struct VoteGenerators {
     stats: Arc<Stats>,
     /// RAI: the checkpoints first votes name as their base
     bases: Arc<CheckpointBases>,
+    /// RAI: what a restarted node signs again when it starts
+    #[cfg(feature = "rai_protocol")]
+    recorded: Mutex<Vec<super::RecordedVotes>>,
 }
 
 impl VoteGenerators {
@@ -106,6 +109,8 @@ impl VoteGenerators {
             wallet_reps,
             stats,
             bases,
+            #[cfg(feature = "rai_protocol")]
+            recorded: Mutex::new(Vec::new()),
         }
     }
 
@@ -142,6 +147,38 @@ impl VoteGenerators {
         for (_, generator) in &self.generators {
             generator.start();
         }
+        #[cfg(feature = "rai_protocol")]
+        self.sign_recorded();
+    }
+
+    /// RAI, durable signing records: the votes a restarted node recorded
+    /// before it stopped, to sign again when it starts
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn restore_recorded(
+        &self,
+        slots: &[crate::consensus::SlotRecord],
+        reports: &[crate::consensus::ReportRecord],
+    ) {
+        *self.recorded.lock().unwrap() =
+            super::recorded_votes(slots, reports, VoteGenerator::MAX_HASHES);
+    }
+
+    /// These are the statements the node's records and reports already hold,
+    /// also in epochs it left and signs nothing new in: one identity, block,
+    /// kind and epoch, so a second signature cannot conflict with the first
+    #[cfg(feature = "rai_protocol")]
+    fn sign_recorded(&self) {
+        let recorded = std::mem::take(&mut *self.recorded.lock().unwrap());
+        if recorded.is_empty() {
+            return;
+        }
+        let mut signed = 0;
+        for votes in &recorded {
+            self.generator(votes.vote_type)
+                .sign_recorded(&votes.roots, &votes.hashes, votes.epoch);
+            signed += votes.hashes.len();
+        }
+        crate::utils::diagnostic!("EPOCH_VOTES_RESIGNED votes={}", signed);
     }
 
     pub fn stop(&self) {

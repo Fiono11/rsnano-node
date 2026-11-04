@@ -41,6 +41,13 @@ impl VoteBroadcaster {
         Self::new(queue, flooder, stats)
     }
 
+    /// RAI: keeps a recorded vote a restarted node signed again, without
+    /// broadcasting it: whoever lacks it asks
+    #[cfg(feature = "rai_protocol")]
+    pub fn keep_recorded(&self, vote: Arc<Vote>) {
+        self.vote_processor_queue.enqueue_recorded(vote);
+    }
+
     /// Broadcast vote to PRs and some non-PRs
     pub fn broadcast(&self, vote: Arc<Vote>) {
         let ack = Message::ConfirmAck(ConfirmAck::new_with_own_vote(vote.deref().clone()));

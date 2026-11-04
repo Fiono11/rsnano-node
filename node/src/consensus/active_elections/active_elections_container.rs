@@ -8118,6 +8118,62 @@ mod tests {
         assert!(!restarted.signs_account_votes_in(ConsensusEpoch::ZERO));
     }
 
+    /// RAI: a restart into an epoch it left leaves a node with a report that
+    /// lists a first vote whose signature it lost. Signed again from the
+    /// records, the vote is held and served; before, nobody could supply it
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn a_restarted_node_serves_the_votes_its_records_hold() {
+        let (mut restarted, reps, rep_weights, start) = committee_fixture(|_| {});
+        let block = SavedBlock::new_test_instance_with_key(1);
+        let epoch = ConsensusEpoch::ZERO;
+        let slots = vec![crate::consensus::SlotRecord {
+            slot: EpochSlot {
+                account: block.account(),
+                height: block.height(),
+                epoch,
+            },
+            state: LocalSlotState {
+                first_voted: Some(block.hash()),
+                ..Default::default()
+            },
+            parents: vec![(block.hash(), block.previous())],
+        }];
+        let recorded = crate::consensus::recorded_votes(&slots, &[], 255);
+        restarted.restore_signing(slots, vec![epoch]);
+        let report = restarted.epoch_report(epoch).unwrap();
+        assert!(
+            report
+                .residual
+                .entries()
+                .any(|(b, _, _)| b.hash == block.hash())
+        );
+        assert!(restarted.evidence_votes(epoch, &[block.hash()]).is_empty());
+        assert!(!restarted.signs_account_votes_in(epoch));
+
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded[0].hashes, vec![block.hash()]);
+        let vote = Arc::new(Vote::new_in_epoch_as(
+            &reps[0],
+            VoteKind::First,
+            false,
+            recorded[0].epoch,
+            restarted.checkpoint_bases.first_vote_base(epoch, false),
+            recorded[0].hashes.clone(),
+        ));
+        apply(&mut restarted, vote, &rep_weights, start);
+
+        let served = restarted.evidence_votes(epoch, &[block.hash()]);
+        assert_eq!(served.len(), 1);
+        assert_eq!(served[0].voter, reps[0].public_key());
+        assert!(restarted.has_vote(
+            epoch,
+            &reps[0].public_key(),
+            &block.hash(),
+            ResidualKind::First
+        ));
+    }
+
     /// A candidate source which always has a block to schedule
     struct AlwaysAvailable;
 

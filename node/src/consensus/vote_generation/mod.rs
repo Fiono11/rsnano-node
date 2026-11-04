@@ -1,6 +1,8 @@
 mod aec_voter;
 mod cps_limiter;
 mod local_vote_history;
+#[cfg(feature = "rai_protocol")]
+mod recorded_votes;
 mod request_aggregator;
 mod request_aggregator_impl;
 mod signed_vote_log;
@@ -12,6 +14,8 @@ mod voting_scheduler;
 pub(crate) use aec_voter::*;
 pub(crate) use cps_limiter::*;
 pub use local_vote_history::*;
+#[cfg(feature = "rai_protocol")]
+pub(crate) use recorded_votes::*;
 pub use request_aggregator::*;
 pub use signed_vote_log::SignedVoteLog;
 pub use vote_generators::*;
