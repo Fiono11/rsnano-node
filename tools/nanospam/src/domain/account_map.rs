@@ -56,7 +56,11 @@ impl AccountMap {
     }
 
     pub fn private_keys(&self) -> impl Iterator<Item = &PrivateKey> {
-        self.account_states.values().map(|s| &s.key)
+        // In the accounts' order: the first one is the initial account, also
+        // when the keys are read back from a file
+        self.all_accounts
+            .iter()
+            .map(|account| &self.account_states[account].key)
     }
 
     pub fn initial_key(&self) -> &PrivateKey {
@@ -308,6 +312,19 @@ impl AccountMap {
 mod tests {
     use super::*;
     use ntest::assert_false;
+
+    /// The keys are saved and read back: the first is the initial account
+    #[test]
+    fn private_keys_keep_the_accounts_order() {
+        let mut map = AccountMap::default();
+        for i in 1..=20 {
+            map.add_unopened(PrivateKey::from(i));
+        }
+
+        let accounts: Vec<_> = map.private_keys().map(|key| key.account()).collect();
+
+        assert_eq!(&accounts, map.accounts());
+    }
 
     #[test]
     fn empty() {

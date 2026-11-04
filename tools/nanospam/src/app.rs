@@ -42,8 +42,8 @@ use crate::{
     restart::Restarter,
     rotation::run_rotations,
     setup::{
-        NodeHosts, configure_nodes, create_account_map, genesis_key, get_genesis_hash,
-        peering_port, remote_nodes, rpc_port, start_nodes,
+        NodeHosts, configure_nodes, create_account_map, get_genesis_hash, peering_port,
+        remote_nodes, restore_account_keys, restore_node_ledgers, rpc_port, start_nodes,
     },
     wallets_factory::create_wallets,
     weight_shift::{WeightShifts, run_weight_shifts},
@@ -90,10 +90,16 @@ impl NanoSpamApp {
                 .join("NanoSpam"),
         };
 
+        if let Some(snapshot) = &self.args.ledger_snapshot {
+            restore_account_keys(snapshot, &data_dir)?;
+        }
         let mut account_map = create_account_map(&data_dir, self.args.accounts);
 
-        if self.args.set_up_new_nodes() {
+        if self.args.set_up_new_nodes() || self.args.ledger_snapshot.is_some() {
             configure_nodes(&self.args, &data_dir);
+        }
+        if let Some(snapshot) = &self.args.ledger_snapshot {
+            restore_node_ledgers(snapshot, &data_dir, self.args.honest_prs())?;
         }
 
         // Only the representatives that run a node have an RPC; the offline and
@@ -135,7 +141,7 @@ impl NanoSpamApp {
             WalletId::ZERO
         };
 
-        if self.args.sync {
+        if self.args.sync || self.args.ledger_snapshot.is_some() {
             sync_frontiers(&self.rpc_clients, &mut account_map).await;
         }
 
@@ -150,28 +156,20 @@ impl NanoSpamApp {
                 .await?;
         }
 
+        // A saved setup must hold the same ledger on every node
         if self.args.setup_only {
-            return Ok(());
+            return wait_until_nodes_agree(&self.args, &self.rpc_clients).await;
         }
 
         if self.args.sync {
             high_prio_check.sync_accounts().await?;
         }
 
-        // With representatives that never vote, the weight a node can see is
-        // only the honest share of the configured minimum
-        wait_for_full_quorum(
-            &self.rpc_clients,
-            self.args.honest_prs() as u128,
-            self.args.prs as u128,
-        )
-        .await?;
+        wait_until_nodes_agree(&self.args, &self.rpc_clients).await?;
 
         // RAI: the setup is over and every PR holds its share of the weight:
-        // epoch 0 starts now on every PR. Its genesis committee is the
-        // ledger as it stands, so every PR must hold the same ledger first.
+        // epoch 0 starts now on every PR.
         if self.args.epoch_duration_ms > 0 {
-            wait_for_equal_ledgers(&self.rpc_clients).await?;
             for rpc_client in &self.rpc_clients {
                 rpc_client.epoch_start().await?;
             }
@@ -647,6 +645,21 @@ async fn confirm_uncemented_frontiers(rpc_client: &NanoRpcClient) {
             let _ = rpc_client.block_confirm(hash).await;
         }
     }
+}
+
+/// Every PR sees the same quorum and, under RAI, holds the same ledger, which
+/// the genesis committee of epoch 0 is derived from
+async fn wait_until_nodes_agree(
+    args: &CliArgs,
+    rpc_clients: &[NanoRpcClient],
+) -> anyhow::Result<()> {
+    // With representatives that never vote, the weight a node can see is
+    // only the honest share of the configured minimum
+    wait_for_full_quorum(rpc_clients, args.honest_prs() as u128, args.prs as u128).await?;
+    if args.epoch_duration_ms > 0 {
+        wait_for_equal_ledgers(rpc_clients).await?;
+    }
+    Ok(())
 }
 
 async fn wait_for_full_quorum(

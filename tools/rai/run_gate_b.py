@@ -21,6 +21,7 @@ import time
 import traceback
 
 from audit_votes import audit, read_logs
+from ledger_snapshot import ensure_ledger_snapshot
 from remote_hosts import fetch_node_files, longest_round_trip_ms, parse_hosts, push_binaries, rtt_matrix, stop_remote_nodes
 
 # --hosts: node i's address; without it every node is on this machine
@@ -272,6 +273,8 @@ def main():
                              '(nanospam --byzantine-node); its binary is BIN_DIR/rsnano-byzantine, a rai_byzantine build')
     parser.add_argument('--no-epochs', action='store_true',
                         help='the unmodified-node baseline: no epochs, no checkpoints, no committee model; settled means identical cemented state')
+    parser.add_argument('--ledger-snapshot', type=Path, default=None,
+                        help='the funded ledgers to start from: saved in this directory by a setup run if it is empty')
     parser.add_argument('--hosts', type=Path, default=None,
                         help='one line per running representative, ADDRESS or ADDRESS local (nanospam --hosts): '
                              'remote nodes are started over ssh, the binaries copied to ~/rai-bin/<build> on their machines')
@@ -378,6 +381,12 @@ def main():
         env = dict(os.environ, PATH=str(binary_dir) + os.pathsep + os.environ['PATH'], RUST_LOG='nanospam=info', NANO_LOG='noansi')
         process = None
         try:
+            if args.ledger_snapshot:
+                result['ledger_snapshot'] = ensure_ledger_snapshot(
+                    args.ledger_snapshot.resolve(), command, env, HOSTS,
+                    dict(node_sha256=result['node_sha256'], nodes=nodes, prs=args.prs, accounts=args.accounts),
+                    args.output / 'snapshot-setup.log')
+                command += ['--ledger-snapshot', str(args.ledger_snapshot.resolve())]
             with (args.output / 'run.log').open('w') as log:
                 process = subprocess.Popen(command, env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
                 deadline = time.monotonic() + args.timeout

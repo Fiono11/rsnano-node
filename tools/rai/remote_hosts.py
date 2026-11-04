@@ -106,6 +106,11 @@ def fetch_node_files(hosts, data, names):
                            capture_output=True)
 
 
+def fetch_node_dir(address, remote_dir, local_dir):
+    """Copies a remote node's whole data directory to local_dir, which must not exist"""
+    subprocess.run(['scp', '-rq', *SSH_OPTIONS, scp_target(address, str(remote_dir)), str(local_dir)], check=True)
+
+
 def stop_remote_nodes(hosts, data, remove):
     """SIGKILLs every remote node of the run by the pid it recorded; with
     remove, deletes the run's data directory on each machine"""

@@ -29,6 +29,12 @@ pub(crate) struct CliArgs {
     #[arg(long, default_value_t = false)]
     pub setup_only: bool,
 
+    /// Start from the ledgers `--setup-only` saved in this directory (one
+    /// `pr<i>` per node and account_keys.txt) instead of funding the accounts
+    /// again: every run starts from the same accounts, without the setup
+    #[arg(long)]
+    pub ledger_snapshot: Option<PathBuf>,
+
     /// Attach to an already running node that was set up by a previous nanospam run
     #[arg(long, default_value_t = false)]
     pub attach: bool,
@@ -463,7 +469,7 @@ impl CliArgs {
     }
 
     pub(crate) fn set_up_new_nodes(&self) -> bool {
-        !self.attach && !self.sync
+        !self.attach && !self.sync && self.ledger_snapshot.is_none()
     }
 
     fn strategy(&self) -> SpamStrategy {
