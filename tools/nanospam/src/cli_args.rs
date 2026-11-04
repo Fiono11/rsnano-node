@@ -81,6 +81,11 @@ pub(crate) struct CliArgs {
     #[arg(long, default_value_t = 500000)]
     pub accounts: usize,
 
+    /// RAI: accounts funded during the setup, ready to send when publishing
+    /// starts. Default: the rate, which covers confirmations of up to a second
+    #[arg(long)]
+    pub prefund_accounts: Option<usize>,
+
     /// Randomly drop publish messages
     #[arg(long, default_value_t = 0)]
     pub drop_percentage: usize,
@@ -255,6 +260,13 @@ impl CliArgs {
             track_confirmations: !self.unconfirmed,
             representatives: self.representatives(),
         })
+    }
+
+    pub(crate) fn prefund_count(&self) -> anyhow::Result<usize> {
+        match self.prefund_accounts {
+            Some(count) => Ok(count),
+            None => Ok(self.rate_spec()?.initial_bps),
+        }
     }
 
     /// RAI: the principal representatives of the run, which every account

@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     sync::{
         Mutex,
         atomic::{AtomicBool, Ordering},
@@ -127,6 +128,7 @@ impl NanoSpamApp {
                 &(0..self.args.prs)
                     .map(|i| self.args.pr_balance(i))
                     .collect::<Vec<_>>(),
+                self.args.prefund_count()?,
             )
             .await
         } else {
@@ -540,27 +542,50 @@ async fn log_status(
     }
 }
 
-/// Hands the recent blocks of the genesis account, as the first PR holds them,
-/// to every other PR; a block they hold already is ignored as old
-async fn republish_genesis_chain(rpc_clients: &[NanoRpcClient]) {
-    let genesis = genesis_key().account();
-    let Ok(history) = rpc_clients[0]
-        .account_history(AccountHistoryArgs::new(genesis, 40))
-        .await
-    else {
+/// The accounts whose frontier on a node differs from the reference node's
+fn differing_accounts(
+    reference: &HashMap<Account, BlockHash>,
+    held: &HashMap<Account, BlockHash>,
+) -> Vec<Account> {
+    reference
+        .iter()
+        .filter(|(account, frontier)| held.get(*account) != Some(*frontier))
+        .map(|(account, _)| *account)
+        .collect()
+}
+
+/// A setup block flooded to the nodes may have been lost on one of them, and
+/// nothing else delivers it before the spam starts. Hands every account chain
+/// a PR lacks to it, as the first PR holds it; a block it holds already is
+/// ignored as old. A receive ahead of its send arrives on the next pass.
+async fn republish_differing_chains(rpc_clients: &[NanoRpcClient]) {
+    let Ok(reference) = rpc_clients[0].frontiers(Account::ZERO, 100_000).await else {
         return;
     };
-    for entry in history.history.iter().rev() {
-        let Ok(info) = rpc_clients[0].block_info(entry.hash).await else {
+    let reference = reference.frontiers.unwrap_or_default();
+    for client in &rpc_clients[1..] {
+        let Ok(held) = client.frontiers(Account::ZERO, 100_000).await else {
             continue;
         };
-        for client in &rpc_clients[1..] {
-            let _ = client
-                .process(ProcessArgs::build(info.contents.clone()).finish())
-                .await;
+        let accounts = differing_accounts(&reference, &held.frontiers.unwrap_or_default());
+        for account in &accounts {
+            let Ok(history) = rpc_clients[0]
+                .account_history(AccountHistoryArgs::new(*account, 40))
+                .await
+            else {
+                continue;
+            };
+            for entry in history.history.iter().rev() {
+                let Ok(info) = rpc_clients[0].block_info(entry.hash).await else {
+                    continue;
+                };
+                let _ = client
+                    .process(ProcessArgs::build(info.contents.clone()).finish())
+                    .await;
+            }
         }
+        info!("Republished {} account chains to a PR", accounts.len());
     }
-    info!("Republished the genesis chain to all PRs");
 }
 
 /// The spam only starts once every PR has seen every representative vote and
@@ -588,10 +613,8 @@ async fn wait_for_equal_ledgers(rpc_clients: &[NanoRpcClient]) -> anyhow::Result
             );
             return Ok(());
         }
-        // A setup block lost on one node: the genesis chain, whose sends
-        // fund every account of the setup, is handed to every node again
         if recovery.due(started.elapsed()) {
-            republish_genesis_chain(rpc_clients).await;
+            republish_differing_chains(rpc_clients).await;
             // A node holding every block but never cementing one of them:
             // its election there missed the votes, which nothing sends again
             for (rpc_client, (count, cemented)) in rpc_clients.iter().zip(&counts) {
@@ -656,12 +679,10 @@ async fn wait_for_full_quorum(
                 info!("All PRs see the full quorum after {:?}", started.elapsed());
                 return Ok(());
             }
-            // A setup block flooded to the nodes may have been lost on one of
-            // them; nothing else delivers it before the spam starts, so the
-            // genesis chain, whose sends move the representative weight the
-            // gate compares, is handed to every node again
+            // The sends and receives of a lost setup block move the
+            // representative weight this gate compares
             _ if recovery.due(started.elapsed()) => {
-                republish_genesis_chain(rpc_clients).await;
+                republish_differing_chains(rpc_clients).await;
             }
             _ if started.elapsed() > Duration::from_secs(120) => {
                 return Err(anyhow!(
@@ -712,5 +733,35 @@ pub(crate) async fn drain_reader(mut reader: ReadHalf<TcpStream>) {
         if read == 0 {
             break;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_missing_or_older_frontier_differs() {
+        let reference = HashMap::from([
+            (Account::from(1), BlockHash::from(10)),
+            (Account::from(2), BlockHash::from(20)),
+            (Account::from(3), BlockHash::from(30)),
+        ]);
+        let held = HashMap::from([
+            (Account::from(1), BlockHash::from(10)),
+            (Account::from(2), BlockHash::from(19)),
+        ]);
+
+        let mut differing = differing_accounts(&reference, &held);
+        differing.sort();
+
+        assert_eq!(differing, [Account::from(2), Account::from(3)]);
+    }
+
+    #[test]
+    fn equal_frontiers_do_not_differ() {
+        let frontiers = HashMap::from([(Account::from(1), BlockHash::from(10))]);
+
+        assert!(differing_accounts(&frontiers, &frontiers).is_empty());
     }
 }

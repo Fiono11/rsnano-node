@@ -189,6 +189,10 @@ impl SpamLogic {
     pub(crate) fn next_block(&mut self, is_fork: bool, now: Timestamp) -> Option<BlockResult> {
         if self.bps_start.is_none() {
             self.bps_start = Some(now);
+            // The bucket starts full: publish at the rate from the first
+            // block, not a second's worth of blocks at once
+            self.bps_limiter
+                .consume(self.current_bps.saturating_sub(1), now);
         }
 
         if self.next_block.is_none() {
@@ -398,7 +402,7 @@ mod tests {
         ));
         logic.next_block = Some(Forks::new_fork(primary.clone(), alternative));
         assert!(matches!(
-            logic.next_block(true, now),
+            logic.next_block(true, now + Duration::from_secs(1)),
             Some(BlockResult::Block(_))
         ));
         logic.published(&plain.hash(), now);
@@ -444,6 +448,31 @@ mod tests {
         ));
         assert!(matches!(
             logic.next_block(false, now + Duration::from_secs(1)),
+            Some(BlockResult::Block(_))
+        ));
+    }
+
+    /// With accounts ready to send, a full bucket would publish a second's
+    /// worth of blocks at once
+    #[test]
+    fn publishing_starts_at_the_rate_without_a_burst() {
+        let mut logic = test_logic(0, 0.0);
+        let now = Timestamp::new_test_instance();
+        let block = test_block(1, 2);
+
+        logic.next_block = Some(Forks::new(block.clone()));
+        assert!(matches!(
+            logic.next_block(false, now),
+            Some(BlockResult::Block(_))
+        ));
+
+        logic.next_block = Some(Forks::new(block));
+        assert!(matches!(
+            logic.next_block(false, now),
+            Some(BlockResult::Waiting)
+        ));
+        assert!(matches!(
+            logic.next_block(false, now + Duration::from_millis(20)),
             Some(BlockResult::Block(_))
         ));
     }
