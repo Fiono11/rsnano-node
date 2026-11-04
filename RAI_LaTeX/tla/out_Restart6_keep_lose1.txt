@@ -1,0 +1,37 @@
+TLC2 Version 2.20 of Day Month 20?? (rev: 2cf8424)
+Running breadth-first search Model-Checking with fp 51 and seed 4456152678586518056 with 8 workers on 8 cores with 9102MB heap and 64MB offheap memory [pid: 7383] (Mac OS X 14.6.1 aarch64, Eclipse Adoptium 17.0.7 x86_64, MSBDiskFPSet, DiskStateQueue).
+Parsing file RaiCloseRestart.tla
+Parsing file Naturals.tla (<path>/Naturals.tla)
+Parsing file FiniteSets.tla (<path>/FiniteSets.tla)
+Parsing file TLC.tla (<path>/TLC.tla)
+Parsing file _TLCTrace.tla (<path>/_TLCTrace.tla)
+Parsing file Sequences.tla (<path>/Sequences.tla)
+Parsing file TLCExt.tla (<path>/TLCExt.tla)
+Parsing file Integers.tla (<path>/Integers.tla)
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module Integers
+Semantic processing of module TLCExt
+Semantic processing of module _TLCTrace
+Semantic processing of module RaiCloseRestart
+Linting of module TLCExt
+Linting of module _TLCTrace
+Linting of module RaiCloseRestart
+Starting... (2026-11-04 10:59:38)
+Computing initial states...
+Finished computing initial states: 1 distinct state generated at 2026-11-04 10:59:38.
+Progress(17) at 2026-11-04 10:59:41: 179 479 states generated (179 479 s/min), 24 301 distinct states found (24 301 ds/min), 8 610 states left on queue.
+Progress(23) at 2026-11-04 11:00:41: 4 373 699 states generated (4 194 220 s/min), 446 202 distinct states found (421 901 ds/min), 113 846 states left on queue.
+Progress(25) at 2026-11-04 11:01:41: 8 452 700 states generated (4 079 001 s/min), 665 882 distinct states found (219 680 ds/min), 103 287 states left on queue.
+Progress(28) at 2026-11-04 11:02:41: 12 599 190 states generated (4 146 490 s/min), 859 605 distinct states found (193 723 ds/min), 73 659 states left on queue.
+Model checking completed. No error has been found.
+  Estimates of the probability that TLC did not check all reachable states
+  because two distinct states had the same fingerprint:
+  calculated (optimistic):  val = 9.8E-7
+  based on the actual fingerprints:  val = 2.6E-8
+16005397 states generated, 1217147 distinct states found, 0 states left on queue.
+The depth of the complete state graph search is 40.
+The average outdegree of the complete state graph is 1 (minimum is 0, the maximum 12 and the 95th percentile is 3).
+Finished in 03min 50s at (2026-11-04 11:03:29)

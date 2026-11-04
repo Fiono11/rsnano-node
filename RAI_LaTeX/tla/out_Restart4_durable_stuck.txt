@@ -1,0 +1,33 @@
+TLC2 Version 2.20 of Day Month 20?? (rev: 2cf8424)
+Running breadth-first search Model-Checking with fp 22 and seed 1578865484347862463 with 8 workers on 8 cores with 9102MB heap and 64MB offheap memory [pid: 8205] (Mac OS X 14.6.1 aarch64, Eclipse Adoptium 17.0.7 x86_64, MSBDiskFPSet, DiskStateQueue).
+Parsing file <path>/RaiCloseRestart.tla
+Parsing file <path>/Naturals.tla (<path>/Naturals.tla)
+Parsing file <path>/FiniteSets.tla (<path>/FiniteSets.tla)
+Parsing file <path>/TLC.tla (<path>/TLC.tla)
+Parsing file <path>/_TLCTrace.tla (<path>/_TLCTrace.tla)
+Parsing file <path>/Sequences.tla (<path>/Sequences.tla)
+Parsing file <path>/TLCExt.tla (<path>/TLCExt.tla)
+Parsing file <path>/Integers.tla (<path>/Integers.tla)
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module Integers
+Semantic processing of module TLCExt
+Semantic processing of module _TLCTrace
+Semantic processing of module RaiCloseRestart
+Linting of module TLCExt
+Linting of module _TLCTrace
+Linting of module RaiCloseRestart
+Starting... (2026-11-04 12:24:50)
+Computing initial states...
+Finished computing initial states: 1 distinct state generated at 2026-11-04 12:24:50.
+Model checking completed. No error has been found.
+  Estimates of the probability that TLC did not check all reachable states
+  because two distinct states had the same fingerprint:
+  calculated (optimistic):  val = 6.1E-10
+  based on the actual fingerprints:  val = 4.4E-11
+318177 states generated, 40652 distinct states found, 0 states left on queue.
+The depth of the complete state graph search is 23.
+The average outdegree of the complete state graph is 1 (minimum is 0, the maximum 8 and the 95th percentile is 3).
+Finished in 03s at (2026-11-04 12:24:53)

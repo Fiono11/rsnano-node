@@ -1,0 +1,191 @@
+TLC2 Version 2.20 of Day Month 20?? (rev: 2cf8424)
+Running breadth-first search Model-Checking with fp 71 and seed 8764414418299507099 with 8 workers on 8 cores with 9102MB heap and 64MB offheap memory [pid: 8144] (Mac OS X 14.6.1 aarch64, Eclipse Adoptium 17.0.7 x86_64, MSBDiskFPSet, DiskStateQueue).
+Parsing file <path>/RaiCloseRestart.tla
+Parsing file <path>/Naturals.tla (<path>/Naturals.tla)
+Parsing file <path>/FiniteSets.tla (<path>/FiniteSets.tla)
+Parsing file <path>/TLC.tla (<path>/TLC.tla)
+Parsing file <path>/_TLCTrace.tla (<path>/_TLCTrace.tla)
+Parsing file <path>/Sequences.tla (<path>/Sequences.tla)
+Parsing file <path>/TLCExt.tla (<path>/TLCExt.tla)
+Parsing file <path>/Integers.tla (<path>/Integers.tla)
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module Integers
+Semantic processing of module TLCExt
+Semantic processing of module _TLCTrace
+Semantic processing of module RaiCloseRestart
+Linting of module TLCExt
+Linting of module _TLCTrace
+Linting of module RaiCloseRestart
+Starting... (2026-11-04 12:24:38)
+Computing initial states...
+Finished computing initial states: 1 distinct state generated at 2026-11-04 12:24:39.
+Error: Invariant NoStuck is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ frozen = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ rep = << ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ),
+   ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ) >>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ fv = << (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-") >>
+/\ lost = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+
+State 2: <Vote(c1,1,"X") line 93, col 3 to line 96, col 43 of module RaiCloseRestart>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ frozen = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ rep = << ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ),
+   ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ) >>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ fv = << (c1 :> "X" @@ c2 :> "-" @@ c3 :> "-"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-") >>
+/\ lost = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+
+State 3: <Vote(c2,1,"X") line 93, col 3 to line 96, col 43 of module RaiCloseRestart>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ frozen = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ rep = << ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ),
+   ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ) >>
+/\ fn = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ fv = << (c1 :> "X" @@ c2 :> "X" @@ c3 :> "-"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-") >>
+/\ lost = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+
+State 4: <FinalVote(c1,1) line 99, col 3 to line 102, col 43 of module RaiCloseRestart>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ frozen = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ rep = << ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ),
+   ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ) >>
+/\ fn = << (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ fv = << (c1 :> "X" @@ c2 :> "X" @@ c3 :> "-"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-") >>
+/\ lost = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+
+State 5: <Restart(c1,1) line 106, col 3 to line 110, col 41 of module RaiCloseRestart>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ frozen = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ rep = << ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ),
+   ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ) >>
+/\ fn = << (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ fv = << (c1 :> "X" @@ c2 :> "X" @@ c3 :> "-"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-") >>
+/\ lost = << (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+
+State 6: <Freeze(c3,1) line 133, col 3 to line 146, col 34 of module RaiCloseRestart>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ frozen = << (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ rep = << ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {}] ),
+   ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ) >>
+/\ fn = << (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ fv = << (c1 :> "X" @@ c2 :> "X" @@ c3 :> "-"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-") >>
+/\ lost = << (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+
+State 7: <Freeze(c2,1) line 133, col 3 to line 146, col 34 of module RaiCloseRestart>
+/\ S = ( 0 :> [done |-> TRUE, fin |-> {}, locks |-> {}] @@
+  1 :> [done |-> FALSE, fin |-> {}, locks |-> {}] @@
+  2 :> [done |-> FALSE, fin |-> {}, locks |-> {}] )
+/\ frozen = << (c1 :> FALSE @@ c2 :> TRUE @@ c3 :> TRUE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ rep = << ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {"X"}] @@
+     c3 :> [T |-> [X |-> "-", Y |-> "-"], G |-> {}] ),
+   ( c1 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c2 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] @@
+     c3 :> [T |-> [X |-> "none", Y |-> "none"], G |-> {}] ) >>
+/\ fn = << (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+/\ fv = << (c1 :> "X" @@ c2 :> "X" @@ c3 :> "-"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-"),
+   (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-") >>
+/\ lost = << (c1 :> TRUE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE),
+   (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE) >>
+
+686 states generated, 221 distinct states found, 126 states left on queue.
+The depth of the complete state graph search is 8.
+Finished in 00s at (2026-11-04 12:24:39)
+Trace exploration spec path: ./RaiCloseRestart_TTrace_1793795078.tla

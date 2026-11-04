@@ -185,3 +185,24 @@ Switch sets: `patch` (IMPLIED all, settled, prev, strict, no re-notarization), `
 ### Abstractions (both modules; details in the headers)
 
 Adds behaviours: global finality from formable certificates (1); every published block reaches everyone, and a correct validator votes any admissible block (2); a correct report may omit an N tag for a held NC (3); `BYZ = all` (4); a Byzantine report lists any published blocks (5); the manifest discharges any dischargeable set containing the forced records (6); children published as soon as a checkpoint keeps their parent, before the owner could know (7); `NOEARLY` models only the checkpoint half of the paper's rule. Removes behaviours: correct reports carry no F tag for an observed certificate (3); `BYZ = release` never releases Byzantine final votes, so the recovery runs miss attacks that need one; the owner policy (`OWNER = policy`) signs children only of kept or final blocks, so safety against a forking owner is only checked by the `_any_` runs; in RaiRecoverMany epoch-1 votes are scripted unless `OWNER = any`; one account, two positions, one committee, N = 6, E = 4.
+
+## `RaiCloseRestart`: restarts before the report freezes
+
+`RaiClose` with a validator that restarts before freezing its report. Its final vote stands; `RESTART` selects what happens to the notarization behind it: `durable` (kept), `lose` (the report built after the restart has no N tag and lists the first vote in G), `hold` (the report waits until the notarization can be assembled again without the Byzantine validator: from correct first votes, or from a correct validator that holds it), `release` (as `hold`, but the report is also signed without the tag once frozen reports of others leave too few possible final voters). `MAXLOST` bounds such restarts per closure. `P = 1` with five correct validators is N = 6; `P = 0` with three is N = 4. `_keep` and the `_safe`/`_stuck` configs set `MAXKEEP` (Rule 2 keeps a side). `NoStuck`: no state where every correct validator still to report can never freeze while the Byzantine validator stays silent. Run with `TLA2TOOLS=... ./restart.sh <configs>`.
+
+| Restart | N = 4 | N = 6 |
+|---|---|---|
+| `durable`, safety | no error, 40,652 states | no error, 278,404 states (the same as `Close_TRUE_maxkeep`) |
+| `durable`, `NoStuck` | no error | no error |
+| `lose`, one restart | `NoConflict` violated, 13 steps | no error, 1,217,147 states |
+| `lose`, two restarts | not run | `NoConflict` violated, 19 steps |
+| `hold`, safety, up to 3 restarts | no error, 0.1 M states | no error, 0.8-1.2 M states |
+| `hold`, `NoStuck`, one restart | violated, 7 steps | violated, 10 steps |
+| `release`, safety, up to 3 restarts | no error, 0.1 M states | no error, 1.1-2.2 M states |
+| `release`, `NoStuck`, one restart | no error | no error |
+| `release`, `NoStuck`, two restarts | violated, 8 steps | no error |
+| `release`, `NoStuck`, three restarts | violated, 8 steps | violated, 12 steps |
+
+`release` is stuck only when every correct final voter of a block restarted and lost the notarization: q - f validators, two at N = 4 and three at N = 6.
+
+The model has one position, two closures, no early voting, and no committee change, and `MAXKEEP` approximates the keep pass (most reporter votes of any kind, not settled votes with the predecessor's block preferred).

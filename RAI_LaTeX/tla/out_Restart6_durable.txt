@@ -1,0 +1,35 @@
+TLC2 Version 2.20 of Day Month 20?? (rev: 2cf8424)
+Running breadth-first search Model-Checking with fp 85 and seed 6749704543961212304 with 8 workers on 8 cores with 9102MB heap and 64MB offheap memory [pid: 6539] (Mac OS X 14.6.1 aarch64, Eclipse Adoptium 17.0.7 x86_64, MSBDiskFPSet, DiskStateQueue).
+Parsing file RaiCloseRestart.tla
+Parsing file Naturals.tla (<path>/Naturals.tla)
+Parsing file FiniteSets.tla (<path>/FiniteSets.tla)
+Parsing file TLC.tla (<path>/TLC.tla)
+Parsing file _TLCTrace.tla (<path>/_TLCTrace.tla)
+Parsing file Sequences.tla (<path>/Sequences.tla)
+Parsing file TLCExt.tla (<path>/TLCExt.tla)
+Parsing file Integers.tla (<path>/Integers.tla)
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module Integers
+Semantic processing of module TLCExt
+Semantic processing of module _TLCTrace
+Semantic processing of module RaiCloseRestart
+Linting of module TLCExt
+Linting of module _TLCTrace
+Linting of module RaiCloseRestart
+Starting... (2026-11-04 10:43:34)
+Computing initial states...
+Finished computing initial states: 1 distinct state generated at 2026-11-04 10:43:35.
+Progress(18) at 2026-11-04 10:43:38: 220 515 states generated (220 515 s/min), 36 080 distinct states found (36 080 ds/min), 15 286 states left on queue.
+Progress(27) at 2026-11-04 10:44:38: 5 661 602 states generated (5 441 087 s/min), 530 764 distinct states found (494 684 ds/min), 50 036 states left on queue.
+Model checking completed. No error has been found.
+  Estimates of the probability that TLC did not check all reachable states
+  because two distinct states had the same fingerprint:
+  calculated (optimistic):  val = 2.0E-7
+  based on the actual fingerprints:  val = 2.6E-8
+6376214 states generated, 651632 distinct states found, 0 states left on queue.
+The depth of the complete state graph search is 35.
+The average outdegree of the complete state graph is 1 (minimum is 0, the maximum 10 and the 95th percentile is 3).
+Finished in 01min 10s at (2026-11-04 10:44:45)
