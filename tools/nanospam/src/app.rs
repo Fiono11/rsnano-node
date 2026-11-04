@@ -31,6 +31,7 @@ use rsnano_types::{Account, BlockHash, NetworkType, PrivateKey, ProtocolInfo, Ra
 use rsnano_websocket_messages::{BlockConfirmed, MessageEnvelope, Topic};
 
 use crate::{
+    block_publisher::BlockPublisher,
     byzantine::{RecentBlocks, byzantine_keys, run_byzantine},
     cli_args::CliArgs,
     confirmation_receiver::ConfirmationReceiver,
@@ -54,6 +55,7 @@ const MAX_BUFFERED_BLOCKS: usize = 1024;
 /// every SETUP_RECOVERY_EVERY
 const SETUP_RECOVERY_FIRST: Duration = Duration::from_secs(10);
 const SETUP_RECOVERY_EVERY: Duration = Duration::from_secs(5);
+const REPUBLISH_TASKS: usize = 32;
 const CONNECTIONS_PER_NODE: usize = 4;
 
 pub(crate) struct NanoSpamApp {
@@ -126,7 +128,13 @@ impl NanoSpamApp {
 
         let representatives = self.args.representatives();
         let genesis_wallet_id = if self.args.set_up_new_nodes() {
-            create_wallets(
+            let mut publisher = BlockPublisher::connect(
+                &self.tcp_stream_factory,
+                self.args.hosts(),
+                self.args.honest_prs(),
+            )
+            .await?;
+            let wallet = create_wallets(
                 &self.rpc_clients,
                 genesis_rpc,
                 &mut account_map,
@@ -135,8 +143,11 @@ impl NanoSpamApp {
                     .map(|i| self.args.pr_balance(i))
                     .collect::<Vec<_>>(),
                 self.args.prefund_count()?,
+                &mut publisher,
             )
-            .await
+            .await;
+            publisher.close().await;
+            wallet
         } else {
             WalletId::ZERO
         };
@@ -566,23 +577,36 @@ async fn republish_differing_chains(rpc_clients: &[NanoRpcClient]) {
             continue;
         };
         let accounts = differing_accounts(&reference, &held.frontiers.unwrap_or_default());
-        for account in &accounts {
-            let Ok(history) = rpc_clients[0]
-                .account_history(AccountHistoryArgs::new(*account, 40))
-                .await
-            else {
-                continue;
-            };
-            for entry in history.history.iter().rev() {
-                let Ok(info) = rpc_clients[0].block_info(entry.hash).await else {
-                    continue;
-                };
-                let _ = client
-                    .process(ProcessArgs::build(info.contents.clone()).finish())
-                    .await;
+        // A chain takes a round trip per block: at once, a distant node
+        // does not hold up the setup for minutes
+        let per_task = accounts.len().div_ceil(REPUBLISH_TASKS).max(1);
+        tokio_scoped::scope(|s| {
+            for chunk in accounts.chunks(per_task) {
+                s.spawn(async move {
+                    for account in chunk {
+                        republish_chain(&rpc_clients[0], client, *account).await;
+                    }
+                });
             }
-        }
+        });
         info!("Republished {} account chains to a PR", accounts.len());
+    }
+}
+
+async fn republish_chain(source: &NanoRpcClient, target: &NanoRpcClient, account: Account) {
+    let Ok(history) = source
+        .account_history(AccountHistoryArgs::new(account, 40))
+        .await
+    else {
+        return;
+    };
+    for entry in history.history.iter().rev() {
+        let Ok(info) = source.block_info(entry.hash).await else {
+            continue;
+        };
+        let _ = target
+            .process(ProcessArgs::build(info.contents.clone()).finish())
+            .await;
     }
 }
 

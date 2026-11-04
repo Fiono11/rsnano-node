@@ -11,6 +11,7 @@ use rsnano_types::{
 };
 
 use crate::{
+    block_publisher::BlockPublisher,
     domain::{AccountMap, Representatives},
     setup::{genesis_key, pr_key},
 };
@@ -36,6 +37,7 @@ pub(crate) async fn create_wallets(
     representatives: &Representatives,
     balances: &[Amount],
     prefund_count: usize,
+    publisher: &mut BlockPublisher,
 ) -> WalletId {
     let mut genesis_wallet = WalletId::ZERO;
     let genesis_key = genesis_key();
@@ -193,6 +195,7 @@ pub(crate) async fn create_wallets(
     let seeds = seed_representatives(genesis_rpc, account_map, representatives).await;
     prefund_accounts(
         genesis_rpc,
+        publisher,
         account_map,
         representatives,
         &seeds,
@@ -320,6 +323,7 @@ fn funding_receive(
 /// representative's weight equal.
 async fn prefund_accounts(
     genesis_rpc: &NanoRpcClient,
+    publisher: &mut BlockPublisher,
     account_map: &mut AccountMap,
     representatives: &Representatives,
     seeds: &[Account],
@@ -349,7 +353,14 @@ async fn prefund_accounts(
             round + 1,
             transfers.len()
         );
-        fund_round(genesis_rpc, account_map, representatives, &transfers).await;
+        fund_round(
+            genesis_rpc,
+            publisher,
+            account_map,
+            representatives,
+            &transfers,
+        )
+        .await;
     }
 }
 
@@ -391,6 +402,7 @@ fn funding_rounds(seed: Account, targets: &[Account]) -> Vec<Vec<(Account, Accou
 /// Half of each sender's balance moves to the funded account
 async fn fund_round(
     genesis_rpc: &NanoRpcClient,
+    publisher: &mut BlockPublisher,
     account_map: &mut AccountMap,
     representatives: &Representatives,
     transfers: &[(Account, Account)],
@@ -408,7 +420,7 @@ async fn fund_round(
             *to,
         );
         let send_hash = send.hash();
-        genesis_rpc.process(JsonBlock::from(send)).await.unwrap();
+        publisher.publish(send).await.unwrap();
         account_map.set_account_state(*from, balance, send_hash);
         sends.push((*to, send_hash, amount));
     }
@@ -420,7 +432,7 @@ async fn fund_round(
     for (to, send_hash, amount) in sends {
         let receive = funding_receive(account_map, &to, send_hash, amount, representatives);
         let receive_hash = receive.hash();
-        genesis_rpc.process(JsonBlock::from(receive)).await.unwrap();
+        publisher.publish(receive).await.unwrap();
         account_map.set_account_state(to, amount, receive_hash);
         receives.push(receive_hash);
     }

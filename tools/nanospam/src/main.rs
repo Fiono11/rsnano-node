@@ -1,4 +1,5 @@
 mod app;
+mod block_publisher;
 mod byzantine;
 pub(crate) mod cli_args;
 mod confirmation_receiver;
