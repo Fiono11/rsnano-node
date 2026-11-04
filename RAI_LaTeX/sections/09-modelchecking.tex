@@ -9,6 +9,7 @@ Several rules of Sections~\ref{sec:close} and~\ref{sec:pipeline} guard against i
 \item[Prefix] two positions of one account: a parent with a rival at position 1 and two children at position 2, so that the prefix-wide guard of~\ref{r:overlap} is exercised; committees identical, disjoint, or sharing members. Switches check only the finalizing block instead of the prefix, and let a child inherit its parent's witness.
 \item[Recovery] a child of each forked block at the next position, installation, and settled votes. Switch: any kept tip may be extended without a new notarization.
 \item[Resolve] one forked position over three epochs and two checkpoints; a Byzantine validator that votes both sides or withholds; epochs flagged as good (synchronous) or not. Switch: the termination rules.
+\item[Restart] the Close model with validators that restart before freezing their report and keep their final vote. Switch: the notarization behind it survives, is lost, or must be assembled again before the report is signed.
 \item[Recover] four epochs, three checkpoints, two or three rivals with a child each, blocks replayed to anyone, an owner that forks or not. Switches: the recipe's vote count, keep rule, and order.
 \end{description}
 
@@ -37,6 +38,10 @@ Recovery $N{=}4$, re-notarization, all $K$ & no violation & 0.7--3.9\,M\\
 Close, Overlap, Handoff, Recovery: Rule~2 keeps a side & no violation & 0.3--5.9\,M\\
 Resolve $N{=}4$, no termination rules & fork open after two good epochs (sim.) & --\\
 Resolve $N{=}4$, termination rules, epochs 2--3 good & no violation & 4.6\,M\\
+Restart $N{=}4$, one loses notarization & both sides final (13) & --\\
+Restart $N{=}6$, two lose notarization & both sides final (19) & --\\
+Restart, notarization durable, $N{=}4$ and~6 & no violation, no close stuck & 0.04, 0.28\,M\\
+Restart, report waits to reassemble & safe; a close can stick (7, 10) & 0.1--1.2\,M\\
 Recover, all first votes, bottom-up & both sides final (40) & --\\
 Recover, settled votes, bottom-up, owner forks & Thm.~\ref{thm:closure} fails (15) & --\\
 Recover, recipe of Section~\ref{sec:close} & no violation to 17 steps; sim. & 21\,M\\
@@ -46,4 +51,4 @@ Recover, recipe of Section~\ref{sec:close} & no violation to 17 steps; sim. & 21
 
 Table~\ref{tab:mc} summarizes; the supplement explains each violation. Extending any kept tip is unsafe even without early votes. A recipe that counts all first votes and works bottom-up loses a fast-final child, and so does a bottom-up recipe on settled votes with a forking owner; the recipe of Section~\ref{sec:close} passes the safety, side-change, and recovery checks by simulation, and safety in every run of up to 17 steps, two more than the bottom-up order needs to fail. Probes show that the invariants are not vacuous.
 
-The models are small: one or two positions, two to four epochs, no receives, no restarts, $N\in\{4,6\}$. Their abstractions only add behaviours, except the recover model's owner and Byzantine policies, so a violation in the model is a violation of the protocol, but a clean run is evidence, not proof.
+The models are small: one or two positions, two to four epochs, no receives, restarts in one model only, $N\in\{4,6\}$. Their abstractions only add behaviours, except the recover model's owner and Byzantine policies, so a violation in the model is a violation of the protocol, but a clean run is evidence, not proof.

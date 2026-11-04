@@ -42,4 +42,4 @@ Suppose validators could still vote $A'$ whenever they held four epoch-$e$ suppo
 \end{figure}
 
 \para{Durable votes.}
-A correct validator writes its first vote and its final vote to disk before releasing them, so that a crash and restart cannot make it vote twice. Our prototype syncs these writes; Section~\ref{sec:eval} reports what that costs.
+A correct validator writes its first vote and its final vote to disk before releasing them, and with a final vote the first votes that notarize its block, so that a crash and restart can neither make it vote twice nor lose the notarization its report must show. Our prototype syncs these writes; Section~\ref{sec:eval} reports what that costs.
