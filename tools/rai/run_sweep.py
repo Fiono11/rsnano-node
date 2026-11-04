@@ -22,6 +22,9 @@ MAIN_RATES = [500, 1000, 1500, 2000, 2500, 3000]
 BYZ_RATES = [1000, 2000, 3000]
 RECONF_RATES = [500, 1000, 1500, 2000]
 PAPER_RATES = [1000, 2000]
+WAN_CELLS = [('nofork', []), ('fork5-grace', ['--fork-percentage', '5', '--fork-grace', '600']),
+             ('fork10-grace', ['--fork-percentage', '10', '--fork-grace', '600'])]
+RECONF_ONE = ['--prs', '7', '--standby', '1', '--rotation', '0:2>6']
 
 
 def rotation_schedule(members, standby, epochs=16):
@@ -82,6 +85,17 @@ SETS = {
                                      '--byzantine-leads-close'], [1000], None)
            for v, flags in [('nofork', []), ('fork5-grace', ['--fork-percentage', '5', '--fork-grace', '600']),
                             ('fork10-grace', ['--fork-percentage', '10', '--fork-grace', '600'])]},
+    },
+    # final-wan with one committee change under load: seven running
+    # representatives, the seventh (PR6) a standby outside the six seats. PR2
+    # hands its weight to PR6 in epoch 0, so the committee of epoch 2 has PR6
+    # in its place. PR5, the last member, stays the Byzantine one. Each cell
+    # takes the seed of its final-wan cell.
+    'final-wan-reconf': {
+        **{f'{v}-reconf': (flags + RECONF_ONE, [2000], None) for v, flags in WAN_CELLS},
+        **{f'{v}-reconf-byznode': (flags + RECONF_ONE + ['--byzantine-node', 'equivocate,conflicting,equivocate',
+                                                          '--byzantine-leads-close'], [1000], None)
+           for v, flags in WAN_CELLS},
     },
     'byz': {
         'nofork-byzlead': (['--byzantine', '1', '--byzantine-leads-close'], BYZ_RATES, None),
@@ -174,8 +188,9 @@ def main():
                 if args.rate and rate not in args.rate:
                     continue
                 # the same workload choices for every system at this point
-                # (a Byzantine-node variant takes the seed of its honest one)
-                base_seed = 1000 * rate + sum(map(ord, variant.removesuffix('-byznode')))
+                # (a Byzantine-node variant takes the seed of its honest one,
+                # a committee-change variant that of its static one)
+                base_seed = 1000 * rate + sum(map(ord, variant.removesuffix('-byznode').removesuffix('-reconf')))
                 reps = args.reps if rate >= args.reps_from else 1
                 for k, (arm, spec) in [(k, a) for k in range(1, reps + 1) for a in arms.items()]:
                     if only and arm not in only:
