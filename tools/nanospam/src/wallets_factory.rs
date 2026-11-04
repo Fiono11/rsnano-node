@@ -36,9 +36,7 @@ pub(crate) async fn create_wallets(
     account_map: &mut AccountMap,
     representatives: &Representatives,
     balances: &[Amount],
-    prefund_count: usize,
-    publisher: &mut BlockPublisher,
-) -> WalletId {
+) -> (WalletId, Vec<Account>) {
     let mut genesis_wallet = WalletId::ZERO;
     let genesis_key = genesis_key();
     let total_prs = balances.len();
@@ -193,17 +191,8 @@ pub(crate) async fn create_wallets(
     account_map.set_account_state(initial_account, INITIAL_AMOUNT, genesis_receive.hash());
 
     let seeds = seed_representatives(genesis_rpc, account_map, representatives).await;
-    prefund_accounts(
-        genesis_rpc,
-        publisher,
-        account_map,
-        representatives,
-        &seeds,
-        prefund_count,
-    )
-    .await;
 
-    genesis_wallet
+    (genesis_wallet, seeds)
 }
 
 /// RAI: the representative an account delegates to; the account itself
@@ -321,7 +310,7 @@ fn funding_receive(
 /// confirmations instead of the rate at the start of the run. Each seed funds
 /// accounts delegating to its own representative, which keeps every
 /// representative's weight equal.
-async fn prefund_accounts(
+pub(crate) async fn prefund_accounts(
     genesis_rpc: &NanoRpcClient,
     publisher: &mut BlockPublisher,
     account_map: &mut AccountMap,

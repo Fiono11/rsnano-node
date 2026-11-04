@@ -46,7 +46,7 @@ use crate::{
         NodeHosts, configure_nodes, create_account_map, get_genesis_hash, peering_port,
         remote_nodes, restore_account_keys, restore_node_ledgers, rpc_port, start_nodes,
     },
-    wallets_factory::create_wallets,
+    wallets_factory::{create_wallets, prefund_accounts},
     weight_shift::{WeightShifts, run_weight_shifts},
 };
 
@@ -128,13 +128,7 @@ impl NanoSpamApp {
 
         let representatives = self.args.representatives();
         let genesis_wallet_id = if self.args.set_up_new_nodes() {
-            let mut publisher = BlockPublisher::connect(
-                &self.tcp_stream_factory,
-                self.args.hosts(),
-                self.args.honest_prs(),
-            )
-            .await?;
-            let wallet = create_wallets(
+            let (wallet, seeds) = create_wallets(
                 &self.rpc_clients,
                 genesis_rpc,
                 &mut account_map,
@@ -142,8 +136,24 @@ impl NanoSpamApp {
                 &(0..self.args.prs)
                     .map(|i| self.args.pr_balance(i))
                     .collect::<Vec<_>>(),
-                self.args.prefund_count()?,
+            )
+            .await;
+            // Connected only now: a node that has just started may still be
+            // shaking hands with its peers, and one address can only have so
+            // many handshakes open
+            let mut publisher = BlockPublisher::connect(
+                &self.tcp_stream_factory,
+                self.args.hosts(),
+                self.args.honest_prs(),
+            )
+            .await?;
+            prefund_accounts(
+                genesis_rpc,
                 &mut publisher,
+                &mut account_map,
+                &representatives,
+                &seeds,
+                self.args.prefund_count()?,
             )
             .await;
             publisher.close().await;
