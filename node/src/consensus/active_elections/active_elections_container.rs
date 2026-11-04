@@ -2575,6 +2575,8 @@ impl ActiveElectionsContainer {
     pub fn mark_kudzu_voted(&mut self, targets: Vec<VoteTarget>) -> Vec<VoteTarget> {
         let mut accepted = Vec::with_capacity(targets.len());
         for target in targets {
+            // Queued with its decision recorded: an election's exit final vote
+            let recorded = self.pending_kudzu_votes.contains(&target);
             self.pending_kudzu_votes
                 .retain(|pending| *pending != target);
             if let Some((epoch, round)) = target.election.epoch.as_close_round() {
@@ -2603,8 +2605,10 @@ impl ActiveElectionsContainer {
             }
             let Some(election) = self.roots.election(&target.election) else {
                 // The exit final vote of an election erased already, unless
-                // its epoch was left in between
-                if self.signs_account_votes_in(target.election.epoch) {
+                // its epoch was left in between. Any other vote read before
+                // the erase has no record: signed, it would leave the slot
+                // empty for a later instance to vote a rival there
+                if recorded && self.signs_account_votes_in(target.election.epoch) {
                     accepted.push(target);
                 }
                 continue;
@@ -8172,6 +8176,64 @@ mod tests {
             &block.hash(),
             ResidualKind::First
         ));
+    }
+
+    /// RAI: a first vote read before its election was erased is not signed:
+    /// it would have no record, and a new instance at the slot could then
+    /// first-vote a rival in the same epoch
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn a_vote_for_an_erased_election_is_not_signed_without_a_record() {
+        let (mut container, _, _, start) = committee_fixture(|_| {});
+        let epoch = ConsensusEpoch::ZERO;
+        let block = SavedBlock::new_test_instance_with_key(1);
+        container
+            .insert(
+                AecInsertRequest::new_priority(block.clone(), BlockPriority::new_test_instance()),
+                start,
+            )
+            .unwrap();
+        let target = |vote_type| VoteTarget {
+            election: ElectionId::new(block.qualified_root(), epoch),
+            winner: block.hash(),
+            vote_type,
+        };
+        container.erase_election(&ElectionId::new(block.qualified_root(), epoch));
+
+        assert!(
+            container
+                .mark_kudzu_voted(vec![target(VoteType::NonFinal)])
+                .is_empty()
+        );
+        assert!(
+            container
+                .mark_kudzu_voted(vec![target(VoteType::Final)])
+                .is_empty()
+        );
+    }
+
+    /// RAI: an election's exit final vote is recorded when it is queued, and
+    /// still goes out when the election is erased before it is released
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn a_queued_exit_final_vote_survives_its_election() {
+        let (mut container, _, _, start) = committee_fixture(|_| {});
+        let epoch = ConsensusEpoch::ZERO;
+        let block = SavedBlock::new_test_instance_with_key(1);
+        container
+            .insert(
+                AecInsertRequest::new_priority(block.clone(), BlockPriority::new_test_instance()),
+                start,
+            )
+            .unwrap();
+        let target = VoteTarget {
+            election: ElectionId::new(block.qualified_root(), epoch),
+            winner: block.hash(),
+            vote_type: VoteType::Final,
+        };
+        container.pending_kudzu_votes.push(target.clone());
+        container.erase_election(&target.election);
+        assert_eq!(container.mark_kudzu_voted(vec![target]).len(), 1);
     }
 
     /// A candidate source which always has a block to schedule
