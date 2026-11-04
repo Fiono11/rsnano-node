@@ -1,0 +1,61 @@
+nofork r2000 rai: p50 (381, 380, 381) p95 (461, 455, 468) goodput (1767.9, 1760.2, 1781.8)
+  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [5.415, 4.588, 4.984]
+  load rate [2007, 1924, 2029] zero-seconds [0, 0, 0] longest-gap [0, 0, 0] rate-in-closes [1962, 1945, 1909] close-median [3301, 3167, 3240] close-max [4029, 4445, 4086]
+  fast share of finalized, any node: 0.37-0.61; overlap eligible: 17361-19569
+nofork r2000 pause: p50 (1857, 919, 2943) p95 (6420, 5038, 13294) goodput (1488.8, 1243.3, 1572.8)
+  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [12.831, 11.504, 19.414]
+  load rate [1651, 1670, 1574] zero-seconds [9, 8, 8] longest-gap [5, 4, 5] rate-in-closes [360, 249, 967] close-median [3570, 3886, 3839.0] close-max [6915, 6525, 16179]
+nofork r2000 develop: p50 (538, 532, 538) p95 (594, 593, 598) goodput (1608.2, 1608.1, 1625.8)
+  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [2.963, 2.899, 2.572]
+  load rate [1903, 1883, 1882] zero-seconds [0, 0, 0] longest-gap [0, 0, 0] rate-in-closes [None, None, None] close-median [None, None, None] close-max [None, None, None]
+fork5-grace r2000 rai: p50 (399, 377, 420) p95 (511, 472, 940) goodput (1653.8, 1639.2, 1664.8)
+  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [20.423, 26.703, 20.852]
+  load rate [1886, 1851, 1881] zero-seconds [0, 0, 0] longest-gap [0, 0, 0] rate-in-closes [1819, 1790, 1822] close-median [2204, 1841, 1931] close-max [4352, 5728, 4212]
+  fast share of finalized, any node: 0.42-0.60; overlap eligible: 17995-23660
+fork5-grace r2000 pause: p50 (863, 624, 1209) p95 (8007, 5018, 8202) goodput (1329.3, 1316.4, 1503.0)
+  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [15.998, 19.775, 19.814]
+  load rate [1575, 1543, 1605] zero-seconds [8, 7, 8] longest-gap [4, 4, 4] rate-in-closes [224, 220, 322] close-median [3908.5, 4161.5, 3794] close-max [7154, 11722, 11922]
+fork5-grace r2000 develop: p50 (541, 526, 551) p95 (602, 593, 624) goodput (1513.5, 1484.0, 1524.9)
+  status ['settled', 'settled', 'settled'] open [56, 289, 575] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [None, None, None]
+  load rate [1822, 1776, 1805] zero-seconds [0, 0, 0] longest-gap [0, 0, 0] rate-in-closes [None, None, None] close-median [None, None, None] close-max [None, None, None]
+fork10-grace r2000 rai: p50 (400, 388, 411) p95 (566, 508, 664) goodput (1517.9, 1496.5, 1549.0)
+  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [22.5, 20.825, 20.81]
+  load rate [1648, 1751, 1718] zero-seconds [0, 0, 0] longest-gap [0, 0, 0] rate-in-closes [1522, 1756, 1699] close-median [1748, 1989, 1883] close-max [3877, 3964, 4568]
+  fast share of finalized, any node: 0.37-0.65; overlap eligible: 13850-19304
+fork10-grace r2000 pause: p50 (942, 887, 1706) p95 (5608, 5478, 15501) goodput (1318.4, 889.5, 1326.2)
+  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [10.181, 14.883, 24.431]
+  load rate [1191, 1163, 1126] zero-seconds [9, 10, 10] longest-gap [4, 3, 5] rate-in-closes [370, 162, 861] close-median [3101.0, 4275.5, 5148] close-max [5179, 6604, 16535]
+fork10-grace r2000 develop: p50 (534, 532, 537) p95 (3320, 1703, 5950) goodput (816.0, 490.7, 897.4)
+  status ['settled', 'failed', 'settled'] open [36, 1020, 71] cemented-values [1, 6, 1] held-values [1, 1, 1] resolved-after [None, None, None]
+  load rate [1591, 1615, 1589] zero-seconds [0, 0, 0] longest-gap [0, 0, 0] rate-in-closes [None, None, None] close-median [None, None, None] close-max [None, None, None]
+nofork-byznode r1000 rai: p50 (386, 380, 389) p95 (463, 458, 476) goodput (943.7, 941.7, 943.8)
+  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [4.427, 3.948, 4.586]
+  load rate [1008, 1007, 1009] zero-seconds [0, 0, 0] longest-gap [0, 0, 0] rate-in-closes [984, 993, 996] close-median [3679.0, 3465, 4143] close-max [4523, 7219, 5604]
+  fast share of finalized, any node: 0.35-0.62; overlap eligible: 17013-19802
+nofork-byznode r1000 pause: p50 (513, 504, 647) p95 (4422, 4284, 4652) goodput (843.6, 834.0, 846.9)
+  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [4.924, 5.259, 4.762]
+  load rate [941, 833, 937] zero-seconds [19, 17, 16] longest-gap [4, 3, 3] rate-in-closes [105, 90, 280] close-median [4278.5, 4354.5, 4241.5] close-max [5195, 5066, 4677]
+nofork-byznode r1000 develop: p50 (535, 526, 536) p95 (593, 592, 760) goodput (905.5, 870.0, 909.1)
+  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [2.913, 3.431, 2.902]
+  load rate [987, 941, 992] zero-seconds [0, 3, 0] longest-gap [0, 3, 0] rate-in-closes [None, None, None] close-median [None, None, None] close-max [None, None, None]
+fork5-grace-byznode r1000 rai: p50 (387, 383, 391) p95 (472, 466, 537) goodput (885.8, 884.8, 887.1)
+  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [28.097, 29.286, 28.45]
+  load rate [947, 944, 948] zero-seconds [0, 0, 0] longest-gap [0, 0, 0] rate-in-closes [936, 944, 930] close-median [4555.5, 4171.0, 4511.0] close-max [7925, 8066, 7760]
+  fast share of finalized, any node: 0.31-0.54; overlap eligible: 20267-23302
+fork5-grace-byznode r1000 pause: p50 (1976, 1497, 2206) p95 (6332, 5662, 7195) goodput (704.0, 674.8, 752.1)
+  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [18.706, 21.562, 9.998]
+  load rate [748, 840, 855] zero-seconds [24, 28, 25] longest-gap [6, 6, 5] rate-in-closes [461, 145, 297] close-median [5330, 5430.5, 5274.5] close-max [9910, 9090, 6999]
+fork5-grace-byznode r1000 develop: p50 (534, 532, 535) p95 (647, 588, 763) goodput (857.6, 840.5, 864.2)
+  status ['failed', 'failed', 'settled'] open [19, 308, 1174] cemented-values [2, 3, 1] held-values [1, 1, 1] resolved-after [None, None, None]
+  load rate [930, 939, 949] zero-seconds [1, 0, 0] longest-gap [1, 0, 0] rate-in-closes [None, None, None] close-median [None, None, None] close-max [None, None, None]
+fork10-grace-byznode r1000 rai: p50 (393, 393, 393) p95 (935, 505, 1392) goodput (826.0, 808.0, 836.2)
+  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [16.955, 27.839, 22.585]
+  load rate [868, 911, 859] zero-seconds [2, 2, 1] longest-gap [1, 1, 1] rate-in-closes [785, 879, 892] close-median [4965, 4702.5, 4342.0] close-max [7769, 7626, 8045]
+  fast share of finalized, any node: 0.27-0.47; overlap eligible: 22659-25097
+fork10-grace-byznode r1000 pause: p50 (2926, 855, 3484) p95 (13597, 7856, 14395) goodput (577.0, 544.2, 607.9)
+  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [22.331, 34.334, 25.033]
+  load rate [692, 680, 801] zero-seconds [29, 28, 22] longest-gap [10, 7, 7] rate-in-closes [482, 442, 549] close-median [5542.0, 4982.5, 4972.0] close-max [14537, 15324, 18914]
+fork10-grace-byznode r1000 develop: p50 (537, 531, 550) p95 (620, 600, 5789) goodput (715.8, 625.5, 785.6)
+  status ['failed', 'failed', 'failed'] open [257, 34, 944] cemented-values [2, 2, 3] held-values [1, 1, 1] resolved-after [None, None, None]
+  load rate [867, 846, 876] zero-seconds [0, 0, 0] longest-gap [0, 0, 0] rate-in-closes [None, None, None] close-median [None, None, None] close-max [None, None, None]
+round trips 28.1-383.9 ms, request floor 314-384 ms

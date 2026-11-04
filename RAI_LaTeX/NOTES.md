@@ -15,4 +15,5 @@ Points to work into the manuscript. Remove an entry once the text carries it.
 
 ## Open
 
-- Behaviour (28): once closes outlast the epoch after the load, contested positions get only the 2 s window after each late install; one of ten 10%-fork Byzantine-rotation runs left 321 positions open.
+- Committee change and restart/handoff runs have no six-region data: Figure 7 and the restarts paragraph are labelled as one host (doc/benchmarks/rai-ownlane-rotation-byz-2026-11-02, rai-rule2-rotation-2026-10-29).
+- No six-region run at f=1, p=0: the comparison with Nano is not at equal quorum (RAI's normal path needs four votes, Nano's five); Section X says so.
