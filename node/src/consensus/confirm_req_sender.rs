@@ -69,6 +69,10 @@ impl ConfirmReqSender {
             self.record_request(election, now);
             self.stats
                 .inc(StatType::Election, DetailType::ConfirmationRequest);
+            if is_contested(election) {
+                self.stats
+                    .inc(StatType::Election, DetailType::ContestedConfirmationRequest);
+            }
         }
     }
 
@@ -79,19 +83,44 @@ impl ConfirmReqSender {
         now: Timestamp,
     ) -> bool {
         if let Some(last) = self.last_requests.get(&election.id()) {
-            let mut interval = Self::confirm_req_interval(election, urgency).max(self.min_interval);
-            if Self::backs_off(election, urgency) {
-                interval = interval
-                    .saturating_mul(1 << last.fruitless.min(Self::MAX_DOUBLINGS))
-                    .min(Self::LONGEST_BACKOFF.max(interval));
-            }
-            last.at.elapsed(now) >= interval
+            let interval = Self::confirm_req_interval(election, urgency).max(self.min_interval);
+            let wait = Self::request_wait(
+                interval,
+                is_contested(election),
+                Self::backs_off(election, urgency),
+                last.fruitless,
+            );
+            last.at.elapsed(now) >= wait
         } else {
             true
         }
     }
 
-    /// The longest wait a fruitless solicitation backs off to
+    /// RAI: a contested instance keeps one pace whatever arrives: a Byzantine
+    /// member's votes for both blocks would otherwise bring back the pace of
+    /// every fork it splits, and only its epoch's checkpoint can decide those.
+    /// It still asks, so that a statement lost in transit comes in the end.
+    /// Non-fork instances are not affected, nor is a fork's latency a concern:
+    /// what matters of a fork is that it settles.
+    fn request_wait(
+        interval: Duration,
+        contested: bool,
+        backs_off: bool,
+        fruitless: u32,
+    ) -> Duration {
+        if contested {
+            interval.max(Self::LONGEST_BACKOFF)
+        } else if backs_off {
+            interval
+                .saturating_mul(1 << fruitless.min(Self::MAX_DOUBLINGS))
+                .min(Self::LONGEST_BACKOFF.max(interval))
+        } else {
+            interval
+        }
+    }
+
+    /// The longest wait a fruitless solicitation backs off to, and the wait
+    /// of a contested instance
     const LONGEST_BACKOFF: Duration = Duration::from_secs(8);
     const MAX_DOUBLINGS: u32 = 8;
 
@@ -138,6 +167,20 @@ impl ConfirmReqSender {
                 ElectionBehavior::Optimistic => election.base_latency() * 2,
             },
         }
+    }
+}
+
+/// RAI: an instance that terminated holding more than one candidate: nothing
+/// but its epoch's checkpoint can decide it once its votes are split
+fn is_contested(election: &Election) -> bool {
+    #[cfg(feature = "rai_protocol")]
+    {
+        election.state().is_terminated() && election.candidate_blocks().len() > 1
+    }
+    #[cfg(not(feature = "rai_protocol"))]
+    {
+        let _ = election;
+        false
     }
 }
 
@@ -230,6 +273,49 @@ mod tests {
             Urgency::Soon,
             third + Duration::from_secs(1)
         ));
+    }
+
+    /// A vote resets `fruitless` to 0: a contested instance keeps its wait
+    #[test]
+    fn a_new_vote_does_not_bring_back_the_pace_of_a_contested_instance() {
+        let interval = Duration::from_millis(300);
+        for fruitless in [0, 1, 8] {
+            assert_eq!(
+                ConfirmReqSender::request_wait(interval, true, true, fruitless),
+                Duration::from_secs(8)
+            );
+        }
+    }
+
+    #[test]
+    fn a_contested_instance_still_asks_again() {
+        let election = Election::new_test_instance_with(SavedBlock::new_test_instance());
+        let wait = ConfirmReqSender::request_wait(Duration::from_millis(300), true, true, 0);
+        let mut sender = ConfirmReqSender::new_null();
+        let now = Timestamp::new_test_instance();
+        sender.record_request(&election, now);
+        assert!(sender.should_send_confirm_req(&election, Urgency::Soon, now + wait));
+    }
+
+    #[test]
+    fn an_instance_that_is_not_contested_backs_off_as_before() {
+        let interval = Duration::from_millis(300);
+        assert_eq!(
+            ConfirmReqSender::request_wait(interval, false, true, 0),
+            interval
+        );
+        assert_eq!(
+            ConfirmReqSender::request_wait(interval, false, true, 2),
+            interval * 4
+        );
+        assert_eq!(
+            ConfirmReqSender::request_wait(interval, false, true, 8),
+            Duration::from_secs(8)
+        );
+        assert_eq!(
+            ConfirmReqSender::request_wait(interval, false, false, 8),
+            interval
+        );
     }
 
     #[test]

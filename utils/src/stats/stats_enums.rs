@@ -194,6 +194,7 @@ pub enum DetailType {
     GenerateVoteTimeout,
     GenerateVoteAbstain,
     ConfirmationRequest,
+    ContestedConfirmationRequest,
 
     // election types
     Manual,
