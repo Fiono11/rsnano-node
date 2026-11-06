@@ -326,13 +326,17 @@ impl CliArgs {
         index < self.honest_prs() && index + self.standby >= self.honest_prs()
     }
 
-    /// The balance setup sends a principal representative: an equal share of
-    /// the voting weight, an eighth of one for a standby. PR0, the genesis
-    /// account, keeps what is left.
+    /// The balance setup sends a principal representative: the members share
+    /// the voting weight equally, whatever the number of standbys. A standby
+    /// holds only enough to count as a principal representative: with more, a
+    /// member's balance moved to it would meet a 67% threshold with fewer votes
+    /// than the members alone need, in a system that counts weight. PR0, the
+    /// genesis account, keeps what is left, about a share.
     pub(crate) fn pr_balance(&self, index: usize) -> rsnano_types::Amount {
-        let share = crate::wallets_factory::voting_weight() / self.prs as u128;
+        let members = (self.prs - self.standby).max(1);
+        let share = crate::wallets_factory::voting_weight() / members as u128;
         if self.is_standby(index) {
-            share / 8
+            share / STANDBY_SHARE_DIVISOR
         } else {
             share
         }
@@ -486,6 +490,9 @@ impl CliArgs {
     }
 }
 
+/// A standby's balance as a part of a member's
+const STANDBY_SHARE_DIVISOR: u128 = 64;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -638,8 +645,8 @@ mod tests {
         let standby: Vec<usize> = (0..8).filter(|i| args.is_standby(*i)).collect();
         assert_eq!(standby, vec![5, 6]);
         assert_eq!(
-            args.pr_balance(5).number() * 8,
-            args.pr_balance(1).number() / 8 * 8
+            args.pr_balance(5).number(),
+            args.pr_balance(1).number() / STANDBY_SHARE_DIVISOR
         );
         let all = CliArgs::try_parse_from(["nanospam", "--prs", "3", "--standby", "3"]).unwrap();
         assert!(all.validate().is_err());
@@ -678,5 +685,34 @@ mod tests {
         let untimed =
             CliArgs::try_parse_from(["nanospam", "--prs", "6", "--restart", "1:close:1"]).unwrap();
         assert!(untimed.validate().is_err());
+    }
+
+    /// In a system counting weight, as Nano does, one member handing its balance
+    /// to a standby must not lower the votes a 67% threshold takes
+    #[test]
+    fn a_handover_keeps_the_votes_a_weight_threshold_takes() {
+        let args = CliArgs::try_parse_from(["nanospam", "--prs", "7", "--standby", "1"]).unwrap();
+        let total = crate::wallets_factory::voting_weight().number();
+        let member = args.pr_balance(1).number();
+        let standby = args.pr_balance(6).number();
+        let genesis = total - 5 * member - standby;
+        assert_eq!(args.pr_balance(2).number(), member);
+        let threshold = total / 100 * 67;
+        let votes_needed = |mut weights: Vec<u128>| {
+            weights.sort_unstable_by(|a, b| b.cmp(a));
+            let mut held = 0;
+            weights
+                .iter()
+                .position(|weight| {
+                    held += weight;
+                    held >= threshold
+                })
+                .unwrap()
+                + 1
+        };
+        let before = vec![genesis, member, member, member, member, member, standby];
+        let after = vec![genesis, member, member + standby, member, member, member];
+        assert_eq!(votes_needed(before), 5);
+        assert_eq!(votes_needed(after), 5);
     }
 }
