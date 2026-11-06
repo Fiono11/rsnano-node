@@ -1,9 +1,6 @@
 use std::{
     collections::HashMap,
-    sync::{
-        Mutex,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::{Arc, Mutex},
     thread::yield_now,
     time::{Duration, Instant},
 };
@@ -12,7 +9,7 @@ use anyhow::anyhow;
 use num_format::{Locale, ToFormattedString};
 use rand::{RngExt, rng};
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf},
+    io::{AsyncReadExt, ReadHalf, WriteHalf},
     select,
     sync::mpsc,
     task::JoinSet,
@@ -40,6 +37,7 @@ use crate::{
     handshake::perform_handshake,
     high_prio_check::HighPrioCheck,
     node_lifetime::NodeLifetime,
+    node_writers::NodeWriters,
     restart::Restarter,
     rotation::run_rotations,
     setup::{
@@ -57,6 +55,7 @@ const SETUP_RECOVERY_FIRST: Duration = Duration::from_secs(10);
 const SETUP_RECOVERY_EVERY: Duration = Duration::from_secs(5);
 const REPUBLISH_TASKS: usize = 32;
 const CONNECTIONS_PER_NODE: usize = 4;
+const PUBLISH_DRAIN_LIMIT: Duration = Duration::from_secs(30);
 
 pub(crate) struct NanoSpamApp {
     tracing_init: TracingInitializer,
@@ -386,7 +385,7 @@ fn enqueue_blocks(logic: &Mutex<SpamLogic>, tx_blocks: mpsc::Sender<Forks>, cloc
 
 async fn publish_blocks(
     mut rx_blocks: mpsc::Receiver<Forks>,
-    mut tcp_streams: Vec<Option<Vec<WriteHalf<TcpStream>>>>,
+    tcp_streams: Vec<Option<Vec<WriteHalf<TcpStream>>>>,
     mut reconnected: mpsc::UnboundedReceiver<(usize, Vec<WriteHalf<TcpStream>>)>,
     protocol: ProtocolInfo,
     logic: &Mutex<SpamLogic>,
@@ -397,71 +396,45 @@ async fn publish_blocks(
 ) {
     let mut serializer = MessageSerializer::new(protocol);
     let mut fork_serializer = MessageSerializer::new(protocol);
-    let mut writer_index = 0;
+    let writers = NodeWriters::start(tcp_streams);
     while let Some(forks) = rx_blocks.recv().await {
         // A restarted node is published to again once nanospam reconnected
-        while let Ok((node_index, writers)) = reconnected.try_recv() {
-            tcp_streams[node_index] = Some(writers);
+        while let Ok((node_index, new_writers)) = reconnected.try_recv() {
+            writers.reconnected(node_index, new_writers);
         }
         let block = forks.block.clone();
         let hash = block.hash();
         // What the Byzantine representatives vote about
         recent_blocks.push(hash);
         let publish = Message::Publish(Publish::new_from_originator(block));
-        let buffer = serializer.serialize(&publish);
-        let mut fork_buffer = None;
-
-        if let Some(fork) = forks.fork {
+        let buffer = Arc::new(serializer.serialize(&publish).to_vec());
+        let fork_buffer = forks.fork.map(|fork| {
             let publish_fork = Message::Publish(Publish::new_from_originator(fork));
-            fork_buffer = Some(fork_serializer.serialize(&publish_fork));
-        }
+            Arc::new(fork_serializer.serialize(&publish_fork).to_vec())
+        });
 
         // Marked published before it is sent: a node next to the client can
-        // confirm the block while the write to a distant node still blocks,
-        // and a confirmation that arrived before this mark was never counted
+        // confirm the block before a distant node has received it, and a
+        // confirmation that arrived before this mark was never counted
         // TODO support delayed forks
         let was_high_prio = logic.lock().unwrap().published(&hash, clock.now());
 
         let mut counter = 0;
-        let failed: Vec<AtomicBool> = tcp_streams.iter().map(|_| AtomicBool::new(false)).collect();
-        tokio_scoped::scope(|s| {
-            for (stream, failed) in tcp_streams.iter_mut().zip(&failed) {
-                if rng().random_bool(drop_probability) {
-                    // drop this transmission
-                    continue;
-                }
-
-                let buf = if let Some(fbuf) = fork_buffer
-                    && counter % 2 == 0
-                {
-                    // send fork to every second node
-                    fbuf
-                } else {
-                    buffer
-                };
-                // A node that is down still takes its turn, so the nodes
-                // receiving the forks stay the same
-                counter += 1;
-
-                let Some(stream) = stream else {
-                    continue;
-                };
-                s.spawn(async {
-                    if stream[writer_index].write_all(buf).await.is_err() {
-                        failed.store(true, Ordering::Relaxed);
-                    }
-                });
+        for node_index in 0..writers.len() {
+            if rng().random_bool(drop_probability) {
+                // drop this transmission
+                continue;
             }
-        });
-        for (node_index, failed) in failed.iter().enumerate() {
-            if failed.load(Ordering::Relaxed) && tcp_streams[node_index].take().is_some() {
-                info!("RAI_PUBLISH_DISCONNECTED pr={node_index}");
-            }
-        }
 
-        writer_index += 1;
-        if writer_index >= CONNECTIONS_PER_NODE {
-            writer_index = 0;
+            let message = match &fork_buffer {
+                // send fork to every second node
+                Some(fork_buffer) if counter % 2 == 0 => fork_buffer,
+                _ => &buffer,
+            };
+            // A node that is down still takes its turn, so the nodes
+            // receiving the forks stay the same
+            counter += 1;
+            writers.send(node_index, message.clone());
         }
 
         if was_high_prio {
@@ -471,6 +444,8 @@ async fn publish_blocks(
             break;
         }
     }
+    // A run's end does not wait long for a node that stopped reading
+    writers.finish(PUBLISH_DRAIN_LIMIT).await;
     cancel_token.cancel();
 }
 
