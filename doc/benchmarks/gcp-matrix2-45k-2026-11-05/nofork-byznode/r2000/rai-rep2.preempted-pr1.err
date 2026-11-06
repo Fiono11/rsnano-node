@@ -1,0 +1,10 @@
+Traceback (most recent call last):
+  File "/home/fiono8199/rsnano-node/tools/rai/run_gate_b.py", line 595, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "/home/fiono8199/rsnano-node/tools/rai/run_gate_b.py", line 301, in main
+    push_binaries(HOSTS, binary_dir, node_binaries, remote_bin_dir)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/fiono8199/rsnano-node/tools/rai/remote_hosts.py", line 59, in push_binaries
+    raise RuntimeError(f'ssh {address}: {made.stderr.strip()}')
+RuntimeError: ssh 10.128.0.3: ssh: connect to host 10.128.0.3 port 22: Connection timed out
