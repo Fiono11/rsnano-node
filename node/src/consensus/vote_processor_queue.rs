@@ -101,6 +101,21 @@ impl VoteProcessorQueue {
         guard.queue.is_empty() && guard.close_lane.is_empty() && guard.own_lane.is_empty()
     }
 
+    /// RAI evaluation: what waits in each lane: the close votes, this node's
+    /// own votes, the replays of the vote cache, the votes from the network
+    pub(crate) fn lane_lengths(&self) -> VoteLaneLengths {
+        let guard = self.data.lock().unwrap();
+        let replays = RepTier::iter()
+            .map(|tier| guard.queue.queue_len(&(tier, ChannelId::LOOPBACK)))
+            .sum();
+        VoteLaneLengths {
+            close: guard.close_lane.len(),
+            own: guard.own_lane.len(),
+            replays,
+            network: guard.queue.len() - replays,
+        }
+    }
+
     /// RAI: queues a vote this node just signed, past a full fair queue,
     /// whose loopback lane the vote cache's replays share. @returns true if
     /// the vote was queued
@@ -276,6 +291,14 @@ impl EventHandler<ChannelEvent> for VoteProcessorQueue {
             }
         }
     }
+}
+
+/// How many votes wait in each lane of the queue
+pub(crate) struct VoteLaneLengths {
+    pub(crate) close: usize,
+    pub(crate) own: usize,
+    pub(crate) replays: usize,
+    pub(crate) network: usize,
 }
 
 /// A vote waiting in the queue, with where it came from

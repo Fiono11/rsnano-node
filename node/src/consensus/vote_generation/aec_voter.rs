@@ -1,4 +1,7 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use rsnano_ledger::{AnySet, Ledger};
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
@@ -27,6 +30,7 @@ pub(crate) struct AecVoter {
     ledger: Arc<Ledger>,
     /// RAI: the signing records persisted before votes are released
     signing: Arc<SigningRecords>,
+    load: VoterLoad,
     /// RAI evaluation, an equivocating Byzantine member: its votes on
     /// account slots, whose fork siblings it votes for too
     #[cfg(feature = "rai_byzantine")]
@@ -55,6 +59,7 @@ impl AecVoter {
             scheduler: VotingScheduler::new(vote_broadcast_interval),
             ledger,
             signing,
+            load: VoterLoad::new(),
             #[cfg(feature = "rai_byzantine")]
             equivocations: Default::default(),
         }
@@ -167,7 +172,9 @@ impl AecVoter {
 impl Tickable for AecVoter {
     fn tick(&mut self, cancel_token: &CancellationToken) {
         let now = self.clock.now();
+        let started = Instant::now();
         let targets = self.collect_targets(now);
+        let scanned = started.elapsed();
 
         let mut vote_queue = Vec::new();
         let mut skip_non_final = false;
@@ -205,5 +212,45 @@ impl Tickable for AecVoter {
         self.flush(&mut vote_queue);
         #[cfg(feature = "rai_byzantine")]
         self.equivocate(&released, now);
+        self.load.tick(scanned, started.elapsed());
+    }
+}
+
+/// RAI evaluation: one diagnostic line per second with how long the voter's
+/// scan and its whole tick took
+struct VoterLoad {
+    since: Instant,
+    ticks: u32,
+    scan: Duration,
+    longest_scan: Duration,
+    total: Duration,
+}
+
+impl VoterLoad {
+    fn new() -> Self {
+        Self {
+            since: Instant::now(),
+            ticks: 0,
+            scan: Duration::ZERO,
+            longest_scan: Duration::ZERO,
+            total: Duration::ZERO,
+        }
+    }
+
+    fn tick(&mut self, scan: Duration, total: Duration) {
+        self.ticks += 1;
+        self.scan += scan;
+        self.longest_scan = self.longest_scan.max(scan);
+        self.total += total;
+        if self.since.elapsed() >= Duration::from_secs(1) {
+            crate::utils::diagnostic!(
+                "VOTER_LOAD ticks={} scan_ms={} longest_scan_ms={} total_ms={}",
+                self.ticks,
+                self.scan.as_millis(),
+                self.longest_scan.as_millis(),
+                self.total.as_millis()
+            );
+            *self = Self::new();
+        }
     }
 }

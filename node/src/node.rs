@@ -1270,6 +1270,23 @@ impl Node {
 
         #[cfg(feature = "rai_protocol")]
         ticker_pool.insert(
+            crate::load_probe::LoadProbe {
+                inbound: inbound_message_queue.clone(),
+                votes: vote_processor_queue.clone(),
+                processor: vote_processor.clone(),
+                requests: request_aggregator.clone(),
+                blocks: block_processor_queue.clone(),
+                cementing: confirming_set.clone(),
+                aec: active_elections.clone(),
+                network: network.clone(),
+                stats: stats.clone(),
+                last_tick: None,
+            },
+            Duration::from_secs(1),
+        );
+
+        #[cfg(feature = "rai_protocol")]
+        ticker_pool.insert(
             crate::consensus::CheckpointFollowerTicker(checkpoint_follower.clone()),
             Duration::from_secs(1),
         );

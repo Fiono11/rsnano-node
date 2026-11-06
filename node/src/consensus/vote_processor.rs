@@ -82,6 +82,11 @@ impl VoteProcessor {
         self.cool_down.store(false, Ordering::Relaxed);
     }
 
+    /// Whether the threads are waiting for the AEC facts to be processed
+    pub(crate) fn is_cooling_down(&self) -> bool {
+        self.cool_down.load(Ordering::Relaxed)
+    }
+
     pub fn stop(&self) {
         self.vote_applier.stop();
         self.queue.stop();
