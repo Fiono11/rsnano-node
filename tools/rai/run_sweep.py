@@ -183,6 +183,7 @@ def main():
     parser.add_argument('--wait-quiet', type=int, default=3600)
     parser.add_argument('--reps', type=int, default=1, help='repetitions at the high rates')
     parser.add_argument('--reps-from', type=int, default=1500, help='offered rate from which --reps applies')
+    parser.add_argument('--rep', type=int, action='append', help='run only these repetitions, on their usual seeds')
     parser.add_argument('--rate', type=int, action='append', help='run only these offered rates')
     parser.add_argument('--variant', action='append', help='run only these variants')
     parser.add_argument('--snapshot-dir', type=Path, help='start from funded ledgers kept here, one per binary and setup')
@@ -212,6 +213,8 @@ def main():
                 reps = args.reps if rate >= args.reps_from else 1
                 for k, (arm, spec) in [(k, a) for k in range(1, reps + 1) for a in arms.items()]:
                     if only and arm not in only:
+                        continue
+                    if args.rep and k not in args.rep:
                         continue
                     seed = base_seed + k - 1
                     run = args.output / variant / f'r{rate}' / (arm if k == 1 else f'{arm}-rep{k}')
