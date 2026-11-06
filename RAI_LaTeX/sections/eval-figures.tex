@@ -1,6 +1,5 @@
 % The evaluation's figures; data in sections/eval-data/wan (tools/wan_figures.py,
-% run_sweep.py --set final-wan across six regions) and, for the committee
-% change, sections/eval-data/matrix (tools/matrix_figures.py, one host).
+% run_sweep.py --set final-wan-2000 across six regions, seven with the committee change).
 \pgfplotsset{
   paperaxis/.style={tick label style={font=\scriptsize},label style={font=\scriptsize},title style={font=\scriptsize,yshift=-1.5mm},
     ymajorgrids,grid style={gray!25},unbounded coords=jump,every axis plot/.append style={line width=0.6pt}},
@@ -8,8 +7,8 @@
     restrict y to domain*=0:4000,no markers},
   scenarioticks/.style={xmin=-0.5,xmax=5.5,xtick={0,...,5},
     xticklabels={no forks,5\%,10\%,{no forks,\\ Byz.},{5\%,\\ Byz.},{10\%,\\ Byz.}},x tick label style={align=center}},
-  latencyaxis/.style={paperaxis,log origin=infty,ymin=80,ymax=30000,
-    ytick={100,300,1000,3000,10000,30000},yticklabels={100,300,1k,3k,10k,30k},ylabel={latency (ms)}},
+  latencyaxis/.style={paperaxis,log origin=infty,ymin=80,ymax=100000,
+    ytick={100,1000,10000,100000},yticklabels={100,1k,10k,100k},ylabel={latency (ms)}},
   goodputaxis/.style={paperaxis,ymin=0,ymax=2100,ytick={0,500,1000,1500,2000},yticklabels={0,500,1k,1.5k,2k},
     ylabel={confirmed/s}},
 }
@@ -56,7 +55,7 @@
 \gputbars{wan/bars-develop}{cNano}{6pt}{5pt}
 \end{groupplot}
 \end{tikzpicture}
-\caption{RAI ($f=p=1$), pause, and Nano across six regions: 2{,}000 blocks/s offered without a Byzantine validator, 1{,}000 blocks/s with one, and 5\% or 10\% forks. Top: median (filled) and 95th-percentile (outline) latency of non-fork blocks. Bottom: non-fork blocks confirmed per second over the run. Bars are medians over three runs, whiskers their range.}
+\caption{RAI ($f=p=1$), pause, and Nano across six regions at 2{,}000 blocks/s offered: no forks, 5\%, and 10\%, without and with a Byzantine validator. Top: median (filled) and 95th-percentile (outline) latency of non-fork blocks. Bottom: non-fork blocks confirmed per second over the run. Bars are medians over three runs, whiskers their range.}
 \label{fig:eval-matrix}
 \end{figure}
 
@@ -64,8 +63,8 @@
 \centering
 \begin{tikzpicture}
 \begin{groupplot}[group style={group size=2 by 1,horizontal sep=4mm,yticklabels at=edge left},
-  paperaxis,width=0.58\columnwidth,height=4.0cm,xmode=log,xmin=1,xmax=500,ymin=0,ymax=3500,
-  xtick={1,10,100},xticklabels={1,10,100},ytick={0,1000,2000,3000},yticklabels={0,1k,2k,3k},xmajorgrids,no markers,
+  paperaxis,width=0.58\columnwidth,height=4.0cm,xmode=log,xmin=1,xmax=500,ymin=0,ymax=6000,
+  restrict y to domain*=0:6000,xtick={1,10,100},xticklabels={1,10,100},ytick={0,2000,4000,6000},yticklabels={0,2k,4k,6k},xmajorgrids,no markers,
   xlabel={time since the load ended (s)}]
 \nextgroupplot[title={10\% forks, 2{,}000 blocks/s},ylabel={blocks not final},
   legend style={font=\scriptsize,draw=none,fill=none},legend pos=north east]
@@ -73,13 +72,13 @@
 \addplot[color=cPause,line width=0.8pt,densely dashed] table[x=t,y=open] {\matrixdata{wan/forks-fork10-grace-pause}};
 \addplot[color=cNano,line width=0.8pt] table[x=t,y=open] {\matrixdata{wan/forks-fork10-grace-develop}};
 \legend{RAI,pause,Nano}
-\nextgroupplot[title={10\% forks, one Byzantine, 1{,}000 blocks/s}]
+\nextgroupplot[title={10\% forks, one Byzantine, 2{,}000 blocks/s}]
 \addplot[color=cRai,line width=0.8pt] table[x=t,y=open] {\matrixdata{wan/forks-fork10-grace-byznode-rai}};
 \addplot[color=cPause,line width=0.8pt,densely dashed] table[x=t,y=open] {\matrixdata{wan/forks-fork10-grace-byznode-pause}};
 \addplot[color=cNano,line width=0.8pt] table[x=t,y=open] {\matrixdata{wan/forks-fork10-grace-byznode-develop}};
 \end{groupplot}
 \end{tikzpicture}
-\caption{Blocks not yet final on the validator with the most of them, after the load ended: forked positions and the blocks behind them (one run each, sampled from the first check after the load). RAI and pause finalize all of them, identically on every validator; Nano leaves blocks open.}
+\caption{Blocks not yet final on the validator with the most of them, after the load ended: forked positions and the blocks behind them (one run each, sampled from the first check after the load). RAI and pause finalize all of them, identically on every validator (pause cut off at 6{,}000); Nano leaves blocks open.}
 \label{fig:eval-forks}
 \end{figure}
 
@@ -87,14 +86,14 @@
 \centering
 \begin{tikzpicture}
 \begin{groupplot}[group style={group size=1 by 2,vertical sep=2mm,xticklabels at=edge bottom},
-  timeaxis,xmax=70,ymax=2000,ytick={0,1000,2000},yticklabels={0,1k,2k},restrict y to domain*=0:2000,width=\columnwidth,height=2.7cm]
+  timeaxis,xmax=85,width=\columnwidth,height=2.7cm]
 \nextgroupplot[ylabel={RAI\\ confirmed/s},ylabel style={align=center}]
-\timeline[2000]{wan}{fork10-byz-rai}{cRai}
+\timeline{wan}{fork10-byz-rai}{cRai}
 \nextgroupplot[ylabel={pause\\ confirmed/s},ylabel style={align=center},xlabel={time since the first block was published (s)}]
-\timeline[2000]{wan}{fork10-byz-pause}{cPause}
+\timeline{wan}{fork10-byz-pause}{cPause}
 \end{groupplot}
 \end{tikzpicture}
-\caption{Non-fork blocks confirmed per second at 1{,}000 blocks/s offered, with 10\% forks and one Byzantine validator, across six regions (one run each). Shaded: an epoch is closing, from the first validator leaving it to the last one seeing its checkpoint decided; dashed: the end of the load. Pause stops confirming during each close, then catches up in bursts (cut off at 2{,}000/s); RAI keeps confirming through the closes.}
+\caption{Non-fork blocks confirmed per second at 2{,}000 blocks/s offered, with 10\% forks and one Byzantine validator, across six regions (one run each). Shaded: an epoch is closing, from the first validator leaving it to the last one seeing its checkpoint decided; dashed: the end of the load. Pause stops confirming during each close, then catches up in bursts (cut off at 4{,}000/s); RAI keeps confirming through the closes.}
 \label{fig:eval-timeline}
 \end{figure}
 
@@ -104,20 +103,20 @@
 \begin{groupplot}[group style={group size=1 by 3,vertical sep=10mm},width=\columnwidth]
 \nextgroupplot[timeaxis,xmax=40,height=2.7cm,ylabel={RAI\\ confirmed/s},ylabel style={align=center},
   xlabel={time since the first block was published (s)}]
-\timeline{matrix}{rot-fork10-rai}{cRai}
-\addplot[black,line width=0.8pt] table[x=t,y expr=\thisrow{y}*4000] {\matrixdata{matrix/handoff-rot-fork10-rai}};
-\nextgroupplot[ymode=log,latencyaxis,scenarioticks,xticklabels={},height=3.2cm,ymax=30000,
+\timeline{wan}{reconf-fork10-rai}{cRai}
+\addplot[black,line width=0.8pt] table[x=t,y expr=\thisrow{y}*4000] {\matrixdata{wan/handoff-reconf-fork10-rai}};
+\nextgroupplot[ymode=log,latencyaxis,scenarioticks,xticklabels={},height=3.2cm,
   legend style={font=\scriptsize,draw=none,fill=none,at={(0.02,0.98)},anchor=north west},legend columns=3]
-\latbars{matrix/bars-rot-rai}{cRai}{-6pt}{5pt}
-\latbars{matrix/bars-rot-pause}{cPause}{0pt}{5pt}
-\latbars{matrix/bars-rot-develop}{cNano}{6pt}{5pt}
+\latbars{wan/bars-reconf-rai}{cRai}{-6pt}{5pt}
+\latbars{wan/bars-reconf-pause}{cPause}{0pt}{5pt}
+\latbars{wan/bars-reconf-develop}{cNano}{6pt}{5pt}
 \legend{RAI,pause,Nano}
 \nextgroupplot[goodputaxis,scenarioticks,height=3.1cm]
-\gputbars{matrix/bars-rot-rai}{cRai}{-6pt}{5pt}
-\gputbars{matrix/bars-rot-pause}{cPause}{0pt}{5pt}
-\gputbars{matrix/bars-rot-develop}{cNano}{6pt}{5pt}
+\gputbars{wan/bars-reconf-rai}{cRai}{-6pt}{5pt}
+\gputbars{wan/bars-reconf-pause}{cPause}{0pt}{5pt}
+\gputbars{wan/bars-reconf-develop}{cNano}{6pt}{5pt}
 \end{groupplot}
 \end{tikzpicture}
-\caption{A committee change under load, on one host at 2{,}000 blocks/s: four seats ($f=1$, $p=0$), two members hand their weight to standby validators in epoch~0, so the committee of epoch~2 replaces them. Top: RAI with 10\% forks, the solid line marking the first validator entering epoch~2 (one run). Below: latency and confirmation rate as in Figure~\ref{fig:eval-matrix}, three runs each, without and with a Byzantine member that keeps its seat.}
+\caption{A committee change under load across seven regions at 2{,}000 blocks/s: Montr\'eal hands its weight to Toronto, so the committee of epoch~3 has Toronto in its seat. Top: RAI with 10\% forks, the solid line marking the first validator entering epoch~3 (one run). Below: latency and confirmation rate as in Figure~\ref{fig:eval-matrix}, three runs each, without and with a Byzantine validator that keeps its seat.}
 \label{fig:eval-rotation}
 \end{figure}
