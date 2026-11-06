@@ -384,7 +384,8 @@ def main():
             if args.ledger_snapshot:
                 result['ledger_snapshot'] = ensure_ledger_snapshot(
                     args.ledger_snapshot.resolve(), command, env, HOSTS,
-                    dict(node_sha256=result['node_sha256'], nodes=nodes, prs=args.prs, accounts=args.accounts),
+                    dict(node_sha256=result['node_sha256'], client_sha256=result['client_sha256'], nodes=nodes, prs=args.prs,
+                         accounts=args.accounts),
                     args.output / 'snapshot-setup.log')
                 command += ['--ledger-snapshot', str(args.ledger_snapshot.resolve())]
             with (args.output / 'run.log').open('w') as log:
@@ -544,6 +545,9 @@ def main():
                     up = sum(e['event'] == 'up' for e in events)
                     result['restarts_completed'] = up == len(args.restart)
                     result['correctness_passed'] = result['correctness_passed'] and result['restarts_completed']
+                # A running node keeps appending to the logs being copied
+                if HOSTS and not args.keep:
+                    stop_remote_nodes(HOSTS, data, remove=False)
                 fetch_node_files(HOSTS, data, ['diagnostics.log', 'signed-votes.log'])
                 if args.audit_votes:
                     vote_audit = audit(read_logs(data))
@@ -559,7 +563,10 @@ def main():
             # The record first: cleanup must not lose the reason a run ended.
             (args.output / 'result.json').write_text(json.dumps(result, indent=2, default=list) + '\n')
             # Every node's config and diagnostics, of a failed or stalled run
-            # too: a remote node's are fetched before its data is deleted
+            # too: a remote node's are fetched before its data is deleted, and
+            # once it stopped, since it keeps appending to them
+            if HOSTS and not args.keep:
+                stop_remote_nodes(HOSTS, data, remove=False)
             fetch_node_files(HOSTS, data, ['diagnostics.log'])
             save_node_records(args.output, data, nodes)
             # Only this run's process group; never signal unrelated node processes.

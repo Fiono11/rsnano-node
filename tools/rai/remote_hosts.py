@@ -14,6 +14,8 @@ import subprocess
 from pathlib import Path
 
 SSH_OPTIONS = ['-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=accept-new', '-o', 'ConnectTimeout=10']
+# A node's logs are megabytes; this only catches a copy that hangs
+FETCH_TIMEOUT_S = 120
 
 
 def parse_hosts(text):
@@ -114,9 +116,13 @@ def fetch_node_files(hosts, data, names):
         local = data / f'pr{i}'
         local.mkdir(parents=True, exist_ok=True)
         for name in names:
-            # a file the node never wrote is not an error
-            subprocess.run(['scp', '-q', *SSH_OPTIONS, scp_target(host['address'], f'{local}/{name}'), str(local)],
-                           capture_output=True)
+            # a file the node never wrote is not an error, and a copy that
+            # hangs must not hold up the rest of the sequence
+            try:
+                subprocess.run(['scp', '-q', *SSH_OPTIONS, scp_target(host['address'], f'{local}/{name}'), str(local)],
+                               capture_output=True, timeout=FETCH_TIMEOUT_S)
+            except subprocess.TimeoutExpired:
+                print(f'FETCH_TIMEOUT pr{i} {name} after {FETCH_TIMEOUT_S} s', flush=True)
 
 
 def fetch_node_dir(address, remote_dir, local_dir):
@@ -131,7 +137,10 @@ def stop_remote_nodes(hosts, data, remove):
         if not host['remote']:
             continue
         pid_file = shlex.quote(str(Path(data) / f'pr{i}' / 'node.pid'))
-        ssh(host['address'], f'test -f {pid_file} && kill -9 "$(cat {pid_file})" 2>/dev/null; true', timeout=30)
+        try:
+            ssh(host['address'], f'test -f {pid_file} && kill -9 "$(cat {pid_file})" 2>/dev/null; true', timeout=30)
+        except subprocess.TimeoutExpired:
+            print(f'STOP_TIMEOUT pr{i}', flush=True)
     if remove:
         for address in remote_hosts(hosts):
             ssh(address, f'rm -rf {shlex.quote(str(data))}', timeout=60)
