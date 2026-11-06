@@ -1,5 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
+use rsnano_network::token_bucket::TokenBucketLogic;
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_utils::stats::{DetailType, StatType, Stats};
 
@@ -29,6 +30,18 @@ pub(crate) enum Urgency {
     Held,
 }
 
+impl Urgency {
+    fn rank(self) -> u8 {
+        match self {
+            Urgency::Now => 0,
+            Urgency::Normal => 1,
+            Urgency::Soon => 2,
+            Urgency::Slow => 3,
+            Urgency::Held => 4,
+        }
+    }
+}
+
 /// An election's last request, and how many requests in a row brought no
 /// new vote
 #[derive(Clone, Copy)]
@@ -44,7 +57,16 @@ pub(crate) struct ConfirmReqSender {
     /// The earliest an election asks again, whatever its urgency (see
     /// `ActiveElectionsConfig::min_request_interval`)
     min_interval: Duration,
+    budget: TokenBucketLogic,
+    /// Where the next tick starts among the requests of one urgency
+    cursor: usize,
 }
+
+/// RAI: how many elections a node asks about per second. Under a load of 2000
+/// blocks/s a node keeping up asks about 1700. A committee member far behind
+/// asked about 40,000 per second for minutes: everyone answered with millions of
+/// votes, it could not take them in, and every close slowed down with it.
+const REQUESTS_PER_SECOND: usize = 5000;
 
 impl ConfirmReqSender {
     pub(crate) fn new(stats: Arc<Stats>, clock: Arc<SteadyClock>, min_interval: Duration) -> Self {
@@ -53,6 +75,8 @@ impl ConfirmReqSender {
             clock,
             last_requests: BoundedHashMap::new(1024 * 32),
             min_interval,
+            budget: TokenBucketLogic::new(REQUESTS_PER_SECOND),
+            cursor: 0,
         }
     }
 
@@ -61,6 +85,30 @@ impl ConfirmReqSender {
         let stats = Arc::new(Stats::default());
         let clock = Arc::new(SteadyClock::new_null());
         Self::new(stats, clock, Duration::ZERO)
+    }
+
+    /// The requests of this tick within the budget, the most urgent first:
+    /// what the running epoch waits for before the evidence of a fork, which may
+    /// take its time. Those left out are due again at the next tick, and the
+    /// cursor moves on, so that none of an urgency waits behind the others.
+    pub(crate) fn within_budget<T>(
+        &mut self,
+        mut requests: Vec<(T, Urgency)>,
+        now: Timestamp,
+    ) -> Vec<(T, Urgency)> {
+        if requests.is_empty() {
+            return requests;
+        }
+        let start = self.cursor % requests.len();
+        requests.rotate_left(start);
+        requests.sort_by_key(|(_, urgency)| urgency.rank());
+        let mut admitted = 0;
+        while admitted < requests.len() && self.budget.try_consume(1, now) {
+            admitted += 1;
+        }
+        self.cursor = self.cursor.wrapping_add(admitted);
+        requests.truncate(admitted);
+        requests
     }
 
     pub fn send_confirm_req(
@@ -279,6 +327,69 @@ mod tests {
             Urgency::Soon,
             third + Duration::from_secs(1)
         ));
+    }
+
+    #[test]
+    fn requests_beyond_the_budget_wait() {
+        let mut sender = ConfirmReqSender::new_null();
+        let now = Timestamp::new_test_instance();
+        let requests: Vec<_> = (0..REQUESTS_PER_SECOND + 10)
+            .map(|i| (i, Urgency::Soon))
+            .collect();
+
+        assert_eq!(
+            sender.within_budget(requests, now).len(),
+            REQUESTS_PER_SECOND
+        );
+        assert!(
+            sender
+                .within_budget(vec![(0, Urgency::Now)], now)
+                .is_empty()
+        );
+        assert_eq!(
+            sender
+                .within_budget(vec![(0, Urgency::Now)], now + Duration::from_secs(1))
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn the_running_epoch_goes_before_the_evidence_of_a_fork() {
+        let mut sender = ConfirmReqSender::new_null();
+        let now = Timestamp::new_test_instance();
+        let requests = vec![
+            ("slow", Urgency::Slow),
+            ("soon", Urgency::Soon),
+            ("normal", Urgency::Normal),
+            ("now", Urgency::Now),
+        ];
+
+        let order: Vec<_> = sender
+            .within_budget(requests, now)
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect();
+
+        assert_eq!(order, ["now", "normal", "soon", "slow"]);
+    }
+
+    /// Those left out of one tick come first in a later one
+    #[test]
+    fn no_request_of_an_urgency_waits_behind_the_others_for_ever() {
+        let mut sender = ConfirmReqSender::new_null();
+        let now = Timestamp::new_test_instance();
+        let all = || -> Vec<_> {
+            (0..REQUESTS_PER_SECOND + 1)
+                .map(|i| (i, Urgency::Soon))
+                .collect()
+        };
+
+        let first = sender.within_budget(all(), now);
+        let next = sender.within_budget(all(), now + Duration::from_secs(1));
+
+        assert!(!first.iter().any(|(i, _)| *i == REQUESTS_PER_SECOND));
+        assert!(next.iter().any(|(i, _)| *i == REQUESTS_PER_SECOND));
     }
 
     #[test]

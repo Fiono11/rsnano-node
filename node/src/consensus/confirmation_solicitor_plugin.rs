@@ -83,6 +83,7 @@ impl AecTickerPlugin for ConfirmationSolicitorPlugin {
             broadcaster.try_broadcast_winner(winner, votes);
         }
         drop(broadcaster);
+        let requests = self.confirm_req_sender.within_budget(requests, now);
         for (election, urgency) in &requests {
             self.confirm_req_sender
                 .send_confirm_req(&mut solicitor, election, *urgency);
