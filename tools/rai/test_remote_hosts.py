@@ -1,6 +1,8 @@
+import tempfile
 import unittest
+from pathlib import Path
 
-from remote_hosts import longest_round_trip_ms, parse_hosts, ping_ms, remote_hosts, scp_target
+from remote_hosts import cached_rtt_matrix, longest_round_trip_ms, parse_hosts, ping_ms, remote_hosts, scp_target
 
 
 class ParseHosts(unittest.TestCase):
@@ -32,6 +34,37 @@ class Helpers(unittest.TestCase):
     def test_longest_round_trip_skips_lost_pings_and_rounds_up(self):
         self.assertEqual(longest_round_trip_ms([[0.0, 124.2, None], [124.2, 0.0, 313.45], [None, 313.7, 0.0]]), 314)
         self.assertEqual(longest_round_trip_ms([[0.0, None], [None, 0.0]]), 0)
+
+
+class CachedRttTest(unittest.TestCase):
+    def test_measures_once_and_slices_to_the_run(self):
+        calls = []
+
+        def measure(hosts):
+            calls.append(len(hosts))
+            return [[float(10 * i + j) for j in range(len(hosts))] for i in range(len(hosts))]
+
+        with tempfile.TemporaryDirectory() as temporary:
+            hosts = Path(temporary) / 'hosts.txt'
+            hosts.write_text('10.0.0.1\n10.0.0.2\n10.0.0.3\n')
+
+            first = cached_rtt_matrix(hosts, 2, measure)
+            again = cached_rtt_matrix(hosts, 3, measure)
+
+            self.assertEqual(calls, [3])
+            self.assertEqual(first, [[0.0, 1.0], [10.0, 11.0]])
+            self.assertEqual(len(again), 3)
+
+    def test_a_cache_smaller_than_the_run_is_measured_again(self):
+        def measure(hosts):
+            return [[0.0] * len(hosts) for _ in hosts]
+
+        with tempfile.TemporaryDirectory() as temporary:
+            hosts = Path(temporary) / 'hosts.txt'
+            hosts.write_text('10.0.0.1\n10.0.0.2\n')
+            hosts.with_suffix('.rtt.json').write_text('[[0.0]]')
+
+            self.assertEqual(len(cached_rtt_matrix(hosts, 2, measure)), 2)
 
 
 if __name__ == '__main__':

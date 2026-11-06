@@ -22,7 +22,7 @@ import traceback
 
 from audit_votes import audit, read_logs
 from ledger_snapshot import ensure_ledger_snapshot
-from remote_hosts import fetch_node_files, longest_round_trip_ms, parse_hosts, push_binaries, rtt_matrix, stop_remote_nodes
+from remote_hosts import cached_rtt_matrix, fetch_node_files, longest_round_trip_ms, parse_hosts, push_binaries, stop_remote_nodes
 
 # --hosts: node i's address; without it every node is on this machine
 HOSTS = []
@@ -300,7 +300,7 @@ def main():
         node_binaries = ['rsnano'] + (['rsnano-byzantine'] if args.byzantine_node else [])
         push_binaries(HOSTS, binary_dir, node_binaries, remote_bin_dir)
         result['hosts'] = HOSTS
-        result['rtt_ms'] = rtt_matrix(HOSTS)
+        result['rtt_ms'] = cached_rtt_matrix(args.hosts, len(HOSTS))
     top_args = ['top', '-l', '2', '-n', '10', '-o', 'cpu', '-stats', 'pid,cpu,command'] if os.uname().sysname == 'Darwin' else ['top', '-b', '-n', '2', '-d', '1']
     waited_until = time.monotonic() + args.wait_quiet
     while True:

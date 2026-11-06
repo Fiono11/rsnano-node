@@ -18,6 +18,8 @@ import sys
 import time
 from pathlib import Path
 
+from ledger_snapshot import snapshot_name
+
 MAIN_RATES = [500, 1000, 1500, 2000, 2500, 3000]
 BYZ_RATES = [1000, 2000, 3000]
 RECONF_RATES = [500, 1000, 1500, 2000]
@@ -25,6 +27,7 @@ PAPER_RATES = [1000, 2000]
 WAN_CELLS = [('nofork', []), ('fork5-grace', ['--fork-percentage', '5', '--fork-grace', '600']),
              ('fork10-grace', ['--fork-percentage', '10', '--fork-grace', '600'])]
 RECONF_ONE = ['--prs', '7', '--standby', '1', '--rotation', '0:2>6']
+BYZANTINE_NODE = ['--byzantine-node', 'equivocate,conflicting,equivocate', '--byzantine-leads-close']
 
 
 def rotation_schedule(members, standby, epochs=16):
@@ -96,6 +99,14 @@ SETS = {
         **{f'{v}-reconf-byznode': (flags + RECONF_ONE + ['--byzantine-node', 'equivocate,conflicting,equivocate',
                                                           '--byzantine-leads-close'], [1000], None)
            for v, flags in WAN_CELLS},
+    },
+    # The final matrix across regions: every case at 2000/s, static and with
+    # one committee change, honest and with a Byzantine member
+    'final-wan-2000': {
+        **{v: (flags, [2000], None) for v, flags in WAN_CELLS},
+        **{f'{v}-byznode': (flags + BYZANTINE_NODE, [2000], None) for v, flags in WAN_CELLS},
+        **{f'{v}-reconf': (flags + RECONF_ONE, [2000], None) for v, flags in WAN_CELLS},
+        **{f'{v}-reconf-byznode': (flags + RECONF_ONE + BYZANTINE_NODE, [2000], None) for v, flags in WAN_CELLS},
     },
     'byz': {
         'nofork-byzlead': (['--byzantine', '1', '--byzantine-leads-close'], BYZ_RATES, None),
@@ -173,8 +184,13 @@ def main():
     parser.add_argument('--reps', type=int, default=1, help='repetitions at the high rates')
     parser.add_argument('--reps-from', type=int, default=1500, help='offered rate from which --reps applies')
     parser.add_argument('--rate', type=int, action='append', help='run only these offered rates')
+    parser.add_argument('--variant', action='append', help='run only these variants')
+    parser.add_argument('--snapshot-dir', type=Path, help='start from funded ledgers kept here, one per binary and setup')
+    parser.add_argument('--stop-unless-settled', default='', metavar='ARMS',
+                        help='comma separated arms: end the sweep at the first run of one of them that does not settle')
     parser.add_argument('--dry-run', action='store_true')
     args = parser.parse_args()
+    must_settle = set(filter(None, args.stop_unless_settled.split(',')))
     arms = dict(parse_arm(spec) for spec in args.arm)
     args.output.mkdir(parents=True, exist_ok=True)
     harness = Path(__file__).resolve().parent / 'run_gate_b.py'
@@ -184,6 +200,8 @@ def main():
         plan['runs'] = json.loads(index.read_text()).get('runs', [])
     for name in args.set:
         for variant, (flags, rates, only) in SETS[name].items():
+            if args.variant and variant not in args.variant:
+                continue
             for rate in rates:
                 if args.rate and rate not in args.rate:
                     continue
@@ -210,6 +228,8 @@ def main():
                                '--settle-timeout', '120', '--stall-abort', '45',
                                '--rate', str(rate), '--blocks', str(args.blocks), '--accounts', str(args.blocks),
                                '--seed', str(seed)] + flags + spec['flags']
+                    if args.snapshot_dir:
+                        command += ['--ledger-snapshot', str(args.snapshot_dir / snapshot_name(spec['bin_dir'], flags))]
                     print(f'[{time.strftime("%H:%M:%S")}] {variant} {rate}/s {arm} rep {k}', flush=True)
                     if args.dry_run:
                         print('  ' + ' '.join(command))
@@ -227,6 +247,9 @@ def main():
                                              seconds=round(time.time() - started)))
                     index.write_text(json.dumps(plan, indent=2) + '\n')
                     print(f'  {status} in {round(time.time() - started)} s', flush=True)
+                    if arm in must_settle and status != 'settled':
+                        print(f'STOP: {variant} {arm} rep {k} ended {status}', flush=True)
+                        return 3
     return 0
 
 

@@ -6,6 +6,7 @@ nanospam starts over ssh, or `ADDRESS local`, a node on this machine that the
 others reach at ADDRESS. Blank lines and `#` comments are skipped. A node's
 data directory has the same path on its machine as here."""
 import ipaddress
+import json
 import math
 import re
 import shlex
@@ -83,6 +84,18 @@ def rtt_matrix(hosts):
             row.append(ping_ms(result.stdout))
         matrix.append(row)
     return matrix
+
+
+def cached_rtt_matrix(hosts_file, node_count, measure=rtt_matrix):
+    """The round trips between the first node_count hosts of a hosts file,
+    measured once for all of them and kept beside it: over ssh a measurement
+    takes minutes, and a sweep would repeat it before every run"""
+    cache = Path(hosts_file).with_suffix('.rtt.json')
+    matrix = json.loads(cache.read_text()) if cache.exists() else None
+    if matrix is None or len(matrix) < node_count:
+        matrix = measure(parse_hosts(Path(hosts_file).read_text()))
+        cache.write_text(json.dumps(matrix))
+    return [row[:node_count] for row in matrix[:node_count]]
 
 
 def longest_round_trip_ms(matrix):

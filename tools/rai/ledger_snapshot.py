@@ -19,6 +19,14 @@ SETUP_TIMEOUT_S = 1800
 NOT_SAVED = {'config-node.toml', 'config-rpc.toml', 'diagnostics.log', 'signed-votes.log', 'node.pid', 'run-node.sh'}
 
 
+def snapshot_name(bin_dir, flags):
+    """One funded ledger per node build and setup: the arms of a build share it,
+    the representatives and the Byzantine node's binary differ between setups"""
+    committee = 'reconf' if '--rotation' in flags else 'static'
+    member = 'byz' if '--byzantine-node' in flags else 'honest'
+    return f'{Path(bin_dir).name}-{committee}-{member}'
+
+
 def check_manifest(found, wanted):
     """A saved ledger only suits the binary and committee it was set up with"""
     differing = sorted(key for key in wanted if found.get(key) != wanted[key])

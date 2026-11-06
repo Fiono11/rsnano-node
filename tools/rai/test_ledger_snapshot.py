@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from ledger_snapshot import check_manifest, prune_node_dir, replaced_data_dir
+from ledger_snapshot import check_manifest, prune_node_dir, replaced_data_dir, snapshot_name
 
 
 class LedgerSnapshotTest(unittest.TestCase):
@@ -22,6 +22,11 @@ class LedgerSnapshotTest(unittest.TestCase):
             prune_node_dir(node)
 
             self.assertEqual(sorted(p.name for p in node.iterdir()), ['data.ldb', 'wallets.ldb'])
+
+    def test_a_snapshot_is_per_build_and_setup(self):
+        self.assertEqual(snapshot_name('/m/rai', ['--fork-percentage', '5']), 'rai-static-honest')
+        self.assertEqual(snapshot_name('/m/develop', ['--rotation', '0:2>6', '--byzantine-node', 'x']),
+                         'develop-reconf-byz')
 
     def test_the_data_dir_is_replaced(self):
         command = ['nanospam', '--data-dir', '/a', '--prs', '6']
