@@ -18,6 +18,7 @@ use rsnano_utils::{
 use super::{
     ActiveElectionsConfig, ActiveElectionsContainer, ActiveElectionsInfo, AecCooldownReason,
     AecFact, AecInsertError, AecInsertRequest, ApplyVoteArgs, CommitteeInfo, EpochCloseInfo,
+    KudzuOneShot,
 };
 use crate::{
     consensus::{
@@ -31,6 +32,13 @@ use crate::{
     },
     wallets::WalletRepresentatives,
 };
+
+/// How many elections the voter looks at per hold of the elections' lock. It
+/// reads the ledger for an election without a first vote, every tick, while
+/// each vote applied needs the lock for writing: held for a whole scan of
+/// thousands of elections, the scan takes as long as the votes it delays keep
+/// the elections open, and vote processing does not come back by itself.
+const KUDZU_SCAN_CHUNK: usize = 64;
 
 pub struct AecService {
     aec: RwLock<ActiveElectionsContainer>,
@@ -353,7 +361,22 @@ impl AecService {
         &self,
         proposal_valid: impl Fn(&BlockHash) -> Result<(), crate::consensus::Unattached>,
     ) -> Vec<VoteTarget> {
-        self.aec.read().unwrap().kudzu_votes_due(proposal_valid)
+        let (mut targets, order) = {
+            let aec = self.aec.read().unwrap();
+            let mut targets = aec.kudzu_close_votes_due();
+            targets.extend(aec.kudzu_votes_queued());
+            (targets, aec.kudzu_scan_order())
+        };
+        let mut one_shot = KudzuOneShot::default();
+        for elections in order.chunks(KUDZU_SCAN_CHUNK) {
+            self.aec.read().unwrap().kudzu_votes_due_in(
+                elections,
+                &mut one_shot,
+                &proposal_valid,
+                &mut targets,
+            );
+        }
+        targets
     }
 
     /// Kudzu: the signed votes behind the certificates of a terminated election

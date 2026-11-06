@@ -102,6 +102,11 @@ pub(crate) struct EpochProposalContext {
     pub parent_state: Option<Arc<EpochLedger>>,
 }
 
+/// One first vote and one final vote per domain: two instances of one domain
+/// (conflicting parents put their children in one) are read against the same
+/// slot state before either is recorded
+pub(crate) type KudzuOneShot = FxHashSet<(EpochSlot, VoteKind)>;
+
 pub(crate) struct ActiveElectionsContainer {
     roots: RootContainer,
     observer: Option<Sender<AecFact>>,
@@ -2505,98 +2510,137 @@ impl ActiveElectionsContainer {
         &self,
         proposal_valid: impl Fn(&BlockHash) -> Result<(), crate::consensus::Unattached>,
     ) -> Vec<VoteTarget> {
-        let mut targets: Vec<VoteTarget> = self
-            .pending_kudzu_votes
+        let mut targets = self.kudzu_votes_queued();
+        let mut one_shot = KudzuOneShot::default();
+        for election in self.roots.round_robin().map(|e| &e.election) {
+            self.kudzu_votes_due_for(election, &mut one_shot, &proposal_valid, &mut targets);
+        }
+        targets.extend(self.kudzu_close_votes_due());
+        targets
+    }
+
+    /// Kudzu: the votes whose decision is recorded, waiting to be signed
+    pub fn kudzu_votes_queued(&self) -> Vec<VoteTarget> {
+        self.pending_kudzu_votes
             .iter()
             .filter(|target| self.account_voting && !self.frozen.contains(&target.election.epoch))
             .cloned()
-            .collect();
+            .collect()
+    }
+
+    /// Kudzu: the elections a vote may be due in, in round robin order
+    pub fn kudzu_scan_order(&self) -> Vec<ElectionId> {
+        self.roots.round_robin().map(|e| e.election.id()).collect()
+    }
+
+    /// Kudzu: the votes due in these elections; one erased since the order
+    /// was read has none
+    pub fn kudzu_votes_due_in(
+        &self,
+        elections: &[ElectionId],
+        one_shot: &mut KudzuOneShot,
+        proposal_valid: &impl Fn(&BlockHash) -> Result<(), crate::consensus::Unattached>,
+        targets: &mut Vec<VoteTarget>,
+    ) {
+        for id in elections {
+            if let Some(election) = self.roots.election(id) {
+                self.kudzu_votes_due_for(election, one_shot, proposal_valid, targets);
+            }
+        }
+    }
+
+    /// Kudzu: the votes due in the close elections
+    pub fn kudzu_close_votes_due(&self) -> Vec<VoteTarget> {
+        self.closes
+            .values()
+            .flat_map(|close| {
+                close
+                    .votes_due(&self.local_reps)
+                    .into_iter()
+                    .map(|(round, value, kind)| VoteTarget {
+                        election: close.id(round),
+                        winner: value,
+                        vote_type: VoteType::from(kind),
+                    })
+            })
+            .collect()
+    }
+
+    fn kudzu_votes_due_for(
+        &self,
+        election: &Election,
+        one_shot: &mut KudzuOneShot,
+        proposal_valid: &impl Fn(&BlockHash) -> Result<(), crate::consensus::Unattached>,
+        targets: &mut Vec<VoteTarget>,
+    ) {
+        if !self.account_voting || self.frozen.contains(&election.epoch()) {
+            return;
+        }
         let empty = LocalSlotState::default();
-        // One first vote and one final vote per domain: two instances of one
-        // domain (conflicting parents put their children in one) are read
-        // against the same slot state before either is recorded
-        let mut one_shot: FxHashSet<(EpochSlot, VoteKind)> = FxHashSet::default();
-        for election in self.roots.round_robin().map(|e| &e.election) {
-            if !self.account_voting || self.frozen.contains(&election.epoch()) {
+        let slot = self.slots.get(&election.epoch_slot()).unwrap_or(&empty);
+        // A settled instance has nothing left to say but its exit final
+        // vote: the settled instances of the forks pile up over time and
+        // this loop runs every tick
+        // RAI, "Attachment and eligibility": a first vote may extend a
+        // finalized parent, a maximum-depth tip of the latest closed
+        // ledger (both checked against the ledger by the caller), or
+        // "a complete parent already built in the current epoch"
+        // A retained position is decided here, with the exclusion
+        // witnesses this node holds: the ledger check names it only
+        let attachable = |hash: &BlockHash| match proposal_valid(hash) {
+            Ok(()) | Err(crate::consensus::Unattached::Retained) => {
+                !self.at_closed_lock(election, hash)
+            }
+            Err(crate::consensus::Unattached::Previous) => {
+                self.parent_complete_in_epoch(election) && !self.at_closed_lock(election, hash)
+            }
+            Err(_) => false,
+        };
+        let due = if election.state() == ElectionState::Settled {
+            election.kudzu_final_vote_due(slot).into_iter().collect()
+        } else {
+            election.kudzu_votes_due(slot, &attachable)
+        };
+        for (hash, kind) in due {
+            if matches!(kind, VoteKind::First | VoteKind::Final)
+                && !one_shot.insert((election.epoch_slot(), kind))
+            {
                 continue;
             }
-            let slot = self.slots.get(&election.epoch_slot()).unwrap_or(&empty);
-            // A settled instance has nothing left to say but its exit final
-            // vote: the settled instances of the forks pile up over time and
-            // this loop runs every tick under the AEC lock
-            // RAI, "Attachment and eligibility": a first vote may extend a
-            // finalized parent, a maximum-depth tip of the latest closed
-            // ledger (both checked against the ledger by the caller), or
-            // "a complete parent already built in the current epoch"
-            // A retained position is decided here, with the exclusion
-            // witnesses this node holds: the ledger check names it only
-            let attachable = |hash: &BlockHash| match proposal_valid(hash) {
-                Ok(()) | Err(crate::consensus::Unattached::Retained) => {
-                    !self.at_closed_lock(election, hash)
-                }
-                Err(crate::consensus::Unattached::Previous) => {
-                    self.parent_complete_in_epoch(election) && !self.at_closed_lock(election, hash)
-                }
-                Err(_) => false,
-            };
-            let due = if election.state() == ElectionState::Settled {
-                election.kudzu_final_vote_due(slot).into_iter().collect()
-            } else {
-                election.kudzu_votes_due(slot, &attachable)
-            };
-            for (hash, kind) in due {
-                if matches!(kind, VoteKind::First | VoteKind::Final)
-                    && !one_shot.insert((election.epoch_slot(), kind))
-                {
-                    continue;
-                }
-                if kind == VoteKind::First && self.cross_epoch_locked(election, &hash) {
-                    continue;
-                }
-                if kind == VoteKind::First && self.withholds_early_first_vote(election) {
-                    continue;
-                }
-                // RAI, matching-origin discharge: no final vote for a block
-                // that bypasses a record of the latest checkpoint this node
-                // holds no discharging witness for. The first vote may have
-                // been cast early, before that checkpoint was known; the
-                // recheck at its installation governs the position from then
-                // on, the exit vote included. A certificate the new
-                // committee could form for the block would be one the
-                // report rule refuses, and the epoch's close with it.
-                if kind == VoteKind::Final
-                    && election.predecessor_decided()
-                    && self.at_closed_lock(election, &hash)
-                {
-                    continue;
-                }
-                // RAI, "no fast path on early votes": a first vote keeps the
-                // base it was cast with; a new one is early while this node
-                // has not installed the epoch's predecessor checkpoint
-                let vote_type = match kind {
-                    VoteKind::First if slot.first_voted.is_some() => slot.first_vote_type(),
-                    VoteKind::First if self.votes_early_in(election.epoch()) => {
-                        VoteType::EarlyFirst
-                    }
-                    _ => VoteType::from(kind),
-                };
-                targets.push(VoteTarget {
-                    election: election.id(),
-                    winner: hash,
-                    vote_type,
-                });
+            if kind == VoteKind::First && self.cross_epoch_locked(election, &hash) {
+                continue;
             }
+            if kind == VoteKind::First && self.withholds_early_first_vote(election) {
+                continue;
+            }
+            // RAI, matching-origin discharge: no final vote for a block
+            // that bypasses a record of the latest checkpoint this node
+            // holds no discharging witness for. The first vote may have
+            // been cast early, before that checkpoint was known; the
+            // recheck at its installation governs the position from then
+            // on, the exit vote included. A certificate the new
+            // committee could form for the block would be one the
+            // report rule refuses, and the epoch's close with it.
+            if kind == VoteKind::Final
+                && election.predecessor_decided()
+                && self.at_closed_lock(election, &hash)
+            {
+                continue;
+            }
+            // RAI, "no fast path on early votes": a first vote keeps the
+            // base it was cast with; a new one is early while this node
+            // has not installed the epoch's predecessor checkpoint
+            let vote_type = match kind {
+                VoteKind::First if slot.first_voted.is_some() => slot.first_vote_type(),
+                VoteKind::First if self.votes_early_in(election.epoch()) => VoteType::EarlyFirst,
+                _ => VoteType::from(kind),
+            };
+            targets.push(VoteTarget {
+                election: election.id(),
+                winner: hash,
+                vote_type,
+            });
         }
-        for close in self.closes.values() {
-            targets.extend(close.votes_due(&self.local_reps).into_iter().map(
-                |(round, value, kind)| VoteTarget {
-                    election: close.id(round),
-                    winner: value,
-                    vote_type: VoteType::from(kind),
-                },
-            ));
-        }
-        targets
     }
 
     /// Kudzu: record the votes that are about to be handed to the vote
@@ -6460,6 +6504,15 @@ mod tests {
             ElectionState::Active
         );
         assert_eq!(container.len(), 2);
+        // In pieces, as the voter reads it, the scan finds the same votes
+        let mut pieces = container.kudzu_votes_queued();
+        let mut one_shot = KudzuOneShot::default();
+        for elections in container.kudzu_scan_order().chunks(1) {
+            container.kudzu_votes_due_in(elections, &mut one_shot, &|_| Ok(()), &mut pieces);
+        }
+        pieces.extend(container.kudzu_close_votes_due());
+        assert_eq!(pieces, container.kudzu_votes_due(|_| Ok(())));
+
         let due = container.kudzu_votes_due(|_| Ok(()));
         assert!(!due.iter().any(|target| target.election == stale));
         assert!(due.contains(&VoteTarget {
