@@ -1,0 +1,110 @@
+{
+  "sets": [
+    "final-wan-2000"
+  ],
+  "arms": {
+    "develop": {
+      "bin_dir": "/home/fiono8199/bin-fix2/develop",
+      "flags": [
+        "--no-epochs",
+        "--timeout=480",
+        "--stall-abort=90",
+        "--drain-limit=15",
+        "--settle-timeout=600",
+        "--fork-grace-stall=30",
+        "--hosts=/home/fiono8199/hosts.txt"
+      ]
+    }
+  },
+  "started": 1794052388.4459321,
+  "runs": [
+    {
+      "variant": "fork10-grace",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 540
+    },
+    {
+      "variant": "nofork-byznode",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 539
+    },
+    {
+      "variant": "nofork-byznode",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 3,
+      "status": "settled",
+      "seconds": 252
+    },
+    {
+      "variant": "nofork-reconf-byznode",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 2,
+      "status": "settled",
+      "seconds": 585
+    },
+    {
+      "variant": "fork5-grace-reconf-byznode",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 3,
+      "status": "settled",
+      "seconds": 309
+    },
+    {
+      "variant": "fork10-grace-reconf",
+      "rate": 2000,
+      "arm": "pause",
+      "rep": 2,
+      "status": "settled",
+      "seconds": 567
+    },
+    {
+      "variant": "fork5-grace-byznode",
+      "rate": 2000,
+      "arm": "pause",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 295
+    },
+    {
+      "variant": "nofork-reconf",
+      "rate": 2000,
+      "arm": "develop",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 595
+    },
+    {
+      "variant": "nofork-reconf-byznode",
+      "rate": 2000,
+      "arm": "develop",
+      "rep": 3,
+      "status": "settled",
+      "seconds": 590
+    },
+    {
+      "variant": "fork5-grace-reconf-byznode",
+      "rate": 2000,
+      "arm": "develop",
+      "rep": 3,
+      "status": "failed",
+      "seconds": 526
+    },
+    {
+      "variant": "fork10-grace-reconf-byznode",
+      "rate": 2000,
+      "arm": "develop",
+      "rep": 2,
+      "status": "failed",
+      "seconds": 729
+    }
+  ]
+}
