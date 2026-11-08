@@ -1,158 +1,158 @@
-nofork rai: p50 (384, 379, 393) p95 (522, 488, 525) goodput (1945.1, 1936.6, 1945.2)
-  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [4.656, 4.497, 5.185]
-  load rate [1998, 1988, 2002] zero-seconds [0, 0, 0] longest-gap [0, 0, 0] rate-in-closes [1970, 1962, 1980] close-median [3345, 3165, 1793] close-max [4052, 3795, 3603]
-  p99 [593, 603, 639] node ['ace6ce51']
-  fast share of finalized, any node: 0.47-0.67; overlap eligible: 14093-16611
-nofork pause: p50 (639, 481, 1040) p95 (5331, 4875, 6099) goodput (1567.2, 1541.0, 1573.6)
-  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [10.105, 11.094, 10.275]
-  load rate [1981, 1895, 1462] zero-seconds [5, 6, 7] longest-gap [3, 4, 5] rate-in-closes [129, 192, 161] close-median [4516.5, 4287.0, 4503.5] close-max [7385, 8195, 7028]
-  p99 [5561, 6283, 6751] node ['ace6ce51']
+nofork rai: p50 (390, 373, 405) p95 (483, 468, 525) goodput (1953.8, 1911.9, 1962.5)
+  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [4.381, 5.474, 4.147]
+  load rate [1995, 2010, 2003] zero-seconds [0, 0, 0] longest-gap [0, 0, 0] rate-in-closes [1977, 1919, 1958] close-median [2713.5, 2142, 2074] close-max [3796, 3892, 4021]
+  p99 [570, 591, 570] node ['8a7c1763'] from ['gcp-matrix3-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06']
+  fast share of finalized, any node: 0.37-0.65; overlap eligible: 14887-15771
+nofork pause: p50 (505, 488, 911) p95 (4786, 4663, 6127) goodput (1937.0, 1551.8, 1954.1)
+  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [15.541, 4.656, 4.666]
+  load rate [1516, 1994, 2047] zero-seconds [7, 6, 6] longest-gap [5, 4, 4] rate-in-closes [971, 214, 213] close-median [7682, 2891.5, 3027.5] close-max [8977, 5039, 4912]
+  p99 [6570, 5346, 5558] node ['8a7c1763'] from ['gcp-matrix3-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06']
 nofork develop: p50 (535, 530, 538) p95 (592, 589, 602) goodput (1928.0, 1927.9, 1928.0)
   status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [2.478, 3.013, 2.715]
   load rate [2005, 2005, 2008] zero-seconds [0, 0, 0] longest-gap [0, 0, 0] rate-in-closes [None, None, None] close-median [None, None, None] close-max [None, None, None]
-  p99 [826, 731, 780] node ['478d1750']
-fork5-grace rai: p50 (385, 381, 390) p95 (540, 504, 549) goodput (1830.8, 1809.7, 1847.9)
-  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [15.163, 15.231, 15.135]
-  load rate [1891, 1895, 1893] zero-seconds [0, 0, 0] longest-gap [0, 0, 0] rate-in-closes [1854, 1816, 1808] close-median [1961.5, 2040.5, 2176.5] close-max [4182, 3774, 4029]
-  p99 [789, 742, 626] node ['ace6ce51']
-  fast share of finalized, any node: 0.46-0.69; overlap eligible: 12818-15036
-fork5-grace pause: p50 (890, 612, 1220) p95 (5365, 4891, 5668) goodput (1824.1, 1446.0, 1828.2)
-  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [16.386, 17.306, 16.274]
-  load rate [1735, 1733, 1841] zero-seconds [6, 6, 5] longest-gap [4, 4, 3] rate-in-closes [142, 266, 171] close-median [3447, 3729, 3346] close-max [8591, 8655, 7694]
-  p99 [6297, 6551, 5737] node ['ace6ce51']
+  p99 [826, 731, 780] node ['478d1750'] from ['gcp-matrix2-45k-2026-11-05', 'gcp-matrix2-45k-2026-11-05', 'gcp-matrix2-45k-2026-11-05']
+fork5-grace rai: p50 (385, 379, 390) p95 (527, 495, 537) goodput (1857.6, 1857.2, 1859.0)
+  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [19.886, 14.989, 15.497]
+  load rate [1905, 1901, 1904] zero-seconds [0, 0, 0] longest-gap [0, 0, 0] rate-in-closes [1849, 1805, 1832] close-median [2069.5, 2067.5, 2071.0] close-max [4703, 5736, 3482]
+  p99 [632, 889, 646] node ['8a7c1763'] from ['gcp-matrix3-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06']
+  fast share of finalized, any node: 0.36-0.69; overlap eligible: 12999-16570
+fork5-grace pause: p50 (570, 546, 726) p95 (4954, 4910, 5649) goodput (1545.3, 1501.9, 1827.9)
+  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [15.071, 13.765, 15.301]
+  load rate [1935, 1897, 1838] zero-seconds [7, 5, 6] longest-gap [4, 3, 4] rate-in-closes [203, 215, 166] close-median [4328, 3778, 4096] close-max [4868, 5940, 6758]
+  p99 [5504, 5762, 6080] node ['8a7c1763'] from ['gcp-matrix3-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06']
 fork5-grace develop: p50 (529, 527, 538) p95 (612, 590, 619) goodput (1754.3, 1753.3, 1755.7)
   status ['settled', 'settled', 'settled'] open [683, 341, 626] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [None, None, None]
   load rate [1903, 1910, 1895] zero-seconds [0, 0, 0] longest-gap [0, 0, 0] rate-in-closes [None, None, None] close-median [None, None, None] close-max [None, None, None]
-  p99 [847, 949, 865] node ['478d1750']
-fork10-grace rai: p50 (392, 387, 466) p95 (627, 590, 1916) goodput (1740.3, 1455.7, 1755.7)
-  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [15.293, 148.646, 15.855]
-  load rate [1789, 1656, 1801] zero-seconds [0, 1, 0] longest-gap [0, 1, 0] rate-in-closes [1653, 1811, 1736] close-median [2528.0, 15232, 2220.5] close-max [4241, 54081, 4033]
-  p99 [825, 4416, 909] node ['ace6ce51']
-  fast share of finalized, any node: 0.16-0.69; overlap eligible: 13140-61013
-fork10-grace pause: p50 (1310, 982, 1950) p95 (11183, 5440, 14522) goodput (1202.1, 1134.2, 1306.8)
-  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [16.666, 27.911, 20.448]
-  load rate [1603, 1132, 1308] zero-seconds [6, 7, 7] longest-gap [4, 4, 5] rate-in-closes [167, 111, 144] close-median [4121, 4691.0, 3390] close-max [8778, 16215, 15237]
-  p99 [7935, 15338, 12092] node ['ace6ce51']
+  p99 [847, 949, 865] node ['478d1750'] from ['gcp-matrix2-45k-2026-11-05', 'gcp-matrix2-45k-2026-11-05', 'gcp-matrix2-45k-2026-11-05']
+fork10-grace rai: p50 (400, 399, 403) p95 (571, 564, 668) goodput (1749.9, 1745.0, 1755.3)
+  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [15.106, 15.008, 20.501]
+  load rate [1797, 1802, 1807] zero-seconds [0, 0, 0] longest-gap [0, 0, 0] rate-in-closes [1724, 1728, 1781] close-median [2114.5, 2004.5, 2106.5] close-max [3922, 4218, 4240]
+  p99 [946, 798, 751] node ['8a7c1763'] from ['gcp-matrix4-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06']
+  fast share of finalized, any node: 0.63-0.68; overlap eligible: 12983-14897
+fork10-grace pause: p50 (567, 555, 732) p95 (5308, 4927, 12470) goodput (1370.3, 1174.5, 1462.5)
+  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [14.582, 21.026, 17.64]
+  load rate [1799, 1280, 1645] zero-seconds [5, 8, 7] longest-gap [3, 6, 4] rate-in-closes [198, 143, 716] close-median [4264, 3693, 3890.0] close-max [6169, 11817, 9587]
+  p99 [5456, 13467, 5985] node ['8a7c1763'] from ['gcp-matrix3-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06']
 fork10-grace develop: p50 (533, 533, 542) p95 (828, 805, 882) goodput (945.6, 761.3, 983.4)
   status ['settled', 'failed', 'settled'] open [3, 6, 915] cemented-values [1, 2, 1] held-values [1, 1, 1] resolved-after [None, None, None]
   load rate [1780, 1771, 1775] zero-seconds [0, 0, 0] longest-gap [0, 0, 0] rate-in-closes [None, None, None] close-median [None, None, None] close-max [None, None, None]
-  p99 [14179, 18546, 14173] node ['478d1750']
-nofork-byznode rai: p50 (398, 389, 399) p95 (494, 475, 527) goodput (1928.2, 1895.8, 1944.7)
-  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [5.137, 5.262, 5.769]
-  load rate [1996, 1998, 1995] zero-seconds [0, 0, 0] longest-gap [0, 0, 0] rate-in-closes [1981, 2007, 1982] close-median [4115.0, 4180.5, 4033.0] close-max [4465, 4433, 4335]
-  p99 [660, 600, 569] node ['ace6ce51']
-  fast share of finalized, any node: 0.36-0.50; overlap eligible: 22063-23239
-nofork-byznode pause: p50 (2097, 1831, 2507) p95 (7918, 6181, 8169) goodput (1413.5, 1403.8, 1502.6)
-  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [11.566, 8.872, 10.029]
-  load rate [1805, 1694, 1635] zero-seconds [9, 11, 11] longest-gap [4, 4, 5] rate-in-closes [174, 161, 183] close-median [5189, 4978, 4588] close-max [8503, 6337, 8066]
-  p99 [9014, 6689, 8634] node ['ace6ce51']
+  p99 [14179, 18546, 14173] node ['478d1750'] from ['gcp-matrix2-45k-2026-11-05', 'gcp-matrix2-45k-2026-11-05', 'gcp-matrix2-45k-2026-11-05']
+nofork-byznode rai: p50 (393, 390, 395) p95 (508, 476, 537) goodput (1945.3, 1920.1, 1945.4)
+  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [4.465, 5.505, 4.282]
+  load rate [1998, 1999, 2010] zero-seconds [0, 0, 0] longest-gap [0, 0, 0] rate-in-closes [1985, 1987, 1980] close-median [3970.5, 4265, 3903.5] close-max [4420, 4465, 4609]
+  p99 [628, 572, 618] node ['8a7c1763'] from ['gcp-matrix4-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06', 'gcp-matrix4-45k-2026-11-06']
+  fast share of finalized, any node: 0.33-0.50; overlap eligible: 22025-23112
+nofork-byznode pause: p50 (1537, 1416, 1686) p95 (5509, 5179, 6865) goodput (1551.9, 1450.6, 1573.6)
+  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [7.752, 8.289, 10.75]
+  load rate [1703, 1822, 1811] zero-seconds [11, 9, 9] longest-gap [4, 4, 4] rate-in-closes [302, 193, 261] close-median [5149, 4701, 4663] close-max [5396, 5143, 7602]
+  p99 [6028, 5749, 7761] node ['8a7c1763'] from ['gcp-matrix3-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06']
 nofork-byznode develop: p50 (529, 528, 540) p95 (595, 591, 597) goodput (1911.8, 1911.7, 1928.4)
   status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [2.828, 2.897, 3.153]
   load rate [1998, 2013, 2003] zero-seconds [0, 0, 0] longest-gap [0, 0, 0] rate-in-closes [None, None, None] close-median [None, None, None] close-max [None, None, None]
-  p99 [712, 810, 763] node ['478d1750']
-fork5-grace-byznode rai: p50 (388, 388, 392) p95 (570, 569, 588) goodput (1838.3, 1800.4, 1848.1)
-  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [29.143, 22.355, 21.485]
-  load rate [1889, 1901, 1892] zero-seconds [0, 0, 0] longest-gap [0, 0, 0] rate-in-closes [1815, 1885, 1854] close-median [4590.0, 4367, 4218] close-max [6716, 5440, 4963]
-  p99 [779, 718, 813] node ['ace6ce51']
-  fast share of finalized, any node: 0.32-0.48; overlap eligible: 21334-23434
-fork5-grace-byznode pause: p50 (6684, 4390, 11797) p95 (21404, 18547, 40763) goodput (949.6, 601.8, 1034.1)
-  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [26.831, 63.639, 34.2]
-  load rate [1322, 784, 1218] zero-seconds [14, 14, 11] longest-gap [8, 6, 5] rate-in-closes [598, 541, 963] close-median [8491, 9081.5, 7416] close-max [13872, 24786, 20128]
-  p99 [19555, 42300, 22300] node ['ace6ce51']
+  p99 [712, 810, 763] node ['478d1750'] from ['gcp-matrix2-45k-2026-11-05', 'gcp-matrix2-45k-2026-11-05', 'gcp-matrix2-45k-2026-11-05']
+fork5-grace-byznode rai: p50 (391, 391, 420) p95 (538, 526, 556) goodput (1846.4, 1825.1, 1846.7)
+  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [22.713, 21.936, 22.42]
+  load rate [1898, 1900, 1908] zero-seconds [0, 0, 0] longest-gap [0, 0, 0] rate-in-closes [1831, 1868, 1859] close-median [4416, 4298, 4746] close-max [5217, 5183, 8039]
+  p99 [818, 629, 671] node ['8a7c1763'] from ['gcp-matrix3-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06']
+  fast share of finalized, any node: 0.25-0.48; overlap eligible: 21849-22876
+fork5-grace-byznode pause: p50 (4571, 912, 5759) p95 (9694, 6050, 15475) goodput (1038.7, 825.4, 1073.4)
+  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [42.826, 36.676, 21.886]
+  load rate [1860, 1167, 999] zero-seconds [8, 14, 15] longest-gap [4, 7, 8] rate-in-closes [864, 689, 185] close-median [7041, 6712, 6175] close-max [18619, 17391, 15513]
+  p99 [16685, 16582, 10309] node ['8a7c1763'] from ['gcp-matrix4-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06']
 fork5-grace-byznode develop: p50 (535, 526, 535) p95 (608, 592, 660) goodput (1769.8, 1745.5, 1784.6)
   status ['failed', 'failed', 'settled'] open [393, 117, 683] cemented-values [2, 2, 1] held-values [1, 1, 1] resolved-after [None, None, None]
   load rate [1899, 1904, 1911] zero-seconds [0, 0, 0] longest-gap [0, 0, 0] rate-in-closes [None, None, None] close-median [None, None, None] close-max [None, None, None]
-  p99 [938, 938, 1042] node ['478d1750']
-fork10-grace-byznode rai: p50 (412, 407, 453) p95 (954, 632, 2014) goodput (1749.2, 1461.9, 1749.9)
-  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [32.565, 38.027, 26.67]
-  load rate [1791, 1789, 1485] zero-seconds [0, 0, 5] longest-gap [0, 0, 5] rate-in-closes [1502, 1750, 1326] close-median [5055, 4975, 5495.5] close-max [10727, 9531, 8147]
-  p99 [2349, 1207, 759] node ['ace6ce51']
-  fast share of finalized, any node: 0.32-0.43; overlap eligible: 21866-24885
-fork10-grace-byznode pause: p50 (15080, 4016, 18793) p95 (48371, 24808, 63703) goodput (506.3, 398.0, 725.9)
-  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [66.296, 77.259, 35.616]
-  load rate [592, 512, 1039] zero-seconds [25, 20, 18] longest-gap [17, 9, 11] rate-in-closes [315, 358, 30] close-median [6769, 9083, 7627] close-max [37859, 28377, 26344]
-  p99 [49486, 67143, 24963] node ['ace6ce51']
+  p99 [938, 938, 1042] node ['478d1750'] from ['gcp-matrix2-45k-2026-11-05', 'gcp-matrix2-45k-2026-11-05', 'gcp-matrix2-45k-2026-11-05']
+fork10-grace-byznode rai: p50 (400, 395, 485) p95 (721, 599, 994) goodput (1746.8, 1348.6, 1747.3)
+  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [25.403, 39.683, 21.876]
+  load rate [1791, 1350, 1802] zero-seconds [0, 8, 0] longest-gap [0, 4, 0] rate-in-closes [1692, 1626, 1738] close-median [4741.0, 7296, 4381] close-max [8959, 13904, 5111]
+  p99 [1057, 1068, 736] node ['8a7c1763'] from ['gcp-matrix3-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06']
+  fast share of finalized, any node: 0.18-0.45; overlap eligible: 21949-36660
+fork10-grace-byznode pause: p50 (2730, 1785, 6480) p95 (11323, 9240, 22537) goodput (794.6, 764.4, 1408.1)
+  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [33.62, 42.711, 25.454]
+  load rate [1154, 904, 1432] zero-seconds [16, 20, 14] longest-gap [9, 13, 7] rate-in-closes [659, 492, 362] close-median [7623.5, 12924, 6449] close-max [24904, 20113, 15589]
+  p99 [12036, 25491, 9700] node ['8a7c1763'] from ['gcp-matrix3-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06']
 fork10-grace-byznode develop: p50 (533, 533, 540) p95 (1044, 996, 1047) goodput (740.4, 402.1, 923.7)
   status ['failed', 'failed', 'failed'] open [1303, 20, 13] cemented-values [6, 2, 3] held-values [1, 1, 1] resolved-after [None, None, None]
   load rate [1775, 1774, 1683] zero-seconds [0, 0, 2] longest-gap [0, 0, 2] rate-in-closes [None, None, None] close-median [None, None, None] close-max [None, None, None]
-  p99 [63557, 23108, 14654] node ['478d1750']
-nofork-reconf rai: p50 (378, 376, 386) p95 (532, 524, 541) goodput (1945.3, 1936.7, 1945.4)
-  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [5.542, 5.544, 5.348]
-  load rate [1996, 1986, 1989] zero-seconds [0, 0, 0] longest-gap [0, 0, 0] rate-in-closes [1976, 2023, 2008] close-median [3129, 3121, 3397] close-max [6593, 3878, 4212]
-  p99 [730, 701, 670] node ['ace6ce51']
-  fast share of finalized, any node: 0.33-0.66; overlap eligible: 15670-20228
-nofork-reconf pause: p50 (1062, 944, 10625) p95 (6036, 5884, 18671) goodput (1567.3, 1026.0, 1584.6)
-  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [23.511, 10.585, 10.915]
-  load rate [738, 1954, 1936] zero-seconds [12, 5, 5] longest-gap [7, 3, 3] rate-in-closes [498, 185, 179] close-median [7721, 3685, 3327] close-max [13845, 6855, 6727]
-  p99 [20062, 6497, 6816] node ['ace6ce51']
-nofork-reconf develop: p50 (409, 405, 436) p95 (569, 499, 576) goodput (1936.6, 1936.5, 1936.6)
-  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [3.293, 2.57, 2.886]
-  load rate [2041, 2026, 2027] zero-seconds [0, 0, 0] longest-gap [0, 0, 0] rate-in-closes [None, None, None] close-median [None, None, None] close-max [None, None, None]
-  p99 [1467, 1084, 1160] node ['478d1750']
-fork5-grace-reconf rai: p50 (386, 381, 395) p95 (581, 577, 626) goodput (1841.1, 1834.8, 1849.0)
-  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [24.578, 24.943, 24.82]
-  load rate [1884, 1897, 1904] zero-seconds [0, 0, 0] longest-gap [0, 0, 0] rate-in-closes [1787, 1770, 1778] close-median [2429, 2186, 2171] close-max [4559, 4315, 4763]
-  p99 [876, 835, 756] node ['ace6ce51']
-  fast share of finalized, any node: 0.55-0.65; overlap eligible: 13753-15786
-fork5-grace-reconf pause: p50 (1126, 1080, 2690) p95 (6230, 5638, 13306) goodput (1295.9, 1173.9, 1432.1)
-  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [20.561, 29.683, 17.639]
-  load rate [1816, 1173, 1738] zero-seconds [6, 8, 6] longest-gap [3, 5, 4] rate-in-closes [203, 145, 168] close-median [3434, 5155.0, 3924.0] close-max [13328, 12410, 8962]
-  p99 [11324, 14032, 7487] node ['ace6ce51']
-fork5-grace-reconf develop: p50 (417, 412, 450) p95 (512, 483, 538) goodput (1782.1, 1781.8, 1801.5)
-  status ['failed', 'failed', 'failed'] open [18, 750, 658] cemented-values [3, 3, 3] held-values [1, 1, 1] resolved-after [None, None, None]
-  load rate [1916, 1937, 1929] zero-seconds [0, 0, 0] longest-gap [0, 0, 0] rate-in-closes [None, None, None] close-median [None, None, None] close-max [None, None, None]
-  p99 [1144, 1244, 1039] node ['478d1750']
-fork10-grace-reconf rai: p50 (384, 382, 407) p95 (717, 599, 742) goodput (1743.5, 1560.9, 1745.5)
-  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [21.275, 24.698, 25.265]
-  load rate [1615, 1802, 1796] zero-seconds [1, 0, 0] longest-gap [1, 0, 0] rate-in-closes [1729, 1744, 1670] close-median [2275, 2184, 2102] close-max [4345, 4188, 4923]
-  p99 [918, 995, 784] node ['ace6ce51']
-  fast share of finalized, any node: 0.47-0.68; overlap eligible: 13818-19761
-fork10-grace-reconf pause: p50 (1597, 1443, 1649) p95 (7821, 7036, 10847) goodput (1228.6, 1203.2, 1398.9)
-  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [31.115, 21.62, 22.006]
-  load rate [1614, 1585, 1625] zero-seconds [6, 7, 6] longest-gap [3, 4, 3] rate-in-closes [213, 178, 357] close-median [3087.5, 3648, 3688.5] close-max [10263, 15167, 9643]
-  p99 [11508, 11393, 8549] node ['ace6ce51']
-fork10-grace-reconf develop: p50 (408, 407, 413) p95 (1706, 1234, 1836) goodput (474.5, 472.4, 567.9)
-  status ['failed', 'failed', 'failed'] open [280, 550, 548] cemented-values [6, 4, 6] held-values [1, 1, 1] resolved-after [None, None, None]
-  load rate [1783, 1807, 1808] zero-seconds [0, 0, 0] longest-gap [0, 0, 0] rate-in-closes [None, None, None] close-median [None, None, None] close-max [None, None, None]
-  p99 [52611, 43701, 39570] node ['478d1750']
-nofork-reconf-byznode rai: p50 (397, 391, 404) p95 (542, 519, 562) goodput (1945.3, 1643.8, 1953.7)
-  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [5.361, 4.534, 4.921]
-  load rate [2005, 2022, 1656] zero-seconds [0, 0, 5] longest-gap [0, 0, 5] rate-in-closes [1984, 2014, 1221] close-median [3803, 4431, 4222] close-max [4692, 4796, 6655]
-  p99 [724, 682, 636] node ['ace6ce51']
-  fast share of finalized, any node: 0.31-0.52; overlap eligible: 21160-23462
-nofork-reconf-byznode pause: p50 (1715, 1533, 1762) p95 (7588, 5883, 8703) goodput (1479.5, 1418.1, 1567.3)
-  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [11.26, 10.12, 12.336]
-  load rate [1902, 1910, 1909] zero-seconds [8, 8, 8] longest-gap [4, 4, 4] rate-in-closes [276, 242, 257] close-median [4370, 4325, 4861] close-max [7962, 6419, 9293]
-  p99 [8442, 6515, 9590] node ['ace6ce51']
-nofork-reconf-byznode develop: p50 (410, 405, 418) p95 (494, 485, 558) goodput (1945.4, 1945.3, 1945.4)
-  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [2.526, 2.608, 2.979]
-  load rate [2036, 2031, 2027] zero-seconds [0, 0, 0] longest-gap [0, 0, 0] rate-in-closes [None, None, None] close-median [None, None, None] close-max [None, None, None]
-  p99 [1026, 1033, 1128] node ['478d1750']
-fork5-grace-reconf-byznode rai: p50 (396, 388, 397) p95 (601, 584, 619) goodput (1834.6, 1833.0, 1846.0)
-  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [22.535, 29.984, 23.49]
-  load rate [1900, 1911, 1897] zero-seconds [0, 0, 0] longest-gap [0, 0, 0] rate-in-closes [1801, 1873, 1841] close-median [4021.0, 4727.5, 4235.5] close-max [5952, 5199, 5543]
-  p99 [738, 735, 731] node ['232b9516', 'ace6ce51']
-  fast share of finalized, any node: 0.37-0.52; overlap eligible: 19899-22557
-fork5-grace-reconf-byznode pause: p50 (4218, 3629, 7782) p95 (18895, 10504, 27531) goodput (895.5, 628.3, 1060.1)
-  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [35.059, 38.6, 51.37]
-  load rate [1036, 1234, 1060] zero-seconds [12, 10, 20] longest-gap [8, 6, 13] rate-in-closes [490, 323, 868] close-median [8527, 7737, 11967.0] close-max [24579, 15988, 19413]
-  p99 [26819, 19928, 39888] node ['232b9516', 'ace6ce51']
-fork5-grace-reconf-byznode develop: p50 (404, 404, 411) p95 (501, 491, 504) goodput (1847.8, 1775.4, 1851.7)
-  status ['failed', 'failed', 'failed'] open [100, 169, 206] cemented-values [4, 4, 5] held-values [1, 1, 1] resolved-after [None, None, None]
-  load rate [1931, 1936, 1919] zero-seconds [0, 0, 0] longest-gap [0, 0, 0] rate-in-closes [None, None, None] close-median [None, None, None] close-max [None, None, None]
-  p99 [1217, 1303, 1097] node ['478d1750']
-fork10-grace-reconf-byznode rai: p50 (418, 415, 420) p95 (1011, 898, 1075) goodput (1653.9, 1599.8, 1684.6)
-  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [86.754, 79.031, 33.776]
-  load rate [1777, 1797, 1786] zero-seconds [0, 0, 0] longest-gap [0, 0, 0] rate-in-closes [1766, 1802, 1789] close-median [42141, 35066.0, 5631] close-max [53435, 50590, 12705]
-  p99 [1509, 1145, 1589] node ['232b9516', 'ace6ce51']
-  fast share of finalized, any node: 0.26-0.41; overlap eligible: 15872-26898
-fork10-grace-reconf-byznode pause: p50 (5270, 4585, 12790) p95 (31387, 26545, 50891) goodput (617.2, 515.2, 750.8)
-  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [44.827, 35.078, 70.627]
-  load rate [700, 1107, 1060] zero-seconds [23, 14, 12] longest-gap [11, 9, 5] rate-in-closes [506, 787, 389] close-median [11994.5, 5945, 11958.5] close-max [20770, 28432, 42353]
-  p99 [34160, 27755, 51917] node ['232b9516', 'ace6ce51']
-fork10-grace-reconf-byznode develop: p50 (416, 414, 422) p95 (1212, 1024, 1237) goodput (562.3, 471.4, 563.7)
-  status ['failed', 'failed', 'failed'] open [646, 7, 478] cemented-values [6, 5, 6] held-values [1, 1, 1] resolved-after [None, None, None]
-  load rate [1782, 1819, 1807] zero-seconds [0, 0, 0] longest-gap [0, 0, 0] rate-in-closes [None, None, None] close-median [None, None, None] close-max [None, None, None]
-  p99 [44981, 35006, 35706] node ['478d1750']
-round trips 8.2-316.2 ms, request floor 311-316 ms
+  p99 [63557, 23108, 14654] node ['478d1750'] from ['gcp-matrix2-45k-2026-11-05', 'gcp-matrix2-45k-2026-11-05', 'gcp-matrix2-45k-2026-11-05']
+nofork-reconf rai: p50 (386, 385, 391) p95 (560, 547, 561) goodput (1945.4, 1945.3, 1945.5)
+  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [5.36, 5.098, 5.185]
+  load rate [2000, 1998, 1999] zero-seconds [0, 0, 0] longest-gap [0, 0, 0] rate-in-closes [2018, 2004, 1957] close-median [3837, 3846, 3116] close-max [4332, 4438, 4201]
+  p99 [724, 709, 652] node ['8a7c1763'] from ['gcp-matrix3-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06']
+  fast share of finalized, any node: 0.34-0.64; overlap eligible: 15173-17457
+nofork-reconf pause: p50 (528, 501, 593) p95 (4779, 4592, 4987) goodput (1687.3, 1674.2, 1746.8)
+  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [7.798, 9.307, 8.583]
+  load rate [1998, 2007, 1996] zero-seconds [6, 5, 5] longest-gap [4, 3, 3] rate-in-closes [185, 134, 209] close-median [3850, 3899, 4000] close-max [4940, 6192, 5564]
+  p99 [5825, 5107, 5493] node ['8a7c1763'] from ['gcp-matrix3-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06']
+nofork-reconf develop: p50 (530, 514, 532) p95 (680, 607, 687) goodput (1928.7, 1928.5, 1937.1)
+  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [3.061, 2.649, 2.66]
+  load rate [2040, 2028, 2036] zero-seconds [0, 0, 0] longest-gap [0, 0, 0] rate-in-closes [None, None, None] close-median [None, None, None] close-max [None, None, None]
+  p99 [1726, 1625, 1495] node ['478d1750'] from ['gcp-matrix4-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06']
+fork5-grace-reconf rai: p50 (386, 383, 415) p95 (602, 582, 2005) goodput (1841.2, 1726.1, 1853.2)
+  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [24.951, 23.867, 22.982]
+  load rate [1902, 1685, 1902] zero-seconds [0, 2, 0] longest-gap [0, 2, 0] rate-in-closes [1873, 1429, 1843] close-median [2134, 2996, 2397] close-max [4487, 8726, 4591]
+  p99 [830, 2851, 809] node ['8a7c1763'] from ['gcp-matrix3-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06']
+  fast share of finalized, any node: 0.49-0.65; overlap eligible: 15033-18422
+fork5-grace-reconf pause: p50 (850, 695, 1489) p95 (5997, 5065, 12203) goodput (1479.5, 1244.3, 1505.7)
+  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [15.9, 16.17, 21.847]
+  load rate [1862, 1860, 1764] zero-seconds [5, 5, 7] longest-gap [4, 3, 5] rate-in-closes [139, 233, 226] close-median [3500, 3625, 3850] close-max [7220, 8136, 13651]
+  p99 [6441, 6705, 13069] node ['8a7c1763'] from ['gcp-matrix3-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06']
+fork5-grace-reconf develop: p50 (535, 534, 536) p95 (929, 757, 999) goodput (1756.4, 1217.7, 1775.9)
+  status ['settled', 'settled', 'settled'] open [1001, 8, 488] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [None, None, None]
+  load rate [1931, 1927, 1932] zero-seconds [0, 0, 0] longest-gap [0, 0, 0] rate-in-closes [None, None, None] close-median [None, None, None] close-max [None, None, None]
+  p99 [2347, 3564, 2363] node ['478d1750'] from ['gcp-matrix3-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06']
+fork10-grace-reconf rai: p50 (400, 391, 438) p95 (700, 640, 2261) goodput (1735.4, 1698.7, 1743.9)
+  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [22.322, 22.538, 23.173]
+  load rate [1798, 1786, 1629] zero-seconds [0, 0, 1] longest-gap [0, 0, 1] rate-in-closes [1732, 1732, 1456] close-median [2250, 2439, 5788.0] close-max [4426, 3851, 11506]
+  p99 [805, 852, 3139] node ['8a7c1763'] from ['gcp-matrix3-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06']
+  fast share of finalized, any node: 0.46-0.68; overlap eligible: 14087-21398
+fork10-grace-reconf pause: p50 (656, 603, 911) p95 (4693, 4635, 4990) goodput (1395.7, 1377.4, 1468.1)
+  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [16.616, 15.156, 16.758]
+  load rate [1756, 1756, 1752] zero-seconds [5, 5, 5] longest-gap [3, 3, 3] rate-in-closes [1029, 159, 195] close-median [4463, 3359, 4413] close-max [7953, 5735, 8031]
+  p99 [6818, 5504, 7649] node ['8a7c1763'] from ['gcp-matrix3-45k-2026-11-06', 'gcp-matrix4-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06']
+fork10-grace-reconf develop: p50 (530, 530, 531) p95 (2185, 1883, 2631) goodput (704.2, 479.7, 1004.6)
+  status ['failed', 'settled', 'failed'] open [17, 2683, 1] cemented-values [4, 1, 2] held-values [1, 1, 1] resolved-after [None, None, None]
+  load rate [1797, 1814, 1523] zero-seconds [0, 0, 2] longest-gap [0, 0, 2] rate-in-closes [None, None, None] close-median [None, None, None] close-max [None, None, None]
+  p99 [50604, 11124, 28243] node ['478d1750'] from ['gcp-matrix3-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06']
+nofork-reconf-byznode rai: p50 (419, 385, 426) p95 (548, 537, 1190) goodput (1945.6, 1936.9, 1954.0)
+  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [5.577, 5.325, 5.198]
+  load rate [1999, 2020, 2001] zero-seconds [0, 0, 0] longest-gap [0, 0, 0] rate-in-closes [1997, 2031, 1990] close-median [4441, 4429, 4075] close-max [5735, 6611, 5175]
+  p99 [634, 1403, 685] node ['8a7c1763'] from ['gcp-matrix3-45k-2026-11-06', 'gcp-matrix4-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06']
+  fast share of finalized, any node: 0.28-0.53; overlap eligible: 21022-30706
+nofork-reconf-byznode pause: p50 (1229, 1090, 1730) p95 (5480, 5226, 5622) goodput (1579.5, 1557.1, 1607.8)
+  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [9.474, 8.312, 9.758]
+  load rate [1892, 1761, 1906] zero-seconds [7, 10, 8] longest-gap [3, 4, 4] rate-in-closes [385, 320, 393] close-median [4619, 4926, 4379] close-max [5912, 5437, 6292]
+  p99 [5896, 5786, 6477] node ['8a7c1763'] from ['gcp-matrix3-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06']
+nofork-reconf-byznode develop: p50 (537, 523, 538) p95 (649, 625, 669) goodput (1936.6, 1920.3, 1936.7)
+  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [3.209, 2.788, 3.378]
+  load rate [2031, 2032, 2040] zero-seconds [0, 0, 0] longest-gap [0, 0, 0] rate-in-closes [None, None, None] close-median [None, None, None] close-max [None, None, None]
+  p99 [1509, 1576, 1607] node ['478d1750'] from ['gcp-matrix3-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06', 'gcp-matrix4-45k-2026-11-06']
+fork5-grace-reconf-byznode rai: p50 (408, 407, 443) p95 (631, 603, 1596) goodput (1775.1, 1725.7, 1833.4)
+  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [23.197, 24.713, 32.006]
+  load rate [1921, 1797, 1871] zero-seconds [0, 2, 0] longest-gap [0, 2, 0] rate-in-closes [1889, 1669, 1873] close-median [4360.5, 4610.5, 8397] close-max [6348, 7791, 14830]
+  p99 [781, 711, 2349] node ['8a7c1763'] from ['gcp-matrix3-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06', 'gcp-matrix4-45k-2026-11-06']
+  fast share of finalized, any node: 0.14-0.45; overlap eligible: 23149-35599
+fork5-grace-reconf-byznode pause: p50 (3325, 3108, 4978) p95 (17990, 16003, 21936) goodput (1060.9, 991.7, 1125.6)
+  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [24.138, 43.614, 25.687]
+  load rate [1534, 1435, 1162] zero-seconds [9, 12, 11] longest-gap [6, 7, 7] rate-in-closes [832, 766, 157] close-median [5137, 7050.5, 8239] close-max [14655, 20555, 17221]
+  p99 [17455, 22970, 18905] node ['8a7c1763'] from ['gcp-matrix3-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06']
+fork5-grace-reconf-byznode develop: p50 (536, 526, 539) p95 (803, 783, 1080) goodput (1755.2, 1520.9, 1778.0)
+  status ['failed', 'failed', 'failed'] open [1232, 146, 22] cemented-values [2, 6, 3] held-values [1, 1, 1] resolved-after [None, None, None]
+  load rate [1933, 1933, 1935] zero-seconds [0, 0, 0] longest-gap [0, 0, 0] rate-in-closes [None, None, None] close-median [None, None, None] close-max [None, None, None]
+  p99 [2128, 1908, 3011] node ['478d1750'] from ['gcp-matrix3-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06', 'gcp-matrix4-45k-2026-11-06']
+fork10-grace-reconf-byznode rai: p50 (435, 406, 438) p95 (786, 694, 798) goodput (1741.4, 1709.4, 1749.1)
+  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [33.282, 27.321, 25.199]
+  load rate [1723, 1819, 1777] zero-seconds [0, 0, 0] longest-gap [0, 0, 0] rate-in-closes [1673, 1823, 1768] close-median [4594, 5468, 5135.5] close-max [9634, 9614, 8889]
+  p99 [1210, 968, 918] node ['8a7c1763'] from ['gcp-matrix3-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06']
+  fast share of finalized, any node: 0.34-0.50; overlap eligible: 20182-23370
+fork10-grace-reconf-byznode pause: p50 (3397, 2651, 6780) p95 (29672, 12895, 40243) goodput (676.2, 586.5, 1054.6)
+  status ['settled', 'settled', 'settled'] open [0, 0, 0] cemented-values [1, 1, 1] held-values [1, 1, 1] resolved-after [24.146, 62.545, 45.426]
+  load rate [1172, 1081, 1250] zero-seconds [12, 17, 14] longest-gap [6, 11, 9] rate-in-closes [895, 712, 445] close-median [7813.5, 13834.5, 12341] close-max [14073, 38598, 33738]
+  p99 [14436, 44169, 30164] node ['8a7c1763'] from ['gcp-matrix3-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06']
+fork10-grace-reconf-byznode develop: p50 (536, 534, 537) p95 (2027, 1916, 2431) goodput (784.6, 410.2, 1081.2)
+  status ['failed', 'failed', 'failed'] open [20, 429, 28] cemented-values [3, 6, 4] held-values [1, 1, 1] resolved-after [None, None, None]
+  load rate [1792, 1786, 1801] zero-seconds [0, 0, 0] longest-gap [0, 0, 0] rate-in-closes [None, None, None] close-median [None, None, None] close-max [None, None, None]
+  p99 [17748, 56548, 11827] node ['478d1750'] from ['gcp-matrix3-45k-2026-11-06', 'gcp-matrix4-45k-2026-11-06', 'gcp-matrix3-45k-2026-11-06']
+round trips 8.9-310.2 ms, request floor 311-311 ms
 handoff at 14.1 s

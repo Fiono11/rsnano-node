@@ -3,7 +3,10 @@
 (tools/rai/run_sweep.py --set final-wan-2000): every rep of every cell, with
 gzipped result files.
 
-  wan_figures.py <matrix dir> <out dir>
+  wan_figures.py <out dir> <matrix dir>...
+
+With several matrices, each run comes from the first one that has it, so reruns
+go first; numbers.txt names the matrix of every run.
 
 Writes to <out dir>:
   bars-<arm>.dat, bars-reconf-<arm>.dat  one row per scenario, static and with
@@ -37,9 +40,18 @@ FORKS = ['fork10-grace', 'fork10-grace-byznode']
 HANDOFF_EPOCH = 3
 
 
-def load(matrix, cell, arm, rep):
+def run_path(matrices, cell, arm, rep):
+    """The result of one run in the first matrix that has it"""
     name = arm if rep == 1 else f'{arm}-rep{rep}'
-    with gzip.open(matrix / cell / f'r{RATE}' / name / 'result.json.gz', 'rt') as f:
+    for matrix in matrices:
+        path = matrix / cell / f'r{RATE}' / name / 'result.json.gz'
+        if path.exists():
+            return path
+    raise FileNotFoundError(f'{cell}/{name} in none of {[str(m) for m in matrices]}')
+
+
+def load(matrices, cell, arm, rep):
+    with gzip.open(run_path(matrices, cell, arm, rep), 'rt') as f:
         return json.load(f)
 
 
@@ -77,8 +89,8 @@ def counter(node, detail):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('matrix', type=Path)
     parser.add_argument('out', type=Path)
+    parser.add_argument('matrices', type=Path, nargs='+')
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     header = 'x p50 p50lo p50hi p95 p95lo p95hi gput gputlo gputhi'
@@ -88,7 +100,7 @@ def main():
     for prefix, cells in (('', SCENARIOS), ('reconf-', RECONF)):
         for x, cell in enumerate(cells):
             for arm in ARMS:
-                results = [load(args.matrix, cell, arm, rep) for rep in range(1, REPS + 1)]
+                results = [load(args.matrices, cell, arm, rep) for rep in range(1, REPS + 1)]
                 clients = [r['client'] for r in results]
                 stats = [spread([c[key] for c in clients])
                          for key in ('nonfork_p50_ms', 'nonfork_p95_ms', 'nonfork_goodput_cps')]
@@ -106,7 +118,9 @@ def main():
                                f' longest-gap {[longest_gap(r) for r in results]}'
                                f' rate-in-closes {[round(q[3]) if q[3] == q[3] else None for q in rates]}'
                                f' close-median {[c.get("median") for c in closes]} close-max {[c.get("max") for c in closes]}')
-                numbers.append(f'  p99 {[c["nonfork_p99_ms"] for c in clients]} node {sorted({r["node_sha256"][:8] for r in results})}')
+                sources = [run_path(args.matrices, cell, arm, rep).parts[-5] for rep in range(1, REPS + 1)]
+                numbers.append(f'  p99 {[c["nonfork_p99_ms"] for c in clients]}'
+                               f' node {sorted({r["node_sha256"][:8] for r in results})} from {sources}')
                 if arm == 'rai':
                     fast = [counter(n, 'finalized_fast') for r in results for n in r['counters']]
                     final = [counter(n, 'finalized_final') for r in results for n in r['counters']]
@@ -123,13 +137,13 @@ def main():
         (args.out / f'bars-{prefix}{arm}.dat').write_text('\n'.join(lines) + '\n')
     for cell in FORKS:
         for arm in ARMS:
-            result = load(args.matrix, cell, arm, 1)
+            result = load(args.matrices, cell, arm, 1)
             end = load_end_ms(result['client'], BLOCKS)
             lines = ['t open'] + [f'{(t - end) / 1000:.1f} {count}' for t, count in result['open_trace']]
             (args.out / f'forks-{cell}-{arm}.dat').write_text('\n'.join(lines) + '\n')
     for arm in ('rai', 'pause'):
-        write_timeline(args.out, f'fork10-byz-{arm}', load(args.matrix, TIMELINE, arm, 1), BLOCKS)
-    handover = load(args.matrix, 'fork10-grace-reconf', 'rai', 1)
+        write_timeline(args.out, f'fork10-byz-{arm}', load(args.matrices, TIMELINE, arm, 1), BLOCKS)
+    handover = load(args.matrices, 'fork10-grace-reconf', 'rai', 1)
     write_timeline(args.out, 'reconf-fork10-rai', handover, BLOCKS)
     entered = [e['t_unix_ms'] for e in handover.get('epoch_events') or []
                if e['kind'] == 'advanced' and e['epoch'] == HANDOFF_EPOCH]
