@@ -40,8 +40,12 @@ Points to work into the manuscript. Remove an entry once the text carries it.
 - Supplement: the main paper's committee change is its Figure 8; the fast-path switch is attributed to the one-host committee-change runs.
 - `tla/`: the configurations named `paper` are now `allup` (Rule 2 upward over all first votes) and `norule` (Handoff without the early-vote rule), in file names, lists, README and the supplement; `PaperHole*` is `AllUpHole*`. The archived TLC outputs no longer contain local paths or the user name.
 
+## Done (Nov 10 2026, equal quorum)
+
+- RAI at Nano's quorum across the six regions (`run_gate_b.py --no-fast-path --committee-p 0 --committee-seats 6`, six cells, three runs each, all settled). Medians per cell, no forks / 5% / 10% / the same with a Byzantine validator: p50 549, 538, 541, 543, 540, 540 ms; p95 774, 938, 1126, 739, 1018, 1077 ms; 1888, 1792, 1704, 1880, 1830, 1744 blocks/s; slowest close 4.8, 4.4, 4.4, 8.3, 15.1, 15.2 s. Section X's threats paragraph states it; paid for by dropping the protocol-change sentence of the conclusion and one parenthesis in Section X.
+
 ## Open before submission
 
 - The one `\fillin` left: the ChatGPT model and version in AI Tool Usage (`main.tex`).
 - Check the year 2018 of the Nano white paper [5] against the source.
-- Equal-quorum runs across the six regions (RAI with five of six votes, no fast path, against Nano's cells): harness ready (`run_gate_b.py --no-fast-path --committee-p 0 --committee-seats 6`), runs not made yet.
+- The equal-quorum records (18 runs, `doc/benchmarks/gcp-equal-quorum-45k-2026-11-10`) are still on the controller's disk only: fetch and commit them, then add the per-cell table to the supplement. The threats paragraph quotes the medians read from them.
