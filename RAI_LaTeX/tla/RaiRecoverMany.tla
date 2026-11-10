@@ -45,7 +45,7 @@
 (* the start and epoch-1 votes are unrestricted (any admissible block),    *)
 (* for safety against a forking owner.                                     *)
 (*                                                                         *)
-(* R2ORDER: the order of Rule 2 across positions, which the paper leaves   *)
+(* R2ORDER: the order of Rule 2 across positions, which a draft had left   *)
 (* open.  "up": from v to v+1, each against the records already chosen.   *)
 (* "down": from v+1 to v; a block Rule 2 retains keeps its ancestry, and   *)
 (* Rule 2 does not run at a position already held.  The picks run bottom-  *)

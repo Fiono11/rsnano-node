@@ -13,7 +13,7 @@
 (* Fix B, the NC split, matching-origin discharge and late votes as        *)
 (* evidence are all built in.                                              *)
 (*                                                                         *)
-(* RULE = FALSE: the paper's certificates.  A fast certificate counts all  *)
+(* RULE = FALSE: no early-vote rule.      A fast certificate counts all  *)
 (*   first votes; a validator final-votes on its epoch-2 NC alone.         *)
 (* RULE = TRUE : no fast path on early votes.  A fast certificate counts   *)
 (*   only first votes cast after the signer installed S1, and an early     *)

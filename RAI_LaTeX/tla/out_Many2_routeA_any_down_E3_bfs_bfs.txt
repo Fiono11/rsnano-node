@@ -1,13 +1,13 @@
 TLC2 Version 2.20 of Day Month 20?? (rev: 2cf8424)
 Running breadth-first search Model-Checking with fp 108 and seed 3868604997790599733 with 4 workers on 8 cores with 9102MB heap and 64MB offheap memory [pid: 16883] (Mac OS X 14.6.1 aarch64, Eclipse Adoptium 17.0.7 x86_64, MSBDiskFPSet, DiskStateQueue).
-Parsing file /Users/ruimorais/rsnano-node/.claude/worktrees/rai-eval-harness/RAI_LaTeX/tla/RaiRecoverMany.tla
-Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-3902342601111352768/Naturals.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
-Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-3902342601111352768/FiniteSets.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
-Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-3902342601111352768/Sequences.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
-Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-3902342601111352768/TLC.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
-Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-3902342601111352768/_TLCTrace.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
-Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-3902342601111352768/TLCExt.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
-Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-3902342601111352768/Integers.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
+Parsing file RaiRecoverMany.tla
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-3902342601111352768/Naturals.tla (jar:file:tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-3902342601111352768/FiniteSets.tla (jar:file:tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-3902342601111352768/Sequences.tla (jar:file:tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-3902342601111352768/TLC.tla (jar:file:tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-3902342601111352768/_TLCTrace.tla (jar:file:tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-3902342601111352768/TLCExt.tla (jar:file:tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-3902342601111352768/Integers.tla (jar:file:tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
 Semantic processing of module Naturals
 Semantic processing of module Sequences
 Semantic processing of module FiniteSets
@@ -52,7 +52,7 @@ Progress(16) at 2026-10-29 10:31:29: 28 978 268 states generated (1 087 877 
 Progress(16) at 2026-10-29 10:32:29: 29 905 622 states generated (927 354 s/min), 3 392 831 distinct states found (121 824 ds/min), 1 955 842 states left on queue.
 Progress(16) at 2026-10-29 10:33:29: 30 877 939 states generated (972 317 s/min), 3 512 307 distinct states found (119 476 ds/min), 2 037 701 states left on queue.
 Progress(16) at 2026-10-29 10:34:29: 32 001 526 states generated (1 123 587 s/min), 3 635 199 distinct states found (122 892 ds/min), 2 117 155 states left on queue.
-Checkpointing of run /private/tmp/claude-501/-Users-ruimorais-rsnano-node/50201086-985b-43b4-9bff-ad62837235d3/scratchpad/tlc-Many2_routeA_any_down_E3_bfs-bfs/26-10-29-10-05-25.995
+Checkpointing of run scratch/tlc-Many2_routeA_any_down_E3_bfs-bfs/26-10-29-10-05-25.995
 Checkpointing completed at (2026-10-29 10:35:29)
 Progress(16) at 2026-10-29 10:35:29: 33 106 730 states generated (1 105 204 s/min), 3 764 957 distinct states found (129 758 ds/min), 2 198 556 states left on queue.
 Progress(16) at 2026-10-29 10:36:29: 34 170 402 states generated (1 063 672 s/min), 3 900 976 distinct states found (136 019 ds/min), 2 284 986 states left on queue.
@@ -84,7 +84,7 @@ Progress(16) at 2026-10-29 11:01:29: 63 705 762 states generated (1 027 503 
 Progress(16) at 2026-10-29 11:02:29: 64 824 175 states generated (1 118 413 s/min), 7 091 594 distinct states found (118 559 ds/min), 4 097 027 states left on queue.
 Progress(16) at 2026-10-29 11:03:29: 65 999 270 states generated (1 175 095 s/min), 7 209 890 distinct states found (118 296 ds/min), 4 160 984 states left on queue.
 Progress(16) at 2026-10-29 11:04:30: 67 305 888 states generated (1 306 618 s/min), 7 334 192 distinct states found (124 302 ds/min), 4 221 661 states left on queue.
-Checkpointing of run /private/tmp/claude-501/-Users-ruimorais-rsnano-node/50201086-985b-43b4-9bff-ad62837235d3/scratchpad/tlc-Many2_routeA_any_down_E3_bfs-bfs/26-10-29-10-05-25.995
+Checkpointing of run scratch/tlc-Many2_routeA_any_down_E3_bfs-bfs/26-10-29-10-05-25.995
 Checkpointing completed at (2026-10-29 11:05:30)
 Progress(16) at 2026-10-29 11:05:30: 68 618 834 states generated (1 312 946 s/min), 7 431 794 distinct states found (97 602 ds/min), 4 270 495 states left on queue.
 Progress(17) at 2026-10-29 11:06:30: 69 900 902 states generated (1 282 068 s/min), 7 548 816 distinct states found (117 022 ds/min), 4 328 277 states left on queue.
@@ -116,7 +116,7 @@ Progress(17) at 2026-10-29 11:31:30: 96 772 937 states generated (1 157 167 
 Progress(17) at 2026-10-29 11:32:30: 97 989 246 states generated (1 216 309 s/min), 10 798 695 distinct states found (112 007 ds/min), 6 381 922 states left on queue.
 Progress(17) at 2026-10-29 11:33:30: 99 205 205 states generated (1 215 959 s/min), 10 905 119 distinct states found (106 424 ds/min), 6 441 391 states left on queue.
 Progress(17) at 2026-10-29 11:34:30: 100 303 932 states generated (1 098 727 s/min), 11 041 576 distinct states found (136 457 ds/min), 6 517 624 states left on queue.
-Checkpointing of run /private/tmp/claude-501/-Users-ruimorais-rsnano-node/50201086-985b-43b4-9bff-ad62837235d3/scratchpad/tlc-Many2_routeA_any_down_E3_bfs-bfs/26-10-29-10-05-25.995
+Checkpointing of run scratch/tlc-Many2_routeA_any_down_E3_bfs-bfs/26-10-29-10-05-25.995
 Checkpointing completed at (2026-10-29 11:35:30)
 Progress(17) at 2026-10-29 11:35:30: 101 487 903 states generated (1 183 971 s/min), 11 183 386 distinct states found (141 810 ds/min), 6 600 480 states left on queue.
 Progress(17) at 2026-10-29 11:36:30: 102 725 142 states generated (1 237 239 s/min), 11 308 557 distinct states found (125 171 ds/min), 6 668 691 states left on queue.
@@ -148,7 +148,7 @@ Progress(17) at 2026-10-29 12:01:30: 133 518 251 states generated (1 124 458
 Progress(17) at 2026-10-29 12:02:30: 134 733 829 states generated (1 215 578 s/min), 14 316 810 distinct states found (97 721 ds/min), 8 272 583 states left on queue.
 Progress(17) at 2026-10-29 12:03:30: 135 956 816 states generated (1 222 987 s/min), 14 416 356 distinct states found (99 546 ds/min), 8 322 984 states left on queue.
 Progress(17) at 2026-10-29 12:04:30: 137 161 632 states generated (1 204 816 s/min), 14 518 232 distinct states found (101 876 ds/min), 8 371 268 states left on queue.
-Checkpointing of run /private/tmp/claude-501/-Users-ruimorais-rsnano-node/50201086-985b-43b4-9bff-ad62837235d3/scratchpad/tlc-Many2_routeA_any_down_E3_bfs-bfs/26-10-29-10-05-25.995
+Checkpointing of run scratch/tlc-Many2_routeA_any_down_E3_bfs-bfs/26-10-29-10-05-25.995
 Checkpointing completed at (2026-10-29 12:05:30)
 Progress(17) at 2026-10-29 12:05:30: 138 253 177 states generated (1 091 545 s/min), 14 632 060 distinct states found (113 828 ds/min), 8 432 210 states left on queue.
 Progress(17) at 2026-10-29 12:06:30: 139 322 219 states generated (1 069 042 s/min), 14 736 468 distinct states found (104 408 ds/min), 8 502 272 states left on queue.
@@ -180,7 +180,7 @@ Progress(17) at 2026-10-29 12:31:31: 168 246 862 states generated (1 198 428
 Progress(18) at 2026-10-29 12:32:31: 169 483 510 states generated (1 236 648 s/min), 17 624 174 distinct states found (106 056 ds/min), 10 076 828 states left on queue.
 Progress(18) at 2026-10-29 12:33:31: 170 342 747 states generated (859 237 s/min), 17 722 218 distinct states found (98 044 ds/min), 10 147 814 states left on queue.
 Progress(18) at 2026-10-29 12:34:31: 171 345 215 states generated (1 002 468 s/min), 17 830 316 distinct states found (108 098 ds/min), 10 219 959 states left on queue.
-Checkpointing of run /private/tmp/claude-501/-Users-ruimorais-rsnano-node/50201086-985b-43b4-9bff-ad62837235d3/scratchpad/tlc-Many2_routeA_any_down_E3_bfs-bfs/26-10-29-10-05-25.995
+Checkpointing of run scratch/tlc-Many2_routeA_any_down_E3_bfs-bfs/26-10-29-10-05-25.995
 Checkpointing completed at (2026-10-29 12:35:31)
 Progress(18) at 2026-10-29 12:35:31: 172 342 769 states generated (997 554 s/min), 17 939 934 distinct states found (109 618 ds/min), 10 294 282 states left on queue.
 Progress(18) at 2026-10-29 12:36:31: 173 194 894 states generated (852 125 s/min), 18 033 293 distinct states found (93 359 ds/min), 10 359 010 states left on queue.

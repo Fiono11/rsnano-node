@@ -7,7 +7,7 @@
 (* frozen reports with BuildState (final closure, Rules 1-3, inherited     *)
 (* locks and matching-origin discharge).                                   *)
 (*                                                                         *)
-(* FIXB = FALSE : G_i = V_i \ keys(T_i)            (paper, Section 5.2)    *)
+(* FIXB = FALSE : G_i = V_i \ keys(T_i)            (an earlier draft)      *)
 (* FIXB = TRUE  : G_i = V_i \ {N- and F-tagged}    (Fix B), and a lock is  *)
 (*                a set of (block, origin) records discharged one by one.  *)
 (*                                                                         *)

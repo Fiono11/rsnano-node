@@ -35,8 +35,13 @@ Points to work into the manuscript. Remove an entry once the text carries it.
 - Fig. 3: V4 reports A notarized. Section X: the load starts 2 s into epoch 1, so epoch 3 begins about 14 s in (closes begin at 6, 14, 22 s in `closes-reconf-fork10-rai.dat`).
 - References: arXiv numbers for [3], [17], [18]; pages for FastPay; issue for [21]; year 2018 for the Nano white paper.
 
+## Done (Nov 10 2026, supplement and models)
+
+- Supplement: the main paper's committee change is its Figure 8; the fast-path switch is attributed to the one-host committee-change runs.
+- `tla/`: the configurations named `paper` are now `allup` (Rule 2 upward over all first votes) and `norule` (Handoff without the early-vote rule), in file names, lists, README and the supplement; `PaperHole*` is `AllUpHole*`. The archived TLC outputs no longer contain local paths or the user name.
+
 ## Open before submission
 
 - The one `\fillin` left: the ChatGPT model and version in AI Tool Usage (`main.tex`).
 - Check the year 2018 of the Nano white paper [5] against the source.
-- The supplement was not revised for the new numbering of the main paper's tables and figures.
+- Equal-quorum runs across the six regions (RAI with five of six votes, no fast path, against Nano's cells): harness ready (`run_gate_b.py --no-fast-path --committee-p 0 --committee-seats 6`), runs not made yet.

@@ -1,6 +1,6 @@
 #!/bin/sh
 # mkmany.sh: writes the Many<B>_<name>.cfg files of RaiRecoverMany into the
-# current directory (the scripted Many2_paper_hole*.cfg are written by hand).
+# current directory (the scripted Many2_allup_hole*.cfg are written by hand).
 # Prefix assignments to a function call persist in sh: every row after the
 # first prefixed one names all of IMP SET REN NOE OWN ORD it relies on.
 # The Many3_{patch,none,hash,perm}_* configs were generated but not run.
@@ -49,7 +49,7 @@ for b in 2 3; do
   mk $b perm_probe_regain  prev permissive all     '{}'     v - ProbeRegain
 done
 # Route A (re-notarization, no ancestor support, settled votes, previous
-# block first) and the paper's current rules (all first votes, hash).
+# block first) and the upward Rule 2 over all first votes (all first votes, hash).
 fam() {
   b=$1 fname=$2 pick=$3
   mk $b ${fname}_safe        $pick strict all     '{}'     v - NoConflict ClosureThm1 OneKept
@@ -63,7 +63,7 @@ fam() {
 }
 for b in 2 3; do
   IMP=off SET=TRUE  REN=TRUE NOE=TRUE fam $b routeA prev
-  IMP=off SET=FALSE REN=TRUE NOE=TRUE fam $b paper  hash
+  IMP=off SET=FALSE REN=TRUE NOE=TRUE fam $b allup  hash
 done
 # Item d under route A: early finality under the overlap rule, scripted.
 for b in 2 3; do
@@ -73,10 +73,10 @@ done
 # Rule 2 order and a forking owner that signs every child at once.
 for b in 2 3; do
   for o in up down; do
-    IMP=off SET=FALSE REN=TRUE NOE=TRUE OWN=any ORD=$o mk $b paper_any_${o}_safe  hash strict all '{}' v - NoConflict ClosureThm1 OneKept
+    IMP=off SET=FALSE REN=TRUE NOE=TRUE OWN=any ORD=$o mk $b allup_any_${o}_safe  hash strict all '{}' v - NoConflict ClosureThm1 OneKept
     IMP=off SET=TRUE  REN=TRUE NOE=TRUE OWN=any ORD=$o mk $b routeA_any_${o}_safe prev strict all '{}' v - NoConflict ClosureThm1 OneKept
   done
-  IMP=off SET=FALSE REN=TRUE NOE=TRUE OWN=policy ORD=up mk $b paper_nc hash strict all '{}' v - NoConflict
+  IMP=off SET=FALSE REN=TRUE NOE=TRUE OWN=policy ORD=up mk $b allup_nc hash strict all '{}' v - NoConflict
   IMP=off SET=TRUE REN=TRUE NOE=TRUE OWN=policy ORD=down mk $b routeA_down_live  prev strict release '{3, 4}' v StopRecovered RecoveredMany Progress
   IMP=off SET=TRUE REN=TRUE NOE=TRUE OWN=policy ORD=down mk $b routeA_down_two23 prev strict release '{2, 3}' v StopRecovered RecoveredEarly Progress
   IMP=off SET=TRUE REN=TRUE NOE=TRUE OWN=policy ORD=down mk $b routeA_down_flip  prev strict all '{}' v StopFlip FlipBound

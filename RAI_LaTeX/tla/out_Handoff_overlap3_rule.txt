@@ -1,13 +1,13 @@
 TLC2 Version 2026.10.06.014338 (rev: 94d0c50)
 Running breadth-first search Model-Checking with fp 54 and seed 5408625336159217188 with 8 workers on 8 cores with 9102MB heap and 64MB offheap memory [pid: 2935] (Mac OS X 14.6.1 aarch64, Eclipse Adoptium 17.0.7 64bit, MSBDiskFPSet, DiskStateQueue).
-Parsing file /private/tmp/claude-501/-Users-ruimorais-rsnano-node/bd53617b-ce5a-4996-b7f3-304a0f4540bd/scratchpad/run/RaiHandoff.tla
-Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-3355234433622003425/Naturals.tla (jar:file:/private/tmp/claude-501/-Users-ruimorais-rsnano-node/bd53617b-ce5a-4996-b7f3-304a0f4540bd/scratchpad/tlc/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
-Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-3355234433622003425/FiniteSets.tla (jar:file:/private/tmp/claude-501/-Users-ruimorais-rsnano-node/bd53617b-ce5a-4996-b7f3-304a0f4540bd/scratchpad/tlc/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
-Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-3355234433622003425/TLC.tla (jar:file:/private/tmp/claude-501/-Users-ruimorais-rsnano-node/bd53617b-ce5a-4996-b7f3-304a0f4540bd/scratchpad/tlc/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
-Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-3355234433622003425/_TLCTrace.tla (jar:file:/private/tmp/claude-501/-Users-ruimorais-rsnano-node/bd53617b-ce5a-4996-b7f3-304a0f4540bd/scratchpad/tlc/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
-Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-3355234433622003425/Sequences.tla (jar:file:/private/tmp/claude-501/-Users-ruimorais-rsnano-node/bd53617b-ce5a-4996-b7f3-304a0f4540bd/scratchpad/tlc/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
-Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-3355234433622003425/TLCExt.tla (jar:file:/private/tmp/claude-501/-Users-ruimorais-rsnano-node/bd53617b-ce5a-4996-b7f3-304a0f4540bd/scratchpad/tlc/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
-Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-3355234433622003425/Integers.tla (jar:file:/private/tmp/claude-501/-Users-ruimorais-rsnano-node/bd53617b-ce5a-4996-b7f3-304a0f4540bd/scratchpad/tlc/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
+Parsing file scratch/run/RaiHandoff.tla
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-3355234433622003425/Naturals.tla (jar:file:scratch/tlc/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-3355234433622003425/FiniteSets.tla (jar:file:scratch/tlc/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-3355234433622003425/TLC.tla (jar:file:scratch/tlc/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-3355234433622003425/_TLCTrace.tla (jar:file:scratch/tlc/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-3355234433622003425/Sequences.tla (jar:file:scratch/tlc/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-3355234433622003425/TLCExt.tla (jar:file:scratch/tlc/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-3355234433622003425/Integers.tla (jar:file:scratch/tlc/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
 Semantic processing of module Naturals
 Semantic processing of module Sequences
 Semantic processing of module FiniteSets
@@ -52,7 +52,7 @@ Progress(23) at 2026-10-09 11:07:04: 167 668 720 states generated (6 260 920
 Progress(23) at 2026-10-09 11:08:04: 173 782 366 states generated (6 113 646 s/min), 34 341 172 distinct states found (1 123 199 ds/min), 11 698 797 states left on queue.
 Progress(23) at 2026-10-09 11:09:04: 180 037 502 states generated (6 255 136 s/min), 35 495 547 distinct states found (1 154 375 ds/min), 12 003 635 states left on queue.
 Progress(23) at 2026-10-09 11:10:04: 186 073 623 states generated (6 036 121 s/min), 36 609 424 distinct states found (1 113 877 ds/min), 12 211 234 states left on queue.
-Checkpointing of run /private/tmp/claude-501/-Users-ruimorais-rsnano-node/bd53617b-ce5a-4996-b7f3-304a0f4540bd/scratchpad/run/meta-overlap3/26-10-09-10-41-02.335
+Checkpointing of run scratch/run/meta-overlap3/26-10-09-10-41-02.335
 Checkpointing completed at (2026-10-09 11:11:04)
 Progress(23) at 2026-10-09 11:11:04: 191 952 925 states generated (5 879 302 s/min), 37 715 872 distinct states found (1 106 448 ds/min), 12 426 007 states left on queue.
 Progress(23) at 2026-10-09 11:12:04: 197 902 284 states generated (5 949 359 s/min), 38 820 322 distinct states found (1 104 450 ds/min), 12 650 722 states left on queue.
@@ -84,7 +84,7 @@ Progress(25) at 2026-10-09 11:37:04: 344 547 477 states generated (5 904 221
 Progress(25) at 2026-10-09 11:38:04: 350 230 612 states generated (5 683 135 s/min), 65 925 860 distinct states found (976 085 ds/min), 15 544 180 states left on queue.
 Progress(25) at 2026-10-09 11:39:04: 355 723 665 states generated (5 493 053 s/min), 66 869 314 distinct states found (943 454 ds/min), 15 507 079 states left on queue.
 Progress(25) at 2026-10-09 11:40:04: 361 158 336 states generated (5 434 671 s/min), 67 836 923 distinct states found (967 609 ds/min), 15 535 983 states left on queue.
-Checkpointing of run /private/tmp/claude-501/-Users-ruimorais-rsnano-node/bd53617b-ce5a-4996-b7f3-304a0f4540bd/scratchpad/run/meta-overlap3/26-10-09-10-41-02.335
+Checkpointing of run scratch/run/meta-overlap3/26-10-09-10-41-02.335
 Checkpointing completed at (2026-10-09 11:41:05)
 Progress(25) at 2026-10-09 11:41:05: 366 644 847 states generated (5 486 511 s/min), 68 785 483 distinct states found (948 560 ds/min), 15 512 416 states left on queue.
 Progress(25) at 2026-10-09 11:42:05: 372 194 680 states generated (5 549 833 s/min), 69 761 871 distinct states found (976 388 ds/min), 15 569 022 states left on queue.
@@ -111,7 +111,7 @@ Progress(27) at 2026-10-09 12:07:30: 484 453 529 states generated (5 498 877
 Progress(27) at 2026-10-09 12:08:30: 489 826 432 states generated (5 372 903 s/min), 89 356 881 distinct states found (887 430 ds/min), 13 882 610 states left on queue.
 Progress(27) at 2026-10-09 12:09:30: 495 373 531 states generated (5 547 099 s/min), 90 296 811 distinct states found (939 930 ds/min), 13 831 464 states left on queue.
 Progress(27) at 2026-10-09 12:10:31: 500 900 402 states generated (5 526 871 s/min), 91 191 119 distinct states found (894 308 ds/min), 13 732 982 states left on queue.
-Checkpointing of run /private/tmp/claude-501/-Users-ruimorais-rsnano-node/bd53617b-ce5a-4996-b7f3-304a0f4540bd/scratchpad/run/meta-overlap3/26-10-09-10-41-02.335
+Checkpointing of run scratch/run/meta-overlap3/26-10-09-10-41-02.335
 Checkpointing completed at (2026-10-09 12:11:31)
 Progress(27) at 2026-10-09 12:11:31: 506 252 834 states generated (5 352 432 s/min), 92 043 778 distinct states found (852 659 ds/min), 13 602 680 states left on queue.
 Progress(27) at 2026-10-09 12:12:31: 511 423 018 states generated (5 170 184 s/min), 92 851 900 distinct states found (808 122 ds/min), 13 444 371 states left on queue.
@@ -143,7 +143,7 @@ Progress(29) at 2026-10-09 12:37:31: 635 168 332 states generated (3 879 352
 Progress(29) at 2026-10-09 12:38:31: 639 914 962 states generated (4 746 630 s/min), 111 644 949 distinct states found (646 482 ds/min), 7 549 912 states left on queue.
 Progress(29) at 2026-10-09 12:39:31: 644 521 615 states generated (4 606 653 s/min), 112 199 205 distinct states found (554 256 ds/min), 7 223 099 states left on queue.
 Progress(29) at 2026-10-09 12:40:31: 648 974 837 states generated (4 453 222 s/min), 112 739 517 distinct states found (540 312 ds/min), 6 940 226 states left on queue.
-Checkpointing of run /private/tmp/claude-501/-Users-ruimorais-rsnano-node/bd53617b-ce5a-4996-b7f3-304a0f4540bd/scratchpad/run/meta-overlap3/26-10-09-10-41-02.335
+Checkpointing of run scratch/run/meta-overlap3/26-10-09-10-41-02.335
 Checkpointing completed at (2026-10-09 12:41:32)
 Progress(29) at 2026-10-09 12:41:32: 653 670 766 states generated (4 695 929 s/min), 113 325 942 distinct states found (586 425 ds/min), 6 645 149 states left on queue.
 Progress(29) at 2026-10-09 12:42:32: 658 273 843 states generated (4 603 077 s/min), 113 840 604 distinct states found (514 662 ds/min), 6 284 167 states left on queue.

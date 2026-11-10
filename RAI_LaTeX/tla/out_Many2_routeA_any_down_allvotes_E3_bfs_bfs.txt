@@ -1,13 +1,13 @@
 TLC2 Version 2.20 of Day Month 20?? (rev: 2cf8424)
 Running breadth-first search Model-Checking with fp 54 and seed -5664314288825189654 with 4 workers on 8 cores with 9102MB heap and 64MB offheap memory [pid: 23250] (Mac OS X 14.6.1 aarch64, Eclipse Adoptium 17.0.7 x86_64, MSBDiskFPSet, DiskStateQueue).
-Parsing file /Users/ruimorais/rsnano-node/.claude/worktrees/rai-eval-harness/RAI_LaTeX/tla/RaiRecoverMany.tla
-Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-9752917075413613673/Naturals.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
-Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-9752917075413613673/FiniteSets.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
-Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-9752917075413613673/Sequences.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
-Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-9752917075413613673/TLC.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
-Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-9752917075413613673/_TLCTrace.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
-Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-9752917075413613673/TLCExt.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
-Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-9752917075413613673/Integers.tla (jar:file:/Users/ruimorais/.vscode/extensions/tlaplus.vscode-ide-2025.9.41422/tools/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
+Parsing file RaiRecoverMany.tla
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-9752917075413613673/Naturals.tla (jar:file:tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-9752917075413613673/FiniteSets.tla (jar:file:tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-9752917075413613673/Sequences.tla (jar:file:tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-9752917075413613673/TLC.tla (jar:file:tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-9752917075413613673/_TLCTrace.tla (jar:file:tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-9752917075413613673/TLCExt.tla (jar:file:tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-9752917075413613673/Integers.tla (jar:file:tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
 Semantic processing of module Naturals
 Semantic processing of module Sequences
 Semantic processing of module FiniteSets
@@ -52,7 +52,7 @@ Progress(15) at 2026-10-29 21:16:13: 26 780 864 states generated (1 053 793 
 Progress(15) at 2026-10-29 21:17:13: 27 768 346 states generated (987 482 s/min), 3 170 411 distinct states found (107 771 ds/min), 1 821 078 states left on queue.
 Progress(15) at 2026-10-29 21:18:13: 28 774 396 states generated (1 006 050 s/min), 3 273 601 distinct states found (103 190 ds/min), 1 880 200 states left on queue.
 Progress(15) at 2026-10-29 21:19:13: 29 692 204 states generated (917 808 s/min), 3 386 750 distinct states found (113 149 ds/min), 1 953 440 states left on queue.
-Checkpointing of run /private/tmp/claude-501/-Users-ruimorais-rsnano-node/50201086-985b-43b4-9bff-ad62837235d3/scratchpad/tlc-Many2_routeA_any_down_allvotes_E3_bfs-bfs/26-10-29-20-50-10.054
+Checkpointing of run scratch/tlc-Many2_routeA_any_down_allvotes_E3_bfs-bfs/26-10-29-20-50-10.054
 Checkpointing completed at (2026-10-29 21:20:13)
 Progress(15) at 2026-10-29 21:20:13: 30 755 623 states generated (1 063 419 s/min), 3 497 998 distinct states found (111 248 ds/min), 2 015 124 states left on queue.
 Progress(15) at 2026-10-29 21:21:13: 31 872 661 states generated (1 117 038 s/min), 3 612 957 distinct states found (114 959 ds/min), 2 090 398 states left on queue.

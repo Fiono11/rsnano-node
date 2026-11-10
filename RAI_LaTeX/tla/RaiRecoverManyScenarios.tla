@@ -20,11 +20,11 @@ EarlyOverlap ==
                      w \in {1, 4, 5} /\ fv'[2][w][1] = A(1) /\ Early(w)
   /\ (S'[1].done /\ ~S[1].done) => Cert(2, A(1))
 
-\* The ClosureThm1 counterexample of the paper's rules (BLOCKS = 2), run on
+\* The ClosureThm1 counterexample of the upward Rule 2 over all first votes (BLOCKS = 2), run on
 \* into epoch 3: in epoch 2, 2 and 4 vote A2 early and 3 and 5 vote A1
 \* early, 1 votes A2 after installing S1, and 1, 2, 4, 5 vote C2 settled;
 \* in epoch 3 only A1 is voted at v and nothing at v+1.
-PaperHole ==
+AllUpHole ==
   /\ \A w \in C : NewVote(w, 2, 1) =>
        CASE w \in {2, 4} -> fv'[2][w][1] = A(2) /\ Early(w)
          [] w \in {3, 5} -> fv'[2][w][1] = A(1) /\ Early(w)
@@ -35,8 +35,8 @@ PaperHole ==
 
 \* The same with the two checkpoints of the counterexample: S1 keeps A2 and
 \* S2 keeps A1.
-PaperHoleTight ==
-  /\ PaperHole
+AllUpHoleTight ==
+  /\ AllUpHole
   /\ (S'[1].done /\ ~S[1].done) => A(2) \in KV(1)'
   /\ (S'[2].done /\ ~S[2].done) => A(1) \in KV(2)'
 

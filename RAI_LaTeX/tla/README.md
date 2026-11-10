@@ -22,8 +22,8 @@ The `out_*.txt` files are the outputs of the runs reported below, including the 
 
 | Config | Committees | Certificates | Result | Time (2 cores) |
 |---|---|---|---|---|
-| `Handoff_same_paper` | same five | paper | `ClosureThm1b` violated after 22 steps (Case 3) | 11 min |
-| `Handoff_disjoint_paper` | disjoint | paper | `ClosureThm1b` violated after 23 steps | 15 min |
+| `Handoff_same_norule` | same five | off | `ClosureThm1b` violated after 22 steps (Case 3) | 11 min |
+| `Handoff_disjoint_norule` | disjoint | off | `ClosureThm1b` violated after 23 steps | 15 min |
 | `Handoff_same_rule` | same five | early-vote rule | no error, 8,347,138 distinct states | 15 min |
 | `Handoff_disjoint_rule` | disjoint | early-vote rule | no error, 3,707,876 distinct states | 17 min |
 | `Handoff_overlap3_rule` | three shared | early-vote rule | no error, 121,053,272 distinct states, depth 38 | 2 h 18 min (8 cores) |
@@ -97,7 +97,7 @@ Invariants: `NoConflict` (no two conflicting blocks final, counting finality thr
 
 **Nothing below is exhaustive.** Even E = 2 exceeds the BFS budget. "sim" runs are random simulation (TLC `-simulate`, depth 150, 2 workers, stopped at the time cap); "bfs" runs are breadth-first and stopped at a time cap, so they are complete only to the depth reached. A violation found by either is a genuine run; "no error" means none was found.
 
-`recover.sh all` reruns the RaiRecover batch (`recover_sim.txt`, `recover_bfs.txt`); `recover.sh all <simlist> <bfslist>` runs any other list: `many_sim.txt` (the patch), `many_routeA_sim.txt` and `many_routeA2_sim.txt` (route A and the paper's rules), `many_order_sim.txt` and `many_order2_sim.txt` (Rule 2 order, forking owner), `many_hole_sim.txt` (the paper-rules counterexample), `many_routeA3_sim.txt` (top-down route A: early finality, epochs 2 and 4 good), `many_routeA4_sim.txt` (top-down route A with one part of the new Rule 2 removed), `many_routeA_bfs.txt` (bounded breadth-first searches of top-down route A and, as a calibration, of the upward order, E = 3, four workers, run alone). Times are wall clock with four runs of two workers each sharing eight cores; the machine slept during one batch, whose runs are listed at their 10-min CPU cap.
+`recover.sh all` reruns the RaiRecover batch (`recover_sim.txt`, `recover_bfs.txt`); `recover.sh all <simlist> <bfslist>` runs any other list: `many_sim.txt` (the patch), `many_routeA_sim.txt` and `many_routeA2_sim.txt` (route A and the upward Rule 2 over all first votes), `many_order_sim.txt` and `many_order2_sim.txt` (Rule 2 order, forking owner), `many_hole_sim.txt` (the all-votes upward counterexample), `many_routeA3_sim.txt` (top-down route A: early finality, epochs 2 and 4 good), `many_routeA4_sim.txt` (top-down route A with one part of the new Rule 2 removed), `many_routeA_bfs.txt` (bounded breadth-first searches of top-down route A and, as a calibration, of the upward order, E = 3, four workers, run alone). Times are wall clock with four runs of two workers each sharing eight cores; the machine slept during one batch, whose runs are listed at their 10-min CPU cap.
 
 ### RaiRecover results
 
@@ -131,7 +131,7 @@ Switch sets: `off_patch` (IMPLIED off, settled, prev, strict), `off_base` (off, 
 
 ### RaiRecoverMany results
 
-Switch sets: `patch` (IMPLIED all, settled, prev, strict, no re-notarization), `none`, `hash`, `perm` (the patch with that one change), `routeA` (IMPLIED off, settled, prev, strict, re-notarization, NOEARLY), `paper` (the paper's current rules: IMPLIED off, all first votes, hash, strict, re-notarization, NOEARLY). `_down`: Rule 2 top-down; `_any`: the owner signs every child at once. Checks: `safe`, `flip`, `kof` (`KeptOrFinal`), `live` (`RecoveredMany`, epochs 3 and 4 ready), `two23` (`RecoveredEarly`, epochs 2 and 3 ready), `gap24` (`RecoveredMany`, epochs 2 and 4 ready), `early` (scripted early finality of A1 under the overlap rule: `NoConflict`, `ClosureThm1`, `FlipBound`, `KeptOrFinal`, `YieldNext`), probes; `_E3_bfs`: E = 3, `NoConflict`, `ClosureThm1`, `OneKept`, `FlipBound`, breadth-first. All other runs are random simulation; none is exhaustive, for B = 2 or B = 3.
+Switch sets: `patch` (IMPLIED all, settled, prev, strict, no re-notarization), `none`, `hash`, `perm` (the patch with that one change), `routeA` (IMPLIED off, settled, prev, strict, re-notarization, NOEARLY), `allup` (the upward Rule 2 over all first votes: IMPLIED off, all first votes, hash, strict, re-notarization, NOEARLY). `_down`: Rule 2 top-down; `_any`: the owner signs every child at once. Checks: `safe`, `flip`, `kof` (`KeptOrFinal`), `live` (`RecoveredMany`, epochs 3 and 4 ready), `two23` (`RecoveredEarly`, epochs 2 and 3 ready), `gap24` (`RecoveredMany`, epochs 2 and 4 ready), `early` (scripted early finality of A1 under the overlap rule: `NoConflict`, `ClosureThm1`, `FlipBound`, `KeptOrFinal`, `YieldNext`), probes; `_E3_bfs`: E = 3, `NoConflict`, `ClosureThm1`, `OneKept`, `FlipBound`, breadth-first. All other runs are random simulation; none is exhaustive, for B = 2 or B = 3.
 
 | Config (B = 2; B = 3) | Result | Time |
 |---|---|---|
@@ -158,13 +158,13 @@ Switch sets: `patch` (IMPLIED all, settled, prev, strict, no re-notarization), `
 | `Many2_routeA_any_up_E3_bfs` | bfs: `ClosureThm1` violated after 15 steps, the shortest such run (calibration: the upward order fails within the depth the down-order search cleared) | 18 min |
 | `Many2_routeA_any_down_allvotes_safe` | no error, 32,503 traces (every first vote counted, downward order, forking owner; 30-min run) | 30 min |
 | `Many2_routeA_any_down_allvotes_E3_bfs` | bfs: no error to depth 15 (level 16 reached), 7,134,325 distinct states (cap) | 1 h |
-| `Many2_paper_safe` | `ClosureThm1` violated after 32 steps (B = 3: none in 6,113 traces) | 6 min |
-| `Many2_paper_nc`, `Many2_paper_hole_tight` | `NoConflict` violated after 57 / 40 steps (B = 3 `nc`: none in 7,323 traces) | 3 min, 1 min |
-| `Many2_paper_hole`, `_hole_down` | no error, 32,539 / 36,553 traces (looser script; `_down` with Rule 2 top-down) | 15 min |
-| `Many{2,3}_paper_any_up_safe` | `ClosureThm1` violated after 21; 32 steps | 2 min; 4 min |
-| `Many{2,3}_paper_any_down_safe` | no error, 8,294; 2,025 traces | 10 min |
-| `Many{2,3}_paper_flip`, `_paper_kof` | `FlipBound` violated after 35; 41 steps; `KeptOrFinal` after 38; 37 | < 30 s |
-| `Many{2,3}_paper_{live,two23,gap24}` | no error, 14,268 / 32,803 / 20,241; 5,489 / 14,797 / 10,921 traces | 10 min |
+| `Many2_allup_safe` | `ClosureThm1` violated after 32 steps (B = 3: none in 6,113 traces) | 6 min |
+| `Many2_allup_nc`, `Many2_allup_hole_tight` | `NoConflict` violated after 57 / 40 steps (B = 3 `nc`: none in 7,323 traces) | 3 min, 1 min |
+| `Many2_allup_hole`, `_hole_down` | no error, 32,539 / 36,553 traces (looser script; `_down` with Rule 2 top-down) | 15 min |
+| `Many{2,3}_allup_any_up_safe` | `ClosureThm1` violated after 21; 32 steps | 2 min; 4 min |
+| `Many{2,3}_allup_any_down_safe` | no error, 8,294; 2,025 traces | 10 min |
+| `Many{2,3}_allup_flip`, `_allup_kof` | `FlipBound` violated after 35; 41 steps; `KeptOrFinal` after 38; 37 | < 30 s |
+| `Many{2,3}_allup_{live,two23,gap24}` | no error, 14,268 / 32,803 / 20,241; 5,489 / 14,797 / 10,921 traces | 10 min |
 
 ### Traces
 
@@ -180,7 +180,7 @@ Switch sets: `patch` (IMPLIED all, settled, prev, strict, no re-notarization), `
 
 **Item e (`Many2_perm_live`).** S1 to S3 keep A1, but under permissive attachment validators holding an epoch-1 witness for A2 vote it after installing; epochs 3 and 4 split.
 
-**The paper's rules lose a fast-final child (`Many2_paper_hole_tight`, `Many2_paper_safe`).** Epoch 1: 1 votes A1, 2 votes A2; S1 keeps A2 (P1, 6's listing breaks the tie). Epoch 2, before S1: 2 and 4 vote A2 early, 3 and 5 vote A1 early (each may have seen one block only). After S1: 1 votes A2 settled, so A2 has an epoch-2 NC {1, 2, 4, 6} and its child C2 may be voted under the re-notarization rule; 1, 2, 4, 5 vote C2 settled: with 6, FF_2(C2), so C2 and A2 are final. Closure 2 selects 2, 3, 4, 5, 6. Rule 2 at v counts all first votes: A1 has 3, 5, 6 = r, A2 has 2, 4; A1 is kept (R2), and C2, whose parent conflicts, is not eligible at v+1 (`ClosureThm1`). Every correct validator installs S2 and votes only A1: in epoch 3, 1, 2, 3, 4 vote it settled, FF_3(A1) with 6 (`NoConflict`). The proof's fast-certificate case bounds rivals at B's own position by f + p; a rival of an ancestor that has only an NC can reach r. `Many2_paper_nc` finds the mirror image unscripted. With settled votes only (route A) the early votes for A1 do not count, but a forking owner that signs C1 at once reaches the same shape in the first fork epoch, where nothing is kept yet (`Many2_routeA_any_up_safe`: 2, 3, 4 vote A1, 1 and 5 vote A2, then 1, 2, 4, 5 vote C1; S1 keeps A2). Running Rule 2 from v+1 down, with a retained block keeping its ancestry and no Rule 2 at a held position, removes both (`_any_down_safe`, `_hole_down`); so would ancestor support, under which no correct validator supports A1 at v and votes a child of A2 at v+1 in one epoch.
+**The upward Rule 2 over all first votes loses a fast-final child (`Many2_allup_hole_tight`, `Many2_allup_safe`).** Epoch 1: 1 votes A1, 2 votes A2; S1 keeps A2 (P1, 6's listing breaks the tie). Epoch 2, before S1: 2 and 4 vote A2 early, 3 and 5 vote A1 early (each may have seen one block only). After S1: 1 votes A2 settled, so A2 has an epoch-2 NC {1, 2, 4, 6} and its child C2 may be voted under the re-notarization rule; 1, 2, 4, 5 vote C2 settled: with 6, FF_2(C2), so C2 and A2 are final. Closure 2 selects 2, 3, 4, 5, 6. Rule 2 at v counts all first votes: A1 has 3, 5, 6 = r, A2 has 2, 4; A1 is kept (R2), and C2, whose parent conflicts, is not eligible at v+1 (`ClosureThm1`). Every correct validator installs S2 and votes only A1: in epoch 3, 1, 2, 3, 4 vote it settled, FF_3(A1) with 6 (`NoConflict`). The proof's fast-certificate case bounds rivals at B's own position by f + p; a rival of an ancestor that has only an NC can reach r. `Many2_allup_nc` finds the mirror image unscripted. With settled votes only (route A) the early votes for A1 do not count, but a forking owner that signs C1 at once reaches the same shape in the first fork epoch, where nothing is kept yet (`Many2_routeA_any_up_safe`: 2, 3, 4 vote A1, 1 and 5 vote A2, then 1, 2, 4, 5 vote C1; S1 keeps A2). Running Rule 2 from v+1 down, with a retained block keeping its ancestry and no Rule 2 at a held position, removes both (`_any_down_safe`, `_hole_down`); so would ancestor support, under which no correct validator supports A1 at v and votes a child of A2 at v+1 in one epoch.
 
 ### Abstractions (both modules; details in the headers)
 
