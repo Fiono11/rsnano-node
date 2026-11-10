@@ -44,7 +44,7 @@ The prototype gives each of the $N$ heaviest representatives one equal vote, so 
 Until its position is final, which takes two good epochs, each fork costs a few entries per report, one lock in the checkpoint, and one instance. Load therefore grows with the forks per epoch, not with their history. RAI does not price it; a deployment relies on its base system's anti-spam measure, such as Nano's proof of work~\cite{nano}.
 
 \para{Joining and leaving.}
-The committee of epoch $e+2$ follows from $S_e$, so a new member has about one epoch to obtain the ledger before it votes; in our committee change this took \fillin{measured time}. A departing member serves blocks, votes, and reports until successor members holding $N-f$ of the weight acknowledge the checkpoint as durable.
+The committee of epoch $e+2$ follows from $S_e$, so a new member has about one epoch to obtain the ledger before it votes; in our committee change it ran as a standby from the start. A departing member serves blocks, votes, and reports until successor members holding $N-f$ of the weight acknowledge the checkpoint as durable.
 
 \para{Garbage collection.}
 Reports of the next three epochs may cite an epoch's late finality, so the prototype keeps vote records for four epochs and, beyond that, only supports that can still release a surviving recovery lock of their origin. Dropping the rest cannot release a lock, since only evidence of its own origin does, and a kept block becomes final within two good epochs, after which it needs no lock.

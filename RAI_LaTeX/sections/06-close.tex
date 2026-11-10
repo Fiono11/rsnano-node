@@ -9,12 +9,12 @@ An epoch closes in three steps: every outgoing validator freezes a report, the o
  \textbf{report $V_1$} & $A_6$: F & $A$: N & $B$: voted \\
  \textbf{report $V_2$} & $A_6$: F & $A$: N & $B$: voted \\
  \textbf{report $V_3$} & $A_6$: F & $A$: N & $B'$: voted \\
- \textbf{report $V_4$} & $A_6$: F & $A$: voted & $B$: voted \\
+ \textbf{report $V_4$} & $A_6$: F & $A$: N & $B$: voted \\
  \textbf{report $V_6$} & $A_6$: F & \textcolor{cBad}{$A'$: voted} & \\
 };
 \node[below=3mm of m.south,anchor=north,align=left,text width=0.96\columnwidth,font=\footnotesize] (res) {%
 \textbf{checkpoint $S_e$}: $A_6$ final (inherited); $A$ \emph{locked, notarized}
-($V_1$, $V_2$, $V_3$ show it notarized; $A'$, which only $V_6$ voted, conflicts with $A$ and is dropped);\\
+($V_1$ to $V_4$ show it notarized; $A'$, which only $V_6$ voted, conflicts with $A$ and is dropped);\\
 $B$ \emph{locked for recovery, origin $e$} (three reporter first votes, no rival with three); $B'$ dropped.\\
 Promotion: $A$ is the only block kept at position 7 and has an epoch-$e$ notarization $\Rightarrow$ $A$ final in $S_e$.};
 \end{tikzpicture}

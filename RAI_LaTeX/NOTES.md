@@ -27,10 +27,16 @@ Points to work into the manuscript. Remove an entry once the text carries it.
 
 - Drop-ins of Nov 9 merged into the sources: new title and abstract, invariants and Table I (rule, invariant, counterexample) in Section III, threat-model paragraphs in Section IV, corrected Fig. 3, the R9 run as Fig. 4, shortened Sections VIII and IX (the TLC table moved out, Table I carries the counterexamples), the pause model in Section X, the compact related work with Table III, `rai-additions.bib`, and a bibliography in the supplement. The built `main.pdf` has the same text as the fitted PDF of Nov 9 (11 pages of body; page 12 holds AI Tool Usage and the references).
 
+## Done (Nov 10 2026, fixes)
+
+- AI Tool Usage: Claude Code's models from the commit history (Opus 5.5, Fable 5.1 and 5.2), figure numbers by reference, the Claude drafts named.
+- Headline ratio: the abstract says "on a wide-area deployment" and the conclusion "six and seven regions", since 6.7 to 38 times includes the seven-region committee change.
+- Section IV: the new member ran as a standby from the start (no catch-up time was measured).
+- Fig. 3: V4 reports A notarized. Section X: the load starts 2 s into epoch 1, so epoch 3 begins about 14 s in (closes begin at 6, 14, 22 s in `closes-reconf-fork10-rai.dat`).
+- References: arXiv numbers for [3], [17], [18]; pages for FastPay; issue for [21]; year 2018 for the Nano white paper.
+
 ## Open before submission
 
-- Every `\fillin` box: the tool versions, section list and figure numbers in AI Tool Usage (`main.tex`), and the new member's catch-up time in Section IV.
-- Abstract and conclusion say "across six regions ... 6.7 to 38 times"; that range is the seven-region committee change, the six-region cells give 9 to 18.
-- Fig. 3: V4 reports A as voted but first-votes its child B.
-- References [17] and [18] print no arXiv number; [5] has no year.
+- The one `\fillin` left: the ChatGPT model and version in AI Tool Usage (`main.tex`).
+- Check the year 2018 of the Nano white paper [5] against the source.
 - The supplement was not revised for the new numbering of the main paper's tables and figures.
