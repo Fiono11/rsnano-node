@@ -40,6 +40,11 @@ EXTENDS Naturals, FiniteSets, TLC
 
 CONSTANTS K1, K2, byz, RULE, MAXKEEP
 
+\* The cross-epoch guard (no switching sides across the boundary).  A
+\* configuration turns it off with CONSTANT CROSS <- CrossOff.
+CROSS    == TRUE
+CrossOff == FALSE
+
 C       == K1 \cup K2
 Blocks  == {"X", "Y"}
 Other(b) == IF b = "X" THEN "Y" ELSE "X"
@@ -121,7 +126,7 @@ Install(v) ==
 Vote2(v, b) ==
   /\ v \in K2 /\ fv2[v] = "-"
   /\ \/ /\ ph[v] = "e2"                       \* early: cross-epoch guard
-        /\ fv1[v] \in {"-", b}
+        /\ CROSS => fv1[v] \in {"-", b}
         /\ early' = [early EXCEPT ![v] = TRUE]
      \/ /\ ph[v] = "in"                       \* after installing S1
         /\ S1.fin = {} /\ PostValid(b)

@@ -448,6 +448,42 @@ The following mechanisms are not part of the protocol but are what the prototype
 \label{app:settled}
 Rule~2 counts settled first votes only. During the load a checkpoint is installed 2 to 6\,s into the 8\,s epoch that follows it, so most first votes for a fresh fork are early; where a checkpoint finds no settled vote and nothing to keep from its predecessor, it keeps nothing, and the position is voted again and waits one more epoch. On one host (six processes on a MacBook Air, $f=1$ and $p=0$ on six members, so that five of six certify, 48{,}000 blocks at 2{,}000 blocks/s) with 10\% forks the first checkpoint after the load leaves 396 to 529 such positions empty, and the last open block becomes final up to 17\,s after the load. The same prototype with every first vote counted, on the same three seeds, leaves none empty, finishes within 4.1 to 6.2\,s, and confirms 1{,}499 to 1{,}531 non-fork blocks/s against 1{,}405 to 1{,}545. Blocks without forks are unaffected. Appendix~\ref{app:proofs} explains why the protocol counts settled votes nonetheless.
 
+\subsection{RAI at Nano's quorum}
+\label{app:equalquorum}
+RAI's normal path needs four of six votes and Nano's five. To separate the quorum from the protocol's other rules, 18 further six-region runs use six seats with $f=1$, $p=0$ and the fast path switched off, so that a block needs five of six first votes and five of six final votes: the cells and seeds of the main text's matrix without the committee change, three runs each (\texttt{run\_sweep.py --set final-wan-2000} with \texttt{--no-fast-path --committee-p 0 --committee-seats 6}). All 18 settled with identical ledgers, and no block was finalized in one round. Table~\ref{tab:equalquorum} gives the medians. At equal quorum RAI's median latency is within 14\,ms of Nano's and its 95th percentile is higher in every cell, by 33 to 410\,ms; the lower latency of the main text's RAI therefore comes from its smaller quorum and its fast path. RAI still confirms 1{,}704 and 1{,}744 blocks/s with 10\% forks, where Nano confirms 946 and 740, and it finalizes every fork. With forks and a Byzantine validator its slowest close takes about 15\,s, since every certificate now needs all five honest validators.
+
+\begin{table}[t]
+\caption{RAI at Nano's quorum (six seats, $p=0$, no fast path), Nano, and the main text's RAI ($f=p=1$) across six regions at 2{,}000 blocks/s: medians of three runs.}
+\label{tab:equalquorum}
+\centering\footnotesize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}lrrrrrr@{}}
+\toprule
+ & \multicolumn{3}{c}{No Byzantine} & \multicolumn{3}{c}{One Byzantine}\\
+\cmidrule(lr){2-4}\cmidrule(l){5-7}
+Forks & 0\% & 5\% & 10\% & 0\% & 5\% & 10\%\\
+\midrule
+\multicolumn{7}{@{}l}{Median latency (ms)}\\
+RAI, Nano's quorum & 549 & 538 & 541 & 543 & 540 & 540\\
+Nano & 535 & 529 & 533 & 529 & 535 & 533\\
+RAI, $f=p=1$ & 390 & 385 & 400 & 393 & 391 & 400\\
+\midrule
+\multicolumn{7}{@{}l}{95th-percentile latency (ms)}\\
+RAI, Nano's quorum & 774 & 938 & 1{,}126 & 739 & 1{,}018 & 1{,}077\\
+Nano & 592 & 612 & 828 & 595 & 608 & 1{,}044\\
+RAI, $f=p=1$ & 483 & 527 & 571 & 508 & 538 & 721\\
+\midrule
+\multicolumn{7}{@{}l}{Non-fork blocks confirmed per second}\\
+RAI, Nano's quorum & 1{,}888 & 1{,}792 & 1{,}704 & 1{,}880 & 1{,}830 & 1{,}744\\
+Nano & 1{,}928 & 1{,}754 & 946 & 1{,}912 & 1{,}770 & 740\\
+RAI, $f=p=1$ & 1{,}954 & 1{,}858 & 1{,}750 & 1{,}945 & 1{,}846 & 1{,}747\\
+\midrule
+\multicolumn{7}{@{}l}{Slowest close of a run (s)}\\
+RAI, Nano's quorum & 4.8 & 4.4 & 4.4 & 8.3 & 15.1 & 15.2\\
+\bottomrule
+\end{tabular}
+\end{table}
+
 \subsection{Committee change}
 \label{app:rotation}
 The equal-weight committee model selects the heaviest $N$ representatives from the finalized state, so committee identities change when weight moves. The harness runs extra representatives outside the committee and, at the start of a chosen epoch $k$, moves a member's whole balance to a holder delegating to a standby representative; the committee derived from epoch $k$, used from epoch $k+2$, has the standby in the member's place. The load generator sends the blocks that move weight to every validator, as it does the load. The main text's committee change (its Figure~8) runs across seven regions: six seats with $f=p=1$, a seventh validator in Toronto as the standby, and Montr\'eal's balance moved to it (\texttt{run\_sweep.py --set final-wan-2000}). The six members hold equal shares of the voting weight (the genesis representative, a member, keeps about a share) and the standby a sixty-fourth of a share, so for Nano, which counts weight, 67\% still takes five of the six members' votes after the move, as in its cells without the change. On one host, six processes on a MacBook Air (Apple M1, eight cores, 16\,GiB) over loopback, with six validators and four seats ($f=1$, $p=0$, no fast path) and two members replaced in epoch~0 at 2{,}000 blocks/s with RAI, pause, and Nano, three runs each (\texttt{run\_sweep.py --set rotation}), the prototype behaves the same; the runs with a Byzantine member use \texttt{--set rotation-byz}, which moves the weight of two correct members so that the Byzantine member keeps its seat. Every validator derives the same members for every epoch.

@@ -30,6 +30,11 @@ EXTENDS Naturals, FiniteSets, TLC
 
 CONSTANTS C, byz, NCSPLIT, DISCHARGE, LATEEV, MAXKEEP
 
+\* The cross-epoch guard (no switching sides across the boundary).  A
+\* configuration turns it off with CONSTANT CROSS <- CrossOff.
+CROSS    == TRUE
+CrossOff == FALSE
+
 Blocks  == {"X", "Y"}
 Other(b) == IF b = "X" THEN "Y" ELSE "X"
 Q       == 4
@@ -109,7 +114,7 @@ Vote2(v, b) ==
   /\ IF inst[v]
      THEN /\ S.fin = {} /\ PostValid(b)
           /\ UNCHANGED late
-     ELSE /\ fv1[v] \in {"-", b}
+     ELSE /\ CROSS => fv1[v] \in {"-", b}
           /\ late' = [late EXCEPT ![v] = IF fv1[v] = "-" THEN b ELSE "-"]
   /\ fv2' = [fv2 EXCEPT ![v] = b]
   /\ UNCHANGED <<fv1, fn1, left, rep, fn2, S, inst, ovf, pof>>

@@ -48,4 +48,3 @@ Points to work into the manuscript. Remove an entry once the text carries it.
 
 - The one `\fillin` left: the ChatGPT model and version in AI Tool Usage (`main.tex`).
 - Check the year 2018 of the Nano white paper [5] against the source.
-- The equal-quorum records (18 runs, `doc/benchmarks/gcp-equal-quorum-45k-2026-11-10`) are still on the controller's disk only: fetch and commit them, then add the per-cell table to the supplement. The threats paragraph quotes the medians read from them.
