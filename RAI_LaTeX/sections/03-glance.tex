@@ -17,7 +17,39 @@ Figure~\ref{fig:pipeline} shows one epoch transition. Three committees are invol
 \label{fig:pipeline}
 \end{figure}
 
-RAI is a set of rules. We state them here informally, with the thresholds of the six-validator example in parentheses, and spend the next sections explaining why each is needed.
+\para{Three invariants.}
+RAI's rules keep three invariants. \emph{I1 (closure):} every block an epoch may still finalize is held by the checkpoint that closes it, and no block finalized during the overlap contradicts that checkpoint. \emph{I2 (exposure):} every vote that can count toward a certificate reaches the next close, in a frozen report or as evidence its signer holds and reports. \emph{I3 (decision):} once a checkpoint keeps a block at a position, correct validators vote only for that block there. I1 is safety across the boundary (Theorem~\ref{thm:closure}, Lemma~\ref{lem:verdict}); I2 is what lets any $N-f$ reports check I1 (Lemmas~4 and~5); I3 is termination (Theorem~\ref{thm:live}). Table~\ref{tab:rules} lists each rule with the invariant it serves and what model checking finds without it.
+
+\begin{table}[t]
+\caption{Each rule, the invariant it serves, and the TLA\textsuperscript{+} counterexample without it (length in steps). With all rules, every exhaustive run passes (0.04 to 121\,M distinct states), and the recipe passes every run to 17 steps (Section~\ref{sec:mc}).}
+\label{tab:rules}
+\centering
+\footnotesize
+\setlength{\tabcolsep}{2.5pt}
+\renewcommand{\arraystretch}{1.08}
+\begin{tabularx}{\columnwidth}{@{}>{\raggedright\arraybackslash}X c >{\raggedright\arraybackslash}p{0.39\columnwidth}@{}}
+\toprule
+Rule & Inv. & Without it \\
+\midrule
+R1 one first vote per position and epoch & I1 & assumed by every model \\
+R2 notarize before the final vote & I1, I2 & assumed by every model \\
+R3 the second set lists fresh votes for kept blocks & I2 & Thm.~1 fails (19); two fast certificates (23) \\
+R4 recovery locks from the highest position down, on settled votes & I1 & Thm.~1 fails (15); both sides final (40) \\
+R4, R7 a lock is released only by evidence of its own origin & I1 & verdicts differ before and after installation (15) \\
+R4, R5, R10 keep a side; vote only the kept block; no early votes at a contested position & I3 & fork open after two good epochs (sim.) \\
+R5 extend a recovery-locked block only once it is notarized again & I1 & conflicting finality (16) \\
+R7 the overlap check covers the whole unresolved prefix & I1 & conflicting finality (13) \\
+R7 each child needs its own epoch-$e$ witness & I1 & conflicting finality (12--14) \\
+R8 late supports count as evidence & I2 & the next close cannot verify a correct report (14) \\
+R8 late supports never notarize & I2 & a correct report becomes unusable (9) \\
+R9 early votes stay off the fast path & I2 & Thm.~1 fails (22, 23) \\
+R10 no switching sides across the boundary & I1 & built into the models; no switch yet \\
+Durable notarization across restarts & I2 & both sides final (13, 19) \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The rules, informally, with the thresholds of the six-validator example in parentheses:
 
 \para{Inside an epoch (Section~\ref{sec:epoch}).}
 \begin{enumerate}[label=\rulename{R\arabic*},ref=R\arabic*]
@@ -27,14 +59,14 @@ RAI is a set of rules. We state them here informally, with the thresholds of the
 \para{At the boundary (Section~\ref{sec:close}).}
 \begin{enumerate}[resume,label=\rulename{R\arabic*},ref=R\arabic*]
 \item\label{r:report} At its local boundary a validator stops voting in epoch $e$, signs one immutable \emph{report} naming what it holds final or notarized and what else it first-voted, and opens epoch $e+1$.
-\item\label{r:build} The outgoing committee agrees on a checkpoint built from $N-f$ (5) reports by a fixed recipe: keep what any report shows final; \emph{lock} a block that a report shows notarized; from the highest position down, \emph{lock for recovery} a block $r$ (3) reporters first-voted after installing the previous checkpoint, and keep a side where nothing is kept; promote a notarized block that is the only one kept at its position; carry every older lock forward unless evidence of its own origin epoch releases it.
+\item\label{r:build} The outgoing committee agrees on a checkpoint built from $N-f$ (5) reports by a fixed recipe that keeps whatever may be final under a \emph{lock}, keeps one side of every fork, and carries older locks until evidence of their own origin epoch releases them.
 \item\label{r:install} The next committee installs the decided checkpoint without voting on it. From then on a validator votes at a kept position only the kept block, and builds on a block kept only for recovery once it is notarized again.
 \end{enumerate}
 \para{While the previous epoch closes (Section~\ref{sec:pipeline}).}
 \begin{enumerate}[resume,label=\rulename{R\arabic*},ref=R\arabic*]
 \item\label{r:gate} \emph{Gate.} A block of epoch $e+1$ does not become final before $S_e$ is installed, except under~\ref{r:overlap}.
 \item\label{r:overlap} \emph{Overlap rule.} It may become final early if it, and every unresolved block below it, has $q$ (4) supporters in epoch $e$ and $q$ (4) first votes in epoch $e+1$, and if every older recovery lock it bypasses is released by a witness of that lock's own origin.
-\item\label{r:late} \emph{Late notarization.} A validator that has left epoch $e$ but not yet installed $S_e$ also signs an epoch-$e$ \emph{support} for each block it first-votes in $e+1$, unless it supported a rival at that position in $e$. These supports count only toward the $q$ of~\ref{r:overlap}, never toward finality or reports.
+\item\label{r:late} \emph{Late notarization.} A validator that has left epoch $e$ but not yet installed $S_e$ also signs an epoch-$e$ \emph{support} for each block it first-votes in $e+1$, unless it supported a rival at that position in $e$. They count only toward~\ref{r:overlap}.
 \item\label{r:early} \emph{Early votes.} A first vote cast before its signer installed $S_e$ counts toward notarization and toward~\ref{r:overlap}, never toward the fast path. An early final vote is released only with the witnesses of~\ref{r:overlap} in hand.
 \item\label{r:cross} \emph{No switching across the boundary.} Until $S_e$ is installed, a validator does not first-vote in $e+1$ a block that conflicts with one it supported at that position in $e$, nor any block where it has seen two or a checkpoint keeps one.
 \end{enumerate}

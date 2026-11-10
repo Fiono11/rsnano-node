@@ -12,7 +12,58 @@ A block can skip the gate if the old epoch provably cannot contradict it. The pr
 A block published after the boundary has no epoch-$e$ votes at all, so the overlap rule would never apply to it and it would wait at the gate. Late notarization fixes this. A validator that has left epoch $e$ but not yet installed $S_e$, when it first-votes $B$ in epoch $e+1$, also signs an epoch-$e$ \emph{support} for $B$, unless it supported a different block at position 8 in epoch $e$. These late supports count toward the exclusion witness and toward nothing else: no notarization, no final vote, no report entry rests on them, since reports are frozen before they are cast. Safety is the same argument as before: one validator supports one block per position in epoch $e$, by a first vote or by a late support.
 
 \para{Early votes (\ref{r:early}).}
-A fast certificate must not rest on a vote only some validators can justify. Suppose $B$ conflicts with a block $B'$ that $S_e$ keeps under a recovery lock, and $V_3,V_4,V_5$ first-vote $B$ early, without the epoch-$e$ witness for $B$. $V_1$ later installs $S_e$, obtains the witness from the Byzantine $V_6$, releases the lock, and first-votes $B$ too: five first votes, a fast certificate that only $V_1$ can justify. The next checkpoint may select reports without $V_1$'s and keep $B'$, and a later epoch finalizes $B'$ while $B$'s certificate is still valid (supplement). The rule removes the dependency: a first vote names the checkpoint its signer had installed; \emph{early} votes, cast before $S_e$, count toward notarization and witnesses but never toward a fast certificate, and an early final vote is released only by a validator that holds the overlap witnesses, which its report then carries to the next checkpoint. A block first-voted during a close therefore takes two rounds instead of one.
+A fast certificate must not rest on votes whose eligibility no correct signer can show. Fig.~\ref{fig:earlyvote} gives the run. In epoch $e$, V1--V3 vote $B$ and V4--V6 vote a rival $B'$; the Byzantine V6 also signs a vote for $B$ and holds it back, and $S_e$ keeps $B'$ under a recovery lock. Before installing $S_e$, four new members first-vote $B$ in epoch $e+1$; with V6 that makes five. Once V6 releases its epoch-$e$ vote, $\{\text{V1},\text{V2},\text{V3},\text{V6}\}$ is an exclusion witness that releases the lock, so the five votes would be a fast certificate for $B$. No correct validator held that witness, however, so $S_{e+1}$ keeps $B'$, which epoch $e+2$ finalizes. The rule removes the dependency: a first vote names the checkpoint its signer had installed; early votes, cast before $S_e$, count toward notarization and witnesses but never toward a fast certificate, and an early final vote is released only by a validator that holds the overlap witnesses, which its report then carries to the next checkpoint. A block first-voted during a close therefore takes two rounds instead of one.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[x=1cm,y=1cm,font=\scriptsize,
+    vote/.style={draw,rounded corners=1pt,inner sep=1.6pt,minimum height=3.3mm},
+    early/.style={vote,dashed},
+    gone/.style={text=black!40},
+    note/.style={text=black!60,font=\scriptsize\itshape}]
+  % headers
+  \node[font=\scriptsize\bfseries] at (2.95,0.05) {epoch $e$};
+  \node[font=\scriptsize\bfseries] at (5.10,0.05) {epoch $e{+}1$};
+  \node[font=\scriptsize\bfseries] at (7.35,0.05) {epoch $e{+}2$};
+  % rows
+  \foreach \y/\lab in {-0.55/{V1--V3}, -1.05/{V4, V5}, -1.55/{V6 (Byz.)}, -2.05/{V7--V10 (new)}, -2.55/{V11 (new)}}
+    \node[anchor=west] at (-0.05,\y) {\lab};
+  \draw[black!25] (-0.05,-0.25) -- (8.6,-0.25);
+  % checkpoints
+  \draw[densely dashed] (4.15,-0.2) -- (4.15,-2.85);
+  \draw[densely dashed] (6.15,-0.2) -- (6.15,-2.85);
+  \node at (4.15,0.05) {$S_e$};
+  \node at (6.15,0.05) {$S_{e+1}$};
+  % epoch e (committee V1--V6)
+  \node[vote] at (2.95,-0.55) {$B$};
+  \node[vote] at (2.95,-1.05) {$B'$};
+  \node[vote] at (2.25,-1.55) {$B'$};
+  \node[note,anchor=west] at (2.5,-1.55) {$B$ held back};
+  \node[gone] at (2.95,-2.05) {--};
+  \node[gone] at (2.95,-2.55) {--};
+  % epoch e+1 (committee V6--V11)
+  \node[gone] at (5.10,-0.55) {--};
+  \node[gone] at (5.10,-1.05) {--};
+  \node[vote] at (5.10,-1.55) {$B$};
+  \node[early] at (5.10,-2.05) {$B$ early};
+  \node[gone] at (5.10,-2.55) {--};
+  % epoch e+2
+  \node[gone] at (7.35,-0.55) {--};
+  \node[gone] at (7.35,-1.05) {--};
+  \node[note] at (7.35,-1.55) {releases that $B$};
+  \node[vote] at (7.35,-2.05) {$B'$ settled};
+  \node[vote] at (7.35,-2.55) {$B'$ settled};
+  % outcomes
+  \draw[black!25] (-0.05,-2.85) -- (8.6,-2.85);
+  \node[anchor=north west,align=left,text width=8.45cm] at (-0.05,-2.92) {%
+    $S_e$: reports V2--V6; $B'$ has 3 settled votes, so it is kept under a recovery lock of origin $e$.\\
+    $S_{e+1}$: no correct member holds the witness $\{\text{V1},\text{V2},\text{V3},\text{V6}\}$ for $B$, so $B'$ stays kept.\\
+    Epoch $e{+}1$: $\{\text{V6},\dots,\text{V10}\}$ is a fast certificate for $B$ if early votes count.\\
+    Epoch $e{+}2$: $\{\text{V7},\dots,\text{V11}\}$ is a fast certificate for $B'$.};
+\end{tikzpicture}
+\caption{Why early votes stay off the fast path (\ref{r:early}). Without the rule, $B$ and $B'$ both become final once V6 releases its held-back vote. Dashed box: a first vote cast before its signer installed $S_e$.}
+\label{fig:earlyvote}
+\end{figure}
 
 \para{No switching (\ref{r:cross}).}
 A validator that supported $B'$ at position 8 in epoch $e$ does not first-vote a conflicting $B$ in epoch $e+1$ until it has installed $S_e$. Otherwise it could contribute to an epoch-$(e+1)$ notarization of $B$ while its epoch-$e$ vote still helps $B'$ toward a latent certificate. At a position where it has seen two blocks, or which a checkpoint keeps, it casts no first vote at all before installing $S_e$: re-voting its old side early would let the split repeat in every epoch.

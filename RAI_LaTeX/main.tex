@@ -1,18 +1,26 @@
 \documentclass[conference]{IEEEtran}
 \IEEEoverridecommandlockouts
 \input{preamble}
+% Visible placeholder for facts only the authors know. Remove every \fillin before submission.
+\providecommand{\fillin}[1]{\fbox{\textsf{\footnotesize #1}}}
 \begin{document}
-\title{RAI: Safe Payments Through Committee Changes\\Without Stopping}
+% Title options (DSN freezes the title at the abstract deadline, Nov 25):
+%   A (original): RAI: Safe Payments Through Committee Changes\\Without Stopping
+%   B: RAI: Changing Validators Without Pausing, and Recovering\\Forked Accounts, in Consensusless Payments
+%   C (active):   RAI: Pause-Free Committee Changes and Fork Recovery\\for Consensusless Payments
+%   D: RAI: Consensusless Payments Through Committee Changes\\Without Pausing
+\title{RAI: Pause-Free Committee Changes and Fork Recovery\\for Consensusless Payments}
 \author{\IEEEauthorblockN{Anonymous Author(s)}
 \IEEEauthorblockA{Regular paper}}
 \maketitle
 
+% 146 words; DSN allows at most 150.
 \begin{abstract}
-Nano and FastPay confirm each account's payments separately, with no global order, in one or two rounds of votes. Two things remain hard. When the validators change, old votes can still complete a confirmation after the handover, so a careless handover can confirm two conflicting payments. And when an account signs two conflicting payments, by mistake or on purpose, most systems leave it stuck. RAI adds epochs. Each epoch ends in a checkpoint built from signed reports of the outgoing validators, and the next epoch votes while the previous one closes, under a few rules that keep the two from contradicting each other. Checkpoints also resolve every double spend, so its owner gets the account back. We prove safety and termination and model-check the handover rules. Across six regions, a prototype keeps confirming through transitions that stall a stop-and-drain handover, with 95th-percentile latencies 7 to 38 times lower.
+FastPay and Nano confirm each account's payments separately, without a global order. When the validators change, old votes can still complete a confirmation after the handover, so deployed systems pause the fast path at every epoch boundary. And when an owner signs two conflicting payments, the account stays locked until the next epoch, or forever. RAI changes validators without pausing. Each epoch closes with a checkpoint built from signed reports of the outgoing validators while the next epoch already votes, under rules that keep the two epochs consistent. The same checkpoint keeps one side of every double spend, which becomes final within two epochs of normal operation, so the owner gets the account back. We prove safety and termination and model-check the handover rules. Across six regions, a prototype keeps confirming through transitions that stall a stop-and-drain handover, with 6.7 to 38 times lower 95th-percentile latency.
 \end{abstract}
 
 \begin{IEEEkeywords}
-Byzantine fault tolerance, reconfiguration, asset transfer, consensusless payments, model checking
+Byzantine fault tolerance, reconfiguration, asset transfer, consensusless payments, equivocation, model checking
 \end{IEEEkeywords}
 
 \input{sections/01-introduction}
@@ -28,10 +36,14 @@ Byzantine fault tolerance, reconfiguration, asset transfer, consensusless paymen
 \input{sections/11-related}
 \input{sections/12-conclusion}
 
+% DSN 2027: a section titled exactly "AI Tool Usage", 1--2 paragraphs, after the
+% Acknowledgements, outside the page limit. It must name each tool and the sections,
+% figures, or code it produced. Fill every \fillin; delete the third sentence's
+% bracketed items for drafts you did not use.
 \section*{AI Tool Usage}
-ChatGPT assisted with structuring the manuscript, with source checking, protocol review, and proof exposition, and helped write the TLA\textsuperscript{+} models, which were checked with TLC. Claude Code (Anthropic) assisted with the prototype implementation, the benchmark harness and the stop-and-drain switch, ran the experiments of Section~\ref{sec:eval} and produced their figures, diagnosed defects in the prototype, and drafted the text and figures, which the authors revised. The proof arguments were reviewed by the authors and have not been machine checked beyond the finite configurations of Section~\ref{sec:mc}. No data in this paper is AI-generated: all measurements come from the prototype runs described in Section~\ref{sec:eval}.
+ChatGPT (OpenAI, \fillin{model and version}) helped structure the manuscript, check sources, review the protocol and proofs, and write the TLA\textsuperscript{+} models, which the authors checked with TLC. Claude Code (Anthropic, \fillin{model and version}) helped implement and debug the prototype, benchmark harness, and stop-and-drain switch; ran the experiments of Section~\ref{sec:eval}, produced Figures~\fillin{4--7}, and drafted Sections~\fillin{list} and Figures~\fillin{1--3}, which the authors revised. Claude (Anthropic, Claude Opus~5.5) drafted the abstract, Section~\ref{sec:related} with Table~\ref{tab:related}, and \fillin{the other drafts you kept, e.g.\ Table~\ref{tab:rules} and Fig.~\ref{fig:earlyvote}}, which the authors checked and revised. The authors verified every reference. The proof arguments were reviewed by the authors and are not machine-checked beyond the finite configurations of Section~\ref{sec:mc}. No data is AI-generated: all measurements come from the prototype runs of Section~\ref{sec:eval}.
 
 \balance
 \bibliographystyle{IEEEtran}
-\bibliography{references}
+\bibliography{references,rai-additions}
 \end{document}

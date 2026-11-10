@@ -2,53 +2,8 @@
 \label{sec:mc}
 Several rules of Sections~\ref{sec:close} and~\ref{sec:pipeline} guard against interleavings that are easy to miss in a written argument. We wrote TLA\textsuperscript{+} models of the handover and checked them with TLC, each with the full rule set and with switches that weaken one rule, to show that the rule is needed. Each takes one account with $N=6$, $f=p=1$, five correct validators and one Byzantine validator whose signatures are available for every block, vote kind, and epoch, and whose report is chosen by the adversary subject to the usability checks. Agreement is the nondeterministic choice of one eligible candidate; TLC explores every interleaving, with validators identified up to permutation. The models, configurations, and TLC outputs with the violating traces are in the supplement and the artifact.
 
-\begin{description}
-\item[Close] three voting epochs and two checkpoints, no early voting; the recipe with locks of several origins and matching-origin release. Switch: a second set that omits fresh votes for blocks tagged inherited.
-\item[Overlap] one closing and one open epoch; validators cross their boundary one by one, vote early, late-notarize, and finalize under the overlap rule or after installing. Switches turn off matching-origin release, late supports as evidence, and the separation of notarization from late supports.
-\item[Handoff] early voting, two checkpoints, and a committee change with the Byzantine validator in both committees; the early-vote rule on or off; a releasing witness reaches the second checkpoint only through a selected correct report, which models a withheld signature.
-\item[Prefix] two positions of one account: a parent with a rival at position 1 and two children at position 2, so that the prefix-wide guard of~\ref{r:overlap} is exercised; committees identical, disjoint, or sharing members. Switches check only the finalizing block instead of the prefix, and let a child inherit its parent's witness.
-\item[Recovery] a child of each forked block at the next position, installation, and settled votes. Switch: any kept tip may be extended without a new notarization.
-\item[Resolve] one forked position over three epochs and two checkpoints; a Byzantine validator that votes both sides or withholds; epochs flagged as good (synchronous) or not. Switch: the termination rules.
-\item[Restart] the Close model with validators that restart before freezing their report and keep their final vote. Switch: the notarization behind it survives, is lost, or must be assembled again before the report is signed.
-\item[Recover] four epochs, three checkpoints, two or three rivals with a child each, blocks replayed to anyone, an owner that forks or not. Switches: the recipe's vote count, keep rule, and order.
-\end{description}
+There are eight models. \emph{Close} runs three epochs and two checkpoints with locks of several origins; \emph{Overlap} has validators cross their boundary one by one, vote early, late-notarize, and finalize under the overlap rule; \emph{Handoff} adds a committee change with the Byzantine validator in both committees; \emph{Prefix} exercises the prefix-wide guard of~\ref{r:overlap} on two positions, with identical, disjoint, or overlapping committees; \emph{Recovery} lets the owner extend a forked block; \emph{Resolve} checks that two good epochs close a fork; \emph{Restart} restarts validators before they freeze their report; and \emph{Recover} runs four epochs and three checkpoints with two or three rivals. Each has switches that weaken one rule.
 
-\begin{table}[t]
-\caption{TLC results. States are distinct states of completed runs; a number of steps is the length of the counterexample.}
-\label{tab:mc}
-\centering\small
-\begin{tabularx}{\columnwidth}{@{}>{\raggedright\arraybackslash}p{0.36\columnwidth}Yr@{}}
-\toprule
-Model, switches & Result & States\\
-\midrule
-Close, second set omits inherited & Thm.~\ref{thm:closure} fails (19 steps); two fast certificates (23) & --\\
-Close, all rules & no violation & 0.65\,M\\
-Overlap, all rules & no violation & 5.2\,M\\
-Overlap, no release & same-verdict fails (15) & --\\
-Overlap, late votes not evidence & next close cannot verify a correct report (14) & --\\
-Overlap, late votes in notarization & a correct report becomes unusable (9); safety holds & 5.5\,M\\
-Handoff, early votes on fast path, same or disjoint $K$ & Thm.~\ref{thm:closure} fails for $S_2$ (22, 23) & --\\
-Handoff, rule, same / disjoint / 3 shared & no violation & 8.3 / 3.7 / 121\,M\\
-Prefix $N{=}4$, prefix guard, all overlaps & no violation & 0.3--4.0\,M\\
-Prefix $N{=}4$, target only, 2 shared & conflicting finality (13) & --\\
-Prefix $N{=}4$, child inherits witness, not same $K$ & conflicting finality (12--14) & --\\
-Prefix $N{=}6$, target only or inherited witness & conflicting finality (simulation) & --\\
-Recovery $N{=}4$, tip always extensible, all $K$ & conflicting finality (16) & --\\
-Recovery $N{=}4$, re-notarization, all $K$ & no violation & 0.7--3.9\,M\\
-Close, Overlap, Handoff, Recovery: Rule~2 keeps a side & no violation & 0.3--5.9\,M\\
-Resolve $N{=}4$, no termination rules & fork open after two good epochs (sim.) & --\\
-Resolve $N{=}4$, termination rules, epochs 2--3 good & no violation & 4.6\,M\\
-Restart $N{=}4$, one loses notarization & both sides final (13) & --\\
-Restart $N{=}6$, two lose notarization & both sides final (19) & --\\
-Restart, notarization durable, $N{=}4$ and~6 & no violation, no close stuck & 0.04, 0.28\,M\\
-Restart, report waits to reassemble & safe; a close can stick (7, 10) & 0.1--1.2\,M\\
-Recover, all first votes, bottom-up & both sides final (40) & --\\
-Recover, settled votes, bottom-up, owner forks & Thm.~\ref{thm:closure} fails (15) & --\\
-Recover, recipe of Section~\ref{sec:close} & no violation to 17 steps; sim. & 21\,M\\
-\bottomrule
-\end{tabularx}
-\end{table}
-
-Table~\ref{tab:mc} summarizes; the supplement explains each violation. Extending any kept tip is unsafe even without early votes. A recipe that counts all first votes and works bottom-up loses a fast-final child, and so does a bottom-up recipe on settled votes with a forking owner; the recipe of Section~\ref{sec:close} passes the safety, side-change, and recovery checks by simulation, and safety in every run of up to 17 steps, two more than the bottom-up order needs to fail. Probes show that the invariants are not vacuous.
+Table~\ref{tab:rules} lists the counterexamples by rule; the supplement lists every run and explains each violation. Extending any kept tip is unsafe even without early votes. A recipe that counts all first votes and works bottom-up loses a fast-final child, and so does a bottom-up recipe on settled votes with a forking owner; the recipe of Section~\ref{sec:close} passes the safety, side-change, and recovery checks by simulation, and safety in every run of up to 17 steps, two more than the bottom-up order needs to fail. Probes show that the invariants are not vacuous.
 
 The models are small: one or two positions, two to four epochs, no receives, restarts in one model only, $N\in\{4,6\}$. Their abstractions only add behaviours, except the recover model's owner and Byzantine policies, so a violation in the model is a violation of the protocol, but a clean run is evidence, not proof.

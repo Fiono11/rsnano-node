@@ -1,0 +1,21 @@
+\begin{table}[t]
+\caption{How systems that change validators treat the epoch boundary and an owner who signs conflicting payments, as the cited work describes them (---: not discussed there).}
+\label{tab:related}
+\centering
+\footnotesize
+\setlength{\tabcolsep}{2.5pt}
+\renewcommand{\arraystretch}{1.08}
+\begin{tabularx}{\columnwidth}{@{}l>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X@{}}
+\toprule
+System & Fast path at handover & Late old-epoch certificate & Equivocating owner \\
+\midrule
+Sui Lutris~\cite{lutris,sui2026epochs,sui2026lifecycle} & paused ($\sim$100s of ms) & retried next epoch & locked to epoch end ($\sim$1 day) \\
+Mysticeti-FPC~\cite{babel2025mysticeti} & paused & in last commit's history & unlocked after the epoch \\
+Carbon~\cite{camaioni2024carbon} & old view fenced & never commits & operations excluded \\
+Linera~\cite{linera2026docs,linera2026execution} & per chain, on migration & valid until epoch removed & per-chain rounds \\
+PDCC~\cite{pdcc} & continues & only for installed config. & --- \\
+Pause (Sec.~\ref{sec:eval}) & paused & drained & as RAI \\
+\textbf{RAI} & \textbf{continues} & \textbf{kept by next checkpoint} & \textbf{one side final in 2 epochs} \\
+\bottomrule
+\end{tabularx}
+\end{table}
