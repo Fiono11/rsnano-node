@@ -302,6 +302,7 @@ Configuration & Result & Time\\
 \texttt{Close\_FALSE\_conflict} & \texttt{NoConflict} violated after 23 steps & 2\,min\\
 \texttt{Close\_TRUE} & no error; 651,632 distinct states & 3\,min\\
 \texttt{Overlap\_fixed} & no error; 5,217,510 distinct states & 14\,min\\
+\texttt{Overlap\_noCross} (no cross-epoch guard) & no error; 16,314,028 states & 15\,min\\
 \texttt{Overlap\_noDischarge} & \texttt{SameVerdict} violated after 15 steps & 1\,min\\
 \texttt{Overlap\_noLateEv} & \texttt{WitnessAdmissible} violated after 14 steps & 1\,min\\
 \texttt{Overlap\_noSplit} & \texttt{UsableReports} violated after 9 steps & 10\,s\\
@@ -311,6 +312,7 @@ Configuration & Result & Time\\
 \texttt{Handoff\_disjoint\_norule} & \texttt{ClosureThm1b} violated after 23 steps & 15\,min\\
 \texttt{Handoff\_same\_rule} & no error; 8,347,138 states & 15\,min\\
 \texttt{Handoff\_disjoint\_rule} & no error; 3,707,876 states & 17\,min\\
+\texttt{Handoff\_same\_noCross}, \texttt{\_disjoint\_noCross} (rule, no cross-epoch guard) & no error; 21,898,422 and 3,707,876 states & 17, 7\,min\\
 \texttt{Handoff\_overlap3\_rule} & no error; 121,053,272 states & 2\,h\,18\,min$^*$\\
 \texttt{Handoff\_Probe*} & probes violated, as intended & $<5$\,min\\
 \midrule

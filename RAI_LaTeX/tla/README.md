@@ -12,6 +12,7 @@ The `out_*.txt` files are the outputs of the runs reported below, including the 
 | `Close_FALSE_conflict` | RaiClose | Fix B off | `NoConflict` violated after 23 steps (two fast certificates) | 2 min |
 | `Close_TRUE` | RaiClose | Fix B on | no error, 651,632 distinct states | 3 min |
 | `Overlap_fixed` | RaiOverlap | all on | no error, 5,217,510 distinct states | 14 min |
+| `Overlap_noCross` | RaiOverlap | all on, no cross-epoch guard (`CROSS <- CrossOff`) | no error, 16,314,028 distinct states, depth 34 | 15 min |
 | `Overlap_noDischarge` | RaiOverlap | discharge off | `SameVerdict` violated after 15 steps (Case 2) | 1 min |
 | `Overlap_noLateEv` | RaiOverlap | late votes inadmissible | `WitnessAdmissible` violated after 14 steps | 1 min |
 | `Overlap_noSplit` | RaiOverlap | NC split off | `UsableReports` violated after 9 steps | 10 s |
@@ -26,6 +27,8 @@ The `out_*.txt` files are the outputs of the runs reported below, including the 
 | `Handoff_disjoint_norule` | disjoint | off | `ClosureThm1b` violated after 23 steps | 15 min |
 | `Handoff_same_rule` | same five | early-vote rule | no error, 8,347,138 distinct states | 15 min |
 | `Handoff_disjoint_rule` | disjoint | early-vote rule | no error, 3,707,876 distinct states | 17 min |
+| `Handoff_same_noCross` | same five | early-vote rule, no cross-epoch guard | no error, 21,898,422 distinct states, depth 38 | 17 min |
+| `Handoff_disjoint_noCross` | disjoint | early-vote rule, no cross-epoch guard | no error, 3,707,876 distinct states (no member is in both committees, so the guard never applies) | 7 min |
 | `Handoff_overlap3_rule` | three shared | early-vote rule | no error, 121,053,272 distinct states, depth 38 | 2 h 18 min (8 cores) |
 | `Handoff_Probe*` | same five | early-vote rule | probes violated, as intended | < 5 min |
 
