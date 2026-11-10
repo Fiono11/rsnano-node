@@ -115,12 +115,26 @@ fn remote_launcher_script(args: &CliArgs, data_dir: &Path, i: usize) -> String {
         (Some(dir), Some(name)) => dir.join(name),
         _ => program,
     };
-    launcher_script(
-        &program,
-        &rsnano_env(&node_dir, i),
-        &rsnano_args(&node_dir),
-        &node_dir,
-    )
+    let mut env = rsnano_env(&node_dir, i);
+    env.extend(forwarded_switches(std::env::vars()));
+    launcher_script(&program, &env, &rsnano_args(&node_dir), &node_dir)
+}
+
+/// The node's `RAI_*` switches (such as `RAI_FAST_PATH`) set for this
+/// process: a local node inherits them, a remote one gets them through its
+/// launch script, so that a switch holds on every machine of a run
+fn forwarded_switches(
+    vars: impl IntoIterator<Item = (String, String)>,
+) -> Vec<(&'static str, String)> {
+    let mut switches: Vec<_> = vars
+        .into_iter()
+        .filter_map(|(name, value)| {
+            let known = NODE_SWITCHES.iter().find(|known| **known == name)?;
+            Some((*known, value))
+        })
+        .collect();
+    switches.sort();
+    switches
 }
 
 fn node_dir(data_dir: &Path, i: usize) -> PathBuf {
@@ -173,3 +187,37 @@ const NODE_TAG_VAR: &str = "RSNANO_NODE_TAG";
 /// Where the node appends its diagnostic lines too, in its data directory:
 /// they outlive nanospam's own log (read by the rsnano node)
 const DIAG_FILE_VAR: &str = "RSNANO_DIAG_FILE";
+/// The node's A/B switches that must reach every machine of a run (read by
+/// the rsnano node)
+const NODE_SWITCHES: [&str; 3] = ["RAI_FAST_PATH", "RAI_CLOSE_MEMO", "RAI_CLOSE_MEMO_CHECK"];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn forwards_only_the_node_switches() {
+        let vars = [
+            ("PATH".to_owned(), "/bin".to_owned()),
+            ("RAI_FAST_PATH".to_owned(), "0".to_owned()),
+            ("RAI_BENCH".to_owned(), "1".to_owned()),
+            ("RAI_CLOSE_MEMO".to_owned(), "1".to_owned()),
+        ];
+
+        assert_eq!(
+            forwarded_switches(vars),
+            vec![
+                ("RAI_CLOSE_MEMO", "1".to_owned()),
+                ("RAI_FAST_PATH", "0".to_owned())
+            ]
+        );
+    }
+
+    #[test]
+    fn forwards_nothing_when_no_switch_is_set() {
+        assert_eq!(
+            forwarded_switches([("HOME".to_owned(), "/root".to_owned())]),
+            vec![]
+        );
+    }
+}

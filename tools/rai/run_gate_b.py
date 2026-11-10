@@ -256,6 +256,7 @@ def main():
     parser.add_argument('--restart', action='append', default=[], help='nanospam --restart PR:at:SECS or PR:close:EPOCH[:ROUND] (SIGKILL, then start again); repeatable')
     parser.add_argument('--restart-down-ms', type=int, default=0, help='how long a killed node stays down')
     parser.add_argument('--committee-p', type=int, default=1, help='p of the equal-weight or bounded-weight committee (f stays 1): N = 3 + 2p + 1 seats')
+    parser.add_argument('--no-fast-path', action='store_true', help='RAI_FAST_PATH=0 on every node: no one-round finality, so with --committee-p 0 --committee-seats 6 a block needs five of six votes in two rounds, as in Nano')
     parser.add_argument('--committee-seats', type=int, default=None, help='members of the equal-weight committee, from 3 + 2p + 1 on (nanospam --committee-seats); 6 with --committee-p 0 counts five of six, as Nano')
     parser.add_argument('--standby', type=int, default=0, help='running representatives that start outside the committee with an eighth of a share (nanospam --standby)')
     parser.add_argument('--rotation', default=None, help='committee rotations EPOCH:FROM>TO,...;EPOCH:... (nanospam --rotation)')
@@ -379,6 +380,9 @@ def main():
         result['command'] = command
         result['status'] = 'running'
         env = dict(os.environ, PATH=str(binary_dir) + os.pathsep + os.environ['PATH'], RUST_LOG='nanospam=info', NANO_LOG='noansi')
+        if args.no_fast_path:
+            env['RAI_FAST_PATH'] = '0'
+        result['fast_path'] = env.get('RAI_FAST_PATH', '1') != '0'
         process = None
         try:
             if args.ledger_snapshot:
