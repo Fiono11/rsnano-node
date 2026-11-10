@@ -43,7 +43,6 @@ R7 each child needs its own epoch-$e$ witness & I1 & conflicting finality (12--1
 R8 late supports count as evidence & I2 & the next close cannot verify a correct report (14) \\
 R8 late supports never notarize & I2 & a correct report becomes unusable (9) \\
 R9 early votes stay off the fast path & I2 & Thm.~1 fails (22, 23) \\
-R10 no switching sides across the boundary & I1 & no violation without it (16, 22\,M states) \\
 Durable notarization across restarts & I2 & both sides final (13, 19) \\
 \bottomrule
 \end{tabularx}
@@ -68,7 +67,7 @@ The rules, informally, with the thresholds of the six-validator example in paren
 \item\label{r:overlap} \emph{Overlap rule.} It may become final early if it, and every unresolved block below it, has $q$ (4) supporters in epoch $e$ and $q$ (4) first votes in epoch $e+1$, and if every older recovery lock it bypasses is released by a witness of that lock's own origin.
 \item\label{r:late} \emph{Late notarization.} A validator that has left epoch $e$ but not yet installed $S_e$ also signs an epoch-$e$ \emph{support} for each block it first-votes in $e+1$, unless it supported a rival at that position in $e$. They count only toward~\ref{r:overlap}.
 \item\label{r:early} \emph{Early votes.} A first vote cast before its signer installed $S_e$ counts toward notarization and toward~\ref{r:overlap}, never toward the fast path. An early final vote is released only with the witnesses of~\ref{r:overlap} in hand.
-\item\label{r:cross} \emph{No switching across the boundary.} Until $S_e$ is installed, a validator does not first-vote in $e+1$ a block that conflicts with one it supported at that position in $e$, nor any block where it has seen two or a checkpoint keeps one.
+\item\label{r:cross} \emph{Contested positions.} Until $S_e$ is installed, a validator casts no first vote in $e+1$ at a position where it has seen two blocks or a checkpoint keeps one; so it never switches sides across the boundary.
 \end{enumerate}
 
 Two services are left abstract: how a validator obtains the sets behind another's report (\emph{set reconstruction}) and how the outgoing committee picks one eligible checkpoint (\emph{agreement}). RAI only states what it needs from them (Section~\ref{sec:model}).

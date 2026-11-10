@@ -65,8 +65,8 @@ A fast certificate must not rest on votes whose eligibility no correct signer ca
 \label{fig:earlyvote}
 \end{figure}
 
-\para{No switching (\ref{r:cross}).}
-A validator that supported $B'$ at position 8 in epoch $e$ does not first-vote a conflicting $B$ in epoch $e+1$ until it has installed $S_e$. Otherwise it could contribute to an epoch-$(e+1)$ notarization of $B$ while its epoch-$e$ vote still helps $B'$ toward a latent certificate. At a position where it has seen two blocks, or which a checkpoint keeps, it casts no first vote at all before installing $S_e$: re-voting its old side early would let the split repeat in every epoch.
+\para{Contested positions (\ref{r:cross}).}
+At a position where a validator has seen two blocks, or which a checkpoint keeps, it casts no first vote before installing $S_e$: re-voting its old side early would let the split repeat in every epoch. In particular, a validator that supported $B'$ at position 8 in epoch $e$ does not first-vote a conflicting $B$ in epoch $e+1$ before it knows $S_e$. The rule is for termination: in the models of Section~\ref{sec:mc} such a switch alone breaks no safety property.
 
 \para{After installation.}
 When $S_e$ arrives, each validator re-checks its provisional epoch-$(e+1)$ work against the finalized history, the frontier, and the locks of $S_e$. Held certificates take effect; work on a block that $S_e$ excluded is discarded, without clearing the validator's recorded first vote. Every position with one kept block gets an instance at that position in the open epoch, and a rival is refused while any lock on the kept block stands. If a kept block does not finalize in epoch $e+1$ either, its first votes are exposed again in the next reports, and the next checkpoint keeps it again, with a lock of origin $e+1$ if three reporters voted it: a block may carry locks of several origins, each released only by a witness of its own epoch. From then on every validator that installed the checkpoint votes it there.
