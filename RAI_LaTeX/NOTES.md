@@ -47,6 +47,7 @@ Points to work into the manuscript. Remove an entry once the text carries it.
 ## Done (Nov 10 2026, R10 switch)
 
 - `RaiOverlap` and `RaiHandoff` have a switch for the first half of R10 (`CONSTANT CROSS <- CrossOff`: a validator may first-vote early a block that conflicts with its closing-epoch vote). No violation: `Overlap_noCross` 16.3 M states, `Handoff_same_noCross` 21.9 M, `Handoff_disjoint_noCross` 3.7 M. In these one-position models the rule is defensive: the overlap rule's witness and the recheck after installation already exclude the switched vote's effect. Table I and contribution (3) say so; the rule stays in the protocol.
+- `RaiPrefix` without the guard (parent and child positions): `Prefix4_{same,shared2,shared1}_noCross` 1.2, 6.4, 6.5 M states, no violation; N = 6 simulation, 2.3 M and 2.5 M traces, no violation.
 - R10 is now stated as one rule, no early first vote at a contested position, with not switching sides as its consequence (rule list, Section VII, introduction); Table I keeps R10 in the termination row only, and Section VII says a switch alone breaks no safety property in the models. The supplement keeps the cross-epoch rule by name and says it follows from the termination rule.
 
 ## Open before submission

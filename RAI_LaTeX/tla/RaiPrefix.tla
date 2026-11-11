@@ -45,6 +45,11 @@ ASSUME /\ Cardinality(K1) = N - 1 /\ Cardinality(K2) = N - 1
 C        == K1 \cup K2
 Q        == N - f - p
 FAST     == N - p
+\* The cross-epoch guard (no switching sides across the boundary).  A
+\* configuration turns it off with CONSTANT CROSS <- CrossOff.
+CROSS    == TRUE
+CrossOff == FALSE
+
 Slots    == {1, 2}
 Blocks   == {"P", "Pr", "C1", "C2"}
 Children == {"C1", "C2"}
@@ -132,7 +137,7 @@ Leave(v) ==
 \* complete current-epoch parent.  The late notarization is implicit (LT1).
 Vote2(v, x) ==
   /\ v \in K2 /\ left[v] /\ fv2[v][Slot(x)] = "-"
-  /\ v \in K1 => fv1[v][Slot(x)] \in {"-", x}
+  /\ CROSS => (v \in K1 => fv1[v][Slot(x)] \in {"-", x})
   /\ x \in Children => (Parent(x) \in Fin1 \/ NC2(Parent(x)))
   /\ fv2' = [fv2 EXCEPT ![v][Slot(x)] = x]
   /\ UNCHANGED <<fv1, fn1, left, fn2>>

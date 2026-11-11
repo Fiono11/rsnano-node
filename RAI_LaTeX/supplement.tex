@@ -328,6 +328,8 @@ Configuration & Result & Time\\
 \texttt{Prefix6\_disjoint\_nofresh\_sim}, \texttt{Prefix6\_shared3\_target\_sim}, \texttt{\_nofresh\_sim} & \texttt{NoConflict} violated (simulation) & $<1$\,s$^*$\\
 \texttt{Prefix6\_same\_probes}, \texttt{Prefix6\_shared3\_probes} & probes violated, as intended & 14\,s, 3.7\,min$^*$\\
 \texttt{Prefix6\_same\_fixed}, \texttt{Prefix6\_shared3\_target} (BFS) & stopped at a cap: 13.4\,M and 35.8\,M distinct states, no violation & --\\
+\texttt{Prefix4\_\{same,shared2,shared1\}\_noCross} (no cross-epoch guard) & no error; 1,172,954, 6,388,260 and 6,464,176 states & 42\,s, 5.1, 7.4\,min\\
+\texttt{Prefix6\_same\_noCross\_sim}, \texttt{Prefix6\_shared3\_noCross\_sim} & no violation in 2.27\,M and 2.47\,M traces (simulation) & 30\,min each\\
 \midrule
 \texttt{Recovery4\_same\_exempt} & \texttt{NoConflict} violated after 16 steps & 6\,s$^\dagger$\\
 \texttt{Recovery4\_\{disjoint,shared1,shared2\}\_exempt} & \texttt{NoConflict} violated after 16 steps & $<1$\,min$^\dagger$\\

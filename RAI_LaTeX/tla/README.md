@@ -52,6 +52,8 @@ The header comment of each module lists its abstractions. No model covers more t
 | `Prefix6_disjoint_nofresh_sim`, `Prefix6_shared3_target_sim`, `Prefix6_shared3_nofresh_sim` | `NoConflict` violated (random simulation) | < 1 s |
 | `Prefix6_same_probes`, `Prefix6_shared3_probes` | probes violated, as intended | 14 s, 3.7 min |
 | `Prefix6_same_fixed`, `Prefix6_shared3_target` (BFS) | unfinished at archive time (13.4 M and 35.8 M distinct states, no violation so far) | - |
+| `Prefix4_same_noCross`, `_shared2_noCross`, `_shared1_noCross` | no cross-epoch guard (`CROSS <- CrossOff`) | no error, 1,172,954 / 6,388,260 / 6,464,176 distinct states, depth 28 | 42 s, 5.1 min, 7.4 min |
+| `Prefix6_same_noCross_sim`, `Prefix6_shared3_noCross_sim` | no cross-epoch guard, random simulation, depth 100 | no violation in 2,268,734 and 2,471,301 traces | 30 min each |
 
 `RaiRecovery.tla` checks owner recovery on top of a recovery-locked block: conflicting X and Y at position 1, children CX (on X) and CY (on Y) at position 2, one closure, installation, early and settled votes; a final child finalizes its parent. Switch: `EXEMPT = TRUE` is the earlier rule (a tip retained under a recovery record alone may always be extended), `EXEMPT = FALSE` the re-notarization rule (such a tip is a parent in epoch 2 only with an epoch-2 NC). `recovery.sh` runs every configuration below.
 
