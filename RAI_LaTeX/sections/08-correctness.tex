@@ -1,6 +1,6 @@
 \section{Why It Is Safe and Why It Terminates}
 \label{sec:correctness}
-We state the results and give the reason for each in a sentence or two; the supplement has the full proofs, numbered as here. Safety relies on the integrity of set reconstruction and on the agreement, eligibility, and verifiability of agreement; termination also relies on their termination properties.
+We state the results and give the reason for each in a sentence or two; the supplement has the full proofs, numbered as here, with Theorem~\ref{thm:live} split in two. Safety relies on the integrity of set reconstruction and on the agreement, eligibility, and verifiability of agreement; termination also relies on their termination properties.
 
 Three lemmas carry the arguments. \emph{Account exclusion} (Lemma~1): two sets of $q$ supporters share a correct validator, so at most one block per position has an exclusion witness, and a block that can become fast-final leaves every rival fewer than $r$ supporters. \emph{Notarized ancestry} (Lemma~2): a child is first-voted only on a parent that is final, under a notarization lock, or notarized in the child's epoch, so two conflicting final branches meet at one position where Lemma~1 or a lock excludes one. \emph{Exposure} (Lemma~4): a correct reporter's frozen report shows every block it final-voted as notarized or final and lists every other block it first-voted, including blocks the predecessor already kept.
 

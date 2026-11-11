@@ -55,3 +55,27 @@ Points to work into the manuscript. Remove an entry once the text carries it.
 
 - The one `\fillin` left: the ChatGPT model and version in AI Tool Usage (`main.tex`).
 - Check the year 2018 of the Nano white paper [5] against the source.
+
+## Review of Nov 11 2026 (external review, checked against the code)
+
+Done in the text:
+
+- Supplement title matches the main paper's. The supplement says its nine modules are the main text's eight models. Section VIII says Theorem 3 is split in two in the supplement. Figure 5's caption names the Warsaw validator.
+- Workload: every measured block is a representative change (`tools/nanospam/src/high_prio_check.rs`: constant balance, `Link::ZERO`), so the runs have no send/receive pairs. Section X (setup, threats) and the supplement's limitations now say so.
+- Report scope: `T_i` is defined over the whole ledger, but checks and `Build` read only what differs from `S_{e-1}` (`CertifiedState` base + delta, `changed_entries`); stated in Appendix C and the implementation notes. Scaling in `N` is listed as not measured.
+
+Open, needs a decision (review concern 1, manifest omission):
+
+- The reviewer's literal trace does not run in the prototype: after installing `S_{e-1}` a correct validator casts no first or final vote for a block that bypasses a surviving record unless the bypassing block is final at it (`at_closed_lock`, "checkpoints decide"), and then its report tags that block `F`, which is justified only with the discharge witnesses (`unjustified`, `witnessed`).
+- A variant does run, by code reading (no test or run yet): final votes cast before `S_{e-1}` is installed. `S_{e-1}` holds `B'` under a recovery record of origin `e-1` while `XW_{e-1}(B)` completes from late notarizations; validators that never saw `B'` first-vote `B` early in epoch `e`, hold `XW_{e-1}(B)` and `NC_e(B)`, and final-vote `B` under the overlap rule; one final vote is withheld. Their reports tag `B` `N`. An `N` entry needs no witness (`unjustified`), and `build_state` drops a claim that bypasses an undischarged record, so a manifest without the epoch-`(e-1)` votes for `B` is accepted (`evidence_committed` rechecks only uncovered hashes, and the `N` entry is justified by `NC_e(B)` alone) and `S_e` keeps `B'` without `B`. The proposer need not be Byzantine: it is enough that it lacks the late notarizations. `FC_e(B)` can then complete while `B'` is voted in epoch `e+1`. The formal protocol excludes this through the admission-witness digest (departures 1 and 2 drop it); the models assume the manifest discharges every lock a selected correct vote relied on.
+- Proposed fix (deterministic, close to the formal rule): a reporter lists its own final vote for an `N`-tagged block that bypasses a record of `S_{e-1}` (`ResidualKind::Final`, today malformed next to an `N` tag); such a record is usable, and a manifest selecting it valid, only with the discharge witnesses. A correct final voter holds them, so the `p+1` correct final voters in any selection force the witness into the manifest; a Byzantine reporter's unbacked record makes only its own report unusable. Alternative: a close voter refuses a candidate that drops a block it final-voted (sound by quorum intersection, but eligibility is then no longer the same predicate at every validator).
+- Until decided, Appendix C-C and departures 1 and 2 are unchanged.
+
+Open, other review points:
+
+- Close cost breakdown on the WAN runs (reconciliation time, manifest bytes, `Build` and signature time, round time) and scaling beyond `N = 6`: not measured. `EPOCH_VALIDATE_TIMING` has evidence and build times per close in the node logs.
+- Committee change in every epoch and a cold newcomer across regions: only the one-host limitation is reported.
+- Stored signatures instead of re-signing after a restart (needed for per-epoch key erasure): not implemented.
+- Stake-weighted quorums: the selection of exactly `N-f` reports in identity order has no direct weighted counterpart (subsets reaching the weight threshold differ in size); Section IV only says the safety intersections carry over.
+- Framing: the introduction does not say that agreement runs once per epoch off the payment path, and Section IV does not say that `p = 0` gives `N = 3f+1`.
+- Receive dependencies under Rule 3 (does `M` carry send finality proofs for promoted receives): the prototype's `build_state` has no finalized-send closure to check this against.
