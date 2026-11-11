@@ -101,14 +101,33 @@ def settlement(counts, states, min_closed):
     decided = [{e for e, c in node.items() if c.get('closed_value')} for node in closes]
     every = set.intersection(*decided) if decided else set()
     any_ = set.union(*decided) if decided else set()
-    values = {e: {node[e].get('closed_value') for node in closes if e in node and node[e].get('closed_value')}
-              for e in any_}
-    agree = all(len(v) == 1 for v in values.values())
+    states, rounds_differ = decided_states(closes, any_)
+    agree = all(len(v) == 1 for v in states.values())
     return dict(all_cemented=all_cemented, cemented=sorted(cemented), held=sorted(held),
                 uncemented=sorted({int(c['count']) - int(c['cemented']) for c in counts}),
                 decided_everywhere=sorted(every), decided_somewhere=sorted(any_),
-                values_agree=agree,
+                values_agree=agree, rounds_differ=rounds_differ,
                 settled=all_cemented and agree and every == any_ and len(every) >= min_closed)
+
+
+def decided_states(closes, epochs):
+    """epoch -> the checkpoint states the validators decided, and the epochs
+    in which they finalized it in different close rounds. A placement in a
+    later round that extends a notarized one copies its reports, manifest and
+    state, so validators that finalize the parent and ones that finalize the
+    child decide the same checkpoint under two value hashes: what must agree
+    is the state. A validator that took the decided checkpoint from another
+    (catch-up) reports no derived state; its value hash is mapped to the state
+    a validator derived for that value, and kept as the value itself when no
+    validator did."""
+    states, rounds_differ = {}, []
+    for e in epochs:
+        decided = [node[e] for node in closes if e in node and node[e].get('closed_value')]
+        derived = {c['closed_value']: c['value'] for c in decided if c.get('value')}
+        states[e] = {c.get('value') or derived.get(c['closed_value'], c['closed_value']) for c in decided}
+        if len({c['closed_value'] for c in decided}) > 1:
+            rounds_differ.append(e)
+    return states, rounds_differ
 
 
 def quantile(histogram, q):
