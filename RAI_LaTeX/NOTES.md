@@ -76,6 +76,9 @@ Open, other review points:
 - Close cost breakdown on the WAN runs (reconciliation time, manifest bytes, `Build` and signature time, round time) and scaling beyond `N = 6`: not measured. `EPOCH_VALIDATE_TIMING` has evidence and build times per close in the node logs.
 - Committee change in every epoch and a cold newcomer across regions: only the one-host limitation is reported.
 - Stored signatures instead of re-signing after a restart (needed for per-epoch key erasure): not implemented.
-- Stake-weighted quorums: the selection of exactly `N-f` reports in identity order has no direct weighted counterpart (subsets reaching the weight threshold differ in size); Section IV only says the safety intersections carry over.
-- Framing: the introduction does not say that agreement runs once per epoch off the payment path, and Section IV does not say that `p = 0` gives `N = 3f+1`.
-- Receive dependencies under Rule 3 (does `M` carry send finality proofs for promoted receives): the prototype's `build_state` has no finalized-send closure to check this against.
+
+Done (Nov 11, later):
+
+- Section IV: reports are selected by weight, as the prototype does (identity order until the report weight is reached, `epoch_decision.rs`); the supplement's implementation notes give the rule. The counts in the proofs as weight bounds remain unchecked.
+- Introduction: the checkpoint agreement is RAI's only agreement, once per epoch and off the payment path. Section IV: `p = 0` gives `N = 3f+1` without the one-round path.
+- Appendix C, Rule 3: the send of a promoted receive is already in `F*` (the `p+1` selected correct first voters tag it `F` with its proof), so the dependency closure adds no finality. The limitations say the prototype's construction does not compute the closure and that receives are neither modelled nor measured. Not checked: whether the prototype's block processing keeps a receive from being voted before its send is final.
