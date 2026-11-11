@@ -45,6 +45,19 @@ CONSTANTS K1, K2, byz, RULE, MAXKEEP
 CROSS    == TRUE
 CrossOff == FALSE
 
+\* What forces a discharge witness into the manifest of S2 (prototype,
+\* departures 1 and 2: no admission-witness digest).
+\*  "final"   : a selected correct reporter's settled first vote (its F
+\*              entry carries the witness) or its final vote released while
+\*              holding the witness (listed in G next to the N tag).  The
+\*              prototype since the final-vote report rule; it is also what
+\*              the admission-witness digest guarantees.
+\*  "settled" : settled first votes only, as in the prototype before that
+\*              rule: an N entry needed no witness.
+\* A configuration selects the second with CONSTANT BIND <- BindSettled.
+BIND        == "final"
+BindSettled == "settled"
+
 C       == K1 \cup K2
 Blocks  == {"X", "Y"}
 Other(b) == IF b = "X" THEN "Y" ELSE "X"
@@ -201,9 +214,11 @@ ByzReps2 ==
      /\ \A b \in r.G : r.T[b] \notin {"N", "F"}}
 
 \* A correct reporter's vote for b brings the discharge witness with it if
-\* the vote was cast after installing S1, or its final vote was released
-\* while holding the witness.
-Relied(i, b) == fv2[i] = b /\ (~early[i] \/ fn2[i] = "wit")
+\* the vote was cast after installing S1, or (BIND = "final") its final vote
+\* was released while holding the witness.
+Relied(i, b) == /\ fv2[i] = b
+                /\ \/ ~early[i]
+                   \/ BIND = "final" /\ fn2[i] = "wit"
 
 Close2 ==
   /\ S1.done /\ ~S2.done

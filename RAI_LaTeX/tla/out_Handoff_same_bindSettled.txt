@@ -1,0 +1,278 @@
+TLC2 Version 2.20 of Day Month 20?? (rev: 2cf8424)
+Running breadth-first search Model-Checking with fp 33 and seed 3053941306257426872 with 4 workers on 8 cores with 3641MB heap and 64MB offheap memory [pid: 1] (Mac OS X 14.6.1 aarch64, Eclipse Adoptium 17.0.7 x86_64, MSBDiskFPSet, DiskStateQueue).
+Parsing file /home/claude/rai/tla/RaiHandoff.tla
+Parsing file /tmp/tlc-11727480400764451649/Naturals.tla (jar:file:/home/claude/rai/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
+Parsing file /tmp/tlc-11727480400764451649/FiniteSets.tla (jar:file:/home/claude/rai/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
+Parsing file /tmp/tlc-11727480400764451649/TLC.tla (jar:file:/home/claude/rai/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
+Parsing file /tmp/tlc-11727480400764451649/_TLCTrace.tla (jar:file:/home/claude/rai/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
+Parsing file /tmp/tlc-11727480400764451649/Sequences.tla (jar:file:/home/claude/rai/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
+Parsing file /tmp/tlc-11727480400764451649/TLCExt.tla (jar:file:/home/claude/rai/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
+Parsing file /tmp/tlc-11727480400764451649/Integers.tla (jar:file:/home/claude/rai/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module Integers
+Semantic processing of module TLCExt
+Semantic processing of module _TLCTrace
+Semantic processing of module RaiHandoff
+Linting of module TLCExt
+Linting of module _TLCTrace
+Linting of module RaiHandoff
+Starting... (2026-11-11 13:35:37)
+Computing initial states...
+Finished computing initial states: 1 distinct state generated at 2026-11-11 13:35:37.
+Progress(15) at 2026-11-11 13:35:40: 174 111 states generated (174 111 s/min), 41 689 distinct states found (41 689 ds/min), 24 168 states left on queue.
+Progress(20) at 2026-11-11 13:36:40: 6 353 198 states generated (6 179 087 s/min), 1 367 279 distinct states found (1 325 590 ds/min), 527 792 states left on queue.
+Progress(22) at 2026-11-11 13:37:40: 13 018 088 states generated (6 664 890 s/min), 2 733 330 distinct states found (1 366 051 ds/min), 855 361 states left on queue.
+Progress(23) at 2026-11-11 13:38:40: 17 967 015 states generated (4 948 927 s/min), 3 721 818 distinct states found (988 488 ds/min), 990 097 states left on queue.
+Progress(23) at 2026-11-11 13:39:40: 18 559 270 states generated (592 255 s/min), 3 837 138 distinct states found (115 320 ds/min), 997 394 states left on queue.
+Progress(23) at 2026-11-11 13:40:40: 19 826 094 states generated (1 266 824 s/min), 4 091 128 distinct states found (253 990 ds/min), 1 015 215 states left on queue.
+Progress(24) at 2026-11-11 13:41:40: 22 682 906 states generated (2 856 812 s/min), 4 643 147 distinct states found (552 019 ds/min), 1 025 379 states left on queue.
+Progress(25) at 2026-11-11 13:42:40: 27 534 178 states generated (4 851 272 s/min), 5 583 106 distinct states found (939 959 ds/min), 1 008 250 states left on queue.
+Error: Invariant ClosureThm1b is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ ph = (c1 :> "e1" @@ c2 :> "e1" @@ c3 :> "e1" @@ c4 :> "e1" @@ c5 :> "e1")
+/\ early = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fv1 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv2 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ S1 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ S2 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn2 = (c1 :> "no" @@ c2 :> "no" @@ c3 :> "no" @@ c4 :> "no" @@ c5 :> "no")
+
+State 2: <Vote1(c1,"X") line 120, col 3 to line 122, col 51 of module RaiHandoff>
+/\ ph = (c1 :> "e1" @@ c2 :> "e1" @@ c3 :> "e1" @@ c4 :> "e1" @@ c5 :> "e1")
+/\ early = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fv1 = (c1 :> "X" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv2 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ S1 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ S2 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn2 = (c1 :> "no" @@ c2 :> "no" @@ c3 :> "no" @@ c4 :> "no" @@ c5 :> "no")
+
+State 3: <Vote1(c2,"X") line 120, col 3 to line 122, col 51 of module RaiHandoff>
+/\ ph = (c1 :> "e1" @@ c2 :> "e1" @@ c3 :> "e1" @@ c4 :> "e1" @@ c5 :> "e1")
+/\ early = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv2 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ S1 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ S2 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn2 = (c1 :> "no" @@ c2 :> "no" @@ c3 :> "no" @@ c4 :> "no" @@ c5 :> "no")
+
+State 4: <Leave1(c3) line 130, col 3 to line 132, col 52 of module RaiHandoff>
+/\ ph = (c1 :> "e1" @@ c2 :> "e1" @@ c3 :> "e2" @@ c4 :> "e1" @@ c5 :> "e1")
+/\ early = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv2 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ S1 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ S2 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn2 = (c1 :> "no" @@ c2 :> "no" @@ c3 :> "no" @@ c4 :> "no" @@ c5 :> "no")
+
+State 5: <Vote2(c3,"Y") line 140, col 3 to line 148, col 44 of module RaiHandoff>
+/\ ph = (c1 :> "e1" @@ c2 :> "e1" @@ c3 :> "e2" @@ c4 :> "e1" @@ c5 :> "e1")
+/\ early = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv2 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "-" @@ c5 :> "-")
+/\ S1 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ S2 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn2 = (c1 :> "no" @@ c2 :> "no" @@ c3 :> "no" @@ c4 :> "no" @@ c5 :> "no")
+
+State 6: <Leave1(c4) line 130, col 3 to line 132, col 52 of module RaiHandoff>
+/\ ph = (c1 :> "e1" @@ c2 :> "e1" @@ c3 :> "e2" @@ c4 :> "e2" @@ c5 :> "e1")
+/\ early = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv2 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "-" @@ c5 :> "-")
+/\ S1 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ S2 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn2 = (c1 :> "no" @@ c2 :> "no" @@ c3 :> "no" @@ c4 :> "no" @@ c5 :> "no")
+
+State 7: <Vote2(c4,"Y") line 140, col 3 to line 148, col 44 of module RaiHandoff>
+/\ ph = (c1 :> "e1" @@ c2 :> "e1" @@ c3 :> "e2" @@ c4 :> "e2" @@ c5 :> "e1")
+/\ early = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE @@ c4 :> TRUE @@ c5 :> FALSE)
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv2 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "-")
+/\ S1 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ S2 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn2 = (c1 :> "no" @@ c2 :> "no" @@ c3 :> "no" @@ c4 :> "no" @@ c5 :> "no")
+
+State 8: <Leave1(c1) line 130, col 3 to line 132, col 52 of module RaiHandoff>
+/\ ph = (c1 :> "e2" @@ c2 :> "e1" @@ c3 :> "e2" @@ c4 :> "e2" @@ c5 :> "e1")
+/\ early = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE @@ c4 :> TRUE @@ c5 :> FALSE)
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv2 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "-")
+/\ S1 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ S2 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn2 = (c1 :> "no" @@ c2 :> "no" @@ c3 :> "no" @@ c4 :> "no" @@ c5 :> "no")
+
+State 9: <Leave1(c2) line 130, col 3 to line 132, col 52 of module RaiHandoff>
+/\ ph = (c1 :> "e2" @@ c2 :> "e2" @@ c3 :> "e2" @@ c4 :> "e2" @@ c5 :> "e1")
+/\ early = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE @@ c4 :> TRUE @@ c5 :> FALSE)
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv2 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "-")
+/\ S1 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ S2 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn2 = (c1 :> "no" @@ c2 :> "no" @@ c3 :> "no" @@ c4 :> "no" @@ c5 :> "no")
+
+State 10: <Leave1(c5) line 130, col 3 to line 132, col 52 of module RaiHandoff>
+/\ ph = (c1 :> "e2" @@ c2 :> "e2" @@ c3 :> "e2" @@ c4 :> "e2" @@ c5 :> "e2")
+/\ early = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE @@ c4 :> TRUE @@ c5 :> FALSE)
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv2 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "-")
+/\ S1 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ S2 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn2 = (c1 :> "no" @@ c2 :> "no" @@ c3 :> "no" @@ c4 :> "no" @@ c5 :> "no")
+
+State 11: <Vote2(c5,"Y") line 140, col 3 to line 148, col 44 of module RaiHandoff>
+/\ ph = (c1 :> "e2" @@ c2 :> "e2" @@ c3 :> "e2" @@ c4 :> "e2" @@ c5 :> "e2")
+/\ early = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE @@ c4 :> TRUE @@ c5 :> TRUE)
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv2 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ S1 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ S2 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn2 = (c1 :> "no" @@ c2 :> "no" @@ c3 :> "no" @@ c4 :> "no" @@ c5 :> "no")
+
+State 12: <FinalVote2(c3) line 151, col 3 to line 158, col 51 of module RaiHandoff>
+/\ ph = (c1 :> "e2" @@ c2 :> "e2" @@ c3 :> "e2" @@ c4 :> "e2" @@ c5 :> "e2")
+/\ early = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE @@ c4 :> TRUE @@ c5 :> TRUE)
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv2 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ S1 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ S2 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn2 = (c1 :> "no" @@ c2 :> "no" @@ c3 :> "wit" @@ c4 :> "no" @@ c5 :> "no")
+
+State 13: <Close1 line 178, col 3 to line 198, col 52 of module RaiHandoff>
+/\ ph = (c1 :> "e2" @@ c2 :> "e2" @@ c3 :> "e2" @@ c4 :> "e2" @@ c5 :> "e2")
+/\ early = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE @@ c4 :> TRUE @@ c5 :> TRUE)
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv2 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ S1 = [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "X", o |-> 1]}]
+/\ S2 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn2 = (c1 :> "no" @@ c2 :> "no" @@ c3 :> "wit" @@ c4 :> "no" @@ c5 :> "no")
+
+State 14: <Install(c1) line 135, col 3 to line 137, col 52 of module RaiHandoff>
+/\ ph = (c1 :> "in" @@ c2 :> "e2" @@ c3 :> "e2" @@ c4 :> "e2" @@ c5 :> "e2")
+/\ early = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE @@ c4 :> TRUE @@ c5 :> TRUE)
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv2 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ S1 = [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "X", o |-> 1]}]
+/\ S2 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn2 = (c1 :> "no" @@ c2 :> "no" @@ c3 :> "wit" @@ c4 :> "no" @@ c5 :> "no")
+
+State 15: <Leave2(c1) line 161, col 3 to line 163, col 52 of module RaiHandoff>
+/\ ph = (c1 :> "out" @@ c2 :> "e2" @@ c3 :> "e2" @@ c4 :> "e2" @@ c5 :> "e2")
+/\ early = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE @@ c4 :> TRUE @@ c5 :> TRUE)
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv2 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ S1 = [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "X", o |-> 1]}]
+/\ S2 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn2 = (c1 :> "no" @@ c2 :> "no" @@ c3 :> "wit" @@ c4 :> "no" @@ c5 :> "no")
+
+State 16: <Install(c2) line 135, col 3 to line 137, col 52 of module RaiHandoff>
+/\ ph = (c1 :> "out" @@ c2 :> "in" @@ c3 :> "e2" @@ c4 :> "e2" @@ c5 :> "e2")
+/\ early = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE @@ c4 :> TRUE @@ c5 :> TRUE)
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv2 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ S1 = [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "X", o |-> 1]}]
+/\ S2 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn2 = (c1 :> "no" @@ c2 :> "no" @@ c3 :> "wit" @@ c4 :> "no" @@ c5 :> "no")
+
+State 17: <Leave2(c2) line 161, col 3 to line 163, col 52 of module RaiHandoff>
+/\ ph = (c1 :> "out" @@ c2 :> "out" @@ c3 :> "e2" @@ c4 :> "e2" @@ c5 :> "e2")
+/\ early = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE @@ c4 :> TRUE @@ c5 :> TRUE)
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv2 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ S1 = [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "X", o |-> 1]}]
+/\ S2 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn2 = (c1 :> "no" @@ c2 :> "no" @@ c3 :> "wit" @@ c4 :> "no" @@ c5 :> "no")
+
+State 18: <Install(c4) line 135, col 3 to line 137, col 52 of module RaiHandoff>
+/\ ph = (c1 :> "out" @@ c2 :> "out" @@ c3 :> "e2" @@ c4 :> "in" @@ c5 :> "e2")
+/\ early = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE @@ c4 :> TRUE @@ c5 :> TRUE)
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv2 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ S1 = [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "X", o |-> 1]}]
+/\ S2 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn2 = (c1 :> "no" @@ c2 :> "no" @@ c3 :> "wit" @@ c4 :> "no" @@ c5 :> "no")
+
+State 19: <Install(c3) line 135, col 3 to line 137, col 52 of module RaiHandoff>
+/\ ph = (c1 :> "out" @@ c2 :> "out" @@ c3 :> "in" @@ c4 :> "in" @@ c5 :> "e2")
+/\ early = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE @@ c4 :> TRUE @@ c5 :> TRUE)
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv2 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ S1 = [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "X", o |-> 1]}]
+/\ S2 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn2 = (c1 :> "no" @@ c2 :> "no" @@ c3 :> "wit" @@ c4 :> "no" @@ c5 :> "no")
+
+State 20: <Leave2(c3) line 161, col 3 to line 163, col 52 of module RaiHandoff>
+/\ ph = (c1 :> "out" @@ c2 :> "out" @@ c3 :> "out" @@ c4 :> "in" @@ c5 :> "e2")
+/\ early = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE @@ c4 :> TRUE @@ c5 :> TRUE)
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv2 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ S1 = [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "X", o |-> 1]}]
+/\ S2 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn2 = (c1 :> "no" @@ c2 :> "no" @@ c3 :> "wit" @@ c4 :> "no" @@ c5 :> "no")
+
+State 21: <FinalVote2(c4) line 151, col 3 to line 158, col 51 of module RaiHandoff>
+/\ ph = (c1 :> "out" @@ c2 :> "out" @@ c3 :> "out" @@ c4 :> "in" @@ c5 :> "e2")
+/\ early = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE @@ c4 :> TRUE @@ c5 :> TRUE)
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv2 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ S1 = [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "X", o |-> 1]}]
+/\ S2 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn2 = (c1 :> "no" @@ c2 :> "no" @@ c3 :> "wit" @@ c4 :> "wit" @@ c5 :> "no")
+
+State 22: <Leave2(c4) line 161, col 3 to line 163, col 52 of module RaiHandoff>
+/\ ph = (c1 :> "out" @@ c2 :> "out" @@ c3 :> "out" @@ c4 :> "out" @@ c5 :> "e2")
+/\ early = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE @@ c4 :> TRUE @@ c5 :> TRUE)
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv2 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ S1 = [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "X", o |-> 1]}]
+/\ S2 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn2 = (c1 :> "no" @@ c2 :> "no" @@ c3 :> "wit" @@ c4 :> "wit" @@ c5 :> "no")
+
+State 23: <FinalVote2(c5) line 151, col 3 to line 158, col 51 of module RaiHandoff>
+/\ ph = (c1 :> "out" @@ c2 :> "out" @@ c3 :> "out" @@ c4 :> "out" @@ c5 :> "e2")
+/\ early = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE @@ c4 :> TRUE @@ c5 :> TRUE)
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv2 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ S1 = [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "X", o |-> 1]}]
+/\ S2 = [done |-> FALSE, fin |-> {}, locks |-> {}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn2 = (c1 :> "no" @@ c2 :> "no" @@ c3 :> "wit" @@ c4 :> "wit" @@ c5 :> "wit")
+
+State 24: <Close2 line 224, col 3 to line 253, col 52 of module RaiHandoff>
+/\ ph = (c1 :> "out" @@ c2 :> "out" @@ c3 :> "out" @@ c4 :> "out" @@ c5 :> "e2")
+/\ early = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> TRUE @@ c4 :> TRUE @@ c5 :> TRUE)
+/\ fv1 = (c1 :> "X" @@ c2 :> "X" @@ c3 :> "-" @@ c4 :> "-" @@ c5 :> "-")
+/\ fv2 = (c1 :> "-" @@ c2 :> "-" @@ c3 :> "Y" @@ c4 :> "Y" @@ c5 :> "Y")
+/\ S1 = [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "X", o |-> 1]}]
+/\ S2 = [done |-> TRUE, fin |-> {}, locks |-> {[b |-> "X", o |-> 1]}]
+/\ fn1 = (c1 :> FALSE @@ c2 :> FALSE @@ c3 :> FALSE @@ c4 :> FALSE @@ c5 :> FALSE)
+/\ fn2 = (c1 :> "no" @@ c2 :> "no" @@ c3 :> "wit" @@ c4 :> "wit" @@ c5 :> "wit")
+
+29135186 states generated, 5884446 distinct states found, 977845 states left on queue.
+The depth of the complete state graph search is 25.
+Finished in 07min 24s at (2026-11-11 13:43:02)
+Trace exploration spec path: ./RaiHandoff_TTrace_1794404137.tla

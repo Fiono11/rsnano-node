@@ -19,13 +19,14 @@ The `out_*.txt` files are the outputs of the runs reported below, including the 
 | `Overlap_noSplit_safety` | RaiOverlap | NC split off | other four invariants hold, 5,485,444 distinct states | 14 min |
 | `Overlap_probe1`, `_probe2` | RaiOverlap | all on | probes violated, as intended: overlap finality and "final block versus lock on its rival" are reachable | < 1 min |
 
-`RaiHandoff.tla` combines early voting, two closures and a changing committee. `RULE = TRUE` is "no fast path on early votes".
+`RaiHandoff.tla` combines early voting, two closures and a changing committee. `RULE = TRUE` is "no fast path on early votes". `BIND` (default `"final"`) says what forces a discharge witness into the manifest of S2: a selected correct reporter's settled first vote or its final vote released with the witness; `BIND <- BindSettled` keeps only the first.
 
 | Config | Committees | Certificates | Result | Time (2 cores) |
 |---|---|---|---|---|
 | `Handoff_same_norule` | same five | off | `ClosureThm1b` violated after 22 steps (Case 3) | 11 min |
 | `Handoff_disjoint_norule` | disjoint | off | `ClosureThm1b` violated after 23 steps | 15 min |
 | `Handoff_same_rule` | same five | early-vote rule | no error, 8,347,138 distinct states | 15 min |
+| `Handoff_same_bindSettled` | same five | early-vote rule, final votes do not bind the witness (`BIND <- BindSettled`, the prototype before the final-vote report rule) | `ClosureThm1b` violated after 25 steps (Case 8) | 7.4 min (4 workers) |
 | `Handoff_disjoint_rule` | disjoint | early-vote rule | no error, 3,707,876 distinct states | 17 min |
 | `Handoff_same_noCross` | same five | early-vote rule, no cross-epoch guard | no error, 21,898,422 distinct states, depth 38 | 17 min |
 | `Handoff_disjoint_noCross` | disjoint | early-vote rule, no cross-epoch guard | no error, 3,707,876 distinct states (no member is in both committees, so the guard never applies) | 7 min |
