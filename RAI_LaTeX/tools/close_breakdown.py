@@ -3,6 +3,7 @@
 six-region matrix.
 
   close_breakdown.py <out file> <matrix dir>...
+  close_breakdown.py --runs <out file> <run dir>...   (one row per run)
 
 Each run comes from the first matrix that has it, so reruns go first (as in
 wan_figures.py). For every close of every validator of every RAI run of the
@@ -104,25 +105,37 @@ COLUMNS = ['freeze', 'reconcile', 'check', 'agree', 'install', 'total',
            'rounds', 'symbols', 'certified', 'residual', 'manifest']
 
 
+def summary(name, rows):
+    values = []
+    for column in COLUMNS:
+        series = [row[column] for row in rows if column in row]
+        if series:
+            values += [f'{statistics.median(series):g}', f'{max(series):g}']
+        else:
+            values += ['-', '-']
+    return f'{name} {len(rows)} ' + ' '.join(values)
+
+
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument('--runs', action='store_true',
+                        help='the directories are single runs, one row each')
     parser.add_argument('out', type=Path)
-    parser.add_argument('matrices', type=Path, nargs='+')
+    parser.add_argument('dirs', type=Path, nargs='+')
     args = parser.parse_args()
     lines = ['# scenario closes ' + ' '.join(f'{c}_med {c}_max' for c in COLUMNS)]
-    for cell in SCENARIOS:
+    if args.runs:
+        for run in args.dirs:
+            rows = []
+            for log in sorted(run.glob('pr*/diagnostics.log')):
+                rows.extend(measures(closes_of(log)))
+            lines.append(summary(run.name, rows))
+    for cell in [] if args.runs else SCENARIOS:
         rows = []
         for rep in range(1, REPS + 1):
-            for log in sorted(run_dir(args.matrices, cell, rep).glob('pr*/diagnostics.log')):
+            for log in sorted(run_dir(args.dirs, cell, rep).glob('pr*/diagnostics.log')):
                 rows.extend(measures(closes_of(log)))
-        values = []
-        for column in COLUMNS:
-            series = [row[column] for row in rows if column in row]
-            if series:
-                values += [f'{statistics.median(series):g}', f'{max(series):g}']
-            else:
-                values += ['-', '-']
-        lines.append(f'{cell} {len(rows)} ' + ' '.join(values))
+        lines.append(summary(cell, rows))
     args.out.write_text('\n'.join(lines) + '\n')
     print('\n'.join(lines))
 
