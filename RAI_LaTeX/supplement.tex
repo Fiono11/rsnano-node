@@ -238,7 +238,7 @@ Two alternatives fail. Retaining both blocks at the second closure keeps the one
 \label{app:stall}
 Without the termination rules of Appendix~\ref{sec:voting} and Rule~2's keep pass, a forked position can stay open forever although every epoch is good. Take the first run of Case~5 with the re-notarization rule, which refuses the owner's child $C'$ until $B'$ is notarized again. In each later epoch validators 3, 4, 5 first-vote $B$ again: before installing the checkpoint the cross-epoch rule allows re-voting the same block, and after it the old witness $\XW_e(B)$ still admits $B$. Validators 1 and 2 vote $B'$, and validator~6 withholds the one vote either side needs. Neither block is notarized, the next checkpoint keeps $B'$ again, and the owner cannot help: $C'$ waits for $B'$. Nor could a different child rule help: in the second run $B$ may already be final when the owner publishes $C'$, and validators 1 and 2 cannot tell the two runs apart. Recovery cannot rest on the owner extending the kept block either, since that route is unsafe.
 
-Each rule removes one ingredient. With \emph{checkpoints decide}, validators 3, 4, 5 stop voting $B$ after installing the checkpoint; with \emph{no early votes at a contested position}, they do not re-vote it before; and with Rule~2's keep pass, a checkpoint never leaves a voted position empty, which an adversary could otherwise split again. \texttt{RaiResolve} (Appendix~\ref{app:models}) finds the stall with the rules off, also when the position starts uncontested, and checks with them on that two good epochs finalize the position.
+Each rule removes one ingredient. With \emph{checkpoints decide}, validators 3, 4, 5 stop voting $B$ after installing the checkpoint; with \emph{no early votes at a contested position}, they do not re-vote it before (without this rule alone, \texttt{RaiResolve} finds the stall in 20 steps: in two good epochs the correct validators re-vote their old sides early, two against one, and the Byzantine validator withholds the third vote); and with Rule~2's keep pass, a checkpoint never leaves a voted position empty, which an adversary could otherwise split again. \texttt{RaiResolve} (Appendix~\ref{app:models}) finds the stall with the rules off, also when the position starts uncontested, and checks with them on that two good epochs finalize the position.
 
 \subsection{Rule~2 from the lowest position}
 \label{app:bottomup}
@@ -350,6 +350,8 @@ Configuration & Result & Time\\
 \texttt{Resolve4\_norules\_sim}, \texttt{\_norules\_23\_sim} & \texttt{TwoGood} violated (simulation) & $<2$\,s$^\dagger$\\
 \texttt{Resolve4\_rules\_sim} & no violation in 493,465 random runs (88\,M states) & 15\,min$^\dagger$\\
 \texttt{Resolve4\_rules\_23} & no error, no deadlock; 4,635,660 states, depth 33 & 8.8\,min$^\dagger$\\
+\texttt{Resolve4\_rules\_23\_earlykept} (early vote for the kept block allowed) & \texttt{TwoGood} violated & 4\,min\\
+\texttt{Resolve4\_rules\_23\_noContested}, \texttt{\_noR10} (R10 off; with \texttt{\_noR10} the cross-epoch rule too) & \texttt{TwoGood} violated after 20 steps & 8, 31\,min\\
 \texttt{Resolve4\_rules\_23\_ProbeOneGood}, \texttt{\_ProbeGood23} & probes violated, as intended (10 and 23 steps) & $<2$\,min$^\dagger$\\
 \bottomrule
 \end{tabularx}

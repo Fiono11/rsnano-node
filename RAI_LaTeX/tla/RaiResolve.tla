@@ -44,6 +44,13 @@ EXTENDS Naturals, FiniteSets, TLC
 
 CONSTANTS C, byz, N, f, p, RULES, EARLYKEPT
 
+\* R10 of the paper is rule (ii) with the cross-epoch rule as its consequence.
+\* A configuration turns either off with CONSTANT CONTESTED <- RuleOff or
+\* CONSTANT CROSS <- RuleOff; the other termination rules stay as RULES says.
+CONTESTED == TRUE
+CROSS     == TRUE
+RuleOff   == FALSE
+
 E        == 3
 Epochs   == 1..E
 Blocks   == {"X", "Y"}
@@ -89,8 +96,8 @@ VoteOK(v, b) ==
   LET e == cur[v]  k == inst[v]  settled == k = e - 1 IN
   /\ e <= E /\ fv[e][v] = "-" /\ b \in seen[v]
   /\ Admissible(k, b)
-  /\ (~settled /\ e > 1) => fv[e-1][v] \in {"-", b}        \* cross-epoch rule
-  /\ RULES => /\ Contested(v) /\ ~(EARLYKEPT /\ Kept(k) # {}) => settled  \* (ii)
+  /\ CROSS => ((~settled /\ e > 1) => fv[e-1][v] \in {"-", b})  \* cross-epoch rule
+  /\ RULES => /\ CONTESTED => (Contested(v) /\ ~(EARLYKEPT /\ Kept(k) # {}) => settled)  \* (ii)
               /\ Kept(k) # {} => b \in Kept(k)             \* (i)
 
 FinalOK(v) ==

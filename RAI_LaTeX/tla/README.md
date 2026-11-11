@@ -77,6 +77,9 @@ The header comment of each module lists its abstractions. No model covers more t
 | `Resolve4_norules_sim`, `Resolve4_norules_23_sim` | `TwoGood` violated (the stall) | < 2 s |
 | `Resolve4_rules_sim` | no violation in 493,465 random runs (88 M states) | 15 min (stopped) |
 | `Resolve4_rules_23` | no error, no deadlock, 4,635,660 distinct states, depth 33 | 8.8 min |
+| `Resolve4_rules_23_earlykept` | `TwoGood` violated (an early vote for the kept block is allowed) | 4 min |
+| `Resolve4_rules_23_noContested` | `TwoGood` violated after 20 steps: rule (ii) off (`CONTESTED <- RuleOff`), rules (i) and (iii) on | 8 min |
+| `Resolve4_rules_23_noR10` | `TwoGood` violated after 20 steps: rule (ii) and the cross-epoch rule off (`CROSS <- RuleOff`) | 31 min |
 | `Resolve4_rules_23_ProbeOneGood` | violated after 10 steps: one good epoch is not enough | 1 min |
 | `Resolve4_rules_23_ProbeGood23` | violated after 23 steps: the antecedent is reachable | 1 min |
 
