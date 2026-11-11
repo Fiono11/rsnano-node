@@ -182,6 +182,21 @@ impl AecService {
         self.aec.read().unwrap().final_voted_in_epoch(hash, epoch)
     }
 
+    /// The hashes this node final-voted in an epoch, of those given, under
+    /// one hold of the lock
+    pub fn final_voted_in_epoch_of<'h>(
+        &self,
+        hashes: impl IntoIterator<Item = &'h BlockHash>,
+        epoch: ConsensusEpoch,
+    ) -> std::collections::HashSet<BlockHash> {
+        let aec = self.aec.read().unwrap();
+        hashes
+            .into_iter()
+            .filter(|hash| aec.final_voted_in_epoch(hash, epoch))
+            .copied()
+            .collect()
+    }
+
     /// RAI: the explicitly finalized state per epoch
     pub fn finalized_by_epoch(&self) -> BTreeMap<ConsensusEpoch, FinalStateHash> {
         self.aec.read().unwrap().finalized_by_epoch().clone()
@@ -355,6 +370,29 @@ impl AecService {
             .map(|election| (election, held(election))))
     }
 
+    /// `round_robin_with_gate` in chunks of `KUDZU_SCAN_CHUNK` elections,
+    /// the lock taken per chunk: a scan of every open election in one read
+    /// hold - thousands of them, each looked at and some cloned - held the
+    /// lock for hundreds of milliseconds, and every vote waited behind it.
+    /// An election erased between chunks is skipped.
+    pub fn round_robin_with_gate_chunked<F>(&self, mut f: F)
+    where
+        F: FnMut(&mut dyn Iterator<Item = (&Election, bool)>),
+    {
+        let order = self.aec.read().unwrap().kudzu_scan_order();
+        for ids in order.chunks(KUDZU_SCAN_CHUNK) {
+            let guard = self.aec.read().unwrap();
+            #[cfg(feature = "rai_protocol")]
+            let held = |election: &Election| guard.held_at_gate(election);
+            #[cfg(not(feature = "rai_protocol"))]
+            let held = |_: &Election| false;
+            f(&mut ids
+                .iter()
+                .filter_map(|id| guard.election(id))
+                .map(|election| (election, held(election))));
+        }
+    }
+
     /// Kudzu: the votes to broadcast now, see Protocol 1; `proposal_valid`
     /// tells whether a block may be first voted
     pub(crate) fn kudzu_votes_due(
@@ -377,6 +415,21 @@ impl AecService {
             );
         }
         targets
+    }
+
+    /// `certificate_evidence` for every hash of a request, under one hold of
+    /// the lock: a request names up to hundreds of hashes, and one hold per
+    /// hash made millions of acquisitions
+    pub fn certificate_evidence_many<'h>(
+        &self,
+        hashes: impl IntoIterator<Item = &'h BlockHash>,
+        epoch: ConsensusEpoch,
+    ) -> Vec<(BlockHash, Option<(ElectionId, CertificateEvidence)>)> {
+        let aec = self.aec.read().unwrap();
+        hashes
+            .into_iter()
+            .map(|hash| (*hash, aec.certificate_evidence(hash, epoch)))
+            .collect()
     }
 
     /// Kudzu: the signed votes behind the certificates of a terminated election

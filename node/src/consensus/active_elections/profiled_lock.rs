@@ -134,6 +134,33 @@ impl<T> ProfiledRwLock<T> {
     }
 }
 
+/// RAI evaluation: a named section of work timed while the profile is on;
+/// the time is recorded when the guard is dropped
+pub(crate) struct Section {
+    label: &'static str,
+    since: Instant,
+}
+
+/// Starts timing a section; None without the switch
+pub(crate) fn section(label: &'static str) -> Option<Section> {
+    enabled().then(|| Section {
+        label,
+        since: Instant::now(),
+    })
+}
+
+impl Drop for Section {
+    fn drop(&mut self) {
+        let us = self.since.elapsed().as_micros() as u64;
+        let mut sites = sites().lock().unwrap();
+        // A section is a site with no line, its time counted as held
+        let stats = sites.entry((self.label, 0, false)).or_default();
+        stats.count += 1;
+        stats.hold_us += us;
+        stats.max_hold_us = stats.max_hold_us.max(us);
+    }
+}
+
 /// The places that held the lock longest since the last call, as
 /// `line:r|w:count:hold_ms:max_hold_ms:wait_ms:max_wait_ms`, and the table
 /// starts again. Empty without the switch.
@@ -145,11 +172,17 @@ pub(crate) fn take_lock_profile(top: usize) -> Vec<String> {
     let mut rows: Vec<(Site, SiteStats)> = taken.into_iter().collect();
     rows.sort_by_key(|(_, stats)| std::cmp::Reverse(stats.hold_us + stats.wait_us));
     rows.into_iter()
-        .take(top)
-        .map(|((_, line, write), stats)| {
+        .take(top + 8)
+        .map(|((file, line, write), stats)| {
+            // A timed section is named by its label instead of a line
+            let place = if line == 0 {
+                file.to_owned()
+            } else {
+                line.to_string()
+            };
             format!(
                 "{}:{}:{}:{}:{}:{}:{}",
-                line,
+                place,
                 if write { 'w' } else { 'r' },
                 stats.count,
                 stats.hold_us / 1000,

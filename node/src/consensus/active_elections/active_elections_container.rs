@@ -4430,8 +4430,11 @@ impl ActiveElectionsContainer {
     ) -> HashMap<BlockHash, Result<(), VoteError>> {
         // The epoch's end is due at the same instant on every replica, and
         // checked on every vote, not only on the ticks
+        let timer = super::section("av_end");
         self.end_epoch_by_time(args.now);
+        drop(timer);
         if let Some((epoch, round)) = args.vote.epoch.as_close_round() {
+            let _timer = super::section("av_close");
             return self.apply_close_vote(&args, epoch, round);
         }
         if args.vote.epoch >= self.current_epoch {
@@ -4441,8 +4444,11 @@ impl ActiveElectionsContainer {
                 .insert(args.vote.voter);
         }
 
+        let timer = super::section("av_record");
         #[cfg(feature = "rai_protocol")]
         self.record_votes(&args);
+        drop(timer);
+        let timer = super::section("av_apply");
         let mut apply_helper = ApplyVoteHelper {
             args: &args,
             recently_confirmed: &mut self.recently_confirmed,
@@ -4453,6 +4459,8 @@ impl ActiveElectionsContainer {
             decided: &self.decided,
         };
         let result = apply_helper.apply_vote();
+        drop(timer);
+        let timer = super::section("av_cleanup");
         #[cfg(feature = "rai_protocol")]
         let finalized: Vec<(BlockHash, ConsensusEpoch)> = result
             .confirmed
@@ -4463,10 +4471,14 @@ impl ActiveElectionsContainer {
             self.cleanup_election(entry);
         }
         self.count_decided(&result.decided, args.now);
+        drop(timer);
+        let timer = super::section("av_children");
         #[cfg(feature = "rai_protocol")]
         for (hash, epoch) in finalized {
             self.recheck_children_of(&hash, epoch, args.now);
         }
+        drop(timer);
+        let timer = super::section("av_overlap");
         // RAI: a vote may complete a block of the open epoch, or supply the
         // closing-epoch certificate that carries it across the boundary
         #[cfg(feature = "rai_protocol")]
@@ -4486,6 +4498,7 @@ impl ActiveElectionsContainer {
                 self.check_overlap_eligibility(&id, args.now);
             }
         }
+        drop(timer);
 
         let mut per_block = result.per_block;
         // RAI: a vote of an epoch this node has not reached yet is not late, it

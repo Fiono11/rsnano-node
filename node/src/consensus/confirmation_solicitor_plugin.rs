@@ -59,9 +59,9 @@ impl AecTickerPlugin for ConfirmationSolicitorPlugin {
         // - was the ticker's largest cost with thousands of them open
         let mut broadcaster = self.winner_block_broadcaster.lock().unwrap();
         let confirm_req_sender = &self.confirm_req_sender;
-        let (winners, requests): (Vec<_>, Vec<_>) = aec.round_robin_with_gate(|elections_iter| {
-            let mut winners = Vec::new();
-            let mut requests = Vec::new();
+        let mut winners = Vec::new();
+        let mut requests = Vec::new();
+        aec.round_robin_with_gate_chunked(|elections_iter| {
             for (election, held) in elections_iter
                 .filter(|(e, _)| Self::should_solicit(e, now, e.epoch() < current_epoch))
             {
@@ -77,7 +77,6 @@ impl AecTickerPlugin for ConfirmationSolicitorPlugin {
                     requests.push((election.clone(), urgency));
                 }
             }
-            (winners, requests)
         });
         for (winner, votes) in &winners {
             broadcaster.try_broadcast_winner(winner, votes);

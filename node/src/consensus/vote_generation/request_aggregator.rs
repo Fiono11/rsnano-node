@@ -350,13 +350,17 @@ impl RequestAggregatorLoop {
         #[cfg(feature = "rai_protocol")]
         let epochs_started = self.active_elections.epochs_started();
         #[cfg(feature = "rai_protocol")]
+        // Looked up for every requested hash under one hold of the lock
+        #[cfg(feature = "rai_protocol")]
+        let final_voted = self.active_elections.final_voted_in_epoch_of(
+            request.roots_hashes.iter().map(|(hash, _)| hash),
+            request.epoch,
+        );
+        #[cfg(feature = "rai_protocol")]
         let mut remaining = {
             let mut aggregator = RequestAggregatorImpl::new(&self.stats, any);
             aggregator.add_found_where(found, |block| {
-                !epochs_started
-                    || self
-                        .active_elections
-                        .final_voted_in_epoch(&block.hash(), request.epoch)
+                !epochs_started || final_voted.contains(&block.hash())
             });
             aggregator.get_result()
         };
@@ -387,10 +391,7 @@ impl RequestAggregatorLoop {
         {
             remaining.remaining_final.retain(|block| {
                 let hash = block.hash();
-                !served.contains(&hash)
-                    && self
-                        .active_elections
-                        .final_voted_in_epoch(&hash, request.epoch)
+                !served.contains(&hash) && final_voted.contains(&hash)
                     || (!epochs_started
                         && !self.active_elections.is_finalized(&hash)
                         && !self
@@ -572,14 +573,15 @@ impl RequestAggregatorLoop {
         let mut batches: HashMap<VoteType, Vec<BlockHash>> = HashMap::new();
         let now = Instant::now();
         let channel_id = request.channel.channel_id();
-        for (hash, _) in &request.roots_hashes {
-            let Some((id, evidence)) = self
-                .active_elections
-                .certificate_evidence(hash, request.epoch)
-            else {
+        let evidence_of = self.active_elections.certificate_evidence_many(
+            request.roots_hashes.iter().map(|(hash, _)| hash),
+            request.epoch,
+        );
+        for (hash, found) in evidence_of {
+            let Some((id, evidence)) = found else {
                 continue;
             };
-            served_hashes.insert(*hash);
+            served_hashes.insert(hash);
             if !served.insert(id) {
                 continue;
             }

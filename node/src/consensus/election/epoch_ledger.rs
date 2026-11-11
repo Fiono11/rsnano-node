@@ -2812,6 +2812,7 @@ mod tests {
     /// a report is justified only with XW_1(B), and the checkpoint built
     /// with the witness finalizes B (Rule 3).
     #[test]
+    #[cfg(feature = "rai_protocol")]
     fn case_8_a_listed_final_vote_keeps_a_block_a_manifest_could_drop() {
         use crate::consensus::election::CertificateKinds;
         use crate::consensus::reports::unjustified;
