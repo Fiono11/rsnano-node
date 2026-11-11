@@ -21,7 +21,6 @@ Points to work into the manuscript. Remove an entry once the text carries it.
 ## Open
 
 - Restart and handoff runs have no six-region data: the restarts paragraph is labelled as one host (doc/benchmarks/rai-ownlane-rotation-byz-2026-11-02, rai-rule2-rotation-2026-10-29).
-- No six-region run at f=1, p=0: the comparison with Nano is not at equal quorum (RAI's normal path needs four votes, Nano's five); Section X says so.
 
 ## Done (Nov 10 2026)
 
@@ -33,7 +32,7 @@ Points to work into the manuscript. Remove an entry once the text carries it.
 - Headline ratio: the abstract says "on a wide-area deployment" and the conclusion "six and seven regions", since 6.7 to 38 times includes the seven-region committee change.
 - Section IV: the new member ran as a standby from the start (no catch-up time was measured).
 - Fig. 3: V4 reports A notarized. Section X: the load starts 2 s into epoch 1, so epoch 3 begins about 14 s in (closes begin at 6, 14, 22 s in `closes-reconf-fork10-rai.dat`).
-- References: arXiv numbers for [3], [17], [18]; pages for FastPay; issue for [21]; year 2018 for the Nano white paper.
+- References: arXiv numbers for [3], [17], [18]; pages for FastPay; issue for [21]; year 2017 for the Nano white paper (corrected Nov 11).
 
 ## Done (Nov 10 2026, supplement and models)
 
@@ -53,7 +52,6 @@ Points to work into the manuscript. Remove an entry once the text carries it.
 
 ## Open before submission
 
-- Check the year 2018 of the Nano white paper [5] against the source.
 
 ## Review of Nov 11 2026 (external review, checked against the code)
 
