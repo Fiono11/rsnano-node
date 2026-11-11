@@ -2798,6 +2798,113 @@ mod tests {
         );
     }
 
+    /// Case 8 (manifest omission), scripted. N = 6, validator 6 Byzantine,
+    /// conflicting B and B'. Epoch 1: 4, 5, 6 first-vote B'; 1, 2, 3 do not
+    /// vote there; closure 1 keeps B' under a recovery record of origin 1.
+    /// Before installing S1, 1, 2, 3 first-vote B early in epoch 2 and
+    /// late-notarize it in epoch 1, so with 6 there is XW_1(B) and NC_2(B),
+    /// and they final-vote B under the overlap rule; 6 withholds its final
+    /// vote, so FC_2(B) can still complete. Their reports tag B N.
+    ///
+    /// Without the final-vote report rule a manifest that lacks XW_1(B) is
+    /// accepted and closure 2 keeps B' and drops B, whose final certificate
+    /// can still form. With it, each of 1, 2, 3 lists its final vote for B,
+    /// a report is justified only with XW_1(B), and the checkpoint built
+    /// with the witness finalizes B (Rule 3).
+    #[test]
+    fn case_8_a_listed_final_vote_keeps_a_block_a_manifest_could_drop() {
+        use crate::consensus::election::CertificateKinds;
+        use crate::consensus::reports::unjustified;
+
+        let mut index = StubIndex::default();
+        let b = index.add(1, 1, BlockHash::ZERO);
+        let b_rival = index.add(1, 1, BlockHash::ZERO);
+        let at = slot(1, 1);
+        let empty = CertifiedState::new();
+        let mut rival_votes = ResidualVotes::new();
+        record(&mut rival_votes, &index, b_rival, ResidualKind::First);
+        let no_votes = ResidualVotes::new();
+
+        // Closure 1: reports of 1, 2 (nothing) and 4, 5, 6 (B')
+        let mut epoch1: Vec<_> = (1..=2).map(|i| reported_by(i, &empty, &no_votes)).collect();
+        epoch1.extend([4, 5, 6].map(|i| reported_by(i, &empty, &rival_votes)));
+        let s1 = build(&EpochLedger::new(), &epoch1, &index, rules_of(1)).unwrap();
+        assert_eq!(
+            s1.lock_records(&b_rival).collect::<Vec<_>>(),
+            vec![LockRecord::recovery(ConsensusEpoch::new(1))]
+        );
+        assert!(s1.bypasses_record(&certified_at(&index, b), &BlockHash::ZERO));
+
+        // Closure 2: 1, 2, 3 tag B N; their early first vote is summarized
+        // by the tag, their final vote is listed only under the rule
+        let mut tagged = s1.report_ledger();
+        certify(&mut tagged, &index, b, CertifiedStatus::Notarized);
+        let mut own = ResidualVotes::new();
+        record(&mut own, &index, b, ResidualKind::EarlyFirst);
+        record(&mut own, &index, b, ResidualKind::Final);
+        let unlisted = ResidualVotes::derive(&tagged, own.entries());
+        let listed = ResidualVotes::derive_with(&tagged, own.entries(), &|block, parent| {
+            s1.bypasses_record(block, parent)
+        });
+        assert!(unlisted.is_empty());
+        assert!(listed.contains(&certified_at(&index, b), ResidualKind::Final));
+        let base = s1.report_ledger();
+        let selection = |residual| -> Vec<SelectedReport> {
+            let mut reports: Vec<_> = (1..=3).map(|i| reported_by(i, &tagged, residual)).collect();
+            reports.extend([4, 5].map(|i| reported_by(i, &base, &no_votes)));
+            reports
+        };
+        let witness = |origin: ConsensusEpoch, hash: &BlockHash| {
+            origin == ConsensusEpoch::new(1) && *hash == b
+        };
+
+        // Before the rule: no witness in the manifest, B dropped, B' kept
+        let dropped = build(&s1, &selection(&unlisted), &index, rules_of(2)).unwrap();
+        assert!(dropped.notarized(&at).contains(&b_rival));
+        assert!(!dropped.notarized(&at).contains(&b));
+        assert_eq!(dropped.finalized(&at), None);
+
+        // Under the rule: a report listing the final vote is justified only
+        // with the witness, which then keeps B
+        let notarized = |_: ConsensusEpoch, hashes: &[BlockHash]| {
+            Some(vec![
+                CertificateKinds {
+                    notarization: true,
+                    finalization: false,
+                    fast: false,
+                };
+                hashes.len()
+            ])
+        };
+        let justified = |held: &dyn Fn(ConsensusEpoch, &BlockHash) -> bool| {
+            unjustified(
+                ConsensusEpoch::new(2),
+                &tagged,
+                &listed,
+                None,
+                &notarized,
+                // The R tag of B' is what S1 carries
+                &|_, entry| entry.status == CertifiedStatus::Recovery,
+                &|votes| vec![true; votes.len()],
+                &|block, parent| {
+                    s1.admits(
+                        AccountSlot::new(block.account, block.height),
+                        block.hash,
+                        *parent,
+                        held,
+                    )
+                },
+            )
+        };
+        assert_eq!(justified(&|_, _| false), Some(vec![b]));
+        assert_eq!(justified(&witness), Some(vec![]));
+        let kept = build_state(&s1, &selection(&listed), &index, rules_of(2), &witness).unwrap();
+        // B is the unique retained child with a closing-epoch NC, so Rule 3
+        // promotes it; B' leaves the state
+        assert_eq!(kept.finalized(&at), Some(b));
+        assert!(kept.lock_records(&b_rival).next().is_none());
+    }
+
     /* Test helpers */
 
     /// f + p + 1 for the tests. A reporter weighs `REPORTER_WEIGHT`, so one
