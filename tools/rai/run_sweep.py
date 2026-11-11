@@ -28,6 +28,13 @@ WAN_CELLS = [('nofork', []), ('fork5-grace', ['--fork-percentage', '5', '--fork-
              ('fork10-grace', ['--fork-percentage', '10', '--fork-grace', '600'])]
 RECONF_ONE = ['--prs', '7', '--standby', '1', '--rotation', '0:2>6']
 BYZANTINE_NODE = ['--byzantine-node', 'equivocate,conflicting,equivocate', '--byzantine-leads-close']
+# Twelve seats at f = p = 2: certificates of 8, the fast path at 10 and checkpoints from 10 reports,
+# the proportions of six seats at f = p = 1 (4, 5, 5). The Byzantine node is the last member (PR11).
+N12 = ['--prs', '12', '--committee-f', '2', '--committee-p', '2', '--committee-seats', '12']
+# The same seats with two standbys (PR12, PR13): both Montreal members (PR2, PR8) hand their weight
+# to them in epoch 0, as PR2 hands its weight to PR6 with six seats
+RECONF_N12 = ['--prs', '14', '--standby', '2', '--committee-f', '2', '--committee-p', '2',
+              '--committee-seats', '12', '--rotation', '0:2>12,8>13']
 
 
 def rotation_schedule(members, standby, epochs=16):
@@ -107,6 +114,14 @@ SETS = {
         **{f'{v}-byznode': (flags + BYZANTINE_NODE, [2000], None) for v, flags in WAN_CELLS},
         **{f'{v}-reconf': (flags + RECONF_ONE, [2000], None) for v, flags in WAN_CELLS},
         **{f'{v}-reconf-byznode': (flags + RECONF_ONE + BYZANTINE_NODE, [2000], None) for v, flags in WAN_CELLS},
+    },
+    # final-wan-2000 with twelve seats; the variant names, and so the seeds, are those of the six-seat
+    # matrix. Hosts in PR order: the six regions twice, then two Toronto standbys.
+    'final-wan-2000-n12': {
+        **{v: (flags + N12, [2000], None) for v, flags in WAN_CELLS},
+        **{f'{v}-byznode': (flags + N12 + BYZANTINE_NODE, [2000], None) for v, flags in WAN_CELLS},
+        **{f'{v}-reconf': (flags + RECONF_N12, [2000], None) for v, flags in WAN_CELLS},
+        **{f'{v}-reconf-byznode': (flags + RECONF_N12 + BYZANTINE_NODE, [2000], None) for v, flags in WAN_CELLS},
     },
     'byz': {
         'nofork-byzlead': (['--byzantine', '1', '--byzantine-leads-close'], BYZ_RATES, None),
