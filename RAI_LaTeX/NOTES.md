@@ -53,7 +53,6 @@ Points to work into the manuscript. Remove an entry once the text carries it.
 
 ## Open before submission
 
-- The one `\fillin` left: the ChatGPT model and version in AI Tool Usage (`main.tex`).
 - Check the year 2018 of the Nano white paper [5] against the source.
 
 ## Review of Nov 11 2026 (external review, checked against the code)
