@@ -189,7 +189,12 @@ const NODE_TAG_VAR: &str = "RSNANO_NODE_TAG";
 const DIAG_FILE_VAR: &str = "RSNANO_DIAG_FILE";
 /// The node's A/B switches that must reach every machine of a run (read by
 /// the rsnano node)
-const NODE_SWITCHES: [&str; 3] = ["RAI_FAST_PATH", "RAI_CLOSE_MEMO", "RAI_CLOSE_MEMO_CHECK"];
+const NODE_SWITCHES: [&str; 4] = [
+    "RAI_FAST_PATH",
+    "RAI_CLOSE_MEMO",
+    "RAI_CLOSE_MEMO_CHECK",
+    "RAI_LOCK_PROFILE",
+];
 
 #[cfg(test)]
 mod tests {
