@@ -43,6 +43,11 @@ impl Tickable for LoadProbe {
         self.last_tick = Some(started);
         let elections = self.aec.len();
         let aec_wait_us = started.elapsed().as_micros();
+        let locks = crate::consensus::take_lock_profile(10);
+        if !locks.is_empty() {
+            // line:r|w:count:hold_ms:max_hold_ms:wait_ms:max_wait_ms of aec_service.rs
+            crate::utils::diagnostic!("AEC_LOCK {}", locks.join(" "));
+        }
         let (out_max, out_sum) = self.outbound_queues();
         let lanes = self.votes.lane_lengths();
         crate::utils::diagnostic!(

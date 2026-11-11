@@ -1,6 +1,6 @@
 use std::{
     collections::{BTreeMap, HashMap},
-    sync::{Arc, RwLock},
+    sync::Arc,
     time::Duration,
 };
 
@@ -18,7 +18,7 @@ use rsnano_utils::{
 use super::{
     ActiveElectionsConfig, ActiveElectionsContainer, ActiveElectionsInfo, AecCooldownReason,
     AecFact, AecInsertError, AecInsertRequest, ApplyVoteArgs, CommitteeInfo, EpochCloseInfo,
-    KudzuOneShot,
+    KudzuOneShot, profiled_lock::ProfiledRwLock,
 };
 use crate::{
     consensus::{
@@ -41,21 +41,21 @@ use crate::{
 const KUDZU_SCAN_CHUNK: usize = 64;
 
 pub struct AecService {
-    aec: RwLock<ActiveElectionsContainer>,
+    aec: ProfiledRwLock<ActiveElectionsContainer>,
     clock: SteadyClock,
 }
 
 impl AecService {
     pub fn new(config: ActiveElectionsConfig, base_latency: Duration) -> Self {
         Self {
-            aec: RwLock::new(ActiveElectionsContainer::new(config, base_latency)),
+            aec: ProfiledRwLock::new(ActiveElectionsContainer::new(config, base_latency)),
             clock: SteadyClock::default(),
         }
     }
 
     pub fn new_null() -> Self {
         Self {
-            aec: RwLock::new(ActiveElectionsContainer::default()),
+            aec: ProfiledRwLock::new(ActiveElectionsContainer::default()),
             clock: SteadyClock::new_null(),
         }
     }

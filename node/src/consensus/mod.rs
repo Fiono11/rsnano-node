@@ -29,6 +29,7 @@ mod rep_tiers;
 #[cfg(feature = "rai_protocol")]
 pub mod reports;
 mod signing_records;
+pub(crate) use active_elections::take_lock_profile;
 pub use checkpoint_bases::CheckpointBases;
 #[cfg(feature = "rai_protocol")]
 pub use checkpoint_follower::CheckpointFollower;

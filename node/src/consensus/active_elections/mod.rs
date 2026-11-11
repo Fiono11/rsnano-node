@@ -6,6 +6,8 @@ mod cooldown_controller;
 mod epoch_close;
 mod epoch_committees;
 mod epoch_states;
+mod profiled_lock;
+pub(crate) use profiled_lock::take_lock_profile;
 mod recently_confirmed_cache;
 mod root_container;
 mod slot_states;
