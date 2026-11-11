@@ -255,7 +255,8 @@ def main():
     parser.add_argument('--prs', type=int, default=6, help='representatives; more than the 3f + 2p + 1 seats leaves the lightest (ties by key) outside the committee')
     parser.add_argument('--restart', action='append', default=[], help='nanospam --restart PR:at:SECS or PR:close:EPOCH[:ROUND] (SIGKILL, then start again); repeatable')
     parser.add_argument('--restart-down-ms', type=int, default=0, help='how long a killed node stays down')
-    parser.add_argument('--committee-p', type=int, default=1, help='p of the equal-weight or bounded-weight committee (f stays 1): N = 3 + 2p + 1 seats')
+    parser.add_argument('--committee-f', type=int, default=1, help='f of the equal-weight or bounded-weight committee: N = 3f + 2p + 1 seats')
+    parser.add_argument('--committee-p', type=int, default=1, help='p of the equal-weight or bounded-weight committee: N = 3f + 2p + 1 seats')
     parser.add_argument('--no-fast-path', action='store_true', help='RAI_FAST_PATH=0 on every node: no one-round finality, so with --committee-p 0 --committee-seats 6 a block needs five of six votes in two rounds, as in Nano')
     parser.add_argument('--committee-seats', type=int, default=None, help='members of the equal-weight committee, from 3 + 2p + 1 on (nanospam --committee-seats); 6 with --committee-p 0 counts five of six, as Nano')
     parser.add_argument('--standby', type=int, default=0, help='running representatives that start outside the committee with an eighth of a share (nanospam --standby)')
@@ -369,10 +370,10 @@ def main():
         if args.weight_shift:
             command += ['--weight-shift-percent', str(args.weight_shift)]
         if args.bounded_drift is not None:
-            command += ['--committee-model', 'bounded_weight', '--committee-f', '1', '--committee-p', str(args.committee_p),
+            command += ['--committee-model', 'bounded_weight', '--committee-f', str(args.committee_f), '--committee-p', str(args.committee_p),
                         '--committee-drift', str(args.bounded_drift)]
         elif not args.weighted:
-            command += ['--committee-model', 'equal_weight', '--committee-f', '1', '--committee-p', str(args.committee_p)]
+            command += ['--committee-model', 'equal_weight', '--committee-f', str(args.committee_f), '--committee-p', str(args.committee_p)]
             if args.committee_seats is not None:
                 command += ['--committee-seats', str(args.committee_seats)]
         if args.hosts:

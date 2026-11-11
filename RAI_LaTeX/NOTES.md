@@ -71,7 +71,7 @@ Done (review concern 1, manifest omission; option A chosen Nov 11):
 
 Open, other review points:
 
-- Close cost breakdown (Nov 11): `tools/close_breakdown.py`, `sections/eval-data/close-breakdown.dat`, supplement "What a close costs". One host, N = 6 vs N = 10 (500 blocks/s, 5% forks, one run each, `doc/benchmarks/rai-close-scale-onehost-2026-11-11`): check 19 -> 34 ms, reconcile 227 -> 302 ms, agree unchanged, close 824 -> 991 ms. No WAN run beyond seven validators. A first N = 10 attempt failed in setup (one PR held 1,059 of 1,061 setup blocks; nanospam gave up), the retry settled.
+- Close cost breakdown (Nov 11): `tools/close_breakdown.py`, `sections/eval-data/close-breakdown.dat`, supplement "What a close costs". One host, N = 6 / 10 (f=1, p=3) / 11 (f=p=2, `run_gate_b.py --committee-f 2`) at 500 blocks/s, 5% forks, one run each (`doc/benchmarks/rai-close-scale-onehost-2026-11-11`): check 19 / 34 / 47 ms, reconcile 227 / 302 / 302 ms, agree 519 / 521 / 627 ms, close 824 / 991 / 1149 ms. No WAN run beyond seven validators. A first N = 10 attempt failed in setup (one PR held 1,059 of 1,061 setup blocks; nanospam gave up), the retry settled.
 - Committee change in every epoch and a cold newcomer across regions: only the one-host limitation is reported.
 - Stored signatures (Nov 11, 9a96863fa): own first and final votes are written, synced, before release; a restart serves them and signs only unreleased recorded votes (`EPOCH_VOTES_RESTORED`). No per-epoch keys. The restart runs in the paper predate it.
 
