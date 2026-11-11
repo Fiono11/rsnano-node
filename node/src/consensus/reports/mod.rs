@@ -178,6 +178,7 @@ impl TheirReport {
         &mut self,
         epoch: ConsensusEpoch,
         votes: &[(CertifiedBlock, ResidualKind, BlockHash)],
+        keeps_final: &dyn Fn(&CertifiedBlock, &BlockHash) -> bool,
         now: Timestamp,
     ) -> Option<ReconcileResult> {
         let certified = self.reconstructed.as_ref()?;
@@ -185,7 +186,7 @@ impl TheirReport {
             return None;
         }
         self.derived = Some(now);
-        let derived = ResidualVotes::derive(certified, votes.iter().copied());
+        let derived = ResidualVotes::derive_with(certified, votes.iter().copied(), keeps_final);
         let total = derived.len();
         let complete = derived.root() == self.report.residual;
         if complete {
@@ -938,6 +939,22 @@ impl ReportExchange {
         votes: impl IntoIterator<Item = (CertifiedBlock, ResidualKind, BlockHash)>,
         now: Timestamp,
     ) -> Option<ReconcileResult> {
+        self.derive_residual_with(epoch, reporter, votes, &|_, _| false, now)
+    }
+
+    /// `derive_residual`, keeping the reporter's final votes next to an N
+    /// tag where `keeps_final` holds: where the block bypasses a lock record
+    /// of the epoch's predecessor checkpoint, as the reporter's own
+    /// derivation keeps them (`ResidualVotes::derive_with`). Without it the
+    /// object derived here misses those votes and the residual is streamed.
+    pub fn derive_residual_with(
+        &mut self,
+        epoch: ConsensusEpoch,
+        reporter: PublicKey,
+        votes: impl IntoIterator<Item = (CertifiedBlock, ResidualKind, BlockHash)>,
+        keeps_final: &dyn Fn(&CertifiedBlock, &BlockHash) -> bool,
+        now: Timestamp,
+    ) -> Option<ReconcileResult> {
         let held = self.epochs.get_mut(&epoch)?;
         let votes: Vec<_> = votes.into_iter().collect();
         let mut first = None;
@@ -945,7 +962,7 @@ impl ReportExchange {
             let Some(their) = held.theirs.get_mut(&key) else {
                 continue;
             };
-            let result = their.derive_residual(epoch, &votes, now);
+            let result = their.derive_residual(epoch, &votes, keeps_final, now);
             first = first.or(result);
         }
         first
@@ -1599,6 +1616,40 @@ mod tests {
         );
         trust_all(&mut exchange, report.epoch);
         assert_eq!(exchange.usable(report.epoch).len(), 1);
+    }
+
+    /// A reporter that lists its final vote next to an N tag signs a
+    /// residual root this side reproduces from the same votes only when it
+    /// keeps the vote too: with the bypass test the report completes from
+    /// the votes held here, without it the residual must be streamed
+    #[test]
+    fn a_listed_final_vote_is_derived_on_the_receiving_side() {
+        let mut state = CertifiedState::new();
+        state.certify(block(), BlockHash::ZERO, CertifiedStatus::Notarized);
+        let held = [
+            (block(), ResidualKind::First, BlockHash::ZERO),
+            (block(), ResidualKind::Final, BlockHash::ZERO),
+        ];
+        let listed = ResidualVotes::derive_with(&state, held, &|_, _| true);
+        let report = report(state.clone(), listed);
+        let now = Timestamp::new_test_instance();
+
+        let mut plain = ReportExchange::new();
+        plain.refresh_live(report.epoch, state.clone());
+        plain.handle_report(report.clone());
+        plain.reconcile(report.epoch, report.reporter, now);
+        let result = plain.derive_residual(report.epoch, report.reporter, held, now);
+        assert!(!result.unwrap().complete);
+
+        let mut keeping = ReportExchange::new();
+        keeping.refresh_live(report.epoch, state);
+        keeping.handle_report(report.clone());
+        keeping.reconcile(report.epoch, report.reporter, now);
+        let result =
+            keeping.derive_residual_with(report.epoch, report.reporter, held, &|_, _| true, now);
+        assert!(result.unwrap().complete);
+        trust_all(&mut keeping, report.epoch);
+        assert_eq!(keeping.usable(report.epoch).len(), 1);
     }
 
     #[test]

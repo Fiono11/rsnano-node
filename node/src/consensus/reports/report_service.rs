@@ -21,7 +21,7 @@ use super::{
 use crate::{
     consensus::{
         AecService, EpochReport,
-        election::{AccountSlot, CertifiedState, ResidualVotes},
+        election::{AccountSlot, CertifiedBlock, CertifiedState, ResidualVotes},
     },
     consensus::{SigningRecords, active_elections::ActiveElectionsContainer},
     transport::MessageFlooder,
@@ -453,11 +453,22 @@ impl ReportService {
             return;
         }
         let votes = self.active_elections.vote_records_of(epoch, &reporter);
-        let result = self
-            .exchange
-            .lock()
-            .unwrap()
-            .derive_residual(epoch, reporter, votes, now);
+        // The reporter keeps a final vote next to an N tag where the block
+        // bypasses a record of the predecessor checkpoint; so does this
+        // derivation, or it would miss the vote and stream the object
+        let previous = self.active_elections.epoch_previous_state(epoch);
+        let keeps_final = |block: &CertifiedBlock, parent: &BlockHash| {
+            previous
+                .as_ref()
+                .is_some_and(|previous| previous.bypasses_record(block, parent))
+        };
+        let result = self.exchange.lock().unwrap().derive_residual_with(
+            epoch,
+            reporter,
+            votes,
+            &keeps_final,
+            now,
+        );
         log_reconciled(result);
     }
 

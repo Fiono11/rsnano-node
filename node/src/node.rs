@@ -954,7 +954,12 @@ impl Node {
                     recovered.frozen.len()
                 );
             }
-            vote_generators.restore_recorded(&recovered.slots, &recovered.reports);
+            vote_generators.set_signing(signing.clone());
+            vote_generators.restore_recorded(
+                &recovered.slots,
+                &recovered.reports,
+                &recovered.own_votes,
+            );
             active_elections.restore_signing(recovered.slots, recovered.frozen);
             if let Some(started) = &recovered.epochs {
                 info!(

@@ -1,5 +1,5 @@
 use std::{
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, OnceLock},
     time::Duration,
 };
 
@@ -7,7 +7,7 @@ use rsnano_ledger::Ledger;
 use rsnano_network::{Channel, ChannelId};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
-use rsnano_types::{BlockHash, ConsensusEpoch, NetworkType, PrivateKey, Root, SavedBlock};
+use rsnano_types::{BlockHash, ConsensusEpoch, NetworkType, PrivateKey, Root, SavedBlock, Vote};
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{DetailType, StatType, Stats},
@@ -16,7 +16,7 @@ use rsnano_utils::{
 use super::{LocalVoteHistory, SignedVoteLog, vote_generator::VoteGenerator};
 use crate::{
     config::{NetworkParams, NodeConfig},
-    consensus::{CheckpointBases, VoteBroadcaster, election::VoteType},
+    consensus::{CheckpointBases, SigningRecords, VoteBroadcaster, election::VoteType},
     transport::MessageSender,
     wallets::WalletRepresentatives,
 };
@@ -38,9 +38,16 @@ pub struct VoteGenerators {
     stats: Arc<Stats>,
     /// RAI: the checkpoints first votes name as their base
     bases: Arc<CheckpointBases>,
-    /// RAI: what a restarted node signs again when it starts
+    /// RAI: what a restarted node signs for the first time when it starts
     #[cfg(feature = "rai_protocol")]
     recorded: Mutex<Vec<super::RecordedVotes>>,
+    /// RAI: the votes a restarted node released before it stopped, served
+    /// again as stored
+    #[cfg(feature = "rai_protocol")]
+    stored: Mutex<Vec<Arc<Vote>>>,
+    /// RAI, stored signatures: shared with every generator, set once the
+    /// node has opened its signing records
+    signing: Arc<OnceLock<Arc<SigningRecords>>>,
 }
 
 impl VoteGenerators {
@@ -64,6 +71,7 @@ impl VoteGenerators {
         signed_log: Arc<SignedVoteLog>,
         bases: Arc<CheckpointBases>,
     ) -> Self {
+        let signing = Arc::new(OnceLock::new());
         let voting_delay = Self::voting_delay_for(network_params.network.current_network);
 
         // RAI: the close election's notarization, timeout and abstain votes
@@ -97,6 +105,7 @@ impl VoteGenerators {
                     clock.clone(),
                     signed_log.clone(),
                     bases.clone(),
+                    signing.clone(),
                 );
                 (vote_type, generator)
             })
@@ -111,7 +120,17 @@ impl VoteGenerators {
             bases,
             #[cfg(feature = "rai_protocol")]
             recorded: Mutex::new(Vec::new()),
+            #[cfg(feature = "rai_protocol")]
+            stored: Mutex::new(Vec::new()),
+            signing,
         }
+    }
+
+    /// RAI, stored signatures: the records this node's own account votes
+    /// are written to before they leave. Set once, when the node has opened
+    /// them; until then nothing is stored.
+    pub(crate) fn set_signing(&self, signing: Arc<SigningRecords>) {
+        let _ = self.signing.set(signing);
     }
 
     pub fn new_null() -> Self {
@@ -152,25 +171,38 @@ impl VoteGenerators {
     }
 
     /// RAI, durable signing records: the votes a restarted node recorded
-    /// before it stopped, to sign again when it starts
+    /// before it stopped, and the signed votes it stored. The stored ones
+    /// are served again when it starts; it signs only the recorded votes
+    /// none of them covers, which it never released.
     #[cfg(feature = "rai_protocol")]
     pub(crate) fn restore_recorded(
         &self,
         slots: &[crate::consensus::SlotRecord],
         reports: &[crate::consensus::ReportRecord],
+        stored: &[Arc<Vote>],
     ) {
-        *self.recorded.lock().unwrap() =
-            super::recorded_votes(slots, reports, VoteGenerator::MAX_HASHES);
+        let recorded = super::recorded_votes(slots, reports, VoteGenerator::MAX_HASHES);
+        *self.recorded.lock().unwrap() = super::unreleased(recorded, stored);
+        *self.stored.lock().unwrap() = stored.to_vec();
     }
 
-    /// These are the statements the node's records and reports already hold,
-    /// also in epochs it left and signs nothing new in: one identity, block,
-    /// kind and epoch, so a second signature cannot conflict with the first
+    /// The stored votes are kept as they were signed. The rest are the
+    /// statements the node's records and reports hold but whose signature
+    /// never left the process: signed now for the first time, also in epochs
+    /// the node left and signs nothing new in - one identity, block, kind
+    /// and epoch, so the signature cannot conflict with any other
     #[cfg(feature = "rai_protocol")]
     fn sign_recorded(&self) {
+        let stored = std::mem::take(&mut *self.stored.lock().unwrap());
         let recorded = std::mem::take(&mut *self.recorded.lock().unwrap());
-        if recorded.is_empty() {
+        if stored.is_empty() && recorded.is_empty() {
             return;
+        }
+        let served = stored.len();
+        if let Some((_, generator)) = self.generators.first() {
+            for vote in stored {
+                generator.keep_stored(vote);
+            }
         }
         let mut signed = 0;
         for votes in &recorded {
@@ -178,7 +210,11 @@ impl VoteGenerators {
                 .sign_recorded(&votes.roots, &votes.hashes, votes.epoch);
             signed += votes.hashes.len();
         }
-        crate::utils::diagnostic!("EPOCH_VOTES_RESIGNED votes={}", signed);
+        crate::utils::diagnostic!(
+            "EPOCH_VOTES_RESTORED stored={} signed_unreleased={}",
+            served,
+            signed
+        );
     }
 
     pub fn stop(&self) {

@@ -1,6 +1,6 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
-use rsnano_types::{BlockHash, ConsensusEpoch, Root};
+use rsnano_types::{BlockHash, ConsensusEpoch, Root, Vote, VoteKind};
 
 use crate::consensus::{
     ReportRecord, SlotRecord,
@@ -84,6 +84,50 @@ pub(crate) fn recorded_votes(
     batches
 }
 
+/// RAI, stored signatures: the recorded votes no stored signature covers.
+/// A vote this node released was stored before it left, so these are the
+/// votes it recorded but never released: it signs them for the first time,
+/// and serves the stored ones as they are. The statements are the same
+/// either way - identity, block, kind and epoch - so neither conflicts.
+pub(crate) fn unreleased(
+    recorded: Vec<RecordedVotes>,
+    stored: &[std::sync::Arc<Vote>],
+) -> Vec<RecordedVotes> {
+    let covered: HashSet<(ConsensusEpoch, VoteType, BlockHash)> = stored
+        .iter()
+        .filter_map(|vote| {
+            let vote_type = match vote.kind() {
+                VoteKind::First if vote.is_early() => VoteType::EarlyFirst,
+                VoteKind::First => VoteType::NonFinal,
+                VoteKind::Final => VoteType::Final,
+                _ => return None,
+            };
+            Some((vote.epoch, vote_type, vote.hashes.clone()))
+        })
+        .flat_map(|(epoch, vote_type, hashes)| {
+            hashes.into_iter().map(move |hash| (epoch, vote_type, hash))
+        })
+        .collect();
+    recorded
+        .into_iter()
+        .filter_map(|votes| {
+            let (roots, hashes): (Vec<Root>, Vec<BlockHash>) = votes
+                .roots
+                .iter()
+                .zip(&votes.hashes)
+                .filter(|(_, hash)| !covered.contains(&(votes.epoch, votes.vote_type, **hash)))
+                .map(|(root, hash)| (*root, *hash))
+                .unzip();
+            (!hashes.is_empty()).then_some(RecordedVotes {
+                epoch: votes.epoch,
+                vote_type: votes.vote_type,
+                roots,
+                hashes,
+            })
+        })
+        .collect()
+}
+
 /// A block's root: its parent, or its account for the first block
 fn root_of(parent: BlockHash, account: Root) -> Root {
     if parent.is_zero() {
@@ -109,6 +153,51 @@ mod tests {
     use crate::consensus::election::{
         CertifiedBlock, CertifiedState, EpochSlot, LocalSlotState, ResidualVotes,
     };
+
+    /// A recorded vote whose signature was stored before it left is served
+    /// as stored; only the recorded votes without one are signed, once
+    #[test]
+    fn only_votes_without_a_stored_signature_are_signed_again() {
+        let (released, unreleased_hash, final_only) = (hash(1), hash(2), hash(3));
+        let recorded = recorded_votes(
+            &[
+                slot(1, 7, released, false, Some(final_only), hash(50)),
+                slot(1, 8, unreleased_hash, false, None, released),
+            ],
+            &[],
+            255,
+        );
+        let key = rsnano_types::PrivateKey::from(1);
+        let first = std::sync::Arc::new(Vote::new_in_epoch_as(
+            &key,
+            VoteKind::First,
+            false,
+            ConsensusEpoch::new(1),
+            BlockHash::ZERO,
+            vec![released],
+        ));
+        // A stored vote of another kind or epoch covers nothing here
+        let early = std::sync::Arc::new(Vote::new_in_epoch_as(
+            &key,
+            VoteKind::First,
+            true,
+            ConsensusEpoch::new(1),
+            BlockHash::ZERO,
+            vec![unreleased_hash],
+        ));
+        let remaining = unreleased(recorded, &[first, early]);
+        assert_eq!(
+            remaining,
+            vec![
+                batch(
+                    1,
+                    VoteType::NonFinal,
+                    vec![(unreleased_hash, released.into())]
+                ),
+                batch(1, VoteType::Final, vec![(final_only, account().into())]),
+            ]
+        );
+    }
 
     #[test]
     fn slot_records_give_their_first_and_final_votes() {

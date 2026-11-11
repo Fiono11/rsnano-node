@@ -101,6 +101,9 @@ pub struct Recovered {
     pub closes: Vec<CloseRecord>,
     /// The first votes behind this node's final votes
     pub notarization_votes: Vec<Arc<Vote>>,
+    /// This node's own signed account first and final votes, served again
+    /// after a restart instead of being signed a second time
+    pub own_votes: Vec<Arc<Vote>>,
 }
 
 /// RAI, "Participants, faults, and retained evidence": "Correct validators
@@ -194,6 +197,8 @@ const DECIDED: u8 = b'W';
 const DECIDED_STATE: u8 = b'D';
 const CLOSE: u8 = b'C';
 const NOTARIZATION_VOTE: u8 = b'N';
+/// This node's own signed first and final votes, by epoch and signature
+const OWN_VOTE: u8 = b'O';
 /// How many of the latest decided states are kept: the predecessor of the
 /// oldest epoch still closing, and the one before it, which the overlap
 /// gate checks against
@@ -295,6 +300,27 @@ impl SigningRecords {
                 self.notarization_bytes
                     .fetch_add(bytes.len() as u64, Ordering::Relaxed);
                 store.put(&mut txn, &notarization_vote_key(vote), &bytes);
+            }
+            txn.commit();
+            self.drive_flush.flush();
+        })
+    }
+
+    /// Persists this node's own signed account votes before they leave the
+    /// process: a restart serves these signatures again rather than signing
+    /// the recorded statements a second time, so that an epoch's signing key
+    /// is needed only for votes that were never released
+    pub fn write_own_votes(&self, votes: &[Arc<Vote>]) {
+        self.timed("own_votes", || {
+            if votes.is_empty() {
+                return;
+            }
+            let mut txn = self.env.begin_write();
+            for vote in votes {
+                let mut bytes = Vec::new();
+                vote.serialize(&mut bytes)
+                    .expect("a vote serializes to memory");
+                self.store.put(&mut txn, &own_vote_key(vote), &bytes);
             }
             txn.commit();
             self.drive_flush.flush();
@@ -513,10 +539,13 @@ impl SigningRecords {
             let old_votes: Vec<Vec<u8>> = (1..=FORGET_VOTE_EPOCHS)
                 .filter_map(|back| epoch.as_u64().checked_sub(back))
                 .flat_map(|held| {
-                    let mut prefix = vec![NOTARIZATION_VOTE];
-                    prefix.extend_from_slice(&held.to_be_bytes());
-                    store.with_prefix(&txn, &prefix)
+                    [NOTARIZATION_VOTE, OWN_VOTE].map(|kind| {
+                        let mut prefix = vec![kind];
+                        prefix.extend_from_slice(&held.to_be_bytes());
+                        prefix
+                    })
                 })
+                .flat_map(|prefix| store.with_prefix(&txn, &prefix))
                 .map(|(key, _)| key)
                 .collect();
             let old: Vec<Vec<u8>> = old.into_iter().chain(old_votes).collect();
@@ -646,6 +675,11 @@ impl SigningRecords {
         for (_, value) in store.with_prefix(&txn, &[NOTARIZATION_VOTE]) {
             if let Ok(vote) = Vote::deserialize(&value) {
                 recovered.notarization_votes.push(Arc::new(vote));
+            }
+        }
+        for (_, value) in store.with_prefix(&txn, &[OWN_VOTE]) {
+            if let Ok(vote) = Vote::deserialize(&value) {
+                recovered.own_votes.push(Arc::new(vote));
             }
         }
         for (key, value) in store.with_prefix(&txn, &[CLOSE]) {
@@ -842,8 +876,17 @@ fn evidence_vote_key(epoch: ConsensusEpoch, vote: &Vote) -> Vec<u8> {
 
 /// A vote behind a final vote: epoch, then its signature
 fn notarization_vote_key(vote: &Vote) -> Vec<u8> {
+    vote_key(NOTARIZATION_VOTE, vote)
+}
+
+/// One of this node's own votes: epoch, then its signature
+fn own_vote_key(vote: &Vote) -> Vec<u8> {
+    vote_key(OWN_VOTE, vote)
+}
+
+fn vote_key(kind: u8, vote: &Vote) -> Vec<u8> {
     let mut key = Vec::with_capacity(73);
-    key.push(NOTARIZATION_VOTE);
+    key.push(kind);
     key.extend_from_slice(&vote.epoch.as_u64().to_be_bytes());
     key.extend_from_slice(vote.signature.as_bytes());
     key
@@ -1431,6 +1474,39 @@ mod tests {
         let recovered = records.load();
         assert_eq!(recovered.frozen, vec![ConsensusEpoch::new(3)]);
         assert_eq!(recovered.slots.len(), 1);
+    }
+
+    /// RAI, stored signatures: this node's own signed votes come back on a
+    /// restart as they were signed, and are forgotten with their epoch
+    #[test]
+    fn own_votes_are_restored_as_signed_and_forgotten_with_their_epoch() {
+        let records = SigningRecords::new_null();
+        let key = PrivateKey::from(1);
+        let vote = |epoch: u64, hash: u64| {
+            Arc::new(Vote::new_in_epoch_as(
+                &key,
+                rsnano_types::VoteKind::First,
+                false,
+                ConsensusEpoch::new(epoch),
+                BlockHash::ZERO,
+                vec![BlockHash::from(hash)],
+            ))
+        };
+        let (old, kept) = (vote(1, 5), vote(3, 6));
+        records.write_own_votes(&[old.clone(), kept.clone()]);
+        let recovered = records.load();
+        assert_eq!(recovered.own_votes.len(), 2);
+        assert!(
+            recovered
+                .own_votes
+                .iter()
+                .any(|vote| vote.signature == old.signature)
+        );
+
+        records.forget_before(ConsensusEpoch::new(3));
+        let recovered = records.load();
+        assert_eq!(recovered.own_votes.len(), 1);
+        assert_eq!(recovered.own_votes[0].signature, kept.signature);
     }
 
     /*

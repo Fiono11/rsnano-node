@@ -2,7 +2,7 @@ use std::{
     collections::VecDeque,
     mem::size_of,
     sync::{
-        Arc, Condvar, Mutex, MutexGuard,
+        Arc, Condvar, Mutex, MutexGuard, OnceLock,
         atomic::{AtomicBool, Ordering},
     },
     thread::{self, JoinHandle},
@@ -21,7 +21,7 @@ use rsnano_utils::{
 
 use super::{LocalVoteHistory, SignedVoteLog, VoteSpacing};
 use crate::{
-    consensus::CheckpointBases,
+    consensus::{CheckpointBases, SigningRecords},
     consensus::{VoteBroadcaster, election::VoteType},
     transport::MessageSender,
     utils::ProcessingQueue,
@@ -69,6 +69,7 @@ impl VoteGenerator {
         clock: Arc<SteadyClock>,
         signed_log: Arc<SignedVoteLog>,
         bases: Arc<CheckpointBases>,
+        signing: Arc<OnceLock<Arc<SigningRecords>>>,
     ) -> Self {
         let kind = VoteKind::from(vote_type);
         let early = vote_type == VoteType::EarlyFirst;
@@ -93,6 +94,7 @@ impl VoteGenerator {
             clock,
             signed_log,
             bases,
+            signing,
         });
 
         let shared_state_clone = Arc::clone(&shared_state);
@@ -174,6 +176,13 @@ impl VoteGenerator {
         self.shared_state.vote(hashes, roots, epoch, |vote| {
             self.shared_state.vote_broadcaster.keep_recorded(vote)
         });
+    }
+
+    /// RAI, stored signatures: keeps a vote this node released before a
+    /// restart, as it was signed, without broadcasting it again
+    #[cfg(feature = "rai_protocol")]
+    pub(crate) fn keep_stored(&self, vote: Arc<Vote>) {
+        self.shared_state.vote_broadcaster.keep_recorded(vote);
     }
 
     /// Queue items for vote generation, or broadcast votes already in cache
@@ -292,6 +301,9 @@ struct SharedState {
     signed_log: Arc<SignedVoteLog>,
     /// RAI: the checkpoints first votes name as their base
     bases: Arc<CheckpointBases>,
+    /// RAI, stored signatures: where this node's own account first and
+    /// final votes are written before they leave, once the node has set it
+    signing: Arc<OnceLock<Arc<SigningRecords>>>,
 }
 
 impl SharedState {
@@ -411,6 +423,7 @@ impl SharedState {
             )));
         }
 
+        self.store_signatures(&votes, epoch);
         for vote in votes {
             {
                 let now = self.clock.now();
@@ -422,6 +435,21 @@ impl SharedState {
             }
             self.signed_log.record(&vote, roots);
             action(vote);
+        }
+    }
+
+    /// RAI, stored signatures: an account first or final vote is written,
+    /// synced, before it leaves the process. A restarted node serves the
+    /// stored vote again and signs afresh only what it recorded but never
+    /// released, so an epoch's signing key is not needed for any vote it
+    /// already released. Close-round votes have records of their own.
+    fn store_signatures(&self, votes: &[Arc<Vote>], epoch: ConsensusEpoch) {
+        let account_vote = matches!(self.kind, VoteKind::First | VoteKind::Final);
+        if !account_vote || epoch.is_close_round() || votes.is_empty() {
+            return;
+        }
+        if let Some(signing) = self.signing.get() {
+            signing.write_own_votes(votes);
         }
     }
 
