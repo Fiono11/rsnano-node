@@ -643,18 +643,29 @@ async fn confirm_uncemented_frontiers(rpc_client: &NanoRpcClient) {
     let Ok(response) = rpc_client.frontiers(Account::ZERO, 100_000).await else {
         return;
     };
-    for hash in response.frontiers.unwrap_or_default().into_values() {
-        let confirmed = rpc_client
-            .block_info(hash)
-            .await
-            .map(|info| info.confirmed.inner())
-            .unwrap_or(true);
-        if !confirmed {
-            info!("Confirming the uncemented setup block {hash} again");
-            let _ = rpc_client.block_confirm(hash).await;
+    let frontiers: Vec<BlockHash> = response
+        .frontiers
+        .unwrap_or_default()
+        .into_values()
+        .collect();
+    // In batches: one request per block takes a round trip each, which to a
+    // distant node is minutes for the setup's thousands of frontiers, far
+    // past the time the setup waits for equal ledgers
+    for batch in frontiers.chunks(FRONTIER_BATCH) {
+        let Ok(info) = rpc_client.blocks_info(batch.to_vec()).await else {
+            continue;
+        };
+        for (hash, block) in info.blocks {
+            if !block.confirmed.inner() {
+                info!("Confirming the uncemented setup block {hash} again");
+                let _ = rpc_client.block_confirm(hash).await;
+            }
         }
     }
 }
+
+/// Frontiers whose confirmation one request asks for
+const FRONTIER_BATCH: usize = 1000;
 
 /// Every PR sees the same quorum and, under RAI, holds the same ledger, which
 /// the genesis committee of epoch 0 is derived from
