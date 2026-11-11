@@ -102,7 +102,9 @@ struct Stream<B> {
 }
 
 impl<B> Stream<B> {
-    const FIRST_BATCH: u16 = 16;
+    /// A report differs from what a validator already holds in hundreds of
+    /// entries, which take about 1.4 times as many symbols to decode
+    const FIRST_BATCH: u16 = 64;
 
     fn new(set: ReportSet, base: B, decoder: Decoder) -> Self {
         Self {
@@ -155,9 +157,14 @@ impl<B> Stream<B> {
         self.decoder.add_symbols(&symbols);
         // The next request goes out with this reply's handling
         self.requested_at = Some(now);
-        // Half of what came so far: the overshoot past the symbol that
-        // completes the decode stays under half of the symbols needed
-        self.batch = (self.decoder.received() / 2)
+        // As many as came so far: the stream doubles per round trip. Each
+        // request waits for the reporter's answer, which across regions is
+        // up to a third of a second; growing by half each time took ten
+        // round trips to reach a thousand symbols. The overshoot past the
+        // symbol that completes the decode stays under the symbols needed.
+        self.batch = self
+            .decoder
+            .received()
             .clamp(Self::FIRST_BATCH as usize, ReportSymbolsReply::MAX_SYMBOLS)
             as u16;
         true
