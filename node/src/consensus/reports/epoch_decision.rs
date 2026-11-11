@@ -35,8 +35,8 @@ use crate::{
         election::{
             AccountSlot, BlockIndex, BuildRules, BuildStateError, CertifiedState, Committee,
             EpochLedger, EpochValue, FreshFinalized, Manifest, ManifestAssembly, MemberOrder,
-            ReportIndex, ReportRef, ReportSource, ResidualVotes, SelectedReport, build_state,
-            fresh_finalized, overlap_certified, overlap_claims, witness_claims,
+            ReportIndex, ReportRef, ReportSource, ResidualKind, ResidualVotes, SelectedReport,
+            build_state, fresh_finalized, overlap_certified, overlap_claims, witness_claims,
         },
     },
     transport::MessageFlooder,
@@ -1530,15 +1530,20 @@ impl EpochDecisionService {
         // claim by claim; the claims of every other block are justified by
         // the votes that justify them here, as a recheck counts the entries
         // outside the hashes it rechecks.
+        // A listed final vote is justified by the witnesses of the records
+        // its block bypasses, which the manifest names under the blocks at
+        // the divergent positions, not under the voted block: where the
+        // manifest shows less than this node holds and a selected report
+        // lists such a vote, every claim is checked.
         let uncovered = manifest.uncovered(&own);
-        let justified = self.justified_by(
-            &manifest,
-            value,
-            states,
-            previous,
-            &members,
-            Some(&uncovered),
-        );
+        let lists_final = states.iter().any(|report| {
+            report
+                .residual
+                .entries()
+                .any(|(_, kind, _)| kind == ResidualKind::Final)
+        });
+        let only = (!lists_final || uncovered.is_empty()).then_some(&uncovered[..]);
+        let justified = self.justified_by(&manifest, value, states, previous, &members, only);
         let full = close_memo_check_enabled()
             .then(|| self.justified_by(&manifest, value, states, previous, &members, None));
         diagnostic!(
@@ -1599,11 +1604,11 @@ impl EpochDecisionService {
                 &kinds,
                 &|block, entry| inherited_from(previous, block, entry),
                 &reporter_votes,
-                &|block, entry| {
+                &|block, parent| {
                     previous.admits(
                         AccountSlot::new(block.account, block.height),
                         block.hash,
-                        entry.previous,
+                        *parent,
                         &|origin, hash| manifest_witness(&manifest, &members, origin, hash),
                     )
                 },

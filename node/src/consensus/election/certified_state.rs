@@ -354,6 +354,13 @@ impl CertifiedState {
             .is_some_and(|status| status != CertifiedStatus::Recovery)
     }
 
+    /// Whether an entry tags this block N: notarized, not known final. A
+    /// reporter's final vote for such a block may be listed next to the tag
+    /// (`ResidualVotes::derive_with`).
+    pub fn tags_notarized(&self, hash: &BlockHash) -> bool {
+        self.hash_status(hash) == Some(CertifiedStatus::Notarized)
+    }
+
     pub fn status(&self, block: &CertifiedBlock) -> Option<CertifiedStatus> {
         self.certification(block).map(|held| held.status)
     }
@@ -758,12 +765,32 @@ impl ResidualVotes {
         certified: &CertifiedState,
         votes: impl IntoIterator<Item = (CertifiedBlock, ResidualKind, BlockHash)>,
     ) -> Self {
+        Self::derive_with(certified, votes, &|_, _| false)
+    }
+
+    /// `derive`, with the reporter's final votes that stay next to an N
+    /// tag: an N entry says a notarization certificate exists, not that the
+    /// reporter final voted the block. Where `keeps_final` holds for a
+    /// block and the parent it names - the block bypasses a lock record of
+    /// the predecessor checkpoint - the final vote is listed as well: its
+    /// signer held the witnesses discharging those records, and a report
+    /// listing it is usable only with them (`unjustified`), so a candidate
+    /// selecting the report cannot leave them out of its manifest and drop
+    /// a block whose final certificate may still complete.
+    pub fn derive_with(
+        certified: &CertifiedState,
+        votes: impl IntoIterator<Item = (CertifiedBlock, ResidualKind, BlockHash)>,
+        keeps_final: &dyn Fn(&CertifiedBlock, &BlockHash) -> bool,
+    ) -> Self {
         // Fix B: G = V \ {h : (h, N) or (h, F) in T}. An R tag summarizes
         // nothing the reporter signed in the epoch, so a vote for an
         // R-tagged block stays in G.
         let mut residual = Self::new();
         for (block, kind, previous) in votes {
-            if !certified.summarizes(&block.hash) {
+            let witnessed_final = kind == ResidualKind::Final
+                && certified.tags_notarized(&block.hash)
+                && keeps_final(&block, &previous);
+            if !certified.summarizes(&block.hash) || witnessed_final {
                 residual.record(block, previous, kind);
             }
         }

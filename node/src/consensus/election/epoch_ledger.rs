@@ -474,6 +474,18 @@ impl EpochLedger {
             .all(|bypassed| discharged(bypassed, witness))
     }
 
+    /// Whether a block placed by the parent it names bypasses a lock record
+    /// of this state: no vote for it is admitted without an exclusion
+    /// witness
+    pub fn bypasses_record(&self, block: &CertifiedBlock, previous: &BlockHash) -> bool {
+        !self.admits(
+            AccountSlot::new(block.account, block.height),
+            block.hash,
+            *previous,
+            &|_, _| false,
+        )
+    }
+
     /// Drops one lock record of a block; true if it was the block's last
     fn discharge(&mut self, holder: &BlockHash, record: &LockRecord) -> bool {
         let Some(records) = self.locks.get_mut(holder) else {

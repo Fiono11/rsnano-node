@@ -2450,8 +2450,10 @@ impl ActiveElectionsContainer {
             );
         }
         // What the certified state does not summarize: the same rule the
-        // other validators derive this object by
-        let residual = ResidualVotes::derive(&certified, votes);
+        // other validators derive this object by. Final votes for blocks
+        // tagged N stay until the report is completed with its inherited
+        // base, which tells which of them bypass a record (`complete_report`)
+        let residual = ResidualVotes::derive_with(&certified, votes, &|_, _| true);
 
         Some(EpochReport {
             committee: committee.digest(),
@@ -4589,7 +4591,12 @@ impl ActiveElectionsContainer {
         crate::consensus::election::CertifiedState,
         crate::consensus::election::ResidualVotes,
     ) {
-        Self::complete_report_on(self.report_base(epoch).as_ref(), certified, residual)
+        Self::complete_report_on(
+            self.report_base(epoch).as_ref(),
+            self.epoch_previous_state(epoch).as_deref(),
+            certified,
+            residual,
+        )
     }
 
     /// RAI: the inherited part of an epoch's report, if its predecessor is
@@ -4604,8 +4611,15 @@ impl ActiveElectionsContainer {
     /// RAI: an epoch's report, the inherited base with the epoch's own
     /// certificates on top. It copies the whole base, so it is built
     /// outside the AEC's lock (`AecService::complete_report`)
+    ///
+    /// A final vote of this node for a block the report tags N stays in G
+    /// where the block bypasses a lock record of the predecessor checkpoint
+    /// `previous`: this node final voted it holding the witnesses that
+    /// discharge those records, and listing the vote makes every candidate
+    /// that selects the report carry them.
     pub fn complete_report_on(
         base: Option<&Arc<crate::consensus::election::CertifiedState>>,
+        previous: Option<&EpochLedger>,
         certified: &crate::consensus::election::CertifiedState,
         residual: &crate::consensus::election::ResidualVotes,
     ) -> (
@@ -4620,7 +4634,10 @@ impl ActiveElectionsContainer {
             complete.certify(*block, entry.previous, entry.status);
         }
         complete.project_final_prefixes();
-        let residual = ResidualVotes::derive(&complete, residual.entries());
+        let residual =
+            ResidualVotes::derive_with(&complete, residual.entries(), &|block, parent| {
+                previous.is_some_and(|previous| previous.bypasses_record(block, parent))
+            });
         (complete, residual)
     }
 
@@ -8453,12 +8470,17 @@ mod tests {
             report.certified.status(&at),
             Some(crate::consensus::election::CertifiedStatus::Notarized)
         );
+        // The report as taken keeps the final vote next to the N tag; the
+        // completed report lists it only where the block bypasses a record
+        // of the predecessor checkpoint, which this one does not
         assert!(
-            !report
+            report
                 .residual
                 .entries()
-                .any(|(b, _, _)| b.hash == block.hash())
+                .all(|(b, kind, _)| b.hash != block.hash() || kind == ResidualKind::Final)
         );
+        let (_, completed) = restarted.complete_report(epoch, &report.certified, &report.residual);
+        assert!(completed.entries().all(|(b, _, _)| b.hash != block.hash()));
         assert_eq!(
             restarted.evidence_votes(epoch, &[block.hash()]).len(),
             votes.len()

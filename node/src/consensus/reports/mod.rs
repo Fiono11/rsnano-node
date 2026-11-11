@@ -359,7 +359,8 @@ pub(crate) enum Verification {
 /// Fix B, "Usable reports": a G_i record names no hash that T_i tags N or F,
 /// since such an entry already exposes the vote. It may name one T_i tags R:
 /// a reporter that first voted an R-tagged block in the epoch lists that
-/// block in both.
+/// block in both. The reporter's own final vote may also stand next to an N
+/// tag, which tells that a certificate exists, not who final voted.
 pub(crate) fn well_formed(
     certified: &CertifiedState,
     residual: &ResidualVotes,
@@ -376,9 +377,11 @@ pub(crate) fn well_formed(
     certified
         .changed_entries()
         .all(|(block, entry)| placed(block, &entry.previous))
-        && residual
-            .entries()
-            .all(|(block, _, parent)| placed(&block, &parent) && !certified.summarizes(&block.hash))
+        && residual.entries().all(|(block, kind, parent)| {
+            // The reporter's own final vote may stand next to an N tag
+            let beside_tag = kind == ResidualKind::Final && certified.tags_notarized(&block.hash);
+            placed(&block, &parent) && (beside_tag || !certified.summarizes(&block.hash))
+        })
 }
 
 /// RAI, "Reports that remain reconstructible": the hashes of a
@@ -395,9 +398,15 @@ pub(crate) fn well_formed(
 /// is justified only together with the exclusion witnesses of the records'
 /// origins (`witnessed`): with them the entry's certificate and witnesses
 /// are the overlap certificate the next closure verifies. A correct
-/// reporter holds them, since it accepted the block only with them. N
-/// entries and G records need no witness: BuildState leaves those that
-/// bypass a surviving record out, so they cannot keep a report unusable.
+/// reporter holds them, since it accepted the block only with them. The
+/// same holds for a final vote the reporter lists in G: it final voted the
+/// block only with the witnesses for every record the block bypasses, so the
+/// record is justified only together with them. A candidate selecting the
+/// report then carries them, and BuildState cannot drop a block whose final
+/// certificate may still complete for want of a witness the proposer left
+/// out. N entries and first votes in G need no witness: BuildState leaves
+/// those that bypass a surviving record out, so they cannot keep a report
+/// unusable.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn unjustified(
     epoch: ConsensusEpoch,
@@ -407,7 +416,7 @@ pub(crate) fn unjustified(
     certificate_kinds: &dyn Fn(ConsensusEpoch, &[BlockHash]) -> Option<Vec<CertificateKinds>>,
     inherited: &dyn Fn(&CertifiedBlock, Certification) -> bool,
     reporter_votes: &dyn Fn(&[(BlockHash, ResidualKind)]) -> Vec<bool>,
-    witnessed: &dyn Fn(&CertifiedBlock, Certification) -> bool,
+    witnessed: &dyn Fn(&CertifiedBlock, &BlockHash) -> bool,
 ) -> Option<Vec<BlockHash>> {
     let only: Option<HashSet<&BlockHash>> = only.map(|only| only.iter().collect());
     let wanted = |hash: &BlockHash| only.as_ref().is_none_or(|only| only.contains(hash));
@@ -461,7 +470,7 @@ pub(crate) fn unjustified(
                 }
             }
             CertifiedStatus::Finalized => {
-                if !inherited && !witnessed(block, *entry) {
+                if !inherited && !witnessed(block, &entry.previous) {
                     missing.push(block.hash);
                 } else if inherited || kinds.finalization || kinds.fast {
                     anchors.push(**block);
@@ -539,6 +548,15 @@ pub(crate) fn unjustified(
         .map(|(block, kind, _)| (block.hash, kind))
         .collect();
     let mut listed: HashSet<BlockHash> = missing.iter().copied().collect();
+    for (block, kind, parent) in residual.entries() {
+        if kind == ResidualKind::Final
+            && wanted(&block.hash)
+            && !witnessed(&block, &parent)
+            && listed.insert(block.hash)
+        {
+            missing.push(block.hash);
+        }
+    }
     for ((hash, _), held) in records.iter().zip(reporter_votes(&records)) {
         if !held && listed.insert(*hash) {
             missing.push(*hash);
@@ -1939,7 +1957,7 @@ mod tests {
             &kinds,
             &nothing,
             &no_votes,
-            &|_: &CertifiedBlock, _: Certification| true,
+            &|_: &CertifiedBlock, _: &BlockHash| true,
         );
         assert_eq!(missing, Some(vec![unproven.hash]));
         // Rechecking the parent alone: its proven child still anchors it
@@ -1955,7 +1973,7 @@ mod tests {
             &none,
             &nothing,
             &no_votes,
-            &|_: &CertifiedBlock, _: Certification| true,
+            &|_: &CertifiedBlock, _: &BlockHash| true,
         );
         assert_eq!(missing, Some(vec![]));
     }
@@ -1993,7 +2011,7 @@ mod tests {
             &everything,
             &previously,
             &no_votes,
-            &|_: &CertifiedBlock, _: Certification| true,
+            &|_: &CertifiedBlock, _: &BlockHash| true,
         );
         assert_eq!(missing, Some(vec![invented.hash]));
     }
@@ -2036,7 +2054,7 @@ mod tests {
             &kinds,
             &previously,
             &no_votes,
-            &|_: &CertifiedBlock, _: Certification| true,
+            &|_: &CertifiedBlock, _: &BlockHash| true,
         );
         let mut missing = missing.unwrap();
         missing.sort();
@@ -2064,7 +2082,7 @@ mod tests {
                 &all,
                 &previously,
                 &votes,
-                &|_: &CertifiedBlock, _: Certification| true
+                &|_: &CertifiedBlock, _: &BlockHash| true
             ),
             Some(Vec::new())
         );
@@ -2094,7 +2112,7 @@ mod tests {
             &kinds,
             &previously,
             &no_votes,
-            &|_: &CertifiedBlock, _: Certification| true,
+            &|_: &CertifiedBlock, _: &BlockHash| true,
         );
         assert_eq!(missing, Some(vec![fresh.hash]));
         assert_eq!(*looked_up.borrow(), vec![fresh.hash]);
@@ -2112,7 +2130,7 @@ mod tests {
                 &unknown,
                 &previously,
                 &no_votes,
-                &|_: &CertifiedBlock, _: Certification| true
+                &|_: &CertifiedBlock, _: &BlockHash| true
             ),
             None
         );
@@ -2313,11 +2331,11 @@ mod tests {
                 &finalized,
                 &nothing,
                 &no_votes,
-                &|block, entry| {
+                &|block, parent| {
                     previous.admits(
                         AccountSlot::new(block.account, block.height),
                         block.hash,
-                        entry.previous,
+                        *parent,
                         &witness,
                     )
                 },
@@ -2352,6 +2370,103 @@ mod tests {
                 "{status:?}"
             );
         }
+    }
+
+    /// A reporter's own final vote may stand next to an N tag, never next to
+    /// an F tag, which carries the finality itself
+    #[test]
+    fn a_final_vote_may_be_listed_next_to_an_n_tag() {
+        let block = CertifiedBlock::new(Account::from(1), 1, BlockHash::from(5));
+        let mut residual = ResidualVotes::new();
+        residual.record(block, BlockHash::ZERO, ResidualKind::Final);
+        for (status, usable) in [
+            (CertifiedStatus::Notarized, true),
+            (CertifiedStatus::Finalized, false),
+        ] {
+            let mut certified = CertifiedState::new();
+            certified.certify(block, BlockHash::ZERO, status);
+            assert_eq!(
+                well_formed(&certified, &residual, None),
+                usable,
+                "{status:?}"
+            );
+        }
+    }
+
+    /// The reporter final voted a block that bypasses a recovery record of
+    /// the predecessor checkpoint, before that checkpoint was known, and
+    /// reports it notarized with its final vote listed. The report is
+    /// justified only with the exclusion witness of the record's origin: a
+    /// manifest that leaves the witness out does not justify a selection
+    /// holding the report, so BuildState cannot drop the block for want of
+    /// it. The N entry alone asks for no witness.
+    #[test]
+    fn a_listed_final_vote_bypassing_a_record_needs_the_matching_origin_witness() {
+        let account = Account::from(1);
+        let locked = CertifiedBlock::new(account, 1, BlockHash::from(10));
+        let rival = CertifiedBlock::new(account, 1, BlockHash::from(20));
+        let mut previous = EpochLedger::new();
+        previous.retain_recovery_for_test(
+            AccountSlot::new(account, 1),
+            locked.hash,
+            BlockHash::ZERO,
+        );
+        assert!(previous.bypasses_record(&rival, &BlockHash::ZERO));
+        assert!(!previous.bypasses_record(&locked, &BlockHash::ZERO));
+        let notarized = |_: ConsensusEpoch, hashes: &[BlockHash]| {
+            Some(vec![
+                CertificateKinds {
+                    notarization: true,
+                    finalization: false,
+                    fast: false,
+                };
+                hashes.len()
+            ])
+        };
+        let nothing = |_: &CertifiedBlock, _: Certification| false;
+        let own_votes = |votes: &[(BlockHash, ResidualKind)]| vec![true; votes.len()];
+        let mut certified = CertifiedState::new();
+        certified.certify(rival, BlockHash::ZERO, CertifiedStatus::Notarized);
+        let votes = [
+            (rival, ResidualKind::EarlyFirst, BlockHash::ZERO),
+            (rival, ResidualKind::Final, BlockHash::ZERO),
+        ];
+        // The N tag exposes the first vote; the final vote stays because
+        // the block bypasses a record
+        let listed = ResidualVotes::derive_with(&certified, votes, &|block, parent| {
+            previous.bypasses_record(block, parent)
+        });
+        assert_eq!(listed.len(), 1);
+        assert!(listed.contains(&rival, ResidualKind::Final));
+        assert!(well_formed(&certified, &listed, Some(&previous)));
+        let check = |residual: &ResidualVotes, held: bool| {
+            let witness = |origin: ConsensusEpoch, hash: &BlockHash| {
+                held && origin == ConsensusEpoch::ZERO && *hash == rival.hash
+            };
+            unjustified(
+                EPOCH,
+                &certified,
+                residual,
+                None,
+                &notarized,
+                &nothing,
+                &own_votes,
+                &|block, parent| {
+                    previous.admits(
+                        AccountSlot::new(block.account, block.height),
+                        block.hash,
+                        *parent,
+                        &witness,
+                    )
+                },
+            )
+        };
+        assert_eq!(check(&listed, false), Some(vec![rival.hash]));
+        assert_eq!(check(&listed, true), Some(vec![]));
+        // Without the listed vote the report claims a certificate only
+        assert_eq!(check(&ResidualVotes::new(), false), Some(vec![]));
+        // A block that bypasses nothing keeps the plain rule
+        assert!(ResidualVotes::derive_with(&certified, votes, &|_, _| false).is_empty());
     }
 
     /*
