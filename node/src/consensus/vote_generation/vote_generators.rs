@@ -7,7 +7,7 @@ use rsnano_ledger::Ledger;
 use rsnano_network::{Channel, ChannelId};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
-use rsnano_types::{BlockHash, ConsensusEpoch, NetworkType, PrivateKey, Root, SavedBlock, Vote};
+use rsnano_types::{BlockHash, ConsensusEpoch, NetworkType, PrivateKey, Root, SavedBlock};
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{DetailType, StatType, Stats},
@@ -44,9 +44,10 @@ pub struct VoteGenerators {
     /// RAI: the votes a restarted node released before it stopped, served
     /// again as stored
     #[cfg(feature = "rai_protocol")]
-    stored: Mutex<Vec<Arc<Vote>>>,
+    stored: Mutex<Vec<Arc<rsnano_types::Vote>>>,
     /// RAI, stored signatures: shared with every generator, set once the
     /// node has opened its signing records
+    #[cfg_attr(not(feature = "rai_protocol"), allow(dead_code))]
     signing: Arc<OnceLock<Arc<SigningRecords>>>,
 }
 
@@ -129,6 +130,7 @@ impl VoteGenerators {
     /// RAI, stored signatures: the records this node's own account votes
     /// are written to before they leave. Set once, when the node has opened
     /// them; until then nothing is stored.
+    #[cfg_attr(not(feature = "rai_protocol"), allow(dead_code))]
     pub(crate) fn set_signing(&self, signing: Arc<SigningRecords>) {
         let _ = self.signing.set(signing);
     }
@@ -179,7 +181,7 @@ impl VoteGenerators {
         &self,
         slots: &[crate::consensus::SlotRecord],
         reports: &[crate::consensus::ReportRecord],
-        stored: &[Arc<Vote>],
+        stored: &[Arc<rsnano_types::Vote>],
     ) {
         let recorded = super::recorded_votes(slots, reports, VoteGenerator::MAX_HASHES);
         *self.recorded.lock().unwrap() = super::unreleased(recorded, stored);

@@ -189,11 +189,19 @@ impl NanoSpamApp {
 
         // RAI: the setup is over and every PR holds its share of the weight:
         // epoch 0 starts now on every PR.
+        // One origin for all: a PR that gets the request later starts where
+        // the others are. Started one PR after the other on their own clocks,
+        // the last PR's boundaries lagged the first's by the sum of the
+        // round trips, and every close waited for the latest report.
         if self.args.epoch_duration_ms > 0 {
+            let origin_unix_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|elapsed| elapsed.as_millis() as u64)
+                .unwrap_or_default();
             for rpc_client in &self.rpc_clients {
-                rpc_client.epoch_start().await?;
+                rpc_client.epoch_start_at(origin_unix_ms).await?;
             }
-            info!("Started the epochs on every PR");
+            info!("Started the epochs on every PR at unix ms {origin_unix_ms}");
         }
         let epochs_started = Instant::now();
 

@@ -1,6 +1,6 @@
 use rsnano_ledger::{AnySet, ConfirmedSet};
 use rsnano_node::consensus::election::{AccountFrontier, AccountSlot};
-use rsnano_rpc_messages::EpochStartResponse;
+use rsnano_rpc_messages::{EpochStartArgs, EpochStartResponse};
 
 use crate::command_handler::RpcCommandHandler;
 
@@ -9,7 +9,7 @@ impl RpcCommandHandler {
     /// ledger as it stands is the genesis committee: every account at its
     /// frontier, delegating to its representative. It is the same on every
     /// PR once every setup block reached all of them.
-    pub(crate) fn epoch_start(&self) -> EpochStartResponse {
+    pub(crate) fn epoch_start(&self, args: EpochStartArgs) -> EpochStartResponse {
         let frontiers: Vec<AccountFrontier> = self
             .node
             .ledger
@@ -52,7 +52,10 @@ impl RpcCommandHandler {
             self.node.aec.set_genesis_committee(frontiers);
             self.node.aec.set_genesis_history(history);
         }
-        self.node.aec.start_epochs();
+        match args.origin_unix_ms {
+            Some(origin) => self.node.aec.start_epochs_at(origin.inner()),
+            None => self.node.aec.start_epochs(),
+        }
         EpochStartResponse {
             epoch: self.node.aec.current_epoch().as_u64().into(),
         }

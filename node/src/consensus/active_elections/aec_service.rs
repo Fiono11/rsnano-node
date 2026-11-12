@@ -265,6 +265,18 @@ impl AecService {
         self.aec.write().unwrap().start_epochs(now)
     }
 
+    /// RAI: the epochs start at a common wall-clock instant, in unix
+    /// milliseconds: a node the request reaches later takes up the epochs
+    /// where the others are, so that they all share the boundaries
+    pub fn start_epochs_at(&self, origin_unix_ms: u64) {
+        let now = self.clock.now();
+        let unix_now_ms = crate::utils::unix_ms() as u64;
+        self.aec
+            .write()
+            .unwrap()
+            .start_epochs_at(now, unix_now_ms, origin_unix_ms)
+    }
+
     /// RAI: whether the epochs have started
     pub fn epochs_started(&self) -> bool {
         self.aec.read().unwrap().epochs_started()

@@ -623,6 +623,12 @@ impl NanoRpcClient {
         self.request(&RpcCommand::epoch_start()).await
     }
 
+    /// RAI: the epochs start at a common wall-clock instant on every node
+    pub async fn epoch_start_at(&self, origin_unix_ms: u64) -> Result<EpochStartResponse> {
+        self.request(&RpcCommand::epoch_start_at(origin_unix_ms))
+            .await
+    }
+
     pub async fn confirmation_quorum(&self) -> Result<ConfirmationQuorumResponse> {
         self.request(&RpcCommand::confirmation_quorum()).await
     }

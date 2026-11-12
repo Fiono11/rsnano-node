@@ -360,6 +360,19 @@ impl ActiveElectionsContainer {
         }
     }
 
+    /// RAI: `start_epochs` from a common origin in wall time: the origin is
+    /// placed `unix_now_ms - origin_unix_ms` before `now` on this node's
+    /// clock, as a restarted node places its persisted one. An origin ahead
+    /// of the wall clock starts the epochs now.
+    pub fn start_epochs_at(&mut self, now: Timestamp, unix_now_ms: u64, origin_unix_ms: u64) {
+        let since_origin = Duration::from_millis(unix_now_ms.saturating_sub(origin_unix_ms));
+        self.start_epochs(now.checked_sub(since_origin).unwrap_or(now));
+        #[cfg(feature = "rai_protocol")]
+        if self.epoch_origin.is_some() {
+            self.epoch_ends_at = self.next_boundary(now);
+        }
+    }
+
     /// RAI: whether the epochs have started
     pub fn epochs_started(&self) -> bool {
         self.epochs_started
@@ -5188,6 +5201,44 @@ mod tests {
         assert_eq!(committee.online(), Amount::raw(1));
         #[cfg(not(feature = "rai_protocol"))]
         assert_eq!(committee.online(), Amount::raw(100));
+    }
+
+    /// RAI: a node that receives the start of the epochs 0.5 s after their
+    /// common origin keeps the boundaries of the others: its epoch 0 ends
+    /// 0.5 s after the request, not a whole epoch after it
+    #[test]
+    #[cfg(feature = "rai_protocol")]
+    fn epochs_started_late_from_a_common_origin_share_its_boundaries() {
+        let now = Timestamp::new_test_instance() + Duration::from_secs(10);
+        let mut container = ActiveElectionsContainer::new(
+            ActiveElectionsConfig {
+                epoch_duration: Duration::from_secs(1),
+                ..Default::default()
+            },
+            Duration::from_millis(10),
+        );
+        container.set_genesis_committee(Vec::new());
+        container.start_epochs_at(now, 11_500, 11_000);
+        assert_eq!(
+            container.epoch_origin,
+            Some(now - Duration::from_millis(500))
+        );
+        container.transition_time(now + Duration::from_millis(400));
+        assert_eq!(container.current_epoch(), ConsensusEpoch::ZERO);
+        container.transition_time(now + Duration::from_millis(500));
+        assert_eq!(container.current_epoch(), ConsensusEpoch::new(1));
+
+        // An origin ahead of the wall clock starts the epochs at the request
+        let mut early = ActiveElectionsContainer::new(
+            ActiveElectionsConfig {
+                epoch_duration: Duration::from_secs(1),
+                ..Default::default()
+            },
+            Duration::from_millis(10),
+        );
+        early.set_genesis_committee(Vec::new());
+        early.start_epochs_at(now, 11_000, 11_500);
+        assert_eq!(early.epoch_origin, Some(now));
     }
 
     #[test]
