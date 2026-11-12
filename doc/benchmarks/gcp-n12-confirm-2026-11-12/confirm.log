@@ -1,0 +1,622 @@
++ status=/home/fiono8199/runs/confirm.status
++ rm -f /home/fiono8199/runs/confirm.status
++ trap 'echo "${result:-failed:aborted}" > $status' EXIT
++ . /home/fiono8199/.cargo/env
+++ case ":${PATH}:" in
++ cd /home/fiono8199/rsnano-node
++ git fetch -q fiono rai_dsn_merge
++ git merge -q --ff-only FETCH_HEAD
++ git log --oneline -1
+b49726dce bench(rai): twelve seats with a common epoch origin
++ cargo build --release -p rsnano_cli -p nanospam --features rsnano_cli/rai_protocol
+warning: use of deprecated module `std::u64`: all constants in this module replaced by associated constants on the type
+ --> types/src/difficulty.rs:7:33
+  |
+7 | use std::{collections::HashMap, u64};
+  |                                 ^^^
+  |
+  = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated constant `std::u64::MAX`: replaced by the `MAX` associated constant on this type
+  --> types/src/difficulty.rs:26:38
+   |
+26 |         if reverse_difficulty > u64::MAX as u128 {
+   |                                      ^^^
+
+warning: use of deprecated constant `std::u64::MAX`: replaced by the `MAX` associated constant on this type
+  --> types/src/difficulty.rs:31:18
+   |
+31 |             u64::MAX
+   |                  ^^^
+
+warning: use of deprecated constant `std::u64::MAX`: replaced by the `MAX` associated constant on this type
+  --> types/src/difficulty.rs:75:26
+   |
+75 |                     u64::MAX
+   |                          ^^^
+
+warning: `rsnano_types` (lib) generated 4 warnings
+warning: associated constant `HEADER_SIZE` is never used
+   --> messages/src/report_symbols.rs:117:11
+    |
+112 | impl ReportSymbolsReply {
+    | ----------------------- associated constant in this implementation
+...
+117 |     const HEADER_SIZE: usize = ConsensusEpoch::SERIALIZED_SIZE + 1 + BlockHash::SERIALIZED_SIZE + 4;
+    |           ^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `rsnano_messages` (lib) generated 1 warning
+   Compiling rsnano_node v4.0.0-dev (/home/fiono8199/rsnano-node/node)
+warning: unused import: `cmp::max`
+ --> node/src/consensus/active_elections/active_elections_container.rs:2:5
+  |
+2 |     cmp::max,
+  |     ^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `election_schedulers::priority::bucket_count`
+  --> node/src/consensus/active_elections/active_elections_container.rs:33:9
+   |
+33 |         election_schedulers::priority::bucket_count,
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `vote_generation::voting_scheduler::vote_target`
+  --> node/src/consensus/vote_generation/aec_voter.rs:20:33
+   |
+20 |     AecService, SigningRecords, vote_generation::voting_scheduler::vote_target,
+   |                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `cmp::max`
+ --> node/src/consensus/winner_block_broadcaster.rs:2:5
+  |
+2 |     cmp::max,
+  |     ^^^^^^^^
+
+warning: use of deprecated module `std::isize`: all constants in this module replaced by associated constants on the type
+  --> node/src/consensus/active_elections/mod.rs:25:33
+   |
+25 | use std::{collections::HashMap, isize, sync::Arc, time::Duration};
+   |                                 ^^^^^
+   |
+   = note: `#[warn(deprecated)]` on by default
+
+warning: unused variable: `bucket_id`
+    --> node/src/consensus/active_elections/active_elections_container.rs:4155:50
+     |
+4155 |     pub fn erase_lowest_prio_election(&mut self, bucket_id: usize) -> bool {
+     |                                                  ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_bucket_id`
+     |
+     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `now`
+    --> node/src/consensus/active_elections/active_elections_container.rs:4267:9
+     |
+4267 |         now: Timestamp,
+     |         ^^^ help: if this is intentional, prefix it with an underscore: `_now`
+
+warning: unused variable: `corresponding`
+    --> node/src/consensus/active_elections/active_elections_container.rs:4280:18
+     |
+4280 |         let Some(corresponding) = self.roots.latest_election_for_root_mut(&root) else {
+     |                  ^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_corresponding`
+
+warning: unused variable: `lowest_priority`
+  --> node/src/consensus/election_schedulers/priority/bucket.rs:78:45
+   |
+78 |     pub fn available(&self, vacancy: isize, lowest_priority: TimePriority) -> bool {
+   |                                             ^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_lowest_priority`
+
+warning: unused variable: `highest_block`
+  --> node/src/consensus/election_schedulers/priority/bucket.rs:79:18
+   |
+79 |         let Some(highest_block) = self.block_queue.highest_prio() else {
+   |                  ^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_highest_block`
+
+warning: unused variable: `previous`
+   --> node/src/consensus/reports/epoch_decision.rs:869:18
+    |
+869 |         let Some(previous) = self.active_elections.epoch_previous_state(epoch) else {
+    |                  ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_previous`
+
+warning: unused variable: `now`
+    --> node/src/consensus/reports/mod.rs:1366:9
+     |
+1366 |         now: Timestamp,
+     |         ^^^ help: if this is intentional, prefix it with an underscore: `_now`
+
+warning: variable does not need to be mutable
+   --> node/src/consensus/signing_records.rs:996:9
+    |
+996 |     let mut optional = |at: &mut usize| -> Option<Option<BlockHash>> {
+    |         ----^^^^^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: methods `kudzu_votes_due`, `lowest_priority`, and `complete_report` are never used
+    --> node/src/consensus/active_elections/active_elections_container.rs:2524:12
+     |
+ 257 | impl ActiveElectionsContainer {
+     | ----------------------------- methods in this implementation
+...
+2524 |     pub fn kudzu_votes_due(
+     |            ^^^^^^^^^^^^^^^
+...
+3553 |     pub fn lowest_priority(&self, bucket_id: usize) -> Option<(ElectionId, TimePriority)> {
+     |            ^^^^^^^^^^^^^^^
+...
+4611 |     pub fn complete_report(
+     |            ^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: methods `should_cool_down` and `add_vote` are never used
+   --> node/src/consensus/active_elections/apply_vote_helper.rs:163:8
+    |
+136 | impl<'a> ApplyVoteToElectionHelper<'a> {
+    | -------------------------------------- methods in this implementation
+...
+163 |     fn should_cool_down(&self, last_vote: &VoteSummary, rep_weight: Amount) -> bool {
+    |        ^^^^^^^^^^^^^^^^
+...
+188 |     fn add_vote(&mut self) {
+    |        ^^^^^^^^
+
+warning: method `instances_through` is never used
+   --> node/src/consensus/active_elections/epoch_states.rs:236:12
+    |
+ 78 | impl EpochStates {
+    | ---------------- method in this implementation
+...
+236 |     pub fn instances_through(
+    |            ^^^^^^^^^^^^^^^^^
+
+warning: method `lowest_priority` is never used
+   --> node/src/consensus/active_elections/root_container.rs:368:12
+    |
+ 85 | impl RootContainer {
+    | ------------------ method in this implementation
+...
+368 |     pub fn lowest_priority(&self, bucket_id: usize) -> Option<(ElectionId, TimePriority)> {
+    |            ^^^^^^^^^^^^^^^
+
+warning: method `remove_slot` is never used
+  --> node/src/consensus/active_elections/slot_states.rs:83:12
+   |
+21 | impl SlotStates {
+   | --------------- method in this implementation
+...
+83 |     pub fn remove_slot(&mut self, account: Account, height: u64) {
+   |            ^^^^^^^^^^^
+
+warning: method `evicted` is never used
+   --> node/src/consensus/active_elections/stats/aec_stats.rs:174:12
+    |
+164 | impl AecStats {
+    | ------------- method in this implementation
+...
+174 |     pub fn evicted(&mut self, election: &Election) {
+    |            ^^^^^^^
+
+warning: method `late_notarizers` is never used
+   --> node/src/consensus/active_elections/vote_records.rs:147:12
+    |
+ 84 | impl VoteRecords {
+    | ---------------- method in this implementation
+...
+147 |     pub fn late_notarizers(
+    |            ^^^^^^^^^^^^^^^
+
+warning: method `tick` is never used
+   --> node/src/consensus/checkpoint_follower.rs:126:12
+    |
+ 62 | impl PendingCheckpointBlocks {
+    | ---------------------------- method in this implementation
+...
+126 |     pub fn tick(
+    |            ^^^^
+
+warning: method `time_to_live` is never used
+   --> node/src/consensus/election/election.rs:961:8
+    |
+960 | impl ElectionBehavior {
+    | --------------------- method in this implementation
+961 |     fn time_to_live(&self) -> Duration {
+    |        ^^^^^^^^^^^^
+
+warning: methods `live_root`, `has_reported`, `own_reports`, `derive_residual`, and `unverified_count` are never used
+    --> node/src/consensus/reports/mod.rs:614:12
+     |
+ 597 | impl ReportExchange {
+     | ------------------- methods in this implementation
+...
+ 614 |     pub fn live_root(&self, epoch: ConsensusEpoch) -> Option<BlockHash> {
+     |            ^^^^^^^^^
+...
+ 667 |     pub fn has_reported(&self, epoch: ConsensusEpoch) -> bool {
+     |            ^^^^^^^^^^^^
+...
+ 672 |     pub fn own_reports(&self, epoch: ConsensusEpoch) -> &[Report] {
+     |            ^^^^^^^^^^^
+...
+ 942 |     pub fn derive_residual(
+     |            ^^^^^^^^^^^^^^^
+...
+1073 |     pub fn unverified_count(&self, epoch: ConsensusEpoch) -> usize {
+     |            ^^^^^^^^^^^^^^^^
+
+warning: field `0` is never read
+  --> node/src/consensus/reports/epoch_decision.rs:50:14
+   |
+50 |     Accepted(BlockHash, Arc<EpochLedger>),
+   |     -------- ^^^^^^^^^
+   |     |
+   |     field in this variant
+   |
+help: consider changing the field to be of unit type to suppress this warning while preserving the field numbering, or remove the field
+   |
+50 -     Accepted(BlockHash, Arc<EpochLedger>),
+50 +     Accepted((), Arc<EpochLedger>),
+   |
+
+warning: associated function `new_null` is never used
+   --> node/src/consensus/reports/epoch_decision.rs:283:19
+    |
+273 | impl EpochDecisionService {
+    | ------------------------- associated function in this implementation
+...
+283 |     pub(crate) fn new_null() -> Self {
+    |                   ^^^^^^^^
+
+warning: function `vote_target` is never used
+  --> node/src/consensus/vote_generation/voting_scheduler.rs:21:15
+   |
+21 | pub(crate) fn vote_target(e: &Election) -> VoteTarget {
+   |               ^^^^^^^^^^^
+
+warning: field `network` is never read
+  --> node/src/consensus/winner_block_broadcaster.rs:26:5
+   |
+19 | pub(crate) struct WinnerBlockBroadcaster {
+   |                   ---------------------- field in this struct
+...
+26 |     network: Arc<RwLock<Network>>,
+   |     ^^^^^^^
+
+   Compiling rsnano_websocket_server v0.1.0 (/home/fiono8199/rsnano-node/websocket/server)
+   Compiling rsnano_rpc_server v0.1.0 (/home/fiono8199/rsnano-node/rpc/server)
+   Compiling rsnano_daemon v0.1.0 (/home/fiono8199/rsnano-node/daemon)
+warning: `rsnano_node` (lib) generated 27 warnings (run `cargo fix --lib -p rsnano_node` to apply 12 suggestions)
+   Compiling rsnano_cli v0.1.0 (/home/fiono8199/rsnano-node/cli)
+    Finished `release` profile [optimized] target(s) in 2m 41s
+warning: the following packages contain code that will be rejected by a future version of Rust: proc-macro-error2 v2.0.1
+note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 1`
++ cargo build --release -p rsnano_cli --features rsnano_cli/rai_byzantine --target-dir target/byz
+warning: use of deprecated module `std::u64`: all constants in this module replaced by associated constants on the type
+ --> types/src/difficulty.rs:7:33
+  |
+7 | use std::{collections::HashMap, u64};
+  |                                 ^^^
+  |
+  = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated constant `std::u64::MAX`: replaced by the `MAX` associated constant on this type
+  --> types/src/difficulty.rs:26:38
+   |
+26 |         if reverse_difficulty > u64::MAX as u128 {
+   |                                      ^^^
+
+warning: use of deprecated constant `std::u64::MAX`: replaced by the `MAX` associated constant on this type
+  --> types/src/difficulty.rs:31:18
+   |
+31 |             u64::MAX
+   |                  ^^^
+
+warning: use of deprecated constant `std::u64::MAX`: replaced by the `MAX` associated constant on this type
+  --> types/src/difficulty.rs:75:26
+   |
+75 |                     u64::MAX
+   |                          ^^^
+
+warning: `rsnano_types` (lib) generated 4 warnings
+warning: associated constant `HEADER_SIZE` is never used
+   --> messages/src/report_symbols.rs:117:11
+    |
+112 | impl ReportSymbolsReply {
+    | ----------------------- associated constant in this implementation
+...
+117 |     const HEADER_SIZE: usize = ConsensusEpoch::SERIALIZED_SIZE + 1 + BlockHash::SERIALIZED_SIZE + 4;
+    |           ^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `rsnano_messages` (lib) generated 1 warning
+   Compiling rsnano_node v4.0.0-dev (/home/fiono8199/rsnano-node/node)
+   Compiling rsnano_rpc_messages v0.1.0 (/home/fiono8199/rsnano-node/rpc/messages)
+warning: unused import: `cmp::max`
+ --> node/src/consensus/active_elections/active_elections_container.rs:2:5
+  |
+2 |     cmp::max,
+  |     ^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `election_schedulers::priority::bucket_count`
+  --> node/src/consensus/active_elections/active_elections_container.rs:33:9
+   |
+33 |         election_schedulers::priority::bucket_count,
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `vote_generation::voting_scheduler::vote_target`
+  --> node/src/consensus/vote_generation/aec_voter.rs:20:33
+   |
+20 |     AecService, SigningRecords, vote_generation::voting_scheduler::vote_target,
+   |                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `cmp::max`
+ --> node/src/consensus/winner_block_broadcaster.rs:2:5
+  |
+2 |     cmp::max,
+  |     ^^^^^^^^
+
+warning: use of deprecated module `std::isize`: all constants in this module replaced by associated constants on the type
+  --> node/src/consensus/active_elections/mod.rs:25:33
+   |
+25 | use std::{collections::HashMap, isize, sync::Arc, time::Duration};
+   |                                 ^^^^^
+   |
+   = note: `#[warn(deprecated)]` on by default
+
+   Compiling rsnano_rpc_client v0.1.0 (/home/fiono8199/rsnano-node/rpc/client)
+warning: unused variable: `bucket_id`
+    --> node/src/consensus/active_elections/active_elections_container.rs:4155:50
+     |
+4155 |     pub fn erase_lowest_prio_election(&mut self, bucket_id: usize) -> bool {
+     |                                                  ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_bucket_id`
+     |
+     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `now`
+    --> node/src/consensus/active_elections/active_elections_container.rs:4267:9
+     |
+4267 |         now: Timestamp,
+     |         ^^^ help: if this is intentional, prefix it with an underscore: `_now`
+
+warning: unused variable: `corresponding`
+    --> node/src/consensus/active_elections/active_elections_container.rs:4280:18
+     |
+4280 |         let Some(corresponding) = self.roots.latest_election_for_root_mut(&root) else {
+     |                  ^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_corresponding`
+
+warning: unused variable: `lowest_priority`
+  --> node/src/consensus/election_schedulers/priority/bucket.rs:78:45
+   |
+78 |     pub fn available(&self, vacancy: isize, lowest_priority: TimePriority) -> bool {
+   |                                             ^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_lowest_priority`
+
+warning: unused variable: `highest_block`
+  --> node/src/consensus/election_schedulers/priority/bucket.rs:79:18
+   |
+79 |         let Some(highest_block) = self.block_queue.highest_prio() else {
+   |                  ^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_highest_block`
+
+warning: unused variable: `previous`
+   --> node/src/consensus/reports/epoch_decision.rs:869:18
+    |
+869 |         let Some(previous) = self.active_elections.epoch_previous_state(epoch) else {
+    |                  ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_previous`
+
+warning: unused variable: `now`
+    --> node/src/consensus/reports/mod.rs:1366:9
+     |
+1366 |         now: Timestamp,
+     |         ^^^ help: if this is intentional, prefix it with an underscore: `_now`
+
+warning: variable does not need to be mutable
+   --> node/src/consensus/signing_records.rs:996:9
+    |
+996 |     let mut optional = |at: &mut usize| -> Option<Option<BlockHash>> {
+    |         ----^^^^^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: methods `kudzu_votes_due`, `lowest_priority`, and `complete_report` are never used
+    --> node/src/consensus/active_elections/active_elections_container.rs:2524:12
+     |
+ 257 | impl ActiveElectionsContainer {
+     | ----------------------------- methods in this implementation
+...
+2524 |     pub fn kudzu_votes_due(
+     |            ^^^^^^^^^^^^^^^
+...
+3553 |     pub fn lowest_priority(&self, bucket_id: usize) -> Option<(ElectionId, TimePriority)> {
+     |            ^^^^^^^^^^^^^^^
+...
+4611 |     pub fn complete_report(
+     |            ^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: methods `should_cool_down` and `add_vote` are never used
+   --> node/src/consensus/active_elections/apply_vote_helper.rs:163:8
+    |
+136 | impl<'a> ApplyVoteToElectionHelper<'a> {
+    | -------------------------------------- methods in this implementation
+...
+163 |     fn should_cool_down(&self, last_vote: &VoteSummary, rep_weight: Amount) -> bool {
+    |        ^^^^^^^^^^^^^^^^
+...
+188 |     fn add_vote(&mut self) {
+    |        ^^^^^^^^
+
+warning: method `instances_through` is never used
+   --> node/src/consensus/active_elections/epoch_states.rs:236:12
+    |
+ 78 | impl EpochStates {
+    | ---------------- method in this implementation
+...
+236 |     pub fn instances_through(
+    |            ^^^^^^^^^^^^^^^^^
+
+warning: method `lowest_priority` is never used
+   --> node/src/consensus/active_elections/root_container.rs:368:12
+    |
+ 85 | impl RootContainer {
+    | ------------------ method in this implementation
+...
+368 |     pub fn lowest_priority(&self, bucket_id: usize) -> Option<(ElectionId, TimePriority)> {
+    |            ^^^^^^^^^^^^^^^
+
+warning: method `remove_slot` is never used
+  --> node/src/consensus/active_elections/slot_states.rs:83:12
+   |
+21 | impl SlotStates {
+   | --------------- method in this implementation
+...
+83 |     pub fn remove_slot(&mut self, account: Account, height: u64) {
+   |            ^^^^^^^^^^^
+
+warning: method `evicted` is never used
+   --> node/src/consensus/active_elections/stats/aec_stats.rs:174:12
+    |
+164 | impl AecStats {
+    | ------------- method in this implementation
+...
+174 |     pub fn evicted(&mut self, election: &Election) {
+    |            ^^^^^^^
+
+warning: method `late_notarizers` is never used
+   --> node/src/consensus/active_elections/vote_records.rs:147:12
+    |
+ 84 | impl VoteRecords {
+    | ---------------- method in this implementation
+...
+147 |     pub fn late_notarizers(
+    |            ^^^^^^^^^^^^^^^
+
+warning: method `tick` is never used
+   --> node/src/consensus/checkpoint_follower.rs:126:12
+    |
+ 62 | impl PendingCheckpointBlocks {
+    | ---------------------------- method in this implementation
+...
+126 |     pub fn tick(
+    |            ^^^^
+
+warning: method `time_to_live` is never used
+   --> node/src/consensus/election/election.rs:961:8
+    |
+960 | impl ElectionBehavior {
+    | --------------------- method in this implementation
+961 |     fn time_to_live(&self) -> Duration {
+    |        ^^^^^^^^^^^^
+
+warning: methods `live_root`, `has_reported`, `own_reports`, `derive_residual`, and `unverified_count` are never used
+    --> node/src/consensus/reports/mod.rs:614:12
+     |
+ 597 | impl ReportExchange {
+     | ------------------- methods in this implementation
+...
+ 614 |     pub fn live_root(&self, epoch: ConsensusEpoch) -> Option<BlockHash> {
+     |            ^^^^^^^^^
+...
+ 667 |     pub fn has_reported(&self, epoch: ConsensusEpoch) -> bool {
+     |            ^^^^^^^^^^^^
+...
+ 672 |     pub fn own_reports(&self, epoch: ConsensusEpoch) -> &[Report] {
+     |            ^^^^^^^^^^^
+...
+ 942 |     pub fn derive_residual(
+     |            ^^^^^^^^^^^^^^^
+...
+1073 |     pub fn unverified_count(&self, epoch: ConsensusEpoch) -> usize {
+     |            ^^^^^^^^^^^^^^^^
+
+warning: field `0` is never read
+  --> node/src/consensus/reports/epoch_decision.rs:50:14
+   |
+50 |     Accepted(BlockHash, Arc<EpochLedger>),
+   |     -------- ^^^^^^^^^
+   |     |
+   |     field in this variant
+   |
+help: consider changing the field to be of unit type to suppress this warning while preserving the field numbering, or remove the field
+   |
+50 -     Accepted(BlockHash, Arc<EpochLedger>),
+50 +     Accepted((), Arc<EpochLedger>),
+   |
+
+warning: associated function `new_null` is never used
+   --> node/src/consensus/reports/epoch_decision.rs:283:19
+    |
+273 | impl EpochDecisionService {
+    | ------------------------- associated function in this implementation
+...
+283 |     pub(crate) fn new_null() -> Self {
+    |                   ^^^^^^^^
+
+warning: function `vote_target` is never used
+  --> node/src/consensus/vote_generation/voting_scheduler.rs:21:15
+   |
+21 | pub(crate) fn vote_target(e: &Election) -> VoteTarget {
+   |               ^^^^^^^^^^^
+
+warning: field `network` is never read
+  --> node/src/consensus/winner_block_broadcaster.rs:26:5
+   |
+19 | pub(crate) struct WinnerBlockBroadcaster {
+   |                   ---------------------- field in this struct
+...
+26 |     network: Arc<RwLock<Network>>,
+   |     ^^^^^^^
+
+   Compiling rsnano_rpc_server v0.1.0 (/home/fiono8199/rsnano-node/rpc/server)
+   Compiling rsnano_websocket_server v0.1.0 (/home/fiono8199/rsnano-node/websocket/server)
+   Compiling rsnano_daemon v0.1.0 (/home/fiono8199/rsnano-node/daemon)
+warning: `rsnano_node` (lib) generated 27 warnings (run `cargo fix --lib -p rsnano_node` to apply 12 suggestions)
+   Compiling rsnano_cli v0.1.0 (/home/fiono8199/rsnano-node/cli)
+    Finished `release` profile [optimized] target(s) in 2m 38s
+warning: the following packages contain code that will be rejected by a future version of Rust: proc-macro-error2 v2.0.1
+note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 1`
++ b=/home/fiono8199/bin-confirm/rai
++ rm -rf /home/fiono8199/bin-confirm
++ mkdir -p /home/fiono8199/bin-confirm/rai
++ cp target/release/rsnano target/release/nanospam /home/fiono8199/bin-confirm/rai/
++ cp target/byz/release/rsnano /home/fiono8199/bin-confirm/rai/rsnano-byzantine
++ for f in rsnano rsnano-byzantine
+++ strings /home/fiono8199/bin-confirm/rai/rsnano
+++ grep -c EPOCH_START
++ '[' 1 -gt 0 ']'
++ for f in rsnano rsnano-byzantine
+++ strings /home/fiono8199/bin-confirm/rai/rsnano-byzantine
+++ grep -c EPOCH_START
++ '[' 1 -gt 0 ']'
++ cd /home/fiono8199/bin-confirm
++ sha256sum rai/nanospam rai/rsnano rai/rsnano-byzantine
+522fed6b3082c9cf871625d5fe74566dfd978dc8a2c552db711478e990774cd6  rai/nanospam
+faa50a61b0410add8960a000cef48222d43075a76ce04785f8683925a020e0ad  rai/rsnano
+05885b2a6c9348cda77fbf454e3ad91f7b18802067dd2d6240463f1aaec4455f  rai/rsnano-byzantine
++ out=doc/benchmarks/gcp-n12-confirm-2026-11-12
++ L=--timeout=480:--stall-abort=90:--drain-limit=15:--settle-timeout=600:--fork-grace-stall=30:--hosts=/home/fiono8199/hosts-n14.txt
++ sweep --rep 2 --rep 3 --variant nofork
++ python3 tools/rai/run_sweep.py doc/benchmarks/gcp-n12-confirm-2026-11-12 --set final-wan-2000-n12 --blocks 45000 --reps-from 1000 --wait-quiet 120 --snapshot-dir /home/fiono8199/ledgers-confirm --reps 3 --arm rai=/home/fiono8199/bin-confirm/rai:--timeout=480:--stall-abort=90:--drain-limit=15:--settle-timeout=600:--fork-grace-stall=30:--hosts=/home/fiono8199/hosts-n14.txt --rep 2 --rep 3 --variant nofork
+[11:06:05] nofork 2000/s rai rep 2
+  settled in 1085 s
+[11:24:10] nofork 2000/s rai rep 3
+  settled in 511 s
++ sweep --rep 1 --variant fork10-grace
++ python3 tools/rai/run_sweep.py doc/benchmarks/gcp-n12-confirm-2026-11-12 --set final-wan-2000-n12 --blocks 45000 --reps-from 1000 --wait-quiet 120 --snapshot-dir /home/fiono8199/ledgers-confirm --reps 3 --arm rai=/home/fiono8199/bin-confirm/rai:--timeout=480:--stall-abort=90:--drain-limit=15:--settle-timeout=600:--fork-grace-stall=30:--hosts=/home/fiono8199/hosts-n14.txt --rep 1 --variant fork10-grace
+[11:32:41] fork10-grace 2000/s rai rep 1
+  settled in 537 s
++ sweep --rep 1 --variant fork10-grace-byznode
++ python3 tools/rai/run_sweep.py doc/benchmarks/gcp-n12-confirm-2026-11-12 --set final-wan-2000-n12 --blocks 45000 --reps-from 1000 --wait-quiet 120 --snapshot-dir /home/fiono8199/ledgers-confirm --reps 3 --arm rai=/home/fiono8199/bin-confirm/rai:--timeout=480:--stall-abort=90:--drain-limit=15:--settle-timeout=600:--fork-grace-stall=30:--hosts=/home/fiono8199/hosts-n14.txt --rep 1 --variant fork10-grace-byznode
+[11:41:38] fork10-grace-byznode 2000/s rai rep 1
+  settled in 1339 s
++ result=done
++ echo done
