@@ -1,0 +1,107 @@
+status = settled
+correctness_passed = True
+settled_after_s = 418.2
+confirmed_primary = 42156
+error = None
+stalled = {'phase': 'client', 'confirmed': 33262, 'reason': 'drain limit'}
+client_finished = False
+client_finished_s = 247.1
+close_duration_ms = {'max': 128543, 'median': 45331}
+client {}
+closes {'0': (1175, 1388, [0]), '1': (4979, 5165, [1]), '2': (41206, 45331, [4]), '3': (121915, 128543, [6]), '4': (84127, 89023, [2])}
+== who is missing (first time per manifest), pr0 and pr1
+EPOCH_MANIFEST_MISSING_WHO epoch=2 manifest=8A3A6E059E261EE3253BF1C533FC65C837FA6840415D0EE9A3A4EB91D4E93166 voters_kinds=3 top=["2:6F4C5FE3:final:223", "2:6F4C5FE3:first:12", "2:6F4C5FE3:settled:12"] node=pr0 t=1794487525893
+EPOCH_MANIFEST_MISSING_WHO epoch=3 manifest=064EB0396F4F8089FB000770EE9054D87A3A9A919CC2A9C21191ABFA1EC4AB42 voters_kinds=4 top=["3:E51262F8:final:3446", "2:E51262F8:late:438", "3:E51262F8:first:380", "3:B72FC2F3:final:20"] node=pr0 t=1794487585788
+EPOCH_MANIFEST_MISSING_WHO epoch=3 manifest=58DF40CA2C59B0596B081083680FFC629E40653EB930EFCC66157BB2939BDA4B voters_kinds=1 top=["3:B72FC2F3:late:1"] node=pr0 t=1794487646889
+EPOCH_MANIFEST_MISSING_WHO epoch=2 manifest=8A3A6E059E261EE3253BF1C533FC65C837FA6840415D0EE9A3A4EB91D4E93166 voters_kinds=3 top=["2:6F4C5FE3:final:489", "2:6F4C5FE3:first:28", "2:6F4C5FE3:settled:28"] node=pr1 t=1794487526428
+EPOCH_MANIFEST_MISSING_WHO epoch=2 manifest=E79A680894CE05F1F122C86F6D8A0D950FB847699BCEB59FE922D7C8E425D642 voters_kinds=3 top=["2:6F4C5FE3:final:11", "2:6F4C5FE3:first:5", "2:6F4C5FE3:settled:5"] node=pr1 t=1794487542575
+EPOCH_MANIFEST_MISSING_WHO epoch=3 manifest=064EB0396F4F8089FB000770EE9054D87A3A9A919CC2A9C21191ABFA1EC4AB42 voters_kinds=16 top=["3:E51262F8:final:3014", "3:B72FC2F3:final:785", "3:633D9D61:final:74", "3:633D9D61:late:66", "3:E51262F8:late:53", "3:7C4872BC:final:40", "2:E51262F8:late:24", "3:E51262F8:first:21", "3:B72FC2F3:late:14", "3:1F0B1FC9:final:11", "3:65A90023:final:10", "3:6F4C5FE3:first:10", "3:6F4C5FE3:settled:10", "3:7C4872BC:late:6", "3:65A90023:late:2", "3:911999B2:final:1"] node=pr1 t=1794487614600
+== manifest fetch times, pr0
+EPOCH_MANIFEST_FETCHED epoch=1 manifest=0886BCB63EA9E82F56DA9FD999F00C2D1C99364C7DB14AADEC9BF8D327F7310D entries=11848 node=pr0 t=1794487514
+EPOCH_CLOSE_ROUND epoch=2 round=0 leader=6F4C5FE3A00A0986642BB50E15396A7F33941D0401E5B471B2207F37D38201A9 leads=false node=pr0 t=17944875209
+EPOCH_MANIFEST_FETCHED epoch=2 manifest=8A3A6E059E261EE3253BF1C533FC65C837FA6840415D0EE9A3A4EB91D4E93166 entries=29337 node=pr0 t=1794487525
+EPOCH_MANIFEST_FETCHED epoch=2 manifest=8A3A6E059E261EE3253BF1C533FC65C837FA6840415D0EE9A3A4EB91D4E93166 entries=29337 node=pr0 t=1794487527
+EPOCH_MANIFEST_FETCHED epoch=2 manifest=E79A680894CE05F1F122C86F6D8A0D950FB847699BCEB59FE922D7C8E425D642 entries=29261 node=pr0 t=1794487541
+EPOCH_CLOSE_ROUND epoch=3 round=0 leader=6F4C5FE3A00A0986642BB50E15396A7F33941D0401E5B471B2207F37D38201A9 leads=false node=pr0 t=17944875758
+EPOCH_MANIFEST_FETCHED epoch=3 manifest=064EB0396F4F8089FB000770EE9054D87A3A9A919CC2A9C21191ABFA1EC4AB42 entries=28564 node=pr0 t=1794487585
+EPOCH_MANIFEST_FETCHED epoch=3 manifest=58DF40CA2C59B0596B081083680FFC629E40653EB930EFCC66157BB2939BDA4B entries=28650 node=pr0 t=1794487646
+== evidence lane and replays, pr1, every 5 s
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+== pr1: seconds after epoch 0 ended (load starts about then)
+0:  elections=0 v_replay=0 v_net=0 requests=0 asked=0 votes_dropped=0 v_evidence=0
+5:  elections=0 v_replay=0 v_net=0 requests=0 asked=0 votes_dropped=0 v_evidence=0
+10:  elections=0 v_replay=0 v_net=0 requests=0 asked=0 votes_dropped=0 v_evidence=0
+15:  elections=1475 v_replay=0 v_net=0 requests=0 asked=6949 votes_dropped=0 v_evidence=0
+20:  elections=2973 v_replay=0 v_net=0 requests=0 asked=13764 votes_dropped=0 v_evidence=0
+25:  elections=7004 v_replay=12 v_net=34 requests=0 asked=25235 votes_dropped=549 v_evidence=260
+30:  elections=11711 v_replay=55 v_net=548 requests=11 asked=42024 votes_dropped=549 v_evidence=840
+35:  elections=13859 v_replay=1727 v_net=2816 requests=464 asked=67680 votes_dropped=34548 v_evidence=8192
+40:  elections=13838 v_replay=3702 v_net=2816 requests=530 asked=92158 votes_dropped=87897 v_evidence=8192
+45:  elections=13838 v_replay=4822 v_net=2816 requests=108 asked=117975 votes_dropped=107744 v_evidence=8192
+50:  elections=13838 v_replay=5755 v_net=2816 requests=15 asked=142215 votes_dropped=121757 v_evidence=8192
+55:  elections=13838 v_replay=6726 v_net=2816 requests=22 asked=165460 votes_dropped=136610 v_evidence=8192
+60:  elections=13838 v_replay=7765 v_net=2816 requests=3 asked=190327 votes_dropped=151651 v_evidence=8192
+65:  elections=14191 v_replay=8641 v_net=2816 requests=18 asked=218988 votes_dropped=156093 v_evidence=4724
+70:  elections=28106 v_replay=9493 v_net=2816 requests=174 asked=242085 votes_dropped=169991 v_evidence=8192
+75:  elections=27673 v_replay=16293 v_net=2816 requests=67 asked=264058 votes_dropped=216060 v_evidence=8192
+80:  elections=26653 v_replay=16506 v_net=2816 requests=155 asked=284935 votes_dropped=229203 v_evidence=8192
+85:  elections=26024 v_replay=18481 v_net=2816 requests=0 asked=311285 votes_dropped=261277 v_evidence=8192
+90:  elections=25611 v_replay=19718 v_net=2816 requests=0 asked=337718 votes_dropped=291867 v_evidence=8192
+95:  elections=24934 v_replay=20232 v_net=2816 requests=0 asked=361259 votes_dropped=309801 v_evidence=8116
+100:  elections=24636 v_replay=20743 v_net=2816 requests=0 asked=387032 votes_dropped=320661 v_evidence=7117
+105:  elections=24572 v_replay=21088 v_net=2816 requests=0 asked=412250 votes_dropped=328326 v_evidence=6701
+110:  elections=24572 v_replay=21214 v_net=2816 requests=5 asked=437857 votes_dropped=330353 v_evidence=5428
+115:  elections=24571 v_replay=21289 v_net=2816 requests=0 asked=460900 votes_dropped=330601 v_evidence=3182
+120:  elections=24571 v_replay=22009 v_net=2816 requests=0 asked=487179 votes_dropped=335009 v_evidence=8192
+== pr0: seconds after epoch 0 ended (load starts about then)
+0:  elections=0 v_replay=0 v_net=0 requests=0 asked=0 votes_dropped=0 v_evidence=0
+5:  elections=0 v_replay=0 v_net=0 requests=0 asked=0 votes_dropped=0 v_evidence=0
+10:  elections=997 v_replay=0 v_net=0 requests=0 asked=942 votes_dropped=0 v_evidence=0
+15:  elections=2555 v_replay=0 v_net=0 requests=0 asked=9516 votes_dropped=0 v_evidence=0
+20:  elections=2955 v_replay=0 v_net=0 requests=0 asked=20130 votes_dropped=0 v_evidence=0
+25:  elections=7030 v_replay=200 v_net=25 requests=2 asked=32807 votes_dropped=361 v_evidence=4
+30:  elections=12386 v_replay=0 v_net=1 requests=0 asked=45366 votes_dropped=361 v_evidence=0
+35:  elections=13260 v_replay=464 v_net=2559 requests=145 asked=62479 votes_dropped=499 v_evidence=8192
+40:  elections=13260 v_replay=977 v_net=2816 requests=0 asked=94110 votes_dropped=7349 v_evidence=7270
+45:  elections=12838 v_replay=1050 v_net=2816 requests=0 asked=113898 votes_dropped=8005 v_evidence=2837
+50:  elections=11414 v_replay=0 v_net=0 requests=0 asked=130789 votes_dropped=8284 v_evidence=0
+55:  elections=11414 v_replay=0 v_net=0 requests=0 asked=143809 votes_dropped=8284 v_evidence=0
+60:  elections=11414 v_replay=0 v_net=0 requests=0 asked=156919 votes_dropped=8284 v_evidence=0
+65:  elections=9051 v_replay=0 v_net=0 requests=7 asked=166982 votes_dropped=8284 v_evidence=0
+70:  elections=25378 v_replay=3773 v_net=24 requests=0 asked=188930 votes_dropped=8290 v_evidence=11
+75:  elections=24290 v_replay=2409 v_net=16 requests=0 asked=213551 votes_dropped=8290 v_evidence=76
+80:  elections=24290 v_replay=0 v_net=0 requests=0 asked=235169 votes_dropped=8290 v_evidence=0
+85:  elections=24290 v_replay=0 v_net=0 requests=0 asked=253464 votes_dropped=8290 v_evidence=0
+90:  elections=24290 v_replay=0 v_net=0 requests=0 asked=266837 votes_dropped=8290 v_evidence=0
+95:  elections=24290 v_replay=7463 v_net=2816 requests=0 asked=280136 votes_dropped=73515 v_evidence=8192
+100:  elections=24290 v_replay=13025 v_net=2816 requests=0 asked=296299 votes_dropped=169727 v_evidence=8192
+105:  elections=24290 v_replay=19662 v_net=2816 requests=0 asked=306903 votes_dropped=268452 v_evidence=8192
+110:  elections=24290 v_replay=24772 v_net=2816 requests=0 asked=317046 votes_dropped=363687 v_evidence=8192
+115:  elections=24290 v_replay=29615 v_net=2816 requests=0 asked=320502 votes_dropped=457518 v_evidence=8192
+120:  elections=24290 v_replay=32882 v_net=2816 requests=0 asked=328289 votes_dropped=528612 v_evidence=8192
+== who is E51262F8 and B72FC2F3 (committee order)
+EPOCH_COMMITTEE derived_by=genesis members=12 accounts=2025 n=12 digest=60FF50997EDE1C05D8CC034BAA9220E866BECF4F2EA8D98ADF18D9AD6FFAF7EB shares=["1F0B1FC9:8.3%", "4CFB624C:8.3%", "65A90023:8.3%", "6F4C5FE3:8.3%", "7C4872BC:8.3%", "E51262F8:8.3%", "735FE217:8.3%", "911999B2:8.3%", "B72FC2F3:8.3%", "D
+pr0 D315857C pr1 A353E45E pr2 911999B2 pr3 65A90023 pr4 633D9D61 pr5 735FE217 pr6 7C4872BC pr7 E51262F8 pr8 1F0B1FC9 pr9 4CFB624C pr10 B72FC2F3 pr11 6F4C5FE3 
