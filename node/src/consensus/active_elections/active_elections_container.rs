@@ -4846,6 +4846,67 @@ impl ActiveElectionsContainer {
         missing
     }
 
+    /// RAI evaluation: what a manifest names that this node lacks, counted
+    /// per epoch, voter and vote kind, the largest first: whether the missing
+    /// evidence is one voter's (an equivocator's votes for blocks this node
+    /// never saw) or everyone's (votes this node dropped)
+    pub fn missing_manifest_breakdown(
+        &self,
+        manifest: &crate::consensus::election::Manifest,
+    ) -> Vec<(ConsensusEpoch, PublicKey, &'static str, usize)> {
+        use crate::consensus::election::{MemberOrder, ResidualKind};
+        let mut counts: BTreeMap<(ConsensusEpoch, PublicKey, &'static str), usize> =
+            BTreeMap::new();
+        let mut orders: BTreeMap<ConsensusEpoch, Option<MemberOrder>> = BTreeMap::new();
+        for entry in manifest.entries() {
+            let order = orders.entry(entry.epoch).or_insert_with(|| {
+                self.committees
+                    .committee(entry.epoch)
+                    .and_then(|committee| MemberOrder::of(&committee))
+            });
+            let Some(order) = order else {
+                continue;
+            };
+            let mut count = |voter: &PublicKey, kind: &'static str| {
+                *counts.entry((entry.epoch, *voter, kind)).or_default() += 1;
+            };
+            for voter in order.members(entry.first) {
+                if !self.has_vote(entry.epoch, voter, &entry.hash, ResidualKind::First) {
+                    count(voter, "first");
+                }
+            }
+            for voter in order.members(entry.final_) {
+                if !self.has_vote(entry.epoch, voter, &entry.hash, ResidualKind::Final) {
+                    count(voter, "final");
+                }
+            }
+            for voter in order.members(entry.late) {
+                if !self
+                    .vote_records
+                    .has_late_vote(entry.epoch, voter, &entry.hash)
+                {
+                    count(voter, "late");
+                }
+            }
+            for voter in order.members(entry.settled) {
+                if !self.vote_records.has_settled_vote(
+                    entry.epoch,
+                    voter,
+                    &entry.hash,
+                    self.checkpoint_bases.before(entry.epoch, 1),
+                ) {
+                    count(voter, "settled");
+                }
+            }
+        }
+        let mut rows: Vec<_> = counts
+            .into_iter()
+            .map(|((epoch, voter, kind), count)| (epoch, voter, kind, count))
+            .collect();
+        rows.sort_by(|a, b| b.3.cmp(&a.3));
+        rows
+    }
+
     /// RAI: the signed votes held for the given blocks of an epoch, for a
     /// node that lacks the evidence of a report's certificates. The support
     /// of earlier epochs comes along: an F entry that rests on the overlap

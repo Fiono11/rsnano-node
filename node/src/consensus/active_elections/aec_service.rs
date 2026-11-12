@@ -848,6 +848,17 @@ impl AecService {
         self.aec.read().unwrap().missing_manifest_votes(manifest)
     }
 
+    /// RAI evaluation: see `ActiveElectionsContainer::missing_manifest_breakdown`
+    pub fn missing_manifest_breakdown(
+        &self,
+        manifest: &crate::consensus::election::Manifest,
+    ) -> Vec<(ConsensusEpoch, PublicKey, &'static str, usize)> {
+        self.aec
+            .read()
+            .unwrap()
+            .missing_manifest_breakdown(manifest)
+    }
+
     pub fn has_votes(
         &self,
         epoch: ConsensusEpoch,

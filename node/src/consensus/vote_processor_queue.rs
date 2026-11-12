@@ -32,6 +32,7 @@ impl VoteProcessorQueue {
                 stopped: false,
                 close_lane: VecDeque::new(),
                 own_lane: VecDeque::new(),
+                evidence_lane: VecDeque::new(),
                 rep_tiers: Default::default(),
                 queue: FairQueue::new(
                     move |(tier, channel)| {
@@ -91,14 +92,28 @@ impl VoteProcessorQueue {
     /// that has stopped draining.
     const OWN_LANE_MAX: usize = 1 << 20;
 
+    /// RAI: the bound of the lane for evidence this node asked for: the
+    /// votes behind a report's certificates or a proposal's manifest. Without
+    /// them a report stays unusable and a proposal unchecked, so they must
+    /// not be dropped behind live votes and the vote cache's replays, which
+    /// fill the per-sender queues exactly when evidence is missing. A reply
+    /// carries many votes of one statement kind, so the lane counts replies.
+    const EVIDENCE_LANE_MAX: usize = 8192;
+
     pub fn len(&self) -> usize {
         let guard = self.data.lock().unwrap();
-        guard.queue.len() + guard.close_lane.len() + guard.own_lane.len()
+        guard.queue.len()
+            + guard.close_lane.len()
+            + guard.own_lane.len()
+            + guard.evidence_lane.len()
     }
 
     pub fn is_empty(&self) -> bool {
         let guard = self.data.lock().unwrap();
-        guard.queue.is_empty() && guard.close_lane.is_empty() && guard.own_lane.is_empty()
+        guard.queue.is_empty()
+            && guard.close_lane.is_empty()
+            && guard.own_lane.is_empty()
+            && guard.evidence_lane.is_empty()
     }
 
     /// RAI evaluation: what waits in each lane: the close votes, this node's
@@ -111,6 +126,7 @@ impl VoteProcessorQueue {
         VoteLaneLengths {
             close: guard.close_lane.len(),
             own: guard.own_lane.len(),
+            evidence: guard.evidence_lane.len(),
             replays,
             network: guard.queue.len() - replays,
         }
@@ -176,6 +192,13 @@ impl VoteProcessorQueue {
                     .close_lane
                     .push_back(((tier, channel_id), (vote, source, channel, filter)));
                 true
+            } else if source == VoteDelivery::Evidence
+                && guard.evidence_lane.len() < Self::EVIDENCE_LANE_MAX
+            {
+                guard
+                    .evidence_lane
+                    .push_back(((tier, channel_id), (vote, source, channel, filter)));
+                true
             } else {
                 guard
                     .queue
@@ -214,12 +237,17 @@ impl VoteProcessorQueue {
                 return VecDeque::new();
             }
 
-            if !guard.close_lane.is_empty() || !guard.own_lane.is_empty() || !guard.queue.is_empty()
+            if !guard.close_lane.is_empty()
+                || !guard.own_lane.is_empty()
+                || !guard.evidence_lane.is_empty()
+                || !guard.queue.is_empty()
             {
                 let first = max_batch_size.min(guard.close_lane.len());
                 let mut batch: VecDeque<QueuedVote> = guard.close_lane.drain(..first).collect();
                 let own = (max_batch_size - batch.len()).min(guard.own_lane.len());
                 batch.extend(guard.own_lane.drain(..own));
+                let evidence = (max_batch_size - batch.len()).min(guard.evidence_lane.len());
+                batch.extend(guard.evidence_lane.drain(..evidence));
                 if batch.len() < max_batch_size {
                     let rest = max_batch_size - batch.len();
                     batch.extend(guard.queue.next_batch(rest));
@@ -237,6 +265,7 @@ impl VoteProcessorQueue {
             guard.queue.clear();
             guard.close_lane.clear();
             guard.own_lane.clear();
+            guard.evidence_lane.clear();
         }
         self.condition.notify_all();
     }
@@ -297,6 +326,7 @@ impl EventHandler<ChannelEvent> for VoteProcessorQueue {
 pub(crate) struct VoteLaneLengths {
     pub(crate) close: usize,
     pub(crate) own: usize,
+    pub(crate) evidence: usize,
     pub(crate) replays: usize,
     pub(crate) network: usize,
 }
@@ -320,6 +350,9 @@ struct VoteProcessorQueueData {
     /// RAI: this node's own votes, taken past a full fair queue and drained
     /// after the close lane (see `OWN_LANE_MAX`)
     own_lane: VecDeque<QueuedVote>,
+    /// RAI: evidence this node asked for, taken past a full fair queue and
+    /// drained after its own votes (see `EVIDENCE_LANE_MAX`)
+    evidence_lane: VecDeque<QueuedVote>,
     queue: FairQueue<
         (RepTier, ChannelId),
         (
@@ -394,6 +427,35 @@ mod tests {
 
         let batch = queue.wait_for_votes(1);
         assert!(Arc::ptr_eq(&(batch[0].1).0, &own));
+    }
+
+    /// RAI: a requested evidence vote is taken in past a full queue of its
+    /// sender and comes out before the queue; a live vote of the same sender
+    /// is dropped
+    #[test]
+    fn evidence_bypasses_a_full_queue() {
+        let mut config = VoteProcessorConfig::new(1);
+        config.max_pr_queue = 1;
+        config.max_non_pr_queue = 1;
+        let queue = VoteProcessorQueue::new(config, Arc::new(Stats::default()));
+        let channel = Some(Arc::new(Channel::new_test_instance()));
+        let vote = |hash: u64| {
+            Arc::new(Vote::new_in_epoch(
+                &PrivateKey::from(1),
+                VoteKind::First,
+                ConsensusEpoch::ZERO,
+                vec![BlockHash::from(hash)],
+            ))
+        };
+        assert!(queue.enqueue(vote(1), channel.clone(), VoteDelivery::Direct, None));
+        assert!(!queue.enqueue(vote(2), channel.clone(), VoteDelivery::Direct, None));
+        let evidence = vote(3);
+        assert!(queue.enqueue(evidence.clone(), channel, VoteDelivery::Evidence, None));
+        assert_eq!(queue.len(), 2);
+        assert_eq!(queue.lane_lengths().evidence, 1);
+
+        let batch = queue.wait_for_votes(1);
+        assert!(Arc::ptr_eq(&(batch[0].1).0, &evidence));
     }
 
     /// RAI: a recorded vote signed again on a restart takes the own lane and

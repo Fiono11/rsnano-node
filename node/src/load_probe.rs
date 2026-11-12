@@ -51,7 +51,7 @@ impl Tickable for LoadProbe {
         let (out_max, out_sum) = self.outbound_queues();
         let lanes = self.votes.lane_lengths();
         crate::utils::diagnostic!(
-            "NODE_LOAD gap_ms={} aec_wait_us={} elections={} inbound={} votes={} v_close={} v_own={} v_replay={} v_net={} v_done={} cooling={} requests={} blocks={} cementing={} out_max={} out_sum={} cpu_ticks={} asked={} votes_in={} votes_dropped={}",
+            "NODE_LOAD gap_ms={} aec_wait_us={} elections={} inbound={} votes={} v_close={} v_own={} v_replay={} v_net={} v_done={} cooling={} requests={} blocks={} cementing={} out_max={} out_sum={} cpu_ticks={} asked={} votes_in={} votes_dropped={} v_evidence={}",
             tick_gap_ms,
             aec_wait_us,
             elections,
@@ -78,6 +78,7 @@ impl Tickable for LoadProbe {
                 .count(StatType::Message, DetailType::ConfirmAck, Direction::In),
             self.stats
                 .count(StatType::VoteProcessor, DetailType::Overfill, Direction::In),
+            lanes.evidence,
         );
     }
 }

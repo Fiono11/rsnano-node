@@ -68,11 +68,20 @@ enum Evidence {
 /// Chunks of a manifest asked for at once
 const MANIFEST_WINDOW: usize = 8;
 
+/// How long a manifest is asked of the proposal's sender alone. After it
+/// every principal representative is asked: a validator that already holds
+/// the manifest serves it, and a sender that answers slowly - a Byzantine
+/// leader, or one whose uplink is loaded - no longer sets the pace of the
+/// round's check. The chunks are checked against the digest either way.
+const MANIFEST_SENDER_ONLY: std::time::Duration = std::time::Duration::from_secs(1);
+
 /// A manifest being fetched by digest: the chunks received and the ones
 /// asked for
 struct ManifestFetch {
     assembly: ManifestAssembly,
     window: ChunkWindow,
+    /// When the first chunk was asked for
+    started: Option<Timestamp>,
 }
 
 impl ManifestFetch {
@@ -80,13 +89,21 @@ impl ManifestFetch {
         Self {
             assembly: ManifestAssembly::new(digest),
             window: ChunkWindow::new(MANIFEST_WINDOW),
+            started: None,
         }
     }
 
     /// The chunk starts to ask for now
     fn due(&mut self, now: Timestamp, retry: std::time::Duration) -> Vec<u32> {
+        self.started.get_or_insert(now);
         let missing = self.assembly.missing_chunks(ManifestReply::MAX_ENTRIES);
         self.window.due(missing, now, retry)
+    }
+
+    /// Whether the proposal's sender has had its time to deliver alone
+    fn ask_everyone(&self, now: Timestamp) -> bool {
+        self.started
+            .is_some_and(|started| started.elapsed(now) >= MANIFEST_SENDER_ONLY)
     }
 }
 
@@ -203,6 +220,8 @@ pub struct EpochDecisionService {
     manifests: Mutex<HashMap<BlockHash, (ConsensusEpoch, Arc<Manifest>)>>,
     /// Manifests being fetched by digest
     assemblies: Mutex<HashMap<BlockHash, ManifestFetch>>,
+    /// RAI evaluation: the manifests whose missing votes were explained
+    missing_explained: Mutex<std::collections::HashSet<BlockHash>>,
     /// Since when each epoch has been closed here without its value derived
     closed_undecided: Mutex<HashMap<ConsensusEpoch, Timestamp>>,
     /// Decided states being fetched
@@ -314,6 +333,7 @@ impl EpochDecisionService {
             unready_logged: Mutex::new(HashMap::new()),
             manifests: Mutex::new(HashMap::new()),
             assemblies: Mutex::new(HashMap::new()),
+            missing_explained: Mutex::new(Default::default()),
             closed_undecided: Mutex::new(HashMap::new()),
             checkpoint_fetches: Mutex::new(HashMap::new()),
             served_checkpoint: Mutex::new(None),
@@ -1487,6 +1507,29 @@ impl EpochDecisionService {
                 value.manifest,
                 missing.len()
             );
+            // Once per manifest: whose votes, of which kind and epoch
+            if self
+                .missing_explained
+                .lock()
+                .unwrap()
+                .insert(value.manifest)
+            {
+                let rows = self.active_elections.missing_manifest_breakdown(&manifest);
+                let top: Vec<String> = rows
+                    .iter()
+                    .take(16)
+                    .map(|(epoch, voter, kind, count)| {
+                        format!("{}:{}:{}:{}", epoch, &voter.to_string()[..8], kind, count)
+                    })
+                    .collect();
+                diagnostic!(
+                    "EPOCH_MANIFEST_MISSING_WHO epoch={} manifest={} voters_kinds={} top={:?}",
+                    epoch,
+                    value.manifest,
+                    rows.len(),
+                    top
+                );
+            }
             for (epoch, hashes) in by_epoch {
                 for chunk in hashes.chunks(EvidenceReq::MAX_HASHES) {
                     self.stats
@@ -1667,13 +1710,24 @@ impl EpochDecisionService {
         channel: Option<&Arc<Channel>>,
     ) {
         let now = self.clock.now();
-        let due = self
-            .assemblies
-            .lock()
-            .unwrap()
-            .entry(digest)
-            .or_insert_with(|| ManifestFetch::new(digest))
-            .due(now, Self::MANIFEST_RETRY);
+        let (due, everyone) = {
+            let mut assemblies = self.assemblies.lock().unwrap();
+            let fetch = assemblies
+                .entry(digest)
+                .or_insert_with(|| ManifestFetch::new(digest));
+            let everyone = fetch.ask_everyone(now);
+            // Asked of every holder, a chunk brings a reply from each: it is
+            // asked again at most once a second, and the chunks after it go
+            // to the first holder that answers (`handle_manifest_reply`)
+            let retry = if everyone {
+                MANIFEST_SENDER_ONLY
+            } else {
+                Self::MANIFEST_RETRY
+            };
+            (fetch.due(now, retry), everyone)
+        };
+        // The sender first; once it had its time, every holder
+        let channel = if everyone { None } else { channel };
         for from in due {
             self.send_manifest_request(
                 ManifestReq {
