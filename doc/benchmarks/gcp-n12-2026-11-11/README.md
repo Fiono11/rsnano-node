@@ -15,6 +15,7 @@ seed), `run_gate_b.py --prs 12 --committee-f 2 --committee-p 2 --committee-seats
 | `lock2` | 13828d8c8 (lock profile on) | settled | 434 | 906 ms | 20.9 s | 27.4 s | 9.7 / 101 s |
 | `opt1` | f1cf174de (chunked solicitor scan, per-request lookups) | settled | 1,904 | 524 ms | 1,088 ms | 1,271 ms | 4.1 / 5.1 s |
 | `opt2` | 1b8e3e391 (+ reconciliation streams start at 64 and double) | settled | 1,912 | 455 ms | 979 ms | 1,111 ms | 3.5 / 4.7 s |
+| `origin1` (Nov 12) | 51e4683fc (+ every node starts the epochs from one wall-clock origin) | settled | 1,946 | 425 ms | 764 ms | 949 ms | 2.3 / 3.8 s |
 
 \* `lock1` failed the harness's old check only: validators finalized epoch 28's checkpoint in
 round 0 and its round-1 child, one state under two value hashes; the harness now compares
@@ -28,6 +29,8 @@ scan (25 s), and 5.6 M per-hash lock takes answering vote requests. Validators f
 dropped up to 1.2 M votes, and closes took up to 101 s. After the fixes vote applications fell
 to about 11,000 per validator (less solicitation, fewer repeated votes) and almost no vote was
 dropped.
+
+**Common epoch origin (origin1, Nov 12):** the client used to start the epochs one PR after the other, each PR setting its origin on arrival, so the last PR's boundaries lagged by the round trips before it: validators ended each epoch 0.6 to 0.7 s apart. With one origin they end it within 0.1 s, the close from first leave to last decision falls from 3.5 to 2.3 s at the median, and the 95th percentile from 979 to 764 ms (Nano 579). This makes the benchmark match the protocol's synchronized boundaries; a deployment would configure its genesis time.
 
 **What remains (opt2):** between epoch boundaries RAI's median is 384 to 400 ms, below Nano's
 515 to 533 ms; for 3 to 4 s after each boundary it rises to 700 to 1,000 ms until the checkpoint
