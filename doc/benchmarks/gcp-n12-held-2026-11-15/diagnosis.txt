@@ -1,0 +1,49 @@
+status = settled
+correctness_passed = True
+settled_after_s = 286.2
+confirmed_primary = 45000
+error = None
+stalled = None
+client_finished = True
+client_finished_s = 224.1
+close_duration_ms = {'max': 9748, 'median': 4989.5}
+client {'nonfork_goodput_cps': 1662.8, 'nonfork_created': 40478, 'nonfork_confirmed': 40478, 'nonfork_p50_ms': 573, 'nonfork_p95_ms': 2462, 'nonfork_p99_ms': 3394, 'fork_created': 4522, 'fork_confirmed': 1867, 'duration_secs': 24.34, 'series_start_unix_ms': 1794770729361}
+closes {'0': (3758, 3980, [1]), '1': (3051, 3718, [0]), '2': (7710, 9301, [1]), '3': (6540, 9748, [0]), '4': (5811, 8961, [0]), '5': (4239, 8968, [0]), '6': (4231, 7001, [0]), '7': (2501, 5488, [0]), '8': (1491, 2812, [0]), '9': (3723, 4491, [1]), '10': (3730, 4073, [1]), '11': (3845, 4054, [1])}
+== who is missing (first time per manifest), pr0 and pr1
+== manifest fetch times, pr0
+EPOCH_CLOSE_ROUND epoch=2 round=0 leader=6F4C5FE3A00A0986642BB50E15396A7F33941D0401E5B471B2207F37D38201A9 leads=false node=pr0 t=17947707442
+EPOCH_MANIFEST_FETCHED epoch=2 manifest=9C2CF2DB10B9C8FDBB634295875A5A4F75CBF5A604D9D87809BA8D5B530BBE96 entries=26544 node=pr0 t=1794770748
+EPOCH_CLOSE_ROUND epoch=3 round=0 leader=6F4C5FE3A00A0986642BB50E15396A7F33941D0401E5B471B2207F37D38201A9 leads=false node=pr0 t=17947707551
+EPOCH_MANIFEST_FETCHED epoch=3 manifest=FAF54E740C0E3FD5A31B77EF4DF68363758231E4D788561C7E96EFD09A16C287 entries=35783 node=pr0 t=1794770757
+EPOCH_MANIFEST_FETCHED epoch=4 manifest=0C533E3268774CEF3CA365DF188F58157814975780B5F8EEEC79707D06DCA4D7 entries=10778 node=pr0 t=1794770764
+EPOCH_MANIFEST_FETCHED epoch=6 manifest=094225187C5CAEFE0FC9E9AFF63E3C344A022BF15DEF4AB419141DEA438F000F entries=4408 node=pr0 t=17947707774
+EPOCH_MANIFEST_FETCHED epoch=7 manifest=689428BB11B5C87F38D1533C1B3D70F80B24E6DF28B9F25F0BB46741EA996DA5 entries=4552 node=pr0 t=17947707841
+== evidence lane and replays, pr1, every 5 s
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+v_replay=0	v_net=0	asked=0	votes_dropped=0	v_evidence=0
+== held-part acceptances vs fetches, all validators
+     47 EPOCH_MANIFEST_FETCHED
+     61 EPOCH_MANIFEST_HELD_PART
+pr0 dropped=1826 pr1 dropped=526 pr2 dropped=43898 pr3 dropped=3089 pr4 dropped=4499 pr5 dropped=203 pr6 dropped=4251 pr7 dropped=1996 pr8 dropped=236644 pr9 dropped=291424 pr10 dropped=2542 pr11 dropped=0 
