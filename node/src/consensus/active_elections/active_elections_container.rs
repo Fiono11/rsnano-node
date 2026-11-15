@@ -4846,6 +4846,53 @@ impl ActiveElectionsContainer {
         missing
     }
 
+    /// RAI: the part of a manifest this node holds the signed votes of: every
+    /// entry with the voters whose vote is held here, no overlap mark. A
+    /// check against this part rests on votes this node verified, whatever
+    /// else the manifest names.
+    pub fn held_manifest(
+        &self,
+        manifest: &crate::consensus::election::Manifest,
+    ) -> crate::consensus::election::Manifest {
+        use crate::consensus::election::{Manifest, MemberOrder, ResidualKind};
+        let mut orders: BTreeMap<ConsensusEpoch, Option<MemberOrder>> = BTreeMap::new();
+        let mut held = Manifest::new();
+        for mut entry in manifest.entries() {
+            let order = orders.entry(entry.epoch).or_insert_with(|| {
+                self.committees
+                    .committee(entry.epoch)
+                    .and_then(|committee| MemberOrder::of(&committee))
+            });
+            let Some(order) = order else {
+                continue;
+            };
+            let (epoch, hash) = (entry.epoch, entry.hash);
+            let keep = |mask: u64, has: &dyn Fn(&PublicKey) -> bool| {
+                order.mask(order.members(mask).filter(|voter| has(voter)).copied())
+            };
+            entry.first = keep(entry.first, &|voter| {
+                self.has_vote(epoch, voter, &hash, ResidualKind::First)
+            });
+            entry.final_ = keep(entry.final_, &|voter| {
+                self.has_vote(epoch, voter, &hash, ResidualKind::Final)
+            });
+            entry.late = keep(entry.late, &|voter| {
+                self.vote_records.has_late_vote(epoch, voter, &hash)
+            });
+            entry.settled = keep(entry.settled, &|voter| {
+                self.vote_records.has_settled_vote(
+                    epoch,
+                    voter,
+                    &hash,
+                    self.checkpoint_bases.before(epoch, 1),
+                )
+            });
+            entry.overlap = false;
+            held.insert(entry);
+        }
+        held
+    }
+
     /// RAI evaluation: what a manifest names that this node lacks, counted
     /// per epoch, voter and vote kind, the largest first: whether the missing
     /// evidence is one voter's (an equivocator's votes for blocks this node
@@ -7319,6 +7366,18 @@ mod tests {
         assert_eq!(entry.late, order.mask([reps[2].public_key()]));
         assert!(manifest.exclusion_witness(epoch, &block.hash(), &committee, &order));
         assert!(container.missing_manifest_votes(&manifest).is_empty());
+        // The part held is the whole manifest; of one naming a vote this
+        // node never received, it is the manifest without that voter
+        assert_eq!(container.held_manifest(&manifest), manifest);
+        let mut named = entry.clone();
+        named.first |= order.mask([reps[3].public_key()]);
+        let mut naming_more = crate::consensus::election::Manifest::new();
+        naming_more.insert(named);
+        assert_eq!(
+            container.missing_manifest_votes(&naming_more),
+            vec![(epoch, block.hash())]
+        );
+        assert_eq!(container.held_manifest(&naming_more), manifest);
         let served = container.evidence_votes(epoch, &[block.hash()]);
         assert_eq!(served.len(), 3);
         assert!(served.iter().any(|vote| vote.kind() == VoteKind::Notar));

@@ -848,6 +848,14 @@ impl AecService {
         self.aec.read().unwrap().missing_manifest_votes(manifest)
     }
 
+    /// RAI: see `ActiveElectionsContainer::held_manifest`
+    pub fn held_manifest(
+        &self,
+        manifest: &crate::consensus::election::Manifest,
+    ) -> crate::consensus::election::Manifest {
+        self.aec.read().unwrap().held_manifest(manifest)
+    }
+
     /// RAI evaluation: see `ActiveElectionsContainer::missing_manifest_breakdown`
     pub fn missing_manifest_breakdown(
         &self,

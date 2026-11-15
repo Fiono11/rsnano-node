@@ -60,13 +60,15 @@ enum Validation {
 
 /// Whether the evidence a value's manifest names is held and checked here
 enum Evidence {
-    Committed,
+    /// With the part of a fetched manifest this node holds the votes of,
+    /// where the check rested on that part alone
+    Committed(Option<Arc<Manifest>>),
     Pending,
     Refused,
 }
 
 /// Chunks of a manifest asked for at once
-const MANIFEST_WINDOW: usize = 8;
+const MANIFEST_WINDOW: usize = 32;
 
 /// How long a manifest is asked of the proposal's sender alone. After it
 /// every principal representative is asked: a validator that already holds
@@ -1382,7 +1384,7 @@ impl EpochDecisionService {
             &previous,
             anchor.as_deref(),
         );
-        match self.evidence_committed(
+        let held_part = match self.evidence_committed(
             value,
             &states,
             &derivation,
@@ -1390,10 +1392,10 @@ impl EpochDecisionService {
             anchor.as_deref(),
             channel,
         ) {
-            Evidence::Committed => {}
+            Evidence::Committed(held_part) => held_part,
             Evidence::Pending => return Validation::Pending,
             Evidence::Refused => return Validation::Refused,
-        }
+        };
         let committed = started.elapsed();
         // Held once the evidence is committed: built here or fetched
         let held = self
@@ -1402,9 +1404,12 @@ impl EpochDecisionService {
             .unwrap()
             .get(&value.manifest)
             .map(|(_, manifest)| manifest.clone());
-        let Some(manifest) = held else {
+        let Some(named) = held else {
             return Validation::Pending;
         };
+        // The witnesses are read from the part of the manifest this node
+        // holds the votes of, where the check rested on that part
+        let manifest = held_part.clone().unwrap_or_else(|| named.clone());
         let members = EpochMembers::new(&self.active_elections);
         let witness = |origin: ConsensusEpoch, hash: &BlockHash| {
             manifest_witness(&manifest, &members, origin, hash)
@@ -1438,6 +1443,14 @@ impl EpochDecisionService {
                     );
                 }
                 Validation::Accepted(value.hash(), Arc::new(ledger))
+            }
+            // The held part proves less than the state proposed needs: the
+            // rest of the manifest's votes are fetched and the value checked
+            // again with them
+            Err(_) if held_part.is_some() => {
+                let missing = self.active_elections.missing_manifest_votes(&named);
+                self.request_missing_votes(value.epoch, value.manifest, &named, &missing);
+                Validation::Pending
             }
             Err(error) => {
                 diagnostic!(
@@ -1483,7 +1496,7 @@ impl EpochDecisionService {
         );
         if own.digest() == value.manifest {
             self.remember_manifest(epoch, Arc::new(own));
-            return Evidence::Committed;
+            return Evidence::Committed(None);
         }
         let held = self
             .manifests
@@ -1497,53 +1510,29 @@ impl EpochDecisionService {
         };
         let missing = self.active_elections.missing_manifest_votes(&manifest);
         if !missing.is_empty() {
-            let mut by_epoch: HashMap<ConsensusEpoch, Vec<BlockHash>> = HashMap::new();
-            for (epoch, hash) in &missing {
-                by_epoch.entry(*epoch).or_default().push(*hash);
-            }
-            diagnostic!(
-                "EPOCH_MANIFEST_VOTES_MISSING epoch={} manifest={} hashes={}",
-                epoch,
-                value.manifest,
-                missing.len()
-            );
-            // Once per manifest: whose votes, of which kind and epoch
-            if self
-                .missing_explained
-                .lock()
-                .unwrap()
-                .insert(value.manifest)
+            // A manifest names every vote its proposer holds, more than its
+            // claims need, and some this node never received: an
+            // equivocator's votes sent to the proposer alone, votes dropped
+            // here under load. Fetching them all before voting made every
+            // round a race against its timeout. The part held here is
+            // checked first: if it proves the same overlap certificates and
+            // justifies every claim, and the state derives from it
+            // (`validate`), the check rests on verified votes only.
+            let held = self.active_elections.held_manifest(&manifest);
+            let proven =
+                marked_manifest(&held, epoch, &derivation.fresh, previous, anchor, &members);
+            if proven.overlaps().eq(manifest.overlaps())
+                && self.justified_by(&proven, value, states, previous, &members, None)
             {
-                let rows = self.active_elections.missing_manifest_breakdown(&manifest);
-                let top: Vec<String> = rows
-                    .iter()
-                    .take(16)
-                    .map(|(epoch, voter, kind, count)| {
-                        format!("{}:{}:{}:{}", epoch, &voter.to_string()[..8], kind, count)
-                    })
-                    .collect();
                 diagnostic!(
-                    "EPOCH_MANIFEST_MISSING_WHO epoch={} manifest={} voters_kinds={} top={:?}",
+                    "EPOCH_MANIFEST_HELD_PART epoch={} manifest={} missing={}",
                     epoch,
                     value.manifest,
-                    rows.len(),
-                    top
+                    missing.len()
                 );
+                return Evidence::Committed(Some(Arc::new(proven)));
             }
-            for (epoch, hashes) in by_epoch {
-                for chunk in hashes.chunks(EvidenceReq::MAX_HASHES) {
-                    self.stats
-                        .inc_dir(StatType::Message, DetailType::EvidenceReq, Direction::Out);
-                    self.flooder.lock().unwrap().flood_prs_and_some_non_prs(
-                        &Message::EvidenceReq(EvidenceReq {
-                            epoch,
-                            hashes: chunk.to_vec(),
-                        }),
-                        TrafficType::Generic,
-                        1.0,
-                    );
-                }
-            }
+            self.request_missing_votes(epoch, value.manifest, &manifest, &missing);
             return Evidence::Pending;
         }
         // The overlap marks: exactly the certificates the evidence proves
@@ -1598,9 +1587,62 @@ impl EpochDecisionService {
             full
         );
         if full.unwrap_or(justified) {
-            Evidence::Committed
+            Evidence::Committed(None)
         } else {
             Evidence::Refused
+        }
+    }
+
+    /// Asks every representative for the votes a manifest names that this
+    /// node lacks
+    fn request_missing_votes(
+        &self,
+        epoch: ConsensusEpoch,
+        digest: BlockHash,
+        manifest: &Manifest,
+        missing: &[(ConsensusEpoch, BlockHash)],
+    ) {
+        let mut by_epoch: HashMap<ConsensusEpoch, Vec<BlockHash>> = HashMap::new();
+        for (epoch, hash) in missing {
+            by_epoch.entry(*epoch).or_default().push(*hash);
+        }
+        diagnostic!(
+            "EPOCH_MANIFEST_VOTES_MISSING epoch={} manifest={} hashes={}",
+            epoch,
+            digest,
+            missing.len()
+        );
+        // Once per manifest: whose votes, of which kind and epoch
+        if self.missing_explained.lock().unwrap().insert(digest) {
+            let rows = self.active_elections.missing_manifest_breakdown(manifest);
+            let top: Vec<String> = rows
+                .iter()
+                .take(16)
+                .map(|(epoch, voter, kind, count)| {
+                    format!("{}:{}:{}:{}", epoch, &voter.to_string()[..8], kind, count)
+                })
+                .collect();
+            diagnostic!(
+                "EPOCH_MANIFEST_MISSING_WHO epoch={} manifest={} voters_kinds={} top={:?}",
+                epoch,
+                digest,
+                rows.len(),
+                top
+            );
+        }
+        for (epoch, hashes) in by_epoch {
+            for chunk in hashes.chunks(EvidenceReq::MAX_HASHES) {
+                self.stats
+                    .inc_dir(StatType::Message, DetailType::EvidenceReq, Direction::Out);
+                self.flooder.lock().unwrap().flood_prs_and_some_non_prs(
+                    &Message::EvidenceReq(EvidenceReq {
+                        epoch,
+                        hashes: chunk.to_vec(),
+                    }),
+                    TrafficType::Generic,
+                    1.0,
+                );
+            }
         }
     }
 
