@@ -294,6 +294,12 @@ impl AecService {
 
     /// RAI: start the instance of a block for a vote of its epoch
     pub fn insert_for_vote(&self, block: SavedBlock, epoch: ConsensusEpoch, now: Timestamp) {
+        // The instance runs already for most votes and requests that name
+        // it: seen without keeping every reader of the elections out
+        let id = ElectionId::new(block.qualified_root(), epoch);
+        if self.aec.read().unwrap().election(&id).is_some() {
+            return;
+        }
         self.aec.write().unwrap().insert_for_vote(block, epoch, now)
     }
 
@@ -920,6 +926,14 @@ impl AecService {
     }
 
     pub fn try_add_fork(&self, fork: &Block, fork_tally: Amount) -> bool {
+        // A fork arrives many times and with every election started at its
+        // root. Each arrival took the elections away from the scans and the
+        // votes: a replica that fell behind made thousands of such calls a
+        // second, the handler of the election events waited for the lock,
+        // its queue filled and vote processing was paused for seconds.
+        if self.aec.read().unwrap().fork_changes_nothing(fork) {
+            return false;
+        }
         self.aec.write().unwrap().try_add_fork(fork, fork_tally)
     }
 
@@ -940,6 +954,15 @@ impl AecService {
     }
 
     pub fn transition_active(&self, block_hash: &BlockHash) -> bool {
+        // Called for every election started: most are active already
+        if let Some(found) = self
+            .aec
+            .read()
+            .unwrap()
+            .activation_changes_nothing(block_hash)
+        {
+            return found;
+        }
         self.aec.write().unwrap().transition_active(block_hash)
     }
 

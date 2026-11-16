@@ -3684,6 +3684,18 @@ impl ActiveElectionsContainer {
 
     /// A fork block joins the elections of its root in every epoch: each
     /// instance decides between the same candidates
+    /// Whether `try_add_fork` would leave every election as it is: none
+    /// runs at the fork's root, or each one holds the fork already or has
+    /// ended. A fork block arrives many times over - from every validator
+    /// that forwards it, and with every election started at its root - and
+    /// only the first arrival changes anything.
+    pub fn fork_changes_nothing(&self, fork: &Block) -> bool {
+        let hash = fork.hash();
+        self.roots
+            .elections_for_root(&fork.qualified_root())
+            .all(|election| election.state().has_ended() || election.contains_block(&hash))
+    }
+
     pub fn try_add_fork(&mut self, fork: &Block, fork_tally: Amount) -> bool {
         let root = fork.qualified_root();
         let ids: Vec<_> = self
@@ -4030,6 +4042,22 @@ impl ActiveElectionsContainer {
     }
 
     /// Activates the elections of every epoch this block is a candidate in
+    /// What `transition_active` returns where it would change no election:
+    /// no election holds the block, or those that do are past the passive
+    /// state. None where an election is to be activated.
+    pub fn activation_changes_nothing(&self, block_hash: &BlockHash) -> Option<bool> {
+        let Some(election) = self.roots.election_for_block(block_hash) else {
+            return Some(false);
+        };
+        self.roots
+            .elections_for_root(election.qualified_root())
+            .all(|election| {
+                election.state() != ElectionState::Passive
+                    || !election.candidate_blocks().contains_key(block_hash)
+            })
+            .then_some(true)
+    }
+
     pub fn transition_active(&mut self, block_hash: &BlockHash) -> bool {
         let Some(root) = self
             .roots
@@ -8703,6 +8731,64 @@ mod tests {
                 .mark_kudzu_voted(vec![target(VoteType::Final)])
                 .is_empty()
         );
+    }
+
+    /// A fork changes nothing where no election runs at its root, and once
+    /// the election there holds it: only its first arrival needs the
+    /// elections to itself
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn only_the_first_arrival_of_a_fork_changes_an_election() {
+        let mut container = ActiveElectionsContainer::default();
+        let now = Timestamp::new_test_instance();
+        let held = SavedBlock::new_test_instance_with_key(2);
+        let fork = sibling_of(&held);
+        assert!(container.fork_changes_nothing(&fork));
+        container
+            .insert(
+                AecInsertRequest::new_priority(held.clone(), BlockPriority::default()),
+                now,
+            )
+            .unwrap();
+        assert!(!container.fork_changes_nothing(&fork));
+
+        assert!(container.try_add_fork(&fork, Amount::raw(1)));
+
+        assert!(container.fork_changes_nothing(&fork));
+        assert!(!container.try_add_fork(&fork, Amount::raw(1)));
+    }
+
+    /// An activation changes nothing for a block without an election and
+    /// for an election that is active already
+    #[test]
+    fn only_a_passive_election_is_activated() {
+        let mut container = ActiveElectionsContainer::default();
+        let now = Timestamp::new_test_instance();
+        let block = SavedBlock::new_test_instance();
+        assert_eq!(
+            container.activation_changes_nothing(&block.hash()),
+            Some(false)
+        );
+        container
+            .insert(
+                AecInsertRequest::new_priority(block.clone(), BlockPriority::default()),
+                now,
+            )
+            .unwrap();
+        let id = ElectionId::legacy(block.qualified_root());
+        assert_eq!(
+            container.election(&id).unwrap().state(),
+            ElectionState::Passive
+        );
+        assert_eq!(container.activation_changes_nothing(&block.hash()), None);
+
+        assert!(container.transition_active(&block.hash()));
+
+        assert_eq!(
+            container.activation_changes_nothing(&block.hash()),
+            Some(true)
+        );
+        assert!(container.transition_active(&block.hash()));
     }
 
     /// RAI: an election's exit final vote is recorded when it is queued, and
