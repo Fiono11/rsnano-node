@@ -15,6 +15,8 @@ from remote_hosts import fetch_node_dir, stop_remote_nodes
 
 MANIFEST = 'manifest.json'
 SETUP_TIMEOUT_S = 1800
+# Ledger setups tried before a run fails
+SETUP_ATTEMPTS = 3
 # What a node writes that is not its ledger or wallets
 NOT_SAVED = {'config-node.toml', 'config-rpc.toml', 'diagnostics.log', 'signed-votes.log', 'node.pid', 'run-node.sh'}
 
@@ -56,6 +58,22 @@ def ensure_ledger_snapshot(snapshot, command, env, hosts, wanted, log_path):
         found = json.loads(manifest.read_text())
         check_manifest(found, wanted)
         return found
+    for attempt in range(1, SETUP_ATTEMPTS + 1):
+        try:
+            return set_up_once(snapshot, command, env, hosts, wanted, log_path, attempt)
+        except RuntimeError as error:
+            # A setup block a node never cements - its election there missed
+            # votes that nothing sends again - fails the setup; another
+            # attempt starts from empty ledgers. The failed log is kept.
+            if attempt == SETUP_ATTEMPTS:
+                raise
+            failed_log = Path(log_path).with_name(f'{Path(log_path).stem}.attempt{attempt}.log')
+            Path(log_path).replace(failed_log)
+            print(f'LEDGER_SETUP_RETRY attempt={attempt} error={error} log={failed_log}', flush=True)
+
+
+def set_up_once(snapshot, command, env, hosts, wanted, log_path, attempt):
+    """One run of the setup into a fresh data directory, saved as the snapshot"""
     with tempfile.TemporaryDirectory(prefix='rai-ledger-setup-') as temporary:
         data = Path(temporary) / 'data'
         data.mkdir()
@@ -68,7 +86,7 @@ def ensure_ledger_snapshot(snapshot, command, env, hosts, wanted, log_path):
             save_nodes(data, saved, hosts, wanted['nodes'])
         finally:
             stop_remote_nodes(hosts, data, remove=True)
-        found = dict(wanted, setup_seconds=round(time.monotonic() - started, 1))
+        found = dict(wanted, setup_seconds=round(time.monotonic() - started, 1), setup_attempt=attempt)
         (saved / MANIFEST).write_text(json.dumps(found, indent=2) + '\n')
         snapshot.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(saved, snapshot, dirs_exist_ok=True)
