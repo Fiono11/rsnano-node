@@ -1,6 +1,4 @@
 mod aec_voter;
-#[cfg(feature = "rai_protocol")]
-mod attachment_memo;
 mod cps_limiter;
 mod local_vote_history;
 #[cfg(feature = "rai_protocol")]
