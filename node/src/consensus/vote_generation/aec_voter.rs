@@ -1,3 +1,5 @@
+#[cfg(feature = "rai_protocol")]
+use std::cell::RefCell;
 use std::{
     sync::Arc,
     time::{Duration, Instant},
@@ -12,6 +14,8 @@ use rsnano_utils::{
     ticker::Tickable,
 };
 
+#[cfg(feature = "rai_protocol")]
+use super::attachment_memo::AttachmentMemo;
 use super::{
     CpsLimiter, VoteGenerators,
     voting_scheduler::{VoteTarget, VotingScheduler},
@@ -31,6 +35,12 @@ pub(crate) struct AecVoter {
     /// RAI: the signing records persisted before votes are released
     signing: Arc<SigningRecords>,
     load: VoterLoad,
+    /// RAI: the ledger's answers on attachment, reused between ticks, and
+    /// the checkpoint they were given under
+    #[cfg(feature = "rai_protocol")]
+    attachment: RefCell<AttachmentMemo>,
+    #[cfg(feature = "rai_protocol")]
+    attached_to: RefCell<Option<Arc<crate::consensus::election::EpochLedger>>>,
     /// RAI evaluation, an equivocating Byzantine member: its votes on
     /// account slots, whose fork siblings it votes for too
     #[cfg(feature = "rai_byzantine")]
@@ -60,6 +70,10 @@ impl AecVoter {
             ledger,
             signing,
             load: VoterLoad::new(),
+            #[cfg(feature = "rai_protocol")]
+            attachment: RefCell::new(AttachmentMemo::new()),
+            #[cfg(feature = "rai_protocol")]
+            attached_to: RefCell::new(None),
             #[cfg(feature = "rai_byzantine")]
             equivocations: Default::default(),
         }
@@ -134,7 +148,8 @@ impl AecVoter {
                 // in for the previous block
                 let any = self.ledger.any();
                 let checkpoint = self.aec.latest_checkpoint();
-                let proposal_valid = |hash: &BlockHash| match any.get_block(hash) {
+                self.attachment_follows(&checkpoint);
+                let asked = |hash: &BlockHash| match any.get_block(hash) {
                     Some(block) => match crate::consensus::unattached_dependency(
                         &any,
                         &block,
@@ -144,6 +159,13 @@ impl AecVoter {
                         Some(why) => Err(why),
                     },
                     None => Err(crate::consensus::Unattached::Block),
+                };
+                // The scan asks for every instance that has not first voted,
+                // each tick: the ledger answers once per interval
+                let proposal_valid = |hash: &BlockHash| {
+                    self.attachment
+                        .borrow_mut()
+                        .check(hash, now, || asked(hash))
                 };
                 self.aec
                     .kudzu_votes_due(proposal_valid)
@@ -165,6 +187,28 @@ impl AecVoter {
                     .collect()
                 })
             }
+        }
+    }
+}
+
+#[cfg(feature = "rai_protocol")]
+impl AecVoter {
+    /// The answers held on attachment were given under one checkpoint: a
+    /// new one retains other positions and releases the instances held for
+    /// it, so every answer is asked for again
+    fn attachment_follows(
+        &self,
+        checkpoint: &Option<Arc<crate::consensus::election::EpochLedger>>,
+    ) {
+        let mut attached_to = self.attached_to.borrow_mut();
+        let same = match (&*attached_to, checkpoint) {
+            (Some(held), Some(latest)) => Arc::ptr_eq(held, latest),
+            (None, None) => true,
+            _ => false,
+        };
+        if !same {
+            self.attachment.borrow_mut().reset();
+            *attached_to = checkpoint.clone();
         }
     }
 }
@@ -212,7 +256,14 @@ impl Tickable for AecVoter {
         self.flush(&mut vote_queue);
         #[cfg(feature = "rai_byzantine")]
         self.equivocate(&released, now);
-        self.load.tick(scanned, started.elapsed());
+        #[cfg(feature = "rai_protocol")]
+        let (asked, reused) = self.attachment.borrow_mut().take_counts();
+        #[cfg(not(feature = "rai_protocol"))]
+        let (asked, reused) = (0, 0);
+        if self.load.tick(scanned, started.elapsed(), asked, reused) {
+            #[cfg(feature = "rai_protocol")]
+            self.attachment.borrow_mut().cleanup(now);
+        }
     }
 }
 
@@ -224,6 +275,9 @@ struct VoterLoad {
     scan: Duration,
     longest_scan: Duration,
     total: Duration,
+    /// Attachment checks the ledger answered, and those the memo did
+    asked: u64,
+    reused: u64,
 }
 
 impl VoterLoad {
@@ -234,23 +288,32 @@ impl VoterLoad {
             scan: Duration::ZERO,
             longest_scan: Duration::ZERO,
             total: Duration::ZERO,
+            asked: 0,
+            reused: 0,
         }
     }
 
-    fn tick(&mut self, scan: Duration, total: Duration) {
+    /// @returns true once a second, when the line was written
+    fn tick(&mut self, scan: Duration, total: Duration, asked: u64, reused: u64) -> bool {
         self.ticks += 1;
         self.scan += scan;
         self.longest_scan = self.longest_scan.max(scan);
         self.total += total;
-        if self.since.elapsed() >= Duration::from_secs(1) {
-            crate::utils::diagnostic!(
-                "VOTER_LOAD ticks={} scan_ms={} longest_scan_ms={} total_ms={}",
-                self.ticks,
-                self.scan.as_millis(),
-                self.longest_scan.as_millis(),
-                self.total.as_millis()
-            );
-            *self = Self::new();
+        self.asked += asked;
+        self.reused += reused;
+        if self.since.elapsed() < Duration::from_secs(1) {
+            return false;
         }
+        crate::utils::diagnostic!(
+            "VOTER_LOAD ticks={} scan_ms={} longest_scan_ms={} total_ms={} attach_asked={} attach_reused={}",
+            self.ticks,
+            self.scan.as_millis(),
+            self.longest_scan.as_millis(),
+            self.total.as_millis(),
+            self.asked,
+            self.reused
+        );
+        *self = Self::new();
+        true
     }
 }
