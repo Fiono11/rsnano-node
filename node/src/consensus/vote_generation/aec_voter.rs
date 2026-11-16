@@ -41,10 +41,6 @@ pub(crate) struct AecVoter {
     attachment: RefCell<AttachmentMemo>,
     #[cfg(feature = "rai_protocol")]
     attached_to: RefCell<Option<Arc<crate::consensus::election::EpochLedger>>>,
-    /// How long the last scan took: the answers on attachment are reused
-    /// for longer when it is long
-    #[cfg(feature = "rai_protocol")]
-    last_scan: Duration,
     /// RAI evaluation, an equivocating Byzantine member: its votes on
     /// account slots, whose fork siblings it votes for too
     #[cfg(feature = "rai_byzantine")]
@@ -78,8 +74,6 @@ impl AecVoter {
             attachment: RefCell::new(AttachmentMemo::new()),
             #[cfg(feature = "rai_protocol")]
             attached_to: RefCell::new(None),
-            #[cfg(feature = "rai_protocol")]
-            last_scan: Duration::ZERO,
             #[cfg(feature = "rai_byzantine")]
             equivocations: Default::default(),
         }
@@ -168,11 +162,10 @@ impl AecVoter {
                 };
                 // The scan asks for every instance that has not first voted,
                 // each tick: the ledger answers once per interval
-                let longest = AttachmentMemo::longest_reuse(self.last_scan);
                 let proposal_valid = |hash: &BlockHash| {
                     self.attachment
                         .borrow_mut()
-                        .check(hash, now, longest, || asked(hash))
+                        .check(hash, now, || asked(hash))
                 };
                 self.aec
                     .kudzu_votes_due(proposal_valid)
@@ -226,10 +219,6 @@ impl Tickable for AecVoter {
         let started = Instant::now();
         let targets = self.collect_targets(now);
         let scanned = started.elapsed();
-        #[cfg(feature = "rai_protocol")]
-        {
-            self.last_scan = scanned;
-        }
 
         let mut vote_queue = Vec::new();
         let mut skip_non_final = false;
@@ -268,13 +257,10 @@ impl Tickable for AecVoter {
         #[cfg(feature = "rai_byzantine")]
         self.equivocate(&released, now);
         #[cfg(feature = "rai_protocol")]
-        let (asked, reused, asking) = self.attachment.borrow_mut().take_counts();
+        let (asked, reused) = self.attachment.borrow_mut().take_counts();
         #[cfg(not(feature = "rai_protocol"))]
-        let (asked, reused, asking) = (0, 0, Duration::ZERO);
-        if self
-            .load
-            .tick(scanned, started.elapsed(), asked, reused, asking)
-        {
+        let (asked, reused) = (0, 0);
+        if self.load.tick(scanned, started.elapsed(), asked, reused) {
             #[cfg(feature = "rai_protocol")]
             self.attachment.borrow_mut().cleanup(now);
         }
@@ -292,8 +278,6 @@ struct VoterLoad {
     /// Attachment checks the ledger answered, and those the memo did
     asked: u64,
     reused: u64,
-    /// How long the ledger took to answer them
-    asking: Duration,
 }
 
 impl VoterLoad {
@@ -306,38 +290,28 @@ impl VoterLoad {
             total: Duration::ZERO,
             asked: 0,
             reused: 0,
-            asking: Duration::ZERO,
         }
     }
 
     /// @returns true once a second, when the line was written
-    fn tick(
-        &mut self,
-        scan: Duration,
-        total: Duration,
-        asked: u64,
-        reused: u64,
-        asking: Duration,
-    ) -> bool {
+    fn tick(&mut self, scan: Duration, total: Duration, asked: u64, reused: u64) -> bool {
         self.ticks += 1;
         self.scan += scan;
         self.longest_scan = self.longest_scan.max(scan);
         self.total += total;
         self.asked += asked;
         self.reused += reused;
-        self.asking += asking;
         if self.since.elapsed() < Duration::from_secs(1) {
             return false;
         }
         crate::utils::diagnostic!(
-            "VOTER_LOAD ticks={} scan_ms={} longest_scan_ms={} total_ms={} attach_asked={} attach_reused={} attach_ms={}",
+            "VOTER_LOAD ticks={} scan_ms={} longest_scan_ms={} total_ms={} attach_asked={} attach_reused={}",
             self.ticks,
             self.scan.as_millis(),
             self.longest_scan.as_millis(),
             self.total.as_millis(),
             self.asked,
-            self.reused,
-            self.asking.as_millis()
+            self.reused
         );
         *self = Self::new();
         true
