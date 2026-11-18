@@ -10,12 +10,36 @@
         "--stall-abort=90",
         "--drain-limit=15",
         "--settle-timeout=600",
-        "--fork-grace-stall=30",
+        "--fork-grace-stall=180",
+        "--hosts=/home/fiono8199/hosts-n14.txt"
+      ]
+    },
+    "pause": {
+      "bin_dir": "/home/fiono8199/bin-m12b/rai",
+      "flags": [
+        "--timeout=480",
+        "--stall-abort=90",
+        "--drain-limit=15",
+        "--settle-timeout=600",
+        "--fork-grace-stall=180",
+        "--hosts=/home/fiono8199/hosts-n14.txt",
+        "--epoch-transition=pause"
+      ]
+    },
+    "develop": {
+      "bin_dir": "/home/fiono8199/bin-m12b/develop",
+      "flags": [
+        "--no-epochs",
+        "--timeout=480",
+        "--stall-abort=90",
+        "--drain-limit=15",
+        "--settle-timeout=600",
+        "--fork-grace-stall=180",
         "--hosts=/home/fiono8199/hosts-n14.txt"
       ]
     }
   },
-  "started": 1794873511.769824,
+  "started": 1794944347.504474,
   "runs": [
     {
       "variant": "fork10-grace-reconf-byznode",
@@ -240,6 +264,462 @@
       "rep": 3,
       "status": "settled",
       "seconds": 1194
+    },
+    {
+      "variant": "fork10-grace",
+      "rate": 2000,
+      "arm": "pause",
+      "rep": 2,
+      "status": "settled",
+      "seconds": 539
+    },
+    {
+      "variant": "fork10-grace",
+      "rate": 2000,
+      "arm": "develop",
+      "rep": 2,
+      "status": "failed",
+      "seconds": 1180
+    },
+    {
+      "variant": "fork10-grace",
+      "rate": 2000,
+      "arm": "pause",
+      "rep": 3,
+      "status": "settled",
+      "seconds": 539
+    },
+    {
+      "variant": "fork10-grace",
+      "rate": 2000,
+      "arm": "develop",
+      "rep": 3,
+      "status": "failed",
+      "seconds": 634
+    },
+    {
+      "variant": "nofork-byznode",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 1094
+    },
+    {
+      "variant": "nofork-byznode",
+      "rate": 2000,
+      "arm": "pause",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 513
+    },
+    {
+      "variant": "nofork-byznode",
+      "rate": 2000,
+      "arm": "develop",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 939
+    },
+    {
+      "variant": "nofork-byznode",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 2,
+      "status": "settled",
+      "seconds": 666
+    },
+    {
+      "variant": "nofork-byznode",
+      "rate": 2000,
+      "arm": "pause",
+      "rep": 2,
+      "status": "settled",
+      "seconds": 516
+    },
+    {
+      "variant": "nofork-byznode",
+      "rate": 2000,
+      "arm": "develop",
+      "rep": 2,
+      "status": "settled",
+      "seconds": 453
+    },
+    {
+      "variant": "nofork-byznode",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 3,
+      "status": "settled",
+      "seconds": 503
+    },
+    {
+      "variant": "nofork-byznode",
+      "rate": 2000,
+      "arm": "pause",
+      "rep": 3,
+      "status": "settled",
+      "seconds": 515
+    },
+    {
+      "variant": "nofork-byznode",
+      "rate": 2000,
+      "arm": "develop",
+      "rep": 3,
+      "status": "settled",
+      "seconds": 452
+    },
+    {
+      "variant": "fork5-grace-byznode",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 535
+    },
+    {
+      "variant": "fork5-grace-byznode",
+      "rate": 2000,
+      "arm": "pause",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 542
+    },
+    {
+      "variant": "fork5-grace-byznode",
+      "rate": 2000,
+      "arm": "develop",
+      "rep": 1,
+      "status": "failed",
+      "seconds": 617
+    },
+    {
+      "variant": "fork5-grace-byznode",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 2,
+      "status": "settled",
+      "seconds": 575
+    },
+    {
+      "variant": "fork5-grace-byznode",
+      "rate": 2000,
+      "arm": "pause",
+      "rep": 2,
+      "status": "settled",
+      "seconds": 537
+    },
+    {
+      "variant": "fork5-grace-byznode",
+      "rate": 2000,
+      "arm": "develop",
+      "rep": 2,
+      "status": "failed",
+      "seconds": 706
+    },
+    {
+      "variant": "fork5-grace-byznode",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 3,
+      "status": "settled",
+      "seconds": 554
+    },
+    {
+      "variant": "fork5-grace-byznode",
+      "rate": 2000,
+      "arm": "pause",
+      "rep": 3,
+      "status": "settled",
+      "seconds": 573
+    },
+    {
+      "variant": "nofork-byznode",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 2,
+      "status": "settled",
+      "seconds": 501
+    },
+    {
+      "variant": "fork5-grace-byznode",
+      "rate": 2000,
+      "arm": "develop",
+      "rep": 3,
+      "status": "settled",
+      "seconds": 528
+    },
+    {
+      "variant": "fork5-grace-byznode",
+      "rate": 2000,
+      "arm": "pause",
+      "rep": 3,
+      "status": "settled",
+      "seconds": 535
+    },
+    {
+      "variant": "fork10-grace-byznode",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 747
+    },
+    {
+      "variant": "fork10-grace-byznode",
+      "rate": 2000,
+      "arm": "pause",
+      "rep": 1,
+      "status": "failed",
+      "seconds": 612
+    },
+    {
+      "variant": "fork10-grace-byznode",
+      "rate": 2000,
+      "arm": "pause",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 566
+    },
+    {
+      "variant": "fork10-grace-byznode",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 2,
+      "status": "settled",
+      "seconds": 705
+    },
+    {
+      "variant": "fork10-grace-byznode",
+      "rate": 2000,
+      "arm": "pause",
+      "rep": 2,
+      "status": "exit 1",
+      "seconds": 20
+    },
+    {
+      "variant": "fork10-grace-byznode",
+      "rate": 2000,
+      "arm": "pause",
+      "rep": 2,
+      "status": "settled",
+      "seconds": 558
+    },
+    {
+      "variant": "fork10-grace-byznode",
+      "rate": 2000,
+      "arm": "develop",
+      "rep": 2,
+      "status": "failed",
+      "seconds": 892
+    },
+    {
+      "variant": "fork10-grace-byznode",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 3,
+      "status": "settled",
+      "seconds": 1019
+    },
+    {
+      "variant": "fork10-grace-byznode",
+      "rate": 2000,
+      "arm": "pause",
+      "rep": 3,
+      "status": "settled",
+      "seconds": 576
+    },
+    {
+      "variant": "fork10-grace-byznode",
+      "rate": 2000,
+      "arm": "develop",
+      "rep": 3,
+      "status": "failed",
+      "seconds": 891
+    },
+    {
+      "variant": "nofork-reconf",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 1074
+    },
+    {
+      "variant": "nofork-reconf",
+      "rate": 2000,
+      "arm": "pause",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 580
+    },
+    {
+      "variant": "nofork-reconf",
+      "rate": 2000,
+      "arm": "develop",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 1016
+    },
+    {
+      "variant": "nofork-reconf",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 2,
+      "status": "settled",
+      "seconds": 555
+    },
+    {
+      "variant": "nofork-reconf",
+      "rate": 2000,
+      "arm": "pause",
+      "rep": 2,
+      "status": "settled",
+      "seconds": 580
+    },
+    {
+      "variant": "nofork-reconf",
+      "rate": 2000,
+      "arm": "develop",
+      "rep": 2,
+      "status": "failed",
+      "seconds": 595
+    },
+    {
+      "variant": "nofork-reconf",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 3,
+      "status": "settled",
+      "seconds": 699
+    },
+    {
+      "variant": "nofork-reconf",
+      "rate": 2000,
+      "arm": "pause",
+      "rep": 3,
+      "status": "settled",
+      "seconds": 564
+    },
+    {
+      "variant": "nofork-reconf",
+      "rate": 2000,
+      "arm": "develop",
+      "rep": 3,
+      "status": "settled",
+      "seconds": 521
+    },
+    {
+      "variant": "fork5-grace-reconf",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 1167
+    },
+    {
+      "variant": "nofork-reconf",
+      "rate": 2000,
+      "arm": "develop",
+      "rep": 2,
+      "status": "settled",
+      "seconds": 490
+    },
+    {
+      "variant": "fork5-grace-reconf",
+      "rate": 2000,
+      "arm": "pause",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 602
+    },
+    {
+      "variant": "fork5-grace-reconf",
+      "rate": 2000,
+      "arm": "develop",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 746
+    },
+    {
+      "variant": "fork5-grace-reconf",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 2,
+      "status": "settled",
+      "seconds": 798
+    },
+    {
+      "variant": "fork5-grace-reconf",
+      "rate": 2000,
+      "arm": "pause",
+      "rep": 2,
+      "status": "settled",
+      "seconds": 583
+    },
+    {
+      "variant": "fork5-grace-reconf",
+      "rate": 2000,
+      "arm": "develop",
+      "rep": 2,
+      "status": "failed",
+      "seconds": 661
+    },
+    {
+      "variant": "fork5-grace-reconf",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 3,
+      "status": "settled",
+      "seconds": 1009
+    },
+    {
+      "variant": "fork5-grace-reconf",
+      "rate": 2000,
+      "arm": "pause",
+      "rep": 3,
+      "status": "settled",
+      "seconds": 613
+    },
+    {
+      "variant": "fork5-grace-reconf",
+      "rate": 2000,
+      "arm": "develop",
+      "rep": 3,
+      "status": "failed",
+      "seconds": 656
+    },
+    {
+      "variant": "fork10-grace-reconf",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 891
+    },
+    {
+      "variant": "fork10-grace-reconf",
+      "rate": 2000,
+      "arm": "pause",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 593
+    },
+    {
+      "variant": "fork10-grace-reconf",
+      "rate": 2000,
+      "arm": "develop",
+      "rep": 1,
+      "status": "failed",
+      "seconds": 631
+    },
+    {
+      "variant": "fork10-grace-reconf",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 2,
+      "status": "failed",
+      "seconds": 1406
     }
   ]
 }

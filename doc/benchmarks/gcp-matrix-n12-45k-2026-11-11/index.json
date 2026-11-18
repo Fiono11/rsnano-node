@@ -1,0 +1,46 @@
+{
+  "sets": [
+    "final-wan-2000-n12"
+  ],
+  "arms": {
+    "develop": {
+      "bin_dir": "/home/fiono8199/bin-n12/develop",
+      "flags": [
+        "--no-epochs",
+        "--timeout=480",
+        "--stall-abort=90",
+        "--drain-limit=15",
+        "--settle-timeout=600",
+        "--fork-grace-stall=30",
+        "--hosts=/home/fiono8199/hosts-n14.txt"
+      ]
+    }
+  },
+  "started": 1794415350.8769085,
+  "runs": [
+    {
+      "variant": "nofork",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 1,
+      "status": "failed",
+      "seconds": 1671
+    },
+    {
+      "variant": "nofork",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 1128
+    },
+    {
+      "variant": "nofork",
+      "rate": 2000,
+      "arm": "develop",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 981
+    }
+  ]
+}

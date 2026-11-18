@@ -1,0 +1,29 @@
+{
+  "sets": [
+    "final-wan-2000-n12"
+  ],
+  "arms": {
+    "rai": {
+      "bin_dir": "/home/fiono8199/bin-memo2/rai",
+      "flags": [
+        "--timeout=480",
+        "--stall-abort=90",
+        "--drain-limit=15",
+        "--settle-timeout=600",
+        "--fork-grace-stall=30",
+        "--hosts=/home/fiono8199/hosts-n14.txt"
+      ]
+    }
+  },
+  "started": 1794842099.5057704,
+  "runs": [
+    {
+      "variant": "fork10-grace",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 1217
+    }
+  ]
+}
