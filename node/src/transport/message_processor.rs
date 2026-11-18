@@ -15,7 +15,7 @@ use rsnano_network::{Channel, ChannelId};
 use rsnano_network_protocol::InboundMessageQueue;
 
 use super::NetworkMessageProcessor;
-use crate::config::NodeConfig;
+use crate::{config::NodeConfig, utils::diagnostic};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct MessageProcessorConfig {
@@ -105,11 +105,27 @@ impl State {
         }
     }
 
+    /// A message whose handling takes longer than this is logged with its
+    /// type (RAI evaluation): a handler that waits on a lock or does heavy
+    /// work holds every message queued behind it
+    const SLOW_MESSAGE_MS: u128 = 50;
+
     fn handle_batch(&self, batch: VecDeque<(ChannelId, (Message, Arc<Channel>))>) {
         let start = Instant::now();
         let batch_size = batch.len();
         for (_, (message, channel)) in batch {
+            let message_type = message.message_type();
+            let handled = Instant::now();
             self.processor.process(message, &channel);
+            let ms = handled.elapsed().as_millis();
+            if ms > Self::SLOW_MESSAGE_MS {
+                diagnostic!(
+                    "MSG_SLOW type={:?} ms={} batch={}",
+                    message_type,
+                    ms,
+                    batch_size
+                );
+            }
         }
 
         let elapsed_millis = start.elapsed().as_millis();
