@@ -64,6 +64,54 @@ pub struct ReportService {
     /// When each epoch's live view was last rebuilt from the elections
     live_refreshed: Mutex<HashMap<ConsensusEpoch, Timestamp>>,
     worker: Mutex<Option<JoinHandle<()>>>,
+    intake: Mutex<IntakeQueue>,
+    intake_ready: Condvar,
+    intake_worker: Mutex<Option<JoinHandle<()>>>,
+}
+
+/// RAI: a report-exchange message from the network. Its handler waits on
+/// the exchange lock, which reconciliation and residual derivation hold for
+/// long stretches; on a network thread that wait held up every vote queued
+/// behind it (a replica fell an epoch behind and never caught up), so these
+/// messages are handled on a thread of their own
+enum Inbound {
+    Report(Report),
+    SymbolsReq(ReportSymbolsReq, Arc<Channel>),
+    SymbolsReply(ReportSymbolsReply),
+}
+
+enum Intake {
+    Queued,
+    /// The queue is full: the message is dropped (reports and symbol
+    /// requests are sent again); the count of drops so far
+    Dropped(u64),
+    /// No intake thread runs: the caller handles the message itself
+    NotRunning(Inbound),
+}
+
+/// The bounded queue of report-exchange messages waiting for the intake thread
+#[derive(Default)]
+struct IntakeQueue {
+    items: VecDeque<Inbound>,
+    dropped: u64,
+    running: bool,
+    stopped: bool,
+}
+
+impl IntakeQueue {
+    const CAPACITY: usize = 1024;
+
+    fn push(&mut self, item: Inbound) -> Intake {
+        if !self.running || self.stopped {
+            return Intake::NotRunning(item);
+        }
+        if self.items.len() >= Self::CAPACITY {
+            self.dropped += 1;
+            return Intake::Dropped(self.dropped);
+        }
+        self.items.push_back(item);
+        Intake::Queued
+    }
 }
 
 /// The epochs left, in order, for the report worker
@@ -108,6 +156,9 @@ impl ReportService {
             reconciling: Mutex::new(()),
             live_refreshed: Mutex::new(HashMap::new()),
             worker: Mutex::new(None),
+            intake: Mutex::new(IntakeQueue::default()),
+            intake_ready: Condvar::new(),
+            intake_worker: Mutex::new(None),
         }
     }
 
@@ -122,14 +173,72 @@ impl ReportService {
             .spawn(move || service.run_left_epochs())
             .unwrap();
         *self.worker.lock().unwrap() = Some(handle);
+        self.intake.lock().unwrap().running = true;
+        let service = Arc::clone(self);
+        let handle = std::thread::Builder::new()
+            .name("Report intake".to_owned())
+            .spawn(move || service.run_intake())
+            .unwrap();
+        *self.intake_worker.lock().unwrap() = Some(handle);
     }
 
-    /// The epochs already left are reported before the worker ends
+    /// The epochs already left are reported before the worker ends; the
+    /// network messages still queued are given up
     pub fn stop(&self) {
+        self.intake.lock().unwrap().stopped = true;
+        self.intake_ready.notify_all();
+        if let Some(handle) = self.intake_worker.lock().unwrap().take() {
+            handle.join().unwrap();
+        }
         self.left.lock().unwrap().stopped = true;
         self.left_ready.notify_all();
         if let Some(handle) = self.worker.lock().unwrap().take() {
             handle.join().unwrap();
+        }
+    }
+
+    /// A report-exchange message from the network: queued for the intake
+    /// thread, so the network thread never waits on the exchange lock
+    fn intake(&self, item: Inbound) {
+        let result = self.intake.lock().unwrap().push(item);
+        match result {
+            Intake::Queued => self.intake_ready.notify_one(),
+            Intake::Dropped(count) => {
+                if count % 100 == 1 {
+                    crate::utils::diagnostic!("REPORT_INTAKE_DROPPED count={}", count);
+                }
+            }
+            Intake::NotRunning(item) => self.process_inbound(item),
+        }
+    }
+
+    fn run_intake(&self) {
+        loop {
+            let item = {
+                let mut intake = self.intake.lock().unwrap();
+                loop {
+                    if intake.stopped {
+                        intake.running = false;
+                        intake.items.clear();
+                        return;
+                    }
+                    if let Some(item) = intake.items.pop_front() {
+                        break item;
+                    }
+                    intake = self.intake_ready.wait(intake).unwrap();
+                }
+            };
+            self.process_inbound(item);
+        }
+    }
+
+    fn process_inbound(&self, item: Inbound) {
+        match item {
+            Inbound::Report(report) => self.process_report(report),
+            Inbound::SymbolsReq(request, channel) => {
+                self.process_symbols_request(request, &channel)
+            }
+            Inbound::SymbolsReply(reply) => self.process_symbols_reply(reply),
         }
     }
 
@@ -375,6 +484,10 @@ impl ReportService {
     pub fn handle_report(&self, report: Report, _channel: &Arc<Channel>) {
         self.stats
             .inc_dir(StatType::Message, DetailType::Report, Direction::In);
+        self.intake(Inbound::Report(report));
+    }
+
+    fn process_report(&self, report: Report) {
         self.exchange.lock().unwrap().handle_report(report);
         self.reconcile_soon();
     }
@@ -387,6 +500,10 @@ impl ReportService {
             DetailType::ReportSymbolsReq,
             Direction::In,
         );
+        self.intake(Inbound::SymbolsReq(request, Arc::clone(channel)));
+    }
+
+    fn process_symbols_request(&self, request: ReportSymbolsReq, channel: &Arc<Channel>) {
         let Some(reply) = self.exchange.lock().unwrap().symbols_for(&request) else {
             return;
         };
@@ -410,6 +527,10 @@ impl ReportService {
             DetailType::ReportSymbolsReply,
             Direction::In,
         );
+        self.intake(Inbound::SymbolsReply(reply));
+    }
+
+    fn process_symbols_reply(&self, reply: ReportSymbolsReply) {
         let now = self.clock.now();
         let (messages, results) = self.exchange.lock().unwrap().handle_symbols(&reply, now);
         // A report reconstructed has its residual derived and is checked next
@@ -1035,7 +1156,49 @@ mod tests {
         );
     }
 
+    #[test]
+    fn an_intake_queue_without_its_thread_hands_the_message_back() {
+        let mut queue = IntakeQueue::default();
+        assert!(matches!(
+            queue.push(report_message()),
+            Intake::NotRunning(Inbound::Report(_))
+        ));
+        assert!(queue.items.is_empty());
+    }
+
+    #[test]
+    fn a_stopped_intake_queue_hands_the_message_back() {
+        let mut queue = running_queue();
+        queue.stopped = true;
+        assert!(matches!(
+            queue.push(report_message()),
+            Intake::NotRunning(_)
+        ));
+    }
+
+    #[test]
+    fn a_full_intake_queue_drops_new_messages_and_counts_them() {
+        let mut queue = running_queue();
+        for _ in 0..IntakeQueue::CAPACITY {
+            assert!(matches!(queue.push(report_message()), Intake::Queued));
+        }
+        assert!(matches!(queue.push(report_message()), Intake::Dropped(1)));
+        assert!(matches!(queue.push(report_message()), Intake::Dropped(2)));
+        assert_eq!(queue.items.len(), IntakeQueue::CAPACITY);
+    }
+
     /* Test helpers */
+
+    fn running_queue() -> IntakeQueue {
+        IntakeQueue {
+            running: true,
+            ..Default::default()
+        }
+    }
+
+    fn report_message() -> Inbound {
+        Inbound::Report(Report::new_test_instance())
+    }
 
     fn test_report() -> Arc<EpochReport> {
         Arc::new(EpochReport {
