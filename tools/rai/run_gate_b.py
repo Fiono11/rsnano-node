@@ -287,7 +287,7 @@ def main():
     parser.add_argument('--network-delay-ms', type=int, default=0, help='simulated one-way link latency every node adds to each outbound message')
     parser.add_argument('--seed', type=int, default=None, help='seed of the workload choices (nanospam --seed)')
     parser.add_argument('--fork-grace', type=int, default=0, help='after settling, keep the nodes running until no forked position is open on any node, up to this many seconds')
-    parser.add_argument('--fork-grace-stall', type=int, default=45, help='end the fork grace once the open positions have not dropped for this many seconds')
+    parser.add_argument('--fork-grace-stall', type=int, default=45, help='end the fork grace once the open positions have not dropped for this many seconds (once none is open: since the last epoch decided everywhere)')
     parser.add_argument('--byzantine-leads-close', action='store_true', help='the first Byzantine representative leads round 0 of every close (nanospam --byzantine-leads-close)')
     parser.add_argument('--byzantine-node', default=None, metavar='VOTES,REPORTS,LEADER',
                         help='the last running representative is a Byzantine member running a full node with these behaviours '
@@ -489,13 +489,19 @@ def main():
                     lowest, dropped_at, outcome = max(before), started, 'cap'
                     trace = [[0.0, lowest]]
                     resolved_at = None
+                    everywhere, catch_ups = len(settled['decided_everywhere']), 0
                     while True:
                         # Resolved; the replicas still deciding an epoch
                         # (a lagging one catching up) get up to
-                        # --fork-grace-stall seconds more to agree
+                        # --fork-grace-stall seconds more to agree, counted
+                        # from the last epoch the slowest of them decided
+                        # (an epoch decided everywhere), within the cap
                         if max(settled['uncemented']) == 0:
                             outcome = 'resolved'
                             resolved_at = resolved_at or time.monotonic()
+                            if len(settled['decided_everywhere']) > everywhere:
+                                everywhere, resolved_at = len(settled['decided_everywhere']), time.monotonic()
+                                catch_ups += 1
                             if settled['settled'] or time.monotonic() - resolved_at > args.fork_grace_stall:
                                 break
                         elif time.monotonic() - dropped_at > args.fork_grace_stall:
@@ -522,7 +528,7 @@ def main():
                                                 uncemented_after=settled['uncemented'],
                                                 last_drop_s=round(dropped_at - started, 1),
                                                 waited_s=round(time.monotonic() - started, 1),
-                                                trace=trace)
+                                                catch_ups=catch_ups, trace=trace)
                 result['open_trace'] = open_trace
                 result['settlement'] = settled
                 result['block_counts'] = counts

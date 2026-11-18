@@ -16,6 +16,13 @@ three Byzantine committee-change cells had been cut to two repetitions on Nov 18
 | `nofork`, `fork5-grace`, the smoke runs, pause and Nano rep 1 of `fork10-grace` | `baba6248c` (frozen build) |
 | every other run | `e4601219e` (read-lock checks for no-op fork, activation and instance calls), sha256 `3acfd65f…` |
 
+Runs from Nov 18 (resumed on a new account) ran on a rebuilt fleet: same names, zones, machine type and Spot
+model, split over two peered projects (32-vCPU quota each), PR7-PR13 at new internal addresses. Binaries
+rebuilt from the same node code (`e4601219e`) and develop `afe63ab1c` with rustc 1.100.0: rai sha256
+`a0181c9b…`, develop `b0b706e6…`. A same-seed Nano `nofork-reconf` rep 1 on the new fleet
+(`gcp-n12-newfleet-check-2026-11-18`): 1946/s, p50 525 ms (old 1937/s, 523 ms); p95 1023 ms vs 620 ms, all of
+it in the first ~5 s of load (from second 6 on p95 535-622 vs 550-593 ms).
+
 The develop (Nano) binary is the same for both. `fork10-grace` RAI reps 1 and 2 are the fix's test runs from
 `gcp-n12-locks-2026-11-16` (same seeds, settings and binary; see `ADOPTED.txt`).
 
@@ -25,6 +32,12 @@ The develop (Nano) binary is the same for both. `fork10-grace` RAI reps 1 and 2 
 Nov 17 13:24, then **180** (user's choice) after `fork10-grace-byznode` pause rep 1 was cut by the 30 s rule
 during an 85 s epoch close with all nodes still progressing. Every run finished before the change settled well
 inside 30 s, so the longer limit would not have changed any of them.
+
+Nov 18 (user's choice, resumed fleet): once no position is open, the 180 s now counts from the last epoch
+decided on every node, not from the moment the last position resolved, within the same 600 s cap
+(`fork_grace.catch_ups` in `result.json` counts the restarts). The `fork10-grace-reconf` RAI rep 3 rerun had
+been cut at 12:59 with PR2 (a departing Montreal member) 8 epochs behind and still deciding one about every
+25 s; all blocks cemented everywhere and values agreed. A run that settled under the old rule ends the same way.
 
 ## Results (non-fork goodput blocks/s, latency ms unless s, longest close)
 
