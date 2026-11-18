@@ -89,3 +89,12 @@ Open, needs the fleet (Nov 11): the controller (34.158.229.20) does not answer a
 - Fixes f1cf174de (solicitor scan per 64 elections, request lookups per request) and 1b8e3e391 (reconciliation streams start at 64 and double): RAI 1,912 blocks/s, p50 455, p95 979, p99 1,111 ms, one run. The remaining p95 gap to Nano is the 3-4 s after each epoch boundary. Records and table in doc/benchmarks/gcp-n12-2026-11-11.
 - Not done: repeats, the fork and Byzantine cells and the committee change at 12 seats, and the 108-run matrix (task stopped by the user's instruction to turn the fleet off).
 - Nov 12: common epoch origin (51e4683fc): one 12-seat run at 2,000/s settled at 1,946 blocks/s, p50 425, p95 764, p99 949 ms (Nano 1,937 / 523 / 579 / 879); epoch-end spread 0.6-0.7 s -> 0.1 s. Still one run per build; no fork, Byzantine or committee-change cells at 12 seats.
+
+## Twelve validators in the paper (Nov 18 2026)
+
+- Matrix `doc/benchmarks/gcp-matrix-n12-45k-2026-11-16` (ended at 76 of 108 runs on credit; the Byzantine committee-change cells were not run). `tools/n12_numbers.py <matrix> sections/eval-data/n12` writes `numbers.txt` (medians and ranges) and `table.tex`.
+- Section X: new paragraph "Twelve validators" (RAI's p95 above Nano's without forks; with 10% forks RAI confirms less than pause; closes 25-157 s). Paid for by trimming the prototype's synced-signing sentence, the settled-first-votes sentence (in Appendix "Counting settled first votes"), the restarts paragraph, the epoch-3 timing sentence (Figure 8 marks it), the equal-quorum rate (Table in the supplement), and the opening sentence of the boundary paragraph. Still 11 pages of body.
+- Abstract and conclusion: the 6.7-38x claim is scoped to six validators; the conclusion's limitations say RAI confirms less than a pause at twelve validators with 10% forks.
+- Supplement: Appendix "Twelve validators across six regions" with Table VI, the failed run, every repeated run (including the outlier repeated at the authors' request), the builds, the fork-grace limit change, and the diagnosis; the limitations and close-cost text no longer say no run had more than seven validators; reproduction names the set and that the node logs were not kept. A `\clearpage` before the bibliography puts the floats that used to land after the references before them.
+
+Open: the Byzantine committee-change cells at twelve validators; the vote-recording lock change that should lift the saturation.
