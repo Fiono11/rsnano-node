@@ -1,4 +1,4 @@
-source ../doc/benchmarks/gcp-matrix-n12-45k-2026-11-16
+source /Users/ruimorais/rsnano-node/.claude/worktrees/harness-laggard-progress/doc/benchmarks/gcp-matrix-n12-45k-2026-11-16
 nofork rai: runs 3 passed 3 no_client_figures 0 rate 1912 [1758, 1937] p50 417 [417, 433] p95 701 [669, 787] close_s 4.2 [3.1, 4.3]
 nofork pause: runs 3 passed 3 no_client_figures 0 rate 1775 [1632, 1811] p50 536 [482, 880] p95 3510 [3394, 5089] close_s 3.9 [2.9, 5.7]
 nofork develop: runs 3 passed 3 no_client_figures 0 rate 1937 [1929, 1937] p50 516 [513, 518] p95 582 [581, 584]
@@ -23,15 +23,15 @@ nofork-reconf develop: runs 3 passed 3 no_client_figures 0 rate 1937 [1929, 1937
 fork5-grace-reconf rai: runs 3 passed 3 no_client_figures 1 rate 1031 [414, 1648] p50 596 [552, 641] p95 42749 [3832, 81666] close_s 156.6 [154.4, 202.1]
 fork5-grace-reconf pause: runs 3 passed 3 no_client_figures 0 rate 1007 [739, 1165] p50 3379 [2928, 4156] p95 16654 [16521, 22477] close_s 24.2 [20.6, 28.9]
 fork5-grace-reconf develop: runs 3 passed 3 no_client_figures 0 rate 1763 [1756, 1771] p50 532 [522, 536] p95 705 [645, 867]
-fork10-grace-reconf rai: runs 1 passed 1 no_client_figures 0 rate 227 [227, 227] p50 1134 [1134, 1134] p95 32164 [32164, 32164] close_s 128.2 [128.2, 128.2]
-fork10-grace-reconf pause: runs 1 passed 1 no_client_figures 0 rate 844 [844, 844] p50 3470 [3470, 3470] p95 23271 [23271, 23271] close_s 15.3 [15.3, 15.3]
-fork10-grace-reconf develop: runs 1 passed 1 no_client_figures 0 rate 972 [972, 972] p50 523 [523, 523] p95 2317 [2317, 2317]
-nofork-reconf-byznode rai: not run
-nofork-reconf-byznode pause: not run
-nofork-reconf-byznode develop: not run
-fork5-grace-reconf-byznode rai: not run
-fork5-grace-reconf-byznode pause: not run
-fork5-grace-reconf-byznode develop: not run
-fork10-grace-reconf-byznode rai: runs 1 passed 1 no_client_figures 0 rate 905 [905, 905] p50 1029 [1029, 1029] p95 14345 [14345, 14345] close_s 67.8 [67.8, 67.8]
-fork10-grace-reconf-byznode pause: not run
-fork10-grace-reconf-byznode develop: not run
+fork10-grace-reconf rai: runs 3 passed 3 no_client_figures 0 rate 227 [73, 1185] p50 827 [813, 1134] p95 32164 [9643, 134987] close_s 128.2 [64.2, 187.7]
+fork10-grace-reconf pause: runs 3 passed 3 no_client_figures 0 rate 844 [510, 1081] p50 3470 [2834, 7619] p95 23271 [16998, 55841] close_s 16.8 [15.3, 49.4]
+fork10-grace-reconf develop: runs 3 passed 3 no_client_figures 0 rate 972 [793, 1125] p50 519 [519, 523] p95 2317 [2009, 2974]
+nofork-reconf-byznode rai: runs 3 passed 3 no_client_figures 0 rate 1912 [585, 1929] p50 494 [448, 689] p95 804 [743, 15808] close_s 7.3 [5.8, 75.5]
+nofork-reconf-byznode pause: runs 3 passed 3 no_client_figures 0 rate 1093 [635, 1525] p50 3295 [978, 6241] p95 11114 [8718, 17877] close_s 11.8 [10.1, 37.8]
+nofork-reconf-byznode develop: runs 3 passed 3 no_client_figures 0 rate 1929 [1928, 1937] p50 518 [515, 530] p95 601 [600, 761]
+fork5-grace-reconf-byznode rai: runs 3 passed 3 no_client_figures 0 rate 1009 [93, 1276] p50 579 [538, 7655] p95 4860 [4623, 135537] close_s 136.4 [9.5, 229.9]
+fork5-grace-reconf-byznode pause: runs 3 passed 3 no_client_figures 0 rate 700 [150, 1270] p50 6294 [3912, 9244] p95 12186 [9861, 208995] close_s 53.3 [15.3, 161.4]
+fork5-grace-reconf-byznode develop: runs 3 passed 3 no_client_figures 0 rate 1772 [1746, 1799] p50 525 [511, 535] p95 677 [636, 949]
+fork10-grace-reconf-byznode rai: runs 3 passed 3 no_client_figures 0 rate 366 [350, 905] p50 1029 [972, 1818] p95 54676 [14345, 54684] close_s 93.3 [67.8, 144.8]
+fork10-grace-reconf-byznode pause: runs 3 passed 3 no_client_figures 0 rate 503 [459, 621] p50 7671 [6714, 8435] p95 50710 [39572, 58597] close_s 69.1 [22.1, 73.9]
+fork10-grace-reconf-byznode develop: runs 3 passed 3 no_client_figures 0 rate 1109 [1092, 1161] p50 528 [523, 529] p95 2052 [1745, 3443]

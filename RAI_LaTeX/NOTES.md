@@ -97,4 +97,6 @@ Open, needs the fleet (Nov 11): the controller (34.158.229.20) does not answer a
 - Abstract and conclusion: the 6.7-38x claim is scoped to six validators; the conclusion's limitations say RAI confirms less than a pause at twelve validators with 10% forks.
 - Supplement: Appendix "Twelve validators across six regions" with Table VI, the failed run, every repeated run (including the outlier repeated at the authors' request), the builds, the fork-grace limit change, and the diagnosis; the limitations and close-cost text no longer say no run had more than seven validators; reproduction names the set and that the node logs were not kept. A `\clearpage` before the bibliography puts the floats that used to land after the references before them.
 
-Open: the Byzantine committee-change cells at twelve validators; the vote-recording lock change that should lift the saturation.
+Nov 19: the twelve-validator matrix is complete (108 runs, three per cell, on the rebuilt fleet for the last 32). Table VI regenerated from it (`tools/n12_numbers.py`), its caption no longer says "one in the last two rows"; Section X says all 108 runs passed and gives the committee-change cells with forks (slowest closes 93-157 s, RAI 227-1,031 blocks/s against pause's 503-1,007); the supplement says the failed run's repetition passed and the last 32 runs used the rebuilt fleet. Same pagination (11 pages of body, Table VI on supplement page 25).
+
+Open: the vote-recording lock change that should lift the saturation.
