@@ -1,13 +1,11 @@
-# Twelve-seat six-region matrix, 2000 blocks/s × 45,000 (Nov 16-18 2026, ended at 76 of 108)
+# Twelve-seat six-region matrix, 2000 blocks/s × 45,000 (Nov 16-19 2026, complete)
 
 Twelve seats (f = p = 2) across six GCP regions, n2-standard-4 Spot VMs, set `final-wan-2000-n12`
 (`tools/rai/run_sweep.py`), arms RAI, pause and Nano (develop), three repetitions. The committee-change
 (`reconf`) cells add two Toronto standbys (PR12, PR13) that take the weight of both Montreal members
-(PR2, PR8) in epoch 0. Ended on user request on Nov 18 (credit), with the fleet deleted: 76 runs.
-
-Not run: `fork10-grace-reconf` RAI rep 3, pause and Nano reps 2-3; `nofork-reconf-byznode` and
-`fork5-grace-reconf-byznode` entirely; `fork10-grace-reconf-byznode` except the smoke RAI rep 1. Those
-three Byzantine committee-change cells had been cut to two repetitions on Nov 18 for credit.
+(PR2, PR8) in epoch 0. The three Byzantine committee-change cells have two repetitions (cut on Nov 18 for
+credit): 99 runs in all. 76 ran by Nov 18; the matrix then resumed on a rebuilt fleet (see Builds) for
+the rest.
 
 ## Builds
 
@@ -51,8 +49,10 @@ been cut at 12:59 with PR2 (a departing Montreal member) 8 epochs behind and sti
 | fork10-grace-byznode | 3/3 settled; 154-1450, p50 626-7225, p95 3.0-186.1 s, close ≤ 117 s | 3/3 settled; 542-768, p50 4954-6032, p95 24.4-34.6 s, close ≤ 58 s | 3/3 safe; 570-972, p50 518-522, p95 834-1098 |
 | nofork-reconf | 3/3 settled; 432-1880, p50 509-722, p95 1263-16.1 s, close ≤ 46 s | 3/3 settled; 801-1662, p50 2936-4818, p95 6.9-25.4 s, close ≤ 23 s | 3/3 safe; 1929-1937, p50 513-523, p95 606-636 |
 | fork5-grace-reconf | 3/3 settled; 414-1648 (rep 1 no client figures, see below), p95 3.8-81.7 s, close ≤ 202 s | 3/3 settled; 739-1165, p50 2928-4156, p95 16.5-22.5 s, close ≤ 29 s | 3/3 safe; 1756-1771, p50 522-536, p95 645-867 |
-| fork10-grace-reconf | rep 1 settled; 227, p50 1134, p95 32.2 s, close ≤ 128 s | rep 1 settled; 844, p50 3470, p95 23.3 s, close ≤ 15 s | rep 1 safe; 972, p50 523, p95 2317 |
-| fork10-grace-reconf-byznode | smoke rep 1 settled; 905, p50 1029, p95 14.3 s, close ≤ 68 s | — | — |
+| fork10-grace-reconf | 3/3 settled; 73-1185, p50 813-1134, p95 9.6-135.0 s, close ≤ 188 s | 3/3 settled; 510-1081, p50 2834-7619, p95 17.0-55.8 s, close ≤ 50 s | 3/3 safe; 793-1125, p50 519-523, p95 2009-2974 |
+| nofork-reconf-byznode | 2/2 settled; 1912-1929, p50 448-494, p95 743-804, close ≤ 7 s | 2/2 settled; 1093-1525, p50 978-6241, p95 8.7-17.9 s, close ≤ 12 s | 2/2 safe; 1928-1929, p50 515-518, p95 600-601 |
+| fork5-grace-reconf-byznode | 2/2 settled; 93-1276, p50 538-7655, p95 4.6-135.5 s, close ≤ 230 s | 2/2 settled; 150-700, p50 3912-9244, p95 9.9-209.0 s, close ≤ 162 s | 2/2 safe; 1772-1799, p50 511-525, p95 636-677 |
+| fork10-grace-reconf-byznode | 2/2 settled; 350-905, p50 1029-1818, p95 14.3-54.7 s, close ≤ 145 s | 2/2 settled; 459-621, p50 7671-8435, p95 39.6-58.6 s, close ≤ 74 s | 2/2 safe; 1109-1161, p50 523-529, p95 1745-2052 |
 
 Every RAI and pause run listed settled with agreeing ledgers; every Nano run held the same blocks with agreeing
 values (its forks do not terminate). `fork5-grace-reconf` RAI rep 1 collapsed under load: 27,206 of 45,000
@@ -70,7 +70,7 @@ Every original is kept under `set-aside/` (result gzipped, summary, host file).
 - `fork10-grace-byznode` pause rep 1: cut by the 30 s fork-grace stall rule (see Limits); rerun under 180 s.
 - `fork10-grace-reconf` RAI rep 2: failed — the client stalled at 35,493 at the drain limit, closes to 139 s with
   up to 4 rounds, epoch 19 not decided on every node when the 600 s fork grace ran out; values agree everywhere.
-  Its rerun was started and halted when the matrix ended (`.partial`).
+  Its rerun on the Nov 18 fleet settled: 1185/s, p95 9.6 s.
 - `*.partial-*`: runs a halt or preemption interrupted (Iowa PR1/PR7 at 14:21 and Montreal PR2 at 15:35 on Nov 17,
   planned halts); their reruns are in the matrix.
 - `*.failed-*` before Nov 17: the frozen-build `fork10-grace` RAI rep 2, `fork5-grace` pause rep 3, the first
