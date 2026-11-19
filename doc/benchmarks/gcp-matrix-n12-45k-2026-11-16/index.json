@@ -39,7 +39,7 @@
       ]
     }
   },
-  "started": 1795098563.0634978,
+  "started": 1795117032.922842,
   "runs": [
     {
       "variant": "fork10-grace-reconf-byznode",
@@ -1064,6 +1064,78 @@
       "rep": 1,
       "status": "settled",
       "seconds": 1456
+    },
+    {
+      "variant": "nofork-reconf-byznode",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 3,
+      "status": "settled",
+      "seconds": 648
+    },
+    {
+      "variant": "nofork-reconf-byznode",
+      "rate": 2000,
+      "arm": "pause",
+      "rep": 3,
+      "status": "settled",
+      "seconds": 618
+    },
+    {
+      "variant": "nofork-reconf-byznode",
+      "rate": 2000,
+      "arm": "develop",
+      "rep": 3,
+      "status": "settled",
+      "seconds": 497
+    },
+    {
+      "variant": "fork5-grace-reconf-byznode",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 3,
+      "status": "settled",
+      "seconds": 713
+    },
+    {
+      "variant": "fork5-grace-reconf-byznode",
+      "rate": 2000,
+      "arm": "pause",
+      "rep": 3,
+      "status": "settled",
+      "seconds": 581
+    },
+    {
+      "variant": "fork5-grace-reconf-byznode",
+      "rate": 2000,
+      "arm": "develop",
+      "rep": 3,
+      "status": "failed",
+      "seconds": 671
+    },
+    {
+      "variant": "fork10-grace-reconf-byznode",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 3,
+      "status": "settled",
+      "seconds": 992
+    },
+    {
+      "variant": "fork10-grace-reconf-byznode",
+      "rate": 2000,
+      "arm": "pause",
+      "rep": 3,
+      "status": "settled",
+      "seconds": 645
+    },
+    {
+      "variant": "fork10-grace-reconf-byznode",
+      "rate": 2000,
+      "arm": "develop",
+      "rep": 3,
+      "status": "failed",
+      "seconds": 662
     }
   ]
 }

@@ -3,9 +3,8 @@
 Twelve seats (f = p = 2) across six GCP regions, n2-standard-4 Spot VMs, set `final-wan-2000-n12`
 (`tools/rai/run_sweep.py`), arms RAI, pause and Nano (develop), three repetitions. The committee-change
 (`reconf`) cells add two Toronto standbys (PR12, PR13) that take the weight of both Montreal members
-(PR2, PR8) in epoch 0. The three Byzantine committee-change cells have two repetitions (cut on Nov 18 for
-credit): 99 runs in all. 76 ran by Nov 18; the matrix then resumed on a rebuilt fleet (see Builds) for
-the rest.
+(PR2, PR8) in epoch 0. 108 runs in all: 76 ran by Nov 18; the matrix then resumed on a rebuilt fleet
+(see Builds) for the rest, the third repetition of the three Byzantine committee-change cells last (Nov 19).
 
 ## Builds
 
@@ -50,9 +49,9 @@ been cut at 12:59 with PR2 (a departing Montreal member) 8 epochs behind and sti
 | nofork-reconf | 3/3 settled; 432-1880, p50 509-722, p95 1263-16.1 s, close ≤ 46 s | 3/3 settled; 801-1662, p50 2936-4818, p95 6.9-25.4 s, close ≤ 23 s | 3/3 safe; 1929-1937, p50 513-523, p95 606-636 |
 | fork5-grace-reconf | 3/3 settled; 414-1648 (rep 1 no client figures, see below), p95 3.8-81.7 s, close ≤ 202 s | 3/3 settled; 739-1165, p50 2928-4156, p95 16.5-22.5 s, close ≤ 29 s | 3/3 safe; 1756-1771, p50 522-536, p95 645-867 |
 | fork10-grace-reconf | 3/3 settled; 73-1185, p50 813-1134, p95 9.6-135.0 s, close ≤ 188 s | 3/3 settled; 510-1081, p50 2834-7619, p95 17.0-55.8 s, close ≤ 50 s | 3/3 safe; 793-1125, p50 519-523, p95 2009-2974 |
-| nofork-reconf-byznode | 2/2 settled; 1912-1929, p50 448-494, p95 743-804, close ≤ 7 s | 2/2 settled; 1093-1525, p50 978-6241, p95 8.7-17.9 s, close ≤ 12 s | 2/2 safe; 1928-1929, p50 515-518, p95 600-601 |
-| fork5-grace-reconf-byznode | 2/2 settled; 93-1276, p50 538-7655, p95 4.6-135.5 s, close ≤ 230 s | 2/2 settled; 150-700, p50 3912-9244, p95 9.9-209.0 s, close ≤ 162 s | 2/2 safe; 1772-1799, p50 511-525, p95 636-677 |
-| fork10-grace-reconf-byznode | 2/2 settled; 350-905, p50 1029-1818, p95 14.3-54.7 s, close ≤ 145 s | 2/2 settled; 459-621, p50 7671-8435, p95 39.6-58.6 s, close ≤ 74 s | 2/2 safe; 1109-1161, p50 523-529, p95 1745-2052 |
+| nofork-reconf-byznode | 3/3 settled; 585-1929, p50 448-689, p95 743-15.8 s, close ≤ 75 s | 3/3 settled; 635-1525, p50 978-6241, p95 8.7-17.9 s, close ≤ 38 s | 3/3 safe; 1928-1937, p50 515-530, p95 600-761 |
+| fork5-grace-reconf-byznode | 3/3 settled; 93-1276, p50 538-7655, p95 4.6-135.5 s, close ≤ 230 s | 3/3 settled; 150-1270, p50 3912-9244, p95 9.9-209.0 s, close ≤ 161 s | 3/3 safe; 1746-1799, p50 511-535, p95 636-949 |
+| fork10-grace-reconf-byznode | 3/3 settled; 350-905, p50 972-1818, p95 14.3-54.7 s, close ≤ 145 s | 3/3 settled; 459-621, p50 6714-8435, p95 39.6-58.6 s, close ≤ 74 s | 3/3 safe; 1092-1161, p50 523-529, p95 1745-3443 |
 
 Every RAI and pause run listed settled with agreeing ledgers; every Nano run held the same blocks with agreeing
 values (its forks do not terminate). `fork5-grace-reconf` RAI rep 1 collapsed under load: 27,206 of 45,000
