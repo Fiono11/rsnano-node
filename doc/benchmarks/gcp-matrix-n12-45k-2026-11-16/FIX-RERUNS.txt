@@ -1,0 +1,15 @@
+Fix reruns of the two RAI runs that did not settle on the Nov 18 fleet (Nov 19 2026)
+
+Build: branch rai-msg-slow, 4df69d65a = e4601219e node code + MSG_SLOW diagnostics (263f18684) +
+report-exchange messages on their own intake thread (4df69d65a); rsnano sha256 55b7565d...,
+rsnano-byzantine 2055eb69..., nanospam 8e63e375... (the matrix client). Same seeds and limits.
+
+fork10-grace-reconf RAI rep 3 (this folder's rai-rep3): settled on the fix build, values agree;
+  132.7 blocks/s, p50 1369 ms, p95 90.5 s, p99 282 s. The failed original (PR4 stuck in the epoch-6
+  close behind a stalled inbound queue) is in set-aside/fork10-grace-reconf_r2000_rai-rep3.failed-before-fix.
+  A diagnostic rerun on the MSG_SLOW-only build (263f18684, gcp-n12-fix-diag-2026-11-18) also settled:
+  the stall is timing-dependent; that run logged 31,594 Report messages handled in > 50 ms.
+
+fork5-grace-reconf-byznode RAI rep 1: not rerun yet. Its original failed when PR13's node was
+  OOM-killed at 15.3 GB; the fix rerun crashed in setup when both Iowa Spot VMs (PR1, PR7) were
+  preempted at 12:33 UTC; the diagnostic rerun was halted after its snapshot on request.

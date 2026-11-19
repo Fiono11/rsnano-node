@@ -1,0 +1,278 @@
++ status=/home/fiono8199/runs/fixrun.status
++ rm -f /home/fiono8199/runs/fixrun.status
++ trap 'echo "${result:-failed:aborted}" > $status' EXIT
++ . /home/fiono8199/.cargo/env
+++ case ":${PATH}:" in
++ cd /home/fiono8199/rsnano-node
++ b=/home/fiono8199/bin-fix/rai
+++ strings /home/fiono8199/bin-fix/rai/rsnano
+++ grep -c REPORT_INTAKE_DROPPED
++ '[' 1 -gt 0 ']'
++ out=doc/benchmarks/gcp-matrix-n12-45k-2026-11-16
++ L=--timeout=480:--stall-abort=90:--drain-limit=15:--settle-timeout=600:--fork-grace-stall=180:--hosts=/home/fiono8199/hosts-n14.txt
+++ grep -o '^10[.0-9]*' /home/fiono8199/hosts-n14.txt
++ ips='10.186.0.3
+10.128.0.3
+10.162.0.2
+10.182.0.2
+10.140.0.2
+10.192.0.2
+10.186.0.5
+10.0.1.10
+10.0.2.10
+10.0.3.10
+10.0.4.10
+10.0.5.10
+10.0.6.10
+10.0.6.2'
+++ date -u +%T
++ echo 'FIXRUN-START 11:45:03'
+FIXRUN-START 11:45:03
++ rerun fork10-grace-reconf rai-rep3 3 3
++ local d=doc/benchmarks/gcp-matrix-n12-45k-2026-11-16/fork10-grace-reconf/r2000/rai-rep3
++ '[' -f doc/benchmarks/gcp-matrix-n12-45k-2026-11-16/fork10-grace-reconf/r2000/rai-rep3.summary.json ']'
++ nohup setsid bash /tmp/rss_sampler2.sh /home/fiono8199/runs/rss3.log /home/fiono8199/runs/fixrun.status
++ python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get('\''status'\'') == '\''settled'\'' else 1)' doc/benchmarks/gcp-matrix-n12-45k-2026-11-16/fork10-grace-reconf/r2000/rai-rep3.summary.json
++ '[' -f doc/benchmarks/gcp-matrix-n12-45k-2026-11-16/fork10-grace-reconf/r2000/rai-rep3.summary.json ']'
+++ date +%s
++ keep=/home/fiono8199/saved/fork10-grace-reconf_rai-rep3.failed-before-fix-1795088703
++ mkdir -p /home/fiono8199/saved/fork10-grace-reconf_rai-rep3.failed-before-fix-1795088703
++ mv doc/benchmarks/gcp-matrix-n12-45k-2026-11-16/fork10-grace-reconf/r2000/rai-rep3 doc/benchmarks/gcp-matrix-n12-45k-2026-11-16/fork10-grace-reconf/r2000/rai-rep3.summary.json /home/fiono8199/saved/fork10-grace-reconf_rai-rep3.failed-before-fix-1795088703/
++ '[' -f doc/benchmarks/gcp-matrix-n12-45k-2026-11-16/fork10-grace-reconf/r2000/rai-rep3.err ']'
++ echo 'set aside doc/benchmarks/gcp-matrix-n12-45k-2026-11-16/fork10-grace-reconf/r2000/rai-rep3 -> /home/fiono8199/saved/fork10-grace-reconf_rai-rep3.failed-before-fix-1795088703'
+set aside doc/benchmarks/gcp-matrix-n12-45k-2026-11-16/fork10-grace-reconf/r2000/rai-rep3 -> /home/fiono8199/saved/fork10-grace-reconf_rai-rep3.failed-before-fix-1795088703
++ seats_ready
+++ date +%s
++ local t0=1795088703 down
++ :
++ down=
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.186.0.3 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.128.0.3 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.162.0.2 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.182.0.2 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.140.0.2 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.192.0.2 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.186.0.5 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.0.1.10 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.0.2.10 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.0.3.10 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.0.4.10 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.0.5.10 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.0.6.10 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.0.6.2 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ '[' -z '' ']'
++ return 0
++ python3 tools/rai/run_sweep.py doc/benchmarks/gcp-matrix-n12-45k-2026-11-16 --set final-wan-2000-n12 --blocks 45000 --reps-from 1000 --wait-quiet 120 --snapshot-dir /home/fiono8199/ledgers-fix --variant fork10-grace-reconf --arm rai=/home/fiono8199/bin-fix/rai:--timeout=480:--stall-abort=90:--drain-limit=15:--settle-timeout=600:--fork-grace-stall=180:--hosts=/home/fiono8199/hosts-n14.txt --reps 3 --rep 3
+[11:45:28] fork10-grace-reconf 2000/s rai rep 3
+  failed in 243 s
+++ date -u +%T
++ echo 'FIXRUN-DONE fork10-grace-reconf rai-rep3 rc=0 11:49:31'
+FIXRUN-DONE fork10-grace-reconf rai-rep3 rc=0 11:49:31
++ rerun fork5-grace-reconf-byznode rai 2 1
++ local d=doc/benchmarks/gcp-matrix-n12-45k-2026-11-16/fork5-grace-reconf-byznode/r2000/rai
++ '[' -f doc/benchmarks/gcp-matrix-n12-45k-2026-11-16/fork5-grace-reconf-byznode/r2000/rai.summary.json ']'
++ python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get('\''status'\'') == '\''settled'\'' else 1)' doc/benchmarks/gcp-matrix-n12-45k-2026-11-16/fork5-grace-reconf-byznode/r2000/rai.summary.json
++ '[' -f doc/benchmarks/gcp-matrix-n12-45k-2026-11-16/fork5-grace-reconf-byznode/r2000/rai.summary.json ']'
+++ date +%s
++ keep=/home/fiono8199/saved/fork5-grace-reconf-byznode_rai.failed-before-fix-1795088971
++ mkdir -p /home/fiono8199/saved/fork5-grace-reconf-byznode_rai.failed-before-fix-1795088971
++ mv doc/benchmarks/gcp-matrix-n12-45k-2026-11-16/fork5-grace-reconf-byznode/r2000/rai doc/benchmarks/gcp-matrix-n12-45k-2026-11-16/fork5-grace-reconf-byznode/r2000/rai.summary.json /home/fiono8199/saved/fork5-grace-reconf-byznode_rai.failed-before-fix-1795088971/
++ '[' -f doc/benchmarks/gcp-matrix-n12-45k-2026-11-16/fork5-grace-reconf-byznode/r2000/rai.err ']'
++ echo 'set aside doc/benchmarks/gcp-matrix-n12-45k-2026-11-16/fork5-grace-reconf-byznode/r2000/rai -> /home/fiono8199/saved/fork5-grace-reconf-byznode_rai.failed-before-fix-1795088971'
+set aside doc/benchmarks/gcp-matrix-n12-45k-2026-11-16/fork5-grace-reconf-byznode/r2000/rai -> /home/fiono8199/saved/fork5-grace-reconf-byznode_rai.failed-before-fix-1795088971
++ seats_ready
+++ date +%s
++ local t0=1795088971 down
++ :
++ down=
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.186.0.3 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.128.0.3 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.162.0.2 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.182.0.2 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.140.0.2 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.192.0.2 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.186.0.5 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.0.1.10 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.0.2.10 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.0.3.10 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.0.4.10 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.0.5.10 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.0.6.10 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.0.6.2 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ '[' -z '' ']'
++ return 0
++ python3 tools/rai/run_sweep.py doc/benchmarks/gcp-matrix-n12-45k-2026-11-16 --set final-wan-2000-n12 --blocks 45000 --reps-from 1000 --wait-quiet 120 --snapshot-dir /home/fiono8199/ledgers-fix --variant fork5-grace-reconf-byznode --arm rai=/home/fiono8199/bin-fix/rai:--timeout=480:--stall-abort=90:--drain-limit=15:--settle-timeout=600:--fork-grace-stall=180:--hosts=/home/fiono8199/hosts-n14.txt --reps 2 --rep 1
+[11:49:57] fork5-grace-reconf-byznode 2000/s rai rep 1
+  failed in 272 s
+++ date -u +%T
++ echo 'FIXRUN-DONE fork5-grace-reconf-byznode rai rc=0 11:54:29'
+FIXRUN-DONE fork5-grace-reconf-byznode rai rc=0 11:54:29
++ result=done
++ echo done
++ status=/home/fiono8199/runs/fixrun.status
++ rm -f /home/fiono8199/runs/fixrun.status
++ trap 'echo "${result:-failed:aborted}" > $status' EXIT
++ . /home/fiono8199/.cargo/env
+++ case ":${PATH}:" in
++ cd /home/fiono8199/rsnano-node
++ b=/home/fiono8199/bin-fix/rai
+++ strings /home/fiono8199/bin-fix/rai/rsnano
+++ grep -c REPORT_INTAKE_DROPPED
++ '[' 1 -gt 0 ']'
++ out=doc/benchmarks/gcp-matrix-n12-45k-2026-11-16
++ L=--timeout=480:--stall-abort=90:--drain-limit=15:--settle-timeout=600:--fork-grace-stall=180:--hosts=/home/fiono8199/hosts-n14.txt
+++ grep -o '^10[.0-9]*' /home/fiono8199/hosts-n14.txt
++ ips='10.186.0.3
+10.128.0.3
+10.162.0.2
+10.182.0.2
+10.140.0.2
+10.192.0.2
+10.186.0.5
+10.0.1.10
+10.0.2.10
+10.0.3.10
+10.0.4.10
+10.0.5.10
+10.0.6.10
+10.0.6.2'
+++ date -u +%T
++ echo 'FIXRUN-START 11:58:20'
+FIXRUN-START 11:58:20
++ rerun fork10-grace-reconf rai-rep3 3 3
++ local d=doc/benchmarks/gcp-matrix-n12-45k-2026-11-16/fork10-grace-reconf/r2000/rai-rep3
++ '[' -f doc/benchmarks/gcp-matrix-n12-45k-2026-11-16/fork10-grace-reconf/r2000/rai-rep3.summary.json ']'
++ nohup setsid bash /tmp/rss_sampler2.sh /home/fiono8199/runs/rss3.log /home/fiono8199/runs/fixrun.status
++ python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get('\''status'\'') == '\''settled'\'' else 1)' doc/benchmarks/gcp-matrix-n12-45k-2026-11-16/fork10-grace-reconf/r2000/rai-rep3.summary.json
++ '[' -f doc/benchmarks/gcp-matrix-n12-45k-2026-11-16/fork10-grace-reconf/r2000/rai-rep3.summary.json ']'
+++ date +%s
++ keep=/home/fiono8199/saved/fork10-grace-reconf_rai-rep3.failed-before-fix-1795089500
++ mkdir -p /home/fiono8199/saved/fork10-grace-reconf_rai-rep3.failed-before-fix-1795089500
++ mv doc/benchmarks/gcp-matrix-n12-45k-2026-11-16/fork10-grace-reconf/r2000/rai-rep3 doc/benchmarks/gcp-matrix-n12-45k-2026-11-16/fork10-grace-reconf/r2000/rai-rep3.summary.json /home/fiono8199/saved/fork10-grace-reconf_rai-rep3.failed-before-fix-1795089500/
++ '[' -f doc/benchmarks/gcp-matrix-n12-45k-2026-11-16/fork10-grace-reconf/r2000/rai-rep3.err ']'
++ echo 'set aside doc/benchmarks/gcp-matrix-n12-45k-2026-11-16/fork10-grace-reconf/r2000/rai-rep3 -> /home/fiono8199/saved/fork10-grace-reconf_rai-rep3.failed-before-fix-1795089500'
+set aside doc/benchmarks/gcp-matrix-n12-45k-2026-11-16/fork10-grace-reconf/r2000/rai-rep3 -> /home/fiono8199/saved/fork10-grace-reconf_rai-rep3.failed-before-fix-1795089500
++ seats_ready
+++ date +%s
++ local t0=1795089500 down
++ :
++ down=
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.186.0.3 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.128.0.3 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.162.0.2 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.182.0.2 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.140.0.2 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.192.0.2 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.186.0.5 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.0.1.10 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.0.2.10 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.0.3.10 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.0.4.10 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.0.5.10 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.0.6.10 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.0.6.2 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ '[' -z '' ']'
++ return 0
++ python3 tools/rai/run_sweep.py doc/benchmarks/gcp-matrix-n12-45k-2026-11-16 --set final-wan-2000-n12 --blocks 45000 --reps-from 1000 --wait-quiet 120 --snapshot-dir /home/fiono8199/ledgers-fix2 --variant fork10-grace-reconf --arm rai=/home/fiono8199/bin-fix/rai:--timeout=480:--stall-abort=90:--drain-limit=15:--settle-timeout=600:--fork-grace-stall=180:--hosts=/home/fiono8199/hosts-n14.txt --reps 3 --rep 3
+[11:58:46] fork10-grace-reconf 2000/s rai rep 3
+  settled in 1582 s
+++ date -u +%T
++ echo 'FIXRUN-DONE fork10-grace-reconf rai-rep3 rc=0 12:25:08'
+FIXRUN-DONE fork10-grace-reconf rai-rep3 rc=0 12:25:08
++ rerun fork5-grace-reconf-byznode rai 2 1
++ local d=doc/benchmarks/gcp-matrix-n12-45k-2026-11-16/fork5-grace-reconf-byznode/r2000/rai
++ '[' -f doc/benchmarks/gcp-matrix-n12-45k-2026-11-16/fork5-grace-reconf-byznode/r2000/rai.summary.json ']'
++ python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get('\''status'\'') == '\''settled'\'' else 1)' doc/benchmarks/gcp-matrix-n12-45k-2026-11-16/fork5-grace-reconf-byznode/r2000/rai.summary.json
++ '[' -f doc/benchmarks/gcp-matrix-n12-45k-2026-11-16/fork5-grace-reconf-byznode/r2000/rai.summary.json ']'
+++ date +%s
++ keep=/home/fiono8199/saved/fork5-grace-reconf-byznode_rai.failed-before-fix-1795091108
++ mkdir -p /home/fiono8199/saved/fork5-grace-reconf-byznode_rai.failed-before-fix-1795091108
++ mv doc/benchmarks/gcp-matrix-n12-45k-2026-11-16/fork5-grace-reconf-byznode/r2000/rai doc/benchmarks/gcp-matrix-n12-45k-2026-11-16/fork5-grace-reconf-byznode/r2000/rai.summary.json /home/fiono8199/saved/fork5-grace-reconf-byznode_rai.failed-before-fix-1795091108/
++ '[' -f doc/benchmarks/gcp-matrix-n12-45k-2026-11-16/fork5-grace-reconf-byznode/r2000/rai.err ']'
++ echo 'set aside doc/benchmarks/gcp-matrix-n12-45k-2026-11-16/fork5-grace-reconf-byznode/r2000/rai -> /home/fiono8199/saved/fork5-grace-reconf-byznode_rai.failed-before-fix-1795091108'
+set aside doc/benchmarks/gcp-matrix-n12-45k-2026-11-16/fork5-grace-reconf-byznode/r2000/rai -> /home/fiono8199/saved/fork5-grace-reconf-byznode_rai.failed-before-fix-1795091108
++ seats_ready
+++ date +%s
++ local t0=1795091108 down
++ :
++ down=
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.186.0.3 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.128.0.3 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.162.0.2 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.182.0.2 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.140.0.2 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.192.0.2 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.186.0.5 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.0.1.10 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.0.2.10 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.0.3.10 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.0.4.10 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.0.5.10 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.0.6.10 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.0.6.2 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ '[' -z '' ']'
++ return 0
++ python3 tools/rai/run_sweep.py doc/benchmarks/gcp-matrix-n12-45k-2026-11-16 --set final-wan-2000-n12 --blocks 45000 --reps-from 1000 --wait-quiet 120 --snapshot-dir /home/fiono8199/ledgers-fix2 --variant fork5-grace-reconf-byznode --arm rai=/home/fiono8199/bin-fix/rai:--timeout=480:--stall-abort=90:--drain-limit=15:--settle-timeout=600:--fork-grace-stall=180:--hosts=/home/fiono8199/hosts-n14.txt --reps 2 --rep 1
+[12:25:34] fork5-grace-reconf-byznode 2000/s rai rep 1
+  exit 1 in 1086 s
+++ date -u +%T
++ echo 'FIXRUN-DONE fork5-grace-reconf-byznode rai rc=0 12:43:40'
+FIXRUN-DONE fork5-grace-reconf-byznode rai rc=0 12:43:40
++ result=done
++ echo done
