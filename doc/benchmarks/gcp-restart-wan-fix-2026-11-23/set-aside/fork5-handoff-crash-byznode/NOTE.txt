@@ -1,0 +1,3 @@
+Rep 1 ran on the fixed build and settled (same cemented state and decided checkpoints on every node, restarts completed).
+The harness marked it failed because the vote audit read the Byzantine node's own log (pr5): all 2220 conflicts are its deliberate equivocations (voter 735FE217), none by a correct validator.
+The audit now leaves the Byzantine node out (audit_correct); the cell was rerun with that harness.

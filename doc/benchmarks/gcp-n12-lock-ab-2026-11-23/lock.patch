@@ -1,0 +1,651 @@
+diff --git a/node/src/consensus/active_elections/active_elections_container.rs b/node/src/consensus/active_elections/active_elections_container.rs
+index c06c398dd..74864df84 100644
+--- a/node/src/consensus/active_elections/active_elections_container.rs
++++ b/node/src/consensus/active_elections/active_elections_container.rs
+@@ -57,7 +57,7 @@ use super::{
+     recently_confirmed_cache::RecentlyConfirmedCache,
+     slot_states::SlotStates,
+     stats::AecStats,
+-    vote_records::VoteRecords,
++    vote_records::{Placement, SharedVoteRecords},
+ };
+ 
+ /// Kudzu never evicts, so a full bucket makes the scheduler hold its blocks
+@@ -153,7 +153,7 @@ pub(crate) struct ActiveElectionsContainer {
+     frozen: BTreeSet<ConsensusEpoch>,
+     /// RAI: the votes received, by epoch and voter, from which another
+     /// reporter's residual object is derived
+-    vote_records: VoteRecords,
++    vote_records: SharedVoteRecords,
+     /// RAI: what the blocks a checkpoint finalized delegate, by epoch: read
+     /// from the block held in the instance the checkpoint confirmed, which
+     /// is erased on confirmation. `Sigma_e` derives the committee from them
+@@ -289,7 +289,7 @@ impl ActiveElectionsContainer {
+             installed_at: BTreeMap::new(),
+             leave_held_logged: None,
+             frozen: BTreeSet::new(),
+-            vote_records: VoteRecords::default(),
++            vote_records: SharedVoteRecords::default(),
+             checkpoint_delegations: BTreeMap::new(),
+             install_acks: BTreeMap::new(),
+             dirty_signing: Vec::new(),
+@@ -907,21 +907,26 @@ impl ActiveElectionsContainer {
+                     .unwrap_or(Amount::MAX)
+             })
+         };
+-        let mut committed: BTreeSet<&PublicKey> = BTreeSet::new();
++        let mut committed: BTreeSet<PublicKey> = BTreeSet::new();
+         let mut best = Amount::ZERO;
+         for hash in election.candidate_blocks().keys() {
+-            let Some(support) = self.vote_records.support(epoch, hash) else {
++            let Some(voters) = self.vote_records.with_support(epoch, hash, |support| {
++                support
++                    .first
++                    .iter()
++                    .chain(support.final_.iter())
++                    .copied()
++                    .collect::<BTreeSet<PublicKey>>()
++            }) else {
+                 continue;
+             };
+-            let voters: BTreeSet<&PublicKey> =
+-                support.first.iter().chain(support.final_.iter()).collect();
+-            best = best.max(weight(&mut voters.iter().copied()));
++            best = best.max(weight(&mut voters.iter()));
+             committed.extend(voters);
+         }
+         let total = weight(&mut committee.weights().keys());
+         let uncommitted = total
+             .number()
+-            .saturating_sub(weight(&mut committed.into_iter()).number());
++            .saturating_sub(weight(&mut committed.iter()).number());
+         Amount::raw(best.number().saturating_add(uncommitted)) >= committee.thresholds().certificate
+     }
+ 
+@@ -1630,11 +1635,7 @@ impl ActiveElectionsContainer {
+     /// epoch, and how many of those reached a closing-epoch NC here
+     #[cfg(feature = "rai_protocol")]
+     fn log_late_notarization(&self, epoch: ConsensusEpoch) {
+-        let blocks: Vec<BlockHash> = self
+-            .vote_records
+-            .late_notarized_blocks(epoch)
+-            .map(|(hash, _)| *hash)
+-            .collect();
++        let blocks: Vec<BlockHash> = self.vote_records.late_notarized_hashes(epoch);
+         if blocks.is_empty() {
+             return;
+         }
+@@ -2876,15 +2877,16 @@ impl ActiveElectionsContainer {
+             let Some(committee) = self.committees.committee(epoch) else {
+                 continue;
+             };
+-            let Some(support) = self.vote_records.support(epoch, &hash) else {
++            let Some(held) = self
++                .vote_records
++                .with_support(epoch, &hash, |support| support.votes().to_vec())
++            else {
+                 continue;
+             };
+             let certificate = committee.thresholds().certificate.number();
+             let durable = self.durable_votes.entry(epoch).or_default();
+             let notarizing = || {
+-                support
+-                    .votes()
+-                    .iter()
++                held.iter()
+                     .filter(|vote| matches!(vote.kind(), VoteKind::First | VoteKind::Final))
+             };
+             let mut voters = BTreeSet::new();
+@@ -2987,12 +2989,14 @@ impl ActiveElectionsContainer {
+         dirty
+             .into_iter()
+             .filter_map(|(epoch, hash)| {
+-                let support = self.vote_records.support(epoch, &hash)?;
++                let (slot, votes) = self.vote_records.with_support(epoch, &hash, |support| {
++                    (support.slot(), support.votes().to_vec())
++                })?;
+                 Some(crate::consensus::EvidenceRecord {
+                     epoch,
+                     hash,
+-                    slot: support.slot()?,
+-                    votes: support.votes().to_vec(),
++                    slot: slot?,
++                    votes,
+                 })
+             })
+             .collect()
+@@ -4468,6 +4472,31 @@ impl ActiveElectionsContainer {
+     pub fn apply_vote<'a>(
+         &mut self,
+         args: ApplyVoteArgs<'a>,
++    ) -> HashMap<BlockHash, Result<(), VoteError>> {
++        self.apply_vote_with(args, None)
++    }
++
++    /// RAI: `apply_vote` for a vote recorded already, outside the elections
++    /// lock, with the placements read then (`placements`). A block that
++    /// became held in between is placed and recorded here.
++    pub fn apply_vote_prerecorded<'a>(
++        &mut self,
++        args: ApplyVoteArgs<'a>,
++        placed: &[(BlockHash, Option<Placement>)],
++    ) -> HashMap<BlockHash, Result<(), VoteError>> {
++        self.apply_vote_with(args, Some(placed))
++    }
++
++    /// RAI: the vote records, shared with the service that records votes
++    /// before it takes the elections lock
++    pub(crate) fn vote_records(&self) -> &SharedVoteRecords {
++        &self.vote_records
++    }
++
++    fn apply_vote_with<'a>(
++        &mut self,
++        args: ApplyVoteArgs<'a>,
++        prerecorded: Option<&[(BlockHash, Option<Placement>)]>,
+     ) -> HashMap<BlockHash, Result<(), VoteError>> {
+         // The epoch's end is due at the same instant on every replica, and
+         // checked on every vote, not only on the ticks
+@@ -4487,7 +4516,12 @@ impl ActiveElectionsContainer {
+ 
+         let timer = super::section("av_record");
+         #[cfg(feature = "rai_protocol")]
+-        self.record_votes(&args);
++        match prerecorded {
++            None => self.record_votes(&args),
++            Some(placed) => self.record_newly_placed(&args, placed),
++        }
++        #[cfg(not(feature = "rai_protocol"))]
++        let _ = prerecorded;
+         drop(timer);
+         let timer = super::section("av_apply");
+         let mut apply_helper = ApplyVoteHelper {
+@@ -4572,44 +4606,38 @@ impl ActiveElectionsContainer {
+     /// A vote for a block this node does not hold at all waits in the vote
+     /// cache and is recorded when it is replayed.
+     fn record_votes(&mut self, args: &ApplyVoteArgs) {
+-        let vote = &args.vote;
+-        let kind = match vote.kind() {
+-            // The base a first vote names is part of its signature: a
+-            // reporter lists an early first vote apart, as its own report
+-            // does
+-            VoteKind::First if vote.vote.vote.is_early() => Some(ResidualKind::EarlyFirst),
+-            VoteKind::First => Some(ResidualKind::First),
+-            VoteKind::Final => Some(ResidualKind::Final),
+-            // Late notarization: support for a closing-epoch exclusion
+-            // witness, outside the residual records and every certificate
+-            VoteKind::Notar => None,
+-            // Close-election kinds; an account domain ignores them
+-            VoteKind::Timeout | VoteKind::Abstain => return,
+-        };
+-        // Indexed by block before any placement: a report's certificates are
+-        // checked by hash, and a block this node does not hold may still be
+-        // in a report
+-        self.vote_records
+-            .support_vote(&vote.vote.vote, vote.filtered_blocks().copied());
+-        for hash in vote.filtered_blocks() {
+-            let Some((account, height, previous)) = self.placement(hash) else {
+-                continue;
+-            };
+-            self.vote_records
+-                .place(vote.epoch, hash, AccountSlot::new(account, height));
+-            let Some(kind) = kind else {
+-                continue;
+-            };
+-            self.vote_records.record(
+-                vote.epoch,
+-                vote.voter,
+-                CertifiedBlock::new(account, height, *hash),
+-                kind,
+-                previous,
+-            );
++        let placed = self.placements(args.vote);
++        self.vote_records.record_vote(&args.vote.vote.vote, &placed);
++    }
++
++    /// RAI: a vote recorded before the elections lock was taken names a
++    /// block that was not held then; if it is held now, it is placed and
++    /// the vote recorded for it, as `record_votes` would have
++    fn record_newly_placed(
++        &mut self,
++        args: &ApplyVoteArgs,
++        placed: &[(BlockHash, Option<Placement>)],
++    ) {
++        let vote = &args.vote.vote.vote;
++        if matches!(vote.kind(), VoteKind::Timeout | VoteKind::Abstain) {
++            return;
++        }
++        for (hash, before) in placed {
++            if before.is_none() {
++                if let Some(placement) = self.placement(hash) {
++                    self.vote_records.place_and_record(vote, hash, placement);
++                }
++            }
+         }
+     }
+ 
++    /// RAI: where each block a vote names sits here, for the blocks held
++    pub fn placements(&self, vote: &FilteredVote) -> Vec<(BlockHash, Option<Placement>)> {
++        vote.filtered_blocks()
++            .map(|hash| (*hash, self.placement(hash)))
++            .collect()
++    }
++
+     /// RAI: where a block sits and the parent it names, read from whatever
+     /// instance holds the block here, this epoch's or another's: two
+     /// replicas that switched epochs at different moments hold the same
+@@ -4706,9 +4734,7 @@ impl ActiveElectionsContainer {
+     ) -> Option<crate::consensus::election::CertificateKinds> {
+         let committee = self.committees.committee(epoch)?;
+         let thresholds = committee.thresholds();
+-        let Some(support) = self.vote_records.support(epoch, hash) else {
+-            return Some(Default::default());
+-        };
++        let base = self.checkpoint_bases.before(epoch, 1);
+         let weight = |voters: &mut dyn Iterator<Item = &PublicKey>| {
+             voters.fold(Amount::ZERO, |sum, voter| {
+                 sum.number()
+@@ -4717,17 +4743,18 @@ impl ActiveElectionsContainer {
+                     .unwrap_or(Amount::MAX)
+             })
+         };
+-        let notarizing: BTreeSet<&PublicKey> =
+-            support.first.iter().chain(support.final_.iter()).collect();
+-        Some(crate::consensus::election::CertificateKinds {
+-            notarization: weight(&mut notarizing.into_iter()) >= thresholds.certificate,
+-            finalization: weight(&mut support.final_.iter()) >= thresholds.certificate,
+-            // "An FF_e(B) is a set of N − p settled first votes", naming the
+-            // predecessor checkpoint as their base
+-            fast: thresholds.reaches_fast(weight(
+-                &mut support.settled_on(self.checkpoint_bases.before(epoch, 1)),
+-            )),
+-        })
++        let kinds = self.vote_records.with_support(epoch, hash, |support| {
++            let notarizing: BTreeSet<&PublicKey> =
++                support.first.iter().chain(support.final_.iter()).collect();
++            crate::consensus::election::CertificateKinds {
++                notarization: weight(&mut notarizing.into_iter()) >= thresholds.certificate,
++                finalization: weight(&mut support.final_.iter()) >= thresholds.certificate,
++                // "An FF_e(B) is a set of N − p settled first votes", naming the
++                // predecessor checkpoint as their base
++                fast: thresholds.reaches_fast(weight(&mut support.settled_on(base))),
++            }
++        });
++        Some(kinds.unwrap_or_default())
+     }
+ 
+     /// RAI, the core overlap exception: whether a block holds a closing-epoch
+@@ -4741,12 +4768,13 @@ impl ActiveElectionsContainer {
+         let Some(committee) = self.committees.committee(epoch) else {
+             return false;
+         };
+-        let Some(support) = self.vote_records.support(epoch, hash) else {
++        let Some(weight) = self.vote_records.with_support(epoch, hash, |support| {
++            support.supporters().into_iter().fold(0u128, |sum, voter| {
++                sum.saturating_add(committee.weight(voter).number())
++            })
++        }) else {
+             return false;
+         };
+-        let weight = support.supporters().into_iter().fold(0u128, |sum, voter| {
+-            sum.saturating_add(committee.weight(voter).number())
+-        });
+         Amount::raw(weight) >= committee.thresholds().certificate
+     }
+ 
+@@ -4811,23 +4839,24 @@ impl ActiveElectionsContainer {
+                     .committee(*epoch)
+                     .and_then(|committee| MemberOrder::of(&committee))
+             });
+-            let (Some(order), Some(support)) = (order, self.vote_records.support(*epoch, hash))
+-            else {
++            let Some(order) = order else {
+                 continue;
+             };
+-            manifest.insert(rsnano_messages::ManifestEntry {
+-                epoch: *epoch,
+-                hash: *hash,
+-                first: order.mask(support.first.iter().copied()),
+-                final_: order.mask(support.final_.iter().copied()),
+-                late: order.mask(support.late.iter().copied()),
+-                settled: order.mask(
+-                    support
+-                        .settled_on(self.checkpoint_bases.before(*epoch, 1))
+-                        .copied(),
+-                ),
+-                overlap: false,
+-            });
++            let base = self.checkpoint_bases.before(*epoch, 1);
++            let Some(entry) = self.vote_records.with_support(*epoch, hash, |support| {
++                rsnano_messages::ManifestEntry {
++                    epoch: *epoch,
++                    hash: *hash,
++                    first: order.mask(support.first.iter().copied()),
++                    final_: order.mask(support.final_.iter().copied()),
++                    late: order.mask(support.late.iter().copied()),
++                    settled: order.mask(support.settled_on(base).copied()),
++                    overlap: false,
++                }
++            }) else {
++                continue;
++            };
++            manifest.insert(entry);
+         }
+         manifest
+     }
+@@ -4988,17 +5017,7 @@ impl ActiveElectionsContainer {
+     /// exception is justified with the exclusion witnesses of the records it
+     /// bypasses, which are of those epochs.
+     pub fn evidence_votes(&self, epoch: ConsensusEpoch, hashes: &[BlockHash]) -> Vec<Arc<Vote>> {
+-        let mut votes: Vec<Arc<Vote>> = Vec::new();
+-        for hash in hashes {
+-            for support in self.vote_records.support_until(epoch, hash) {
+-                for vote in support.votes() {
+-                    if !votes.iter().any(|held| Arc::ptr_eq(held, vote)) {
+-                        votes.push(vote.clone());
+-                    }
+-                }
+-            }
+-        }
+-        votes
++        self.vote_records.votes_until(epoch, hashes)
+     }
+ 
+     /// RAI, diagnostic: the epochs in which this node holds a voter's first
+@@ -5028,10 +5047,10 @@ impl ActiveElectionsContainer {
+     /// RAI: how many first and final voters this node holds for a block
+     pub fn support_counts(&self, epoch: ConsensusEpoch, hash: &BlockHash) -> (usize, usize) {
+         self.vote_records
+-            .support(epoch, hash)
+-            .map_or((0, 0), |support| {
++            .with_support(epoch, hash, |support| {
+                 (support.first.len(), support.final_.len())
+             })
++            .unwrap_or((0, 0))
+     }
+ 
+     /// RAI: whether this node holds a voter's signed vote of a kind for a
+@@ -8613,6 +8632,60 @@ mod tests {
+         ));
+     }
+ 
++    /// RAI: a vote recorded outside the elections lock names a block that
++    /// becomes held before the vote is applied: the application places the
++    /// block and records the vote, as recording under the lock would have
++    #[cfg(feature = "rai_protocol")]
++    #[test]
++    fn a_block_held_after_its_vote_was_recorded_is_recorded_when_the_vote_applies() {
++        let (mut container, reps, rep_weights, start) = committee_fixture(|_| {});
++        let epoch = ConsensusEpoch::ZERO;
++        let voter = reps[0].public_key();
++        let block = SavedBlock::new_test_instance_with_key(1);
++        let base = container.checkpoint_bases.first_vote_base(epoch, false);
++        let vote = Arc::new(Vote::new_in_epoch_as(
++            &reps[0],
++            VoteKind::First,
++            false,
++            epoch,
++            base,
++            vec![block.hash()],
++        ));
++        let filtered: FilteredVote =
++            ReceivedVote::new(vote.clone(), VoteDelivery::Direct, None).into();
++
++        let placed = container.placements(&filtered);
++        assert_eq!(placed, vec![(block.hash(), None)]);
++        container.vote_records().record_vote(&vote, &placed);
++        // Indexed by block, but not placed: no record of the voter's yet
++        assert!(container.has_vote(epoch, &voter, &block.hash(), ResidualKind::First));
++        assert!(container.vote_records_of(epoch, &voter).is_empty());
++
++        container
++            .insert(
++                AecInsertRequest::new_priority(block.clone(), BlockPriority::new_test_instance()),
++                start,
++            )
++            .unwrap();
++        container.apply_vote_prerecorded(
++            ApplyVoteArgs {
++                vote: &filtered,
++                rep_weights: &rep_weights,
++                quorum_snapshot: &QuorumSnapshot::new_test_instance(),
++                now: start,
++            },
++            &placed,
++        );
++        assert_eq!(
++            container.vote_records_of(epoch, &voter),
++            vec![(
++                CertifiedBlock::new(block.account(), block.height(), block.hash()),
++                ResidualKind::First,
++                block.previous()
++            )]
++        );
++    }
++
+     /// RAI: a final vote follows a durable notarization: the first votes
+     /// behind it go with the signing batch, each once, only as many as the
+     /// certificate needs, and a restart reports and serves the notarization
+diff --git a/node/src/consensus/active_elections/aec_service.rs b/node/src/consensus/active_elections/aec_service.rs
+index e25dfee30..6ab98e3da 100644
+--- a/node/src/consensus/active_elections/aec_service.rs
++++ b/node/src/consensus/active_elections/aec_service.rs
+@@ -941,6 +941,22 @@ impl AecService {
+         &self,
+         args: ApplyVoteArgs<'a>,
+     ) -> HashMap<BlockHash, Result<(), VoteError>> {
++        // RAI: an account vote is recorded before the elections lock is taken
++        // exclusively: where its blocks sit is read under the shared lock, the
++        // records have a lock of their own. A close vote is not recorded.
++        #[cfg(feature = "rai_protocol")]
++        if args.vote.epoch.as_close_round().is_none() {
++            let (records, placed) = {
++                let aec = self.aec.read().unwrap();
++                (aec.vote_records().clone(), aec.placements(args.vote))
++            };
++            records.record_vote(&args.vote.vote.vote, &placed);
++            return self
++                .aec
++                .write()
++                .unwrap()
++                .apply_vote_prerecorded(args, &placed);
++        }
+         self.aec.write().unwrap().apply_vote(args)
+     }
+ 
+diff --git a/node/src/consensus/active_elections/vote_records.rs b/node/src/consensus/active_elections/vote_records.rs
+index 520d5d8fb..cabe56b04 100644
+--- a/node/src/consensus/active_elections/vote_records.rs
++++ b/node/src/consensus/active_elections/vote_records.rs
+@@ -1,9 +1,9 @@
+ use std::{
+     collections::{BTreeMap, BTreeSet, HashMap},
+-    sync::Arc,
++    sync::{Arc, Mutex, MutexGuard},
+ };
+ 
+-use rsnano_types::{BlockHash, ConsensusEpoch, PublicKey, Vote, VoteKind};
++use rsnano_types::{Account, BlockHash, ConsensusEpoch, PublicKey, Vote, VoteKind};
+ 
+ use crate::consensus::election::{AccountSlot, CertifiedBlock, ResidualKind};
+ 
+@@ -81,7 +81,179 @@ impl HashSupport {
+     }
+ }
+ 
++/// Where a block sits here and the parent it names
++pub(crate) type Placement = (Account, u64, BlockHash);
++
++/// RAI: the vote records behind a lock of their own. A received vote is
++/// recorded without the elections lock, which the votes' application needs
++/// exclusively: recording is about a third of that time. Every method locks
++/// for its own duration and hands out no reference, so no caller holds the
++/// lock while it calls back in. Lock order: the elections lock, then this
++/// one; nothing takes the elections lock while holding this one.
++#[derive(Clone, Default)]
++pub(crate) struct SharedVoteRecords(Arc<Mutex<VoteRecords>>);
++
++impl SharedVoteRecords {
++    fn lock(&self) -> MutexGuard<'_, VoteRecords> {
++        self.0.lock().unwrap()
++    }
++
++    /// See [`VoteRecords::record_vote`]
++    pub fn record_vote(&self, vote: &Arc<Vote>, placed: &[(BlockHash, Option<Placement>)]) {
++        self.lock().record_vote(vote, placed)
++    }
++
++    /// See [`VoteRecords::place_and_record`]
++    pub fn place_and_record(&self, vote: &Vote, hash: &BlockHash, placement: Placement) {
++        self.lock().place_and_record(vote, hash, placement)
++    }
++
++    pub fn support_vote(&self, vote: &Arc<Vote>, hashes: impl IntoIterator<Item = BlockHash>) {
++        self.lock().support_vote(vote, hashes)
++    }
++
++    pub fn place(&self, epoch: ConsensusEpoch, hash: &BlockHash, slot: AccountSlot) {
++        self.lock().place(epoch, hash, slot)
++    }
++
++    /// Reads the support held for a block in an epoch. `read` must not call
++    /// back into the records.
++    pub fn with_support<R>(
++        &self,
++        epoch: ConsensusEpoch,
++        hash: &BlockHash,
++        read: impl FnOnce(&HashSupport) -> R,
++    ) -> Option<R> {
++        self.lock().support(epoch, hash).map(read)
++    }
++
++    /// The blocks with notarization-only votes in an epoch
++    pub fn late_notarized_hashes(&self, epoch: ConsensusEpoch) -> Vec<BlockHash> {
++        self.lock()
++            .late_notarized_blocks(epoch)
++            .map(|(hash, _)| *hash)
++            .collect()
++    }
++
++    pub fn has_settled_vote(
++        &self,
++        epoch: ConsensusEpoch,
++        voter: &PublicKey,
++        hash: &BlockHash,
++        base: Option<BlockHash>,
++    ) -> bool {
++        self.lock().has_settled_vote(epoch, voter, hash, base)
++    }
++
++    pub fn has_late_vote(
++        &self,
++        epoch: ConsensusEpoch,
++        voter: &PublicKey,
++        hash: &BlockHash,
++    ) -> bool {
++        self.lock().has_late_vote(epoch, voter, hash)
++    }
++
++    pub fn has_vote(
++        &self,
++        epoch: ConsensusEpoch,
++        voter: &PublicKey,
++        hash: &BlockHash,
++        kind: ResidualKind,
++    ) -> bool {
++        self.lock().has_vote(epoch, voter, hash, kind)
++    }
++
++    /// The signed votes held for the blocks in the epoch and every earlier
++    /// one, each vote once
++    pub fn votes_until(&self, epoch: ConsensusEpoch, hashes: &[BlockHash]) -> Vec<Arc<Vote>> {
++        let records = self.lock();
++        let mut votes: Vec<Arc<Vote>> = Vec::new();
++        for hash in hashes {
++            for support in records.support_until(epoch, hash) {
++                for vote in support.votes() {
++                    if !votes.iter().any(|held| Arc::ptr_eq(held, vote)) {
++                        votes.push(vote.clone());
++                    }
++                }
++            }
++        }
++        votes
++    }
++
++    pub fn voter_marks(
++        &self,
++        voter: &PublicKey,
++        hash: &BlockHash,
++    ) -> Vec<(ConsensusEpoch, bool, bool, usize)> {
++        self.lock().voter_marks(voter, hash)
++    }
++
++    pub fn votes_of(
++        &self,
++        epoch: ConsensusEpoch,
++        voter: &PublicKey,
++    ) -> Vec<(CertifiedBlock, ResidualKind, BlockHash)> {
++        self.lock().votes_of(epoch, voter)
++    }
++
++    pub fn trim_before(
++        &self,
++        epoch: ConsensusEpoch,
++        discharges: impl Fn(ConsensusEpoch, &AccountSlot) -> bool,
++    ) {
++        self.lock().trim_before(epoch, discharges)
++    }
++
++    pub fn len(&self) -> usize {
++        self.lock().len()
++    }
++}
++
+ impl VoteRecords {
++    /// RAI: a received account vote: indexed by every block it names,
++    /// whether or not the block is placed here yet, and placed and recorded
++    /// for each block with a placement. Close-election kinds are not
++    /// account votes and are ignored.
++    pub fn record_vote(&mut self, vote: &Arc<Vote>, placed: &[(BlockHash, Option<Placement>)]) {
++        if matches!(vote.kind(), VoteKind::Timeout | VoteKind::Abstain) {
++            return;
++        }
++        // Indexed by block before any placement: a report's certificates are
++        // checked by hash, and a block this node does not hold may still be
++        // in a report
++        self.support_vote(vote, placed.iter().map(|(hash, _)| *hash));
++        for (hash, placement) in placed {
++            if let Some(placement) = placement {
++                self.place_and_record(vote, hash, *placement);
++            }
++        }
++    }
++
++    /// RAI: places a block with support and records the vote for it under
++    /// its residual kind. A late notarization is support for a closing-epoch
++    /// exclusion witness, outside the residual records and every certificate.
++    pub fn place_and_record(&mut self, vote: &Vote, hash: &BlockHash, placement: Placement) {
++        let (account, height, previous) = placement;
++        self.place(vote.epoch, hash, AccountSlot::new(account, height));
++        let kind = match vote.kind() {
++            // The base a first vote names is part of its signature: a
++            // reporter lists an early first vote apart, as its own report
++            // does
++            VoteKind::First if vote.is_early() => ResidualKind::EarlyFirst,
++            VoteKind::First => ResidualKind::First,
++            VoteKind::Final => ResidualKind::Final,
++            _ => return,
++        };
++        self.record(
++            vote.epoch,
++            vote.voter,
++            CertifiedBlock::new(account, height, *hash),
++            kind,
++            previous,
++        );
++    }
++
+     /// Records one vote of a voter for a block of an epoch, with the parent
+     /// the block names. A vote seen twice is one vote.
+     pub fn record(

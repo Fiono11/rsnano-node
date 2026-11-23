@@ -1,0 +1,45 @@
+{
+  "sets": [
+    "restart-wan"
+  ],
+  "arms": {
+    "rai": {
+      "bin_dir": "/home/fiono8199/bin-m12b/rai",
+      "flags": [
+        "--timeout=480",
+        "--stall-abort=90",
+        "--drain-limit=15",
+        "--settle-timeout=600",
+        "--fork-grace-stall=180",
+        "--hosts=/home/fiono8199/hosts-r7.txt"
+      ]
+    }
+  },
+  "started": 1795432930.810031,
+  "runs": [
+    {
+      "variant": "fork10-restart",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 773
+    },
+    {
+      "variant": "fork10-restart",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 2,
+      "status": "settled",
+      "seconds": 319
+    },
+    {
+      "variant": "fork10-restart",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 3,
+      "status": "failed",
+      "seconds": 394
+    }
+  ]
+}

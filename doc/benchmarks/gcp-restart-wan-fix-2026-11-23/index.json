@@ -1,0 +1,125 @@
+{
+  "sets": [
+    "restart-wan"
+  ],
+  "arms": {
+    "rai": {
+      "bin_dir": "/home/fiono8199/bin-catchup/rai",
+      "flags": [
+        "--timeout=480",
+        "--stall-abort=90",
+        "--drain-limit=15",
+        "--settle-timeout=600",
+        "--fork-grace-stall=180",
+        "--hosts=/home/fiono8199/hosts-r7.txt"
+      ]
+    }
+  },
+  "started": 1795445989.5969973,
+  "runs": [
+    {
+      "variant": "fork10-restart",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 640
+    },
+    {
+      "variant": "fork10-restart",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 2,
+      "status": "settled",
+      "seconds": 317
+    },
+    {
+      "variant": "fork10-restart",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 3,
+      "status": "settled",
+      "seconds": 323
+    },
+    {
+      "variant": "fork5-restart-two",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 338
+    },
+    {
+      "variant": "fork5-restart-two",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 2,
+      "status": "settled",
+      "seconds": 338
+    },
+    {
+      "variant": "fork5-restart-two",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 3,
+      "status": "settled",
+      "seconds": 340
+    },
+    {
+      "variant": "fork5-handoff-crash",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 688
+    },
+    {
+      "variant": "fork5-handoff-crash",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 2,
+      "status": "settled",
+      "seconds": 414
+    },
+    {
+      "variant": "fork5-handoff-crash",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 3,
+      "status": "settled",
+      "seconds": 393
+    },
+    {
+      "variant": "fork5-handoff-crash-byznode",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 1,
+      "status": "failed",
+      "seconds": 942
+    },
+    {
+      "variant": "fork5-handoff-crash-byznode",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 379
+    },
+    {
+      "variant": "fork5-handoff-crash-byznode",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 2,
+      "status": "settled",
+      "seconds": 388
+    },
+    {
+      "variant": "fork5-handoff-crash-byznode",
+      "rate": 2000,
+      "arm": "rai",
+      "rep": 3,
+      "status": "settled",
+      "seconds": 380
+    }
+  ]
+}

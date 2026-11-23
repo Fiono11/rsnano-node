@@ -1,0 +1,123 @@
++ status=/home/fiono8199/runs/rs.status
++ rm -f /home/fiono8199/runs/rs.status
++ trap 'echo "${result:-failed:aborted}" > $status' EXIT
++ . /home/fiono8199/.cargo/env
+++ case ":${PATH}:" in
++ cd /home/fiono8199/rsnano-node
++ b=/home/fiono8199/bin-m12b
++ cd /home/fiono8199/bin-m12b
++ sha256sum rai/nanospam rai/rsnano rai/rsnano-byzantine
+8e63e375a5ea7d18a44bf363249cfbe5a5641dfab5e290183ae8b593dc643c5d  rai/nanospam
+a0181c9b60f6e30c2bfe54bc59935089d43dc0990ea22dd6dd115f7353dd29e2  rai/rsnano
+811da6912e64cc8de163e394403fd116a9b5cae947b529732d2acd2bd5a51649  rai/rsnano-byzantine
++ out=doc/benchmarks/gcp-restart-wan-2026-11-23
++ H=/home/fiono8199/hosts-r7.txt
++ L=--timeout=480:--stall-abort=90:--drain-limit=15:--settle-timeout=600:--fork-grace-stall=180:--hosts=/home/fiono8199/hosts-r7.txt
++ RAI=rai=/home/fiono8199/bin-m12b/rai:--timeout=480:--stall-abort=90:--drain-limit=15:--settle-timeout=600:--fork-grace-stall=180:--hosts=/home/fiono8199/hosts-r7.txt
++ for v in ${VARIANTS:-fork10-restart fork5-restart-two fork5-handoff-crash fork5-handoff-crash-byznode}
++ for k in 1 2 3
++ seats_ready
+++ grep -o '^10[.0-9]*' /home/fiono8199/hosts-r7.txt
+++ date +%s
++ local 'ips=10.186.0.3
+10.128.0.3
+10.162.0.2
+10.182.0.2
+10.140.0.2
+10.192.0.2
+10.0.6.10' t0=1795431800 down
++ :
++ down=
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.186.0.3 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.128.0.3 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.162.0.2 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.182.0.2 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.140.0.2 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.192.0.2 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.0.6.10 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ '[' -z '' ']'
++ return 0
++ python3 tools/rai/run_sweep.py doc/benchmarks/gcp-restart-wan-2026-11-23 --set restart-wan --variant fork10-restart --arm rai=/home/fiono8199/bin-m12b/rai:--timeout=480:--stall-abort=90:--drain-limit=15:--settle-timeout=600:--fork-grace-stall=180:--hosts=/home/fiono8199/hosts-r7.txt --reps 3 --rep 1 --blocks 45000 --reps-from 1000 --wait-quiet 120 --snapshot-dir /home/fiono8199/ledgers-r7 --stop-unless-settled rai
+[11:03:33] fork10-restart 2000/s rai rep 1
+  settled in 773 s
+++ date -u +%T
++ echo 'RUN-DONE fork10-restart 1 11:16:26'
+RUN-DONE fork10-restart 1 11:16:26
++ for k in 1 2 3
++ seats_ready
+++ grep -o '^10[.0-9]*' /home/fiono8199/hosts-r7.txt
+++ date +%s
++ local 'ips=10.186.0.3
+10.128.0.3
+10.162.0.2
+10.182.0.2
+10.140.0.2
+10.192.0.2
+10.0.6.10' t0=1795432586 down
++ :
++ down=
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.186.0.3 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.128.0.3 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.162.0.2 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.182.0.2 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.140.0.2 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.192.0.2 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.0.6.10 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ '[' -z '' ']'
++ return 0
++ python3 tools/rai/run_sweep.py doc/benchmarks/gcp-restart-wan-2026-11-23 --set restart-wan --variant fork10-restart --arm rai=/home/fiono8199/bin-m12b/rai:--timeout=480:--stall-abort=90:--drain-limit=15:--settle-timeout=600:--fork-grace-stall=180:--hosts=/home/fiono8199/hosts-r7.txt --reps 3 --rep 2 --blocks 45000 --reps-from 1000 --wait-quiet 120 --snapshot-dir /home/fiono8199/ledgers-r7 --stop-unless-settled rai
+[11:16:39] fork10-restart 2000/s rai rep 2
+  settled in 319 s
+++ date -u +%T
++ echo 'RUN-DONE fork10-restart 2 11:21:57'
+RUN-DONE fork10-restart 2 11:21:57
++ for k in 1 2 3
++ seats_ready
+++ grep -o '^10[.0-9]*' /home/fiono8199/hosts-r7.txt
+++ date +%s
++ local 'ips=10.186.0.3
+10.128.0.3
+10.162.0.2
+10.182.0.2
+10.140.0.2
+10.192.0.2
+10.0.6.10' t0=1795432917 down
++ :
++ down=
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.186.0.3 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.128.0.3 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.162.0.2 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.182.0.2 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.140.0.2 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.192.0.2 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ for ip in $ips
++ timeout 20 ssh -n -o BatchMode=yes -o ConnectTimeout=8 10.0.6.10 'pkill -9 -x rsnano; pkill -9 -f '\''[r]snano-byzantine'\''; true'
++ '[' -z '' ']'
++ return 0
++ python3 tools/rai/run_sweep.py doc/benchmarks/gcp-restart-wan-2026-11-23 --set restart-wan --variant fork10-restart --arm rai=/home/fiono8199/bin-m12b/rai:--timeout=480:--stall-abort=90:--drain-limit=15:--settle-timeout=600:--fork-grace-stall=180:--hosts=/home/fiono8199/hosts-r7.txt --reps 3 --rep 3 --blocks 45000 --reps-from 1000 --wait-quiet 120 --snapshot-dir /home/fiono8199/ledgers-r7 --stop-unless-settled rai
+[11:22:10] fork10-restart 2000/s rai rep 3
+  failed in 394 s
+STOP: fork10-restart rai rep 3 ended failed
++ result=failed:fork10-restart-rep3
++ exit 1
++ echo failed:fork10-restart-rep3

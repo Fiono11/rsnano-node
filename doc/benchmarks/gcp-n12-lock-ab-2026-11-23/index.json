@@ -1,0 +1,85 @@
+{
+  "sets": [
+    "final-wan-2000-n12"
+  ],
+  "arms": {
+    "lock": {
+      "bin_dir": "/home/fiono8199/bin-lock/rai",
+      "flags": [
+        "--timeout=480",
+        "--stall-abort=90",
+        "--drain-limit=15",
+        "--settle-timeout=600",
+        "--fork-grace-stall=180",
+        "--hosts=/home/fiono8199/hosts-n14.txt"
+      ]
+    }
+  },
+  "started": 1795438732.477468,
+  "runs": [
+    {
+      "variant": "fork10-grace",
+      "rate": 2000,
+      "arm": "base",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 983
+    },
+    {
+      "variant": "fork10-grace",
+      "rate": 2000,
+      "arm": "lock",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 1204
+    },
+    {
+      "variant": "fork10-grace",
+      "rate": 2000,
+      "arm": "base",
+      "rep": 2,
+      "status": "settled",
+      "seconds": 520
+    },
+    {
+      "variant": "fork10-grace",
+      "rate": 2000,
+      "arm": "lock",
+      "rep": 2,
+      "status": "settled",
+      "seconds": 519
+    },
+    {
+      "variant": "nofork",
+      "rate": 2000,
+      "arm": "base",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 602
+    },
+    {
+      "variant": "nofork",
+      "rate": 2000,
+      "arm": "lock",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 502
+    },
+    {
+      "variant": "nofork",
+      "rate": 2000,
+      "arm": "base",
+      "rep": 2,
+      "status": "settled",
+      "seconds": 501
+    },
+    {
+      "variant": "nofork",
+      "rate": 2000,
+      "arm": "lock",
+      "rep": 2,
+      "status": "settled",
+      "seconds": 499
+    }
+  ]
+}
