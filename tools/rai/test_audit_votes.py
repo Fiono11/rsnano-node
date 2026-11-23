@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from audit_votes import CLOSE_FLAG, audit, instance  # noqa: E402
+from audit_votes import CLOSE_FLAG, audit, audit_correct, instance  # noqa: E402
 
 VOTER = 'AA' * 32
 ROOT = '01' * 32
@@ -33,6 +33,17 @@ class AuditTest(unittest.TestCase):
         result = audit({'pr1': [OPENED, signed('first', 0, (ROOT, X)), signed('abstain', 0, (ROOT, Y))]})
         self.assertEqual(result['conflicts'], 1)
         self.assertFalse(result['examples'][0]['across_restart'])
+
+    def test_the_byzantine_nodes_own_conflicts_are_counted_apart(self):
+        byzantine = 'BB' * 32
+        logs = {'pr1': [OPENED, signed('first', 0, (ROOT, X))],
+                'pr5': [OPENED, signed('first', 0, (ROOT, X), voter=byzantine),
+                        signed('first', 0, (ROOT, Y), voter=byzantine)]}
+        result = audit_correct(logs, byzantine='pr5')
+        self.assertEqual(result['conflicts'], 0)
+        self.assertEqual(result['byzantine_conflicts'], 1)
+        self.assertNotIn('pr5', result['nodes'])
+        self.assertEqual(audit_correct(logs)['conflicts'], 1)
 
     def test_a_conflict_across_a_restart_is_marked(self):
         result = audit({'pr1': [OPENED, signed('final', 2, (ROOT, X)), OPENED, signed('final', 2, (ROOT, Y))]})

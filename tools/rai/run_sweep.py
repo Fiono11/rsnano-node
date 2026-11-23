@@ -123,6 +123,21 @@ SETS = {
         **{f'{v}-reconf': (flags + RECONF_N12, [2000], None) for v, flags in WAN_CELLS},
         **{f'{v}-reconf-byznode': (flags + RECONF_N12 + BYZANTINE_NODE, [2000], None) for v, flags in WAN_CELLS},
     },
+    # Restarts and a crashing departing member across the six regions, at the
+    # rate of final-wan-2000: a validator killed mid-load; two validators, one
+    # as the close of epoch 2 starts and one mid-load; and the member that
+    # hands its weight over in epoch 0 (PR2) killed as its last close, epoch
+    # 1's, starts and kept down 30 s, honest and with a Byzantine member.
+    # Every signature is logged and audited (--restart implies --audit-votes).
+    'restart-wan': {
+        'fork10-restart': (WAN_CELLS[2][1] + ['--restart', '2:at:12', '--restart-down-ms', '5000'], [2000], None),
+        'fork5-restart-two': (WAN_CELLS[1][1] + ['--restart', '1:close:2', '--restart', '3:at:16',
+                                                 '--restart-down-ms', '10000'], [2000], None),
+        'fork5-handoff-crash': (WAN_CELLS[1][1] + RECONF_ONE + ['--restart', '2:close:1',
+                                                               '--restart-down-ms', '30000'], [2000], None),
+        'fork5-handoff-crash-byznode': (WAN_CELLS[1][1] + RECONF_ONE + BYZANTINE_NODE
+                                        + ['--restart', '2:close:1', '--restart-down-ms', '30000'], [2000], None),
+    },
     'byz': {
         'nofork-byzlead': (['--byzantine', '1', '--byzantine-leads-close'], BYZ_RATES, None),
         'fork5-byzlead': (['--fork-percentage', '5', '--byzantine', '1', '--byzantine-leads-close'], BYZ_RATES, None),

@@ -20,7 +20,7 @@ import tempfile
 import time
 import traceback
 
-from audit_votes import audit, read_logs
+from audit_votes import audit_correct, read_logs
 from ledger_snapshot import ensure_ledger_snapshot
 from remote_hosts import cached_rtt_matrix, fetch_node_files, longest_round_trip_ms, parse_hosts, push_binaries, stop_remote_nodes
 
@@ -580,7 +580,10 @@ def main():
                     stop_remote_nodes(HOSTS, data, remove=False)
                 fetch_node_files(HOSTS, data, ['diagnostics.log', 'signed-votes.log'])
                 if args.audit_votes:
-                    vote_audit = audit(read_logs(data))
+                    # The Byzantine node (the last member before the
+                    # standbys, as nanospam places it) equivocates by design
+                    byzantine = f'pr{nodes - 1 - args.standby}' if args.byzantine_node else None
+                    vote_audit = audit_correct(read_logs(data), byzantine)
                     (args.output / 'vote_audit.json').write_text(json.dumps(vote_audit, indent=2) + '\n')
                     result['vote_audit'] = {k: v for k, v in vote_audit.items() if k != 'all_conflicts'}
                     result['correctness_passed'] = result['correctness_passed'] and vote_audit['conflicts'] == 0

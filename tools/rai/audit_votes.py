@@ -96,6 +96,19 @@ def audit(logs):
                 examples=conflicts[:20], all_conflicts=conflicts)
 
 
+def audit_correct(logs, byzantine=None):
+    """The audit of the correct validators' logs. The Byzantine node of a run
+    (`byzantine`, its log's name, e.g. 'pr5') equivocates by design: its log
+    is left out, and its own conflicts are only counted."""
+    logs = dict(logs)
+    byzantine_log = logs.pop(byzantine, None) if byzantine else None
+    result = audit(logs)
+    if byzantine_log is not None:
+        result['byzantine_node'] = byzantine
+        result['byzantine_conflicts'] = audit({byzantine: byzantine_log})['conflicts']
+    return result
+
+
 def read_logs(data_dir):
     logs = {}
     for path in sorted(Path(data_dir).glob('pr*/signed-votes.log')):
