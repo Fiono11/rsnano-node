@@ -19,6 +19,8 @@ pub(crate) struct ConfirmationSolicitorPlugin {
     pub(crate) rep_tracker: Arc<RepresentativeTracker>,
     pub(crate) winner_block_broadcaster: Arc<Mutex<WinnerBlockBroadcaster>>,
     pub(crate) confirm_req_sender: ConfirmReqSender,
+    #[cfg_attr(not(feature = "rai_protocol"), allow(dead_code))]
+    pub(crate) last_close_log: Option<Timestamp>,
 }
 
 impl ConfirmationSolicitorPlugin {
@@ -29,6 +31,7 @@ impl ConfirmationSolicitorPlugin {
             rep_tracker: RepresentativeTracker::new_null().into(),
             winner_block_broadcaster: Mutex::new(WinnerBlockBroadcaster::new_null()).into(),
             confirm_req_sender: ConfirmReqSender::new_null(),
+            last_close_log: None,
         }
     }
 }
@@ -89,8 +92,27 @@ impl AecTickerPlugin for ConfirmationSolicitorPlugin {
         }
         // RAI: the rounds of the close elections collect their evidence too
         #[cfg(feature = "rai_protocol")]
-        for (id, value) in aec.close_solicitations(now) {
-            solicitor.add_request(id.epoch, value, id.root.root);
+        {
+            let closes = aec.close_solicitations(now);
+            let mut asked = 0;
+            let mut known = 0;
+            for (id, value) in &closes {
+                (asked, known) = solicitor.add_request(id.epoch, *value, id.root.root);
+            }
+            if !closes.is_empty() && self.close_log_due(now) {
+                let epochs: std::collections::BTreeSet<String> = closes
+                    .iter()
+                    .filter_map(|(id, _)| id.epoch.as_close_round())
+                    .map(|(epoch, round)| format!("{epoch}:{round}"))
+                    .collect();
+                crate::utils::diagnostic!(
+                    "EPOCH_CLOSE_SOLICIT rounds={:?} peers={} known_reps={} peered_prs={}",
+                    epochs,
+                    asked,
+                    known,
+                    peered_prs.len()
+                );
+            }
         }
 
         solicitor.flush();
@@ -102,6 +124,19 @@ impl AecTickerPlugin for ConfirmationSolicitorPlugin {
 }
 
 impl ConfirmationSolicitorPlugin {
+    /// RAI, diagnostics: close solicitations are logged at most once a second
+    #[cfg(feature = "rai_protocol")]
+    fn close_log_due(&mut self, now: Timestamp) -> bool {
+        if self
+            .last_close_log
+            .is_some_and(|last| last.elapsed(now) < std::time::Duration::from_secs(1))
+        {
+            return false;
+        }
+        self.last_close_log = Some(now);
+        true
+    }
+
     /// RAI: the ending epoch is left once its instances have terminated,
     /// and its close waits for them to settle: the instances still waiting
     /// for a certificate are asked at every tick, those of an epoch left

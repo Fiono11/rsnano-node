@@ -135,16 +135,36 @@ impl ConfirmationSolicitor {
         added
     }
 
-    /// RAI: ask every representative for its statements in an instance which
-    /// has no election here: a round of an epoch's close election
-    pub fn add_request(&mut self, epoch: ConsensusEpoch, hash: BlockHash, root: Root) {
+    /// RAI: ask every peer for its statements in an instance which has no
+    /// election here: a round of an epoch's close election. Not only the
+    /// peers known as representatives: a replica that restarted learns which
+    /// peer is which representative from the crawler's queries, which the
+    /// members no longer answer once the epochs run, and a close it has to
+    /// catch up on would ask no one. Returns how many peers were asked and
+    /// how many of them are known representatives.
+    pub fn add_request(
+        &mut self,
+        epoch: ConsensusEpoch,
+        hash: BlockHash,
+        root: Root,
+    ) -> (usize, usize) {
         debug_assert!(self.prepared);
-        for rep in &self.representatives {
-            let Some(channel) = self.message_flooder.channel(rep.channel_id) else {
-                continue;
-            };
+        let mut asked = 0;
+        let mut known = 0;
+        for channel in self
+            .message_flooder
+            .all_channels(TrafficType::ConfirmationRequests)
+        {
             if channel.should_drop(TrafficType::ConfirmationRequests) {
                 continue;
+            }
+            asked += 1;
+            if self
+                .representatives
+                .iter()
+                .any(|rep| rep.channel_id == channel.channel_id())
+            {
+                known += 1;
             }
             let (_, request_queue) = self
                 .requests
@@ -152,6 +172,7 @@ impl ConfirmationSolicitor {
                 .or_insert_with(|| (channel, Vec::new()));
             request_queue.push((hash, root));
         }
+        (asked, known)
     }
 
     /// Dispatch bundled requests to each channel
@@ -209,5 +230,18 @@ mod tests {
     fn a_terminated_instance_does_not_ask_again_for_statements_it_holds() {
         assert!(!asks_again(true, true, true, true));
         assert!(!asks_again(true, true, false, true));
+    }
+
+    /// RAI: a replica that restarted knows no peer as a representative yet;
+    /// the rounds of a close it has to catch up on are still asked of every
+    /// peer
+    #[test]
+    fn a_close_round_is_asked_of_peers_not_known_as_representatives() {
+        let mut solicitor = ConfirmationSolicitor::new(MessageFlooder::new_null());
+        solicitor.prepare(&[]);
+        let round = ConsensusEpoch::close_round(ConsensusEpoch::new(2), 0);
+        let (asked, known) = solicitor.add_request(round, BlockHash::from(1), Root::from(2));
+        assert_eq!((asked, known), (1, 0));
+        assert_eq!(solicitor.requests.len(), 1);
     }
 }

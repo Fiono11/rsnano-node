@@ -162,6 +162,11 @@ impl MessageFlooder {
         self.try_send_channel_id(channel_id, message, traffic_type)
     }
 
+    /// RAI: every channel open for this traffic, in random order
+    pub fn all_channels(&self, traffic_type: TrafficType) -> Vec<Arc<Channel>> {
+        self.network.read().unwrap().shuffled_channels(traffic_type)
+    }
+
     pub fn channel(&self, channel_id: ChannelId) -> Option<Arc<Channel>> {
         self.network.read().unwrap().get(channel_id).cloned()
     }

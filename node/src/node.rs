@@ -1009,6 +1009,7 @@ impl Node {
             rep_tracker: rep_tracker.clone(),
             winner_block_broadcaster: winner_block_broadcaster.clone(),
             confirm_req_sender,
+            last_close_log: None,
         });
 
         #[cfg(feature = "rai_protocol")]

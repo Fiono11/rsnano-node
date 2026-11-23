@@ -343,6 +343,10 @@ impl RequestAggregatorLoop {
             self.join_requested_instances(any, request, &found, &served);
             served
         };
+        #[cfg(feature = "rai_protocol")]
+        if let Some((epoch, round)) = request.epoch.as_close_round() {
+            log_close_request(epoch, round, !served.is_empty());
+        }
 
         // RAI: once the epochs run, a final vote goes out again only for a
         // block this node final-voted in the requested epoch (see below):
@@ -764,4 +768,45 @@ mod close_lane_tests {
         assert_eq!(batch[0].epoch, close);
         assert_eq!(batch.len(), 2);
     }
+}
+
+/// RAI, diagnostics: the close-round requests this node answered with its
+/// statements and those it could not answer, logged at most once a second
+#[cfg(feature = "rai_protocol")]
+fn log_close_request(epoch: ConsensusEpoch, round: u32, served: bool) {
+    struct CloseRequests {
+        served: u64,
+        unserved: u64,
+        last_unserved: Option<(ConsensusEpoch, u32)>,
+        logged: Option<std::time::Instant>,
+    }
+    static LOG: Mutex<CloseRequests> = Mutex::new(CloseRequests {
+        served: 0,
+        unserved: 0,
+        last_unserved: None,
+        logged: None,
+    });
+    let mut log = LOG.lock().unwrap();
+    if served {
+        log.served += 1;
+    } else {
+        log.unserved += 1;
+        log.last_unserved = Some((epoch, round));
+    }
+    if log
+        .logged
+        .is_some_and(|last| last.elapsed() < std::time::Duration::from_secs(1))
+    {
+        return;
+    }
+    log.logged = Some(std::time::Instant::now());
+    crate::utils::diagnostic!(
+        "EPOCH_CLOSE_SERVE served={} unserved={} last_unserved={:?}",
+        log.served,
+        log.unserved,
+        log.last_unserved
+            .map(|(epoch, round)| format!("{epoch}:{round}"))
+    );
+    log.served = 0;
+    log.unserved = 0;
 }
