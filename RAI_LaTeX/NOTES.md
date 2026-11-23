@@ -20,7 +20,7 @@ Points to work into the manuscript. Remove an entry once the text carries it.
 
 ## Open
 
-- Restart and handoff runs have no six-region data: the restarts paragraph is labelled as one host (doc/benchmarks/rai-ownlane-rotation-byz-2026-11-02, rai-rule2-rotation-2026-10-29).
+- (Done Nov 23) Restart and handoff runs across six regions: see below.
 
 ## Done (Nov 10 2026)
 
@@ -100,3 +100,19 @@ Open, needs the fleet (Nov 11): the controller (34.158.229.20) does not answer a
 Nov 19: the twelve-validator matrix is complete (108 runs, three per cell, on the rebuilt fleet for the last 32). Table VI regenerated from it (`tools/n12_numbers.py`), its caption no longer says "one in the last two rows"; Section X says all 108 runs passed and gives the committee-change cells with forks (slowest closes 93-157 s, RAI 227-1,031 blocks/s against pause's 503-1,007); the supplement says the last 32 runs used the rebuilt fleet. On the authors' instruction the supplement no longer describes failed or repeated runs (only the harness's no-progress limit, 180 s, 30 s in the first runs). Same pagination (11 pages of body, Table VI on supplement page 25).
 
 Open: the vote-recording lock change that should lift the saturation.
+
+## Submission without a supplement (Nov 23 2026)
+
+- HotCRP takes no supplementary file. The main text now cites the anonymized extended version as `\cite{extended}` (`rai-additions.bib`) in the eleven places that said "supplement" or "artifact"; the pointers are no longer than before, and the body still ends on page 11. `supplement.tex` is retitled "Extended Version of ...".
+- `\balance` removed: it split reference [36] across the columns of the last page and overran the margin.
+- Extended version: table identifiers may break at `_` and `,` (Tables II and III overlapped their result column); the reproduction paragraph is `\sloppy` with breaks in the harness flags.
+- `tools/make_anon_bundle.sh <out>` (from the repo root, after building both PDFs) assembles paper/, tla/, source/ and the seven cited records, redacts user names and local paths, and fails on any term from a private `IDENTITY_TERMS` list (binaries included). 315 MB, ~100 MB zipped.
+
+Open before submission: host the bundle anonymously, put its URL in the `extended` entry (replacing the `\fillin`), rebuild both PDFs and the bundle, upload again so the hosted copy carries the final paper.
+
+## Restarts across six regions, catch-up fix, lock A/B (Nov 23 2026)
+
+- `run_sweep --set restart-wan` (four cells x 3, six seats + Toronto standby, 2,000 blocks/s): all 12 runs settled on the build with `catchup.patch`, every fork resolved, no conflicting signature from a correct validator. Records `doc/benchmarks/gcp-restart-wan-fix-2026-11-23` (on branch `rai_n12_lock`, with the code). Section X's restarts paragraph, contribution (4) and the conclusion no longer say one host; the extended version has the paragraph "Across six regions", the defect, Table `tab:restart-wan`, and the reproduction line.
+- Defect fixed: a close's catch-up requests went only to peers known as representatives; a restarted validator learns that mapping from crawler replies, which members stop giving once epochs run, so it could ask no one (`known_reps=0` in every run). Close rounds are now asked of every connected peer (`EPOCH_CLOSE_SOLICIT` / `EPOCH_CLOSE_SERVE` diagnostics).
+- Harness: the vote audit leaves the Byzantine node's own log out (`audit_votes.audit_correct`), counting its conflicts as `byzantine_conflicts`.
+- Twelve seats: moving vote recording out of the exclusive elections lock made no difference (each build saturated once in four runs, `doc/benchmarks/gcp-n12-lock-ab-2026-11-23`); dropped. The twelve-validator numbers stay those of the matrix. Storms remain about one run in four; cause not established.

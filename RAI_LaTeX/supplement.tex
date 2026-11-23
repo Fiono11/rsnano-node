@@ -29,8 +29,8 @@
 \usepackage{algpseudocode}
 \begin{document}
 \input{sections/eval-plotstyle}
-\title{Supplementary Material for\\``RAI: Pause-Free Committee Changes and Fork Recovery for Consensusless Payments''}
-\author{\IEEEauthorblockN{Anonymous Author(s)}\IEEEauthorblockA{Regular paper (supplement, not part of the page budget)}}
+\title{Extended Version of\\``RAI: Pause-Free Committee Changes and Fork Recovery for Consensusless Payments''}
+\author{\IEEEauthorblockN{Anonymous Author(s)}\IEEEauthorblockA{Proofs, models, implementation notes, and run records}}
 \maketitle
 
 \noindent
@@ -310,62 +310,62 @@ Configuration names: \texttt{allup} is a Rule~2 that counts every reporter first
 \toprule
 Configuration & Result & Time\\
 \midrule
-\texttt{Close\_FALSE} & \texttt{ClosureThm1} violated after 19 steps & 35\,s\\
-\texttt{Close\_FALSE\_conflict} & \texttt{NoConflict} violated after 23 steps & 2\,min\\
-\texttt{Close\_TRUE} & no error; 651,632 distinct states & 3\,min\\
-\texttt{Overlap\_fixed} & no error; 5,217,510 distinct states & 14\,min\\
-\texttt{Overlap\_noCross} (no cross-epoch guard) & no error; 16,314,028 states & 15\,min\\
-\texttt{Overlap\_noDischarge} & \texttt{SameVerdict} violated after 15 steps & 1\,min\\
-\texttt{Overlap\_noLateEv} & \texttt{WitnessAdmissible} violated after 14 steps & 1\,min\\
-\texttt{Overlap\_noSplit} & \texttt{UsableReports} violated after 9 steps & 10\,s\\
-\texttt{Overlap\_noSplit\_safety} & other four hold; 5,485,444 states & 14\,min\\
-\texttt{Overlap\_probe1}, \texttt{\_probe2} & probes violated, as intended & $<1$\,min\\
-\texttt{Handoff\_same\_norule} & \texttt{ClosureThm1b} violated after 22 steps & 11\,min\\
-\texttt{Handoff\_disjoint\_norule} & \texttt{ClosureThm1b} violated after 23 steps & 15\,min\\
-\texttt{Handoff\_same\_rule} & no error; 8,347,138 states & 15\,min\\
-\texttt{Handoff\_same\_bindSettled} (rule, final votes do not bind) & \texttt{ClosureThm1b} violated after 25 steps (Case~8) & 7.4\,min\\
-\texttt{Handoff\_disjoint\_rule} & no error; 3,707,876 states & 17\,min\\
-\texttt{Handoff\_same\_noCross}, \texttt{\_disjoint\_noCross} (rule, no cross-epoch guard) & no error; 21,898,422 and 3,707,876 states & 17, 7\,min\\
-\texttt{Handoff\_overlap3\_rule} & no error; 121,053,272 states & 2\,h\,18\,min$^*$\\
-\texttt{Handoff\_Probe*} & probes violated, as intended & $<5$\,min\\
+\texttt{Close\_\allowbreak{}FALSE} & \texttt{ClosureThm1} violated after 19 steps & 35\,s\\
+\texttt{Close\_\allowbreak{}FALSE\_\allowbreak{}conflict} & \texttt{NoConflict} violated after 23 steps & 2\,min\\
+\texttt{Close\_\allowbreak{}TRUE} & no error; 651,632 distinct states & 3\,min\\
+\texttt{Overlap\_\allowbreak{}fixed} & no error; 5,217,510 distinct states & 14\,min\\
+\texttt{Overlap\_\allowbreak{}noCross} (no cross-epoch guard) & no error; 16,314,028 states & 15\,min\\
+\texttt{Overlap\_\allowbreak{}noDischarge} & \texttt{SameVerdict} violated after 15 steps & 1\,min\\
+\texttt{Overlap\_\allowbreak{}noLateEv} & \texttt{WitnessAdmissible} violated after 14 steps & 1\,min\\
+\texttt{Overlap\_\allowbreak{}noSplit} & \texttt{UsableReports} violated after 9 steps & 10\,s\\
+\texttt{Overlap\_\allowbreak{}noSplit\_\allowbreak{}safety} & other four hold; 5,485,444 states & 14\,min\\
+\texttt{Overlap\_\allowbreak{}probe1},\allowbreak{} \texttt{\_\allowbreak{}probe2} & probes violated, as intended & $<1$\,min\\
+\texttt{Handoff\_\allowbreak{}same\_\allowbreak{}norule} & \texttt{ClosureThm1b} violated after 22 steps & 11\,min\\
+\texttt{Handoff\_\allowbreak{}disjoint\_\allowbreak{}norule} & \texttt{ClosureThm1b} violated after 23 steps & 15\,min\\
+\texttt{Handoff\_\allowbreak{}same\_\allowbreak{}rule} & no error; 8,347,138 states & 15\,min\\
+\texttt{Handoff\_\allowbreak{}same\_\allowbreak{}bindSettled} (rule,\allowbreak{} final votes do not bind) & \texttt{ClosureThm1b} violated after 25 steps (Case~8) & 7.4\,min\\
+\texttt{Handoff\_\allowbreak{}disjoint\_\allowbreak{}rule} & no error; 3,707,876 states & 17\,min\\
+\texttt{Handoff\_\allowbreak{}same\_\allowbreak{}noCross},\allowbreak{} \texttt{\_\allowbreak{}disjoint\_\allowbreak{}noCross} (rule,\allowbreak{} no cross-epoch guard) & no error; 21,898,422 and 3,707,876 states & 17, 7\,min\\
+\texttt{Handoff\_\allowbreak{}overlap3\_\allowbreak{}rule} & no error; 121,053,272 states & 2\,h\,18\,min$^*$\\
+\texttt{Handoff\_\allowbreak{}Probe*} & probes violated, as intended & $<5$\,min\\
 \midrule
-\texttt{Prefix4\_same\_\{fixed,target,nofresh\}} & no error; 278,534 states each & 10\,s$^*$\\
-\texttt{Prefix4\_disjoint\_fixed}, \texttt{\_target} & no error; 1,622,276 states & 1.7\,min$^*$\\
-\texttt{Prefix4\_disjoint\_nofresh} & \texttt{NoConflict} violated after 12 steps & 5\,s$^*$\\
-\texttt{Prefix4\_shared1\_fixed}, \texttt{\_target} & no error; 3,960,746 states & 3.5\,min$^*$\\
-\texttt{Prefix4\_shared1\_nofresh} & \texttt{NoConflict} violated after 12 steps & 8\,s$^*$\\
-\texttt{Prefix4\_shared2\_fixed} & no error; 2,434,078 states & 1.7\,min$^*$\\
-\texttt{Prefix4\_shared2\_target} & \texttt{NoConflict} violated after 13 steps & 19\,s$^*$\\
-\texttt{Prefix4\_shared2\_nofresh} & \texttt{NoConflict} violated after 14 steps & 12\,s$^*$\\
-\texttt{Prefix4\_*\_probes}, \texttt{Prefix4\_shared2\_Probe*} & probes violated, as intended & $<2$\,s$^*$\\
-\texttt{Prefix6\_disjoint\_nofresh\_sim}, \texttt{Prefix6\_shared3\_target\_sim}, \texttt{\_nofresh\_sim} & \texttt{NoConflict} violated (simulation) & $<1$\,s$^*$\\
-\texttt{Prefix6\_same\_probes}, \texttt{Prefix6\_shared3\_probes} & probes violated, as intended & 14\,s, 3.7\,min$^*$\\
-\texttt{Prefix6\_same\_fixed}, \texttt{Prefix6\_shared3\_target} (BFS) & stopped at a cap: 13.4\,M and 35.8\,M distinct states, no violation & --\\
-\texttt{Prefix4\_\{same,shared2,shared1\}\_noCross} (no cross-epoch guard) & no error; 1,172,954, 6,388,260 and 6,464,176 states & 42\,s, 5.1, 7.4\,min\\
-\texttt{Prefix6\_same\_noCross\_sim}, \texttt{Prefix6\_shared3\_noCross\_sim} & no violation in 2.27\,M and 2.47\,M traces (simulation) & 30\,min each\\
+\texttt{Prefix4\_\allowbreak{}same\_\allowbreak{}\{fixed,\allowbreak{}target,\allowbreak{}nofresh\}} & no error; 278,534 states each & 10\,s$^*$\\
+\texttt{Prefix4\_\allowbreak{}disjoint\_\allowbreak{}fixed},\allowbreak{} \texttt{\_\allowbreak{}target} & no error; 1,622,276 states & 1.7\,min$^*$\\
+\texttt{Prefix4\_\allowbreak{}disjoint\_\allowbreak{}nofresh} & \texttt{NoConflict} violated after 12 steps & 5\,s$^*$\\
+\texttt{Prefix4\_\allowbreak{}shared1\_\allowbreak{}fixed},\allowbreak{} \texttt{\_\allowbreak{}target} & no error; 3,960,746 states & 3.5\,min$^*$\\
+\texttt{Prefix4\_\allowbreak{}shared1\_\allowbreak{}nofresh} & \texttt{NoConflict} violated after 12 steps & 8\,s$^*$\\
+\texttt{Prefix4\_\allowbreak{}shared2\_\allowbreak{}fixed} & no error; 2,434,078 states & 1.7\,min$^*$\\
+\texttt{Prefix4\_\allowbreak{}shared2\_\allowbreak{}target} & \texttt{NoConflict} violated after 13 steps & 19\,s$^*$\\
+\texttt{Prefix4\_\allowbreak{}shared2\_\allowbreak{}nofresh} & \texttt{NoConflict} violated after 14 steps & 12\,s$^*$\\
+\texttt{Prefix4\_\allowbreak{}*\_\allowbreak{}probes},\allowbreak{} \texttt{Prefix4\_\allowbreak{}shared2\_\allowbreak{}Probe*} & probes violated, as intended & $<2$\,s$^*$\\
+\texttt{Prefix6\_\allowbreak{}disjoint\_\allowbreak{}nofresh\_\allowbreak{}sim},\allowbreak{} \texttt{Prefix6\_\allowbreak{}shared3\_\allowbreak{}target\_\allowbreak{}sim},\allowbreak{} \texttt{\_\allowbreak{}nofresh\_\allowbreak{}sim} & \texttt{NoConflict} violated (simulation) & $<1$\,s$^*$\\
+\texttt{Prefix6\_\allowbreak{}same\_\allowbreak{}probes},\allowbreak{} \texttt{Prefix6\_\allowbreak{}shared3\_\allowbreak{}probes} & probes violated, as intended & 14\,s, 3.7\,min$^*$\\
+\texttt{Prefix6\_\allowbreak{}same\_\allowbreak{}fixed},\allowbreak{} \texttt{Prefix6\_\allowbreak{}shared3\_\allowbreak{}target} (BFS) & stopped at a cap: 13.4\,M and 35.8\,M distinct states, no violation & --\\
+\texttt{Prefix4\_\allowbreak{}\{same,\allowbreak{}shared2,\allowbreak{}shared1\}\_\allowbreak{}noCross} (no cross-epoch guard) & no error; 1,172,954, 6,388,260 and 6,464,176 states & 42\,s, 5.1, 7.4\,min\\
+\texttt{Prefix6\_\allowbreak{}same\_\allowbreak{}noCross\_\allowbreak{}sim},\allowbreak{} \texttt{Prefix6\_\allowbreak{}shared3\_\allowbreak{}noCross\_\allowbreak{}sim} & no violation in 2.27\,M and 2.47\,M traces (simulation) & 30\,min each\\
 \midrule
-\texttt{Recovery4\_same\_exempt} & \texttt{NoConflict} violated after 16 steps & 6\,s$^\dagger$\\
-\texttt{Recovery4\_\{disjoint,shared1,shared2\}\_exempt} & \texttt{NoConflict} violated after 16 steps & $<1$\,min$^\dagger$\\
-\texttt{Recovery4\_same\_fixed} & no error; 734,980 states & 17\,s$^\dagger$\\
-\texttt{Recovery4\_disjoint\_fixed} & no error; 755,978 states & 42\,s$^\dagger$\\
-\texttt{Recovery4\_shared1\_fixed} & no error; 3,337,378 states & 2.5\,min$^\dagger$\\
-\texttt{Recovery4\_shared2\_fixed} & no error; 3,922,566 states & 2.2\,min$^\dagger$\\
-\texttt{Recovery4\_same\_Probe*} & probes violated, as intended & $<5$\,s$^\dagger$\\
-\texttt{Recovery6\_same\_exempt\_sim} & \texttt{NoConflict} violated (simulation) & $<1$\,s$^\dagger$\\
-\texttt{Recovery6\_same\_ProbeRecovery} & probe violated (simulation) & $<1$\,s$^\dagger$\\
-\texttt{Recovery6\_same\_fixed} (BFS) & unfinished (stopped after 75\,min): 87.5\,M distinct states to depth 25, no violation & --\\
+\texttt{Recovery4\_\allowbreak{}same\_\allowbreak{}exempt} & \texttt{NoConflict} violated after 16 steps & 6\,s$^\dagger$\\
+\texttt{Recovery4\_\allowbreak{}\{disjoint,\allowbreak{}shared1,\allowbreak{}shared2\}\_\allowbreak{}exempt} & \texttt{NoConflict} violated after 16 steps & $<1$\,min$^\dagger$\\
+\texttt{Recovery4\_\allowbreak{}same\_\allowbreak{}fixed} & no error; 734,980 states & 17\,s$^\dagger$\\
+\texttt{Recovery4\_\allowbreak{}disjoint\_\allowbreak{}fixed} & no error; 755,978 states & 42\,s$^\dagger$\\
+\texttt{Recovery4\_\allowbreak{}shared1\_\allowbreak{}fixed} & no error; 3,337,378 states & 2.5\,min$^\dagger$\\
+\texttt{Recovery4\_\allowbreak{}shared2\_\allowbreak{}fixed} & no error; 3,922,566 states & 2.2\,min$^\dagger$\\
+\texttt{Recovery4\_\allowbreak{}same\_\allowbreak{}Probe*} & probes violated, as intended & $<5$\,s$^\dagger$\\
+\texttt{Recovery6\_\allowbreak{}same\_\allowbreak{}exempt\_\allowbreak{}sim} & \texttt{NoConflict} violated (simulation) & $<1$\,s$^\dagger$\\
+\texttt{Recovery6\_\allowbreak{}same\_\allowbreak{}ProbeRecovery} & probe violated (simulation) & $<1$\,s$^\dagger$\\
+\texttt{Recovery6\_\allowbreak{}same\_\allowbreak{}fixed} (BFS) & unfinished (stopped after 75\,min): 87.5\,M distinct states to depth 25, no violation & --\\
 \midrule
-\texttt{Close\_TRUE\_maxkeep} & no error; 278,404 states & 1.1\,min$^\dagger$\\
-\texttt{Overlap\_fixed\_maxkeep} & no error; 4,959,763 states & 6.3\,min$^\dagger$\\
-\texttt{Handoff\_same\_rule\_maxkeep}, \texttt{\_disjoint\_rule\_maxkeep} & no error; 5,862,017 and 2,686,030 states & 9.5, 10.6\,min$^\dagger$\\
-\texttt{Recovery4\_\{same,disjoint,shared1,shared2\}\_fixed\_maxkeep} & no error; 0.6--3.2\,M states & $<3$\,min$^\dagger$\\
+\texttt{Close\_\allowbreak{}TRUE\_\allowbreak{}maxkeep} & no error; 278,404 states & 1.1\,min$^\dagger$\\
+\texttt{Overlap\_\allowbreak{}fixed\_\allowbreak{}maxkeep} & no error; 4,959,763 states & 6.3\,min$^\dagger$\\
+\texttt{Handoff\_\allowbreak{}same\_\allowbreak{}rule\_\allowbreak{}maxkeep},\allowbreak{} \texttt{\_\allowbreak{}disjoint\_\allowbreak{}rule\_\allowbreak{}maxkeep} & no error; 5,862,017 and 2,686,030 states & 9.5, 10.6\,min$^\dagger$\\
+\texttt{Recovery4\_\allowbreak{}\{same,\allowbreak{}disjoint,\allowbreak{}shared1,\allowbreak{}shared2\}\_\allowbreak{}fixed\_\allowbreak{}maxkeep} & no error; 0.6--3.2\,M states & $<3$\,min$^\dagger$\\
 \midrule
-\texttt{Resolve4\_norules\_sim}, \texttt{\_norules\_23\_sim} & \texttt{TwoGood} violated (simulation) & $<2$\,s$^\dagger$\\
-\texttt{Resolve4\_rules\_sim} & no violation in 493,465 random runs (88\,M states) & 15\,min$^\dagger$\\
-\texttt{Resolve4\_rules\_23} & no error, no deadlock; 4,635,660 states, depth 33 & 8.8\,min$^\dagger$\\
-\texttt{Resolve4\_rules\_23\_earlykept} (early vote for the kept block allowed) & \texttt{TwoGood} violated & 4\,min\\
-\texttt{Resolve4\_rules\_23\_noContested}, \texttt{\_noR10} (R10 off; with \texttt{\_noR10} the cross-epoch rule too) & \texttt{TwoGood} violated after 20 steps & 8, 31\,min\\
-\texttt{Resolve4\_rules\_23\_ProbeOneGood}, \texttt{\_ProbeGood23} & probes violated, as intended (10 and 23 steps) & $<2$\,min$^\dagger$\\
+\texttt{Resolve4\_\allowbreak{}norules\_\allowbreak{}sim},\allowbreak{} \texttt{\_\allowbreak{}norules\_\allowbreak{}23\_\allowbreak{}sim} & \texttt{TwoGood} violated (simulation) & $<2$\,s$^\dagger$\\
+\texttt{Resolve4\_\allowbreak{}rules\_\allowbreak{}sim} & no violation in 493,465 random runs (88\,M states) & 15\,min$^\dagger$\\
+\texttt{Resolve4\_\allowbreak{}rules\_\allowbreak{}23} & no error, no deadlock; 4,635,660 states, depth 33 & 8.8\,min$^\dagger$\\
+\texttt{Resolve4\_\allowbreak{}rules\_\allowbreak{}23\_\allowbreak{}earlykept} (early vote for the kept block allowed) & \texttt{TwoGood} violated & 4\,min\\
+\texttt{Resolve4\_\allowbreak{}rules\_\allowbreak{}23\_\allowbreak{}noContested},\allowbreak{} \texttt{\_\allowbreak{}noR10} (R10 off; with \texttt{\_\allowbreak{}noR10} the cross-epoch rule too) & \texttt{TwoGood} violated after 20 steps & 8, 31\,min\\
+\texttt{Resolve4\_\allowbreak{}rules\_\allowbreak{}23\_\allowbreak{}ProbeOneGood},\allowbreak{} \texttt{\_\allowbreak{}ProbeGood23} & probes violated, as intended (10 and 23 steps) & $<2$\,min$^\dagger$\\
 \bottomrule
 \end{tabularx}
 \end{table*}
@@ -381,40 +381,40 @@ Table~\ref{tab:tlc} lists every configuration. The \texttt{Overlap\_noSplit} run
 \toprule
 Configuration & Result & Time\\
 \midrule
-\texttt{Recover4\_off\_\{patch,base\}\_safe} & \texttt{NoConflict} violated after 44 / 57 steps (sim.) & $<5$\,s\\
-\texttt{Scen4\_trace1}, \texttt{\_trace1\_exact} (BFS) & \texttt{NoConflict} violated after 20 / 26 steps & 2\,min\\
-\texttt{Recover4\_off\_renot\_safe} & no violation in 29{,}129 traces (sim.) & 20\,min\\
-\texttt{Recover4\_committed\_\{safe,flip,fork\}} & no violation (sim.) & 10--25\,min\\
-\texttt{Recover3\_committed\_safe}, \texttt{Recover3\_all\_prev\_safe} (BFS) & no violation to depth 19; 9.2\,M, 8.8\,M states (cap) & 30\,min\\
-\texttt{Recover4\_all\_unsettled\_flip}, \texttt{Scen4\_trace3\_flip} & \texttt{FlipBound} violated after 43 / 36 steps (sim.) & $<10$\,s\\
-\texttt{Recover4\_all\_hash\_flip} & \texttt{FlipBound} violated after 45 steps (sim.) & 3\,s\\
-\texttt{Scen4\_\{unsettled,hash,perm\}\_fork} & \texttt{Recovered} violated after 59 / 60 / 65 steps (sim.) & $<20$\,s\\
-\texttt{Recover4\_all\_prev\_\{safe,flip,fork,two,two23\}} & no violation (sim.) & 5--25\,min\\
-\texttt{Recover4\_all\_prev\_fork} (BFS) & no violation to depth 19; 2.2\,M states (cap) & 30\,min\\
-\texttt{Scen4\_novotes\_live} & \texttt{Recovered} violated after 49 steps: one good epoch is not enough & 2\,s\\
+\texttt{Recover4\_\allowbreak{}off\_\allowbreak{}\{patch,\allowbreak{}base\}\_\allowbreak{}safe} & \texttt{NoConflict} violated after 44 / 57 steps (sim.) & $<5$\,s\\
+\texttt{Scen4\_\allowbreak{}trace1},\allowbreak{} \texttt{\_\allowbreak{}trace1\_\allowbreak{}exact} (BFS) & \texttt{NoConflict} violated after 20 / 26 steps & 2\,min\\
+\texttt{Recover4\_\allowbreak{}off\_\allowbreak{}renot\_\allowbreak{}safe} & no violation in 29{,}129 traces (sim.) & 20\,min\\
+\texttt{Recover4\_\allowbreak{}committed\_\allowbreak{}\{safe,\allowbreak{}flip,\allowbreak{}fork\}} & no violation (sim.) & 10--25\,min\\
+\texttt{Recover3\_\allowbreak{}committed\_\allowbreak{}safe},\allowbreak{} \texttt{Recover3\_\allowbreak{}all\_\allowbreak{}prev\_\allowbreak{}safe} (BFS) & no violation to depth 19; 9.2\,M, 8.8\,M states (cap) & 30\,min\\
+\texttt{Recover4\_\allowbreak{}all\_\allowbreak{}unsettled\_\allowbreak{}flip},\allowbreak{} \texttt{Scen4\_\allowbreak{}trace3\_\allowbreak{}flip} & \texttt{FlipBound} violated after 43 / 36 steps (sim.) & $<10$\,s\\
+\texttt{Recover4\_\allowbreak{}all\_\allowbreak{}hash\_\allowbreak{}flip} & \texttt{FlipBound} violated after 45 steps (sim.) & 3\,s\\
+\texttt{Scen4\_\allowbreak{}\{unsettled,\allowbreak{}hash,\allowbreak{}perm\}\_\allowbreak{}fork} & \texttt{Recovered} violated after 59 / 60 / 65 steps (sim.) & $<20$\,s\\
+\texttt{Recover4\_\allowbreak{}all\_\allowbreak{}prev\_\allowbreak{}\{safe,\allowbreak{}flip,\allowbreak{}fork,\allowbreak{}two,\allowbreak{}two23\}} & no violation (sim.) & 5--25\,min\\
+\texttt{Recover4\_\allowbreak{}all\_\allowbreak{}prev\_\allowbreak{}fork} (BFS) & no violation to depth 19; 2.2\,M states (cap) & 30\,min\\
+\texttt{Scen4\_\allowbreak{}novotes\_\allowbreak{}live} & \texttt{Recovered} violated after 49 steps: one good epoch is not enough & 2\,s\\
 \midrule
-\texttt{Many2\_allup\_hole\_tight} (scripted) & \texttt{NoConflict} violated after 40 steps (Appendix~\ref{app:bottomup}) & 1\,min\\
-\texttt{Many2\_allup\_safe}, \texttt{\_allup\_nc} & \texttt{ClosureThm1} violated after 32, \texttt{NoConflict} after 57 steps (sim.) & 6, 3\,min\\
-\texttt{Many3\_allup\_safe}, \texttt{\_allup\_nc} & no violation in 6{,}113 and 7{,}323 traces (sim.) & 10\,min\\
-\texttt{Many\{2,3\}\_allup\_flip}, \texttt{\_allup\_kof} & \texttt{FlipBound} after 35 / 41, \texttt{KeptOrFinal} after 38 / 37 steps (sim.) & $<30$\,s\\
-\texttt{Many\{2,3\}\_allup\_\{live,two23,gap24\}} & no violation (sim.) & 10\,min\\
-\texttt{Many\{2,3\}\_allup\_any\_up\_safe} & \texttt{ClosureThm1} violated after 21 / 32 steps (sim.) & $<5$\,min\\
-\texttt{Many\{2,3\}\_routeA\_any\_up\_safe} & \texttt{ClosureThm1} violated after 20 / 24 steps (sim.) & $<2$\,min\\
-\texttt{Many\{2,3\}\_\{paper,routeA\}\_any\_down\_safe} & no violation (sim.) & 10\,min\\
-\texttt{Many\{2,3\}\_routeA\_down\_\{flip,kof,live,two23,gap24,early\}} & no violation (sim.) & 10\,min\\
-\texttt{Many\{2,3\}\_routeA\_down\_early\_s1} & probe violated, as intended: $S_1$ keeps a rival of an early-final block & 1\,s\\
-\texttt{Many2\_routeA\_down\_hashpick\_flip} & \texttt{FlipBound} violated after 35 steps (sim.) & 3\,s\\
-\texttt{Many2\_routeA\_down\_allvotes\_flip} & no violation in 37{,}326 traces (sim.) & 10\,min\\
-\texttt{Many2\_routeA\_any\_down\_E3\_bfs} (BFS) & no violation to depth 17; 21.3\,M states (cap) & 3\,h\\
-\texttt{Many2\_routeA\_any\_up\_E3\_bfs} (BFS) & \texttt{ClosureThm1} violated after 15 steps & 18\,min\\
-\texttt{Many2\_routeA\_any\_down\_allvotes\_safe} & no violation in 32{,}503 traces (sim.) & 30\,min\\
-\texttt{Many2\_routeA\_any\_down\_allvotes\_E3\_bfs} (BFS) & no violation to depth 15; 7.1\,M states (cap) & 1\,h\\
-\texttt{Many\{2,3\}\_routeA\_\{safe,flip,kof,early,live,two23,gap24\}} & no violation (sim.) & 10\,min\\
-\texttt{Many2\_patch\_\{safe,flip,live,two23,early\}} & no violation (sim.) & 10\,min\\
-\texttt{Many2\_none\_live} & \texttt{RecoveredMany} violated after 60 steps (sim.) & 8\,s\\
-\texttt{Many2\_hash\_flip}, \texttt{\_hash\_kof} & \texttt{FlipBound}, \texttt{KeptOrFinal} violated after 41 / 24 steps (sim.) & $<10$\,s\\
-\texttt{Many2\_perm\_live} & \texttt{RecoveredMany} violated after 76 steps (sim.) & 53\,s\\
-\texttt{Many*\_probe*}, \texttt{Recover4\_all\_prev\_probe*} & probes violated, as intended & $<10$\,s\\
+\texttt{Many2\_\allowbreak{}allup\_\allowbreak{}hole\_\allowbreak{}tight} (scripted) & \texttt{NoConflict} violated after 40 steps (Appendix~\ref{app:bottomup}) & 1\,min\\
+\texttt{Many2\_\allowbreak{}allup\_\allowbreak{}safe},\allowbreak{} \texttt{\_\allowbreak{}allup\_\allowbreak{}nc} & \texttt{ClosureThm1} violated after 32, \texttt{NoConflict} after 57 steps (sim.) & 6, 3\,min\\
+\texttt{Many3\_\allowbreak{}allup\_\allowbreak{}safe},\allowbreak{} \texttt{\_\allowbreak{}allup\_\allowbreak{}nc} & no violation in 6{,}113 and 7{,}323 traces (sim.) & 10\,min\\
+\texttt{Many\{2,\allowbreak{}3\}\_\allowbreak{}allup\_\allowbreak{}flip},\allowbreak{} \texttt{\_\allowbreak{}allup\_\allowbreak{}kof} & \texttt{FlipBound} after 35 / 41, \texttt{KeptOrFinal} after 38 / 37 steps (sim.) & $<30$\,s\\
+\texttt{Many\{2,\allowbreak{}3\}\_\allowbreak{}allup\_\allowbreak{}\{live,\allowbreak{}two23,\allowbreak{}gap24\}} & no violation (sim.) & 10\,min\\
+\texttt{Many\{2,\allowbreak{}3\}\_\allowbreak{}allup\_\allowbreak{}any\_\allowbreak{}up\_\allowbreak{}safe} & \texttt{ClosureThm1} violated after 21 / 32 steps (sim.) & $<5$\,min\\
+\texttt{Many\{2,\allowbreak{}3\}\_\allowbreak{}routeA\_\allowbreak{}any\_\allowbreak{}up\_\allowbreak{}safe} & \texttt{ClosureThm1} violated after 20 / 24 steps (sim.) & $<2$\,min\\
+\texttt{Many\{2,\allowbreak{}3\}\_\allowbreak{}\{paper,\allowbreak{}routeA\}\_\allowbreak{}any\_\allowbreak{}down\_\allowbreak{}safe} & no violation (sim.) & 10\,min\\
+\texttt{Many\{2,\allowbreak{}3\}\_\allowbreak{}routeA\_\allowbreak{}down\_\allowbreak{}\{flip,\allowbreak{}kof,\allowbreak{}live,\allowbreak{}two23,\allowbreak{}gap24,\allowbreak{}early\}} & no violation (sim.) & 10\,min\\
+\texttt{Many\{2,\allowbreak{}3\}\_\allowbreak{}routeA\_\allowbreak{}down\_\allowbreak{}early\_\allowbreak{}s1} & probe violated, as intended: $S_1$ keeps a rival of an early-final block & 1\,s\\
+\texttt{Many2\_\allowbreak{}routeA\_\allowbreak{}down\_\allowbreak{}hashpick\_\allowbreak{}flip} & \texttt{FlipBound} violated after 35 steps (sim.) & 3\,s\\
+\texttt{Many2\_\allowbreak{}routeA\_\allowbreak{}down\_\allowbreak{}allvotes\_\allowbreak{}flip} & no violation in 37{,}326 traces (sim.) & 10\,min\\
+\texttt{Many2\_\allowbreak{}routeA\_\allowbreak{}any\_\allowbreak{}down\_\allowbreak{}E3\_\allowbreak{}bfs} (BFS) & no violation to depth 17; 21.3\,M states (cap) & 3\,h\\
+\texttt{Many2\_\allowbreak{}routeA\_\allowbreak{}any\_\allowbreak{}up\_\allowbreak{}E3\_\allowbreak{}bfs} (BFS) & \texttt{ClosureThm1} violated after 15 steps & 18\,min\\
+\texttt{Many2\_\allowbreak{}routeA\_\allowbreak{}any\_\allowbreak{}down\_\allowbreak{}allvotes\_\allowbreak{}safe} & no violation in 32{,}503 traces (sim.) & 30\,min\\
+\texttt{Many2\_\allowbreak{}routeA\_\allowbreak{}any\_\allowbreak{}down\_\allowbreak{}allvotes\_\allowbreak{}E3\_\allowbreak{}bfs} (BFS) & no violation to depth 15; 7.1\,M states (cap) & 1\,h\\
+\texttt{Many\{2,\allowbreak{}3\}\_\allowbreak{}routeA\_\allowbreak{}\{safe,\allowbreak{}flip,\allowbreak{}kof,\allowbreak{}early,\allowbreak{}live,\allowbreak{}two23,\allowbreak{}gap24\}} & no violation (sim.) & 10\,min\\
+\texttt{Many2\_\allowbreak{}patch\_\allowbreak{}\{safe,\allowbreak{}flip,\allowbreak{}live,\allowbreak{}two23,\allowbreak{}early\}} & no violation (sim.) & 10\,min\\
+\texttt{Many2\_\allowbreak{}none\_\allowbreak{}live} & \texttt{RecoveredMany} violated after 60 steps (sim.) & 8\,s\\
+\texttt{Many2\_\allowbreak{}hash\_\allowbreak{}flip},\allowbreak{} \texttt{\_\allowbreak{}hash\_\allowbreak{}kof} & \texttt{FlipBound}, \texttt{KeptOrFinal} violated after 41 / 24 steps (sim.) & $<10$\,s\\
+\texttt{Many2\_\allowbreak{}perm\_\allowbreak{}live} & \texttt{RecoveredMany} violated after 76 steps (sim.) & 53\,s\\
+\texttt{Many*\_\allowbreak{}probe*},\allowbreak{} \texttt{Recover4\_\allowbreak{}all\_\allowbreak{}prev\_\allowbreak{}probe*} & probes violated, as intended & $<10$\,s\\
 \bottomrule
 \end{tabularx}
 \end{table*}
@@ -568,6 +568,27 @@ Synced signing costs latency, not goodput. Fork5, six validators, 45{,}000 block
 
 Handoff with a crashing departing member: a member replaced at the rotation of epoch~1 is killed when the close of epoch~2, the last it decides, starts, and stays down 30\,s; eight validators, 800 blocks/s, 20{,}000 blocks, 5\% forks. Without and with a Byzantine member every run settled with every checkpoint decided identically (epochs 0 to 4 and 0 to 5), the restarted member caught up the epochs it missed and installed them, every epoch's handoff evidence was released only after $N-f$ durable acknowledgements, no epoch was dropped before release, and no signature conflicted (340 and 335 non-fork blocks/s; the client counts the outage).
 
+\para{Across six regions.} The same harness ran on the six-region fleet of the main text with the twelve-seat build and stored signatures, 45{,}000 blocks at 2{,}000 blocks/s, six seats with $f=p=1$ and, for the handoff, the Toronto standby; three runs per cell, every signature audited (Table~\ref{tab:restart-wan}). All twelve runs settled with every checkpoint decided identically, every forked position resolved, and no conflicting signature from a correct validator; the Byzantine validator's own equivocations, 2{,}427 to 3{,}227 per run, are counted apart. A validator killed mid-load caught up four or five missed epochs and voted with the others again within 16 to 18\,s; with two validators down for 10\,s, closes waited up to 39\,s for their reports, and the client counts the outage, hence the lower goodput; the departing member, down 30\,s from the start of its last close, caught up four to six epochs while the others closed each in about 3\,s, or 43 to 44\,s with the Byzantine validator leading every close.
+
+These runs found a defect. A close's catch-up requests went only to peers known as representatives, and a restarted validator learns which peer is which representative from the replies to its crawler's queries, which the members no longer answer once the epochs run: they hand out statements only for instances they voted in. A restarted validator that missed a close could therefore ask no one for its certificate and wait for its checkpoint indefinitely, unable to end its epoch; safety is unaffected. Close rounds are now asked of every connected peer; in every run of Table~\ref{tab:restart-wan} the restarted validator knew no representative while catching up and asked nine or ten peers.
+
+\begin{table}[t]
+\caption{Restarts and handoff across six regions, 2{,}000 blocks/s, three runs per cell (ranges).}
+\label{tab:restart-wan}
+\centering
+\footnotesize
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+Cell & Goodput & p95 (ms) & Close (s) & Back (s)\\
+\midrule
+Restart mid-load, 10\% forks & 1{,}920 & 567--597 & 7--11 & 16--18\\
+Two restarts, 5\% forks & 1{,}227--1{,}248 & 597--639 & 30--35 & --\\
+Departing member down 30\,s & 1{,}057--1{,}076 & 530--549 & 3 & 45--56\\
+\quad with a Byzantine member & 1{,}051--1{,}066 & 553--6{,}703 & 43--44 & 49--56\\
+\bottomrule
+\end{tabular}
+\end{table}
+
 \subsection{Reproduction}
 The prototype, the harness, the TLA\textsuperscript{+} models, and every run record (the per-run \texttt{result.json} with the client's per-second series, its latency histograms by publication second, and the nodes' epoch events, the node configurations, and the logs) are in the artifact. The six-region matrix of the main text is produced from a controller VM by
 \begin{quote}\small\texttt{python3 tools/rai/run\_sweep.py <dir> --set final-wan-2000\\
@@ -578,7 +599,7 @@ The prototype, the harness, the TLA\textsuperscript{+} models, and every run rec
 \ \ --arm develop=<develop bin>:--no-epochs:\\
 \ \ \ \ --timeout=600:--hosts=<file>}
 \end{quote}
-where the hosts file lists one validator address per line in representative order, and \texttt{tools/rai/gcp} describes the fleet. A funded ledger per setup comes from \texttt{--snapshot-dir}, the VMs are Spot instances, and a sweep ends at the first RAI or pause run that does not settle. Each run in the record has its seed, node hash, and client hash. The 108 runs come from three records. The RAI and pause runs and Nano's committee-change runs are \texttt{gcp-matrix3-45k-2026-11-06}: RAI and pause on the node with the voter-lock fix and the request cap (hash \texttt{8a7c1763}), Nano on \texttt{478d1750}, with equal member weights. Nano's cells without the change are \texttt{gcp-matrix2-45k-2026-11-05}, on the same Nano node; the weight change affects only setups with a standby. Eleven runs of the first record in which the client stopped publishing for 4 to 5\,s with at most 1{,}000 blocks in flight, waiting on a write to one validator, were repeated with the same seed and a client that writes to each validator separately (\texttt{gcp-matrix4-45k-2026-11-06}, client \texttt{8777c487}): RAI repetition~1 with 10\% forks, repetitions~1 and~3 without forks and with a Byzantine validator, repetition~2 without forks and repetition~3 with 5\% forks, both with the change and a Byzantine validator; pause repetition~2 with 10\% forks and the change, repetition~1 with 5\% forks and a Byzantine validator; Nano repetition~1 without forks with the change, and repetitions~3, 3, and~2 without forks, with 5\%, and with 10\% forks, all with the change and a Byzantine validator. The figures use the repeats, which publish in every second of the load but one. The same seed does not give the same run: the repeats differ from the runs they replace in close times by up to a factor of two. The one-host committee change is produced with \texttt{--set rotation} and \texttt{--set rotation-byz}, \texttt{--rate 2000 --blocks 48000 --reps 3}, with \texttt{RAI\_FAST\_PATH=0} in the environment of the RAI and pause nodes. Every arm's binary directory holds \texttt{rsnano}, a \texttt{rsnano-byzantine} built with the \texttt{rai\_byzantine} feature, and the generator, all in release mode with the \texttt{rai\_protocol} feature; Nano is the develop branch with the fork-signature check (\texttt{develop-fork-memo}). The sets seed the generator identically for every system (\texttt{--seed}), run the Byzantine node (\texttt{--byzantine-node equivocate,conflicting,equivocate}) as the first leader of every close (\texttt{--byzantine-leads-close}), and keep the nodes running after settling until no forked position is open (\texttt{--fork-grace}). One point alone is \texttt{tools/rai/run\_gate\_b.py <dir> --rate 2000 --fork-percentage 10}. The flags \texttt{--restart PR:close:E}, \texttt{--restart PR:at:S}, \texttt{--restart-down-ms}, \texttt{--audit-votes}, \texttt{--signing-sync}, \texttt{--prs}, \texttt{--standby}, and \texttt{--rotation E:FROM>TO} drive the runs of Appendices~\ref{app:rotation} and~\ref{app:restart}. The figures of the main text are regenerated with \texttt{tools/wan\_figures.py sections/eval-data/wan <matrix4> <matrix3> <matrix2>}, which takes each run from the first record that has it. The close breakdown of Appendix~\ref{app:closecost} is \texttt{tools/close\_breakdown.py <out> <matrix4> <matrix3>}, which reads every validator's diagnostics log (output in \texttt{sections/eval-data}); \texttt{--runs} gives one row per run, as for the one-host comparison (\texttt{doc/benchmarks/rai-close-scale-onehost-2026-11-11}, \texttt{run\_gate\_b.py --rate 500 --blocks 15000 --fork-percentage 5 --prs 11 --committee-f 2 --committee-p 2}). The twelve-validator matrix of Appendix~\ref{app:twelve} is \texttt{--set final-wan-2000-n12} on fourteen VMs, the last two of them the Toronto standbys, with the same arms and \texttt{--timeout=480:--stall-abort=90:--drain-limit=15:--settle-timeout=600:--fork-grace-stall=180} (30 before the change noted there); its records keep each run's result, summary, and hosts but not the node logs, and \texttt{tools/n12\_numbers.py <matrix> sections/eval-data/n12} gives its table. The models are checked with \texttt{tla/run.sh <module> <config>} and the scripts in \texttt{tla/}.
+{\sloppy where the hosts file lists one validator address per line in representative order, and \texttt{tools/rai/gcp} describes the fleet. A funded ledger per setup comes from \texttt{--snapshot-dir}, the VMs are Spot instances, and a sweep ends at the first RAI or pause run that does not settle. Each run in the record has its seed, node hash, and client hash. The 108 runs come from three records. The RAI and pause runs and Nano's committee-change runs are \texttt{gcp-matrix3-45k-2026-11-06}: RAI and pause on the node with the voter-lock fix and the request cap (hash \texttt{8a7c1763}), Nano on \texttt{478d1750}, with equal member weights. Nano's cells without the change are \texttt{gcp-matrix2-45k-2026-11-05}, on the same Nano node; the weight change affects only setups with a standby. Eleven runs of the first record in which the client stopped publishing for 4 to 5\,s with at most 1{,}000 blocks in flight, waiting on a write to one validator, were repeated with the same seed and a client that writes to each validator separately (\texttt{gcp-matrix4-45k-2026-11-06}, client \texttt{8777c487}): RAI repetition~1 with 10\% forks, repetitions~1 and~3 without forks and with a Byzantine validator, repetition~2 without forks and repetition~3 with 5\% forks, both with the change and a Byzantine validator; pause repetition~2 with 10\% forks and the change, repetition~1 with 5\% forks and a Byzantine validator; Nano repetition~1 without forks with the change, and repetitions~3, 3, and~2 without forks, with 5\%, and with 10\% forks, all with the change and a Byzantine validator. The figures use the repeats, which publish in every second of the load but one. The same seed does not give the same run: the repeats differ from the runs they replace in close times by up to a factor of two. The one-host committee change is produced with \texttt{--set rotation} and \texttt{--set rotation-byz}, \texttt{--rate 2000 --blocks 48000 --reps 3}, with \texttt{RAI\_FAST\_PATH=0} in the environment of the RAI and pause nodes. Every arm's binary directory holds \texttt{rsnano}, a \texttt{rsnano-byzantine} built with the \texttt{rai\_byzantine} feature, and the generator, all in release mode with the \texttt{rai\_protocol} feature; Nano is the develop branch with the fork-signature check (\texttt{develop-fork-memo}). The sets seed the generator identically for every system (\texttt{--seed}), run the Byzantine node (\texttt{--byzantine-node equivocate,conflicting,equivocate}) as the first leader of every close (\texttt{--byzantine-leads-close}), and keep the nodes running after settling until no forked position is open (\texttt{--fork-grace}). One point alone is \texttt{tools/rai/run\_gate\_b.py <dir> --rate 2000 --fork-percentage 10}. The flags \texttt{--restart PR:close:E}, \texttt{--restart PR:at:S}, \texttt{--restart-down-ms}, \texttt{--audit-votes}, \texttt{--signing-sync}, \texttt{--prs}, \texttt{--standby}, and \texttt{--rotation E:FROM>TO} drive the runs of Appendices~\ref{app:rotation} and~\ref{app:restart}. The figures of the main text are regenerated with \texttt{tools/wan\_figures.py sections/eval-data/wan <matrix4> <matrix3> <matrix2>}, which takes each run from the first record that has it. The close breakdown of Appendix~\ref{app:closecost} is \texttt{tools/close\_breakdown.py <out> <matrix4> <matrix3>}, which reads every validator's diagnostics log (output in \texttt{sections/eval-data}); \texttt{--runs} gives one row per run, as for the one-host comparison (\texttt{doc/benchmarks/rai-close-scale-onehost-2026-11-11}, \texttt{run\_gate\_b.py --rate 500 --blocks 15000 --fork-percentage 5 --prs 11 --committee-f 2 --committee-p 2}). The twelve-validator matrix of Appendix~\ref{app:twelve} is \texttt{--set final-wan-2000-n12} on fourteen VMs, the last two of them the Toronto standbys, with the same arms and \texttt{--timeout=480:\allowbreak --stall-abort=90:\allowbreak --drain-limit=15:\allowbreak --settle-timeout=600:\allowbreak --fork-grace-stall=180} (30 before the change noted there); its records keep each run's result, summary, and hosts but not the node logs, and \texttt{tools/n12\_numbers.py <matrix> sections/eval-data/n12} gives its table. The six-region restart runs are \texttt{--set restart-wan} on seven VMs, the six seats and the Toronto standby, with the same limits (record \texttt{gcp-restart-wan-fix-2026-11-23}). The models are checked with \texttt{tla/run.sh <module> <config>} and the scripts in \texttt{tla/}.\par}
 \clearpage
 \bibliographystyle{IEEEtran}
 \bibliography{references,rai-additions}
