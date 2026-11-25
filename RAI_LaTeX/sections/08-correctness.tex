@@ -25,6 +25,6 @@ Finalized histories at correct validators are compatible and never rolled back, 
 
 \begin{theorem}[Termination]
 \label{thm:live}
-Every started handover is eventually decided and installed by correct validators. An owner whose new blocks are uncontested sees them final and in a checkpoint eventually. A forked position whose parent is final becomes final, on one side, by the end of any three consecutive epochs of normal operation, and of any two that follow a checkpoint keeping one of its sides, whatever the owner and the Byzantine validators do; the owner then continues from it.
+Every started handover is eventually decided and installed by correct validators. An owner whose new blocks are uncontested sees them final and in a checkpoint eventually. A forked position whose parent is final becomes final, on one side, by the end of any two consecutive epochs of normal operation, whatever the owner and the Byzantine validators do; the owner then continues from it.
 \end{theorem}
-\emph{Why.} $N-f$ correct reports become usable, so agreement decides an eligible checkpoint. At a fork still open after a good epoch, every correct validator has seen both blocks, so in the next good epoch it votes only after installing the checkpoint; these settled votes, unlike the early ones of the first epoch, make the following checkpoint keep a side, preferring the one kept before, and in the next good epoch all vote only that side, which becomes final.
+\emph{Why.} $N-f$ correct reports become usable, so agreement decides an eligible checkpoint. At a fork still open after a good epoch, every correct validator has seen both blocks and voted one; the next checkpoint keeps a side, and in the next good epoch all of them vote only that side, which becomes final.

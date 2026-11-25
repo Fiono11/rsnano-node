@@ -29,7 +29,9 @@
 (*        threshold pass keeps a block, keep the predecessor's block if    *)
 (*        still eligible (its records discharged or not), else the         *)
 (*        eligible block with the most settled reporter first votes, ties *)
-(*        broken by hash, instead of keeping nothing.                      *)
+(*        broken by hash, instead of keeping nothing; with FALLBACK, where *)
+(*        no block has a settled vote and the predecessor holds nothing,   *)
+(*        the block with the most early reporter first votes.             *)
 (*                                                                         *)
 (* Rule 2 counts settled first votes only (SETTLED), as the paper and the  *)
 (* prototype do; an early first vote is reported but not counted.  With    *)
@@ -40,9 +42,10 @@
 (* leaves it before every correct validator has installed S_{e-1}, seen    *)
 (* both blocks, and cast every first and final vote the rules allow it.    *)
 (* TwoGood says that two consecutive good epochs make some block final;   *)
-(* it fails when the first of them opens before its predecessor checkpoint *)
-(* is installed at an uncontested position, since early votes are not     *)
-(* counted and the checkpoint may keep nothing.  ThreeGood says three      *)
+(* without FALLBACK it fails when the first of them opens before its      *)
+(* predecessor checkpoint is installed at an uncontested position, since  *)
+(* early votes are not counted and the checkpoint may keep nothing.  With  *)
+(* FALLBACK it is expected to hold (not yet checked).  ThreeGood says three *)
 (* consecutive good epochs do; TwoGoodKept that two do once the checkpoint *)
 (* before them keeps a side.                                               *)
 (*                                                                         *)
@@ -63,6 +66,7 @@ CONTESTED == TRUE
 CROSS     == TRUE
 SETTLED   == TRUE   \* Rule 2 counts settled first votes only
 PREINST   == TRUE   \* S_0 is installed when epoch 1 opens
+FALLBACK  == TRUE   \* keep pass falls back to early votes (see Builds)
 RuleOff   == FALSE
 Four      == 4
 
@@ -202,6 +206,13 @@ Builds(e, prev) ==
                  Most    == {b \in Blocks : Cardinality(U(b)) >= 1 /\
                               \A c \in Blocks : Cardinality(U(c)) <= Cardinality(U(b))}
                  Pick    == IF "X" \in Most THEN "X" ELSE "Y"   \* ties by hash
+                 \* early first votes of correct reporters, for the fallback
+                 GE(i)   == IF i = byz THEN {}
+                            ELSE {b \in Blocks : fv[e][i] = b /\ ~sv[e][i]} \ Nt(i)
+                 UE(b)   == IF Elig(b) THEN {i \in Qs : b \in GE(i)} ELSE {}
+                 MostE   == {b \in Blocks : Cardinality(UE(b)) >= 1 /\
+                              \A c \in Blocks : Cardinality(UE(c)) <= Cardinality(UE(b))}
+                 PickE   == IF "X" \in MostE THEN "X" ELSE "Y"
                  \* the predecessor's block, kept by a record discharged or not
                  PrevB   == {b \in {l.b : l \in prev.locks} : Elig(b)}
                  \* Rule 2: the threshold pass, then, where nothing is kept,
@@ -211,7 +222,11 @@ Builds(e, prev) ==
                             THEN {[b |-> CHOOSE b \in Thr : TRUE, o |-> e]}
                             ELSE IF ~RULES \/ surv # {} THEN {}
                             ELSE IF PrevB # {} THEN {[b |-> CHOOSE b \in PrevB : TRUE, o |-> e]}
-                            ELSE IF Most = {} THEN {} ELSE {[b |-> Pick, o |-> e]}
+                            ELSE IF Most # {} THEN {[b |-> Pick, o |-> e]}
+                            \* fallback: no settled vote, predecessor holds nothing
+                            ELSE IF FALLBACK /\ prev.locks = {} /\ MostE # {}
+                                 THEN {[b |-> PickE, o |-> e]}
+                            ELSE {}
              IN IF prev.fin # {} THEN [done |-> TRUE, fin |-> prev.fin, locks |-> {}]
                 ELSE IF Ns # {} THEN [done |-> TRUE, fin |-> Ns, locks |-> {}]
                 ELSE [done |-> TRUE, fin |-> {}, locks |-> surv \cup new]

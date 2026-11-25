@@ -1111,7 +1111,11 @@ pub fn build_state_of<R: ReportView>(
     struct Evidence {
         notarized: BTreeSet<BlockHash>,
         finalized: BTreeSet<BlockHash>,
+        /// settled reporter first-vote weight per block
         first: BTreeMap<BlockHash, Amount>,
+        /// early reporter first-vote weight per block, for the keep pass's
+        /// fallback only
+        early: BTreeMap<BlockHash, Amount>,
     }
     let mut reporters = BTreeSet::new();
     for report in selection {
@@ -1181,19 +1185,20 @@ pub fn build_state_of<R: ReportView>(
         // A reporter is counted only for its own settled first vote that
         // T_i does not tag N or F (Fix B): an R tag exposes no vote, so a
         // first vote for an R-tagged block counts. An early first vote is
-        // listed but not counted. The residual set is canonical, and the
-        // identity is counted once.
-        let first_votes = report
-            .residual_entries()
-            .filter(|(_, kind, _)| *kind == ResidualKind::First)
-            .map(|(block, _, _)| block);
-        for block in first_votes {
+        // counted apart: only the keep pass's fallback reads it. The
+        // residual set is canonical, and the identity is counted once.
+        for (block, kind, _) in report.residual_entries() {
             let slot = AccountSlot::new(block.account, block.height);
             if report.summarizes(&block.hash) || !eligible(slot, block.hash) {
                 continue;
             }
             let at = evidence.entry(slot).or_default();
-            let weight = at.first.entry(block.hash).or_insert(Amount::ZERO);
+            let weights = match kind {
+                ResidualKind::First => &mut at.first,
+                ResidualKind::EarlyFirst => &mut at.early,
+                ResidualKind::Final => continue,
+            };
+            let weight = weights.entry(block.hash).or_insert(Amount::ZERO);
             *weight = weight.checked_add(report.weight()).unwrap_or(Amount::MAX);
         }
     }
@@ -1265,8 +1270,12 @@ pub fn build_state_of<R: ReportView>(
     // nothing is final or retained, the block the predecessor retained there
     // if it is still eligible, otherwise the eligible block with the most
     // settled reporter first-vote weight, ties broken by the smallest hash.
-    // Keeping a side even below r lets the next epoch converge, and keeping
-    // the predecessor's side keeps it from changing more than once.
+    // Where no eligible block has a settled vote and the predecessor holds
+    // nothing at the position, the same choice by early first-vote weight:
+    // a fork first-voted only before the predecessor was installed is then
+    // kept at once instead of being voted afresh. Keeping a side even below
+    // r lets the next epoch converge, and keeping the predecessor's side
+    // keeps it from changing more than once.
     let positions: BTreeSet<AccountSlot> = evidence
         .keys()
         .chain(previous.notarized.keys())
@@ -1284,19 +1293,16 @@ pub fn build_state_of<R: ReportView>(
                 break;
             }
         }
-        if kept.is_none() {
-            let mut voted: Vec<_> = evidence
-                .get(&slot)
-                .into_iter()
-                .flat_map(|at| at.first.iter())
-                .filter(|(_, weight)| !weight.is_zero())
-                .collect();
-            voted.sort_by(|(a, weight_a), (b, weight_b)| weight_b.cmp(weight_a).then(a.cmp(b)));
-            for (hash, _) in voted {
-                if let Some(path) = keepable(&ledger, selected_path(&ledger, index, slot, *hash))? {
-                    kept = Some((*hash, path));
-                    break;
-                }
+        let predecessor_empty = previous
+            .notarized
+            .get(&slot)
+            .is_none_or(|blocks| blocks.is_empty());
+        if let Some(at) = evidence.get(&slot) {
+            if kept.is_none() {
+                kept = most_supported(&ledger, index, slot, &at.first)?;
+            }
+            if kept.is_none() && predecessor_empty {
+                kept = most_supported(&ledger, index, slot, &at.early)?;
             }
         }
         if let Some((hash, path)) = kept {
@@ -1617,6 +1623,27 @@ fn finality_compatible(
 /// Rule 2 eligibility: a path compatible with explicit finality whose
 /// branch bypasses no record the state holds, inherited or placed by this
 /// derivation
+/// Rule 2's keep pass: the keepable block with the most reporter
+/// first-vote weight among `weights`, ties broken by the smallest hash
+fn most_supported(
+    ledger: &EpochLedger,
+    index: &dyn BlockIndex,
+    slot: AccountSlot,
+    weights: &BTreeMap<BlockHash, Amount>,
+) -> Result<Option<(BlockHash, Vec<(AccountSlot, PlacedBlock)>)>, BuildStateError> {
+    let mut voted: Vec<_> = weights
+        .iter()
+        .filter(|(_, weight)| !weight.is_zero())
+        .collect();
+    voted.sort_by(|(a, weight_a), (b, weight_b)| weight_b.cmp(weight_a).then(a.cmp(b)));
+    for (hash, _) in voted {
+        if let Some(path) = keepable(ledger, selected_path(ledger, index, slot, *hash))? {
+            return Ok(Some((*hash, path)));
+        }
+    }
+    Ok(None)
+}
+
 fn keepable(
     ledger: &EpochLedger,
     path: Result<Vec<(AccountSlot, PlacedBlock)>, BuildStateError>,
@@ -2052,6 +2079,37 @@ mod tests {
 
         assert_eq!(ledger.notarized(&slot(1, 1)), vec![settled]);
         assert_eq!(ledger.retained_kind(&settled), RetainedKind::Recovery);
+    }
+
+    /// RAI, Rule 2, keep pass: where no block has a settled vote and the
+    /// predecessor holds nothing, the block with the most early first votes
+    /// is kept, so a fork first-voted only early is not voted afresh
+    #[test]
+    fn without_settled_votes_the_keep_pass_counts_early_votes() {
+        let mut index = StubIndex::default();
+        let more = index.add(1, 1, BlockHash::ZERO);
+        let fewer = index.add(1, 1, BlockHash::ZERO);
+        let certified = CertifiedState::new();
+        let mut for_more = ResidualVotes::new();
+        record(&mut for_more, &index, more, ResidualKind::EarlyFirst);
+        let mut for_fewer = ResidualVotes::new();
+        record(&mut for_fewer, &index, fewer, ResidualKind::EarlyFirst);
+
+        let ledger = derive(
+            &EpochLedger::new(),
+            &[
+                reported_by(1, &certified, &for_more),
+                reported_by(2, &certified, &for_more),
+                reported_by(3, &certified, &for_fewer),
+            ],
+            &index,
+        );
+
+        assert_eq!(ledger.notarized(&slot(1, 1)), vec![more]);
+        assert_eq!(
+            ledger.lock_records(&more).collect::<Vec<_>>(),
+            vec![LockRecord::recovery(ConsensusEpoch::new(1))]
+        );
     }
 
     /// RAI, Rule 2, keep pass: where an exclusion witness of its origin

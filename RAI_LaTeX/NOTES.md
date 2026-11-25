@@ -140,3 +140,13 @@ A second pasted review found that Theorem 3's "two consecutive good epochs" is f
 - Section IV "Joining and leaving": a new member votes only after installing the checkpoint its seat comes from (review W4(a), truncated; the prototype leaves an epoch only once the previous close is decided, `previous_epoch_closed`).
 - Open TLC runs at commit time (uncapped reruns in the background): Resolve4_rules_234, Resolve4_rules_early_noContested, Resolve4_rules_early_noR10; the table gives the stopped runs' reach.
 - Register the abstract as it stands in main.tex.
+
+## Keep-pass fallback to early votes: two epochs again (Nov 25 2026, night)
+
+On the user's instruction ("make the changes but do not run anything"), the keep pass now falls back to early first votes where no eligible block has a settled vote and the previous checkpoint holds nothing at the position. This restores the two-epoch bound: in a good fork epoch every correct member first-votes, and at least N-2f correct reports list those votes, so the checkpoint always keeps a side.
+
+- Prototype: `epoch_ledger.rs` `build_state_of` counts `EarlyFirst` weight apart (`Evidence::early`); keep pass uses it only under the two conditions; helper `most_supported`; new test `without_settled_votes_the_keep_pass_counts_early_votes`. Not compiled, tests not run.
+- Model: `RaiResolve` switch FALLBACK (on by default); every existing Resolve config pins `FALLBACK <- RuleOff` so its recorded result stays reproducible; new `Resolve4_fb_{early,23,234,sim}` check TwoGood, ThreeGood, TwoGoodKept with the fallback. Not run.
+- Paper: bound back to two epochs (abstract, II, IV, VI Step 3, VIII, X, Table III, conclusion); Section IX says all model runs predate the fallback; Section X says the fallback was added after the runs. Extended version: recipe text, Theorem (b) and proof (two epochs, the fallback case), flip-lemma note, Appendix "Counting settled first votes", RaiResolve description, TLC table row "not yet run", results paragraph.
+- To do before relying on it: `cargo test --lib -q` (or the new test), the four fb TLC configs, and RaiRecoverMany safety configs with the fallback (not added there yet); a fleet rerun if the evaluation should measure it.
+- Space: shorter Theorem 3 sketch, R5 sentence, conclusion sentence, Step 3 wording, eval and IX disclosures. The body ends on page 11.
