@@ -41,10 +41,10 @@ Corruption is static even after a validator leaves, and RAI relies on this more 
 The prototype gives each of the $N$ heaviest representatives one equal vote, so $f$ bounds faulty seats, not faulty stake. Every safety argument uses only the three quorum intersections above, so they carry over to stake-weighted quorums with reports selected by weight~\cite{extended}; the models do not check this.
 
 \para{Forks as load.}
-Until its position is final, which takes two good epochs, each fork costs a few entries per report, one lock in the checkpoint, and one instance. Load therefore grows with the forks per epoch, not with their history. RAI does not price it; a deployment relies on its base system's anti-spam measure, such as Nano's proof of work~\cite{nano}.
+Until its position is final, which takes at most three good epochs, each fork costs a few entries per report, one lock in the checkpoint, and one instance. Load therefore grows with the forks per epoch, not with their history. RAI does not price it; a deployment relies on its base system's anti-spam measure, such as Nano's proof of work~\cite{nano}.
 
 \para{Joining and leaving.}
-The committee of epoch $e+2$ follows from $S_e$, so a new member has about one epoch to obtain the ledger before it votes; in our committee change it ran as a standby from the start. A departing member serves blocks, votes, and reports until successor members holding $N-f$ of the weight acknowledge the checkpoint as durable.
+The committee of epoch $e+2$ follows from $S_e$, so a new member has about one epoch to obtain the ledger before it votes, and votes only after installing the checkpoint its seat comes from, whose locks it then respects; in our committee change it ran as a standby from the start. A departing member serves blocks, votes, and reports until successor members holding $N-f$ of the weight acknowledge the checkpoint as durable.
 
 \para{Garbage collection.}
 The prototype keeps vote records for four epochs, since reports of the next three may cite an epoch's late finality, and beyond that only supports that can still release a surviving lock of their origin; dropping the rest releases no lock.

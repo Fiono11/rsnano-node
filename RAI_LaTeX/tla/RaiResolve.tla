@@ -25,14 +25,26 @@
 (*        after installing S_{e-1}; with EARLYKEPT = TRUE only where its   *)
 (*        latest installed checkpoint keeps nothing here (where it keeps   *)
 (*        K, an early vote for K is allowed, rule (i) forbids the rest);   *)
-(*  (iii) Rule 2 keeps the eligible block with the most reporter first     *)
-(*        votes, ties broken by hash, instead of keeping nothing.          *)
+(*  (iii) Rule 2's keep pass: where neither a surviving record nor the     *)
+(*        threshold pass keeps a block, keep the predecessor's block if    *)
+(*        still eligible (its records discharged or not), else the         *)
+(*        eligible block with the most settled reporter first votes, ties *)
+(*        broken by hash, instead of keeping nothing.                      *)
+(*                                                                         *)
+(* Rule 2 counts settled first votes only (SETTLED), as the paper and the  *)
+(* prototype do; an early first vote is reported but not counted.  With    *)
+(* PREINST = FALSE nobody has installed S_0 when epoch 1 opens, so epoch-1 *)
+(* first votes may be early: the fork epoch is like any other.             *)
 (*                                                                         *)
 (* An epoch flagged good is a window of synchrony: no correct validator    *)
 (* leaves it before every correct validator has installed S_{e-1}, seen    *)
 (* both blocks, and cast every first and final vote the rules allow it.    *)
-(* The invariant TwoGood says that two consecutive good epochs make some   *)
-(* block final.                                                            *)
+(* TwoGood says that two consecutive good epochs make some block final;   *)
+(* it fails when the first of them opens before its predecessor checkpoint *)
+(* is installed at an uncontested position, since early votes are not     *)
+(* counted and the checkpoint may keep nothing.  ThreeGood says three      *)
+(* consecutive good epochs do; TwoGoodKept that two do once the checkpoint *)
+(* before them keeps a side.                                               *)
 (*                                                                         *)
 (* The Byzantine validator signs no final votes: they can only complete   *)
 (* a final certificate, which ends the run in the adversary's disfavour.   *)
@@ -40,7 +52,7 @@
 (* FC or FF counts as finality (the safety models check validity); a      *)
 (* correct report tags a block N only after its final vote.                *)
 (***************************************************************************)
-EXTENDS Naturals, FiniteSets, TLC
+EXTENDS Integers, FiniteSets, TLC
 
 CONSTANTS C, byz, N, f, p, RULES, EARLYKEPT
 
@@ -49,7 +61,10 @@ CONSTANTS C, byz, N, f, p, RULES, EARLYKEPT
 \* CONSTANT CROSS <- RuleOff; the other termination rules stay as RULES says.
 CONTESTED == TRUE
 CROSS     == TRUE
+SETTLED   == TRUE   \* Rule 2 counts settled first votes only
+PREINST   == TRUE   \* S_0 is installed when epoch 1 opens
 RuleOff   == FALSE
+Four      == 4
 
 E        == 3
 Epochs   == 1..E
@@ -67,7 +82,7 @@ VARIABLES good, \* [Epochs -> BOOLEAN], fixed at the start
           bf,   \* [Epochs -> SUBSET Blocks] Byzantine first votes
           bn,   \* [Epochs -> SUBSET Blocks] Byzantine final votes
           cur,  \* [C -> 1..E+1] current epoch
-          inst, \* [C -> 0..E-1] latest installed checkpoint
+          inst, \* [C -> -1..E-1] latest installed checkpoint (-1: none)
           seen, \* [C -> SUBSET Blocks]
           S     \* [0..E-1 -> checkpoint]
 vars == <<good, fv, sv, fn, bf, bn, cur, inst, seen, S>>
@@ -80,17 +95,20 @@ View == <<[t \in {Local(v) : v \in C} |->
 B1(b, X) == IF b \in X THEN 1 ELSE 0
 FV(e, b) == Cardinality({v \in C : fv[e][v] = b}) + B1(b, bf[e])
 NC(e, b) == FV(e, b) >= Q
-XW(e, b) == NC(e, b)                    \* no late notarizations here
+XW(e, b) == e >= 1 /\ NC(e, b)          \* no late notarizations here
 FF(e, b) == Cardinality({v \in C : fv[e][v] = b /\ sv[e][v]}) + B1(b, bf[e]) >= FAST
 FC(e, b) == Cardinality({v \in C : fv[e][v] = b /\ fn[e][v]}) + B1(b, bn[e]) >= Q
 
 Resolved == \/ \E e \in Epochs, b \in Blocks : FF(e, b) \/ FC(e, b)
             \/ \E k \in 0..E-1 : S[k].fin # {}
 
-Kept(k)          == {l.b : l \in S[k].locks}
-Admissible(k, b) == /\ S[k].fin \subseteq {b}
-                    /\ \A l \in S[k].locks : l.b = Other(b) => XW(l.o, b)
-Contested(v)     == seen[v] = Blocks \/ S[inst[v]].locks # {}
+NoCk == [done |-> FALSE, fin |-> {}, locks |-> {}]
+Ck(k) == IF k < 0 THEN NoCk ELSE S[k]
+
+Kept(k)          == {l.b : l \in Ck(k).locks}
+Admissible(k, b) == /\ Ck(k).fin \subseteq {b}
+                    /\ \A l \in Ck(k).locks : l.b = Other(b) => XW(l.o, b)
+Contested(v)     == seen[v] = Blocks \/ Ck(inst[v]).locks # {}
 
 VoteOK(v, b) ==
   LET e == cur[v]  k == inst[v]  settled == k = e - 1 IN
@@ -108,15 +126,13 @@ FinalOK(v) ==
      THEN RULES /\ Kept(k) # {} => b \in Kept(k)           \* (i)
      ELSE XW(e - 1, b)                                     \* early-vote rule
 
-NoCk == [done |-> FALSE, fin |-> {}, locks |-> {}]
-
 Init ==
   /\ good \in [Epochs -> BOOLEAN]
   /\ fv = [e \in Epochs |-> [v \in C |-> "-"]]
   /\ sv = [e \in Epochs |-> [v \in C |-> FALSE]]
   /\ fn = [e \in Epochs |-> [v \in C |-> FALSE]]
   /\ bf = [e \in Epochs |-> {}] /\ bn = [e \in Epochs |-> {}]
-  /\ cur = [v \in C |-> 1] /\ inst = [v \in C |-> 0]
+  /\ cur = [v \in C |-> 1] /\ inst = [v \in C |-> IF PREINST THEN 0 ELSE -1]
   /\ seen = [v \in C |-> {}]
   /\ S = [k \in 0..E-1 |-> IF k = 0 THEN [NoCk EXCEPT !.done = TRUE] ELSE NoCk]
 
@@ -176,7 +192,7 @@ Builds(e, prev) ==
         LET Nt(i) == IF i = byz THEN bt
                      ELSE {b \in Blocks : fv[e][i] = b /\ fn[e][i]}
             G(i)  == IF i = byz THEN bg \ bt
-                     ELSE {b \in Blocks : fv[e][i] = b} \ Nt(i)
+                     ELSE {b \in Blocks : fv[e][i] = b /\ (sv[e][i] \/ ~SETTLED)} \ Nt(i)
             able  == {l \in prev.locks : XW(l.o, Other(l.b))}
         IN { LET surv    == prev.locks \ D
                  Elig(b) == \A l \in surv : l.b # Other(b)
@@ -186,11 +202,16 @@ Builds(e, prev) ==
                  Most    == {b \in Blocks : Cardinality(U(b)) >= 1 /\
                               \A c \in Blocks : Cardinality(U(c)) <= Cardinality(U(b))}
                  Pick    == IF "X" \in Most THEN "X" ELSE "Y"   \* ties by hash
-                 new     == IF RULES
-                            THEN IF Most = {} THEN {} ELSE {[b |-> Pick, o |-> e]}
-                            ELSE IF Cardinality(Thr) = 1
-                                 THEN {[b |-> CHOOSE b \in Thr : TRUE, o |-> e]}
-                                 ELSE {}
+                 \* the predecessor's block, kept by a record discharged or not
+                 PrevB   == {b \in {l.b : l \in prev.locks} : Elig(b)}
+                 \* Rule 2: the threshold pass, then, where nothing is kept,
+                 \* the keep pass: the predecessor's block if still eligible,
+                 \* else the block with the most settled votes, ties by hash
+                 new     == IF Cardinality(Thr) = 1
+                            THEN {[b |-> CHOOSE b \in Thr : TRUE, o |-> e]}
+                            ELSE IF ~RULES \/ surv # {} THEN {}
+                            ELSE IF PrevB # {} THEN {[b |-> CHOOSE b \in PrevB : TRUE, o |-> e]}
+                            ELSE IF Most = {} THEN {} ELSE {[b |-> Pick, o |-> e]}
              IN IF prev.fin # {} THEN [done |-> TRUE, fin |-> prev.fin, locks |-> {}]
                 ELSE IF Ns # {} THEN [done |-> TRUE, fin |-> Ns, locks |-> {}]
                 ELSE [done |-> TRUE, fin |-> {}, locks |-> surv \cup new]
@@ -230,7 +251,7 @@ Spec == Init /\ [][Next]_vars
 \* checkpoints it can build, which nobody has installed yet, and epochs 2
 \* and 3 are good.
 Init23 ==
-  /\ good = <<FALSE, TRUE, TRUE>>
+  /\ good = [e \in Epochs |-> e >= 2]
   /\ fv \in {x \in [Epochs -> [C -> {"-"} \cup Blocks]] :
                \A e \in 2..E : x[e] = [v \in C |-> "-"]}
   /\ bf \in {x \in [Epochs -> SUBSET Blocks] : \A e \in 2..E : x[e] = {}}
@@ -249,11 +270,23 @@ Init23 ==
 
 Spec23 == Init23 /\ [][Next]_vars
 
+\* Every epoch good, from the start: with PREINST = FALSE the fork epoch
+\* opens before S_0 is installed, as an epoch opens before its predecessor
+\* checkpoint is installed under load.
+InitGood == Init /\ good = [e \in Epochs |-> TRUE]
+SpecGood == InitGood /\ [][Next]_vars
+
 -----------------------------------------------------------------------------
 AllLeft(e) == \A v \in C : cur[v] > e
 
 \* Two consecutive good epochs make some block at the position final.
 TwoGood == \A e \in 1..E-1 : (good[e] /\ good[e+1] /\ AllLeft(e+1)) => Resolved
+\* ... once the checkpoint before them keeps a side.
+TwoGoodKept == \A e \in 2..E-1 :
+  (good[e] /\ good[e+1] /\ AllLeft(e+1) /\ S[e-1].locks # {}) => Resolved
+\* Three consecutive good epochs do in any case.
+ThreeGood == \A e \in 1..E-2 :
+  (good[e] /\ good[e+1] /\ good[e+2] /\ AllLeft(e+2)) => Resolved
 
 \* Reachability probes (expected to be VIOLATED).
 ProbeGood12 == ~(good[1] /\ good[2] /\ AllLeft(2))
