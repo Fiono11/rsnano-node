@@ -8,7 +8,7 @@ Three lemmas carry the arguments. \emph{Account exclusion} (Lemma~1): two sets o
 \label{thm:closure}
 If an epoch-$e$ final certificate for $B$ can be formed from released votes, even one completed after the reports froze or after $S_e$ was decided, then every eligible checkpoint $S_e$ holds $B$: as final, under a notarization lock, or under a recovery lock of origin $e$. No admissible evidence releases that hold.
 \end{theorem}
-\emph{Why.} A normal certificate's $q$ final voters and the $N-f$ selected reporters share $p+1$ correct validators, each reporting $B$ notarized; a fast certificate's $N-p$ voters share $r$ correct ones, so $B$ reaches $r$ settled reporter votes while no rival does, and the recipe, working down, locks $B$ or a child of it. Only an epoch-$e$ witness for a rival could release that lock, and Lemma~1 excludes one.
+\emph{Why.} A normal certificate's $q$ final voters and the $N-f$ selected reporters share $p+1$ correct validators, each reporting $B$ notarized; a fast certificate's $N-p$ voters share $r$ correct ones, so $B$ reaches $r$ settled reporter votes while no rival does, and the recipe, working down, locks $B$ or a child of it. It works down because a rival of an ancestor of $B$ may also reach $r$ while that ancestor is only notarized; working up would lock the rival and drop $B$. If $B$ bypasses an older lock, its correct signers hold the witnesses that release it (Lemma~5), and their reports carry them. Only an epoch-$e$ witness for a rival could release the new lock, and Lemma~1 excludes one. Promotion needs an epoch-$e$ notarization, which excludes a rival's witness and certificate, so it never contradicts overlap finality (Lemma~6).
 
 \setcounter{lemma}{7}
 \begin{lemma}[Same verdict before and after installation]

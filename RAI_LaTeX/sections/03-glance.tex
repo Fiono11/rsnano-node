@@ -69,5 +69,3 @@ The rules, informally, with the thresholds of the six-validator example in paren
 \item\label{r:early} \emph{Early votes.} A first vote cast before its signer installed $S_e$ counts toward notarization and toward~\ref{r:overlap}, never toward the fast path. An early final vote is released only with the witnesses of~\ref{r:overlap} in hand.
 \item\label{r:cross} \emph{Contested positions.} Until $S_e$ is installed, a validator casts no first vote in $e+1$ at a position where it has seen two blocks or a checkpoint keeps one; so it never switches sides across the boundary.
 \end{enumerate}
-
-Two services are left abstract: how a validator obtains the sets behind another's report (\emph{set reconstruction}) and how the outgoing committee picks one eligible checkpoint (\emph{agreement}). RAI only states what it needs from them (Section~\ref{sec:model}).

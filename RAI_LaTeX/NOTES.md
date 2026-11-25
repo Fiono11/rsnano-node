@@ -58,7 +58,7 @@ Points to work into the manuscript. Remove an entry once the text carries it.
 Done in the text:
 
 - Supplement title matches the main paper's. The supplement says its nine modules are the main text's eight models. Section VIII says Theorem 3 is split in two in the supplement. Figure 5's caption names the Warsaw validator.
-- Workload: every measured block is a representative change (`tools/nanospam/src/high_prio_check.rs`: constant balance, `Link::ZERO`), so the runs have no send/receive pairs. Section X (setup, threats) and the supplement's limitations now say so.
+- Workload (corrected Nov 25 2026): this note used to say every measured block is a representative change, citing `high_prio_check.rs`. That file publishes one priority block every 10 s, and every run passes `--no-prio`. The measured blocks come from `block_factory.rs`: no run passes `--change` (0 of 336 summaries in gcp-matrix2/3/4 and the n12 matrix), so the strategy is `SendReceive`. That means sends of random amounts to random accounts, plus receives once the send is confirmed (`account_map.rs` `confirmed_receivable`). Change mode ignores `is_fork`, and the runs did fork. Section X and the extended version's limitations now describe it.
 - Report scope: `T_i` is defined over the whole ledger, but checks and `Build` read only what differs from `S_{e-1}` (`CertifiedState` base + delta, `changed_entries`); stated in Appendix C and the implementation notes. Scaling in `N` is listed as not measured.
 
 Done (review concern 1, manifest omission; option A chosen Nov 11):
@@ -116,3 +116,14 @@ Open before submission: host the bundle anonymously, put its URL in the `extende
 - Defect fixed: a close's catch-up requests went only to peers known as representatives; a restarted validator learns that mapping from crawler replies, which members stop giving once epochs run, so it could ask no one (`known_reps=0` in every run). Close rounds are now asked of every connected peer (`EPOCH_CLOSE_SOLICIT` / `EPOCH_CLOSE_SERVE` diagnostics).
 - Harness: the vote audit leaves the Byzantine node's own log out (`audit_votes.audit_correct`), counting its conflicts as `byzantine_conflicts`.
 - Twelve seats: moving vote recording out of the exclusive elections lock made no difference (each build saturated once in four runs, `doc/benchmarks/gcp-n12-lock-ab-2026-11-23`); dropped. The twelve-validator numbers stay those of the matrix. Storms remain about one run in four; cause not established.
+
+## Pre-submission review, text fixes (Nov 25 2026)
+
+A DSN-style review (weak accept) was checked against the paper, the records and the code; the text fixes below went in with matching cuts, and the body still ends on page 11 (AI Tool Usage now starts on page 11).
+
+- Section X: the workload is sends and dependent receives (see the corrected note above), fork siblings differ in their representative; threats: the recipe does not add the sends of Step 1 (installation cements a receive after its send), and the stale "restarts were not run across regions" sentence is gone; epochs end later when the previous checkpoint is not installed; the report-witness rule postdates the runs; N=12 fork p95 cell medians (RAI 0.9-80 s, pause 12-51 s, RAI worse in 4 of 8).
+- Section VI: a report ends epoch e only after installing S_{e-1} (code: `try_advance_epoch` / `previous_epoch_closed`); the report-witness rule for blocks that bypass a lock of S_{e-1} (Case 8); an empty keep-pass position is voted afresh; agreement members support a candidate only after reconstructing and recomputing.
+- Section IV: definition of a good epoch (from the extended version's Theorem 4). Section V: parent rule (final, notarization lock, or notarized in this epoch; code `attachment.rs`). Section VII: late supports need members of both committees, so a full replacement sends post-boundary blocks to the gate; R10 detects siblings only. Section VIII: top-down order, Lemma 5, Lemma 6 in Theorem 1's sketch. Section IX: Prefix, Recovery and Resolve are exhaustive only at N=4. Conclusion: 8 s epochs.
+- Cuts: Section V "Why the checkpoint must decide" (one clause moved to VI), owner extension and fork-workload sentence in VI, second-set paragraph, origin-release sentence, header-authentication sentence, multi-origin repeat in VII, Fig. 4 narration, model list in IX, garbage collection, pause mean, services pointer at the end of III, durable-votes pointer, quorum aside in "What we compare", R10 termination sentence.
+- Abstract unchanged: a 144-word version with "8-second epochs" was proposed for the abstract registration; if it is registered, copy it into main.tex.
+- Extended version: limitations paragraph describes the real workload and the missing send closure.

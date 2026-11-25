@@ -3,7 +3,7 @@
 Within an epoch RAI votes like Nano or FastPay, with two twists that pay off at the boundary: a validator never switches sides, and a final vote is preceded by a notarization.
 
 \para{Confirming a block.}
-Alice signs block $A$ at position 7 of her account and sends it to the six validators. Each validator checks the block against Alice's chain as it knows it (parent, balance, no duplicate receive) and, if it has not voted at position 7 in this epoch, casts a first vote for $A$ (\ref{r:one}). With four first votes $A$ is \emph{notarized}; a validator that holds the notarization and first-voted $A$ casts its final vote. Four final votes make $A$ final. If five first votes arrive from validators that have installed the previous checkpoint, $A$ is final at once, in one round trip; Nano always needs a second round (Section~\ref{sec:eval}).
+Alice signs block $A$ at position 7 of her account and sends it to the six validators. Each validator checks the block against Alice's chain as it knows it (balance, no duplicate receive, and a parent that is final, kept under a notarization lock, or notarized in this epoch) and, if it has not voted at position 7 in this epoch, casts a first vote for $A$ (\ref{r:one}). With four first votes $A$ is \emph{notarized}; a validator that holds the notarization and first-voted $A$ casts its final vote. Four final votes make $A$ final. If five first votes arrive from validators that have installed the previous checkpoint, $A$ is final at once, in one round trip; Nano always needs a second round (Section~\ref{sec:eval}).
 
 \para{Why the thresholds are safe.}
 Any two groups of four validators out of six share at least two, and at most one of those is Byzantine. A correct validator supports one block per position (\ref{r:one}), so two conflicting blocks cannot both reach four supporters. Four supporters for $A$ therefore \emph{exclude} every rival: no rival can be notarized or final in this epoch. We call a set of $q$ supporters an \emph{exclusion witness}; it is the one piece of evidence the boundary rules will ask for again and again. Five first votes for $A$ leave at most one correct validator free to support a rival, so a fast-final block has no rival with three honest supporters either; this is what makes the recovery threshold $r=3$ of~\ref{r:build} work.
@@ -13,9 +13,6 @@ Suppose Alice also signs $A'$ at position 7, paying someone else, and shows $A$ 
 
 \para{How the fork ends.}
 The checkpoint decides the position (\ref{r:install}). A validator that has installed it votes only $A$ at position 7, and a validator that has seen both $A$ and $A'$ casts no vote there before it has the checkpoint (\ref{r:cross}). So $A$ collects four first and four final votes and becomes final by the second epoch of normal operation after the fork, whatever Alice or the Byzantine validator does (Theorem~\ref{thm:live}), and Alice's account continues from it. She need not act; to pay sooner she can sign a block $C$ on top of $A$, admitted once $A$ has four first votes again in the new epoch, and finalizing $C$ finalizes $A$ (Figure~\ref{fig:fork}). A block on top of $A'$ is refused.
-
-\para{Why the checkpoint must decide.}
-Suppose validators could still vote $A'$ whenever they held four epoch-$e$ supporters for it, the witness that releases $A$'s lock; that takes a Byzantine validator that supported both sides. Then in every epoch some correct validators vote $A$ and some $A'$, the Byzantine validator withholds the one vote either side needs, and the position stays open forever, as in Nano~\cite{extended}. With the checkpoint deciding, the witness still lets a validator accept a certificate for $A'$ that already exists, so nothing final is contradicted, but it earns $A'$ no new vote.
 
 \begin{figure}[t]
 \centering
@@ -42,4 +39,4 @@ Suppose validators could still vote $A'$ whenever they held four epoch-$e$ suppo
 \end{figure}
 
 \para{Durable votes.}
-A correct validator writes its first vote and its final vote to disk before releasing them, and with a final vote the first votes that notarize its block, so that a crash and restart can neither make it vote twice nor lose the notarization its report must show. Our prototype syncs these writes; Section~\ref{sec:eval} reports what that costs.
+A correct validator writes its first vote and its final vote to disk before releasing them, and with a final vote the first votes that notarize its block, so that a crash and restart can neither make it vote twice nor lose the notarization its report must show.
