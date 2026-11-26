@@ -160,3 +160,14 @@ The morning's note that the prototype's recipe "does not compute the finalized-s
 The abstract said "the account stays locked until the next epoch, or forever", which mixed Sui with FastPay/Nano and made RAI's two-epoch bound read as worse than Sui. It now says Sui pauses at every boundary and drops both payments of an equivocating owner, FastPay and Nano lock the account forever, and RAI keeps one side because a handover that does not stop cannot drop a payment that may already be final (148 words by wc). Section X "What we compare" adds that pause stands for a handover without an ordering layer, and that Sui's stop is far shorter because its consensus has already ordered every certificate, so the 6.7-38x ratio is not read as a ratio over Sui. Cut: the Nano sentence's description of the ported signature check. The body still ends on page 11; page 1 is unchanged.
 
 Not changed: the paper never claims Sui puts consensus on the fast path's critical path (its owned-object finality does not wait for ordering); keep it that way. A longer 188-word abstract circulated outside main.tex ("lock conflicted state until the epoch ends (as in Sui and Mysticeti)", "over a pausing baseline"); it exceeds the 150-word limit and should not be registered.
+
+## Deployed Sui sends every transaction through Mysticeti (Nov 26 2026)
+
+Sui's Mysticeti v2 post (Nov 2025) and current docs: from node v1.60 the Transaction Driver replaces the Quorum Driver (the consensusless certificate path); every transaction, owned-object transfers included, is sequenced through Mysticeti, and "the first one in consensus order locks it and validators reject the others" (Epochs page). The docs no longer say an equivocated object stays locked until epoch end; that is Sui Lutris (and Sui before v1.60). Whether owned-object finality waits for the commit is unclear (the blog describes DAG finalization certificates, the lifecycle doc describes finality after commit), so the paper says only that every transaction goes through Mysticeti.
+
+- Abstract: the user's version, fixed to say Sui Lutris and TLA\textsuperscript{+} (143 words by wc).
+- Introduction: "Sui Lutris and Mysticeti-FPC" drop both sides at epoch end, cited to lutris and babel2025mysticeti instead of the Sui docs.
+- Related work: the epoch-end lock is credited to Sui Lutris; new sentence on deployed Sui (new bib entry suimysticetiv2); "orders every transaction".
+- Table III: Sui Lutris row (paused, rolled back, locked to epoch end) cites lutris only; new row "Sui (v1.60+)": paused (100s of ms), retried next epoch, first in consensus order.
+- Section X: "already ordered every transaction".
+- Cuts: the Sui paragraph and the Table III pointer sentence in related work. The body ends on page 11 with one line to spare; page 1 unchanged.

@@ -9,7 +9,8 @@
 \toprule
 System & Fast path at handover & Late old-epoch certificate & Equivocating owner \\
 \midrule
-Sui Lutris~\cite{lutris,sui2026epochs,sui2026lifecycle} & paused ($\sim$100s of ms) & retried next epoch & locked to epoch end ($\sim$1 day) \\
+Sui Lutris~\cite{lutris} & paused & rolled back & locked to epoch end \\
+Sui (v1.60+)~\cite{suimysticetiv2,sui2026epochs} & paused (100s of ms) & retried next epoch & first in consensus order \\
 Mysticeti-FPC~\cite{babel2025mysticeti} & paused & in last commit's history & unlocked after the epoch \\
 Carbon~\cite{camaioni2024carbon} & old view fenced & never commits & operations excluded \\
 Linera~\cite{linera2026docs,linera2026execution} & per chain, on migration & valid until epoch removed & per-chain rounds \\

@@ -15,9 +15,9 @@
 \IEEEauthorblockA{Regular paper}}
 \maketitle
 
-% 149 words; DSN allows at most 150.
+% 143 words; DSN allows at most 150.
 \begin{abstract}
-FastPay and Nano confirm each account's payments separately, without a global order. Because old votes can still complete a confirmation after a validator change, Sui pauses the fast path at every epoch boundary and drops both payments of an owner who signs two conflicting ones; FastPay and Nano lock it forever. RAI changes validators without pausing. Outgoing validators build each epoch's checkpoint from signed reports while the next epoch already votes; overlap rules keep the two epochs consistent. A handover that does not stop cannot drop a payment that may already be final, so checkpoints keep one side of every double spend, final within two epochs of normal operation. We prove safety and termination and model-check the handover rules. On a wide-area deployment with six validators and 8-second epochs, a prototype keeps confirming through boundaries that stall a paused variant, with 6.7 to 38 times lower 95th-percentile latency.
+FastPay and Nano confirm each account's payments separately, without a global order, but lack safe validator handovers and may lock forked accounts forever. Because old votes can complete confirmations after a handover, Sui Lutris pauses the fast path at epoch boundaries, locking conflicts until epoch end before dropping both payments. RAI changes validators without pausing. Outgoing validators agree off-path on a checkpoint from signed reports while the next committee votes; overlap rules keep epochs consistent without stalling uncontested payments. Since a pipelined handover cannot drop payments old votes may finalize, checkpoints keep one side of every fork, finalizing it within two epochs of normal operation. We prove safety and termination and model-check the handover rules in TLA\textsuperscript{+}. On wide-area deployments with six validators and 8-second epochs, a prototype confirms through boundaries with 6.7 to 38 times lower 95th-percentile latency than a paused variant.
 \end{abstract}
 
 \begin{IEEEkeywords}
