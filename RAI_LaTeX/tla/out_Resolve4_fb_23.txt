@@ -1,0 +1,52 @@
+TLC2 Version 2.20 of Day Month 20?? (rev: 2cf8424)
+Running breadth-first search Model-Checking with fp 88 and seed -4481676971805215555 with 8 workers on 8 cores with 9102MB heap and 64MB offheap memory [pid: 2411] (Mac OS X 14.6.1 aarch64, Eclipse Adoptium 17.0.7 x86_64, MSBDiskFPSet, DiskStateQueue).
+Parsing file RaiResolve.tla
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-11528245433139273247/Integers.tla (jar:file:tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-11528245433139273247/FiniteSets.tla (jar:file:tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-11528245433139273247/TLC.tla (jar:file:tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-11528245433139273247/_TLCTrace.tla (jar:file:tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-11528245433139273247/Naturals.tla (jar:file:tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-11528245433139273247/Sequences.tla (jar:file:tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
+Parsing file /private/var/folders/1y/px089b2s6f9d893xp1p4c7wh0000gn/T/tlc-11528245433139273247/TLCExt.tla (jar:file:tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
+Semantic processing of module Naturals
+Semantic processing of module Integers
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module TLCExt
+Semantic processing of module _TLCTrace
+Semantic processing of module RaiResolve
+Linting of module TLCExt
+Linting of module _TLCTrace
+Linting of module RaiResolve
+Starting... (2026-11-26 14:33:48)
+Computing initial states...
+Computed 2 initial states...
+Computed 4 initial states...
+Computed 8 initial states...
+Computed 16 initial states...
+Computed 32 initial states...
+Computed 64 initial states...
+Computed 128 initial states...
+Computed 256 initial states...
+Computed 512 initial states...
+Computed 1024 initial states...
+Computed 2048 initial states...
+Computed 4096 initial states...
+Finished computing initial states: 6752 states generated, with 1508 of them distinct at 2026-11-26 14:33:49.
+Progress(5) at 2026-11-26 14:33:52: 669 925 states generated (669 925 s/min), 120 782 distinct states found (120 782 ds/min), 68 695 states left on queue.
+Progress(17) at 2026-11-26 14:34:52: 15 422 130 states generated (14 752 205 s/min), 1 919 235 distinct states found (1 798 453 ds/min), 318 103 states left on queue.
+Progress(21) at 2026-11-26 14:35:52: 28 962 924 states generated (13 540 794 s/min), 3 370 346 distinct states found (1 451 111 ds/min), 344 757 states left on queue.
+Progress(28) at 2026-11-26 14:36:52: 41 889 356 states generated (12 926 432 s/min), 4 642 450 distinct states found (1 272 104 ds/min), 72 443 states left on queue.
+Model checking completed. No error has been found.
+  Estimates of the probability that TLC did not check all reachable states
+  because two distinct states had the same fingerprint:
+  calculated (optimistic):  val = 9.8E-6
+  based on the actual fingerprints:  val = 2.8E-6
+43003484 states generated, 4722748 distinct states found, 0 states left on queue.
+The depth of the complete state graph search is 33.
+The average outdegree of the complete state graph is 1 (minimum is 0, the maximum 11 and the 95th percentile is 3).
+Finished in 03min 09s at (2026-11-26 14:36:57)
+real 189,91
+user 1475,17
+sys 6,56

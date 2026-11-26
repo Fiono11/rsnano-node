@@ -5,6 +5,14 @@
 # The _23 runs use deadlock checking: a state where a good epoch can never be left would be reported.
 J=${TLA2TOOLS:-../tla2tools.jar}
 run(){ c=$1; shift; /usr/bin/time -p java -XX:+UseParallelGC -Xmx10g -cp "$J" tlc2.TLC -workers auto -metadir /tmp/tlc-$c "$@" -config $c.cfg RaiResolve.tla > out_$c.txt 2>&1; echo "$c: $(grep -E 'violated|No error|Deadlock|distinct states found|^real' out_$c.txt | tr '\n' ' ')"; }
+# `resolve.sh fb`: the keep pass with the fallback to early votes (num counts per worker).
+if [ "${1:-}" = fb ]; then
+  run Resolve4_fb_early
+  run Resolve4_fb_23
+  run Resolve4_fb_sim -simulate num=4000000 -depth 150
+  run Resolve4_fb_234
+  exit 0
+fi
 run Resolve4_norules_sim -simulate num=3000000 -depth 120
 run Resolve4_norules_23_sim -simulate num=2000000 -depth 100
 run Resolve4_rules_sim -simulate num=20000000 -depth 150

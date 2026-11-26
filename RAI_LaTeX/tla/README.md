@@ -84,6 +84,15 @@ The header comment of each module lists its abstractions. No model covers more t
 | `Resolve4_rules_23_ProbeOneGood` | violated after 10 steps: one good epoch is not enough | 1 min |
 | `Resolve4_rules_23_ProbeGood23` | violated after 23 steps: the antecedent is reachable | 1 min |
 
+The rows above predate the `SETTLED`, `PREINST` and `FALLBACK` switches; the extended version's TLC table has the current `Resolve` results. With the keep pass's fallback to early votes (`FALLBACK` on, the default; every other Resolve config pins it off), `resolve.sh fb` runs (Nov 26 2026, 8 workers):
+
+| Config | Result | Time |
+|---|---|---|
+| `Resolve4_fb_early` (`SpecGood`, `S_0` not installed) | `TwoGood`, `ThreeGood`, `TwoGoodKept`: no error, no deadlock, 341,820 distinct states, depth 51 | 15 s |
+| `Resolve4_fb_23` (`Spec23`) | `TwoGood`, `TwoGoodKept`: no error, no deadlock, 4,722,748 distinct states, depth 33 | 3.2 min |
+| `Resolve4_fb_234` (`Spec23`, four epochs) | `TwoGood`, `ThreeGood`, `TwoGoodKept`: no error, no deadlock, 21,254,136 distinct states, depth 48 | 25.5 min |
+| `Resolve4_fb_sim` (`Spec`, `-simulate num=4000000 -depth 150`) | no violation in 32,000,000 random runs (5.06 G states); `num` counts per worker | 3 h 27 min |
+
 `MAXKEEP = TRUE` (Rule 2 keeps the block with most reporter votes, ties by hash) is a switch in RaiClose, RaiOverlap, RaiHandoff and RaiRecovery; existing configs set it FALSE. `maxkeep.sh` runs:
 
 | Config | Result | Time (auto workers) |
