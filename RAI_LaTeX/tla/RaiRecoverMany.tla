@@ -57,6 +57,15 @@
 (* correct validator could leave without voting and no epoch would         *)
 (* finalize anything.  Validator 6 may still withhold votes.               *)
 (*                                                                         *)
+(* FALLBACK (a definition, off by default; a configuration turns it on    *)
+(* with CONSTANT FALLBACK <- RuleOn): the keep pass's fallback to early    *)
+(* votes.  With SETTLED and PICKRULE = "prev", where no eligible block has *)
+(* a settled reporter vote and S_{e-1} holds nothing at the position, the  *)
+(* pick takes the eligible block with the most early reporter first votes  *)
+(* (listed, not tagged N or final), ties by hash.  The Byzantine report    *)
+(* may list any published block as an early vote (disjoint from its       *)
+(* settled list), which adds behaviours.                                   *)
+(*                                                                         *)
 (* Invariants: NoConflict, ClosureThm1, OneKept, FlipBound, KeptOrFinal,   *)
 (* RecoveredMany and RecoveredEarly (with READY), Progress, probes.        *)
 (***************************************************************************)
@@ -72,6 +81,9 @@ ASSUME /\ BLOCKS \in {2, 3} /\ E \in {2, 3, 4}
        /\ ATTACH \in {"strict", "permissive"}
        /\ BYZ \in {"all", "release"} /\ READY \subseteq 1..E
        /\ OWNER \in {"policy", "any"} /\ R2ORDER \in {"up", "down"}
+
+FALLBACK == FALSE
+RuleOn   == TRUE
 
 C      == 1..5
 byz    == 6
@@ -297,15 +309,20 @@ SupG(e, i) ==
           \/ fv[e][i][Pos(x)] = x /\ sv[e][i][Pos(x)]
           \/ /\ Pos(x) = 1 /\ IMPLIED # "off" /\ fv[e][i][2] # NONE
              /\ Par(fv[e][i][2]) = x /\ sv[e][i][2]}
+\* Blocks i's early epoch-e first votes support (the fallback's count).
+SupE(e, i) == IF ~SETTLED THEN {}
+              ELSE (Sup(e, i, 1) \cup Sup(e, i, 2)) \ SupG(e, i)
 
-\* gc[x]: selected correct reporters listing x in G; nc: blocks they tag N.
-Build(e, gc, nc, bG, bN, D, pr) ==
+\* gc[x]: selected correct reporters listing x in G; nc: blocks they tag N;
+\* ge[x], bE: early votes of correct reporters and of the Byzantine report.
+Build(e, gc, ge, nc, bG, bE, bN, D, pr) ==
   LET prev == S[e-1]
       Fst  == AncClose(prev.fin)
       surv == {l \in prev.locks \ D : l.b \notin Fst /\ FinOK(l.b, prev)}
       Ok(x, L) == /\ x \notin Fst /\ FinOK(x, prev)
                   /\ \A l \in surv \cup L : ~Conflict(x, l.b)
       U(x) == gc[x] + B1(x \in bG)
+      UE(x) == ge[x] + B1(x \in bE)
       \* Rule 1 at every position first (a notarization lock retains its
       \* target's ancestry), then Rule 2 (a block alone reaching r) where no
       \* eligible NC is represented; both bottom-up.
@@ -332,10 +349,16 @@ Build(e, gc, nc, bG, bN, D, pr) ==
             most   == {x \in cands : U(x) >= 1 /\ \A y \in cands : U(y) <= U(x)}
             byHash == IF most = {} THEN {} ELSE {MinHash(most)}
             prevK  == Held(prev) \cap cands
+            mostE  == {x \in cands : UE(x) >= 1 /\ \A y \in cands : UE(y) <= UE(x)}
+            \* the fallback: no settled vote, the predecessor holds nothing here
+            useFb  == /\ FALLBACK /\ SETTLED /\ PICKRULE = "prev"
+                      /\ prevK = {} /\ most = {} /\ mostE # {}
+                      /\ Held(prev) \cap At(s) = {}
             pick   == CASE PICKRULE = "none" -> {}
                         [] PICKRULE = "hash" -> byHash
                         [] PICKRULE = "prev" -> IF prevK # {} THEN prevK ELSE byHash
         IN IF At(s) \cap kept # {} THEN {}
+           ELSE IF useFb THEN {[b |-> MinHash(mostE), o |-> e, k |-> "E"]}
            ELSE {[b |-> x, o |-> e, k |-> "P"] : x \in pick}
       P1 == Pick(1, L1 \cup L2)
       P2 == Pick(2, L1 \cup L2 \cup P1)
@@ -344,7 +367,7 @@ Build(e, gc, nc, bG, bN, D, pr) ==
       \* Rule 3, from the final tip: a unique retained block with a verified
       \* closing-epoch NC, held by some record that is not a pick.
       Prom(x) == /\ x \in HQ /\ Cardinality(HQ \cap At(Pos(x))) = 1 /\ NC(e, x)
-                 /\ \E l \in RQ : l.k # "P" /\ x \in Path(l.b)
+                 /\ \E l \in RQ : l.k \notin {"P", "E"} /\ x \in Path(l.b)
                  /\ x \in pr \/ \E l \in L1 \cup L2 : l.k = "N" /\ l.b = x
       X1  == {x \in At(1) : Fst \cap At(1) = {} /\ Prom(x)}
       F1  == Fst \cup X1
@@ -365,6 +388,8 @@ Outcomes(e) ==
        LET Cq     == Qs \ {byz}
            gc     == [x \in Blocks |->
                         Cardinality({i \in Cq : x \in SupG(e, i) \ (NT(e, i) \cup Fst)})]
+           ge     == [x \in Blocks |->
+                        Cardinality({i \in Cq : x \in SupE(e, i) \ (NT(e, i) \cup Fst)})]
            nc     == UNION {NT(e, i) : i \in Cq}
            forced == {l \in prev.locks :
                         /\ l.k # "N"
@@ -374,11 +399,14 @@ Outcomes(e) ==
                              /\ sv[e][i][s] \/ fn[e][i][s]}
            Ds     == {D \in SUBSET able : forced \subseteq D}
            GOpts  == IF byz \in Qs THEN SUBSET {x \in Blocks : Pub(x)} ELSE {{}}
+           EOpts  == IF byz \in Qs /\ FALLBACK
+                     THEN SUBSET {x \in Blocks : Pub(x)} ELSE {{}}
            NOpts  == IF byz \in Qs
                      THEN SUBSET {x \in Blocks : Pub(x) /\ NC(e, x)}
                      ELSE {{}}
        IN UNION {
-            {<<Build(e, gc, nc, bG, bN, D, pr), bG \cup bN>> :
+            {<<Build(e, gc, ge, nc, bG, bE, bN, D, pr), bG \cup bE \cup bN>> :
+               bE \in {X \in EOpts : X \cap bG = {}},
                bN \in {X \in NOpts : X \cap bG = {}}, D \in Ds, pr \in Proms}
             : bG \in GOpts }
        : Qs \in Sels }
@@ -474,4 +502,6 @@ ProbeRegain == ~\E e \in 2..E, w \in C, s \in 1..2 :
                   /\ x # NONE /\ sv[e][w][s]
                   /\ \E y \in KV(e - 1) : y # Base(x)
 ProbeFlip == Flips = 0
+\* A checkpoint keeps a block by the keep pass's fallback to early votes.
+ProbeFallback == ~\E k \in Closes : \E l \in S[k].locks : l.k = "E"
 =============================================================================
