@@ -93,6 +93,14 @@ The rows above predate the `SETTLED`, `PREINST` and `FALLBACK` switches; the ext
 | `Resolve4_fb_234` (`Spec23`, four epochs) | `TwoGood`, `ThreeGood`, `TwoGoodKept`: no error, no deadlock, 21,254,136 distinct states, depth 48 | 25.5 min |
 | `Resolve4_fb_sim` (`Spec`, `-simulate num=4000000 -depth 150`) | no violation in 32,000,000 random runs (5.06 G states); `num` counts per worker | 3 h 27 min |
 
+Committee change (Nov 27 2026): `NEWC`/`OLDC` are constants (`{}` in every earlier config, which keeps one committee); `Mem(e)` is `C \ NEWC` for epoch 1 and `C \ OLDC` after. Switch `NEWRULE` (on by default) is the newcomer rule: a member of epoch e outside epoch e-1 first-votes only after installing S_{e-1}. `resolve.sh new` runs the three configs below, **not yet run**:
+
+| Config | Expected |
+|---|---|
+| `Resolve4_new_23` (`Spec23`, c4 out and c3 in after epoch 1, newcomer rule) | `TwoGood`, `TwoGoodKept` hold |
+| `Resolve4_new_23_norule` (same, `NEWRULE <- RuleOff`) | `TwoGood` violated: N = 4 has p = 0, so one correct newcomer is too many |
+| `Resolve4_new_good` (`SpecGood`, `S_0` not installed, committee change) | `TwoGood`, `ThreeGood`, `TwoGoodKept` hold |
+
 `MAXKEEP = TRUE` (Rule 2 keeps the block with most reporter votes, ties by hash) is a switch in RaiClose, RaiOverlap, RaiHandoff and RaiRecovery; existing configs set it FALSE. `maxkeep.sh` runs:
 
 | Config | Result | Time (auto workers) |

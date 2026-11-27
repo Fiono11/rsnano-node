@@ -5,13 +5,13 @@ Figure~\ref{fig:pipeline} shows one epoch transition. Three committees are invol
 \begin{figure}[t]
 \centering
 \begin{tikzpicture}[x=1.0in,y=0.26in,>=Stealth,font=\small]
-\draw[|-|,thick,cRai] (0,3) -- (1.5,3) node[midway,above] {epoch $e$ voting, committee $K_e$};
-\draw[|-|,thick,cRai] (1.5,2) -- (3.1,2) node[midway,above] {epoch $e+1$ voting, $K_{e+1}$};
-\draw[->,dashed,cPause,thick] (1.5,1) -- (2.45,1) node[midway,below] {\footnotesize close $e$: reports $\to$ agree on $S_e$};
-\draw[->,thick,cFinal] (2.45,0) -- (3.1,0) node[midway,below] {\footnotesize install $S_e$};
-\draw[dotted] (1.5,3.6) -- (1.5,-0.7) node[below] {\footnotesize local boundary};
+\draw[dotted] (1.5,3) -- (1.5,-0.7) node[below] {\footnotesize local boundary};
 \draw[dotted] (2.45,2.6) -- (2.45,-0.7) node[below] {\footnotesize $S_e$ decided};
-\node[font=\footnotesize,align=center] at (2.0,2.55) {overlap: rules of \S\ref{sec:pipeline}};
+\draw[|-|,thick,cRai] (0,3) -- (1.5,3) node[midway,above,fill=white,inner sep=1pt] {epoch $e$ voting, committee $K_e$};
+\draw[|-|,thick,cRai] (1.5,2) -- (3.1,2) node[midway,above,fill=white,inner sep=1pt] {epoch $e+1$ voting, $K_{e+1}$};
+\draw[->,dashed,cPause,thick] (1.5,1) -- (2.45,1) node[midway,below,fill=white,inner sep=1pt] {\footnotesize close $e$: reports $\to$ agree on $S_e$};
+\draw[->,thick,cFinal] (2.45,0) -- (3.1,0) node[midway,below] {\footnotesize install $S_e$};
+\node[font=\footnotesize,align=center,fill=white,inner sep=1pt] at (1.975,1.55) {overlap: rules of \S\ref{sec:pipeline}};
 \end{tikzpicture}
 \caption{A pipelined transition. Epoch $e+1$ voting starts at each validator's local boundary while epoch $e$ closes. Most new blocks finalize during the overlap under the overlap rule; the rest finalize when $S_e$ is installed.}
 \label{fig:pipeline}
@@ -67,5 +67,5 @@ The rules, informally, with the thresholds of the six-validator example in paren
 \item\label{r:overlap} \emph{Overlap rule.} It may become final early if it, and every unresolved block below it, has $q$ (4) supporters in epoch $e$ and $q$ (4) first votes in epoch $e+1$, and if every older recovery lock it bypasses is released by a witness of that lock's own origin.
 \item\label{r:late} \emph{Late notarization.} A validator that has left epoch $e$ but not yet installed $S_e$ also signs an epoch-$e$ \emph{support} for each block it first-votes in $e+1$, unless it supported a rival at that position in $e$. They count only toward~\ref{r:overlap}.
 \item\label{r:early} \emph{Early votes.} A first vote cast before its signer installed $S_e$ counts toward notarization and toward~\ref{r:overlap}, never toward the fast path. An early final vote is released only with the witnesses of~\ref{r:overlap} in hand.
-\item\label{r:cross} \emph{Contested positions.} Until $S_e$ is installed, a validator casts no first vote in $e+1$ at a position where it has seen two blocks or a checkpoint keeps one; so it never switches sides across the boundary.
+\item\label{r:cross} \emph{Contested positions.} Until $S_e$ is installed, a validator casts no first vote in $e+1$ at a position where it has seen two blocks or a checkpoint keeps one, nor at any position if it was not a member of epoch $e$; so it never switches sides across the boundary.
 \end{enumerate}

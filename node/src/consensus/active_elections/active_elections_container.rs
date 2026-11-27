@@ -1825,7 +1825,29 @@ impl ActiveElectionsContainer {
             .get(&election.epoch_slot())
             .is_none_or(|slot| slot.first_voted.is_none())
             && self.votes_early_in(election.epoch())
-            && self.contested(election)
+            && (self.contested(election) || self.newcomer_in(election.epoch()))
+    }
+
+    /// RAI, the newcomer rule: a validator that was not a member of the
+    /// epoch before did not see that epoch's forks, so it cannot tell which
+    /// positions are contested; it casts no first vote in the epoch before
+    /// installing the epoch's predecessor checkpoint. Without the rule, more
+    /// than p new members can split a forked position again in every epoch.
+    /// A node without local representatives does not vote; an epoch whose
+    /// previous committee this node does not know counts as no change.
+    fn newcomer_in(&self, epoch: ConsensusEpoch) -> bool {
+        let Some(before) = epoch.as_u64().checked_sub(1) else {
+            return false;
+        };
+        !self.local_reps.is_empty()
+            && self
+                .committees
+                .committee(ConsensusEpoch::new(before))
+                .is_some_and(|previous| {
+                    self.local_reps
+                        .iter()
+                        .all(|rep| previous.weight(rep).is_zero())
+                })
     }
 
     /// This node has seen two blocks at the election's position, or the
@@ -7333,6 +7355,50 @@ mod tests {
         }
         assert!(container.finalized_in_epoch(&fresh.hash(), epoch1));
         assert_eq!(container.stats.overlap_eligible, 1);
+    }
+
+    /// RAI, the newcomer rule: a member of epoch 2 that was not a member of
+    /// epoch 1 did not see epoch 1's forks, so it casts no first vote in
+    /// epoch 2 before installing S_1, at any position. A member of both
+    /// epochs is no newcomer, and a node without representatives votes not.
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn a_validator_absent_from_the_epoch_before_is_a_newcomer() {
+        let old = PrivateKey::from(1);
+        let new = PrivateKey::from(2);
+        let mut container = ActiveElectionsContainer::default();
+        container.set_genesis_committee(vec![AccountFrontier {
+            account: Account::from(1),
+            height: 1,
+            hash: BlockHash::from(1),
+            representative: old.public_key(),
+            balance: Amount::raw(100),
+        }]);
+        // Epoch 0 moves the weight to the new representative: K_2 has it,
+        // K_1 (the genesis committee) does not
+        container.committees.derive(
+            ConsensusEpoch::ZERO,
+            vec![AccountFrontier {
+                account: Account::from(1),
+                height: 2,
+                hash: BlockHash::from(2),
+                representative: new.public_key(),
+                balance: Amount::raw(100),
+            }],
+        );
+        let epoch2 = ConsensusEpoch::new(2);
+        let k2 = container.committees.committee(epoch2).unwrap();
+        assert!(!k2.weight(&new.public_key()).is_zero());
+
+        container.set_local_representatives(vec![new.public_key()]);
+        assert!(container.newcomer_in(epoch2));
+        assert!(!container.newcomer_in(ConsensusEpoch::ZERO));
+
+        container.set_local_representatives(vec![old.public_key()]);
+        assert!(!container.newcomer_in(epoch2));
+
+        container.set_local_representatives(Vec::new());
+        assert!(!container.newcomer_in(epoch2));
     }
 
     /// Mixed NC: a validator still inside the closing epoch holds first votes

@@ -1,7 +1,7 @@
 \section{Model and Assumptions}
 \label{sec:model}
 \para{Participants.}
-Clients own accounts and sign blocks. A committee has $N=3f+2p+1$ validators of equal weight, of which at most $f$ are Byzantine; $p$ is the number of responses the fast path may do without, not an extra fault allowance ($p=0$ gives $N=3f+1$ without the one-round path). Corruption is static: a Byzantine identity stays Byzantine, a correct one stays correct, including after it leaves. Who may join a committee, and that no committee exceeds $f$ faults, are deployment assumptions. Our running example and prototype use $f=p=1$, $N=6$; Table~\ref{tab:thresholds} lists the thresholds that follow.
+Clients own accounts and sign blocks. A committee has $N\ge3f+2p+1$ validators of equal weight, of which at most $f$ are Byzantine; $p$ is the number of responses the fast path may do without, not an extra fault allowance ($p=0$ allows $N=3f+1$, without the one-round path). Corruption is static: a Byzantine identity stays Byzantine, a correct one stays correct, including after it leaves. Who may join a committee, and that no committee exceeds $f$ faults, are deployment assumptions. Our running example and prototype use $f=p=1$, $N=6$; Table~\ref{tab:thresholds} lists the thresholds that follow.
 
 \begin{table}[t]
 \caption{Vote thresholds, and their values for $f=p=1$, $N=6$.}
@@ -20,7 +20,7 @@ Reports in a checkpoint & $N-f$ & 5\\
 \end{tabularx}
 \end{table}
 
-The numbers are chosen so that any two groups of $q$ validators share at least $f+1$ members, hence at least one correct one ($2q-N=f+1$); so that any $q$ final voters and any $N-f$ reporters share at least $p+1$ correct ones ($q-2f=p+1$); and so that any $N-p$ fast voters and any $N-f$ reporters share at least $r$ correct ones ($N-p-2f=r$). These three overlaps carry every safety argument of the paper.
+The numbers are chosen so that any two groups of $q$ validators share at least $f+1$ members, hence at least one correct one ($2q-N\ge f+1$); so that any $q$ final voters and any $N-f$ reporters share at least $p+1$ correct ones ($q-2f\ge p+1$); and so that any $N-p$ fast voters and any $N-f$ reporters share at least $r$ correct ones ($N-p-2f\ge r$), with equality at $N=3f+2p+1$. These three overlaps carry every safety argument of the paper.
 
 \para{Accounts and blocks.}
 Each account is a chain of owner-signed blocks starting at a genesis. A block names its parent and sits at the parent's position plus one; positions are heights in the account, not times. Two blocks of one account \emph{conflict} if neither is an ancestor of the other. A block carries payments: a \emph{send} debits its own account; a \emph{receive} credits the account and names a send that must already be final. An owner \emph{equivocates} by signing conflicting blocks. Safety covers equivocating owners; liveness promises them nothing while they keep contradicting themselves.
@@ -44,7 +44,7 @@ The prototype gives each of the $N$ heaviest representatives one equal vote, so 
 Until its position is final, which takes two good epochs, each fork costs a few entries per report, one lock in the checkpoint, and one instance. Load therefore grows with the forks per epoch, not with their history. RAI does not price it; a deployment relies on its base system's anti-spam measure, such as Nano's proof of work~\cite{nano}.
 
 \para{Joining and leaving.}
-The committee of epoch $e+2$ follows from $S_e$, so a new member has about one epoch to obtain the ledger before it votes, and votes only after installing the checkpoint its seat comes from; in our committee change it ran as a standby from the start. A departing member serves blocks, votes, and reports until successor members holding $N-f$ of the weight acknowledge the checkpoint as durable.
+The committee of epoch $e+2$ follows from $S_e$, so a new member has about one epoch to obtain the ledger before it votes, votes only after installing the checkpoint its seat comes from, and first-votes in its first epoch only after installing that epoch's predecessor (\ref{r:cross}); in our committee change it ran as a standby from the start. A departing member serves blocks, votes, and reports until successor members holding $N-f$ of the weight acknowledge the checkpoint as durable.
 
 \para{Garbage collection.}
 The prototype keeps vote records for four epochs, since reports of the next three may cite an epoch's late finality, and beyond that only supports that can still release a surviving lock of their origin; dropping the rest releases no lock.

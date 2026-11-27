@@ -13,6 +13,13 @@ if [ "${1:-}" = fb ]; then
   run Resolve4_fb_234
   exit 0
 fi
+# `resolve.sh new`: a committee change after the fork epoch (newcomer rule on / off).
+if [ "${1:-}" = new ]; then
+  run Resolve4_new_23
+  run Resolve4_new_23_norule
+  run Resolve4_new_good
+  exit 0
+fi
 run Resolve4_norules_sim -simulate num=3000000 -depth 120
 run Resolve4_norules_23_sim -simulate num=2000000 -depth 100
 run Resolve4_rules_sim -simulate num=20000000 -depth 150

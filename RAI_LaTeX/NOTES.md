@@ -174,3 +174,21 @@ Sui's Mysticeti v2 post (Nov 2025) and current docs: from node v1.60 the Transac
 - Table III: Sui Lutris row (paused, rolled back, locked to epoch end) cites lutris only; new row "Sui (v1.60+)": paused (100s of ms), retried next epoch, first in consensus order.
 - Section X: "already ordered every transaction".
 - Cuts: the Sui paragraph and the Table III pointer sentence in related work. The body ends on page 11 with one line to spare; page 1 unchanged.
+
+## Third pre-submission review: newcomers, discharge obligation, N >= 3f+2p+1 (Nov 27 2026)
+
+A pasted review proposed a schedule in which the two-epoch bound fails under a committee change. It is valid. The proof of Theorem 4(b) said "the position is contested at every correct member" of epoch e+1, which holds only for members of epoch e. A correct newcomer that saw one block and has not installed S_e could first-vote it early; first votes are final. With k such newcomers the kept block gets N-f-k correct votes, enough exactly when k <= p. Every measured change satisfies this (N=6: one seat, p=1; N=12: two seats, p=2). With more newcomers in every epoch there is no bound at all. The prototype had the same gap.
+
+The user said "apply the fixes but do not run". Nothing was run: no TLC, no unit tests, no fleet. The Rust change was type-checked only (`cargo check --tests -p rsnano_node --features rai_protocol`).
+
+- Newcomer rule (R10): a member of K_{e+1} outside K_e casts no first vote in e+1 before installing S_e. Prototype: `newcomer_in` in `withholds_early_first_vote` (active_elections_container.rs); test `a_validator_absent_from_the_epoch_before_is_a_newcomer`. Paper: R10, Section IV (joining), Section VII (contested positions), Theorem 3 sketch, Section X (added after the runs). Extended version: termination rules, Theorem 4(b) statement, proof step, and a paragraph on the k <= p bound without the rule; departures.
+- Fig. 4 and Appendix D-A: the newcomer rule also forbids the four early votes of Fig. 4. The fixed-committee run of D-A step 4 also needs *checkpoints decide* dropped (RaiHandoff has neither termination rule). The paper now says so, and that whether the early-vote rule still has a counterexample under the full rule set is unchecked.
+- RaiResolve: `NEWC`/`OLDC` constants, `Mem(e)`, `NEWRULE` switch; every earlier Resolve config gets `NEWC = {}`, `OLDC = {}` (unchanged model). New configs `Resolve4_new_23`, `_new_23_norule`, `_new_good`, `resolve.sh new`. Not run.
+- Discharge obligation (review item B): formal report marks final-voted N/F entries; usability needs the discharge witnesses; the manifest contains them. Before this, only the main text and the prototype notes had the rule.
+- N >= 3f+2p+1 (item C): main text, formal model, the intersection inequalities (equality at the minimum), related work ("minimal committee"). The prototype already used q = N-f-p (kudzu.rs `equal_weight_of`).
+- Model-checking claims (item D): Section IX no longer says a model violation is a protocol violation; intro contribution (3) says "a counterexample for each rule it weakens"; "each model's full rule set".
+- Pass condition: "every block a validator holds is final; a rejected fork sibling is held nowhere" (main + extended).
+- Claims: intro "should not endanger other accounts' payments" (was "make the rest of the system slower"); pause formula "under uniform publication".
+- Fig. 1: dotted lines drawn first, labels on white, overlap label moved between the e+1 bar and the close arrow.
+- Cuts to keep the body on page 11 (AI Tool Usage now starts on page 12): Section II's fork paragraph (repeated the introduction and Section V) and its "Section X measures" sentence; Section VII's last "after installation" sentence; Section VIII's lead-in; Section X's "same state" sentence and the Threats sentence on pause's understated latency (shortened); intro contribution (3).
+- To do: `cargo test --lib -q -p rsnano_node --features rai_protocol`; `tla/resolve.sh new`; whether the early-vote rule is still needed with the newcomer rule and checkpoints decide (RaiHandoff with both); a fleet rerun if the evaluation should measure the newcomer rule.

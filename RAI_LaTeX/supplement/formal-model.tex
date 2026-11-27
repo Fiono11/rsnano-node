@@ -2,7 +2,7 @@
 \label{sec:model}
 This appendix and the two that follow are the formal counterpart of Sections~III to~VII of the main text: the same rules, stated with the notation the proofs use.
 \subsection{Participants, faults, and retained evidence}
-Clients own accounts and sign blocks. An authenticated committee contains $N=3f+2p+1$ equal-weight validator identities, $f,p\geq0$, of which at most $f$ are Byzantine. Corruption is static: adversarial identities are fixed throughout the execution, and a correct departing identity is not later compromised. Membership admission, Sybil resistance, and the per-committee fault bound are deployment assumptions.
+Clients own accounts and sign blocks. An authenticated committee contains $N\ge3f+2p+1$ equal-weight validator identities, $f,p\geq0$, of which at most $f$ are Byzantine. Corruption is static: adversarial identities are fixed throughout the execution, and a correct departing identity is not later compromised. Membership admission, Sybil resistance, and the per-committee fault bound are deployment assumptions.
 
 Signatures are unforgeable and hashes collision resistant; canonical encodings bind the network session and message domain. An account vote binds its epoch, committee, account, slot, vote type, block hash, and admission-witness digest, where the witness identifies the anchor and evidence under which the vote was admitted, including its base checkpoint (Section~\ref{sec:voting}); checkpoint votes bind the handoff context and deciding committee. Distinct signatures by one identity never contribute twice to a quorum for the same block.
 
@@ -26,10 +26,11 @@ Selected reports & $N-f$ & 5\\
 \end{table}
 
 \subsection{Quorums, accounts, and canonical state}
-The account path uses $N=3f+2p+1$, $q=2f+p+1$, and $r=f+p+1$ (Table~\ref{tab:thresholds}). The parameter $p$ is the number of first-vote responses the fast path can omit, not an additional fault allowance. We repeatedly use
+The account path uses $N\ge3f+2p+1$, $q=N-f-p$ (which is $2f+p+1$ at the minimum $N=3f+2p+1$), and $r=f+p+1$ (Table~\ref{tab:thresholds}). The evaluation also runs larger committees than the minimum: $N=12$ with $f=p=2$, and $N=6$ with $f=1$, $p=0$ and the fast path off. The parameter $p$ is the number of first-vote responses the fast path can omit, not an additional fault allowance. We repeatedly use
 \begin{align}
-2q-N&=f+1, & q-2f&=p+1, & (N-p)-2f&=r.\label{eq:intersect}
+2q-N&\ge f+1, & q-2f&\ge p+1, & (N-p)-2f&\ge r,\label{eq:intersect}
 \end{align}
+with equality at $N=3f+2p+1$; each follows from $N\ge3f+2p+1$ and $q=N-f-p$. The arguments use only these inequalities.
 
 Each account is a tree of owner-signed blocks rooted at genesis. A block's slot is one greater than its parent's slot; slots are account positions, not times. Blocks of one account conflict when neither is an ancestor of the other. An owner equivocates by signing conflicting blocks; safety covers such owners, liveness does not promise a winner under persistent contention.
 

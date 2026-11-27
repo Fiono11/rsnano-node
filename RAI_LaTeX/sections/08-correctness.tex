@@ -1,6 +1,6 @@
 \section{Why It Is Safe and Why It Terminates}
 \label{sec:correctness}
-We state the results and give the reason for each in a sentence or two; full proofs, numbered as here, are in~\cite{extended}, with Theorem~\ref{thm:live} split in two. Safety relies on the integrity of set reconstruction and on the agreement, eligibility, and verifiability of agreement; termination also relies on their termination properties.
+Full proofs, numbered as here, are in~\cite{extended}. Safety relies on the integrity of set reconstruction and on the agreement, eligibility, and verifiability of agreement; termination also relies on their termination properties.
 
 Three lemmas carry the arguments. \emph{Account exclusion} (Lemma~1): two sets of $q$ supporters share a correct validator, so at most one block per position has an exclusion witness, and a block that can become fast-final leaves every rival fewer than $r$ supporters. \emph{Notarized ancestry} (Lemma~2): a child is first-voted only on a parent that is final, under a notarization lock, or notarized in the child's epoch, so two conflicting final branches meet at one position where Lemma~1 or a lock excludes one. \emph{Exposure} (Lemma~4): a correct reporter's frozen report shows every block it final-voted as notarized or final and lists every other block it first-voted, including blocks the predecessor already kept.
 
@@ -27,4 +27,4 @@ Finalized histories at correct validators are compatible and never rolled back, 
 \label{thm:live}
 Every started handover is eventually decided and installed by correct validators. An owner whose new blocks are uncontested sees them final and in a checkpoint eventually. A forked position whose parent is final becomes final, on one side, by the end of any two consecutive epochs of normal operation, whatever the owner and the Byzantine validators do; the owner then continues from it.
 \end{theorem}
-\emph{Why.} $N-f$ correct reports become usable, so agreement decides an eligible checkpoint. At a fork still open after a good epoch, every correct validator has seen both blocks and voted one; the next checkpoint keeps a side, and in the next good epoch all of them vote only that side, which becomes final.
+\emph{Why.} $N-f$ correct reports become usable, so agreement decides an eligible checkpoint. At a fork still open after a good epoch, every correct member of it has seen both blocks and voted one; the next checkpoint keeps a side, and in the next good epoch every correct member, a newcomer included, votes there only after installing it and only that side, which becomes final. Without the newcomer rule this needs at most $p$ correct newcomers.

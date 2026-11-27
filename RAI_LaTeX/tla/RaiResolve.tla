@@ -45,19 +45,26 @@
 (* without FALLBACK it fails when the first of them opens before its      *)
 (* predecessor checkpoint is installed at an uncontested position, since  *)
 (* early votes are not counted and the checkpoint may keep nothing.  With  *)
-(* FALLBACK it is expected to hold (not yet checked).  ThreeGood says three *)
+(* FALLBACK it holds (Resolve4_fb_*).  ThreeGood says three             *)
 (* consecutive good epochs do; TwoGoodKept that two do once the checkpoint *)
 (* before them keeps a side.                                               *)
 (*                                                                         *)
 (* The Byzantine validator signs no final votes: they can only complete   *)
 (* a final certificate, which ends the run in the adversary's disfavour.   *)
-(* Abstractions: no late notarizations and no committee change; a formable *)
+(* Committee change: OLDC are members of epoch 1 only, NEWC of epochs 2   *)
+(* and later only (both {} for one committee).  A newcomer was not in the  *)
+(* fork epoch, so it need not have seen both blocks.  NEWRULE (on by       *)
+(* default) is the newcomer rule: a member of epoch e that was not a       *)
+(* member of epoch e-1 first-votes in e only after installing S_{e-1}.     *)
+(* Without it, more than p correct newcomers can split the kept side       *)
+(* again, and TwoGood is expected to fail.                                 *)
+(* Abstractions: no late notarizations; a formable                         *)
 (* FC or FF counts as finality (the safety models check validity); a      *)
 (* correct report tags a block N only after its final vote.                *)
 (***************************************************************************)
 EXTENDS Integers, FiniteSets, TLC
 
-CONSTANTS C, byz, N, f, p, RULES, EARLYKEPT
+CONSTANTS C, byz, N, f, p, RULES, EARLYKEPT, NEWC, OLDC
 
 \* R10 of the paper is rule (ii) with the cross-epoch rule as its consequence.
 \* A configuration turns either off with CONSTANT CONTESTED <- RuleOff or
@@ -67,6 +74,7 @@ CROSS     == TRUE
 SETTLED   == TRUE   \* Rule 2 counts settled first votes only
 PREINST   == TRUE   \* S_0 is installed when epoch 1 opens
 FALLBACK  == TRUE   \* keep pass falls back to early votes (see Builds)
+NEWRULE   == TRUE   \* newcomers cast no early first votes
 RuleOff   == FALSE
 Four      == 4
 
@@ -78,6 +86,8 @@ Q        == N - f - p
 R        == f + p + 1
 FAST     == N - p
 NREP     == N - f
+\* The correct members of epoch e (epoch 0 has the committee of epoch 1).
+Mem(e)   == IF e <= 1 THEN C \ NEWC ELSE C \ OLDC
 
 VARIABLES good, \* [Epochs -> BOOLEAN], fixed at the start
           fv,   \* [Epochs -> [C -> {"-"} \cup Blocks]] first votes
@@ -91,17 +101,17 @@ VARIABLES good, \* [Epochs -> BOOLEAN], fixed at the start
           S     \* [0..E-1 -> checkpoint]
 vars == <<good, fv, sv, fn, bf, bn, cur, inst, seen, S>>
 
-Local(v) == <<cur[v], inst[v], seen[v],
+Local(v) == <<v \in NEWC, v \in OLDC, cur[v], inst[v], seen[v],
               [e \in Epochs |-> <<fv[e][v], sv[e][v], fn[e][v]>>]>>
 View == <<[t \in {Local(v) : v \in C} |->
              Cardinality({v \in C : Local(v) = t})], good, bf, bn, S>>
 
 B1(b, X) == IF b \in X THEN 1 ELSE 0
-FV(e, b) == Cardinality({v \in C : fv[e][v] = b}) + B1(b, bf[e])
+FV(e, b) == Cardinality({v \in Mem(e) : fv[e][v] = b}) + B1(b, bf[e])
 NC(e, b) == FV(e, b) >= Q
 XW(e, b) == e >= 1 /\ NC(e, b)          \* no late notarizations here
-FF(e, b) == Cardinality({v \in C : fv[e][v] = b /\ sv[e][v]}) + B1(b, bf[e]) >= FAST
-FC(e, b) == Cardinality({v \in C : fv[e][v] = b /\ fn[e][v]}) + B1(b, bn[e]) >= Q
+FF(e, b) == Cardinality({v \in Mem(e) : fv[e][v] = b /\ sv[e][v]}) + B1(b, bf[e]) >= FAST
+FC(e, b) == Cardinality({v \in Mem(e) : fv[e][v] = b /\ fn[e][v]}) + B1(b, bn[e]) >= Q
 
 Resolved == \/ \E e \in Epochs, b \in Blocks : FF(e, b) \/ FC(e, b)
             \/ \E k \in 0..E-1 : S[k].fin # {}
@@ -116,11 +126,12 @@ Contested(v)     == seen[v] = Blocks \/ Ck(inst[v]).locks # {}
 
 VoteOK(v, b) ==
   LET e == cur[v]  k == inst[v]  settled == k = e - 1 IN
-  /\ e <= E /\ fv[e][v] = "-" /\ b \in seen[v]
+  /\ e <= E /\ v \in Mem(e) /\ fv[e][v] = "-" /\ b \in seen[v]
   /\ Admissible(k, b)
   /\ CROSS => ((~settled /\ e > 1) => fv[e-1][v] \in {"-", b})  \* cross-epoch rule
   /\ RULES => /\ CONTESTED => (Contested(v) /\ ~(EARLYKEPT /\ Kept(k) # {}) => settled)  \* (ii)
               /\ Kept(k) # {} => b \in Kept(k)             \* (i)
+  /\ NEWRULE => (v \notin Mem(e - 1) => settled)            \* newcomer rule
 
 FinalOK(v) ==
   LET e == cur[v]  k == inst[v]  b == fv[e][v] IN
@@ -170,7 +181,7 @@ Done(w, e) == \/ cur[w] > e
 Leave(v) ==
   LET e == cur[v] IN
   /\ e <= E /\ inst[v] >= e - 1
-  /\ good[e] => \A w \in C : Done(w, e)
+  /\ good[e] => \A w \in Mem(e) : Done(w, e)
   /\ cur' = [cur EXCEPT ![v] = e + 1]
   /\ UNCHANGED <<good, fv, sv, fn, bf, bn, inst, seen, S>>
 
@@ -234,7 +245,8 @@ Builds(e, prev) ==
       : bt \in IF byz \in Qs THEN SUBSET {b \in Blocks : NC(e, b)} ELSE {{}} }
     : bg \in IF byz \in Qs THEN SUBSET bf[e] ELSE {{}} }
   : Qs \in {Q2 \in SUBSET (C \cup {byz}) :
-             Cardinality(Q2) = NREP /\ \A i \in Q2 \ {byz} : cur[i] > e} }
+             /\ Cardinality(Q2) = NREP /\ Q2 \subseteq Mem(e) \cup {byz}
+             /\ \A i \in Q2 \ {byz} : cur[i] > e} }
 
 \* Closure e.  A correct report tags its block N once it final-voted it and
 \* lists an untagged first vote in G; the Byzantine report lists any of its
@@ -268,7 +280,8 @@ Spec == Init /\ [][Next]_vars
 Init23 ==
   /\ good = [e \in Epochs |-> e >= 2]
   /\ fv \in {x \in [Epochs -> [C -> {"-"} \cup Blocks]] :
-               \A e \in 2..E : x[e] = [v \in C |-> "-"]}
+               /\ \A e \in 2..E : x[e] = [v \in C |-> "-"]
+               /\ \A v \in C \ Mem(1) : x[1][v] = "-"}
   /\ bf \in {x \in [Epochs -> SUBSET Blocks] : \A e \in 2..E : x[e] = {}}
   /\ fn \in {x \in [Epochs -> [C -> BOOLEAN]] :
                /\ \A e \in 2..E : x[e] = [v \in C |-> FALSE]
