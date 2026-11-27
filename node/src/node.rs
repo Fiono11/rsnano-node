@@ -1009,6 +1009,8 @@ impl Node {
             rep_tracker: rep_tracker.clone(),
             winner_block_broadcaster: winner_block_broadcaster.clone(),
             confirm_req_sender,
+            vote_queue: vote_processor_queue.clone(),
+            seen_overfills: 0,
         });
 
         #[cfg(feature = "rai_protocol")]

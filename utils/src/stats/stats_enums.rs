@@ -195,6 +195,10 @@ pub enum DetailType {
     GenerateVoteAbstain,
     ConfirmationRequest,
     ContestedConfirmationRequest,
+    /// RAI: the request rate halved after dropped votes
+    SolicitRateCut,
+    /// RAI: requests due but left for a later tick by the request rate
+    SolicitDeferred,
 
     // election types
     Manual,

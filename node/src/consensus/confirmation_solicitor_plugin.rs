@@ -7,7 +7,7 @@ use rsnano_nullable_clock::Timestamp;
 use rsnano_types::ConsensusEpoch;
 
 use super::{
-    AecService, AecTickerPlugin, ConfirmationSolicitor,
+    AecService, AecTickerPlugin, ConfirmationSolicitor, VoteProcessorQueue,
     confirm_req_sender::{ConfirmReqSender, Urgency},
     election::{Election, ElectionState},
     winner_block_broadcaster::WinnerBlockBroadcaster,
@@ -19,6 +19,10 @@ pub(crate) struct ConfirmationSolicitorPlugin {
     pub(crate) rep_tracker: Arc<RepresentativeTracker>,
     pub(crate) winner_block_broadcaster: Arc<Mutex<WinnerBlockBroadcaster>>,
     pub(crate) confirm_req_sender: ConfirmReqSender,
+    /// RAI: whose dropped votes slow the requests down
+    pub(crate) vote_queue: Arc<VoteProcessorQueue>,
+    /// The vote queue's drop count at the last tick
+    pub(crate) seen_overfills: u64,
 }
 
 impl ConfirmationSolicitorPlugin {
@@ -29,6 +33,8 @@ impl ConfirmationSolicitorPlugin {
             rep_tracker: RepresentativeTracker::new_null().into(),
             winner_block_broadcaster: Mutex::new(WinnerBlockBroadcaster::new_null()).into(),
             confirm_req_sender: ConfirmReqSender::new_null(),
+            vote_queue: VoteProcessorQueue::new_null().into(),
+            seen_overfills: 0,
         }
     }
 }
@@ -51,6 +57,11 @@ impl AecTickerPlugin for ConfirmationSolicitorPlugin {
          * Flushed elections are later re-activated via frontier confirmation
          */
         let now = aec.now();
+        // RAI: a node that dropped votes since the last tick asks fewer
+        let overfills = self.vote_queue.overfills();
+        self.confirm_req_sender
+            .observe_vote_drops(overfills > self.seen_overfills, now);
+        self.seen_overfills = overfills;
         let current_epoch = aec.current_epoch();
         let draining = aec.draining_epoch();
         // Only what is due this tick is copied out of the elections: a

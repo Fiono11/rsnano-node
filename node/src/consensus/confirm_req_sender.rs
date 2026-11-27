@@ -1,6 +1,5 @@
 use std::{sync::Arc, time::Duration};
 
-use rsnano_network::token_bucket::TokenBucketLogic;
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_utils::stats::{DetailType, StatType, Stats};
 
@@ -8,6 +7,7 @@ use super::{
     ConfirmationSolicitor,
     bounded_hash_map::BoundedHashMap,
     election::{Election, ElectionBehavior, ElectionId},
+    solicit_rate::SolicitRate,
 };
 
 /// How soon an election is asked about again
@@ -57,16 +57,11 @@ pub(crate) struct ConfirmReqSender {
     /// The earliest an election asks again, whatever its urgency (see
     /// `ActiveElectionsConfig::min_request_interval`)
     min_interval: Duration,
-    budget: TokenBucketLogic,
+    /// How many elections may be asked about per second (see `SolicitRate`)
+    rate: SolicitRate,
     /// Where the next tick starts among the requests of one urgency
     cursor: usize,
 }
-
-/// RAI: how many elections a node asks about per second. Under a load of 2000
-/// blocks/s a node keeping up asks about 1700. A committee member far behind
-/// asked about 40,000 per second for minutes: everyone answered with millions of
-/// votes, it could not take them in, and every close slowed down with it.
-const REQUESTS_PER_SECOND: usize = 5000;
 
 impl ConfirmReqSender {
     pub(crate) fn new(stats: Arc<Stats>, clock: Arc<SteadyClock>, min_interval: Duration) -> Self {
@@ -75,7 +70,7 @@ impl ConfirmReqSender {
             clock,
             last_requests: BoundedHashMap::new(1024 * 32),
             min_interval,
-            budget: TokenBucketLogic::new(REQUESTS_PER_SECOND),
+            rate: SolicitRate::new(),
             cursor: 0,
         }
     }
@@ -85,6 +80,17 @@ impl ConfirmReqSender {
         let stats = Arc::new(Stats::default());
         let clock = Arc::new(SteadyClock::new_null());
         Self::new(stats, clock, Duration::ZERO)
+    }
+
+    /// RAI: whether this node dropped votes since the last tick: if so it
+    /// asks about fewer elections, since it cannot take the answers in
+    pub(crate) fn observe_vote_drops(&mut self, dropped: bool, now: Timestamp) {
+        let before = self.rate.rate();
+        self.rate.observe(dropped, now);
+        if self.rate.rate() < before {
+            self.stats
+                .inc(StatType::Election, DetailType::SolicitRateCut);
+        }
     }
 
     /// The requests of this tick within the budget, the most urgent first:
@@ -102,10 +108,12 @@ impl ConfirmReqSender {
         let start = self.cursor % requests.len();
         requests.rotate_left(start);
         requests.sort_by_key(|(_, urgency)| urgency.rank());
-        let mut admitted = 0;
-        while admitted < requests.len() && self.budget.try_consume(1, now) {
-            admitted += 1;
-        }
+        let admitted = self.rate.take(requests.len(), now);
+        self.stats.add(
+            StatType::Election,
+            DetailType::SolicitDeferred,
+            (requests.len() - admitted) as u64,
+        );
         self.cursor = self.cursor.wrapping_add(admitted);
         requests.truncate(admitted);
         requests
@@ -244,6 +252,9 @@ mod tests {
 
     use super::*;
 
+    /// The requests a node that drops no votes asks about per second
+    const FULL_RATE: usize = SolicitRate::MAX_RATE as usize;
+
     /// Without a minimum the most urgent requests repeat at every tick
     #[test]
     fn an_urgent_request_repeats_at_once_by_default() {
@@ -333,14 +344,9 @@ mod tests {
     fn requests_beyond_the_budget_wait() {
         let mut sender = ConfirmReqSender::new_null();
         let now = Timestamp::new_test_instance();
-        let requests: Vec<_> = (0..REQUESTS_PER_SECOND + 10)
-            .map(|i| (i, Urgency::Soon))
-            .collect();
+        let requests: Vec<_> = (0..FULL_RATE + 10).map(|i| (i, Urgency::Soon)).collect();
 
-        assert_eq!(
-            sender.within_budget(requests, now).len(),
-            REQUESTS_PER_SECOND
-        );
+        assert_eq!(sender.within_budget(requests, now).len(), FULL_RATE);
         assert!(
             sender
                 .within_budget(vec![(0, Urgency::Now)], now)
@@ -352,6 +358,18 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    /// RAI: a node that dropped votes asks about fewer elections
+    #[test]
+    fn dropped_votes_shrink_the_budget() {
+        let mut sender = ConfirmReqSender::new_null();
+        let now = Timestamp::new_test_instance();
+        let requests: Vec<_> = (0..FULL_RATE).map(|i| (i, Urgency::Soon)).collect();
+
+        sender.observe_vote_drops(true, now);
+
+        assert_eq!(sender.within_budget(requests, now).len(), FULL_RATE / 2);
     }
 
     #[test]
@@ -379,17 +397,13 @@ mod tests {
     fn no_request_of_an_urgency_waits_behind_the_others_for_ever() {
         let mut sender = ConfirmReqSender::new_null();
         let now = Timestamp::new_test_instance();
-        let all = || -> Vec<_> {
-            (0..REQUESTS_PER_SECOND + 1)
-                .map(|i| (i, Urgency::Soon))
-                .collect()
-        };
+        let all = || -> Vec<_> { (0..FULL_RATE + 1).map(|i| (i, Urgency::Soon)).collect() };
 
         let first = sender.within_budget(all(), now);
         let next = sender.within_budget(all(), now + Duration::from_secs(1));
 
-        assert!(!first.iter().any(|(i, _)| *i == REQUESTS_PER_SECOND));
-        assert!(next.iter().any(|(i, _)| *i == REQUESTS_PER_SECOND));
+        assert!(!first.iter().any(|(i, _)| *i == FULL_RATE));
+        assert!(next.iter().any(|(i, _)| *i == FULL_RATE));
     }
 
     #[test]

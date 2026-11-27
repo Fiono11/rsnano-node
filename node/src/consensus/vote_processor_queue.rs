@@ -1,7 +1,10 @@
 use std::{
     collections::VecDeque,
     mem::size_of,
-    sync::{Arc, Condvar, Mutex},
+    sync::{
+        Arc, Condvar, Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 use strum::IntoEnumIterator;
@@ -22,6 +25,8 @@ pub struct VoteProcessorQueue {
     condition: Condvar,
     pub config: VoteProcessorConfig,
     stats: Arc<Stats>,
+    /// Votes dropped at a full queue since the start
+    overfills: AtomicU64,
 }
 
 impl VoteProcessorQueue {
@@ -70,6 +75,7 @@ impl VoteProcessorQueue {
             condition: Condvar::new(),
             config,
             stats,
+            overfills: AtomicU64::new(0),
         }
     }
 
@@ -99,6 +105,12 @@ impl VoteProcessorQueue {
     /// fill the per-sender queues exactly when evidence is missing. A reply
     /// carries many votes of one statement kind, so the lane counts replies.
     const EVIDENCE_LANE_MAX: usize = 8192;
+
+    /// RAI: how many votes were dropped at a full queue since the start;
+    /// the confirmation solicitor asks about fewer elections once it grows
+    pub fn overfills(&self) -> u64 {
+        self.overfills.load(Ordering::Relaxed)
+    }
 
     pub fn len(&self) -> usize {
         let guard = self.data.lock().unwrap();
@@ -163,6 +175,7 @@ impl VoteProcessorQueue {
             self.stats.inc(StatType::VoteProcessor, DetailType::Process);
             self.condition.notify_one();
         } else {
+            self.overfills.fetch_add(1, Ordering::Relaxed);
             self.stats
                 .inc(StatType::VoteProcessor, DetailType::Overfill);
             crate::utils::diagnostic!("VOTE_OWN_LANE_FULL max={}", Self::OWN_LANE_MAX);
@@ -211,6 +224,7 @@ impl VoteProcessorQueue {
             self.stats.inc(StatType::VoteProcessorTier, tier.into());
             self.condition.notify_one();
         } else {
+            self.overfills.fetch_add(1, Ordering::Relaxed);
             self.stats
                 .inc(StatType::VoteProcessor, DetailType::Overfill);
             self.stats.inc(StatType::VoteProcessorOverfill, tier.into());

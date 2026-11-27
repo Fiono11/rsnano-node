@@ -45,6 +45,41 @@ pub struct InboundMessageQueue {
 /// it asks over is full of its account-vote requests while it lags.
 const PRIORITY_LANE_MAX: usize = 4096;
 
+/// RAI: the lane for the other messages of the epoch closes: reports and
+/// their coded symbols, proposals and manifests, evidence, block and
+/// checkpoint requests, install acknowledgements. A node flooded with
+/// account votes had every sender's queue full of them, and these were
+/// dropped behind: in the twelve-seat runs with forks, up to two thirds of
+/// the reports and proposals a node received. Each one lost waits for a
+/// retry, and the close waits with it. The lane is bounded on its own and
+/// drained after the close votes, before the fair queue.
+const CLOSE_LANE_MAX: usize = 2048;
+
+fn is_close_traffic(message: &Message) -> bool {
+    #[cfg(feature = "rai_protocol")]
+    {
+        matches!(
+            message,
+            Message::Report(_)
+                | Message::ReportSymbolsReq(_)
+                | Message::ReportSymbolsReply(_)
+                | Message::EpochProp(_)
+                | Message::ManifestReq(_)
+                | Message::ManifestReply(_)
+                | Message::EvidenceReq(_)
+                | Message::BlocksReq(_)
+                | Message::EpochInstalled(_)
+                | Message::CheckpointReq(_)
+                | Message::CheckpointReply(_)
+        )
+    }
+    #[cfg(not(feature = "rai_protocol"))]
+    {
+        let _ = message;
+        false
+    }
+}
+
 fn is_priority(message: &Message) -> bool {
     match message {
         Message::ConfirmAck(ack) => ack.vote().epoch.is_close_round(),
@@ -60,6 +95,7 @@ impl InboundMessageQueue {
             state: Mutex::new(State {
                 queue: FairQueue::new(move |_| max_queue, |_| 1),
                 priority: VecDeque::new(),
+                close: VecDeque::new(),
                 stopped: false,
             }),
             condition: Condvar::new(),
@@ -84,6 +120,11 @@ impl InboundMessageQueue {
             if is_priority(&message) && state.priority.len() < PRIORITY_LANE_MAX {
                 state
                     .priority
+                    .push_back((channel.channel_id(), (message.clone(), channel.clone())));
+                true
+            } else if is_close_traffic(&message) && state.close.len() < CLOSE_LANE_MAX {
+                state
+                    .close
                     .push_back((channel.channel_id(), (message.clone(), channel.clone())));
                 true
             } else {
@@ -118,6 +159,8 @@ impl InboundMessageQueue {
         let mut state = self.state.lock().unwrap();
         let first = max_batch_size.min(state.priority.len());
         let mut batch: VecDeque<_> = state.priority.drain(..first).collect();
+        let close = (max_batch_size - batch.len()).min(state.close.len());
+        batch.extend(state.close.drain(..close));
         if batch.len() < max_batch_size {
             batch.extend(state.queue.next_batch(max_batch_size - batch.len()));
         }
@@ -137,7 +180,7 @@ impl InboundMessageQueue {
 
     pub fn size(&self) -> usize {
         let state = self.state.lock().unwrap();
-        state.queue.len() + state.priority.len()
+        state.queue.len() + state.priority.len() + state.close.len()
     }
 
     /// Stop container and notify waiting threads
@@ -178,12 +221,15 @@ struct State {
     queue: FairQueue<ChannelId, (Message, Arc<Channel>)>,
     /// The close-election votes, ahead of everything else
     priority: VecDeque<(ChannelId, (Message, Arc<Channel>))>,
+    /// RAI: the other close messages, after the close votes (see
+    /// `CLOSE_LANE_MAX`)
+    close: VecDeque<(ChannelId, (Message, Arc<Channel>))>,
     stopped: bool,
 }
 
 impl State {
     fn is_empty(&self) -> bool {
-        self.queue.is_empty() && self.priority.is_empty()
+        self.queue.is_empty() && self.priority.is_empty() && self.close.is_empty()
     }
 }
 
@@ -311,6 +357,37 @@ mod tests {
         ));
         let batch = queue.next_batch(10);
         assert!(matches!(&batch[0].1.0, Message::Publish(publish) if publish.is_evidence));
+    }
+
+    /// RAI: a close message other than a vote is taken in past a full
+    /// channel queue, and comes out after the close votes and before the
+    /// fair queue
+    #[cfg(feature = "rai_protocol")]
+    #[test]
+    fn close_messages_bypass_a_full_queue_behind_the_close_votes() {
+        use rsnano_messages::{ConfirmAck, EvidenceReq};
+        use rsnano_types::{BlockHash, ConsensusEpoch, PrivateKey, Vote, VoteKind};
+
+        let queue = InboundMessageQueue::new(1);
+        let channel = Arc::new(Channel::new_test_instance());
+        assert!(queue.put(Message::BulkPush, channel.clone()));
+        assert!(queue.put(
+            Message::EvidenceReq(EvidenceReq::new_test_instance()),
+            channel.clone()
+        ));
+        let close_vote = Message::ConfirmAck(ConfirmAck::new_with_own_vote(Vote::new_in_epoch(
+            &PrivateKey::from(1),
+            VoteKind::First,
+            ConsensusEpoch::close_round(ConsensusEpoch::new(1), 0),
+            vec![BlockHash::from(7)],
+        )));
+        assert!(queue.put(close_vote, channel));
+        assert_eq!(queue.size(), 3);
+
+        let batch = queue.next_batch(10);
+        assert!(matches!(batch[0].1.0, Message::ConfirmAck(_)));
+        assert!(matches!(batch[1].1.0, Message::EvidenceReq(_)));
+        assert!(matches!(batch[2].1.0, Message::BulkPush));
     }
 
     #[test]
