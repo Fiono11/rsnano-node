@@ -1,0 +1,69 @@
+{
+  "sets": [
+    "final-wan-2000-n12"
+  ],
+  "arms": {
+    "matrix": {
+      "bin_dir": "/home/fiono8199/bin-m12b/rai",
+      "flags": [
+        "--timeout=480",
+        "--stall-abort=90",
+        "--drain-limit=15",
+        "--settle-timeout=600",
+        "--fork-grace-stall=180",
+        "--hosts=/home/fiono8199/hosts-n14.txt"
+      ]
+    }
+  },
+  "started": 1795813514.9217627,
+  "runs": [
+    {
+      "variant": "fork5-grace-reconf",
+      "rate": 2000,
+      "arm": "base",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 1163
+    },
+    {
+      "variant": "fork5-grace-reconf",
+      "rate": 2000,
+      "arm": "fix",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 1184
+    },
+    {
+      "variant": "fork5-grace-reconf",
+      "rate": 2000,
+      "arm": "base",
+      "rep": 2,
+      "status": "settled",
+      "seconds": 564
+    },
+    {
+      "variant": "fork5-grace-reconf",
+      "rate": 2000,
+      "arm": "fix",
+      "rep": 2,
+      "status": "settled",
+      "seconds": 553
+    },
+    {
+      "variant": "fork5-grace-reconf",
+      "rate": 2000,
+      "arm": "matrix",
+      "rep": 2,
+      "status": "settled",
+      "seconds": 566
+    },
+    {
+      "variant": "fork5-grace-reconf",
+      "rate": 2000,
+      "arm": "matrix",
+      "rep": 1,
+      "status": "settled",
+      "seconds": 918
+    }
+  ]
+}
