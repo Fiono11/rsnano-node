@@ -44,7 +44,7 @@
 \begin{tikzpicture}
 \begin{groupplot}[group style={group size=1 by 2,vertical sep=3mm,xticklabels at=edge bottom},
   width=\columnwidth,scenarioticks]
-\nextgroupplot[ymode=log,latencyaxis,height=4.2cm,legend style={font=\scriptsize,draw=none,fill=none,at={(0.02,0.98)},anchor=north west},legend columns=3]
+\nextgroupplot[ymode=log,latencyaxis,height=4.2cm,legend style={font=\scriptsize,draw=none,fill=none,at={(0.02,0.98)},anchor=north west,nodes={text height=1.3ex,text depth=0.3ex}},legend columns=3]
 \latbars{wan/bars-rai}{cRai}{-6pt}{5pt}
 \latbars{wan/bars-pause}{cPause}{0pt}{5pt}
 \latbars{wan/bars-develop}{cNano}{6pt}{5pt}
@@ -106,7 +106,7 @@
 \timeline{wan}{reconf-fork10-rai}{cRai}
 \addplot[black,line width=0.8pt] table[x=t,y expr=\thisrow{y}*4000] {\matrixdata{wan/handoff-reconf-fork10-rai}};
 \nextgroupplot[ymode=log,latencyaxis,scenarioticks,xticklabels={},height=3.2cm,
-  legend style={font=\scriptsize,draw=none,fill=none,at={(0.02,0.98)},anchor=north west},legend columns=3]
+  legend style={font=\scriptsize,draw=none,fill=none,at={(0.02,0.98)},anchor=north west,nodes={text height=1.3ex,text depth=0.3ex}},legend columns=3]
 \latbars{wan/bars-reconf-rai}{cRai}{-6pt}{5pt}
 \latbars{wan/bars-reconf-pause}{cPause}{0pt}{5pt}
 \latbars{wan/bars-reconf-develop}{cNano}{6pt}{5pt}

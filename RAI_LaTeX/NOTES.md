@@ -193,3 +193,16 @@ The user said "apply the fixes but do not run". Nothing was run: no TLC, no unit
 - Cuts to keep the body on page 11 (AI Tool Usage now starts on page 12): Section II's fork paragraph (repeated the introduction and Section V) and its "Section X measures" sentence; Section VII's last "after installation" sentence; Section VIII's lead-in; Section X's "same state" sentence and the Threats sentence on pause's understated latency (shortened); intro contribution (3).
 - To do: `cargo test --lib -q -p rsnano_node --features rai_protocol`; `tla/resolve.sh new`; whether the early-vote rule is still needed with the newcomer rule and checkpoints decide (RaiHandoff with both); a fleet rerun if the evaluation should measure the newcomer rule.
 - Nov 27 night: `cargo test --lib -q -p rsnano_node --features rai_protocol` passes (981 passed, 3 ignored, 43 s), the newcomer test included. resolve.sh new and RaiHandoff with the termination rules are still not run.
+
+## Review group 3: positioning and claims (Nov 27 2026, night)
+
+The user said "do 3" (text and positioning items of the third review). No runs.
+
+- Abstract (150 words by wc): the handover barrier is removed yet every confirmation old votes can still complete is kept (origin-stamped locks across overlapping committees); fork recovery as the consequence; the latency ratio last. The title stays (frozen at the abstract deadline).
+- Introduction: "without a global handover barrier, preserves every certificate the old epoch can still complete"; the checkpoint is "RAI's only Byzantine agreement ... so payments still need no global order" (the review's "consensusless" item); new sentence: the checkpoint is SBFT's view change per account position, and independent accounts, overlapping committees, and latent certificates need origin-stamped locks, late exclusion evidence, and a prefix-wide check; contribution (1) leads with keeping old certificates valid and recovering equivocated accounts.
+- Conclusion: "without a global barrier"; overlap payments wait only if too few members stay; forks cannot endanger other accounts' payments but compete for resources, RAI does not isolate them; each change replaced one or two seats.
+- Section X: a fork resolves within two epochs "when they run normally, not within a fixed time".
+- Table II now lists the thresholds of all three evaluated committees (N=6 f=p=1; N=6 p=0; N=12 f=p=2), smaller font.
+- Figures checked at final size (Figs. 1-8, Tables I-III); Fig. 5 and Fig. 8 legends had "pause" off the baseline: fixed with fixed text height/depth.
+- Cuts: introduction "Why one mechanism" paragraph; Section II "RAI's answer"; Section V threshold sentence; Section VII "After installation" paragraph (its content folded into the gate paragraph: the recorded first vote stays; instances and refusal are in Section VI); Section X Nano sentence and durability sentence; Section VI lock-origin sentence; Section IX probe sentence; related-work building blocks in one sentence (same citations). The paper is now 12 pages, body ends on page 11.
+- Not done: the main-paper restructure the review suggests (formal report/manifest definition and the model-to-implementation story in the main text); no page room.

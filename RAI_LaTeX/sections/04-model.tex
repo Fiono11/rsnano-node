@@ -4,18 +4,19 @@
 Clients own accounts and sign blocks. A committee has $N\ge3f+2p+1$ validators of equal weight, of which at most $f$ are Byzantine; $p$ is the number of responses the fast path may do without, not an extra fault allowance ($p=0$ allows $N=3f+1$, without the one-round path). Corruption is static: a Byzantine identity stays Byzantine, a correct one stays correct, including after it leaves. Who may join a committee, and that no committee exceeds $f$ faults, are deployment assumptions. Our running example and prototype use $f=p=1$, $N=6$; Table~\ref{tab:thresholds} lists the thresholds that follow.
 
 \begin{table}[t]
-\caption{Vote thresholds, and their values for $f=p=1$, $N=6$.}
+\caption{Vote thresholds, and their values in the evaluated committees ($p=0$: no fast path).}
 \label{tab:thresholds}
-\centering\small
-\begin{tabularx}{\columnwidth}{@{}>{\raggedright\arraybackslash}p{0.40\columnwidth}Yc@{}}
+\centering\footnotesize
+\setlength{\tabcolsep}{3pt}
+\begin{tabularx}{\columnwidth}{@{}>{\raggedright\arraybackslash}Xlccc@{}}
 \toprule
-What & Needs & Example\\
+What & Needs & \shortstack{$N{=}6$\\$f{=}p{=}1$} & \shortstack{$N{=}6$\\$p{=}0$} & \shortstack{$N{=}12$\\$f{=}p{=}2$}\\
 \midrule
-Block notarized (also: exclusion witness) & $q=N-f-p$ first votes or supports & 4\\
-Block final, normal path & $q$ final votes & 4\\
-Block final, fast path & $N-p$ settled first votes & 5\\
-Recovery lock in a checkpoint & $r=f+p+1$ reporter first votes & 3\\
-Reports in a checkpoint & $N-f$ & 5\\
+Notarized; exclusion witness & $q{=}N{-}f{-}p$ first votes & 4 & 5 & 8\\
+Final, normal path & $q$ final votes & 4 & 5 & 8\\
+Final, fast path & $N{-}p$ settled first votes & 5 & -- & 10\\
+Recovery lock & $r{=}f{+}p{+}1$ reporter votes & 3 & 2 & 5\\
+Checkpoint reports & $N{-}f$ & 5 & 5 & 10\\
 \bottomrule
 \end{tabularx}
 \end{table}
